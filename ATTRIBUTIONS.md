@@ -133,6 +133,15 @@ winpthreads library (MIT; Copyright (c) 2011-2016 mingw-w64 project; parts
 (C) 2010 Lockless Inc., BSD 3-Clause). Their full notices and disclaimers
 are in [`licenses/mingw-w64.txt`](licenses/mingw-w64.txt).
 
+## Windows on ARM (experimental)
+
+The experimental Windows ARM64 package contains the same components as the
+Windows package (SDL, zlib and the mingw-w64 runtime linked statically, and
+the FFmpeg DLLs), built with the LLVM toolchain instead of GCC. It also links
+LLVM's C++ runtime (libc++, libc++abi, libunwind and compiler-rt) statically.
+These are licensed under the Apache License 2.0 with LLVM Exceptions, which
+place no requirements on programs that embed them in compiled form.
+
 ## GCC runtime
 
 The Windows package links libgcc and libstdc++ from GCC 16.2.0 statically.

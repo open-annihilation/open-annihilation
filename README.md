@@ -33,6 +33,7 @@ page:
 |---|---|
 | macOS 11 or later (Intel and Apple silicon) | `open-annihilation-v0.1-macos-universal.zip` |
 | Windows (64-bit) | `open-annihilation-v0.1-windows-x64.zip` |
+| Windows on ARM (experimental, not yet tested on hardware) | `open-annihilation-v0.1-windows-arm64-experimental.zip` |
 | Linux (x86-64) | `open-annihilation-v0.1-linux-x86_64.zip` |
 | Linux (ARM64) | `open-annihilation-v0.1-linux-arm64.zip` |
 
