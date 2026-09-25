@@ -6,8 +6,8 @@ listed below. Each component keeps its own licence, and the notices those
 licences require are reproduced here. Full licence texts are in the
 [`licenses/`](licenses/) folder of this repository.
 
-No Total Annihilation game data is included in this repository or in the
-release packages.
+No Total Annihilation or Total Annihilation: Kingdoms game data is included
+in this repository or in the release packages.
 
 ## What each package contains
 
