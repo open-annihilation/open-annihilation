@@ -4,7 +4,7 @@ Open Annihilation is licensed under the GNU General Public License version 3
 (see `LICENSE`). The release packages also contain the third-party software
 listed below. Each component keeps its own licence, and the notices those
 licences require are reproduced here. Full licence texts are in the
-`licenses/` folder of each release package.
+[`licenses/`](licenses/) folder of this repository.
 
 No Total Annihilation game data is included in this repository or in the
 release packages.
@@ -15,7 +15,7 @@ release packages.
 |---|---|---|---|---|---|
 | [SDL](#sdl) | 3.4.16 | zlib | static | static | static |
 | [FFmpeg](#ffmpeg) (libavcodec, libavformat, libavutil, libswresample, libswscale) | 9.0.2 | LGPL 2.1 or later | shared libraries in `lib/` | DLLs beside `oa-game.exe` | shared libraries in `lib/` |
-| [zlib](#zlib) | 1.3.1 | zlib | system library | static | system library |
+| [zlib](#zlib) | 1.3.1 | zlib | static | static | system library |
 | [mingw-w64 runtime and winpthreads](#mingw-w64-runtime-and-winpthreads) | 14.0.0 | ZPL 2.1, MIT, BSD | | static | |
 | [GCC runtime](#gcc-runtime) | 16.2.0 | GPL 3 with the GCC Runtime Library Exception | | static | |
 
@@ -51,7 +51,7 @@ SDL contains code from other projects:
 - **yuv2rgb** (BSD 3-Clause), Copyright (c) 2016, Adrien Descamps. All
   rights reserved. Redistributions in binary form must reproduce the
   copyright notice, the list of conditions and the disclaimer; the full text
-  is in `licenses/SDL-yuv2rgb.txt`.
+  is in [`licenses/SDL-yuv2rgb.txt`](licenses/SDL-yuv2rgb.txt).
 - **HIDAPI**, used under its original licence: "HIDAPI - Multi-Platform
   library for communication with HID devices. Copyright 2009, Alan Ott,
   Signal 11 Software. All Rights Reserved. This software may be used by
@@ -65,14 +65,15 @@ SDL contains code from other projects:
   in the public domain.
 - **Linux only:** SDL's X11 and Wayland support contains code under
   MIT-style licences (keysym conversion, EDID parsing, XSETTINGS and the
-  Wayland protocol files). Their notices are in `licenses/SDL-linux.txt` in
-  the Linux packages.
+  Wayland protocol files). Their notices are in
+  [`licenses/SDL-linux.txt`](licenses/SDL-linux.txt).
 
 ## FFmpeg
 
 This software uses libraries from the FFmpeg project under the LGPL v2.1.
 FFmpeg is Copyright (c) 2000-2026 the FFmpeg developers. The licence text is
-in `licenses/COPYING.LGPLv2.1`.
+in [`licenses/FFmpeg-COPYING.LGPLv2.1`](licenses/FFmpeg-COPYING.LGPLv2.1), and the
+source and build details are in [`licenses/FFmpeg-SOURCE.txt`](licenses/FFmpeg-SOURCE.txt).
 
 The FFmpeg libraries decode the game's movies and music. They are built from
 the unmodified release archive
@@ -99,10 +100,10 @@ you the rights that section 6 of the LGPL v2.1 requires for this.
 
 ## zlib
 
-The Windows package links zlib 1.3.1 statically, from
+The Windows and macOS packages link zlib 1.3.1 statically, from
 <https://github.com/madler/zlib/releases/> (SHA-256
 `9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23`). The
-macOS and Linux packages use the system's zlib.
+Linux packages use the system's zlib.
 
 > Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler
 >
@@ -129,7 +130,7 @@ runtime (Zope Public License 2.1, with parts in the public domain or under
 BSD licences; Copyright (c) 2009-2013 by the mingw-w64 project) and its
 winpthreads library (MIT; Copyright (c) 2011-2016 mingw-w64 project; parts
 (C) 2010 Lockless Inc., BSD 3-Clause). Their full notices and disclaimers
-are in `licenses/mingw-w64.txt` in the Windows package.
+are in [`licenses/mingw-w64.txt`](licenses/mingw-w64.txt).
 
 ## GCC runtime
 

@@ -1,0 +1,31 @@
+The FFmpeg libraries in this release are FFmpeg 9.0.2, used under
+the GNU Lesser General Public License version 2.1 or later (COPYING.LGPLv2.1).
+They were built unmodified from
+
+  https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.gz
+  SHA-256 84960df915059e8754fef2cd7c9afeb614062b1b5458ec471eecee619ee04e98
+
+with these configure options besides the installation --prefix:
+
+  --enable-shared
+  --disable-static
+  --disable-programs
+  --disable-doc
+  --disable-debug
+  --disable-autodetect
+  --disable-network
+  --disable-avdevice
+  --disable-avfilter
+  --disable-x86asm
+  --disable-everything
+  --enable-protocol=file
+  --enable-demuxer=smacker,mp3,ogg,wav,flac
+  --enable-decoder=smacker,smackaud,mp3float,vorbis,flac,pcm_s16le,pcm_s24le,pcm_u8
+  --enable-parser=mpegaudio,vorbis,flac
+  --enable-pthreads
+  --install-name-dir=@rpath
+  --extra-cflags=-mmacosx-version-min=11.0
+  --extra-ldflags=-mmacosx-version-min=11.0
+
+They are separate shared libraries and can be replaced by another compatible
+FFmpeg build of the same major versions.
