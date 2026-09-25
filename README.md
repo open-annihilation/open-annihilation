@@ -31,23 +31,25 @@ page:
 
 | Platform | File |
 |---|---|
-| macOS (Apple silicon) | `open-annihilation-v0.1-macos-arm64.zip` |
+| macOS 11 or later (Intel and Apple silicon) | `open-annihilation-v0.1-macos-universal.zip` |
 | Windows (64-bit) | `open-annihilation-v0.1-windows-x64.zip` |
 | Linux (x86-64) | `open-annihilation-v0.1-linux-x86_64.zip` |
 | Linux (ARM64) | `open-annihilation-v0.1-linux-arm64.zip` |
 
 ## Running
 
-Unzip the file and start `oa-game` (`oa-game.exe` on Windows).
+Unzip the file and start the game: **Open Annihilation.app** on macOS,
+`oa-game.exe` on Windows, `oa-game` on Linux.
 
 The first time it starts, Open Annihilation asks you to choose the folder
 where Total Annihilation is installed, and remembers your choice. To choose a
 different folder later, start it with `--choose-game-dir`. To use a folder
 for one run only, start it with `--game-dir <folder>`.
 
-- **macOS:** the build is not signed. If macOS refuses to open it,
-  right-click `oa-game` and choose **Open**, or run
-  `xattr -dr com.apple.quarantine <unzipped folder>` in Terminal.
+- **macOS:** the app is not yet signed by Apple, so macOS asks once before
+  it opens. Right-click **Open Annihilation.app** and choose **Open**. On
+  macOS 15 or later, open it once, then choose **Open Anyway** in
+  System Settings > Privacy & Security.
 - **Linux:** an X11 or Wayland desktop is required. The folder dialog uses
   your desktop's file chooser (the XDG portal, or `zenity`).
 

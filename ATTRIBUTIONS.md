@@ -14,8 +14,8 @@ release packages.
 | Component | Version | Licence | macOS | Windows | Linux |
 |---|---|---|---|---|---|
 | [SDL](#sdl) | 3.4.16 | zlib | static | static | static |
-| [FFmpeg](#ffmpeg) (libavcodec, libavformat, libavutil, libswresample, libswscale) | 9.0.2 | LGPL 2.1 or later | shared libraries in `lib/` | DLLs beside `oa-game.exe` | shared libraries in `lib/` |
-| [zlib](#zlib) | 1.3.1 | zlib | static | static | system library |
+| [FFmpeg](#ffmpeg) (libavcodec, libavformat, libavutil, libswresample, libswscale) | 9.0.2 | LGPL 2.1 or later | static, inside the app | DLLs beside `oa-game.exe` | shared libraries in `lib/` |
+| [zlib](#zlib) | 1.3.1 | zlib | static | static | static |
 | [mingw-w64 runtime and winpthreads](#mingw-w64-runtime-and-winpthreads) | 14.0.0 | ZPL 2.1, MIT, BSD | | static | |
 | [GCC runtime](#gcc-runtime) | 16.2.0 | GPL 3 with the GCC Runtime Library Exception | | static | |
 
@@ -94,16 +94,17 @@ components below, and no GPL or non-free component:
 The Windows build adds the cross-compilation, `--enable-w32threads` and
 static runtime options for mingw-w64.
 
-The libraries are separate files, so you can replace them with another
-compatible build of FFmpeg 9.0. Open Annihilation's GNU GPL v3 terms give
+On Windows and Linux the libraries are separate files, so you can replace
+them with another compatible build of FFmpeg 9.0. On macOS they are linked
+into the application; you can rebuild it against a different FFmpeg from
+the Open Annihilation source code. Open Annihilation's GNU GPL v3 terms give
 you the rights that section 6 of the LGPL v2.1 requires for this.
 
 ## zlib
 
-The Windows and macOS packages link zlib 1.3.1 statically, from
+All packages link zlib 1.3.1 statically, from
 <https://github.com/madler/zlib/releases/> (SHA-256
-`9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23`). The
-Linux packages use the system's zlib.
+`9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23`).
 
 > Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler
 >
