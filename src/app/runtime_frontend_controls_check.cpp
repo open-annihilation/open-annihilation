@@ -581,8 +581,9 @@ void Runtime::check_frontend_controls() {
     require(screen_ == Screen::single_player, "Previous Menu did not leave NEWGAME.GUI");
 
     // The options tabs and the sub-panels' staged buttons; CANCEL puts the
-    // options back. SOUNDS.GUI's and MUSIC.GUI's buttons are left out here;
-    // native-scroll-bars opens SOUND's panel and drives its slider.
+    // options back. The sound and music panels keep their buttons' authored
+    // foreground colour and draw them lit through the light table, so they are
+    // exercised here too.
     click(entry::resource_name(entry::Button::options));
     require(screen_ == Screen::options, "Options did not open STARTOPT.GUI");
     constexpr std::array<std::string_view, 4> tabs{"SOUND", "SPEEDS", "VISUALS", "MUSIC"};
@@ -612,9 +613,11 @@ void Runtime::check_frontend_controls() {
         rebuild_surface();
         return repainted(raised, shown, name);
     };
-    const std::array<std::pair<std::string_view, std::vector<std::string_view>>, 2> panels{{
-        {"VISUALS", {"SHADING", "ANTI", "BSHADOWS"}},
+    const std::array<std::pair<std::string_view, std::vector<std::string_view>>, 4> panels{{
+        {"SOUND", {"SPEECH", "MODE"}},
         {"SPEEDS", {"LEFTCLICK", "UNITCHAT"}},
+        {"VISUALS", {"SHADING", "ANTI", "BSHADOWS"}},
+        {"MUSIC", {"NOTRAK", "TRACKTYPE", "TRACKMODE"}},
     }};
     for (const auto& [tab, buttons] : panels) {
         click(tab);

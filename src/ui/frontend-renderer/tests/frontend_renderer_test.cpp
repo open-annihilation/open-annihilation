@@ -341,8 +341,46 @@ int main() {
     short_list.common.height = 8; // line height 4, item height 5: one row only
     const auto short_rendered =
         oa::ui::frontend_renderer::render_screen(short_controls, {}, {&list_data, 1});
-    assert(red_at(short_rendered, 10, 4) == 42);
-    assert(red_at(short_rendered, 10, 9) == 99);
+    CHECK(red_at(short_rendered, 10, 4) == 42);
+    CHECK(red_at(short_rendered, 10, 9) == 99);
+
+    // A button or label left with an authored foreground colour (a merged
+    // sub-panel's records keep theirs) draws lit through that light-table row,
+    // as 3.1c draws it with a colour table; colour 0 draws it plain.
+    oa::formats::gaf::Sequence transport;
+    transport.name = "CDPLAY";
+    oa::formats::gaf::Frame transport_frame;
+    transport_frame.width = 1;
+    transport_frame.height = 1;
+    transport_frame.pixels = {60};
+    transport_frame.coverage = {1};
+    transport.frames.push_back(transport_frame);
+    controls.sprites.sequences.push_back(transport);
+    controls.light_table[5U * 256U + 60U] = 120;
+    auto lit_button = button("CDPLAY", 20, 10, 1, 1);
+    lit_button.common.foreground_color = 5;
+    controls.layout.gadgets.push_back(lit_button);
+    const auto lit_button_rendered = oa::ui::frontend_renderer::render_screen(controls);
+    CHECK(red_at(lit_button_rendered, 20, 10) == 120);
+    controls.layout.gadgets.back().common.foreground_color = 0;
+    const auto plain_button_rendered = oa::ui::frontend_renderer::render_screen(controls);
+    CHECK(red_at(plain_button_rendered, 20, 10) == 60);
+
+    controls.light_table[5U * 256U + 42U] = 150;
+    oa::ui::gui_layout::Gadget lit_label;
+    lit_label.common.type = oa::ui::gui_layout::GadgetType::label;
+    lit_label.common.name = "TRACKNUM";
+    lit_label.common.x = 20;
+    lit_label.common.y = 12;
+    lit_label.common.width = 2;
+    lit_label.common.height = 3;
+    lit_label.common.attributes = 1;
+    lit_label.common.foreground_color = 5;
+    lit_label.common.active = 1;
+    lit_label.fields = oa::ui::gui_layout::LabelFields{"", "I", ""};
+    controls.layout.gadgets.push_back(lit_label);
+    const auto lit_label_rendered = oa::ui::frontend_renderer::render_screen(controls);
+    CHECK(red_at(lit_label_rendered, 20, 13) == 150);
 
     oa::ui::gui_layout::Gadget runtime_image;
     runtime_image.common.type = oa::ui::gui_layout::GadgetType::hot_surface;

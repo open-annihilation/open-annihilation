@@ -176,7 +176,8 @@ enum class MainMenuLayout : uint8_t { with_overlay, base_game };
 /// @param presentation Runtime button states by gadget name; empty for the authored state.
 /// @param lists Runtime rows of type-2 gadgets by name.
 /// @return The RGB image at the background's size.
-/// @throws std::runtime_error for a button that needs GAF colour-table rendering.
+/// @throws std::runtime_error when the background or a runtime image is
+///         inconsistent, or a resolved GAF frame cannot be drawn.
 [[nodiscard]] Surface render_screen(
     const ScreenResources& resources,
     std::span<const ButtonPresentation> presentation = {},

@@ -238,12 +238,29 @@ struct ResolvedSprite {
     return {fallback, best};
 }
 
+// The light-table row a gadget's authored colour names, or null when the
+// colour is zero (the frame is drawn as authored). A type-1 button's colour
+// lights its GAF frame and a label's lights its glyphs through the game's
+// 32x256 PALETTE.LHT; the first draw zeroes a loaded panel's authored colours,
+// so only one a merged sub-panel or an extension leaves behind is applied.
+[[nodiscard]] const uint8_t*
+light_row_for(std::span<const uint8_t> light_table, uint16_t foreground_color) {
+    constexpr std::size_t shade_levels = 32;
+    if (foreground_color == 0 || foreground_color >= shade_levels ||
+        light_table.size() != shade_levels * palette_color_count)
+        return nullptr;
+    return light_table.data() + static_cast<std::size_t>(foreground_color) * palette_color_count;
+}
+
+// Draws a frame's covered pixels through `light_row` when it is set, so a
+// button's GAF frame is lit as 3.1c draws it with a colour table.
 void blit(
     Surface& surface,
     const formats::gaf::RenderedFrame& frame,
     int x,
     int y,
-    const PaletteBytes& palette
+    const PaletteBytes& palette,
+    const uint8_t* light_row = nullptr
 ) {
     const auto pixel_count = static_cast<std::size_t>(frame.width) * frame.height;
     if (frame.pixels.size() != pixel_count || frame.coverage.size() != pixel_count) {
@@ -271,8 +288,10 @@ void blit(
             const auto offset = source + static_cast<std::size_t>(column);
             if (coverage[offset] == 0)
                 continue;
+            const auto source_index =
+                light_row != nullptr ? light_row[pixels[offset]] : pixels[offset];
             std::memcpy(
-                out, colors + static_cast<std::size_t>(pixels[offset]) * palette_entry_bytes, 3U
+                out, colors + static_cast<std::size_t>(source_index) * palette_entry_bytes, 3U
             );
         }
     }
@@ -287,10 +306,11 @@ void blit_stretched(
     int dest_y,
     int dest_w,
     int dest_h,
-    const PaletteBytes& palette
+    const PaletteBytes& palette,
+    const uint8_t* light_row = nullptr
 ) {
     if (dest_w <= 0 || dest_h <= 0) {
-        blit(surface, frame, dest_x, dest_y, palette);
+        blit(surface, frame, dest_x, dest_y, palette, light_row);
         return;
     }
     const auto pixel_count = static_cast<std::size_t>(frame.width) * frame.height;
@@ -309,9 +329,9 @@ void blit_stretched(
                 static_cast<std::size_t>(src_y) * frame.width + static_cast<std::size_t>(src_x);
             if (offset >= frame.coverage.size() || frame.coverage[offset] == 0)
                 continue;
-            set_pixel(
-                surface, dest_x + column, dest_y + row, palette_rgb(palette, frame.pixels[offset])
-            );
+            const auto source_index =
+                light_row != nullptr ? light_row[frame.pixels[offset]] : frame.pixels[offset];
+            set_pixel(surface, dest_x + column, dest_y + row, palette_rgb(palette, source_index));
         }
     }
 }
@@ -373,7 +393,8 @@ void draw_clipped_text(
     int x,
     int y,
     const Rectangle& clip,
-    const PaletteBytes& active_palette
+    const PaletteBytes& active_palette,
+    const uint8_t* light_row = nullptr
 ) {
     if (text.empty() || clip.left > clip.right || clip.top > clip.bottom)
         return;
@@ -408,7 +429,9 @@ void draw_clipped_text(
                 static_cast<std::size_t>(row) * surface.width + static_cast<std::size_t>(column);
             if (coverage[offset] == 0)
                 continue;
-            set_pixel(surface, column, row, palette_rgb(active_palette, indices[offset]));
+            const auto source_index =
+                light_row != nullptr ? light_row[indices[offset]] : indices[offset];
+            set_pixel(surface, column, row, palette_rgb(active_palette, source_index));
         }
     }
 }
@@ -577,12 +600,22 @@ void draw_label(
     Surface& surface,
     const ui::gui_layout::Gadget& gadget,
     const formats::fnt::Font& selected_font,
-    const PaletteBytes& active_palette
+    const PaletteBytes& active_palette,
+    std::span<const uint8_t> light_table
 ) {
     const auto* fields = std::get_if<ui::gui_layout::LabelFields>(&gadget.fields);
     if (fields == nullptr || fields->text.empty())
         return;
     const Rectangle clip = gadget_rectangle(gadget);
+    // The authored background colour fills the label's rectangle first.
+    if (gadget.common.background_color != 0) {
+        fill(
+            surface,
+            clip,
+            palette_rgb(active_palette, static_cast<uint8_t>(gadget.common.background_color))
+        );
+    }
+    const auto* light_row = light_row_for(light_table, gadget.common.foreground_color);
     const int line_height = formats::fnt::line_height(selected_font);
     // The label drawing switches to wrapped text only when two line heights
     // fit strictly inside the gadget. Wrapped text advances by line_height+2.
@@ -593,7 +626,14 @@ void draw_label(
         Rectangle line_clip = clip;
         line_clip.bottom = std::max(clip.bottom, gadget.common.y + line_height - 1);
         draw_clipped_text(
-            surface, selected_font, fields->text, x, gadget.common.y, line_clip, active_palette
+            surface,
+            selected_font,
+            fields->text,
+            x,
+            gadget.common.y,
+            line_clip,
+            active_palette,
+            light_row
         );
         return;
     }
@@ -625,7 +665,9 @@ void draw_label(
         auto line = std::string_view(fields->text).substr(start, end - start);
         while (!line.empty() && (line.back() == ' ' || line.back() == '\r'))
             line.remove_suffix(1);
-        draw_clipped_text(surface, selected_font, line, fixed_x, y, clip, active_palette);
+        draw_clipped_text(
+            surface, selected_font, line, fixed_x, y, clip, active_palette, light_row
+        );
         start = end;
         while (start < fields->text.size() &&
                (fields->text[start] == ' ' || fields->text[start] == '\r'))
@@ -769,11 +811,16 @@ void bind_screen_buttons(ScreenResources& resources, std::size_t first) {
         ui::gui_layout::attribute::checkbox | ui::gui_layout::attribute::text_list;
     for (auto index = first; index < resources.layout.gadgets.size(); ++index) {
         auto& gadget = resources.layout.gadgets[index];
+        // The first panel draw clears a type-1 gadget's authored colorf and
+        // colorb before resolving its GAF sequence, and a label's authored
+        // colorf (keeping its colorb), so later drawing takes the normal path
+        // unless a color table is installed at run time.
+        if (gadget.common.type == ui::gui_layout::GadgetType::label) {
+            gadget.common.foreground_color = 0;
+            continue;
+        }
         if (gadget.common.type != ui::gui_layout::GadgetType::button)
             continue;
-        // The first panel draw clears a type-1 gadget's authored colorf and
-        // colorb before resolving its GAF sequence, so later drawing takes the
-        // normal sprite path unless a color table is installed at run time.
         gadget.common.foreground_color = 0;
         gadget.common.background_color = 0;
         if ((static_cast<uint32_t>(gadget.common.attributes) & skip_default_button_gaf) != 0)
@@ -876,7 +923,9 @@ Surface render_screen(
             continue;
         const auto* state = presentation_for(gadget.common.name, presentation);
         if (gadget.common.type == ui::gui_layout::GadgetType::label) {
-            draw_label(result, gadget, label_font_of(resources), active_palette);
+            draw_label(
+                result, gadget, label_font_of(resources), active_palette, resources.light_table
+            );
             continue;
         }
         if (gadget.common.type == ui::gui_layout::GadgetType::list_box) {
@@ -927,9 +976,10 @@ Surface render_screen(
             (static_cast<uint32_t>(gadget.common.attributes) & invisible_hit_attribute) != 0 &&
             (button_fields == nullptr || button_fields->text.empty());
         if (sequence != nullptr && !sequence->frames.empty()) {
-            if (gadget.common.foreground_color != 0) {
-                throw std::runtime_error("GAF color-table rendering is not supported");
-            }
+            // A button left with its authored colour (a merged sub-panel's) is
+            // drawn lit through the light table, as 3.1c draws it.
+            const auto* light_row =
+                light_row_for(resources.light_table, gadget.common.foreground_color);
             std::size_t relative_frame = 0;
             if (state != nullptr && state->gaf_frame.has_value()) {
                 relative_frame = *state->gaf_frame;
@@ -964,10 +1014,18 @@ Surface render_screen(
                     gadget.common.y,
                     gadget.common.width,
                     gadget.common.height,
-                    active_palette
+                    active_palette,
+                    light_row
                 );
             } else {
-                blit(result, *rendered.frame, gadget.common.x, gadget.common.y, active_palette);
+                blit(
+                    result,
+                    *rendered.frame,
+                    gadget.common.x,
+                    gadget.common.y,
+                    active_palette,
+                    light_row
+                );
             }
             auto resolved_gadget = gadget;
             resolved_gadget.common.width = static_cast<int16_t>(rendered.frame->width);
