@@ -619,8 +619,23 @@ void Runtime::check_frontend_controls() {
         {"VISUALS", {"SHADING", "ANTI", "BSHADOWS"}},
         {"MUSIC", {"NOTRAK", "TRACKTYPE", "TRACKMODE"}},
     }};
+    // Whether the panel on screen has merged an art sequence by name.
+    const auto merged_art = [&](std::string_view name) {
+        return std::any_of(
+            resources_.sprites.sequences.begin(),
+            resources_.sprites.sequences.end(),
+            [name](const oa::formats::gaf::Sequence& sequence) { return sequence.name == name; }
+        );
+    };
     for (const auto& [tab, buttons] : panels) {
         click(tab);
+        // The music panel brings its own GAF, so its transport buttons draw
+        // MUSIC.GAF's frames rather than the shared fallback frame.
+        if (tab == "MUSIC")
+            expect(
+                merged_art("CDPLAY") && merged_art("CDNEXT"),
+                "MUSIC did not merge MUSIC.GAF's transport art"
+            );
         const auto pixels = pressed_pixels(tab);
         std::cout << "frontend controls check: tab " << tab << " pressed "
                   << (pressed(tab) ? "yes" : "no") << ", " << pixels << " pixels drawn pressed\n";

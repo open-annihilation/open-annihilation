@@ -753,6 +753,16 @@ void Runtime::check_match_dialogs() {
             hud_gadget("GAMMA") == nullptr && match_music_panel_open(),
         "MUSIC did not merge MUSICRT.GUI"
     );
+    // The panel brings its own GAF, so its transport buttons draw
+    // MUSICRT.GAF's frames rather than the shared fallback frame.
+    require(
+        std::any_of(
+            match_hud_->sprites.sequences.begin(),
+            match_hud_->sprites.sequences.end(),
+            [](const oa::formats::gaf::Sequence& sequence) { return sequence.name == "CDPLAY"; }
+        ),
+        "MUSIC did not merge MUSICRT.GAF's transport art"
+    );
     // The buttons' quick keys press them: 's' is SOUND, 'c' Cancel. Leaving
     // the MUSIC tab leaves the music's panel.
     require(send(key(SDLK_S, SDL_SCANCODE_S)), "'s' ended the run");
