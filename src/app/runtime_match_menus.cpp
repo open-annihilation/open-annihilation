@@ -2824,9 +2824,10 @@ void Runtime::activate_options_gadget() {
             status_ = "options panel unavailable: " + std::string(error.what());
             return;
         }
-        // The sub-panel is merged and drawn: the first draw binds its buttons
-        // and its sliders.
-        renderer::bind_screen_buttons(resources_, 1);
+        // The sub-panel is merged and drawn. Its sliders bind as the first
+        // draw would; its buttons are not bound, so they keep the authored
+        // foreground colour the renderer draws the frame through. Only a
+        // loaded panel's first draw clears it.
         bind_frontend_scrolls("guis/startopt.gui", "anims/commongui.gaf");
         widget_gaf_frames_.clear();
         widget_text_stages_.clear();
