@@ -892,6 +892,34 @@ the field's place is handed to a stub in the window's coordinates.
   engine's own wave-out output, which takes a single processor less of its
   time than SDL's there; `OA_SOUND_OUTPUT=sdl` in the environment plays
   it through SDL, which on XP uses the older sound interface XP has.
+- **Windows 95:** `OA_MINGW_TRIPLE=i686-w64-mingw32 tools/build_windows.sh
+  --win95` builds the tree for Windows 95 into `build-windows-i686-95`, with
+  zlib, FreeType and SDL3 built the same way. It is 32-bit only: Windows 95
+  has no 64-bit edition.
+
+  Such a build compiles against the declarations of Windows 95 and stamps
+  every executable subsystem and system version 4.0, which is what the loader
+  checks, so a call a later Windows added does not compile and one executable
+  runs on 95 and on everything after it. It links `msvcrt20.dll`, the C
+  library both Windows 95 RTM and OSR2 ship; the toolchain files put the
+  switch on the link line as well as the compile line, because a program
+  linked without it imports the `msvcrt.dll` Windows 95 has not got.
+
+  Two things about the toolchain are required and neither is the default. Its
+  C++ run-time library must not thread through mcfgthread, which imports
+  `ntdll` and Windows 95 has no `ntdll` at all, and its headers must declare
+  Win32 at version 0x0400 rather than the Windows 10 that mingw-w64 defaults
+  to. The Nix flake's `win95` output builds both, and
+  [src/platform/win95-runtime](../../src/platform/win95-runtime/README.md)
+  covers the functions Windows 95 exports as stubs. Check an executable's
+  imports against a Windows 95 installation's own system DLLs before running
+  it there, as for XP: 95 refuses to start a program that imports what it has
+  not got, with a loader dialogue rather than a message.
+
+  Windows 95 cannot execute SSE at all, so a build for it wants
+  `-DOA_X86_FLOAT=fpu`, and `SDL_CPU_FEATURE_MASK` in the environment hides
+  the features its CPUID advertises from SDL, which would otherwise choose a
+  blit the system faults on.
 - **32-bit x86:** a 32-bit x86 build needs no SSE2: floats are computed
   with SSE (`OA_X86_FLOAT=sse`, the default; `fpu` computes them on the
   older floating-point unit, which changes the simulation's results) and

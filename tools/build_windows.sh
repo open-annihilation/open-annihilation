@@ -23,25 +23,29 @@ build_type="${OA_BUILD_TYPE:-Release}"
 jobs="${OA_BUILD_JOBS:-6}"
 testing=ON
 windows_xp=OFF
+windows_95=OFF
 run_tests=0
 targets=()
 
 usage() {
     cat <<'USAGE'
-Usage: tools/build_windows.sh [--xp] [--no-tests] [--run-tests]
+Usage: tools/build_windows.sh [--xp] [--win95] [--no-tests] [--run-tests]
                               [--build-type TYPE] [--jobs N] [--target NAME]...
                               [--source DIR]
 
 Cross-builds the project for Windows with a mingw-w64 cross-compiler: for
 x86-64, or for 32-bit x86 with OA_MINGW_TRIPLE=i686-w64-mingw32. Executables
 land in build-windows/ (build-windows-i686/ for 32-bit x86, each with -xp
-added for --xp) as *.exe with the run-time libraries linked statically. They
+added for --xp or -95 for --win95) as *.exe with the run-time libraries
+linked statically. They
 run on Windows, or here under Wine with --run-tests (tools/test_windows.sh
 provides a container with the x86-64 toolchain and Wine on macOS and Linux).
 
   --xp              Build executables that also run on Windows XP
                     (OA_WINDOWS_XP): SP3 for 32-bit x86, the 64-bit edition
                     for x86-64
+  --win95           Build executables that also run on Windows 95
+                    (OA_WINDOWS_95), 32-bit x86 only
   --no-tests        Configure with BUILD_TESTING=OFF
   --run-tests       Run ctest after the build, each test executable through
                     Wine (CMAKE_TEST_LAUNCHER); needs wine on PATH and CMake 3.29+.
@@ -78,6 +82,7 @@ while [[ $# -gt 0 ]]; do
         --target) require_value "$@"; targets+=("$2"); shift 2 ;;
         --source) require_value "$@"; source_dir="$2"; shift 2 ;;
         --xp) windows_xp=ON; shift ;;
+        --win95) windows_95=ON; shift ;;
         --no-tests) testing=OFF; shift ;;
         --run-tests) run_tests=1; shift ;;
         *) printf 'build_windows.sh: unknown option: %s\n' "$1" >&2; usage >&2; exit 2 ;;
@@ -99,6 +104,9 @@ target="$triple"
 if [[ "$windows_xp" == ON ]]; then
     name="$name-xp"
     target="$triple for Windows XP"
+elif [[ "$windows_95" == ON ]]; then
+    name="$name-95"
+    target="$triple for Windows 95"
 fi
 
 if ! command -v "$triple-g++" >/dev/null 2>&1; then
@@ -178,6 +186,7 @@ fi
 
 bootstrap_args=(--prefix-root "$deps" --toolchain "$toolchain" --jobs "$jobs")
 if [[ "$windows_xp" == ON ]]; then bootstrap_args+=(--xp); fi
+if [[ "$windows_95" == ON ]]; then bootstrap_args+=(--win95); fi
 
 printf 'Preparing Windows dependencies (%s) under %s...\n' "$target" "$deps"
 mkdir -p "$deps"
@@ -189,6 +198,7 @@ printf 'Configuring %s (%s, %s)...\n' "$build_dir" "$target" "$build_type"
 cmake -S "$source_dir" -B "$build_dir" ${generator_args[@]+"${generator_args[@]}"} -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
     "-DCMAKE_C_COMPILER_LAUNCHER=$compiler_launcher" "-DCMAKE_CXX_COMPILER_LAUNCHER=$compiler_launcher" \
     "-DCMAKE_BUILD_TYPE=$build_type" "-DOA_WINDOWS_DEPS=$deps" "-DOA_WINDOWS_XP=$windows_xp" \
+    "-DOA_WINDOWS_95=$windows_95" \
     -DOA_BUILD_PLATFORM=ON -DOA_BUILD_INTRO_PLAYER=ON "-DBUILD_TESTING=$testing" \
     ${launcher_args[@]+"${launcher_args[@]}"}
 

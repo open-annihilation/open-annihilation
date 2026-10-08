@@ -55,13 +55,17 @@ def main():
     parser.add_argument("--jobs", type=int, default=6)
     parser.add_argument("--xp", action="store_true",
                         help="build for executables that also run on Windows XP (OA_WINDOWS_XP)")
+    parser.add_argument("--win95", action="store_true",
+                        help="build for executables that also run on Windows 95 (OA_WINDOWS_95)")
     args = parser.parse_args()
     deps = args.deps.resolve()
     prefixes = (args.prefix_root or deps / "windows").resolve()
     builds = prefixes.parent / f"{prefixes.name}-build"
     toolchain = args.toolchain.resolve()
-    # The toolchain files read OA_WINDOWS_XP to choose the C library.
-    target_options = [f"-DOA_WINDOWS_XP={'ON' if args.xp else 'OFF'}"]
+    # The toolchain files read OA_WINDOWS_XP and OA_WINDOWS_95 to choose the C
+    # library.
+    target_options = [f"-DOA_WINDOWS_XP={'ON' if args.xp else 'OFF'}",
+                      f"-DOA_WINDOWS_95={'ON' if args.win95 else 'OFF'}"]
 
     zlib_install = prefixes / "zlib"
     if not (zlib_install / "lib" / "libzlibstatic.a").exists():

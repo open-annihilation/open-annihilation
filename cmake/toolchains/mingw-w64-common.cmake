@@ -12,7 +12,8 @@
 # OA_WINDOWS_DEPS defaults to local/deps/<name>, where tools/build_windows.sh
 # builds them: windows for x86-64, windows-i686 for 32-bit x86, each with -xp
 # added for a build whose executables also run on Windows XP
-# (-DOA_WINDOWS_XP=ON, cmake/OaWindowsXp.cmake).
+# (-DOA_WINDOWS_XP=ON, cmake/OaWindowsXp.cmake), or -95 for one that also
+# runs on Windows 95 (-DOA_WINDOWS_95=ON, cmake/OaWindows95.cmake).
 #
 # The including file sets oa_mingw_triple (the target triple, which names
 # the tools), oa_mingw_name (the name above, without -xp),
@@ -43,6 +44,8 @@ if(NOT DEFINED OA_WINDOWS_DEPS)
     set(_oa_mingw_deps_name "${oa_mingw_name}")
     if(OA_WINDOWS_XP)
       string(APPEND _oa_mingw_deps_name "-xp")
+    elseif(OA_WINDOWS_95)
+      string(APPEND _oa_mingw_deps_name "-95")
     endif()
     get_filename_component(OA_WINDOWS_DEPS "${CMAKE_CURRENT_LIST_DIR}/../../local/deps/${_oa_mingw_deps_name}" ABSOLUTE)
   endif()
@@ -56,6 +59,12 @@ if(IS_DIRECTORY "${OA_WINDOWS_DEPS}")
   foreach(_prefix IN LISTS _oa_windows_prefixes)
     if(IS_DIRECTORY "${_prefix}")
       list(APPEND CMAKE_FIND_ROOT_PATH "${_prefix}")
+      # A cross-compiler whose driver injects search directories of its own,
+      # as a Nix-wrapped one does, leaves the find commands re-rooting those
+      # rather than the prefixes above; naming each prefix as well makes the
+      # dependency it holds be found either way, and costs nothing where the
+      # driver injects none.
+      list(APPEND CMAKE_PREFIX_PATH "${_prefix}")
     endif()
   endforeach()
 endif()
@@ -131,6 +140,24 @@ if(NOT _oa_mingw_in_try_compile)
         "-specs=\"${CMAKE_CURRENT_LIST_DIR}/windows-xp-c-library.specs\"")
       set(_oa_mingw_cxx_flags "-include \"${CMAKE_CURRENT_LIST_DIR}/windows-xp-c-library.hpp\"")
     endif()
+  endif()
+  # A build for Windows 95 links the C library Windows 95 ships, msvcrt20.dll,
+  # which OSR2 and every later Windows ship too. The switch must be on the
+  # link line as well as the compile line: with it only on the compile line
+  # the linker still links msvcrt.dll, which Windows 95 does not have.
+  if(OA_WINDOWS_95 AND NOT OA_WINDOWS_XP)
+    list(APPEND _oa_mingw_flags -mcrtdll=msvcrt20)
+    # The C++ run-time library's thread support is told that the version
+    # compiled for has the condition variable of the Windows API, which
+    # Windows 95 does not, and oa-platform-xp-runtime defines the calls it is
+    # built from over the ones Windows 95 does have.
+    set(_oa_mingw_cxx_flags "-include \"${CMAKE_CURRENT_LIST_DIR}/windows-95-gthr.hpp\"")
+    # CMake does not pass the compiler flags on a link line, so the switch is
+    # made on each of those too: a program linked without it imports
+    # msvcrt.dll, which Windows 95 does not have.
+    string(APPEND CMAKE_EXE_LINKER_FLAGS_INIT " -mcrtdll=msvcrt20")
+    string(APPEND CMAKE_SHARED_LINKER_FLAGS_INIT " -mcrtdll=msvcrt20")
+    string(APPEND CMAKE_MODULE_LINKER_FLAGS_INIT " -mcrtdll=msvcrt20")
   endif()
   list(JOIN _oa_mingw_flags " " _oa_mingw_flags)
   set(CMAKE_C_FLAGS_INIT "${_oa_mingw_flags}")
