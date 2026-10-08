@@ -14,8 +14,15 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#if defined(OA_WINDOWS_95)
+// Windows 95 ships Winsock 1.1, and its headers: Winsock 2's names sockets,
+// interfaces and name resolution differently and arrived with an update to
+// 95 and with Windows 98.
+#include <winsock.h>
+#else
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#endif
 using socket_len = int;
 using native_socket = SOCKET;
 #else
@@ -449,6 +456,14 @@ bool io_send_stream(void* context, const Address& to, const uint8_t* bytes, std:
 /// @param capacity entries available in out
 /// @return the entries written; 0 when the system gives no list
 std::size_t list_local_interfaces(Host* h, LocalInterface* out, std::size_t capacity) {
+#if defined(OA_WINDOWS_95)
+    // Winsock 1.1 has no call that lists the interfaces. A search that finds
+    // none of them falls back to the broadcast and loopback addresses.
+    (void)h;
+    (void)out;
+    (void)capacity;
+    return 0;
+#else
     INTERFACE_INFO listed[max_local_interfaces]{};
     DWORD listed_bytes = 0;
     if (WSAIoctl(
@@ -481,6 +496,7 @@ std::size_t list_local_interfaces(Host* h, LocalInterface* out, std::size_t capa
         local.point_to_point = (entry.iiFlags & IFF_POINTTOPOINT) != 0;
     }
     return count;
+#endif
 }
 #else
 /// Copies the IPv4 address out of an interface address.
@@ -1103,6 +1119,16 @@ bool resolve_ipv4(const char* name, uint8_t ip[4]) noexcept {
     }
     if (!platform_startup())
         return false;
+#if defined(OA_WINDOWS_95)
+    // Winsock 1.1 resolves a host name whole, with no service or address
+    // family to ask for.
+    const hostent* const found = gethostbyname(name);
+    if (found == nullptr || found->h_addrtype != AF_INET || found->h_length != 4 ||
+        found->h_addr_list == nullptr || found->h_addr_list[0] == nullptr)
+        return false;
+    std::memcpy(ip, found->h_addr_list[0], 4);
+    return true;
+#else
     addrinfo hints{};
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_DGRAM;
@@ -1121,6 +1147,7 @@ bool resolve_ipv4(const char* name, uint8_t ip[4]) noexcept {
     }
     freeaddrinfo(found);
     return resolved;
+#endif
 }
 
 // Loopback streams (stream_socket.hpp) ------------------------------------------
@@ -1165,7 +1192,22 @@ intptr_t stream_listen(
         stream_error(error, error_size, "the socket subsystem failed to start");
         return invalid_socket;
     }
+#if defined(OA_WINDOWS_95)
+    // Winsock 1.1 has no IPv6 at all: neither AF_INET6 nor sockaddr_in6 is
+    // declared. Asking for it is refused rather than answered with the IPv4
+    // address the caller did not ask for.
+    if (loopback == Loopback::ipv6) {
+        stream_error(error, error_size, "this Windows has no IPv6");
+        return invalid_socket;
+    }
+#endif
+#if defined(OA_WINDOWS_95)
+    // Winsock 1.1 has no AF_INET6 to name, and the refusal above leaves only
+    // the IPv4 address here.
+    const int family = AF_INET;
+#else
     const int family = loopback == Loopback::ipv6 ? AF_INET6 : AF_INET;
+#endif
     const native_socket s = socket(family, SOCK_STREAM, IPPROTO_TCP);
 #ifdef _WIN32
     intptr_t fd = s == INVALID_SOCKET ? invalid_socket : static_cast<intptr_t>(s);
@@ -1182,8 +1224,17 @@ intptr_t stream_listen(
     // connections wait out their close.
     set_option(fd, SOL_SOCKET, SO_REUSEADDR, 1);
 #endif
-    sockaddr_storage address{};
+#if defined(OA_WINDOWS_95)
+    // Winsock 1.1 declares no sockaddr_storage, and every address here is an
+    // IPv4 one: there is no IPv6 on that Windows to hold, as the refusal above
+    // says.
+    using address_buffer = sockaddr_in;
+#else
+    using address_buffer = sockaddr_storage;
+#endif
+    address_buffer address{};
     socket_len address_size = 0;
+#if !defined(OA_WINDOWS_95)
     if (loopback == Loopback::ipv6) {
         sockaddr_in6 ipv6{};
         ipv6.sin6_family = AF_INET6;
@@ -1191,7 +1242,9 @@ intptr_t stream_listen(
         ipv6.sin6_addr.s6_addr[15] = 1; // ::1
         std::memcpy(&address, &ipv6, sizeof ipv6);
         address_size = sizeof ipv6;
-    } else {
+    } else
+#endif
+    {
         sockaddr_in ipv4{};
         ipv4.sin_family = AF_INET;
         ipv4.sin_port = htons(port);
@@ -1209,13 +1262,20 @@ intptr_t stream_listen(
         stream_error(error, error_size, "cannot listen on the address");
         return invalid_socket;
     }
-    sockaddr_storage bound{};
+    address_buffer bound{};
     socket_len bound_size = sizeof bound;
     if (getsockname(native(fd), reinterpret_cast<sockaddr*>(&bound), &bound_size) != 0) {
         close_socket(&fd);
         stream_error(error, error_size, "cannot read the port bound");
         return invalid_socket;
     }
+#if defined(OA_WINDOWS_95)
+    {
+        sockaddr_in ipv4{};
+        std::memcpy(&ipv4, &bound, sizeof ipv4);
+        bound_port = ntohs(ipv4.sin_port);
+    }
+#else
     if (bound.ss_family == AF_INET6) {
         sockaddr_in6 ipv6{};
         std::memcpy(&ipv6, &bound, sizeof ipv6);
@@ -1225,6 +1285,7 @@ intptr_t stream_listen(
         std::memcpy(&ipv4, &bound, sizeof ipv4);
         bound_port = ntohs(ipv4.sin_port);
     }
+#endif
     return fd;
 }
 
@@ -1277,7 +1338,14 @@ void stream_finish(intptr_t stream) noexcept {
     if (!socket_valid(stream))
         return;
 #ifdef _WIN32
-    (void)shutdown(native(stream), SD_SEND);
+#if defined(OA_WINDOWS_95)
+    // Winsock 1.1's header names no how for shutdown, and the value is the 1
+    // that Winsock 2 kept.
+    constexpr int shut_write = 1;
+#else
+    constexpr int shut_write = SD_SEND;
+#endif
+    (void)shutdown(native(stream), shut_write);
 #else
     (void)shutdown(native(stream), SHUT_WR);
 #endif
