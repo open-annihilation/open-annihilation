@@ -14,7 +14,8 @@
 # object of the program is linked before all of them.
 if(MINGW AND OA_WINDOWS_95)
   add_library(
-    oa-platform-win95-runtime OBJECT src/windows_95_crt.cpp src/windows_95_kernel.cpp src/windows_95_user.cpp
+    oa-platform-win95-runtime OBJECT src/windows_95_crt.cpp src/windows_95_frames.cpp src/windows_95_kernel.cpp
+                                         src/windows_95_user.cpp
                                          src/windows_95_shell.cpp
   )
   add_library(oa::platform::win95_runtime ALIAS oa-platform-win95-runtime)

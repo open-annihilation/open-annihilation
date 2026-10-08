@@ -41,6 +41,8 @@ of the import pointer replaces the one the import library would have made.
 
 | File | What it covers |
 |---|---|
+| [`windows_95_frames.cpp`](src/windows_95_frames.cpp) | the frame information the C++ run-time library is not given, without which a thrown exception ends the process rather than running its handler |
+| [`windows_95_crt.cpp`](src/windows_95_crt.cpp) | the wide C run-time functions: file, directory, path, time, locale and environment calls |
 | [`windows_95_kernel.cpp`](src/windows_95_kernel.cpp) | kernel32: file, directory, path, environment, console, memory-status, version and synchronisation calls, and `RaiseException` |
 | [`windows_95_user.cpp`](src/windows_95_user.cpp) | user32: window classes, windows, messages, input, displays and monitors, window properties, the clipboard and raw input |
 | [`windows_95_shell.cpp`](src/windows_95_shell.cpp) | setupapi, cfgmgr32, shell32, ole32, psapi and propidl: device enumeration, the shell's folder dialogue, the notification area, and process listing |
