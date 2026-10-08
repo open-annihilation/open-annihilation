@@ -13,6 +13,7 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/locale.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/platform/system.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
@@ -99,10 +100,10 @@ void read_screen_catalogue() {
     if (read)
         return;
     read = true;
-    const char* base = SDL_GetBasePath();
-    if (base == nullptr)
+    const std::string base = oa::platform::program_directory();
+    if (base.empty())
         return;
-    const fs::path folder = path_from_utf8(base) / path_from_utf8(catalogue_folder);
+    const fs::path folder = path_from_utf8(base.c_str()) / path_from_utf8(catalogue_folder);
     std::error_code error;
     if (!fs::is_directory(folder, error))
         return;

@@ -178,7 +178,8 @@ fs::path own_user_folder(
             note = failure.what();
         }
     }
-    return choose_user_folder(user_folder_option, values, fallback);
+    const fs::path chosen = choose_user_folder(user_folder_option, values, fallback);
+    return chosen;
 }
 
 fs::path choose_user_folder(

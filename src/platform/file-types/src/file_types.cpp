@@ -130,8 +130,19 @@ std::optional<fs::path> running_executable() {
         while (true) {
             const DWORD length =
                 GetModuleFileNameW(nullptr, name.data(), static_cast<DWORD>(name.size()));
-            if (length == 0)
-                return std::nullopt;
+            if (length == 0) {
+                // A Windows whose wide entry points are stubs — Windows 95's
+                // are — answers nothing here, so the system-character-set form
+                // is asked instead. The wide one goes first because only it
+                // carries a name outside that character set.
+                std::string narrow(MAX_PATH, '\0');
+                const DWORD narrow_length =
+                    GetModuleFileNameA(nullptr, narrow.data(), static_cast<DWORD>(narrow.size()));
+                if (narrow_length == 0 || narrow_length >= narrow.size())
+                    return std::nullopt;
+                narrow.resize(narrow_length);
+                return fs::path(narrow);
+            }
             // A name that fills the buffer may have been cut short.
             if (length < name.size()) {
                 name.resize(length);
