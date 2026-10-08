@@ -124,6 +124,8 @@ using SetFilePointerExFunction =
     BOOL(WINAPI*)(HANDLE file, LARGE_INTEGER distance, PLARGE_INTEGER position, DWORD method);
 using SetThreadExecutionStateFunction = EXECUTION_STATE(WINAPI*)(EXECUTION_STATE state);
 using TryEnterCriticalSectionFunction = BOOL(WINAPI*)(LPCRITICAL_SECTION section);
+using InitializeConditionVariableFunction = void(WINAPI*)(void** condition);
+using SleepConditionVariableFunction = BOOL(WINAPI*)(void** condition, void* section, DWORD timeout_ms);
 using VerSetConditionMaskFunction = ULONGLONG(WINAPI*)(ULONGLONG mask, DWORD type, BYTE condition);
 using VerifyVersionInfoFunction =
     BOOL(WINAPI*)(LPOSVERSIONINFOEXW wanted, DWORD type, DWORDLONG mask);
@@ -229,6 +231,12 @@ constinit SystemFunction<SetThreadExecutionStateFunction> system_set_thread_exec
 };
 constinit SystemFunction<TryEnterCriticalSectionFunction> system_try_enter_critical_section{
     kernel32, "TryEnterCriticalSection"
+};
+constinit SystemFunction<InitializeConditionVariableFunction> system_initialize_condition_variable{
+    kernel32, "InitializeConditionVariable"
+};
+constinit SystemFunction<SleepConditionVariableFunction> system_sleep_condition_variable{
+    kernel32, "SleepConditionVariableCS"
 };
 constinit SystemFunction<VerSetConditionMaskFunction> system_ver_set_condition_mask{
     kernel32, "VerSetConditionMask"
@@ -1299,6 +1307,89 @@ BOOL WINAPI try_enter_critical_section(LPCRITICAL_SECTION section) {
 }
 
 OA_XP_DEFINE_SYSTEM(try_enter_critical_section, TryEnterCriticalSection, 4);
+
+namespace {
+
+/// The word of a condition variable, whose count of wake-ups is what a waiter
+/// waits for it to change.
+uintptr_t& condition_word(void** condition) noexcept {
+    return *reinterpret_cast<uintptr_t*>(condition);
+}
+
+/// Whether a condition has been woken since the caller noted its count.
+bool condition_woken(void** condition, uintptr_t noted) noexcept {
+    return std::atomic_ref<uintptr_t>(condition_word(condition)).load(std::memory_order_acquire)
+        != noted;
+}
+
+/// How often a waiter spins, and then yields, before it sleeps.
+constexpr uint32_t condition_spins = 8;
+constexpr uint32_t condition_yields = 16;
+
+} // namespace
+
+/// Makes a condition that no thread waits on.
+///
+/// Windows 95 has no condition variable of the Windows API. The C++ run-time
+/// library's thread support is told that the version compiled for has one
+/// (cmake/toolchains/windows-95-gthr.hpp) and builds its condition variables
+/// on these calls. The two that wake a waiter are oa-platform-xp-runtime's,
+/// over the same word.
+extern "C" void WINAPI initialize_condition_variable(void** condition) __asm__(
+    OA_XP_SYSTEM_SYMBOL(InitializeConditionVariable, 4)
+);
+
+void WINAPI initialize_condition_variable(void** condition) {
+    if (const auto system = system_initialize_condition_variable.get()) {
+        system(condition);
+        return;
+    }
+    condition_word(condition) = 0;
+}
+
+OA_XP_DEFINE_SYSTEM(initialize_condition_variable, InitializeConditionVariable, 4);
+
+/// Releases the lock, waits for the condition to be woken, and takes the lock
+/// again.
+///
+/// @return TRUE when woken, or FALSE with ERROR_TIMEOUT when the time ran out
+extern "C" BOOL WINAPI sleep_condition_variable_cs(
+    void** condition, void* section, DWORD timeout_ms
+) __asm__(OA_XP_SYSTEM_SYMBOL(SleepConditionVariableCS, 12));
+
+BOOL WINAPI sleep_condition_variable_cs(void** condition, void* section, DWORD timeout_ms) {
+    if (const auto system = system_sleep_condition_variable.get())
+        return system(condition, section, timeout_ms);
+    // The count is noted before the lock is released, so a wake that comes
+    // between the two is not lost.
+    const uintptr_t noted =
+        std::atomic_ref<uintptr_t>(condition_word(condition)).load(std::memory_order_acquire);
+    auto* lock = static_cast<LPCRITICAL_SECTION>(section);
+    LeaveCriticalSection(lock);
+    const DWORD started = GetTickCount();
+    uint32_t attempts = 0;
+    bool woken = true;
+    while (!condition_woken(condition, noted)) {
+        if (timeout_ms != INFINITE && GetTickCount() - started >= timeout_ms) {
+            woken = false;
+            break;
+        }
+        if (attempts < condition_yields) {
+            if (attempts++ >= condition_spins)
+                Sleep(0);
+            continue;
+        }
+        Sleep(1);
+    }
+    EnterCriticalSection(lock);
+    if (!woken) {
+        SetLastError(ERROR_TIMEOUT);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+OA_XP_DEFINE_SYSTEM(sleep_condition_variable_cs, SleepConditionVariableCS, 12);
 
 /// Adds a condition to the mask VerifyVersionInfoW compares with.
 ///
