@@ -12,6 +12,7 @@
 // checked and committed, and the demo route over the installer
 // OA_DEMO_INSTALLER names (each skipped without its variable).
 #include "oa/app/game_files_import.hpp"
+#include "oa/base/threads.hpp"
 #include "oa/formats/hpi.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/test/check.hpp"
@@ -27,7 +28,6 @@
 #include <limits>
 #include <string>
 #include <system_error>
-#include <thread>
 #include <vector>
 
 namespace {
@@ -1015,6 +1015,20 @@ void scripted_failures(const fs::path& scratch) {
     OA_CHECK(run.stage == RunStage::checked && there(paths.staging / "x.ufo"));
 }
 
+/// What the test's copying thread and the test share.
+struct ChunkedCopyRun {
+    const char* source{};
+    const FileCopy* file{};
+    std::string* error{};
+    CopyOutcome outcome{CopyOutcome::copied};
+};
+
+/// Runs one chunked copy on the thread the test starts.
+void run_chunked_copy(void* argument) {
+    auto& run = *static_cast<ChunkedCopyRun*>(argument);
+    run.outcome = chunked_copy(run.source, *run.file, run.error);
+}
+
 /// The chunked copy: the time stamped, the .part renamed, a changed or missing source, and
 /// the stop flag before and between chunks.
 void chunked_copies(const fs::path& scratch) {
@@ -1074,13 +1088,14 @@ void chunked_copies(const fs::path& scratch) {
     const auto large = path_to_utf8(root / "large.bin");
     file.size = 48 * mebibyte;
     done.store(0);
-    CopyOutcome outcome = CopyOutcome::copied;
-    std::thread copier([&] { outcome = chunked_copy(large.c_str(), file, &error); });
+    ChunkedCopyRun run{large.c_str(), &file, &error};
+    threads::Thread copier{};
+    OA_CHECK(threads::start_thread(copier, run_chunked_copy, &run));
     while (done.load() == 0)
-        std::this_thread::yield();
+        threads::sleep_ms(0);
     stop.store(true);
-    copier.join();
-    OA_CHECK(outcome == CopyOutcome::stopped);
+    threads::join_thread(copier);
+    OA_CHECK(run.outcome == CopyOutcome::stopped);
     OA_CHECK(done.load() < 48 * mebibyte);
     OA_CHECK(!there(root / "out" / "copy.bin.part") && !there(root / "out" / "copy.bin"));
 }

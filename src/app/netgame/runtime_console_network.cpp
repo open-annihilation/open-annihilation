@@ -7,6 +7,7 @@
 // active; "Compression" and "Senderror" are read by the packet layer's sender
 // and "Drop" by the stall check.
 #include "oa/app/runtime.hpp"
+#include "oa/base/threads.hpp"
 #include "network_play.hpp"
 #include "launch_binding.hpp"
 #include "net_state.hpp"
@@ -42,7 +43,7 @@ constexpr int kSessionWaitSteps = 200;
 constexpr int kLossSteps = 10;
 constexpr int kCompressionSteps = 3;
 // Longer than two transport time ticks (1/30 s each).
-constexpr auto kSilence = std::chrono::milliseconds(100);
+constexpr uint32_t kSilence = 100;
 
 NetworkPlay* play_of(void* context) noexcept {
     return static_cast<NetworkPlay*>(context);
@@ -328,7 +329,7 @@ void NetworkPlay::check_console_network_session(
     const auto seconds = game.player_timeout_seconds;
     const auto silent_peer = [&] {
         step(false);
-        std::this_thread::sleep_for(kSilence);
+        base::threads::sleep_ms(kSilence);
         step(false);
         return match->timeout_player;
     };

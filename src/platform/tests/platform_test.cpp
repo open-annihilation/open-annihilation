@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
+#include "oa/base/threads.hpp"
 #include "oa/platform/allocator.hpp"
 #include "oa/platform/app_loop.hpp"
 #include "oa/platform/crash.hpp"
@@ -21,7 +22,6 @@
 #include <string>
 #include <string_view>
 #include <system_error>
-#include <thread>
 #include <vector>
 
 #ifndef _WIN32
@@ -88,24 +88,40 @@ void test_lock_reentry() {
     check(lock.word.load() == 0 && lock.owner.load() == 0, "outer leave releases");
 }
 
+/// One thread's share of the lock-contention test.
+struct ContentionRun {
+    oa::platform::TokenLock* lock{};
+    int* counter{};
+    int which{};
+};
+
+/// Increments the shared count under the token lock, as the contention test's threads do.
+void contention_worker(void* argument) {
+    auto& run = *static_cast<ContentionRun*>(argument);
+    for (int i = 0; i < 2000; ++i) {
+        const oa::platform::TokenLockHold hold =
+            oa::platform::token_lock_enter(run.lock, 0x100 + run.which);
+        ++*run.counter;
+        oa::platform::token_lock_leave(run.lock, &hold);
+    }
+}
+
 void test_lock_contention() {
     using namespace oa::platform;
     TokenLock lock;
     token_lock_reset(&lock);
     int counter = 0;
-    std::vector<std::thread> threads;
+    ContentionRun runs[4]{};
+    oa::base::threads::Thread threads[4]{};
     for (int t = 0; t < 4; ++t) {
-        threads.emplace_back([&lock, &counter, t] {
-            for (int i = 0; i < 2000; ++i) {
-                const TokenLockHold hold = token_lock_enter(&lock, 0x100 + t);
-                ++counter;
-                token_lock_leave(&lock, &hold);
-            }
-        });
+        runs[t] = ContentionRun{&lock, &counter, t};
+        check(
+            oa::base::threads::start_thread(threads[t], contention_worker, &runs[t]),
+            "contention thread starts"
+        );
     }
-    for (auto& thread : threads) {
-        thread.join();
-    }
+    for (auto& thread : threads)
+        oa::base::threads::join_thread(thread);
     check(counter == 8000, "lock serialises increments");
 }
 
