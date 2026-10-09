@@ -69,6 +69,29 @@ constexpr uint32_t kMillisecondsPerSecond = 1000;
 constexpr std::string_view kBriefingEscapeDefault = "PrevMenu";
 constexpr std::size_t kBriefingRowColour = 0;
 constexpr std::size_t kBriefingMoreColour = 1;
+// The briefing art's window frames: one 640 by 480 frame for each side, ARM
+// first, drawn from the screen's corner over the panorama and the planet.
+constexpr std::string_view kBriefingFrames = "PanMask";
+// The wind and gravity lines in the SOLARSYSTEM gadget: their pens' column
+// from the gadget's left, the wind line's pen row from its top, and the
+// rows from one line to the next.
+constexpr int32_t kSolarLabelColumn = 80;
+constexpr int32_t kSolarLabelFirstRow = 20;
+constexpr int32_t kSolarLabelRowStep = 20;
+
+/// Returns the width of a briefing panorama's strip: its frames side by side.
+///
+/// @param panorama the panorama sequence; null for none
+/// @return the strip's width in pixels; 0 for none
+int32_t briefing_strip_width(const oa::formats::gaf::Sequence* panorama) {
+    if (panorama == nullptr)
+        return 0;
+    int32_t width = 0;
+    for (const auto& frame : panorama->frames)
+        width += frame.width;
+    return width;
+}
+
 // A highlighted word shows in its colour for kHighlightShownMs, then in
 // kHighlightFlashColour for kHighlightFlashMs, over and over from when its
 // page is laid out.
@@ -1098,6 +1121,7 @@ void Runtime::show_mission_briefing() {
     widget_sprites_.clear();
     widget_gaf_frames_.clear();
     widget_text_stages_.clear();
+    briefing_frames_.clear();
     const oa::data::defs::Files files = asset_files(assets_);
     uint8_t* planet_gaf = nullptr;
     uint32_t planet_gaf_size = 0;
@@ -1116,6 +1140,8 @@ void Runtime::show_mission_briefing() {
                         widget_sprites_["PLANET"] = {
                             renderer::SpriteArchive::screen, sequence.name
                         };
+                    if (names_equal(sequence.name, kBriefingFrames))
+                        briefing_frames_ = sequence.name;
                     resources_.sprites.sequences.push_back(std::move(sequence));
                 }
         } catch (const std::exception& error) {
@@ -1152,6 +1178,16 @@ void Runtime::show_mission_briefing() {
         nullptr,
         &host,
         !options_.mute
+    );
+    // The wind and gravity lines show from the first draw.
+    campaign::briefing_solar_system_tick(
+        &state.panel,
+        &state.file,
+        lcg_random,
+        nullptr,
+        frontend_tick(),
+        briefing_strip_width(briefing_sequence("PANORAMA")),
+        &host
     );
     briefing_text_ = missions::campaign_briefing_text(&state.file) != nullptr
                          ? missions::campaign_briefing_text(&state.file)
@@ -1311,73 +1347,132 @@ void Runtime::click_briefing_gadget(std::string name) {
 }
 
 void Runtime::tick_mission_briefing() {
-    auto& panel = campaign_runtime().panel;
+    auto& state = campaign_runtime();
+    auto& panel = state.panel;
     const bool narration_on = panel.narration_on;
-    // With no rotation frames the ticker's redraw request can only follow
-    // SHUTUP switching off, which is followed below.
+    const int32_t scroll = panel.panorama_scroll;
+    const int32_t rotation = panel.rotation_frame;
+    const std::string wind = panel.wind_label;
+    const auto* panorama = briefing_sequence("PANORAMA");
+    const auto* planet = briefing_sequence("PLANET");
+    const auto host = event_host();
+    campaign::briefing_solar_system_tick(
+        &panel,
+        &state.file,
+        lcg_random,
+        nullptr,
+        frontend_tick(),
+        briefing_strip_width(panorama),
+        &host
+    );
+    // The ticker's redraw request is left aside: the screen is redrawn below
+    // only when what it shows has changed.
     std::ignore = campaign::briefing_ticker(
         &panel,
         static_cast<uint32_t>(SDL_GetTicks()),
-        frontend_tick(),
+        frontend_tick() / campaign::kRotationTickDivisor,
         audio_player_.stream_busy(),
-        0,
+        planet != nullptr ? static_cast<int32_t>(planet->frames.size()) : 0,
         nullptr
     );
-    if (narration_on && !panel.narration_on) {
+    if (narration_on && !panel.narration_on)
         set_button_stage("SHUTUP", 0);
+    if (narration_on != panel.narration_on || scroll != panel.panorama_scroll ||
+        rotation != panel.rotation_frame || wind != panel.wind_label)
         rebuild_surface();
-    }
+}
+
+const oa::formats::gaf::Sequence* Runtime::briefing_sequence(std::string_view gadget) const {
+    const auto sprite = widget_sprites_.find(std::string(gadget));
+    return sprite != widget_sprites_.end()
+               ? gaf_sequence(resources_.sprites, sprite->second.sequence)
+               : nullptr;
 }
 
 void Runtime::draw_briefing_overlays() {
     // The screen is drawn in its background's palette, as the gadgets are.
     const auto& pal =
         resources_.background.palette ? *resources_.background.palette : resources_.gui_palette;
-    const auto blit_named = [&](std::string_view gadget_name) {
-        const auto* gadget = widget(gadget_name);
-        const auto sprite = widget_sprites_.find(std::string(gadget_name));
-        if (gadget == nullptr || sprite == widget_sprites_.end())
-            return;
-        const auto* sequence = gaf_sequence(resources_.sprites, sprite->second.sequence);
-        if (sequence == nullptr || sequence->frames.empty())
-            return;
-        const auto rendered = oa::formats::gaf::render_normal(sequence->frames.front());
-        if (!rendered.ok())
-            return;
-        const auto& frame = *rendered.frame;
-        const int dw = gadget->common.width;
-        const int dh = gadget->common.height;
-        if (dw <= 0 || dh <= 0)
-            return;
-        for (int row = 0; row < dh; ++row) {
-            const auto sy = static_cast<uint32_t>(row) * frame.height / static_cast<uint32_t>(dh);
-            for (int column = 0; column < dw; ++column) {
-                const auto sx =
-                    static_cast<uint32_t>(column) * frame.width / static_cast<uint32_t>(dw);
-                const auto offset =
-                    static_cast<std::size_t>(sy) * frame.width + static_cast<std::size_t>(sx);
-                if (offset >= frame.coverage.size() || frame.coverage[offset] == 0)
-                    continue;
-                const int x = gadget->common.x + column;
-                const int y = gadget->common.y + row;
-                if (x < 0 || y < 0 || x >= static_cast<int>(surface_.width) ||
-                    y >= static_cast<int>(surface_.height))
-                    continue;
-                const auto pal_i = static_cast<std::size_t>(frame.pixels[offset]) * 4U;
-                if (pal_i + 2 >= pal.size())
-                    continue;
-                const auto di =
-                    (static_cast<std::size_t>(y) * surface_.width + static_cast<std::size_t>(x)) *
-                    3U;
-                surface_.rgb[di] = pal[pal_i];
-                surface_.rgb[di + 1] = pal[pal_i + 1];
-                surface_.rgb[di + 2] = pal[pal_i + 2];
+
+    // A frame's covered pixels, one to one, with its first column and row at
+    // (x, y), inside the clip rectangle and the screen.
+    struct Clip {
+        int left, top, right, bottom;
+    };
+
+    const Clip screen_clip{
+        0, 0, static_cast<int>(surface_.width), static_cast<int>(surface_.height)
+    };
+    const auto blit_frame =
+        [&](const oa::formats::gaf::Frame& source, int x, int y, const Clip& clip) {
+            const auto rendered = oa::formats::gaf::render_normal(source);
+            if (!rendered.ok())
+                return;
+            const auto& frame = *rendered.frame;
+            const int left = std::max({clip.left, screen_clip.left, x});
+            const int top = std::max({clip.top, screen_clip.top, y});
+            const int right =
+                std::min({clip.right, screen_clip.right, x + static_cast<int>(frame.width)});
+            const int bottom =
+                std::min({clip.bottom, screen_clip.bottom, y + static_cast<int>(frame.height)});
+            for (int row = top; row < bottom; ++row)
+                for (int column = left; column < right; ++column) {
+                    const auto offset = static_cast<std::size_t>(row - y) * frame.width +
+                                        static_cast<std::size_t>(column - x);
+                    if (offset >= frame.coverage.size() || frame.coverage[offset] == 0)
+                        continue;
+                    const auto pal_i = static_cast<std::size_t>(frame.pixels[offset]) * 4U;
+                    if (pal_i + 2 >= pal.size())
+                        continue;
+                    const auto di = (static_cast<std::size_t>(row) * surface_.width +
+                                     static_cast<std::size_t>(column)) *
+                                    3U;
+                    surface_.rgb[di] = pal[pal_i];
+                    surface_.rgb[di + 1] = pal[pal_i + 1];
+                    surface_.rgb[di + 2] = pal[pal_i + 2];
+                }
+        };
+    const auto gadget_clip = [](const oa::ui::gui_layout::Gadget& gadget) {
+        return Clip{
+            gadget.common.x,
+            gadget.common.y,
+            gadget.common.x + gadget.common.width,
+            gadget.common.y + gadget.common.height
+        };
+    };
+    auto& panel = campaign_runtime().panel;
+    // The briefing opened from the pause menu has no planet art.
+    const bool planet_art = !briefing_from_pause_;
+    // The panorama's strip of frames, laid side by side, shows from its
+    // scroll on; the strip's start follows its end.
+    if (const auto* gadget = widget("PANORAMA"); planet_art && gadget != nullptr)
+        if (const auto* panorama = briefing_sequence("PANORAMA")) {
+            const int width = briefing_strip_width(panorama);
+            const int start = width > 0 ? panel.panorama_scroll % width : 0;
+            for (const int repeat : {0, width}) {
+                int left = gadget->common.x - start + repeat;
+                for (const auto& frame : panorama->frames) {
+                    blit_frame(frame, left, gadget->common.y, gadget_clip(*gadget));
+                    left += frame.width;
+                }
             }
         }
-    };
-    blit_named("PANORAMA");
-    blit_named("PLANET");
-    const auto& page = campaign_runtime().panel.page;
+    if (const auto* gadget = widget("PLANET"); planet_art && gadget != nullptr)
+        if (const auto* planet = briefing_sequence("PLANET");
+            planet != nullptr && !planet->frames.empty()) {
+            const auto frame =
+                static_cast<std::size_t>(panel.rotation_frame) % planet->frames.size();
+            blit_frame(
+                planet->frames[frame], gadget->common.x, gadget->common.y, gadget_clip(*gadget)
+            );
+        }
+    if (const auto* frames =
+            briefing_frames_.empty() ? nullptr : gaf_sequence(resources_.sprites, briefing_frames_);
+        planet_art && frames != nullptr && !frames->frames.empty()) {
+        const auto side = std::min<std::size_t>(preferences_.side, frames->frames.size() - 1U);
+        blit_frame(frames->frames[side], 0, 0, screen_clip);
+    }
+    const auto& page = panel.page;
     const auto& colours = kBriefingTextColours[preferences_.side == 0 ? 0 : 1];
     const auto pixel_count =
         static_cast<std::size_t>(surface_.width) * static_cast<std::size_t>(surface_.height);
@@ -1456,6 +1551,13 @@ void Runtime::draw_briefing_overlays() {
     };
     for (uint32_t i = 0; i < page.row_count; ++i)
         draw_line(page.rows[i].text, page.rows[i].x, page.rows[i].y, colours[kBriefingRowColour]);
+    // The wind and gravity lines, in the rows' font and colour.
+    if (const auto* solar = widget("SOLARSYSTEM"); planet_art && solar != nullptr) {
+        const int32_t x = solar->common.x + kSolarLabelColumn;
+        const int32_t y = solar->common.y + kSolarLabelFirstRow;
+        draw_line(panel.wind_label, x, y, colours[kBriefingRowColour]);
+        draw_line(panel.gravity_label, x, y + kSolarLabelRowStep, colours[kBriefingRowColour]);
+    }
     copy_glyphs(colours[kBriefingRowColour], fnt_font);
     // The highlighted words are drawn over their rows, all in the flash
     // colour while it shows.

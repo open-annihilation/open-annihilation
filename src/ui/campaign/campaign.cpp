@@ -37,6 +37,9 @@ constexpr PlanetArt kPlanets[kPlanetCount] = {
 
 constexpr int32_t kWindRegenModulo = 0x3f;
 constexpr int32_t kWindRegenInitialModulo = 0x40;
+// The gravity line reads a mission's gravity as a multiple of the standard
+// gravity, 112, which it shows as 1.0.
+constexpr double kStandardGravity = 112.0;
 
 bool named(const char* control, const char* name) {
     if (control == nullptr)
@@ -161,7 +164,7 @@ void briefing_solar_system_tick(
         sizeof(panel->gravity_label),
         "%s : %.1f",
         host_translate(host, "Gravity"),
-        static_cast<double>(campaign->gravity)
+        static_cast<double>(campaign->gravity) / kStandardGravity
     );
     if (panorama_width <= 0)
         return;

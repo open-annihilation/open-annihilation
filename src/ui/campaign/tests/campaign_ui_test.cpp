@@ -514,6 +514,35 @@ void installed_data_tests(const oa::AssetStore& assets) {
     delete setup;
 }
 
+// The SOLARSYSTEM lines and the panorama's scroll: gravity reads as a
+// multiple of the standard 112, the wind stays in the mission's range, and
+// the panorama steps one pixel every third tick and wraps at its strip.
+void solar_system_tests() {
+    auto* campaign = new oa::data::campaign::CampaignFile;
+    campaign->min_wind = 100;
+    campaign->max_wind = 2500;
+    campaign->gravity = 112;
+    auto* panel = new BriefingPanel;
+    constexpr int32_t strip = 4;
+    briefing_solar_system_tick(panel, campaign, nullptr, nullptr, 1, strip, nullptr);
+    expect(std::string(panel->gravity_label) == "Gravity : 1.0", "solar: standard gravity");
+    expect(
+        panel->wind_walk >= campaign->min_wind && panel->wind_walk <= campaign->max_wind,
+        "solar: wind within the mission's range"
+    );
+    expect(panel->panorama_scroll == 1, "solar: the first update scrolls a pixel");
+    campaign->gravity = 168;
+    for (const uint32_t tick : {2U, 3U})
+        briefing_solar_system_tick(panel, campaign, nullptr, nullptr, tick, strip, nullptr);
+    expect(std::string(panel->gravity_label) == "Gravity : 1.5", "solar: gravity of 168");
+    expect(panel->panorama_scroll == 1, "solar: no step until its deadline has passed");
+    for (const uint32_t tick : {4U, 7U, 10U})
+        briefing_solar_system_tick(panel, campaign, nullptr, nullptr, tick, strip, nullptr);
+    expect(panel->panorama_scroll == 0, "solar: a step every third tick wraps at the strip");
+    delete panel;
+    delete campaign;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -527,6 +556,7 @@ int main(int argc, char** argv) {
         chinese_row_tests();
         single_player_tests();
         new_game_tests();
+        solar_system_tests();
     }
     if (failures != 0) {
         std::cerr << failures << " failure(s)\n";
