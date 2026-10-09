@@ -6,7 +6,7 @@
 // takes the place of the one playing; stop_all, which silences every
 // effect, the loop and the stream at once; and the effects' voice policy.
 // On a mixer the test runs by hand, a placed start weighs its two sides by
-// the placement's levels.
+// the placement's levels, and a held loop is silent until the hold ends.
 #include "audio_test_support.hpp"
 #include "oa/audio/sdl_audio.hpp"
 #include "oa/audio/software_mixer.hpp"
@@ -17,6 +17,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -130,6 +131,49 @@ void placed_sides(const std::filesystem::path& root) {
             require(std::abs(weighed[i + 1] - right) <= 1, "the right side plays at its level");
         }
         require(sounding, "the start sounds");
+    }
+    oa::audio::set_sound_output(nullptr);
+}
+
+// A held loop is silent, and once the hold ends it plays on from where it
+// stopped; a loop started while the hold lasts starts silent.
+void held_loop(const std::filesystem::path& root) {
+    HandMixedOutput output;
+    oa::audio::set_sound_output(&output);
+    {
+        const oa::AssetStore assets(root);
+        SdlWavPlayer player(assets);
+        std::string error;
+        constexpr uint32_t frames = 256;
+        const auto sounds = [](const std::vector<int16_t>& mix) {
+            return std::any_of(mix.begin(), mix.end(), [](int16_t sample) { return sample != 0; });
+        };
+        require(player.start_loop_resource("sounds/short.wav", error), "a loop starts");
+        const auto first = output.mix(frames);
+        const auto following = output.mix(frames);
+        require(sounds(first) && sounds(following), "the loop sounds");
+        // The loop playing from its start again does not pass for it playing on.
+        require(first != following, "the loop's next frames differ from its first");
+
+        require(player.start_loop_resource("sounds/short.wav", error), "the loop starts again");
+        require(output.mix(frames) == first, "a loop starts from its beginning");
+        player.hold_loop(true);
+        require(!sounds(output.mix(frames)), "a held loop is silent");
+        player.hold_loop(true);
+        require(!sounds(output.mix(frames)), "holding a held loop keeps it silent");
+        player.hold_loop(false);
+        require(output.mix(frames) == following, "a loop plays on from where the hold stopped it");
+
+        player.hold_loop(true);
+        player.stop_loop();
+        require(
+            player.start_loop_resource("sounds/short.wav", error),
+            "a loop starts while the hold lasts"
+        );
+        require(!sounds(output.mix(frames)), "a loop started while held is silent");
+        player.hold_loop(false);
+        require(output.mix(frames) == first, "the hold ends and the loop plays from its beginning");
+        player.stop_all();
     }
     oa::audio::set_sound_output(nullptr);
 }
@@ -274,6 +318,7 @@ int main() {
         player.stop_all();
     }
     placed_sides(root);
+    held_loop(root);
     std::filesystem::remove_all(root);
     SDL_Quit();
     return 0;

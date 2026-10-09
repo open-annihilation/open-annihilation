@@ -36,6 +36,11 @@ would take more than 8 MiB as an effect or the loop, or more than 32 MiB as
 the stream, is refused before it is converted (`converted_bytes`). `effect_voices` counts the
 voices.
 
+`hold_loop` silences the looping sound where it is and lets it play on from
+there; the game holds the menu's loop while a movie plays and while the
+application is inactive. The hold is the player's: a loop started while it
+lasts starts silent.
+
 Besides its effects and its one looping sound, the WAV player keeps one
 stream, as the game keeps one: the briefing's narration and the end screen's
 glamour sound. `SdlWavPlayer::play_stream` plays a sound once, after a delay

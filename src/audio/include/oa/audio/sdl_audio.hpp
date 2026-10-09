@@ -86,6 +86,14 @@ class SdlWavPlayer {
     /// Stops the looping sound, if any.
     void stop_loop() noexcept;
 
+    /// Holds the looping sound silent where it is, or lets it play on from there.
+    ///
+    /// The hold is the player's, not one loop's: a loop started while it
+    /// lasts starts silent, and stopping the loop does not end it.
+    ///
+    /// @param held true to silence the loop, false to let it play
+    void hold_loop(bool held) noexcept;
+
     /// Streams a WAV resolved through the asset store once, as the one stream the player keeps.
     ///
     /// The briefing's narration and the end screen's glamour sound take this

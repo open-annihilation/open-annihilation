@@ -660,6 +660,9 @@ void Runtime::play_menu_sound(menu::Sound sound) {
 
 void Runtime::take_movie_event(void* context, const SDL_Event& event) {
     auto& runtime = *static_cast<Runtime*>(context);
+    // A change of focus during the movie is noted, so that the menu's loop
+    // stays held after it when the application has gone inactive.
+    runtime.note_window_activation(event);
     // The movie player does not hand its events on, so whether Alt+Enter
     // took one does not matter. A render event is noted for the next
     // render(); the movie's own texture may go with a reset device, which
@@ -694,7 +697,11 @@ void Runtime::play_movie_resource(std::string_view filename) {
         // game.
         playback.hooks.context = this;
         playback.hooks.window_event = take_movie_event;
+        // The menu's loop is silent under the movie and plays on from where
+        // it was after it, unless the application is inactive by then.
+        audio_player_.hold_loop(true);
         const auto result = opened.player->play(playback);
+        audio_player_.hold_loop(!application_active_);
         if (!result.ok())
             status_ = "movie playback failed: " + result.error;
     }

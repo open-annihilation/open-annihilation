@@ -542,6 +542,8 @@ int Runtime::run() {
         if (options_.check_running_while_inactive)
             begin_inactive_loop_check();
         park_music_while_inactive();
+        // The menu's loop is silent while the application is inactive.
+        audio_player_.hold_loop(!application_active_);
         SDL_Event event{};
         // A frame-limited run is scripted and must finish without focus. A
         // remote-controlled run is served from the frame hooks every frame,

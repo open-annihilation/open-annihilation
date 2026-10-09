@@ -127,6 +127,7 @@ struct SdlWavPlayer::Impl {
     std::vector<std::pair<StreamFormat, std::unique_ptr<OutputStream>>> idle_streams;
     std::unique_ptr<OutputStream> looping;
     LoopingTrack loop_track;
+    bool loop_held{};                     // hold_loop: the loop, and any loop started, stays paused
     std::unique_ptr<OutputStream> stream; // the one streamed sound, played once
     uint32_t wave_out_volume{full_wave_out_volume};
     uint32_t fx_volume{default_fx_volume};
@@ -488,8 +489,9 @@ bool SdlWavPlayer::start_loop_resource(std::string_view resource, std::string& e
         impl_->loop_track.pcm.clear();
         return false;
     }
+    // A held loop stays paused, as the stream opens, until the hold ends.
     if (!impl_->looping->set_gain(converted_gain(impl_->wave_out_volume, impl_->fx_volume)) ||
-        !impl_->looping->resume()) {
+        (!impl_->loop_held && !impl_->looping->resume())) {
         error = output.last_error();
         stop_loop();
         return false;
@@ -501,6 +503,20 @@ bool SdlWavPlayer::start_loop_resource(std::string_view resource, std::string& e
 void SdlWavPlayer::stop_loop() noexcept {
     impl_->looping.reset();
     impl_->loop_track = {};
+}
+
+void SdlWavPlayer::hold_loop(bool held) noexcept {
+    if (held == impl_->loop_held)
+        return;
+    impl_->loop_held = held;
+    if (impl_->looping == nullptr)
+        return;
+    // A paused stream keeps the samples queued, so the loop plays on from
+    // where it stopped.
+    if (held)
+        impl_->looping->pause();
+    else
+        impl_->looping->resume();
 }
 
 bool SdlWavPlayer::play_stream(std::string_view resource, uint32_t delay_ms, std::string& error) {

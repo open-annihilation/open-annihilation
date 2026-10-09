@@ -12134,16 +12134,19 @@ class Runtime final : public menu::Host,
 
     /// Plays a movie of the game's Data directory in the window, then lays the frame out again.
     ///
-    /// A missing or failed movie is shown on the status line, and so is a
+    /// The menu's looping sound is held silent while the movie plays, and
+    /// plays on afterwards unless the application has gone inactive. A
+    /// missing or failed movie is shown on the status line, and so is a
     /// name that is not a plain file name: empty, "." or "..", or holding
     /// '/', '\' or ':', which is not opened.
     ///
     /// @param filename the movie's file in the Data folder (1.zrb .. 5.zrb in 3.1c)
     void play_movie_resource(std::string_view filename);
 
-    /// Takes an event the movie player hands on while a movie plays: a
-    /// render event (take_render_event), else Alt+Enter
-    /// (take_full_screen_event).
+    /// Takes an event the movie player hands on while a movie plays.
+    ///
+    /// Notes a change of focus (note_window_activation), then takes a render
+    /// event (take_render_event), else Alt+Enter (take_full_screen_event).
     ///
     /// @param context the runtime
     /// @param event the event
