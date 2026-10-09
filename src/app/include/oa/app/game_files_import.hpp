@@ -325,6 +325,30 @@ struct SpaceNeed {
 /// @return how the copy ended
 CopyOutcome chunked_copy(const char* readable_source, const FileCopy& file, std::string* error);
 
+/// What chunked_copy_with tells as it copies: a seam for tests, which can act at a chunk's
+/// end without racing the copy.
+struct ChunkedCopyHooks {
+    void* context{}; ///< passed back to every hook
+    /// Runs after each chunk is written and counted in file.bytes_done, before the stop
+    /// flag is checked for the next, with the bytes of the file written so far. Null:
+    /// nothing runs.
+    void (*chunk_written)(void* context, uint64_t written){};
+};
+
+/// The chunked copy, telling `hooks` of each chunk written; chunked_copy with no hooks.
+///
+/// @param readable_source the file to read, UTF-8
+/// @param file what to copy and where
+/// @param[out] error why it failed
+/// @param hooks run as the copy goes
+/// @return how the copy ended
+CopyOutcome chunked_copy_with(
+    const char* readable_source,
+    const FileCopy& file,
+    std::string* error,
+    const ChunkedCopyHooks& hooks
+);
+
 /// What a SourceScan does.
 struct ScanRequest {
     SourceKind kind{SourceKind::game_folder}; ///< what the picker chose

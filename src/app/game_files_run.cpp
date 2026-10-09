@@ -578,6 +578,15 @@ void run_import(void* argument) {
 struct ImportRun::Shared : RunState {};
 
 CopyOutcome chunked_copy(const char* readable_source, const FileCopy& file, std::string* error) {
+    return chunked_copy_with(readable_source, file, error, {});
+}
+
+CopyOutcome chunked_copy_with(
+    const char* readable_source,
+    const FileCopy& file,
+    std::string* error,
+    const ChunkedCopyHooks& hooks
+) {
     std::string ignored_error;
     auto& why = error != nullptr ? *error : ignored_error;
     why.clear();
@@ -652,6 +661,8 @@ CopyOutcome chunked_copy(const char* readable_source, const FileCopy& file, std:
             written += read;
             if (file.bytes_done != nullptr)
                 file.bytes_done->fetch_add(read);
+            if (hooks.chunk_written != nullptr)
+                hooks.chunk_written(hooks.context, written);
         }
         if (read < buffer.size())
             break;

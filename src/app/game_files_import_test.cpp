@@ -1015,18 +1015,9 @@ void scripted_failures(const fs::path& scratch) {
     OA_CHECK(run.stage == RunStage::checked && there(paths.staging / "x.ufo"));
 }
 
-/// What the test's copying thread and the test share.
-struct ChunkedCopyRun {
-    const char* source{};
-    const FileCopy* file{};
-    std::string* error{};
-    CopyOutcome outcome{CopyOutcome::copied};
-};
-
-/// Runs one chunked copy on the thread the test starts.
-void run_chunked_copy(void* argument) {
-    auto& run = *static_cast<ChunkedCopyRun*>(argument);
-    run.outcome = chunked_copy(run.source, *run.file, run.error);
+/// Presses Stop as a chunk ends (ChunkedCopyHooks::chunk_written); the context is the stop flag.
+void press_stop(void* context, uint64_t /*written*/) {
+    static_cast<std::atomic<bool>*>(context)->store(true);
 }
 
 /// The chunked copy: the time stamped, the .part renamed, a changed or missing source, and
@@ -1083,20 +1074,17 @@ void chunked_copies(const fs::path& scratch) {
     OA_CHECK(!there(root / "out" / "copy.bin.part"));
     stop.store(false);
 
-    // Stop between chunks of a larger file: pressed as soon as the first chunk is written.
-    write_sized(root / "large.bin", 48 * mebibyte, 3);
+    // Stop between chunks of a larger file: pressed as the first chunk ends, so the copy
+    // stops before the second and leaves nothing behind.
+    write_sized(root / "large.bin", 4 * mebibyte, 3);
     const auto large = path_to_utf8(root / "large.bin");
-    file.size = 48 * mebibyte;
+    file.size = 4 * mebibyte;
     done.store(0);
-    ChunkedCopyRun run{large.c_str(), &file, &error};
-    threads::Thread copier{};
-    OA_CHECK(threads::start_thread(copier, run_chunked_copy, &run));
-    while (done.load() == 0)
-        threads::sleep_ms(0);
-    stop.store(true);
-    threads::join_thread(copier);
-    OA_CHECK(run.outcome == CopyOutcome::stopped);
-    OA_CHECK(done.load() < 48 * mebibyte);
+    ChunkedCopyHooks hooks;
+    hooks.context = &stop;
+    hooks.chunk_written = press_stop;
+    OA_CHECK(chunked_copy_with(large.c_str(), file, &error, hooks) == CopyOutcome::stopped);
+    OA_CHECK(done.load() == copy_chunk_bytes);
     OA_CHECK(!there(root / "out" / "copy.bin.part") && !there(root / "out" / "copy.bin"));
 }
 
