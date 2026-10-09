@@ -82,13 +82,13 @@ struct RouteStep {
 /// What the check keeps for the whole run: the options, the work folder, what the scripted
 /// hooks saw, and where the route is.
 struct CheckRun {
-    Options options{};      ///< the parsed command line
-    std::string variant{};  ///< the variant's name in the verdict and the pictures
-    fs::path work{};        ///< the working directory
-    fs::path documents{};   ///< <work>/Documents, the game folder's parent
-    fs::path game_folder{}; ///< <work>/Documents/Total Annihilation
-    fs::path source{};      ///< what the picker answers
-    base::threads::Mutex mutex{};     ///< guards what the worker thread's hooks write
+    Options options{};            ///< the parsed command line
+    std::string variant{};        ///< the variant's name in the verdict and the pictures
+    fs::path work{};              ///< the working directory
+    fs::path documents{};         ///< <work>/Documents, the game folder's parent
+    fs::path game_folder{};       ///< <work>/Documents/Total Annihilation
+    fs::path source{};            ///< what the picker answers
+    base::threads::Mutex mutex{}; ///< guards what the worker thread's hooks write
     std::vector<std::pair<std::string, bool>> backed_up{}; ///< set_backed_up's calls
     uint32_t keep_running_on{};                            ///< keep_running(true) calls
     uint32_t keep_running_off{};                           ///< keep_running(false) calls

@@ -1,7 +1,6 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-
 // The wide C run-time functions that Windows 95 does not export and that the
 // C++ run-time library calls, defined under the names a program imports them
 // by. Windows 95 exports the wide half of the C run-time surface as stubs that
@@ -86,7 +85,6 @@
 
 namespace {
 
-
 /// A system function looked up on first use.
 ///
 /// The lookup gives every thread the same answer, so threads that look it
@@ -116,6 +114,7 @@ struct SystemFunction {
         return function.load(std::memory_order_relaxed);
     }
 };
+
 extern "C" errno_t __cdecl local_time_32(struct tm* out, const __time32_t* timer) __asm__(
     OA_XP_LIBRARY_SYMBOL(_localtime32_s)
 );
@@ -145,9 +144,8 @@ OA_XP_DEFINE_LIBRARY(local_time_32, _localtime32_s);
 #undef _wstat64
 #undef _wstat
 
-extern "C" int __cdecl wide_stat_64(const wchar_t* path, struct _stat64* buffer) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wstat64)
-);
+extern "C" int __cdecl
+wide_stat_64(const wchar_t* path, struct _stat64* buffer) __asm__(OA_XP_LIBRARY_SYMBOL(_wstat64));
 
 /// Stats a path, as _wstat64 does, through the narrow _stat64 the C library
 /// Windows 95 ships answers correctly.
@@ -234,7 +232,7 @@ long __cdecl wide_find_first(const wchar_t* pattern, struct _wfinddata_t* data) 
         errno = EINVAL;
         return -1;
     }
-    struct _finddata_t found {};
+    struct _finddata_t found{};
     const long handle = _findfirst(narrow, &found);
     if (handle == -1) {
         if (errno == ENOENT)
@@ -247,9 +245,8 @@ long __cdecl wide_find_first(const wchar_t* pattern, struct _wfinddata_t* data) 
 
 OA_XP_DEFINE_LIBRARY(wide_find_first, _wfindfirst32);
 
-extern "C" int __cdecl wide_find_next(long handle, struct _wfinddata_t* data) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wfindnext32)
-);
+extern "C" int __cdecl
+wide_find_next(long handle, struct _wfinddata_t* data) __asm__(OA_XP_LIBRARY_SYMBOL(_wfindnext32));
 
 /// Continues a search, as _wfindnext does, through the narrow _findnext, on
 /// the handle the stand-in above gave back.
@@ -269,7 +266,7 @@ int __cdecl wide_find_next(long handle, struct _wfinddata_t* data) {
         errno = EINVAL;
         return -1;
     }
-    struct _finddata_t found {};
+    struct _finddata_t found{};
     if (_findnext(handle, &found) != 0) {
         if (errno == ENOENT)
             SetLastError(ERROR_NO_MORE_FILES);
@@ -300,9 +297,8 @@ bool narrow_path(char* narrow, size_t capacity, const wchar_t* wide) noexcept {
 #undef _wfopen
 #undef _wfreopen
 
-extern "C" int __cdecl wide_open(const wchar_t* path, int flags, ...) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wopen)
-);
+extern "C" int __cdecl
+wide_open(const wchar_t* path, int flags, ...) __asm__(OA_XP_LIBRARY_SYMBOL(_wopen));
 
 /// Opens a file, as _wopen does, through the narrow _open the C library
 /// Windows 95 ships answers correctly.
@@ -338,9 +334,8 @@ int __cdecl wide_open(const wchar_t* path, int flags, ...) {
 
 OA_XP_DEFINE_LIBRARY(wide_open, _wopen);
 
-extern "C" FILE* __cdecl wide_fopen(const wchar_t* path, const wchar_t* mode) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wfopen)
-);
+extern "C" FILE* __cdecl
+wide_fopen(const wchar_t* path, const wchar_t* mode) __asm__(OA_XP_LIBRARY_SYMBOL(_wfopen));
 
 /// Opens a stream on a file, as _wfopen does, through the narrow fopen, for the
 /// same reason as the wide open above: the wide one is a stub here and the
@@ -362,8 +357,9 @@ FILE* __cdecl wide_fopen(const wchar_t* path, const wchar_t* mode) {
 
 OA_XP_DEFINE_LIBRARY(wide_fopen, _wfopen);
 
-extern "C" FILE* __cdecl wide_freopen(const wchar_t* path, const wchar_t* mode, FILE* stream)
-    __asm__(OA_XP_LIBRARY_SYMBOL(_wfreopen));
+extern "C" FILE* __cdecl wide_freopen(
+    const wchar_t* path, const wchar_t* mode, FILE* stream
+) __asm__(OA_XP_LIBRARY_SYMBOL(_wfreopen));
 
 /// Reopens a stream on another file, as _wfreopen does, through the narrow
 /// freopen, for the same reason again.
@@ -395,9 +391,7 @@ OA_XP_DEFINE_LIBRARY(wide_freopen, _wfreopen);
 #undef _wgetcwd
 #undef _wutime
 
-extern "C" int __cdecl wide_mkdir(const wchar_t* path) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wmkdir)
-);
+extern "C" int __cdecl wide_mkdir(const wchar_t* path) __asm__(OA_XP_LIBRARY_SYMBOL(_wmkdir));
 
 /// Makes a directory, as _wmkdir does, through the narrow _mkdir the C library
 /// Windows 95 ships answers correctly.
@@ -423,9 +417,7 @@ int __cdecl wide_mkdir(const wchar_t* path) {
 
 OA_XP_DEFINE_LIBRARY(wide_mkdir, _wmkdir);
 
-extern "C" int __cdecl wide_chdir(const wchar_t* path) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wchdir)
-);
+extern "C" int __cdecl wide_chdir(const wchar_t* path) __asm__(OA_XP_LIBRARY_SYMBOL(_wchdir));
 
 /// Makes a directory the current one, as _wchdir does, through the narrow
 /// _chdir, for the same reason as wide_mkdir above.
@@ -443,9 +435,8 @@ int __cdecl wide_chdir(const wchar_t* path) {
 
 OA_XP_DEFINE_LIBRARY(wide_chdir, _wchdir);
 
-extern "C" int __cdecl wide_chmod(const wchar_t* path, int mode) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wchmod)
-);
+extern "C" int __cdecl
+wide_chmod(const wchar_t* path, int mode) __asm__(OA_XP_LIBRARY_SYMBOL(_wchmod));
 
 /// Sets a path's permission bits, as _wchmod does, through the narrow _chmod,
 /// for the same reason as wide_mkdir above.
@@ -464,8 +455,8 @@ int __cdecl wide_chmod(const wchar_t* path, int mode) {
 
 OA_XP_DEFINE_LIBRARY(wide_chmod, _wchmod);
 
-extern "C" int __cdecl wide_utime(const wchar_t* path, struct _utimbuf* times)
-    __asm__(OA_XP_LIBRARY_SYMBOL(_wutime));
+extern "C" int __cdecl
+wide_utime(const wchar_t* path, struct _utimbuf* times) __asm__(OA_XP_LIBRARY_SYMBOL(_wutime));
 
 /// Sets a path's times, as _wutime does, through the narrow _utime, for the
 /// same reason as wide_mkdir above. The two take the same structure.
@@ -484,9 +475,8 @@ int __cdecl wide_utime(const wchar_t* path, struct _utimbuf* times) {
 
 OA_XP_DEFINE_LIBRARY(wide_utime, _wutime);
 
-extern "C" wchar_t* __cdecl wide_getcwd(wchar_t* buffer, int maxlen) __asm__(
-    OA_XP_LIBRARY_SYMBOL(_wgetcwd)
-);
+extern "C" wchar_t* __cdecl
+wide_getcwd(wchar_t* buffer, int maxlen) __asm__(OA_XP_LIBRARY_SYMBOL(_wgetcwd));
 
 /// Gives the current directory, as _wgetcwd does, from the narrow _getcwd, for
 /// the same reason as wide_mkdir above — and here the wide call answers NULL
@@ -508,9 +498,8 @@ wchar_t* __cdecl wide_getcwd(wchar_t* buffer, int maxlen) {
             errno = EINVAL;
             return nullptr;
         }
-        auto* wide = static_cast<wchar_t*>(
-            std::malloc(sizeof(wchar_t) * static_cast<size_t>(needed))
-        );
+        auto* wide =
+            static_cast<wchar_t*>(std::malloc(sizeof(wchar_t) * static_cast<size_t>(needed)));
         if (wide == nullptr) {
             errno = ENOMEM;
             return nullptr;
@@ -530,6 +519,5 @@ wchar_t* __cdecl wide_getcwd(wchar_t* buffer, int maxlen) {
 }
 
 OA_XP_DEFINE_LIBRARY(wide_getcwd, _wgetcwd);
-
 
 } // namespace

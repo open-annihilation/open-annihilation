@@ -13,7 +13,6 @@
 // calls it when the running Windows has one, and stands in only when it does
 // not.
 
-
 // The C++ standard headers come first, before the Windows XP declarations are
 // pinned below: they reach the toolchain's thread support, whose condition
 // variables a win32-threaded toolchain declares for the version this file is
@@ -86,8 +85,9 @@ struct LibraryFunction {
             const HMODULE module = LoadLibraryW(library);
             Function found = nullptr;
             if (module != nullptr)
-                found =
-                    reinterpret_cast<Function>(reinterpret_cast<void*>(GetProcAddress(module, name)));
+                found = reinterpret_cast<Function>(
+                    reinterpret_cast<void*>(GetProcAddress(module, name))
+                );
             function.store(found, std::memory_order_relaxed);
             looked_up.store(true, std::memory_order_release);
         }
@@ -122,7 +122,7 @@ constinit LibraryFunction<decltype(&SetupDiGetDeviceInstanceIdA)>
 constinit LibraryFunction<decltype(&SetupDiGetDeviceRegistryPropertyW)>
     system_setup_di_get_device_registry_property_w{
         setupapi_library, "SetupDiGetDeviceRegistryPropertyW"
-    };
+};
 constinit LibraryFunction<decltype(&CM_Locate_DevNodeA)> system_cm_locate_dev_node{
     setupapi_library, "CM_Locate_DevNodeA"
 };
@@ -350,9 +350,8 @@ extern "C" HDEVINFO WINAPI setup_di_get_class_devs_a(
     const GUID* class_guid, PCSTR enumerator, HWND parent, DWORD flags
 ) __asm__(OA_W95_SYSTEM_SYMBOL(SetupDiGetClassDevsA, 16));
 
-HDEVINFO WINAPI setup_di_get_class_devs_a(
-    const GUID* class_guid, PCSTR enumerator, HWND parent, DWORD flags
-) {
+HDEVINFO WINAPI
+setup_di_get_class_devs_a(const GUID* class_guid, PCSTR enumerator, HWND parent, DWORD flags) {
     if (const auto system = system_setup_di_get_class_devs.get())
         return system(class_guid, enumerator, parent, flags);
     SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
@@ -407,13 +406,23 @@ OA_W95_DEFINE_SYSTEM(setup_di_get_device_instance_id_a, SetupDiGetDeviceInstance
 
 /// Reads one of a device's registry properties.
 extern "C" BOOL WINAPI setup_di_get_device_registry_property_w(
-    HDEVINFO info, PSP_DEVINFO_DATA device, DWORD property, PDWORD property_type, PBYTE buffer,
-    DWORD bytes, PDWORD needed
+    HDEVINFO info,
+    PSP_DEVINFO_DATA device,
+    DWORD property,
+    PDWORD property_type,
+    PBYTE buffer,
+    DWORD bytes,
+    PDWORD needed
 ) __asm__(OA_W95_SYSTEM_SYMBOL(SetupDiGetDeviceRegistryPropertyW, 28));
 
 BOOL WINAPI setup_di_get_device_registry_property_w(
-    HDEVINFO info, PSP_DEVINFO_DATA device, DWORD property, PDWORD property_type, PBYTE buffer,
-    DWORD bytes, PDWORD needed
+    HDEVINFO info,
+    PSP_DEVINFO_DATA device,
+    DWORD property,
+    PDWORD property_type,
+    PBYTE buffer,
+    DWORD bytes,
+    PDWORD needed
 ) {
     if (const auto system = system_setup_di_get_device_registry_property_w.get())
         return system(info, device, property, property_type, buffer, bytes, needed);
@@ -421,7 +430,9 @@ BOOL WINAPI setup_di_get_device_registry_property_w(
     return FALSE;
 }
 
-OA_W95_DEFINE_SYSTEM(setup_di_get_device_registry_property_w, SetupDiGetDeviceRegistryPropertyW, 28);
+OA_W95_DEFINE_SYSTEM(
+    setup_di_get_device_registry_property_w, SetupDiGetDeviceRegistryPropertyW, 28
+);
 
 /// Finds a device node by its identifier.
 extern "C" CONFIGRET WINAPI cm_locate_dev_node_a(
@@ -437,8 +448,7 @@ CONFIGRET WINAPI cm_locate_dev_node_a(PDEVINST node, DEVINSTID_A identifier, ULO
 OA_W95_DEFINE_SYSTEM(cm_locate_dev_node_a, CM_Locate_DevNodeA, 12);
 
 /// Takes the node above a device node in the tree.
-extern "C" CONFIGRET WINAPI
-cm_get_parent(PDEVINST parent, DEVINST node, ULONG flags) __asm__(
+extern "C" CONFIGRET WINAPI cm_get_parent(PDEVINST parent, DEVINST node, ULONG flags) __asm__(
     OA_W95_SYSTEM_SYMBOL(CM_Get_Parent, 12)
 );
 
@@ -468,9 +478,7 @@ OA_W95_DEFINE_SYSTEM(cm_get_device_id_a, CM_Get_Device_IDA, 16);
 
 /// Asks the user for a folder.
 extern "C" LPITEMIDLIST WINAPI
-sh_browse_for_folder_w(LPBROWSEINFOW info) __asm__(
-    OA_W95_SYSTEM_SYMBOL(SHBrowseForFolderW, 4)
-);
+sh_browse_for_folder_w(LPBROWSEINFOW info) __asm__(OA_W95_SYSTEM_SYMBOL(SHBrowseForFolderW, 4));
 
 LPITEMIDLIST WINAPI sh_browse_for_folder_w(LPBROWSEINFOW info) {
     if (const auto system = system_sh_browse_for_folder.get())
@@ -561,8 +569,7 @@ sh_get_folder_path_w(HWND owner, int folder, HANDLE token, DWORD flags, LPWSTR p
 OA_W95_DEFINE_SYSTEM(sh_get_folder_path_w, SHGetFolderPathW, 20);
 
 /// Reads a path from an identifier list.
-extern "C" BOOL WINAPI
-sh_get_path_from_id_list_w(PCIDLIST_ABSOLUTE list, LPWSTR path) __asm__(
+extern "C" BOOL WINAPI sh_get_path_from_id_list_w(PCIDLIST_ABSOLUTE list, LPWSTR path) __asm__(
     OA_W95_SYSTEM_SYMBOL(SHGetPathFromIDListW, 8)
 );
 
@@ -588,8 +595,7 @@ OA_W95_DEFINE_SYSTEM(sh_get_path_from_id_list_w, SHGetPathFromIDListW, 8);
 /// leaves the tooltip, the balloon and a program's menu strings fewer characters
 /// than the wide one carries, so it is not answered through it: a program that
 /// asks is told the icon could not be put there.
-extern "C" BOOL WINAPI
-shell_notify_icon_w(DWORD message, PNOTIFYICONDATAW icon) __asm__(
+extern "C" BOOL WINAPI shell_notify_icon_w(DWORD message, PNOTIFYICONDATAW icon) __asm__(
     OA_W95_SYSTEM_SYMBOL(Shell_NotifyIconW, 8)
 );
 
@@ -716,7 +722,8 @@ extern "C" BOOL WINAPI get_process_memory_info(
     HANDLE process, PPROCESS_MEMORY_COUNTERS counters, DWORD bytes
 ) __asm__(OA_W95_SYSTEM_SYMBOL(GetProcessMemoryInfo, 12));
 
-BOOL WINAPI get_process_memory_info(HANDLE process, PPROCESS_MEMORY_COUNTERS counters, DWORD bytes) {
+BOOL WINAPI
+get_process_memory_info(HANDLE process, PPROCESS_MEMORY_COUNTERS counters, DWORD bytes) {
     if (const auto system = system_get_process_memory_info.get())
         return system(process, counters, bytes);
     SetLastError(ERROR_CALL_NOT_IMPLEMENTED);

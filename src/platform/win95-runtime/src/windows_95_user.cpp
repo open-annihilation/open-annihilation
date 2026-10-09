@@ -11,7 +11,6 @@
 // windows_functions.cpp, whose macros and system lookup this file repeats
 // because they are private to it.
 
-
 // The C++ standard headers come first, before the Windows 95 declarations are
 // pinned below: they reach the toolchain's thread support, whose condition
 // variables a win32-threaded toolchain declares for the version this file is
@@ -104,8 +103,7 @@ void copy_wide(wchar_t (&out)[Size], const wchar_t* text) noexcept {
 }
 
 using AllowSetForegroundFunction = BOOL(WINAPI*)(DWORD);
-using ChangeDisplaySettingsFunction =
-    LONG(WINAPI*)(LPCWSTR, LPDEVMODEW, HWND, DWORD, LPVOID);
+using ChangeDisplaySettingsFunction = LONG(WINAPI*)(LPCWSTR, LPDEVMODEW, HWND, DWORD, LPVOID);
 using EnumDisplayDevicesFunction = BOOL(WINAPI*)(LPCWSTR, DWORD, PDISPLAY_DEVICEW, DWORD);
 using EnumDisplayMonitorsFunction = BOOL(WINAPI*)(HDC, LPCRECT, MONITORENUMPROC, LPARAM);
 using EnumDisplaySettingsFunction = BOOL(WINAPI*)(LPCWSTR, DWORD, LPDEVMODEW);
@@ -141,14 +139,13 @@ constinit SystemFunction<EnumDisplaySettingsFunction> system_enum_display_settin
     user32, "EnumDisplaySettingsW"
 };
 using RegisterClassExFunction = ATOM(WINAPI*)(const WNDCLASSEXW*);
-using CreateWindowExFunction = HWND(WINAPI*)(DWORD, LPCWSTR, LPCWSTR, DWORD, int, int, int, int,
-                                             HWND, HMENU, HINSTANCE, LPVOID);
+using CreateWindowExFunction = HWND(WINAPI*)(
+    DWORD, LPCWSTR, LPCWSTR, DWORD, int, int, int, int, HWND, HMENU, HINSTANCE, LPVOID
+);
 constinit SystemFunction<RegisterClassExFunction> system_register_class_ex{
     user32, "RegisterClassExW"
 };
-constinit SystemFunction<CreateWindowExFunction> system_create_window_ex{
-    user32, "CreateWindowExW"
-};
+constinit SystemFunction<CreateWindowExFunction> system_create_window_ex{user32, "CreateWindowExW"};
 
 using SetWindowLongFunction = LONG(WINAPI*)(HWND, int, LONG);
 using GetWindowLongFunction = LONG(WINAPI*)(HWND, int);
@@ -160,18 +157,10 @@ using RegisterClipboardFormatFunction = UINT(WINAPI*)(LPCWSTR);
 using LoadCursorFunction = HANDLE(WINAPI*)(HINSTANCE, LPCWSTR);
 using LoadIconFunction = HANDLE(WINAPI*)(HINSTANCE, LPCWSTR);
 using GetClassInfoExFunction = BOOL(WINAPI*)(HINSTANCE, LPCWSTR, LPWNDCLASSEXW);
-constinit SystemFunction<SetWindowLongFunction> system_set_window_long{
-    user32, "SetWindowLongW"
-};
-constinit SystemFunction<GetWindowLongFunction> system_get_window_long{
-    user32, "GetWindowLongW"
-};
-constinit SystemFunction<SetWindowTextFunction> system_set_window_text{
-    user32, "SetWindowTextW"
-};
-constinit SystemFunction<GetWindowTextFunction> system_get_window_text{
-    user32, "GetWindowTextW"
-};
+constinit SystemFunction<SetWindowLongFunction> system_set_window_long{user32, "SetWindowLongW"};
+constinit SystemFunction<GetWindowLongFunction> system_get_window_long{user32, "GetWindowLongW"};
+constinit SystemFunction<SetWindowTextFunction> system_set_window_text{user32, "SetWindowTextW"};
+constinit SystemFunction<GetWindowTextFunction> system_get_window_text{user32, "GetWindowTextW"};
 constinit SystemFunction<GetWindowTextLengthFunction> system_get_window_text_length{
     user32, "GetWindowTextLengthW"
 };
@@ -181,12 +170,8 @@ constinit SystemFunction<RegisterWindowMessageFunction> system_register_window_m
 constinit SystemFunction<RegisterClipboardFormatFunction> system_register_clipboard_format{
     user32, "RegisterClipboardFormatW"
 };
-constinit SystemFunction<LoadCursorFunction> system_load_cursor_w{
-    user32, "LoadCursorW"
-};
-constinit SystemFunction<LoadIconFunction> system_load_icon_w{
-    user32, "LoadIconW"
-};
+constinit SystemFunction<LoadCursorFunction> system_load_cursor_w{user32, "LoadCursorW"};
+constinit SystemFunction<LoadIconFunction> system_load_icon_w{user32, "LoadIconW"};
 constinit SystemFunction<GetClassInfoExFunction> system_get_class_info_ex{
     user32, "GetClassInfoExW"
 };
@@ -202,9 +187,7 @@ constinit SystemFunction<RegisterClassFunction> system_register_class{user32, "R
 constinit SystemFunction<UnregisterClassFunction> system_unregister_class{
     user32, "UnregisterClassW"
 };
-constinit SystemFunction<DefWindowProcFunction> system_def_window_proc{
-    user32, "DefWindowProcW"
-};
+constinit SystemFunction<DefWindowProcFunction> system_def_window_proc{user32, "DefWindowProcW"};
 constinit SystemFunction<GetMessageFunction> system_get_message{user32, "GetMessageW"};
 constinit SystemFunction<PeekMessageFunction> system_peek_message{user32, "PeekMessageW"};
 constinit SystemFunction<DispatchMessageFunction> system_dispatch_message{
@@ -217,9 +200,7 @@ using CallWindowProcFunction = LRESULT(WINAPI*)(WNDPROC, HWND, UINT, WPARAM, LPA
 constinit SystemFunction<SystemParametersInfoFunction> system_system_parameters_info{
     user32, "SystemParametersInfoW"
 };
-constinit SystemFunction<CallWindowProcFunction> system_call_window_proc{
-    user32, "CallWindowProcW"
-};
+constinit SystemFunction<CallWindowProcFunction> system_call_window_proc{user32, "CallWindowProcW"};
 using GetPropFunction = HANDLE(WINAPI*)(HWND, LPCWSTR);
 using SetPropFunction = BOOL(WINAPI*)(HWND, LPCWSTR, HANDLE);
 using RemovePropFunction = HANDLE(WINAPI*)(HWND, LPCWSTR);
@@ -316,8 +297,7 @@ HMONITOR fall_back_monitor(DWORD flags) noexcept {
 ///
 /// Windows 95 has no such permission to grant: a process it starts may come
 /// forward without asking, so the stand-in reports that it may.
-extern "C" BOOL WINAPI
-allow_set_foreground_window(DWORD process_id) __asm__(
+extern "C" BOOL WINAPI allow_set_foreground_window(DWORD process_id) __asm__(
     OA_XP_SYSTEM_SYMBOL(AllowSetForegroundWindow, 4)
 );
 
@@ -352,9 +332,8 @@ LONG WINAPI change_display_settings_ex(
         return ChangeDisplaySettingsA(nullptr, flags);
     DEVMODEA wanted{};
     wanted.dmSize = sizeof(wanted);
-    wanted.dmFields =
-        mode->dmFields & (DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT | DM_DISPLAYFREQUENCY
-                          | DM_DISPLAYFLAGS);
+    wanted.dmFields = mode->dmFields & (DM_BITSPERPEL | DM_PELSWIDTH | DM_PELSHEIGHT |
+                                        DM_DISPLAYFREQUENCY | DM_DISPLAYFLAGS);
     if ((wanted.dmFields & DM_BITSPERPEL) != 0)
         wanted.dmBitsPerPel = mode->dmBitsPerPel;
     if ((wanted.dmFields & DM_PELSWIDTH) != 0)
@@ -405,9 +384,8 @@ extern "C" BOOL WINAPI enum_display_monitors(
     HDC device_context, LPCRECT clip, MONITORENUMPROC callback, LPARAM data
 ) __asm__(OA_XP_SYSTEM_SYMBOL(EnumDisplayMonitors, 16));
 
-BOOL WINAPI enum_display_monitors(
-    HDC device_context, LPCRECT clip, MONITORENUMPROC callback, LPARAM data
-) {
+BOOL WINAPI
+enum_display_monitors(HDC device_context, LPCRECT clip, MONITORENUMPROC callback, LPARAM data) {
     if (const auto system = system_enum_display_monitors.get())
         return system(device_context, clip, callback, data);
     (void)clip;
@@ -576,8 +554,7 @@ void correct_mode_in_use(DEVMODEA& mode) noexcept {
 /// @param[out] mode receives the mode, filled from nothing first
 /// @return TRUE when that mode was described
 /// @see https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-enumdisplaysettingsa
-extern "C" BOOL WINAPI
-enum_display_settings_a(LPCSTR device, DWORD index, LPDEVMODEA mode) __asm__(
+extern "C" BOOL WINAPI enum_display_settings_a(LPCSTR device, DWORD index, LPDEVMODEA mode) __asm__(
     OA_XP_SYSTEM_SYMBOL(EnumDisplaySettingsA, 12)
 );
 
@@ -614,9 +591,9 @@ OA_XP_DEFINE_SYSTEM(enum_display_settings_a, EnumDisplaySettingsA, 12);
 /// @param[out] mode receives the mode, filled from nothing first
 /// @return TRUE when that mode was described
 /// @see https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-enumdisplaysettingsw
-extern "C" BOOL WINAPI enum_display_settings(
-    LPCWSTR device, DWORD index, LPDEVMODEW mode
-) __asm__(OA_XP_SYSTEM_SYMBOL(EnumDisplaySettingsW, 12));
+extern "C" BOOL WINAPI enum_display_settings(LPCWSTR device, DWORD index, LPDEVMODEW mode) __asm__(
+    OA_XP_SYSTEM_SYMBOL(EnumDisplaySettingsW, 12)
+);
 
 BOOL WINAPI enum_display_settings(LPCWSTR device, DWORD index, LPDEVMODEW mode) {
     if (const auto system = system_enum_display_settings.get())
@@ -693,9 +670,8 @@ bool narrow_name(char* narrow, size_t capacity, const wchar_t* wide) noexcept {
            ) > 0;
 }
 
-extern "C" ATOM WINAPI register_class_ex(
-    const WNDCLASSEXW* type
-) __asm__(OA_XP_SYSTEM_SYMBOL(RegisterClassExW, 4));
+extern "C" ATOM WINAPI
+register_class_ex(const WNDCLASSEXW* type) __asm__(OA_XP_SYSTEM_SYMBOL(RegisterClassExW, 4));
 
 /// Registers a window class, as RegisterClassExW does, through the narrow call
 /// this Windows does answer, with the two names it carries narrowed.
@@ -737,8 +713,18 @@ ATOM WINAPI register_class_ex(const WNDCLASSEXW* type) {
 OA_XP_DEFINE_SYSTEM(register_class_ex, RegisterClassExW, 4);
 
 extern "C" HWND WINAPI create_window_ex(
-    DWORD extended_style, LPCWSTR class_name, LPCWSTR window_name, DWORD style, int x, int y,
-    int width, int height, HWND parent, HMENU menu, HINSTANCE instance, LPVOID parameter
+    DWORD extended_style,
+    LPCWSTR class_name,
+    LPCWSTR window_name,
+    DWORD style,
+    int x,
+    int y,
+    int width,
+    int height,
+    HWND parent,
+    HMENU menu,
+    HINSTANCE instance,
+    LPVOID parameter
 ) __asm__(OA_XP_SYSTEM_SYMBOL(CreateWindowExW, 48));
 
 /// Creates a window, as CreateWindowExW does, through the narrow call this
@@ -759,19 +745,53 @@ extern "C" HWND WINAPI create_window_ex(
 /// @param parameter what CreateWindowEx passes to the window procedure
 /// @return the window, or null with the error set as the narrow call sets it
 HWND WINAPI create_window_ex(
-    DWORD extended_style, LPCWSTR class_name, LPCWSTR window_name, DWORD style, int x, int y,
-    int width, int height, HWND parent, HMENU menu, HINSTANCE instance, LPVOID parameter
+    DWORD extended_style,
+    LPCWSTR class_name,
+    LPCWSTR window_name,
+    DWORD style,
+    int x,
+    int y,
+    int width,
+    int height,
+    HWND parent,
+    HMENU menu,
+    HINSTANCE instance,
+    LPVOID parameter
 ) {
     if (const auto system = system_create_window_ex.get())
-        return system(extended_style, class_name, window_name, style, x, y, width, height, parent,
-                      menu, instance, parameter);
+        return system(
+            extended_style,
+            class_name,
+            window_name,
+            style,
+            x,
+            y,
+            width,
+            height,
+            parent,
+            menu,
+            instance,
+            parameter
+        );
     char narrow_class[256]{};
     char narrow_window[256]{};
     if (!narrow_name(narrow_class, sizeof(narrow_class), class_name) ||
         !narrow_name(narrow_window, sizeof(narrow_window), window_name))
         return nullptr;
-    return CreateWindowExA(extended_style, narrow_class, narrow_window, style, x, y, width, height,
-                          parent, menu, instance, parameter);
+    return CreateWindowExA(
+        extended_style,
+        narrow_class,
+        narrow_window,
+        style,
+        x,
+        y,
+        width,
+        height,
+        parent,
+        menu,
+        instance,
+        parameter
+    );
 }
 
 OA_XP_DEFINE_SYSTEM(create_window_ex, CreateWindowExW, 48);
@@ -799,9 +819,8 @@ OA_XP_DEFINE_SYSTEM(create_window_ex, CreateWindowExW, 48);
 ///
 /// @param type the class to register
 /// @return the class's atom, or 0 with the error set as the narrow call sets it
-extern "C" ATOM WINAPI register_class(const WNDCLASSW* type) __asm__(
-    OA_XP_SYSTEM_SYMBOL(RegisterClassW, 4)
-);
+extern "C" ATOM WINAPI
+register_class(const WNDCLASSW* type) __asm__(OA_XP_SYSTEM_SYMBOL(RegisterClassW, 4));
 
 ATOM WINAPI register_class(const WNDCLASSW* type) {
     if (const auto system = system_register_class.get())
@@ -881,9 +900,9 @@ OA_XP_DEFINE_SYSTEM(def_window_proc, DefWindowProcW, 16);
 /// @param first the first message number wanted
 /// @param last the last message number wanted
 /// @return true when a message was taken
-extern "C" BOOL WINAPI get_message(
-    LPMSG message, HWND window, UINT first, UINT last
-) __asm__(OA_XP_SYSTEM_SYMBOL(GetMessageW, 16));
+extern "C" BOOL WINAPI get_message(LPMSG message, HWND window, UINT first, UINT last) __asm__(
+    OA_XP_SYSTEM_SYMBOL(GetMessageW, 16)
+);
 
 BOOL WINAPI get_message(LPMSG message, HWND window, UINT first, UINT last) {
     if (const auto system = system_get_message.get())
@@ -918,9 +937,8 @@ OA_XP_DEFINE_SYSTEM(peek_message, PeekMessageW, 20);
 ///
 /// @param message the message
 /// @return what the window procedure answered
-extern "C" LRESULT WINAPI dispatch_message(const MSG* message) __asm__(
-    OA_XP_SYSTEM_SYMBOL(DispatchMessageW, 4)
-);
+extern "C" LRESULT WINAPI
+dispatch_message(const MSG* message) __asm__(OA_XP_SYSTEM_SYMBOL(DispatchMessageW, 4));
 
 LRESULT WINAPI dispatch_message(const MSG* message) {
     if (const auto system = system_dispatch_message.get())
@@ -1008,9 +1026,8 @@ extern "C" LRESULT WINAPI call_window_proc(
     WNDPROC procedure, HWND window, UINT message, WPARAM wparam, LPARAM lparam
 ) __asm__(OA_XP_SYSTEM_SYMBOL(CallWindowProcW, 20));
 
-LRESULT WINAPI call_window_proc(
-    WNDPROC procedure, HWND window, UINT message, WPARAM wparam, LPARAM lparam
-) {
+LRESULT WINAPI
+call_window_proc(WNDPROC procedure, HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (const auto system = system_call_window_proc.get())
         return system(procedure, window, message, wparam, lparam);
     return CallWindowProcA(procedure, window, message, wparam, lparam);
@@ -1031,9 +1048,8 @@ OA_XP_DEFINE_SYSTEM(call_window_proc, CallWindowProcW, 20);
 /// @param window the window
 /// @param name which property
 /// @return its value, or null
-extern "C" HANDLE WINAPI get_prop_w(HWND window, LPCWSTR name) __asm__(
-    OA_XP_SYSTEM_SYMBOL(GetPropW, 8)
-);
+extern "C" HANDLE WINAPI
+get_prop_w(HWND window, LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(GetPropW, 8));
 
 HANDLE WINAPI get_prop_w(HWND window, LPCWSTR name) {
     if (const auto system = system_get_prop_w.get())
@@ -1052,9 +1068,8 @@ OA_XP_DEFINE_SYSTEM(get_prop_w, GetPropW, 8);
 /// @param name which property
 /// @param value the value to store
 /// @return true when it was stored
-extern "C" BOOL WINAPI set_prop_w(HWND window, LPCWSTR name, HANDLE value) __asm__(
-    OA_XP_SYSTEM_SYMBOL(SetPropW, 12)
-);
+extern "C" BOOL WINAPI
+set_prop_w(HWND window, LPCWSTR name, HANDLE value) __asm__(OA_XP_SYSTEM_SYMBOL(SetPropW, 12));
 
 BOOL WINAPI set_prop_w(HWND window, LPCWSTR name, HANDLE value) {
     if (const auto system = system_set_prop_w.get())
@@ -1072,9 +1087,8 @@ OA_XP_DEFINE_SYSTEM(set_prop_w, SetPropW, 12);
 /// @param window the window
 /// @param name which property
 /// @return what was stored, or null
-extern "C" HANDLE WINAPI remove_prop_w(HWND window, LPCWSTR name) __asm__(
-    OA_XP_SYSTEM_SYMBOL(RemovePropW, 8)
-);
+extern "C" HANDLE WINAPI
+remove_prop_w(HWND window, LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(RemovePropW, 8));
 
 HANDLE WINAPI remove_prop_w(HWND window, LPCWSTR name) {
     if (const auto system = system_remove_prop_w.get())
@@ -1092,9 +1106,8 @@ OA_XP_DEFINE_SYSTEM(remove_prop_w, RemovePropW, 8);
 /// Windows 95 has the older call, which inverts the window's flash state
 /// rather than naming the parts to flash: the stand-in inverts unless the
 /// caller asked for the flashing to stop.
-extern "C" BOOL WINAPI flash_window_ex(PFLASHWINFO information) __asm__(
-    OA_XP_SYSTEM_SYMBOL(FlashWindowEx, 4)
-);
+extern "C" BOOL WINAPI
+flash_window_ex(PFLASHWINFO information) __asm__(OA_XP_SYSTEM_SYMBOL(FlashWindowEx, 4));
 
 BOOL WINAPI flash_window_ex(PFLASHWINFO information) {
     if (const auto system = system_flash_window.get())
@@ -1110,9 +1123,8 @@ OA_XP_DEFINE_SYSTEM(flash_window_ex, FlashWindowEx, 4);
 ///
 /// Windows 95 does not count the clipboard's changes and tells no program
 /// when it changes, so the stand-in reports no change at all.
-extern "C" DWORD WINAPI get_clipboard_sequence_number(void) __asm__(
-    OA_XP_SYSTEM_SYMBOL(GetClipboardSequenceNumber, 0)
-);
+extern "C" DWORD WINAPI
+get_clipboard_sequence_number(void) __asm__(OA_XP_SYSTEM_SYMBOL(GetClipboardSequenceNumber, 0));
 
 DWORD WINAPI get_clipboard_sequence_number(void) {
     if (const auto system = system_clipboard_sequence.get())
@@ -1145,9 +1157,7 @@ BOOL WINAPI get_monitor_info(HMONITOR monitor, LPMONITORINFO information) {
         information->rcWork = work;
     information->dwFlags = MONITORINFOF_PRIMARY;
     if (information->cbSize >= sizeof(MONITORINFOEXW))
-        copy_wide(
-            reinterpret_cast<LPMONITORINFOEXW>(information)->szDevice, primary_display
-        );
+        copy_wide(reinterpret_cast<LPMONITORINFOEXW>(information)->szDevice, primary_display);
     return TRUE;
 }
 
@@ -1233,9 +1243,8 @@ OA_XP_DEFINE_SYSTEM(get_raw_input_device_list, GetRawInputDeviceList, 12);
 ///
 /// Windows 95 has one monitor, so a point on the display names it and a point
 /// off the display names it too unless the caller asked for none.
-extern "C" HMONITOR WINAPI monitor_from_point(POINT point, DWORD flags) __asm__(
-    OA_XP_SYSTEM_SYMBOL(MonitorFromPoint, 12)
-);
+extern "C" HMONITOR WINAPI
+monitor_from_point(POINT point, DWORD flags) __asm__(OA_XP_SYSTEM_SYMBOL(MonitorFromPoint, 12));
 
 HMONITOR WINAPI monitor_from_point(POINT point, DWORD flags) {
     if (const auto system = system_monitor_from_point.get())
@@ -1251,9 +1260,8 @@ OA_XP_DEFINE_SYSTEM(monitor_from_point, MonitorFromPoint, 12);
 ///
 /// Windows 95 has one monitor, so a window names it, and a window there is
 /// none of is treated as a point off the display is.
-extern "C" HMONITOR WINAPI monitor_from_window(HWND window, DWORD flags) __asm__(
-    OA_XP_SYSTEM_SYMBOL(MonitorFromWindow, 8)
-);
+extern "C" HMONITOR WINAPI
+monitor_from_window(HWND window, DWORD flags) __asm__(OA_XP_SYSTEM_SYMBOL(MonitorFromWindow, 8));
 
 HMONITOR WINAPI monitor_from_window(HWND window, DWORD flags) {
     if (const auto system = system_monitor_from_window.get())
@@ -1322,9 +1330,8 @@ OA_XP_DEFINE_SYSTEM(set_layered_window_attributes, SetLayeredWindowAttributes, 1
 ///
 /// Windows 95 keeps this call in its common controls library, under a name
 /// with a leading underscore, where the system has no such export of its own.
-extern "C" BOOL WINAPI track_mouse_event(LPTRACKMOUSEEVENT event) __asm__(
-    OA_XP_SYSTEM_SYMBOL(TrackMouseEvent, 4)
-);
+extern "C" BOOL WINAPI
+track_mouse_event(LPTRACKMOUSEEVENT event) __asm__(OA_XP_SYSTEM_SYMBOL(TrackMouseEvent, 4));
 
 BOOL WINAPI track_mouse_event(LPTRACKMOUSEEVENT event) {
     if (const auto system = system_track_mouse.get())
@@ -1359,9 +1366,9 @@ OA_XP_DEFINE_SYSTEM(unregister_device_notification, UnregisterDeviceNotification
 // so it is passed through exactly as given. Narrowing it would be fatal and
 // silent, which is why the pair below does nothing to it.
 
-extern "C" LONG WINAPI set_window_long(
-    HWND window, int index, LONG value
-) __asm__(OA_XP_SYSTEM_SYMBOL(SetWindowLongW, 12));
+extern "C" LONG WINAPI set_window_long(HWND window, int index, LONG value) __asm__(
+    OA_XP_SYSTEM_SYMBOL(SetWindowLongW, 12)
+);
 
 /// Sets a window's own data, as SetWindowLongW does, through the narrow call.
 ///
@@ -1382,9 +1389,8 @@ LONG WINAPI set_window_long(HWND window, int index, LONG value) {
 
 OA_XP_DEFINE_SYSTEM(set_window_long, SetWindowLongW, 12);
 
-extern "C" LONG WINAPI get_window_long(
-    HWND window, int index
-) __asm__(OA_XP_SYSTEM_SYMBOL(GetWindowLongW, 8));
+extern "C" LONG WINAPI
+get_window_long(HWND window, int index) __asm__(OA_XP_SYSTEM_SYMBOL(GetWindowLongW, 8));
 
 /// Reads a window's own data, as GetWindowLongW does, through the narrow call.
 ///
@@ -1399,9 +1405,8 @@ LONG WINAPI get_window_long(HWND window, int index) {
 
 OA_XP_DEFINE_SYSTEM(get_window_long, GetWindowLongW, 8);
 
-extern "C" BOOL WINAPI set_window_text(
-    HWND window, LPCWSTR text
-) __asm__(OA_XP_SYSTEM_SYMBOL(SetWindowTextW, 8));
+extern "C" BOOL WINAPI
+set_window_text(HWND window, LPCWSTR text) __asm__(OA_XP_SYSTEM_SYMBOL(SetWindowTextW, 8));
 
 /// Sets a window's title, as SetWindowTextW does, through the narrow call.
 ///
@@ -1419,9 +1424,9 @@ BOOL WINAPI set_window_text(HWND window, LPCWSTR text) {
 
 OA_XP_DEFINE_SYSTEM(set_window_text, SetWindowTextW, 8);
 
-extern "C" int WINAPI get_window_text(
-    HWND window, LPWSTR text, int capacity
-) __asm__(OA_XP_SYSTEM_SYMBOL(GetWindowTextW, 12));
+extern "C" int WINAPI get_window_text(HWND window, LPWSTR text, int capacity) __asm__(
+    OA_XP_SYSTEM_SYMBOL(GetWindowTextW, 12)
+);
 
 /// Reads a window's title, as GetWindowTextW does, through the narrow call,
 /// widening what it wrote.
@@ -1436,8 +1441,8 @@ int WINAPI get_window_text(HWND window, LPWSTR text, int capacity) {
     if (text == nullptr || capacity <= 0)
         return 0;
     char narrow[512]{};
-    const int limit = capacity < static_cast<int>(sizeof(narrow)) ? capacity
-                                                                 : static_cast<int>(sizeof(narrow));
+    const int limit =
+        capacity < static_cast<int>(sizeof(narrow)) ? capacity : static_cast<int>(sizeof(narrow));
     const int written = GetWindowTextA(window, narrow, limit);
     if (written <= 0) {
         text[0] = L'\0';
@@ -1453,9 +1458,8 @@ int WINAPI get_window_text(HWND window, LPWSTR text, int capacity) {
 
 OA_XP_DEFINE_SYSTEM(get_window_text, GetWindowTextW, 12);
 
-extern "C" int WINAPI get_window_text_length(
-    HWND window
-) __asm__(OA_XP_SYSTEM_SYMBOL(GetWindowTextLengthW, 4));
+extern "C" int WINAPI
+get_window_text_length(HWND window) __asm__(OA_XP_SYSTEM_SYMBOL(GetWindowTextLengthW, 4));
 
 /// Reads a window's title length, as GetWindowTextLengthW does, through the
 /// narrow call: the length takes no character set.
@@ -1470,9 +1474,8 @@ int WINAPI get_window_text_length(HWND window) {
 
 OA_XP_DEFINE_SYSTEM(get_window_text_length, GetWindowTextLengthW, 4);
 
-extern "C" UINT WINAPI register_window_message(
-    LPCWSTR text
-) __asm__(OA_XP_SYSTEM_SYMBOL(RegisterWindowMessageW, 4));
+extern "C" UINT WINAPI
+register_window_message(LPCWSTR text) __asm__(OA_XP_SYSTEM_SYMBOL(RegisterWindowMessageW, 4));
 
 /// Asks for a message number by name, as RegisterWindowMessageW does, through
 /// the narrow call: SDL uses one to notice its taskbar button being made.
@@ -1490,9 +1493,8 @@ UINT WINAPI register_window_message(LPCWSTR text) {
 
 OA_XP_DEFINE_SYSTEM(register_window_message, RegisterWindowMessageW, 4);
 
-extern "C" UINT WINAPI register_clipboard_format(
-    LPCWSTR text
-) __asm__(OA_XP_SYSTEM_SYMBOL(RegisterClipboardFormatW, 4));
+extern "C" UINT WINAPI
+register_clipboard_format(LPCWSTR text) __asm__(OA_XP_SYSTEM_SYMBOL(RegisterClipboardFormatW, 4));
 
 /// Asks for a clipboard format by name, as RegisterClipboardFormatW does,
 /// through the narrow call.
@@ -1519,9 +1521,8 @@ bool resource_is_integer(LPCWSTR name) noexcept {
     return name != nullptr && reinterpret_cast<ULONG_PTR>(name) <= 0xFFFF;
 }
 
-extern "C" HANDLE WINAPI load_cursor_w(
-    HINSTANCE instance, LPCWSTR name
-) __asm__(OA_XP_SYSTEM_SYMBOL(LoadCursorW, 8));
+extern "C" HANDLE WINAPI
+load_cursor_w(HINSTANCE instance, LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(LoadCursorW, 8));
 
 /// Loads a cursor, as LoadCursorW does, through the narrow call, narrowing the
 /// name only when it is a name: a resource may be named by an integer instead,
@@ -1543,9 +1544,8 @@ HANDLE WINAPI load_cursor_w(HINSTANCE instance, LPCWSTR name) {
 
 OA_XP_DEFINE_SYSTEM(load_cursor_w, LoadCursorW, 8);
 
-extern "C" HANDLE WINAPI load_icon_w(
-    HINSTANCE instance, LPCWSTR name
-) __asm__(OA_XP_SYSTEM_SYMBOL(LoadIconW, 8));
+extern "C" HANDLE WINAPI
+load_icon_w(HINSTANCE instance, LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(LoadIconW, 8));
 
 /// Loads an icon, as LoadIconW does, through the narrow call, for the same
 /// reason as the cursor above.
@@ -1603,7 +1603,9 @@ BOOL WINAPI get_class_info_ex(HINSTANCE instance, LPCWSTR name, LPWNDCLASSEXW ty
     type->lpszClassName = nullptr;
     type->hIconSm = found.hIconSm;
     if (type->lpszClassName != nullptr && found.lpszClassName != nullptr)
-        MultiByteToWideChar(CP_ACP, 0, found.lpszClassName, -1, const_cast<LPWSTR>(type->lpszClassName), 256);
+        MultiByteToWideChar(
+            CP_ACP, 0, found.lpszClassName, -1, const_cast<LPWSTR>(type->lpszClassName), 256
+        );
     return TRUE;
 }
 

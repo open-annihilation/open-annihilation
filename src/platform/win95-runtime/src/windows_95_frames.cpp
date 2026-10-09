@@ -98,4 +98,3 @@ __attribute__((constructor(101))) void register_frame_information() noexcept {
         return;
     __register_frame_info(begin, frame_object);
 }
-

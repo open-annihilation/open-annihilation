@@ -15,7 +15,6 @@
 // is why these are objects of the program and those are a library (see
 // CMakeLists.txt).
 
-
 // The declarations of Windows XP, so that none of the functions defined here
 // is also declared as the system's.
 #undef _WIN32_WINNT
@@ -74,8 +73,9 @@ struct SystemFunction {
             const HMODULE module = GetModuleHandleW(library);
             Function found = nullptr;
             if (module != nullptr)
-                found =
-                    reinterpret_cast<Function>(reinterpret_cast<void*>(GetProcAddress(module, name)));
+                found = reinterpret_cast<Function>(
+                    reinterpret_cast<void*>(GetProcAddress(module, name))
+                );
             function.store(found, std::memory_order_relaxed);
             looked_up.store(true, std::memory_order_release);
         }
@@ -93,8 +93,7 @@ constexpr wchar_t kernel32[] = L"kernel32.dll";
 
 namespace {
 
-using AddVectoredHandlerFunction =
-    PVOID(WINAPI*)(ULONG first, PVECTORED_EXCEPTION_HANDLER handler);
+using AddVectoredHandlerFunction = PVOID(WINAPI*)(ULONG first, PVECTORED_EXCEPTION_HANDLER handler);
 using RemoveVectoredHandlerFunction = ULONG(WINAPI*)(PVOID handler);
 using AttachConsoleFunction = BOOL(WINAPI*)(DWORD process_id);
 using CancelIoFunction = BOOL(WINAPI*)(HANDLE file);
@@ -104,7 +103,11 @@ using CopyFileExFunction = BOOL(WINAPI*)(
 using CreateHardLinkFunction =
     BOOL(WINAPI*)(LPCWSTR file, LPCWSTR existing, LPSECURITY_ATTRIBUTES attributes);
 using FindFirstFileExFunction = HANDLE(WINAPI*)(
-    LPCWSTR name, FINDEX_INFO_LEVELS level, LPVOID data, FINDEX_SEARCH_OPS search, LPVOID filter,
+    LPCWSTR name,
+    FINDEX_INFO_LEVELS level,
+    LPVOID data,
+    FINDEX_SEARCH_OPS search,
+    LPVOID filter,
     DWORD flags
 );
 using GetFileAttributesExFunction =
@@ -125,7 +128,8 @@ using SetFilePointerExFunction =
 using SetThreadExecutionStateFunction = EXECUTION_STATE(WINAPI*)(EXECUTION_STATE state);
 using TryEnterCriticalSectionFunction = BOOL(WINAPI*)(LPCRITICAL_SECTION section);
 using InitializeConditionVariableFunction = void(WINAPI*)(void** condition);
-using SleepConditionVariableFunction = BOOL(WINAPI*)(void** condition, void* section, DWORD timeout_ms);
+using SleepConditionVariableFunction =
+    BOOL(WINAPI*)(void** condition, void* section, DWORD timeout_ms);
 using VerSetConditionMaskFunction = ULONGLONG(WINAPI*)(ULONGLONG mask, DWORD type, BYTE condition);
 using VerifyVersionInfoFunction =
     BOOL(WINAPI*)(LPOSVERSIONINFOEXW wanted, DWORD type, DWORDLONG mask);
@@ -201,9 +205,7 @@ constinit SystemFunction<GetDiskFreeSpaceExFunction> system_get_disk_free_space_
 constinit SystemFunction<GetFileAttributesExFunction> system_get_file_attributes_ex{
     kernel32, "GetFileAttributesExW"
 };
-constinit SystemFunction<GetFileSizeExFunction> system_get_file_size_ex{
-    kernel32, "GetFileSizeEx"
-};
+constinit SystemFunction<GetFileSizeExFunction> system_get_file_size_ex{kernel32, "GetFileSizeEx"};
 constinit SystemFunction<GetLongPathNameFunction> system_get_long_path_name{
     kernel32, "GetLongPathNameW"
 };
@@ -219,7 +221,7 @@ constinit SystemFunction<GlobalMemoryStatusExFunction> system_global_memory_stat
 constinit SystemFunction<InitializeCriticalSectionAndSpinCountFunction>
     system_initialize_critical_section_and_spin_count{
         kernel32, "InitializeCriticalSectionAndSpinCount"
-    };
+};
 constinit SystemFunction<IsWow64ProcessFunction> system_is_wow64_process{
     kernel32, "IsWow64Process"
 };
@@ -248,8 +250,14 @@ constinit SystemFunction<VerifyVersionInfoFunction> system_verify_version_info{
 /// The version fields a mask names, in the order their bits sit in it: a
 /// field's condition occupies three bits at three times its index.
 constexpr DWORD version_fields[] = {
-    VER_MINORVERSION,     VER_MAJORVERSION,       VER_BUILDNUMBER, VER_PLATFORMID,
-    VER_SERVICEPACKMINOR, VER_SERVICEPACKMAJOR,   VER_SUITENAME,   VER_PRODUCT_TYPE,
+    VER_MINORVERSION,
+    VER_MAJORVERSION,
+    VER_BUILDNUMBER,
+    VER_PLATFORMID,
+    VER_SERVICEPACKMINOR,
+    VER_SERVICEPACKMAJOR,
+    VER_SUITENAME,
+    VER_PRODUCT_TYPE,
 };
 
 /// The value one version field of a description holds.
@@ -325,8 +333,7 @@ extern "C" PVOID WINAPI add_vectored_exception_handler(
     ULONG first, PVECTORED_EXCEPTION_HANDLER handler
 ) __asm__(OA_XP_SYSTEM_SYMBOL(AddVectoredExceptionHandler, 8));
 
-PVOID WINAPI
-add_vectored_exception_handler(ULONG first, PVECTORED_EXCEPTION_HANDLER handler) {
+PVOID WINAPI add_vectored_exception_handler(ULONG first, PVECTORED_EXCEPTION_HANDLER handler) {
     if (const auto system = system_add_vectored_handler.get())
         return system(first, handler);
     return reinterpret_cast<PVOID>(handler);
@@ -338,8 +345,7 @@ OA_XP_DEFINE_SYSTEM(add_vectored_exception_handler, AddVectoredExceptionHandler,
 ///
 /// @param handler the token that call returned
 /// @return true
-extern "C" ULONG WINAPI
-remove_vectored_exception_handler(PVOID handler) __asm__(
+extern "C" ULONG WINAPI remove_vectored_exception_handler(PVOID handler) __asm__(
     OA_XP_SYSTEM_SYMBOL(RemoveVectoredExceptionHandler, 4)
 );
 
@@ -429,8 +435,7 @@ extern "C" BOOL WINAPI create_hard_link_w(
     LPCWSTR file, LPCWSTR existing, LPSECURITY_ATTRIBUTES attributes
 ) __asm__(OA_XP_SYSTEM_SYMBOL(CreateHardLinkW, 12));
 
-BOOL WINAPI
-create_hard_link_w(LPCWSTR file, LPCWSTR existing, LPSECURITY_ATTRIBUTES attributes) {
+BOOL WINAPI create_hard_link_w(LPCWSTR file, LPCWSTR existing, LPSECURITY_ATTRIBUTES attributes) {
     if (const auto system = system_create_hard_link.get())
         return system(file, existing, attributes);
     (void)file;
@@ -455,12 +460,20 @@ OA_XP_DEFINE_SYSTEM(create_hard_link_w, CreateHardLinkW, 12);
 /// @param flags search flags, ignored
 /// @return the search handle, or INVALID_HANDLE_VALUE with the last error set
 extern "C" HANDLE WINAPI find_first_file_ex(
-    LPCWSTR name, FINDEX_INFO_LEVELS level, LPVOID data, FINDEX_SEARCH_OPS search, LPVOID filter,
+    LPCWSTR name,
+    FINDEX_INFO_LEVELS level,
+    LPVOID data,
+    FINDEX_SEARCH_OPS search,
+    LPVOID filter,
     DWORD flags
 ) __asm__(OA_XP_SYSTEM_SYMBOL(FindFirstFileExW, 24));
 
 HANDLE WINAPI find_first_file_ex(
-    LPCWSTR name, FINDEX_INFO_LEVELS level, LPVOID data, FINDEX_SEARCH_OPS search, LPVOID filter,
+    LPCWSTR name,
+    FINDEX_INFO_LEVELS level,
+    LPVOID data,
+    FINDEX_SEARCH_OPS search,
+    LPVOID filter,
     DWORD flags
 ) {
     if (const auto system = system_find_first_file_ex.get())
@@ -542,7 +555,8 @@ BOOL WINAPI get_disk_free_space_ex(
     if (const auto system = system_get_disk_free_space_ex.get())
         return system(directory, available, total, free_space);
     char narrow[MAX_PATH + 1]{};
-    if (WideCharToMultiByte(CP_ACP, 0, directory, -1, narrow, sizeof(narrow), nullptr, nullptr) == 0) {
+    if (WideCharToMultiByte(CP_ACP, 0, directory, -1, narrow, sizeof(narrow), nullptr, nullptr) ==
+        0) {
         SetLastError(ERROR_INVALID_PARAMETER);
         return FALSE;
     }
@@ -554,8 +568,7 @@ BOOL WINAPI get_disk_free_space_ex(
             narrow, &sectors_per_cluster, &bytes_per_sector, &free_clusters, &all_clusters
         ) == FALSE)
         return FALSE;
-    const ULONGLONG cluster_bytes =
-        static_cast<ULONGLONG>(sectors_per_cluster) * bytes_per_sector;
+    const ULONGLONG cluster_bytes = static_cast<ULONGLONG>(sectors_per_cluster) * bytes_per_sector;
     if (available != nullptr)
         available->QuadPart = cluster_bytes * free_clusters;
     if (total != nullptr)
@@ -590,9 +603,9 @@ void widen_find_data(WIN32_FIND_DATAW& wide, const WIN32_FIND_DATAA& narrow) noe
 }
 
 /// Finds the first name a pattern names.
-extern "C" HANDLE WINAPI wide_find_first_file(
-    LPCWSTR name, LPWIN32_FIND_DATAW data
-) __asm__(OA_XP_SYSTEM_SYMBOL(FindFirstFileW, 8));
+extern "C" HANDLE WINAPI wide_find_first_file(LPCWSTR name, LPWIN32_FIND_DATAW data) __asm__(
+    OA_XP_SYSTEM_SYMBOL(FindFirstFileW, 8)
+);
 
 HANDLE WINAPI wide_find_first_file(LPCWSTR name, LPWIN32_FIND_DATAW data) {
     if (const auto system = system_wide_find_first.get())
@@ -619,9 +632,9 @@ HANDLE WINAPI wide_find_first_file(LPCWSTR name, LPWIN32_FIND_DATAW data) {
 OA_XP_DEFINE_SYSTEM(wide_find_first_file, FindFirstFileW, 8);
 
 /// Finds the name after the one a search last answered with.
-extern "C" BOOL WINAPI wide_find_next_file(
-    HANDLE search, LPWIN32_FIND_DATAW data
-) __asm__(OA_XP_SYSTEM_SYMBOL(FindNextFileW, 8));
+extern "C" BOOL WINAPI wide_find_next_file(HANDLE search, LPWIN32_FIND_DATAW data) __asm__(
+    OA_XP_SYSTEM_SYMBOL(FindNextFileW, 8)
+);
 
 BOOL WINAPI wide_find_next_file(HANDLE search, LPWIN32_FIND_DATAW data) {
     if (const auto system = system_wide_find_next.get())
@@ -640,9 +653,8 @@ BOOL WINAPI wide_find_next_file(HANDLE search, LPWIN32_FIND_DATAW data) {
 OA_XP_DEFINE_SYSTEM(wide_find_next_file, FindNextFileW, 8);
 
 /// Reads a file's attributes.
-extern "C" DWORD WINAPI wide_get_file_attributes(LPCWSTR name) __asm__(
-    OA_XP_SYSTEM_SYMBOL(GetFileAttributesW, 4)
-);
+extern "C" DWORD WINAPI
+wide_get_file_attributes(LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(GetFileAttributesW, 4));
 
 DWORD WINAPI wide_get_file_attributes(LPCWSTR name) {
     if (const auto system = system_wide_get_file_attributes.get()) {
@@ -666,9 +678,8 @@ DWORD WINAPI wide_get_file_attributes(LPCWSTR name) {
 OA_XP_DEFINE_SYSTEM(wide_get_file_attributes, GetFileAttributesW, 4);
 
 /// Gives the folder temporary files go in.
-extern "C" DWORD WINAPI wide_get_temp_path(DWORD length, LPWSTR path) __asm__(
-    OA_XP_SYSTEM_SYMBOL(GetTempPathW, 8)
-);
+extern "C" DWORD WINAPI
+wide_get_temp_path(DWORD length, LPWSTR path) __asm__(OA_XP_SYSTEM_SYMBOL(GetTempPathW, 8));
 
 DWORD WINAPI wide_get_temp_path(DWORD length, LPWSTR path) {
     if (const auto system = system_wide_get_temp_path.get())
@@ -753,8 +764,9 @@ DWORD WINAPI wide_get_full_path_name(LPCWSTR name, DWORD length, LPWSTR path, LP
     }
     char narrow_path_out[MAX_PATH + 1]{};
     char* narrow_file_part = nullptr;
-    const DWORD written =
-        GetFullPathNameA(narrow_name, static_cast<DWORD>(sizeof(narrow_path_out)), narrow_path_out, &narrow_file_part);
+    const DWORD written = GetFullPathNameA(
+        narrow_name, static_cast<DWORD>(sizeof(narrow_path_out)), narrow_path_out, &narrow_file_part
+    );
     if (written == 0)
         return 0;
     if (written >= length) {
@@ -765,9 +777,10 @@ DWORD WINAPI wide_get_full_path_name(LPCWSTR name, DWORD length, LPWSTR path, LP
         return 0;
     if (file_part != nullptr) {
         // The file part is where the twin's own pointer lands in the answer.
-        const std::size_t offset = narrow_file_part != nullptr
-                                       ? static_cast<std::size_t>(narrow_file_part - narrow_path_out)
-                                       : 0;
+        const std::size_t offset =
+            narrow_file_part != nullptr
+                ? static_cast<std::size_t>(narrow_file_part - narrow_path_out)
+                : 0;
         *file_part = path + offset;
     }
     return written;
@@ -794,9 +807,8 @@ BOOL WINAPI wide_create_directory(LPCWSTR name, LPSECURITY_ATTRIBUTES attributes
 OA_XP_DEFINE_SYSTEM(wide_create_directory, CreateDirectoryW, 8);
 
 /// Makes a folder the current one.
-extern "C" BOOL WINAPI wide_set_current_directory(LPCWSTR name) __asm__(
-    OA_XP_SYSTEM_SYMBOL(SetCurrentDirectoryW, 4)
-);
+extern "C" BOOL WINAPI
+wide_set_current_directory(LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(SetCurrentDirectoryW, 4));
 
 BOOL WINAPI wide_set_current_directory(LPCWSTR name) {
     if (const auto system = system_wide_set_current_directory.get())
@@ -812,9 +824,8 @@ BOOL WINAPI wide_set_current_directory(LPCWSTR name) {
 OA_XP_DEFINE_SYSTEM(wide_set_current_directory, SetCurrentDirectoryW, 4);
 
 /// Moves a file or a folder.
-extern "C" BOOL WINAPI wide_move_file(LPCWSTR from, LPCWSTR to) __asm__(
-    OA_XP_SYSTEM_SYMBOL(MoveFileW, 8)
-);
+extern "C" BOOL WINAPI
+wide_move_file(LPCWSTR from, LPCWSTR to) __asm__(OA_XP_SYSTEM_SYMBOL(MoveFileW, 8));
 
 BOOL WINAPI wide_move_file(LPCWSTR from, LPCWSTR to) {
     if (const auto system = system_wide_move_file.get())
@@ -832,9 +843,7 @@ BOOL WINAPI wide_move_file(LPCWSTR from, LPCWSTR to) {
 OA_XP_DEFINE_SYSTEM(wide_move_file, MoveFileW, 8);
 
 /// Removes a file.
-extern "C" BOOL WINAPI wide_delete_file(LPCWSTR name) __asm__(
-    OA_XP_SYSTEM_SYMBOL(DeleteFileW, 4)
-);
+extern "C" BOOL WINAPI wide_delete_file(LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(DeleteFileW, 4));
 
 BOOL WINAPI wide_delete_file(LPCWSTR name) {
     if (const auto system = system_wide_delete_file.get())
@@ -850,9 +859,8 @@ BOOL WINAPI wide_delete_file(LPCWSTR name) {
 OA_XP_DEFINE_SYSTEM(wide_delete_file, DeleteFileW, 4);
 
 /// Removes a folder, which has to be empty.
-extern "C" BOOL WINAPI wide_remove_directory(LPCWSTR name) __asm__(
-    OA_XP_SYSTEM_SYMBOL(RemoveDirectoryW, 4)
-);
+extern "C" BOOL WINAPI
+wide_remove_directory(LPCWSTR name) __asm__(OA_XP_SYSTEM_SYMBOL(RemoveDirectoryW, 4));
 
 BOOL WINAPI wide_remove_directory(LPCWSTR name) {
     if (const auto system = system_wide_remove_directory.get())
@@ -900,9 +908,8 @@ OA_XP_DEFINE_SYSTEM(wide_copy_file, CopyFileW, 12);
 /// @return the block, or null when the environment cannot be read
 /// @see wide_free_environment_strings
 
-extern "C" LPWSTR WINAPI wide_get_environment_strings() __asm__(
-    OA_XP_SYSTEM_SYMBOL(GetEnvironmentStringsW, 0)
-);
+extern "C" LPWSTR WINAPI
+wide_get_environment_strings() __asm__(OA_XP_SYSTEM_SYMBOL(GetEnvironmentStringsW, 0));
 
 /// The blocks this hands out, so the call that frees one can tell them from the
 /// system's.
@@ -988,9 +995,8 @@ OA_XP_DEFINE_SYSTEM(wide_free_environment_strings, FreeEnvironmentStringsW, 4);
 /// is narrowed and written with the narrow call.
 ///
 /// @param text the line to write
-extern "C" void WINAPI output_debug_string(LPCWSTR text) __asm__(
-    OA_XP_SYSTEM_SYMBOL(OutputDebugStringW, 4)
-);
+extern "C" void WINAPI
+output_debug_string(LPCWSTR text) __asm__(OA_XP_SYSTEM_SYMBOL(OutputDebugStringW, 4));
 
 void WINAPI output_debug_string(LPCWSTR text) {
     if (const auto system = system_output_debug_string.get()) {
@@ -1005,17 +1011,13 @@ void WINAPI output_debug_string(LPCWSTR text) {
 
 OA_XP_DEFINE_SYSTEM(output_debug_string, OutputDebugStringW, 4);
 
-
-
 /// Reads a file's size, which Windows 95 answers in two halves.
 ///
 /// @param file the file to read
 /// @param[out] size the size in bytes
 /// @return true when the size was read
 extern "C" BOOL WINAPI
-get_file_size_ex(HANDLE file, PLARGE_INTEGER size) __asm__(
-    OA_XP_SYSTEM_SYMBOL(GetFileSizeEx, 8)
-);
+get_file_size_ex(HANDLE file, PLARGE_INTEGER size) __asm__(OA_XP_SYSTEM_SYMBOL(GetFileSizeEx, 8));
 
 BOOL WINAPI get_file_size_ex(HANDLE file, PLARGE_INTEGER size) {
     if (const auto system = system_get_file_size_ex.get())
@@ -1051,9 +1053,9 @@ OA_XP_DEFINE_SYSTEM(get_file_size_ex, GetFileSizeEx, 8);
 /// @param capacity the characters long_name holds
 /// @return the characters written without the terminator, or the characters
 /// the name needs, terminator included, when capacity is too small for it
-extern "C" DWORD WINAPI get_long_path_name(
-    LPCWSTR name, LPWSTR long_name, DWORD capacity
-) __asm__(OA_XP_SYSTEM_SYMBOL(GetLongPathNameW, 12));
+extern "C" DWORD WINAPI get_long_path_name(LPCWSTR name, LPWSTR long_name, DWORD capacity) __asm__(
+    OA_XP_SYSTEM_SYMBOL(GetLongPathNameW, 12)
+);
 
 DWORD WINAPI get_long_path_name(LPCWSTR name, LPWSTR long_name, DWORD capacity) {
     if (const auto system = system_get_long_path_name.get())
@@ -1083,9 +1085,9 @@ OA_XP_DEFINE_SYSTEM(get_long_path_name, GetLongPathNameW, 12);
 /// @param name the module's name, or an address in it
 /// @param[out] module the module's handle
 /// @return true when the module was found
-extern "C" BOOL WINAPI get_module_handle_ex(
-    DWORD flags, LPCWSTR name, HMODULE* module
-) __asm__(OA_XP_SYSTEM_SYMBOL(GetModuleHandleExW, 12));
+extern "C" BOOL WINAPI get_module_handle_ex(DWORD flags, LPCWSTR name, HMODULE* module) __asm__(
+    OA_XP_SYSTEM_SYMBOL(GetModuleHandleExW, 12)
+);
 
 BOOL WINAPI get_module_handle_ex(DWORD flags, LPCWSTR name, HMODULE* module) {
     if (const auto system = system_get_module_handle_ex.get())
@@ -1120,9 +1122,7 @@ OA_XP_DEFINE_SYSTEM(get_module_handle_ex, GetModuleHandleExW, 12);
 ///
 /// @return the user's language
 extern "C" LANGID WINAPI
-get_user_default_ui_language(void) __asm__(
-    OA_XP_SYSTEM_SYMBOL(GetUserDefaultUILanguage, 0)
-);
+get_user_default_ui_language(void) __asm__(OA_XP_SYSTEM_SYMBOL(GetUserDefaultUILanguage, 0));
 
 LANGID WINAPI get_user_default_ui_language(void) {
     if (const auto system = system_get_user_default_ui_language.get())
@@ -1139,8 +1139,7 @@ OA_XP_DEFINE_SYSTEM(get_user_default_ui_language, GetUserDefaultUILanguage, 0);
 ///
 /// @param[out] status the MEMORYSTATUSEX to fill, whose length the caller sets
 /// @return true when the report was filled
-extern "C" BOOL WINAPI
-global_memory_status_ex(LPMEMORYSTATUSEX status) __asm__(
+extern "C" BOOL WINAPI global_memory_status_ex(LPMEMORYSTATUSEX status) __asm__(
     OA_XP_SYSTEM_SYMBOL(GlobalMemoryStatusEx, 4)
 );
 
@@ -1201,9 +1200,7 @@ OA_XP_DEFINE_SYSTEM(
 /// @param[out] wow64 false
 /// @return true when the answer was given
 extern "C" BOOL WINAPI
-is_wow64_process(HANDLE process, PBOOL wow64) __asm__(
-    OA_XP_SYSTEM_SYMBOL(IsWow64Process, 8)
-);
+is_wow64_process(HANDLE process, PBOOL wow64) __asm__(OA_XP_SYSTEM_SYMBOL(IsWow64Process, 8));
 
 BOOL WINAPI is_wow64_process(HANDLE process, PBOOL wow64) {
     if (const auto system = system_is_wow64_process.get())
@@ -1234,9 +1231,8 @@ extern "C" BOOL WINAPI set_file_pointer_ex(
     HANDLE file, LARGE_INTEGER distance, PLARGE_INTEGER position, DWORD method
 ) __asm__(OA_XP_SYSTEM_SYMBOL(SetFilePointerEx, 20));
 
-BOOL WINAPI set_file_pointer_ex(
-    HANDLE file, LARGE_INTEGER distance, PLARGE_INTEGER position, DWORD method
-) {
+BOOL WINAPI
+set_file_pointer_ex(HANDLE file, LARGE_INTEGER distance, PLARGE_INTEGER position, DWORD method) {
     if (const auto system = system_set_file_pointer_ex.get())
         return system(file, distance, position, method);
     LARGE_INTEGER moved{};
@@ -1262,8 +1258,7 @@ OA_XP_DEFINE_SYSTEM(set_file_pointer_ex, SetFilePointerEx, 20);
 ///
 /// @param state the ES_ flags to set
 /// @return the flags passed
-extern "C" EXECUTION_STATE WINAPI
-set_thread_execution_state(EXECUTION_STATE state) __asm__(
+extern "C" EXECUTION_STATE WINAPI set_thread_execution_state(EXECUTION_STATE state) __asm__(
     OA_XP_SYSTEM_SYMBOL(SetThreadExecutionState, 4)
 );
 
@@ -1284,8 +1279,7 @@ OA_XP_DEFINE_SYSTEM(set_thread_execution_state, SetThreadExecutionState, 4);
 ///
 /// @param[in,out] section the lock to take
 /// @return true when the calling thread now holds it
-extern "C" BOOL WINAPI
-try_enter_critical_section(LPCRITICAL_SECTION section) __asm__(
+extern "C" BOOL WINAPI try_enter_critical_section(LPCRITICAL_SECTION section) __asm__(
     OA_XP_SYSTEM_SYMBOL(TryEnterCriticalSection, 4)
 );
 
@@ -1318,8 +1312,8 @@ uintptr_t& condition_word(void** condition) noexcept {
 
 /// Whether a condition has been woken since the caller noted its count.
 bool condition_woken(void** condition, uintptr_t noted) noexcept {
-    return std::atomic_ref<uintptr_t>(condition_word(condition)).load(std::memory_order_acquire)
-        != noted;
+    return std::atomic_ref<uintptr_t>(condition_word(condition)).load(std::memory_order_acquire) !=
+           noted;
 }
 
 /// How often a waiter spins, and then yields, before it sleeps.
@@ -1482,7 +1476,7 @@ bool names_a_directory(const char* narrow) noexcept {
 
 /// A handle standing for an opened directory, and where it was.
 struct DirectoryHandle {
-    volatile LONG taken; ///< non-zero while this entry stands for one
+    volatile LONG taken;   ///< non-zero while this entry stands for one
     char path[MAX_PATH]{}; ///< the directory it was opened for
 };
 
@@ -1533,14 +1527,24 @@ void* kernel32_call(const char* name) noexcept {
 } // namespace
 
 extern "C" HANDLE WINAPI create_file_a(
-    LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES attributes, DWORD disposition,
-    DWORD flags, HANDLE template_file
+    LPCSTR name,
+    DWORD access,
+    DWORD share,
+    LPSECURITY_ATTRIBUTES attributes,
+    DWORD disposition,
+    DWORD flags,
+    HANDLE template_file
 ) __asm__(OA_XP_SYSTEM_SYMBOL(CreateFileA, 28));
 
 /// Opens a file, or a directory where the system cannot open one.
 HANDLE WINAPI create_file_a(
-    LPCSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES attributes, DWORD disposition,
-    DWORD flags, HANDLE template_file
+    LPCSTR name,
+    DWORD access,
+    DWORD share,
+    LPSECURITY_ATTRIBUTES attributes,
+    DWORD disposition,
+    DWORD flags,
+    HANDLE template_file
 ) {
     using Function =
         HANDLE(WINAPI*)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
@@ -1566,7 +1570,8 @@ extern "C" BOOL WINAPI get_file_information_by_handle(
 /// one, or asks the system about any other file.
 BOOL WINAPI get_file_information_by_handle(HANDLE file, LPBY_HANDLE_FILE_INFORMATION information) {
     using Function = BOOL(WINAPI*)(HANDLE, LPBY_HANDLE_FILE_INFORMATION);
-    static const auto system = reinterpret_cast<Function>(kernel32_call("GetFileInformationByHandle"));
+    static const auto system =
+        reinterpret_cast<Function>(kernel32_call("GetFileInformationByHandle"));
     DirectoryHandle* const entry = directory_handle_entry(file);
     if (entry == nullptr) {
         if (system == nullptr) {
@@ -1626,8 +1631,13 @@ OA_XP_DEFINE_SYSTEM(close_handle, CloseHandle, 4);
 // filesystem uses: it converts nothing itself, so a program that stats a
 // folder goes through this name.
 extern "C" HANDLE WINAPI create_file_w(
-    LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES attributes, DWORD disposition,
-    DWORD flags, HANDLE template_file
+    LPCWSTR name,
+    DWORD access,
+    DWORD share,
+    LPSECURITY_ATTRIBUTES attributes,
+    DWORD disposition,
+    DWORD flags,
+    HANDLE template_file
 ) __asm__(OA_XP_SYSTEM_SYMBOL(CreateFileW, 28));
 
 /// Opens a file, or a directory where the system cannot open one.
@@ -1642,8 +1652,13 @@ extern "C" HANDLE WINAPI create_file_w(
 /// So the path is read in the system's own character set and the narrow call is
 /// made in its place, as every stand-in in this file does.
 HANDLE WINAPI create_file_w(
-    LPCWSTR name, DWORD access, DWORD share, LPSECURITY_ATTRIBUTES attributes, DWORD disposition,
-    DWORD flags, HANDLE template_file
+    LPCWSTR name,
+    DWORD access,
+    DWORD share,
+    LPSECURITY_ATTRIBUTES attributes,
+    DWORD disposition,
+    DWORD flags,
+    HANDLE template_file
 ) {
     char narrow[MAX_PATH + 1] = {};
     if (!narrow_path(name, narrow, sizeof(narrow))) {
@@ -1672,9 +1687,8 @@ OA_XP_DEFINE_SYSTEM(create_file_w, CreateFileW, 28);
 // is refused outright, because the entry it needs cannot be written from here
 // and doing the move now would be a different thing from what was asked for.
 
-extern "C" BOOL WINAPI move_file_ex_w(LPCWSTR from, LPCWSTR to, DWORD flags) __asm__(
-    OA_XP_SYSTEM_SYMBOL(MoveFileExW, 12)
-);
+extern "C" BOOL WINAPI
+move_file_ex_w(LPCWSTR from, LPCWSTR to, DWORD flags) __asm__(OA_XP_SYSTEM_SYMBOL(MoveFileExW, 12));
 
 BOOL WINAPI move_file_ex_w(LPCWSTR from, LPCWSTR to, DWORD flags) {
     char source[MAX_PATH + 1] = {};
@@ -1745,15 +1759,15 @@ extern "C" HANDLE WINAPI create_semaphore_w(
 /// @param maximum the largest count it may reach
 /// @param name the name to create it under, or null for an unnamed semaphore
 /// @return the semaphore, or null with the error set as the narrow call sets it
-HANDLE WINAPI create_semaphore_w(
-    LPSECURITY_ATTRIBUTES attributes, LONG initial, LONG maximum, LPCWSTR name
-) {
+HANDLE WINAPI
+create_semaphore_w(LPSECURITY_ATTRIBUTES attributes, LONG initial, LONG maximum, LPCWSTR name) {
     if (const auto system = system_wide_create_semaphore.get())
         return system(attributes, initial, maximum, name);
     char narrow[MAX_PATH + 1]{};
     const char* named = nullptr;
     if (name != nullptr) {
-        if (WideCharToMultiByte(CP_ACP, 0, name, -1, narrow, sizeof(narrow), nullptr, nullptr) == 0) {
+        if (WideCharToMultiByte(CP_ACP, 0, name, -1, narrow, sizeof(narrow), nullptr, nullptr) ==
+            0) {
             SetLastError(ERROR_INVALID_NAME);
             return nullptr;
         }
@@ -1777,15 +1791,15 @@ extern "C" HANDLE WINAPI create_event_w(
 /// @param initial whether it starts set
 /// @param name the name to create it under, or null for an unnamed event
 /// @return the event, or null with the error set as the narrow call sets it
-HANDLE WINAPI create_event_w(
-    LPSECURITY_ATTRIBUTES attributes, BOOL manual_reset, BOOL initial, LPCWSTR name
-) {
+HANDLE WINAPI
+create_event_w(LPSECURITY_ATTRIBUTES attributes, BOOL manual_reset, BOOL initial, LPCWSTR name) {
     if (const auto system = system_wide_create_event.get())
         return system(attributes, manual_reset, initial, name);
     char narrow[MAX_PATH + 1]{};
     const char* named = nullptr;
     if (name != nullptr) {
-        if (WideCharToMultiByte(CP_ACP, 0, name, -1, narrow, sizeof(narrow), nullptr, nullptr) == 0) {
+        if (WideCharToMultiByte(CP_ACP, 0, name, -1, narrow, sizeof(narrow), nullptr, nullptr) ==
+            0) {
             SetLastError(ERROR_INVALID_NAME);
             return nullptr;
         }
@@ -1821,9 +1835,8 @@ extern "C" void WINAPI raise_exception(
 /// @param flags whether the exception may be continued
 /// @param argument_count how many arguments the exception carries
 /// @param arguments those arguments
-void WINAPI raise_exception(
-    DWORD code, DWORD flags, DWORD argument_count, const ULONG_PTR* arguments
-) {
+void WINAPI
+raise_exception(DWORD code, DWORD flags, DWORD argument_count, const ULONG_PTR* arguments) {
     if (code == thread_name_exception)
         return;
     using Function = void(WINAPI*)(DWORD, DWORD, DWORD, const ULONG_PTR*);

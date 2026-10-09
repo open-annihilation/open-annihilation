@@ -1047,8 +1047,7 @@ int main(int argc, char** argv) {
     // The folder the program keeps its log beside, asked of the system rather
     // than of SDL: SDL_GetBasePath() answers with nothing where its own path
     // discovery cannot run, and this wants a folder here regardless.
-    error_log_folder =
-        oa::platform::error_log_directory(oa::platform::program_directory().c_str());
+    error_log_folder = oa::platform::error_log_directory(oa::platform::program_directory().c_str());
     std::set_new_handler(handle_out_of_memory);
     oa::base::float_precision::program_float_control().hooks.changed = report_float_control_change;
     try {
