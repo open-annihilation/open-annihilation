@@ -12,13 +12,13 @@
 #include "oa/app/view_rules.hpp"
 
 #include "oa/platform/text_font.hpp"
+#include "oa/base/threads.hpp"
 #include "oa/present/game_text.hpp"
 
 #include <algorithm>
 #include <cstddef>
 #include <list>
 #include <memory>
-#include <mutex>
 #include <span>
 #include <string>
 #include <tuple>
@@ -85,7 +85,7 @@ struct KeptLine {
 /// The bundled fonts, opened on first use, and the lines they drew, by
 /// face, scale and text; a null line is one they could not draw.
 struct ModernFonts {
-    std::mutex mutex{};
+    base::threads::Mutex mutex{};
     bool opened{};
     std::unique_ptr<text_font::FontStack> stack{};
     std::unordered_map<std::string, KeptLine> lines{};
@@ -206,14 +206,14 @@ GameTextHooksInstall::~GameTextHooksInstall() {
 
 bool Runtime::modern_fonts_open() {
     auto& fonts = modern_fonts();
-    const std::lock_guard lock(fonts.mutex);
+    const base::threads::LockGuard lock(fonts.mutex);
     return opened_stack(fonts) != nullptr;
 }
 
 void Runtime::warm_game_text() {
     const int32_t size = oa::present::game_text_size();
     auto& fonts = modern_fonts();
-    const std::lock_guard lock(fonts.mutex);
+    const base::threads::LockGuard lock(fonts.mutex);
     fonts.language = nullptr;
     follow_language(fonts, shown_language(), 1, size);
 }
@@ -334,7 +334,7 @@ void Runtime::install_game_text_hooks() {
             return nullptr;
         const auto& language = static_cast<const Runtime*>(context)->shown_language();
         auto& fonts = modern_fonts();
-        const std::lock_guard lock(fonts.mutex);
+        const base::threads::LockGuard lock(fonts.mutex);
         follow_language(fonts, language, scale, size);
         const auto style = face_style(face, scale, size, fonts.least_cjk_size);
         std::string key;

@@ -19,6 +19,13 @@
 #include <string>
 #include <string_view>
 
+#if defined(_WIN32)
+#include <windows.h>
+#elif defined(__APPLE__)
+#include <mach-o/dyld.h>
+#include <vector>
+#endif
+
 namespace oa::platform {
 namespace {
 std::atomic<ErrorSink> error_sink{nullptr};
@@ -93,6 +100,67 @@ bool append_error_log(const char* directory, const char* text) noexcept {
     const std::size_t length = text != nullptr ? std::strlen(text) : 0;
     const bool written = std::fwrite(text, 1, length, log) == length;
     return std::fclose(log) == 0 && written;
+}
+
+namespace {
+
+/// A path as the folder holding it, ending in a separator, which is how the
+/// folder SDL names is written.
+std::string as_folder(const std::filesystem::path& path) {
+    if (path.empty())
+        return {};
+    std::string text = path.string();
+    if (!text.empty() && text.back() != '/' && text.back() != '\\')
+        text += '/';
+    return text;
+}
+
+} // namespace
+
+std::string program_directory() {
+#if defined(_WIN32)
+    // The wide form first, because only it carries a name outside the system
+    // character set on a Windows that has both. It answers nothing at all on a
+    // Windows whose wide entry points are stubs — Windows 95's are — so the
+    // system-character-set form is asked then.
+    std::wstring wide(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD length =
+            GetModuleFileNameW(nullptr, wide.data(), static_cast<DWORD>(wide.size()));
+        if (length == 0) {
+            std::string narrow(MAX_PATH, '\0');
+            const DWORD narrow_length =
+                GetModuleFileNameA(nullptr, narrow.data(), static_cast<DWORD>(narrow.size()));
+            if (narrow_length == 0 || narrow_length >= narrow.size())
+                return {};
+            narrow.resize(narrow_length);
+            return as_folder(std::filesystem::path(narrow));
+        }
+        if (length < wide.size()) {
+            wide.resize(length);
+            return as_folder(std::filesystem::path(wide));
+        }
+        if (wide.size() >= 32768)
+            return {};
+        wide.resize(wide.size() * 2);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(size + 1U, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        return {};
+    // The program's own files live in the bundle's Resources folder, which is
+    // the folder SDL names, rather than beside the executable inside MacOS.
+    const std::filesystem::path parent = std::filesystem::path(buffer.data()).parent_path();
+    if (parent.filename() == "MacOS" && parent.parent_path().filename() == "Contents")
+        return as_folder(parent.parent_path() / "Resources");
+    return as_folder(parent);
+#else
+    std::error_code error;
+    const std::filesystem::path resolved = std::filesystem::read_symlink("/proc/self/exe", error);
+    return error ? std::string() : as_folder(resolved.parent_path());
+#endif
 }
 
 std::string error_log_directory(const char* base_path) {

@@ -83,4 +83,18 @@ bool append_error_log(const char* directory, const char* text) noexcept;
 ///         when base_path is null
 [[nodiscard]] std::string error_log_directory(const char* base_path);
 
+/// Returns the folder this program's own files sit beside, ending in a
+/// separator.
+///
+/// The executable's folder, or the Resources folder of the bundle that holds
+/// it on macOS — the same folder SDL_GetBasePath() names. It is answered here
+/// from the system rather than from SDL because SDL answers with nothing on a
+/// Windows whose wide entry points are stubs, which is a Windows this program
+/// runs on, and the folders it holds — the log, the fonts, the catalogues —
+/// are wanted there as much as anywhere.
+///
+/// @return the folder, ending in a separator; empty when the system will not
+///         say where the program is
+[[nodiscard]] std::string program_directory();
+
 } // namespace oa::platform

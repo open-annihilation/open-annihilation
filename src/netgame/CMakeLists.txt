@@ -31,7 +31,13 @@ target_link_libraries(oa-netgame PUBLIC oa-base-bytes oa-formats-sqsh oa-options
 # The sockets, and the system library they need on Windows.
 add_subdirectory(socket)
 if(WIN32)
-  target_link_libraries(oa-netgame PUBLIC ws2_32)
+  if(OA_WINDOWS_95)
+    # Windows 95 ships Winsock 1.1. Winsock 2 arrived with an update to it and
+    # with Windows 98, so ws2_32.dll is not on a Windows 95 CD at all.
+    target_link_libraries(oa-netgame PUBLIC wsock32)
+  else()
+    target_link_libraries(oa-netgame PUBLIC ws2_32)
+  endif()
 endif()
 
 # The frame commands: condenser frames decoded, re-encoded, stored and

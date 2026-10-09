@@ -13,6 +13,7 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_hooks.hpp"
 #include "oa/app/platform_hooks.hpp"
+#include "oa/base/threads.hpp"
 #include "oa/platform/preferences.hpp"
 
 #include <algorithm>
@@ -22,11 +23,9 @@
 #include <cstdio>
 #include <functional>
 #include <iostream>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <system_error>
-#include <thread>
 #include <vector>
 
 namespace oa::app {
@@ -51,7 +50,7 @@ constexpr float wheel_notch_points = 40.0F;
 constexpr int drag_moves = 6;
 constexpr float drag_step_points = 12.0F;
 /// How long the throttled copy sleeps between looks at its allowance.
-constexpr auto throttle_nap = std::chrono::milliseconds(10);
+constexpr uint32_t throttle_nap = 10;
 /// The review sizes, in points, and their density: an 11-inch tablet and a current phone in
 /// landscape, the phone with the parts of its screen kept clear.
 constexpr int tablet_width_points = 1194;
@@ -83,13 +82,13 @@ struct RouteStep {
 /// What the check keeps for the whole run: the options, the work folder, what the scripted
 /// hooks saw, and where the route is.
 struct CheckRun {
-    Options options{};      ///< the parsed command line
-    std::string variant{};  ///< the variant's name in the verdict and the pictures
-    fs::path work{};        ///< the working directory
-    fs::path documents{};   ///< <work>/Documents, the game folder's parent
-    fs::path game_folder{}; ///< <work>/Documents/Total Annihilation
-    fs::path source{};      ///< what the picker answers
-    std::mutex mutex{};     ///< guards what the worker thread's hooks write
+    Options options{};            ///< the parsed command line
+    std::string variant{};        ///< the variant's name in the verdict and the pictures
+    fs::path work{};              ///< the working directory
+    fs::path documents{};         ///< <work>/Documents, the game folder's parent
+    fs::path game_folder{};       ///< <work>/Documents/Total Annihilation
+    fs::path source{};            ///< what the picker answers
+    base::threads::Mutex mutex{}; ///< guards what the worker thread's hooks write
     std::vector<std::pair<std::string, bool>> backed_up{}; ///< set_backed_up's calls
     uint32_t keep_running_on{};                            ///< keep_running(true) calls
     uint32_t keep_running_off{};                           ///< keep_running(false) calls
@@ -485,7 +484,7 @@ void check_show_picker(void*, PickKind kind, PickerDone done, void* userdata) {
 /// Counts the sources let go.
 void check_release_source(void*, const char*) {
     auto& run = check_run();
-    const std::lock_guard lock(run.mutex);
+    const base::threads::LockGuard lock(run.mutex);
     ++run.released;
 }
 
@@ -499,14 +498,14 @@ CopyOutcome check_copy_file(void*, const FileCopy& file, std::string* error) {
         while (true) {
             uint64_t copied = 0;
             {
-                const std::lock_guard lock(run.mutex);
+                const base::threads::LockGuard lock(run.mutex);
                 copied = run.copied_bytes;
             }
             if (copied < *run.options.game_files_stop_after)
                 break;
             if (file.stop != nullptr && file.stop->load())
                 return CopyOutcome::stopped;
-            std::this_thread::sleep_for(throttle_nap);
+            base::threads::sleep_ms(throttle_nap);
         }
     }
     if (run.options.game_files_copy_rate && *run.options.game_files_copy_rate > 0) {
@@ -515,7 +514,7 @@ CopyOutcome check_copy_file(void*, const FileCopy& file, std::string* error) {
             uint64_t copied = 0;
             Clock::time_point started;
             {
-                const std::lock_guard lock(run.mutex);
+                const base::threads::LockGuard lock(run.mutex);
                 if (!run.copy_started)
                     run.copy_started = Clock::now();
                 started = *run.copy_started;
@@ -527,13 +526,13 @@ CopyOutcome check_copy_file(void*, const FileCopy& file, std::string* error) {
                 break;
             if (file.stop != nullptr && file.stop->load())
                 return CopyOutcome::stopped;
-            std::this_thread::sleep_for(throttle_nap);
+            base::threads::sleep_ms(throttle_nap);
         }
     }
     const ChunkedCopy copy = file.copy != nullptr ? file.copy : game_files::chunked_copy;
     const CopyOutcome outcome = copy(file.source, file, error);
     if (outcome == CopyOutcome::copied) {
-        const std::lock_guard lock(run.mutex);
+        const base::threads::LockGuard lock(run.mutex);
         run.copied_bytes += file.size;
     }
     return outcome;
@@ -548,7 +547,7 @@ bool check_free_space(void*, const char*, uint64_t* bytes) {
 /// Records the requests for time away from the screen; the time never runs out.
 void check_keep_running(void*, bool running, void (*expiring)(void*), void* userdata) {
     auto& run = check_run();
-    const std::lock_guard lock(run.mutex);
+    const base::threads::LockGuard lock(run.mutex);
     if (running) {
         ++run.keep_running_on;
         run.expiring = expiring;
@@ -566,7 +565,7 @@ void expire_time_away() {
     void (*expiring)(void*) = nullptr;
     void* userdata = nullptr;
     {
-        const std::lock_guard lock(run.mutex);
+        const base::threads::LockGuard lock(run.mutex);
         expiring = run.expiring;
         userdata = run.expiring_userdata;
     }
@@ -590,7 +589,7 @@ void push_lifecycle(SDL_EventType type) {
 /// Records the backup setting given to each folder.
 bool check_set_backed_up(void*, const char* path, bool backed_up) {
     auto& run = check_run();
-    const std::lock_guard lock(run.mutex);
+    const base::threads::LockGuard lock(run.mutex);
     run.backed_up.emplace_back(path != nullptr ? path : "", backed_up);
     return true;
 }
@@ -1474,7 +1473,7 @@ void verify_folder_copy() {
             fail("the game folder holds " + std::string(left_out) + ", which is left out");
     if (run.held_sources != 0)
         fail("the folder picked was not let go after the copy");
-    const std::lock_guard lock(run.mutex);
+    const base::threads::LockGuard lock(run.mutex);
     if (run.keep_running_on == 0 || run.keep_running_off < run.keep_running_on)
         fail("the copy did not ask for time away from the screen and give it back");
     if (run.released == 0)

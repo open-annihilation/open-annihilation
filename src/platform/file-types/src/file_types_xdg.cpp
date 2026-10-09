@@ -8,6 +8,7 @@
 #include "oa/platform/file_types.hpp"
 
 #include "oa/platform/files.hpp"
+#include "oa/base/threads.hpp"
 #include "oa/platform/system.hpp"
 #include "utf8.hpp"
 
@@ -318,7 +319,7 @@ bool run_tool(const std::vector<std::string>& arguments, uint32_t limit_ms, Regi
             );
             return false;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(tool_poll_ms));
+        base::threads::sleep_ms(tool_poll_ms);
     }
     if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
         done.lines.push_back("ran " + command_line(arguments));

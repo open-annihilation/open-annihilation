@@ -4,12 +4,10 @@
 #include "oa/ui/frontend_renderer/game_text.hpp"
 
 #include "oa/present/display.hpp"
+#include "oa/base/threads.hpp"
 
 #include <algorithm>
 #include <map>
-#include <mutex>
-#include <optional>
-#include <string>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -35,7 +33,7 @@ constexpr std::size_t light_row_bytes = 256;
 
 /// The characters of each GUI font worked out so far, by its glyphs.
 struct KeptCharacters {
-    std::mutex mutex{};
+    base::threads::Mutex mutex{};
     std::map<std::pair<const void*, uint16_t>, present::FontCharacters> fonts{};
 };
 
@@ -68,7 +66,7 @@ present::FontCharacters gui_font_characters(const present::GafSprites& font) {
         return present::FontCharacters::gui_font([](uint8_t) { return false; });
     const present::GafSequence* glyphs = &font.sequences.front();
     auto& kept = kept_characters();
-    const std::lock_guard lock(kept.mutex);
+    const base::threads::LockGuard lock(kept.mutex);
     const auto key = std::pair<const void*, uint16_t>{glyphs->frames, glyphs->frame_count};
     if (const auto found = kept.fonts.find(key); found != kept.fonts.end())
         return found->second;
@@ -82,7 +80,7 @@ present::FontCharacters gui_font_characters(const present::GafSprites& font) {
 
 void forget_gui_font_characters() {
     auto& kept = kept_characters();
-    const std::lock_guard lock(kept.mutex);
+    const base::threads::LockGuard lock(kept.mutex);
     kept.fonts.clear();
 }
 

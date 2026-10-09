@@ -6,6 +6,7 @@
 // mixer on the system's device.
 
 #include "oa/audio/buffered_output.hpp"
+#include "oa/base/threads.hpp"
 #include "oa/audio/software_mixer.hpp"
 #include "oa/audio/sound_output.hpp"
 #include "oa/audio/sound_output_backends.hpp"
@@ -563,7 +564,7 @@ int wave_out() {
     const auto begin = std::chrono::steady_clock::now();
     while (stream->queued_bytes() > 0 || stream->available_bytes() > 0) {
         CHECK(std::chrono::steady_clock::now() - begin < std::chrono::seconds(10));
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        oa::base::threads::sleep_ms(10);
     }
     const double seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - begin).count();

@@ -387,7 +387,8 @@ std::optional<GameDirectory> find_game_directory(const Options& options, GameFil
     };
     host.ask = ask_native_user;
     host.find_platform_default = find_native_platform_default;
-    return resolve_game_directory(request, host, needed);
+    const auto resolved = resolve_game_directory(request, host, needed);
+    return resolved;
 }
 
 FolderPick

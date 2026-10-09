@@ -34,8 +34,19 @@ std::filesystem::path executable_path() {
     for (;;) {
         const DWORD length =
             GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
-        if (length == 0)
-            return {};
+        if (length == 0) {
+            // A Windows whose wide entry points are stubs — Windows 95's are —
+            // answers nothing here, so the system-character-set form is asked
+            // instead. The wide one is asked first because only it carries a
+            // name outside that character set.
+            std::string narrow(MAX_PATH, '\0');
+            const DWORD narrow_length =
+                GetModuleFileNameA(nullptr, narrow.data(), static_cast<DWORD>(narrow.size()));
+            if (narrow_length == 0 || narrow_length >= narrow.size())
+                return {};
+            narrow.resize(narrow_length);
+            return std::filesystem::path(narrow);
+        }
         if (length < path.size()) {
             path.resize(length);
             return std::filesystem::path(path);

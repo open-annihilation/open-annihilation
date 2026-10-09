@@ -108,7 +108,7 @@ if(BUILD_TESTING)
   # clamping, and the buffered output's ring of buffers on a device the
   # test plays by hand.
   add_executable(oa-audio-output-test tests/sound_output_test.cpp)
-  target_link_libraries(oa-audio-output-test PRIVATE oa-audio-output oa-options)
+  target_link_libraries(oa-audio-output-test PRIVATE oa-audio-output oa-options oa-base-threads)
   add_test(NAME audio-output COMMAND oa-audio-output-test)
   if(WIN32)
     # The wave-out mixer on the system's own device: started, fed and

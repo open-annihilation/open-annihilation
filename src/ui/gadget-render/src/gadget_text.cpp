@@ -6,12 +6,12 @@
 
 #include "oa/data/defs/files.hpp"
 #include "oa/base/text.hpp"
+#include "oa/base/threads.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
 
 #include <cstring>
 #include <map>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -25,7 +25,7 @@ namespace {
 
 /// The characters of each GAF font worked out so far, by its glyph sequence.
 struct KeptCharacters {
-    std::mutex mutex{};
+    base::threads::Mutex mutex{};
     std::map<const void*, present::FontCharacters> fonts{};
 };
 
@@ -99,7 +99,7 @@ present::TextFace font_face(const GadgetRenderer& renderer, const void* glyphs) 
 
 present::FontCharacters font_characters(const GadgetRenderer& renderer, const void* glyphs) {
     auto& kept = kept_characters();
-    const std::lock_guard lock(kept.mutex);
+    const base::threads::LockGuard lock(kept.mutex);
     if (const auto found = kept.fonts.find(glyphs); found != kept.fonts.end())
         return found->second;
     const Sprite* box = art_frame(renderer, glyphs, 0);
@@ -359,7 +359,7 @@ void load_gui_font(GadgetRenderer& renderer, GadgetPanel& panel, const char* nam
 
 void forget_font_characters() {
     auto& kept = kept_characters();
-    const std::lock_guard lock(kept.mutex);
+    const base::threads::LockGuard lock(kept.mutex);
     kept.fonts.clear();
 }
 

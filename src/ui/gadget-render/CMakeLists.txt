@@ -5,7 +5,7 @@
 # and panel face blits.
 add_library(oa-ui-gadget-render src/gadget_text.cpp src/gadget_types.cpp src/panel_draw.cpp)
 add_library(oa::ui::gadget_render ALIAS oa-ui-gadget-render)
-target_link_libraries(oa-ui-gadget-render PRIVATE oa-base-text oa-base-game-math)
+target_link_libraries(oa-ui-gadget-render PRIVATE oa-base-text oa-base-game-math oa-base-threads)
 target_include_directories(oa-ui-gadget-render PUBLIC include)
 target_compile_features(oa-ui-gadget-render PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-gadget-render
