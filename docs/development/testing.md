@@ -920,6 +920,12 @@ the field's place is handed to a stub in the window's coordinates.
   `-DOA_X86_FLOAT=fpu`, and `SDL_CPU_FEATURE_MASK` in the environment hides
   the features its CPUID advertises from SDL, which would otherwise choose a
   blit the system faults on.
+
+  Windows 95's command prompt gives a Windows program no standard output and
+  does not wait for it, so a check started there names a folder for its log
+  and waits: `START /W open-annihilation.exe --log-dir D:\RESULTS
+  --headless-check ...` leaves `open-annihilation-*.log` in `D:\RESULTS`.
+  Without a sound driver SDL can use the game plays silently.
 - **32-bit x86:** a 32-bit x86 build needs no SSE2: floats are computed
   with SSE (`OA_X86_FLOAT=sse`, the default; `fpu` computes them on the
   older floating-point unit, which changes the simulation's results) and

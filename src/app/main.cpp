@@ -274,8 +274,13 @@ struct HostDisplay {
         // their own hints from the first event; a desktop build keeps SDL's.
         if constexpr (kTouchFirst)
             set_input_hints();
-        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO))
+        if (!SDL_Init(SDL_INIT_VIDEO))
             throw std::runtime_error(std::string("SDL_Init: ") + SDL_GetError());
+        // Sound starts on its own: a system with no sound driver SDL can use,
+        // such as a Windows 95 that lacks the sound library SDL loads, plays
+        // silently rather than not at all.
+        if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+            std::cerr << "warning: sound is not available: " << SDL_GetError() << '\n';
         active = true;
         // Gamepads reach the folder chooser and the Game files screen too.
         start_gamepad_subsystem();
@@ -878,15 +883,20 @@ int run_once(
     return kSoftRestartStatus;
 }
 
+// Sends the game's standard output and standard error to a log in `folder`.
+// When the log cannot be opened they stay where they were, and standard error
+// says why.
+void start_log_in(const fs::path& folder) {
+    if (!oa::platform::log_files::begin(folder))
+        std::cerr << "open-annihilation: cannot open a log in " << path_to_utf8(folder)
+                  << "; the output stays here\n";
+}
+
 // Sends the game's standard output and standard error to the logs folder in
-// the per-user folder. Without a per-user folder, or when the log cannot be
-// opened, they stay where they were, and standard error says why.
+// the per-user folder. Without a per-user folder they stay where they were.
 void start_log() {
     try {
-        const auto folder = oa::platform::preferences::data_directory() / "logs";
-        if (!oa::platform::log_files::begin(folder))
-            std::cerr << "open-annihilation: cannot open a log in " << path_to_utf8(folder)
-                      << "; the output stays here\n";
+        start_log_in(oa::platform::preferences::data_directory() / "logs");
     } catch (const std::exception& error) {
         std::cerr << "open-annihilation: no log: " << error.what() << '\n';
     }
@@ -1072,9 +1082,14 @@ int main(int argc, char** argv) {
         // A game started for play, from a terminal or the desktop, logs to the
         // logs folder. Checks, benchmarks and other scripted runs keep their
         // output where it goes, and so does a run whose output another
-        // program captures, such as a test or a script.
-        if (!parsed.headless_check && !parsed.unattended &&
-            !oa::platform::log_files::output_captured())
+        // program captures, such as a test or a script. --log-dir names the
+        // folder for any run.
+        if (parsed.log_dir)
+            start_log_in(*parsed.log_dir);
+        else if (
+            !parsed.headless_check && !parsed.unattended &&
+            !oa::platform::log_files::output_captured()
+        )
             start_log();
         // The mod packages the start carries are installed once the main
         // menu shows, unless another copy already runs and takes them.

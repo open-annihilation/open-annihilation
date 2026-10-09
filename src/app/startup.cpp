@@ -668,6 +668,8 @@ namespace {
             result.data_dir = path_from_utf8(value(argument));
         else if (argument == "--user-folder")
             result.user_folder = path_from_utf8(value(argument));
+        else if (argument == "--log-dir")
+            result.log_dir = path_from_utf8(value(argument));
         else if (argument == "--frames")
             result.frame_limit = parse_count(value(argument));
         else if (argument == "--benchmark")
@@ -926,7 +928,7 @@ namespace {
                    "[--accept-unimplemented-hacks] "
                    "[--skip-intro] [--frames N] [--headless-check] "
                    "[--snapshot PATH.ppm] [--preferences-file PATH] [--data-dir PATH] "
-                   "[--user-folder PATH] "
+                   "[--user-folder PATH] [--log-dir PATH] "
                    "[--mute] "
                    "[--check-navigation [screens|orders|outcomes|zoom|zoom-1366x768|"
                    "zoom-1920x1080|zoom-2560x1440|campaign]] "

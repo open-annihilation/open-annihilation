@@ -294,6 +294,10 @@ struct Options {
     // key, else "Open Annihilation" in the Documents folder, or beside a
     // named --preferences-file.
     std::optional<fs::path> user_folder;
+    // A folder the run's log is written into, whatever kind of run it is
+    // (--log-dir): a program that cannot read the game's output, such as
+    // Windows 95's command prompt, reads the file instead.
+    std::optional<fs::path> log_dir;
     std::optional<std::size_t> frame_limit;
     std::optional<std::size_t> benchmark_frames;
     // Headless in-match run: ticks to simulate, output size, per-side army.

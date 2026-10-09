@@ -1118,6 +1118,11 @@ int main() {
                 .preferences_file->u8string() == u8"\u5b58\u6863.conf",
         "--preferences-file reads UTF-8"
     );
+    expect(
+        parse({"--log-dir", "logs", "--headless-check"}).log_dir == std::filesystem::path("logs") &&
+            !parse({"--headless-check"}).log_dir,
+        "--log-dir names the log's folder, and without it there is none"
+    );
     for (const auto* chunks : {"3-2", "-1", "a-b", "1-", "4294967296", "1-2-3", ""})
         expect(
             rejection({"--render-script", "game.oascript", "--chunks", chunks}).find("--chunks") ==

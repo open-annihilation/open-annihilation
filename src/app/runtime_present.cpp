@@ -27,6 +27,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <tuple>
@@ -254,8 +255,12 @@ void Runtime::initialize_sdl() {
         // as a quit SDL adds on its own.
         if (!SDL_SetHint(SDL_HINT_QUIT_ON_LAST_WINDOW_CLOSE, "0"))
             throw std::runtime_error("SDL last-window quit hint was rejected");
-        if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO))
+        if (!SDL_Init(SDL_INIT_VIDEO))
             throw std::runtime_error(std::string("SDL_Init: ") + SDL_GetError());
+        // Sound starts on its own, as in main.cpp: without a sound driver the
+        // game plays silently.
+        if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+            std::cerr << "warning: sound is not available: " << SDL_GetError() << '\n';
         start_gamepad_subsystem();
         watch_opened_files();
         // A window the runtime makes itself has no renderer host, and opens

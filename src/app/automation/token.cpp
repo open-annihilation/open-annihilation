@@ -28,17 +28,33 @@ constexpr size_t kTokenBytes = token_bits / 8;
 /// @return false when the generator could not be read
 bool system_random(std::array<uint8_t, kTokenBytes>& bytes) {
 #ifdef _WIN32
-    // The system's generator (RtlGenRandom), which every Windows from XP on
-    // exports from advapi32.dll by this name.
-    using GenerateRandom = BOOLEAN(WINAPI*)(PVOID, ULONG);
-    HMODULE library = LoadLibraryW(L"advapi32.dll");
+    // advapi32.dll by its name in the system's character set: Windows 95
+    // and 98 answer the wide LoadLibraryW with nothing.
+    HMODULE library = LoadLibraryA("advapi32.dll");
     if (library == nullptr)
         return false;
-    const auto generate = reinterpret_cast<GenerateRandom>(
-        reinterpret_cast<void*>(GetProcAddress(library, "SystemFunction036"))
-    );
-    const bool filled =
+    const auto call = [library](const char* name) {
+        return reinterpret_cast<void*>(GetProcAddress(library, name));
+    };
+    // The system's generator (RtlGenRandom), which every Windows from XP on
+    // exports by this name.
+    using GenerateRandom = BOOLEAN(WINAPI*)(PVOID, ULONG);
+    const auto generate = reinterpret_cast<GenerateRandom>(call("SystemFunction036"));
+    bool filled =
         generate != nullptr && generate(bytes.data(), static_cast<ULONG>(bytes.size())) != FALSE;
+    // Windows 95 and 98 have only the CryptoAPI's generator, behind a
+    // provider context that holds no keys.
+    const auto acquire =
+        reinterpret_cast<decltype(&CryptAcquireContextA)>(call("CryptAcquireContextA"));
+    const auto fill = reinterpret_cast<decltype(&CryptGenRandom)>(call("CryptGenRandom"));
+    const auto release =
+        reinterpret_cast<decltype(&CryptReleaseContext)>(call("CryptReleaseContext"));
+    HCRYPTPROV provider = 0;
+    if (!filled && acquire != nullptr && fill != nullptr && release != nullptr &&
+        acquire(&provider, nullptr, nullptr, PROV_RSA_FULL, CRYPT_VERIFYCONTEXT) != FALSE) {
+        filled = fill(provider, static_cast<DWORD>(bytes.size()), bytes.data()) != FALSE;
+        release(provider, 0);
+    }
     FreeLibrary(library);
     return filled;
 #else
