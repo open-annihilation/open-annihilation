@@ -423,6 +423,38 @@ void Runtime::check_pointer_interfaces() {
         builds() == 0 && queue_of(commander).empty(),
         "a shift click on the queued site did not take the MobileBuild back"
     );
+    // Shift let go after a building was queued with it ends build mode, as
+    // in 3.1c, and the next click on the ground is a move; a building armed
+    // with nothing queued stays armed when Shift is let go.
+    SDL_Event shift_up{};
+    shift_up.type = SDL_EVENT_KEY_UP;
+    shift_up.key.windowID = SDL_GetWindowID(sdl_.window);
+    shift_up.key.key = SDLK_LSHIFT;
+    shift_up.key.scancode = SDL_SCANCODE_LSHIFT;
+    click(SDL_BUTTON_LEFT, sx, sy, SDL_KMOD_LSHIFT);
+    require(
+        builds() == 1 && match_command_ == MatchCommand::build,
+        "a shift click on the site did not queue the commander's MobileBuild again"
+    );
+    dispatch_event(shift_up, running);
+    require(
+        match_command_ == MatchCommand::none && pending_build_type_ == 0,
+        "letting Shift go after a queued MobileBuild did not end build mode"
+    );
+    click(SDL_BUTTON_LEFT, sx, sy);
+    require(
+        builds() == 0 && queue_of(commander).size() == 1 &&
+            queue_of(commander).front().kind == oa::sim::ground_orders::move_ground_kind,
+        "the click after Shift was let go did not move the commander"
+    );
+    match_->stop_orders(commander);
+    match_command_ = MatchCommand::build;
+    pending_build_type_ = solar;
+    dispatch_event(shift_up, running);
+    require(
+        match_command_ == MatchCommand::build && pending_build_type_ == solar,
+        "letting Shift go with no building queued ended build mode"
+    );
     click(SDL_BUTTON_RIGHT, sx, sy);
     require(match_command_ == MatchCommand::none, "a right press did not drop the build command");
 
@@ -863,7 +895,8 @@ void Runtime::check_pointer_interfaces() {
     );
     std::cout << "pointer interface check: one pointer with and without the focus, over "
                  "the in-game menu, the settings and the save page and after something else "
-                 "showed the system's; left-click interface clicks, shift cancels, right "
+                 "showed the system's; left-click interface clicks, shift cancels, Shift let "
+                 "go ending build mode after a queued building, right "
                  "press deselect/cancel/radar scroll/mouse look and build-site cancel; "
                  "right-click interface deselect, default orders, guard, cancels and radar; "
                  "right clicks beside the in-game menu: an order with it kept open, nothing on "

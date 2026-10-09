@@ -8,6 +8,7 @@
 #include "oa/ui/gui_layout/gui_gadget.hpp"
 #include "oa/ui/hud/command_buttons.hpp"
 #include "oa/ui/hud/order_panel.hpp"
+#include <SDL3/SDL.h>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -133,6 +134,7 @@ void Runtime::activate_match_hud(std::size_t index, bool left_button) {
     case hud::BuildPanelClick::place:
         match_command_ = MatchCommand::build;
         pending_build_type_ = click.type;
+        build_queued_with_shift_ = false;
         status_ = "Place " + gadget_name + ": click the map";
         break;
     case hud::BuildPanelClick::queued:
@@ -429,11 +431,29 @@ void Runtime::issue_pending_build(const oa::sim::ground_orders::Point& site, boo
         if (!queue) {
             reset_match_command();
             pending_build_type_ = 0;
+        } else if ((input_modifiers(ModifierUse::order) & SDL_KMOD_SHIFT) != 0) {
+            build_queued_with_shift_ = true;
         }
     } catch (const std::exception& error) {
         status_ = std::string("build placement: ") + error.what();
         std::cerr << "unsupported operation: " << status_ << '\n';
     }
+}
+
+void Runtime::end_build_on_shift_release() {
+    if (!build_queued_with_shift_)
+        return;
+    // Build mode ended some other way (a right press, Escape, CANCEL) takes
+    // the mark with it.
+    if (!match_ || match_command_ != MatchCommand::build || pending_build_type_ == 0) {
+        build_queued_with_shift_ = false;
+        return;
+    }
+    if ((input_modifiers(ModifierUse::order) & SDL_KMOD_SHIFT) != 0)
+        return;
+    build_queued_with_shift_ = false;
+    reset_match_command();
+    pending_build_type_ = 0;
 }
 
 void Runtime::check_build_placement() {

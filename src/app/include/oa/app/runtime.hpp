@@ -8318,10 +8318,20 @@ class Runtime final : public menu::Host,
 
     /// Sends every selected mobile builder to build the pending building at a
     /// site, plays oktobuild and ends build mode unless the order is queued.
+    /// A building queued with Shift held ends build mode once Shift is let go
+    /// (end_build_on_shift_release).
     ///
     /// @param site 16.16 world point of the site, snapped to the footprint
     /// @param queue the order goes behind the builders' others
     void issue_pending_build(const oa::sim::ground_orders::Point& site, bool queue);
+
+    /// Ends build mode once Shift is let go after a building was queued with
+    /// it held, as in 3.1c, so that the next click on the ground gives the
+    /// default order rather than another building. With none queued, the
+    /// building stays chosen when Shift is let go. Shift is the orders' own
+    /// (input_modifiers(ModifierUse::order)): the keyboard's, or QUEUE's on
+    /// the touch controls and the pad.
+    void end_build_on_shift_release();
 
     /// Places the pending building under a canvas point: on the radar as 3.1c
     /// places it there (place_pending_build_on_radar), else at the
@@ -14492,6 +14502,9 @@ class Runtime final : public menu::Host,
 
     std::vector<AuthoredPlace> match_hud_authored_{};
     uint16_t pending_build_type_ = 0;
+    // A building of pending_build_type_ was queued with Shift held: letting
+    // Shift go ends build mode (end_build_on_shift_release).
+    bool build_queued_with_shift_ = false;
     // Cursor GAF frames the order overlays draw, rendered once each.
     std::map<const oa::formats::gaf::Frame*, oa::formats::gaf::RenderedFrame>
         overlay_sprite_frames_{};

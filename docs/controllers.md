@@ -128,7 +128,7 @@ R4 turns it off, as two taps would.
 
 | Grip | Applies to |
 |---|---|
-| R4 QUEUE | Orders, area orders and ring picks join the queue; placing buildings stays armed; the queued orders are drawn |
+| R4 QUEUE | Orders, area orders and ring picks join the queue; placing buildings stays armed until R4 goes off; the queued orders are drawn |
 | R4 on a build button, x5 | A factory's +5 and −5 |
 | L4 ADD | Clicks on units add them or take them out; boxes add; group recall adds |
 | R5 FORCE | Clicks while held force fire. It is not a latch |
@@ -234,7 +234,9 @@ factory shows. A press on a wedge is a press on that build button.
   follows the pointer, green or red for a site it can or cannot stand on;
   R2, A or a trackpad press places it. On a refused site the game sounds
   its refusal, a thump plays on the right trackpad and the ghost stays.
-  With R4 held or latched, placing stays armed. B or L2 cancels.
+  With R4 held or latched, placing stays armed; once a building is placed,
+  letting R4 go or turning its latch off ends it, as letting Shift go does.
+  B or L2 cancels.
 - **Placement a finger started** follows the touch controls' rules; one the
   gamepad started follows the pointer until a finger lands on the
   battlefield, and from then on follows the touch rules.

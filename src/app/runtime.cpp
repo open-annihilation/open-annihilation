@@ -625,6 +625,9 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // last one answered a panel with; the press records its own again.
     if (event.type == SDL_EVENT_KEY_DOWN)
         answered_key_ = 0;
+    // Shift let go after a building was queued ends build mode before any
+    // event that follows acts: a click just after the release is no build.
+    end_build_on_shift_release();
     if (take_lifecycle_event(event))
         return;
     if (take_touch_event(event, running)) {
@@ -684,6 +687,9 @@ void Runtime::idle_tick() {
     // timers, camera and layout.
     tick_pad();
     tick_touch();
+    // QUEUE let go on the touch controls or the pad ends build mode as
+    // Shift does.
+    end_build_on_shift_release();
     // Each game frame opens a profile window, and the pump, the
     // ticks and the drawing are charged as they end.
     const bool profiled = screen_ == Screen::match && match_;

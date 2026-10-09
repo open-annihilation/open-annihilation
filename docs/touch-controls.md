@@ -163,7 +163,7 @@ the building where it is tapped, and a hold places it: at the ghost when the
 finger is on it, else where the finger is. On ground where the building
 cannot stand the ghost shows refused, the game sounds its refusal and the
 ghost stays. With **QUEUE** on, placing goes on after each building until
-✕, CLEAR or a two-finger tap.
+QUEUE goes off (as letting Shift go ends it), ✕, CLEAR or a two-finger tap.
 
 **The phone's drawer.** BUILD slides in a drawer of the builder's buttons,
 three across, with BUILD and ORDERS tabs, **x5**, and page dots with PREV
