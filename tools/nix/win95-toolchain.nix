@@ -4,7 +4,7 @@
 # The two things about nixpkgs' mingw that are wrong for Windows 95, as an
 # overlay on the package set the Windows 95 build comes out of:
 #
-#   import nixpkgs { overlays = [ (import ./nix/win95-toolchain.nix) ]; }
+#   import nixpkgs { overlays = [ (import ./tools/nix/win95-toolchain.nix) ]; }
 #
 # Applied at import rather than to one stdenv, so that the whole cross set —
 # the compiler, the C run-time library, and every package built from them,

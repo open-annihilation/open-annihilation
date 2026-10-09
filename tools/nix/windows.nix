@@ -7,7 +7,7 @@
 # so a build for an older Windows can be given a set built against the C
 # run-time library that Windows ships, and one for a current Windows the
 # default. zlib and FreeType are that set's own; only SDL3 is built here
-# (nix/windows-sdl.nix), for its patch and its static library.
+# (tools/nix/windows-sdl.nix), for its patch and its static library.
 #
 # What makes the build a Windows one is cmake/OaWindows95.cmake or
 # cmake/OaWindowsXp.cmake, chosen by the definitions passed in; the toolchain

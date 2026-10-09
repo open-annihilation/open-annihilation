@@ -33,7 +33,7 @@ path = [
     "src/**.md",
     "tests/**.md",
     "tools/**.md",
-    "nix/**.nix",
+    "tools/nix/**.nix",
     "flake.nix",
     "flake.lock"
 ]

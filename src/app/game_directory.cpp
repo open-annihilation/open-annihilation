@@ -432,7 +432,6 @@ GameInstall inspect_game_install(
     GameInstall install;
     std::error_code error;
     install.folder = fs::is_directory(root, error);
-    std::fflush(stderr);
     if (!install.folder) {
         install.problem = path_length_problem(root);
         return install;
@@ -458,16 +457,6 @@ GameInstall inspect_game_install(
     install.profile = std::move(profile.profile);
     install.profile_errors = std::move(profile.errors);
     install.profile_warnings = std::move(profile.warnings);
-    for (const auto& error : install.profile_errors) {
-        std::fputs(error.c_str(), stderr);
-        std::fputs("\n", stderr);
-        std::fflush(stderr);
-    }
-    for (const auto& warning : install.profile_warnings) {
-        std::fputs(warning.c_str(), stderr);
-        std::fputs("\n", stderr);
-        std::fflush(stderr);
-    }
     if (!install.profile_errors.empty())
         return install;
     discover_archives(root, install, profile.file);

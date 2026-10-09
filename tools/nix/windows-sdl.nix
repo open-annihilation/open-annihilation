@@ -25,7 +25,7 @@ stdenv.mkDerivation {
   inherit (sdl3) version src;
 
   patches = [
-    ../tools/sdl-patches/3.4.16/0001-steam-deck-trackpad-haptics.patch
+    ../sdl-patches/3.4.16/0001-steam-deck-trackpad-haptics.patch
   ];
 
   nativeBuildInputs = [

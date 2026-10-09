@@ -19,7 +19,7 @@
       mkWin95Pkgs = system:
         import nixpkgs {
           inherit system;
-          overlays = [ (import ./nix/win95-toolchain.nix) ];
+          overlays = [ (import ./tools/nix/win95-toolchain.nix) ];
         };
 
       # The version the executables carry: the project's own, from the one
@@ -43,7 +43,7 @@
 
       # The engine as this system builds it. Its source is this tree, so what is
       # built is what is checked out rather than a release fetched from GitHub.
-      linux = pkgs: pkgs.callPackage ./nix/linux.nix { src = self; inherit version; };
+      linux = pkgs: pkgs.callPackage ./tools/nix/linux.nix { src = self; inherit version; };
 
       # A Windows build of the tree, cross-compiled from a cross set.
       #
@@ -77,13 +77,13 @@
               "--without-brotli"
             ];
           });
-          sdl3 = cross.callPackage ./nix/windows-sdl.nix {
+          sdl3 = cross.callPackage ./tools/nix/windows-sdl.nix {
             pname = "SDL3-${pname}";
             description = "The SDL3 library, built for ${windowsName}";
             targetFlags = flags;
           };
         in
-        cross.callPackage ./nix/windows.nix {
+        cross.callPackage ./tools/nix/windows.nix {
           src = self;
           inherit version freetype zlib sdl3 toolchain definitions;
           inherit pname;
@@ -126,7 +126,7 @@
           }).game;
 
           # `nix build .#win95` builds the executables for Windows 95, from the
-          # one set whose toolchain nix/win95-toolchain.nix rebuilt.
+          # one set whose toolchain tools/nix/win95-toolchain.nix rebuilt.
           win95 =
             let
               win95Pkgs = mkWin95Pkgs system;
