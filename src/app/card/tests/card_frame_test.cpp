@@ -1978,6 +1978,60 @@ void test_malformed_frames_are_refused() {
     );
 }
 
+/// A retired page draws on in the next frame, as it was, and is destroyed
+/// once that frame has run, refused or not; a frame refused before drawing
+/// says so, and one that ran does not.
+void test_a_retired_page_lasts_its_frame() {
+    Fixture fixture;
+    const Image texels = seeded(seed_page, 16, 16);
+    const card::PageHandle page = fixture.make_page({texels});
+    card::CardFrame frame;
+    card::append_quad(frame, 1.0F, 1.0F, 16.0F, 16.0F, 0.0F, 0.0F, 1.0F, 1.0F, {});
+    draw_since(frame, 0, page, card::Blend::none);
+    fixture.executor.retire_page(page);
+    OA_CHECK(fixture.executor.page_alive(page));
+    fixture.run("a retired page's last frame", frame, true);
+    OA_CHECK(!fixture.executor.frame_refused());
+    OA_CHECK(!fixture.executor.page_alive(page));
+    OA_CHECK(!fixture.executor.execute(frame, nullptr));
+    OA_CHECK(fixture.executor.frame_refused());
+    OA_CHECK(fixture.executor.error().find("is not alive") != std::string::npos);
+    const card::PageHandle next = fixture.make_page({texels});
+    fixture.executor.retire_page(next);
+    OA_CHECK(!fixture.executor.execute(frame, nullptr));
+    OA_CHECK(!fixture.executor.page_alive(next));
+    // Retiring a page that is gone is ignored.
+    fixture.executor.retire_page(page);
+    OA_CHECK(fixture.executor.counts().pages_alive == 0);
+}
+
+/// A frame of more than a million vertices, as a battle of thousands of
+/// units at the widest zoom builds, runs whole.
+void test_a_frame_of_many_vertices_runs() {
+    Fixture fixture;
+    constexpr uint32_t quads = 300'000;
+    card::CardFrame frame;
+    frame.vertices.reserve(std::size_t{quads} * 4U);
+    frame.indices.reserve(std::size_t{quads} * 6U);
+    for (uint32_t at = 0; at < quads; ++at) {
+        const auto x = static_cast<float>(at % canvas_width);
+        const auto y = static_cast<float>((at / canvas_width) % canvas_height);
+        card::append_quad(
+            frame, x, y, 1.0F, 1.0F, 0.0F, 0.0F, 0.0F, 0.0F, {1.0F, 1.0F, 1.0F, 1.0F}
+        );
+    }
+    draw_since(frame, 0, {}, card::Blend::none);
+    OA_CHECK(frame.vertices.size() > std::size_t{1} << 20);
+    OA_CHECK(card::check_frame(frame).empty());
+    const bool ran = fixture.executor.execute(frame, nullptr);
+    OA_CHECK(ran);
+    if (!ran)
+        std::fprintf(stderr, "execute: %s\n", fixture.executor.error().c_str());
+    OA_CHECK(fixture.executor.counts().triangles == uint64_t{quads} * 2U);
+    const Image read = fixture.canvas.read();
+    OA_CHECK(read.pixels.front() == (Pixel{255, 255, 255, 255}));
+}
+
 /// Pages and targets beyond the limits, and parts outside a level, are
 /// refused with an error naming what and the limit.
 void test_pages_beyond_the_limit_are_refused() {
@@ -2297,6 +2351,8 @@ int main() {
     test_two_level_reductions_match_the_reference();
     test_levels_of_a_page();
     test_malformed_frames_are_refused();
+    test_a_retired_page_lasts_its_frame();
+    test_a_frame_of_many_vertices_runs();
     test_pages_beyond_the_limit_are_refused();
     test_batches_that_share_their_state_merge();
     test_the_renderers_state_is_put_back();

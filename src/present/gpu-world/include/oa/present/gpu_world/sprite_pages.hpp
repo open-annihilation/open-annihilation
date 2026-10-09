@@ -8,8 +8,10 @@
 // and the display gamma, packed into a power-of-two page in a cell aligned
 // so that a half-size level of the page is exact, found again by the
 // caller's frame number and the mode it is drawn in, and evicted least
-// recently used first under a named memory limit. Pure C++20: nothing here
-// touches SDL or the card, and nothing draws from these pages yet.
+// recently used first under a named memory limit. The frames a frame drawn
+// on the battlefield uses are held until the next one begins, and where they
+// alone fill the limit, the limit grows, as far as the caller allows. Pure
+// C++20: nothing here touches SDL or the card.
 //
 // The packing contract. A frame's cell is the frame with frame_gutter
 // transparent texels on each side, its width and height rounded up to a
@@ -153,6 +155,19 @@ struct Limits {
     uint32_t largest_page_size = max_page_size;
     /// Bytes of page texels alive at once.
     size_t memory_limit = default_memory_limit;
+    /// The most the memory limit grows to where the frames of the frame
+    /// under way (SpritePages::begin_frame) fill it and the growth hooks
+    /// allow it; at or below memory_limit it never grows.
+    size_t largest_memory_limit = default_memory_limit;
+};
+
+/// What the pages ask before their memory limit grows: the seam to the
+/// memory the machine has.
+struct GrowthHooks {
+    void* context{};
+    /// Says whether the pages may take `bytes` more of page texels than
+    /// their limit allows now; null lets the limit never grow.
+    bool (*allow)(void* context, size_t bytes){};
 };
 
 /// What the pages hold, in bytes and counts.
@@ -170,6 +185,10 @@ struct Statistics {
     uint64_t decodes{};   ///< frames decoded and placed
     uint64_t evictions{}; ///< frames evicted to make room
     uint64_t refusals{};  ///< requests refused
+    uint64_t growths{};   ///< times the memory limit grew
+    /// Requests refused no_room because the frames of the frame under way
+    /// filled the limit and it could grow no further.
+    uint64_t held_refusals{};
 };
 
 /// Sprite frames decoded once into pages of texels, found by frame number
@@ -181,10 +200,30 @@ class SpritePages {
     ///
     /// Page sides outside min_page_size..max_page_size are brought inside
     /// it and rounded up to a power of two; a largest page smaller than the
-    /// ordinary page becomes the ordinary page.
+    /// ordinary page becomes the ordinary page, and a largest memory limit
+    /// below the memory limit becomes the memory limit.
     ///
-    /// @param limits page sides and the memory limit
+    /// @param limits page sides and the memory limits
     explicit SpritePages(const Limits& limits = Limits{});
+
+    /// Sets what the pages ask before their memory limit grows.
+    ///
+    /// @param hooks the hooks; empty ones let the limit never grow
+    void set_growth_hooks(const GrowthHooks& hooks) noexcept { growth_ = hooks; }
+
+    /// Begins a frame drawn on the battlefield: the frames placed or found
+    /// from now until the next begin_frame are held, never evicted to make
+    /// room, so that a cell the frame draws from keeps its frame until the
+    /// frame has run. Where the held frames alone fill the limit, it grows
+    /// as far as the growth hooks allow and largest_memory_limit, doubling
+    /// each time; past that, a new frame is refused no_room. Before the
+    /// first begin_frame nothing is held.
+    void begin_frame() noexcept { ++frame_serial_; }
+
+    /// Brings the memory limit back to the one the pages were made with.
+    /// Pages already alive over it stay, and further pages wait until they
+    /// fit.
+    void reset_memory_limit() noexcept { limits_.memory_limit = made_memory_limit_; }
 
     /// Sets the palette and display gamma every texel is decoded through.
     ///
@@ -214,7 +253,8 @@ class SpritePages {
     /// the rest transparent, and placed in an aligned cell behind its
     /// gutter on a page that has room, else on a new page within the memory
     /// limit, else on the room the least recently used frames leave as they
-    /// are evicted.
+    /// are evicted, those of the frame under way excepted, else on a new
+    /// page of a grown limit (begin_frame).
     ///
     /// @param frame_id the caller's number for the frame, the same for the
     ///     same frame every time; a frame whose pixels change needs forget()
@@ -305,9 +345,10 @@ class SpritePages {
     struct Entry {
         FrameRecord record{};
         uint64_t frame_id{};
-        TexelRect slot{}; ///< the frame's cell: the frame with its gutter, aligned
-        uint32_t newer{}; ///< the entry used after this one, or none
-        uint32_t older{}; ///< the entry used before this one, or none
+        TexelRect slot{};   ///< the frame's cell: the frame with its gutter, aligned
+        uint32_t newer{};   ///< the entry used after this one, or none
+        uint32_t older{};   ///< the entry used before this one, or none
+        uint64_t used_in{}; ///< the frame serial it was last placed or found in
         bool live{};
     };
 
@@ -373,6 +414,22 @@ class SpritePages {
     /// @return true when its bytes and the pages alive stay within the limit
     [[nodiscard]] bool can_add_page(uint32_t side) const noexcept;
 
+    /// Grows the memory limit so that a page of a side fits: to twice the
+    /// limit, or as much as the page needs where that is more, held to
+    /// largest_memory_limit, when the growth hooks allow the bytes it adds.
+    ///
+    /// @param side page side in texels
+    /// @return true when the limit grew and the page fits
+    bool grow_for(uint32_t side);
+
+    /// Reports whether an entry is held: used by the frame under way.
+    ///
+    /// @param entry the entry
+    /// @return true when it was placed or found since the last begin_frame
+    [[nodiscard]] bool held(uint32_t entry) const noexcept {
+        return frame_serial_ != 0 && entries_[entry].used_in == frame_serial_;
+    }
+
     /// Makes an empty page, taking a released page's index when there is one.
     ///
     /// @param side page side in texels
@@ -399,7 +456,8 @@ class SpritePages {
     /// @return the entry's index
     uint32_t new_entry();
 
-    /// Makes an entry the most recently used.
+    /// Makes an entry the most recently used, and held by the frame under
+    /// way.
     ///
     /// @param entry the entry to link
     void link_newest(uint32_t entry) noexcept;
@@ -422,6 +480,9 @@ class SpritePages {
     FrameResult refuse(FrameStatus status) noexcept;
 
     Limits limits_{};
+    size_t made_memory_limit_{}; ///< the memory limit the pages were made with
+    GrowthHooks growth_{};
+    uint64_t frame_serial_{}; ///< frames begun; 0 before the first
     Palette palette_{};
     float gamma_{};
     std::array<uint8_t, gray_table_entries> gray_table_{};

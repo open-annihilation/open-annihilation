@@ -1068,7 +1068,7 @@ void test_records_on_dummy() {
             RendererHost host;
             oa::app::RecordsPlace place;
             place.folder = folder;
-            place.engine_version = "test";
+            place.engine_build = "test";
             const auto lines = logged_lines([&]() {
                 host.create(window, faults, place);
                 host.decide_start_tier(flagged);
@@ -1127,7 +1127,7 @@ void test_records_on_dummy() {
             RendererHost host;
             oa::app::RecordsPlace place;
             place.folder = blocker / "profile";
-            place.engine_version = "test";
+            place.engine_build = "test";
             const auto lines = logged_lines([&]() {
                 host.create(window, faults, place);
                 host.decide_start_tier(flagged);

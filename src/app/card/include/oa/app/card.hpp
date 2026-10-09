@@ -60,12 +60,14 @@ struct TargetHandle {
     friend bool operator==(const TargetHandle&, const TargetHandle&) = default;
 };
 
-/// Most vertices one frame holds.
-inline constexpr uint32_t most_frame_vertices = 1U << 20;
-/// Most indices one frame holds.
-inline constexpr uint32_t most_frame_indices = 1U << 22;
+/// Most vertices one frame holds: 256 MiB of them. The renderer takes any
+/// count; the limit only bounds the memory a frame built wrong could take,
+/// far above what a battle of thousands of units at the widest zoom needs.
+inline constexpr uint32_t most_frame_vertices = 1U << 23;
+/// Most indices one frame holds: 128 MiB of them.
+inline constexpr uint32_t most_frame_indices = 1U << 25;
 /// Most batches one frame holds.
-inline constexpr uint32_t most_frame_batches = 1U << 16;
+inline constexpr uint32_t most_frame_batches = 1U << 20;
 /// Most levels of one page, level 0 included.
 inline constexpr uint8_t most_page_levels = 8;
 /// The largest edge of a page's level 0, in texels, whatever the renderer allows.

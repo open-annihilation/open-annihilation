@@ -1215,10 +1215,10 @@ void RendererHost::open_records(const RecordsPlace& place) {
     if (render_driver_named)
         records_ = renderer_state::RendererState::disabled();
     else if (place.folder.empty())
-        records_ = renderer_state::RendererState::in_memory(place.engine_version, rules, log);
+        records_ = renderer_state::RendererState::in_memory(place.engine_build, rules, log);
     else
         records_ = renderer_state::RendererState::open_folder(
-            place.folder, place.engine_version, rules, log
+            place.folder, place.engine_build, rules, log
         );
     leftovers_ = records_.resolve_leftovers();
     // A strike or record made of what the last run left reaches the file

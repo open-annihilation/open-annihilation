@@ -32,7 +32,7 @@ enum class FullShortfall : uint8_t {
     none,          ///< nothing keeps Full to Basic
     lacks_feature, ///< Full's function test failed or the card cannot make Full's pages
     failed_before, ///< a full-unusable record stands against the driver
-    stopped,       ///< a call of the Full tier's own failed in this run
+    stopped, ///< a call of the Full tier's own failed in this run, or the card refused a frame
     /// The memory guard dropped Full in this run, which setting the setting
     /// to Off and back does not lift.
     too_little_memory,

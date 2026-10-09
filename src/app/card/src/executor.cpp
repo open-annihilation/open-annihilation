@@ -193,6 +193,7 @@ void Executor::close() noexcept {
             free_target(slot);
     pages_.clear();
     free_pages_.clear();
+    retired_pages_.clear();
     targets_.clear();
     free_targets_.clear();
     scratch_.clear();
@@ -360,6 +361,11 @@ void Executor::destroy_page(PageHandle handle) noexcept {
     const Page* page = find_page(handle);
     if (page != nullptr)
         free_page(static_cast<std::size_t>(page - pages_.data()));
+}
+
+void Executor::retire_page(PageHandle page) {
+    if (find_page(page) != nullptr)
+        retired_pages_.push_back(page);
 }
 
 bool Executor::page_alive(PageHandle page) const noexcept {
@@ -1013,6 +1019,15 @@ bool Executor::restore(Run& run) {
 }
 
 bool Executor::execute(const CardFrame& frame, SDL_Texture* final_target) {
+    const bool ran = run_frame(frame, final_target);
+    for (const PageHandle page : retired_pages_)
+        destroy_page(page);
+    retired_pages_.clear();
+    return ran;
+}
+
+bool Executor::run_frame(const CardFrame& frame, SDL_Texture* final_target) {
+    frame_refused_ = false;
     if (!is_open())
         return refuse("the executor is not open");
     std::string fault = check_frame(frame);
@@ -1020,6 +1035,7 @@ bool Executor::execute(const CardFrame& frame, SDL_Texture* final_target) {
         fault = check_handles(frame, final_target);
     if (!fault.empty()) {
         ++counts_.frames_refused;
+        frame_refused_ = true;
         return refuse("frame refused: " + fault);
     }
     ++run_serial_;

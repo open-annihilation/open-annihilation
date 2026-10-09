@@ -911,6 +911,11 @@ void test_renderer_row() {
     renderer.anti_aliasing = {};
     row = oa::app::frame_pacing::frame_stats_table(window, notes, renderer).rows[kRendererRow];
     CHECK(row_reads(row, "full: direct3d11", "", "", "", "NVIDIA GeForce RTX 3060"));
+    // A limit the tier draws within takes the adapter's place.
+    renderer.limit = "sprite memory full";
+    row = oa::app::frame_pacing::frame_stats_table(window, notes, renderer).rows[kRendererRow];
+    CHECK(row_reads(row, "full: direct3d11", "", "", "", "sprite memory full"));
+    renderer.limit = {};
     renderer.tier = "standard";
     // A two-byte character across the cut is left out whole; one that ends
     // at the cut is kept.

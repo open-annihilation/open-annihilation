@@ -72,7 +72,7 @@ class RendererState {
     /// logged. Nothing is written until a write is asked for.
     ///
     /// @param folder the folder that holds preferences.conf
-    /// @param engine_version the running engine's version
+    /// @param engine_version the running engine's build, its version and the commit it was built from
     /// @param rules how this platform counts a left-over trial, and whether
     ///     the machine is under 2 GiB
     /// @param log where log lines go
@@ -87,7 +87,7 @@ class RendererState {
     /// Starts records that live in memory for the run, as with a named
     /// --preferences-file.
     ///
-    /// @param engine_version the running engine's version
+    /// @param engine_version the running engine's build, its version and the commit it was built from
     /// @param rules whether the machine is under 2 GiB
     /// @param log where log lines go
     /// @return empty records with no left-over sentinel
@@ -246,7 +246,7 @@ class RendererState {
     /// Starts empty records.
     ///
     /// @param storage where the records live
-    /// @param engine_version the running engine's version
+    /// @param engine_version the running engine's build, its version and the commit it was built from
     /// @param rules the rules the records follow on this machine
     /// @param log where log lines go
     RendererState(

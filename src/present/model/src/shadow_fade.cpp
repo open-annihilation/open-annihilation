@@ -95,9 +95,9 @@ uint32_t shadow_level(float zoom) noexcept {
     const auto steps = static_cast<int64_t>(
         std::lround(static_cast<double>(strength) * static_cast<double>(shadow_full_level))
     );
-    return static_cast<uint32_t>(
-        std::clamp<int64_t>(steps, 1, static_cast<int64_t>(shadow_full_level) - 1)
-    );
+    if (steps < static_cast<int64_t>(shadow_least_level))
+        return 0;
+    return static_cast<uint32_t>(std::min<int64_t>(steps, int64_t{shadow_full_level} - 1));
 }
 
 const uint8_t* ShadowTable::prepare(

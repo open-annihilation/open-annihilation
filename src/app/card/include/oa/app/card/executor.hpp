@@ -150,6 +150,13 @@ class Executor {
     /// @param page the page
     void destroy_page(PageHandle page) noexcept;
 
+    /// Destroys a page once the next frame has run, refused or not, or at
+    /// close: a frame built while the page was replaced may still name it,
+    /// and draws from it as it was. A handle that names no page is ignored.
+    ///
+    /// @param page the page
+    void retire_page(PageHandle page);
+
     /// Says whether a handle names a page that is alive.
     ///
     /// @param page the handle
@@ -211,12 +218,21 @@ class Executor {
     /// sampling and scissor and follow one another in the indices in one
     /// geometry call. The render target is `final_target` when it returns,
     /// with the scissor, draw colour and draw blend mode it found there.
+    /// The pages retired before it are destroyed after it (retire_page).
     ///
     /// @param frame the frame
     /// @param final_target the target batches of no render target draw into; null for the window.
     ///     Never one of the executor's own render targets, which a resolve draws instead
-    /// @return false, with error() set, when the frame was refused or a call failed part way
+    /// @return false, with error() set, when the frame was refused or a call failed part way;
+    ///     frame_refused() tells the two apart
     [[nodiscard]] bool execute(const CardFrame& frame, SDL_Texture* final_target);
+
+    /// Says whether the last frame run was refused before anything of it
+    /// was drawn: a frame built wrong, which no driver caused, as against a
+    /// call to SDL that failed.
+    ///
+    /// @return true when the last execute refused its frame
+    [[nodiscard]] bool frame_refused() const noexcept { return frame_refused_; }
 
   private:
 
@@ -302,6 +318,13 @@ class Executor {
     /// @param why what was refused
     /// @return false, for the caller to return
     bool refuse(const std::string& why);
+
+    /// Runs a frame for execute, which then destroys the retired pages.
+    ///
+    /// @param frame the frame
+    /// @param final_target the frame's final target
+    /// @return false, with error() set, when the frame was refused or a call failed part way
+    bool run_frame(const CardFrame& frame, SDL_Texture* final_target);
 
     /// Returns a page slot a handle names.
     ///
@@ -485,8 +508,10 @@ class Executor {
     /// part of it would scan the whole.
     SDL_TextureAccess page_access_{SDL_TEXTUREACCESS_STATIC};
     uint64_t run_serial_{}; ///< runs of execute begun, refused ones left out
+    bool frame_refused_{};  ///< the last execute refused its frame
     std::vector<Page> pages_{};
-    std::vector<std::size_t> free_pages_{}; ///< page slots freed, to use again
+    std::vector<std::size_t> free_pages_{};   ///< page slots freed, to use again
+    std::vector<PageHandle> retired_pages_{}; ///< pages destroyed after the next frame
     std::vector<Target> targets_{};
     std::vector<std::size_t> free_targets_{};
     std::vector<Vertex> scratch_{}; ///< the darken fallback's copy of a batch's vertices

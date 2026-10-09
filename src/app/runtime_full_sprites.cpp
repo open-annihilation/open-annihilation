@@ -641,7 +641,8 @@ struct SpriteFrame::Impl {
     /// frame's last ones, by cutting the frame back to where it stood when
     /// the stage began; where another stage's batches lie among them, by
     /// emptying each of the stage's batches, whose vertices then stay in
-    /// the frame but draw nothing.
+    /// the frame but draw nothing. An emptied batch names no page, since
+    /// the page it named may be gone by the time the frame runs.
     void take_back() {
         const std::vector<std::size_t>& opened = emitter.opened();
         const bool last = opened.size() == frame.batches.size() - batches_before;
@@ -651,8 +652,10 @@ struct SpriteFrame::Impl {
             frame.batches.resize(batches_before);
             return;
         }
-        for (const std::size_t position : opened)
+        for (const std::size_t position : opened) {
             frame.batches[position].index_count = 0;
+            frame.batches[position].page = {};
+        }
     }
 };
 

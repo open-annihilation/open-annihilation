@@ -5,6 +5,7 @@
 
 #include "oa/formats/hpi.hpp"
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -34,6 +35,42 @@ struct Sound {
 /// @param configured_name File name as configured in allsound.tdf or a unit's sound category.
 /// @return Archive path of the WAV file.
 [[nodiscard]] std::string sound_resource(std::string_view configured_name);
+
+/// The sounds 3.1c's own data names but its files never held, by file name
+/// in lower case without folder or extension: gamedata/sound.tdf names them
+/// for the plants' finished units, a building's select, build and repair
+/// sounds and some units' select, order and arrival sounds, and the game
+/// plays nothing for them. Their failure to play is never reported; a mod
+/// that ships one plays it.
+inline constexpr std::array<std::string_view, 13> known_missing_sounds{
+    "build",
+    "hovsmof1",
+    "lathelrg",
+    "phiblgof",
+    "phiblgto",
+    "snipok1",
+    "snipok2",
+    "snipsel1",
+    "torpadv1",
+    "torpsel1",
+    "torpsel2",
+    "untdone",
+    "untdone1",
+};
+
+/// Returns the key a sound resource is known by from one call to the next:
+/// its path in lower case, with slashes between folders.
+///
+/// @param resource the WAV's archive path, as sound_resource gives it or as a unit names it
+/// @return the key
+[[nodiscard]] std::string sound_resource_key(std::string_view resource);
+
+/// Says whether a sound is one of known_missing_sounds, whatever its folder,
+/// extension or case.
+///
+/// @param resource the WAV's archive path, or its configured name
+/// @return true for a sound 3.1c's data names but never shipped
+[[nodiscard]] bool known_missing_sound(std::string_view resource);
 
 class Registry {
   public:

@@ -9,6 +9,7 @@
 #include "oa/app/runtime.hpp"
 #include "device_state.hpp"
 #include "frame_stats_panel.hpp"
+#include "full_presentation.hpp"
 #include "graphics_report.hpp"
 #include "match_clock.hpp"
 #include "pad_state.hpp"
@@ -337,6 +338,10 @@ frame_pacing::FrameStatsRenderer Runtime::frame_stats_renderer() const {
                                                  : "";
     renderer.driver = renderer_driver_;
     renderer.adapter = renderer_adapter_;
+    // The full tier's pages holding as much as they may, which leaves out of
+    // a frame what it needs past them.
+    if (full_presentation() && full_->page_memory_full)
+        renderer.limit = "sprite memory full";
     return renderer;
 }
 

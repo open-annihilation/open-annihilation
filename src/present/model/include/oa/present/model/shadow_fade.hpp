@@ -4,9 +4,10 @@
 // How dark the battlefield's shadows are drawn as the view zooms out, and the
 // alpha table the processor draws a faded shadow through. At the game's view,
 // zoom 1, and closer, shadows are drawn exactly as the game draws them. Zoomed
-// out they lighten, easing smoothly, until from four times as far out as the
-// game's view no shadow is drawn at all. Presentation only: nothing the
-// simulation reads changes.
+// out they lighten, easing smoothly, until, once they would be a sixteenth of
+// the game's darkness, a little before four times as far out as the game's
+// view, no shadow is drawn at all, and none costs a frame anything.
+// Presentation only: nothing the simulation reads changes.
 #pragma once
 
 #include "oa/present/model/model_library.hpp"
@@ -21,9 +22,15 @@ namespace oa::present::model {
 /// a level of shadow_full_level draws shadows as the game does, 0 draws none.
 inline constexpr uint32_t shadow_full_level = 64;
 
-/// The zoom, in window pixels per map pixel, from which no shadow is drawn:
-/// four times as far out as the game's view.
+/// The zoom, in window pixels per map pixel, at which the shadows' strength
+/// reaches 0: four times as far out as the game's view.
 inline constexpr float shadowless_zoom = 0.25F;
+
+/// The faintest level a shadow is drawn at: a sixteenth of the game's
+/// darkness, under which a shadow would change what is under it by a few
+/// levels of a channel at most, which nobody sees, for the whole cost of
+/// drawing it.
+inline constexpr uint32_t shadow_least_level = shadow_full_level / 16;
 
 /// Returns how dark shadows are drawn at a zoom, from 0 (none) to 1 (as the
 /// game draws them).
@@ -39,12 +46,13 @@ inline constexpr float shadowless_zoom = 0.25F;
 [[nodiscard]] float shadow_strength(float zoom) noexcept;
 
 /// Returns the level shadows are drawn at, at a zoom: shadow_strength in
-/// steps of 1 / shadow_full_level, rounded to the nearest step.
+/// steps of 1 / shadow_full_level, rounded to the nearest step, and 0 below
+/// shadow_least_level.
 ///
 /// shadow_full_level exactly where the strength is 1 (zoom 1 and closer, and
-/// a zoom a float's rounding away from 1), 0 exactly where it is 0, and
-/// between 1 and shadow_full_level - 1 wherever it lies between, so that a
-/// faint shadow is still drawn until the strength reaches 0.
+/// a zoom a float's rounding away from 1), 0 where it rounds to fewer than
+/// shadow_least_level steps, and between shadow_least_level and
+/// shadow_full_level - 1 wherever it lies between.
 ///
 /// @param zoom window pixels per map pixel
 /// @return the level, 0 to shadow_full_level

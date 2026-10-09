@@ -26,6 +26,8 @@ namespace {
 using PointSound = oa::sim::match_runtime::Match::PointSound;
 
 constexpr uint32_t announcement_window_ticks = 30;
+/// How the asset store's error for a file it does not hold begins.
+constexpr std::string_view asset_not_found_error = "asset not found: ";
 // The novelty voice's first sound plays on one window in eight.
 constexpr uint32_t novelty_first_sound_windows = 8;
 
@@ -58,11 +60,12 @@ void Runtime::play_point_sound(const char* name, const PointSound& sound) {
     const auto spatial = oa::audio::voice_spatial(
         sound_spatial_, sound.min_distance, sound.max_distance, sound.placed ? &position : nullptr
     );
+    const std::string resource = oa::audio::game_audio::sound_resource(name);
+    if (sound_found_missing(resource))
+        return;
     std::string error;
-    if (!audio_player_.play_placed(
-            oa::audio::game_audio::sound_resource(name), sound.volume, spatial, error
-        ))
-        std::cerr << "sound unavailable: " << error << '\n';
+    if (!audio_player_.play_placed(resource, sound.volume, spatial, error))
+        report_unplayed_sound(resource, error);
 }
 
 void Runtime::play_wave_file(std::string_view path) {
@@ -80,9 +83,26 @@ void Runtime::play_wave_file(std::string_view path) {
         return;
     std::string resource(path);
     std::replace(resource.begin(), resource.end(), '\\', '/');
+    if (sound_found_missing(resource))
+        return;
     std::string error;
     if (!audio_player_.play_resource(resource, error))
-        std::cerr << "sound unavailable: " << error << '\n';
+        report_unplayed_sound(resource, error);
+}
+
+bool Runtime::sound_found_missing(std::string_view resource) const {
+    return missing_sounds_.contains(oa::audio::game_audio::sound_resource_key(resource));
+}
+
+void Runtime::report_unplayed_sound(std::string_view resource, const std::string& error) {
+    std::string key = oa::audio::game_audio::sound_resource_key(resource);
+    // The asset store's words for a file it does not hold.
+    if (error.starts_with(asset_not_found_error))
+        missing_sounds_.insert(key);
+    if (oa::audio::game_audio::known_missing_sound(resource) ||
+        !reported_sounds_.insert(std::move(key)).second)
+        return;
+    std::cerr << "sound unavailable: " << error << '\n';
 }
 
 void Runtime::toggle_novelty_voice() {

@@ -641,6 +641,21 @@ void ensure_projectile_shadow(
         frame.coverage[i] = pixels[i] != shadow.key ? 1 : 0;
 }
 
+/// Throws the error of a frame the executor did not run: FullFrameRefusedError
+/// for a frame it refused before drawing anything, which no driver caused,
+/// else FullCardError, its text starting with the call that failed, which
+/// names the strike against the driver.
+///
+/// @param executor the executor
+/// @param what the frame, for the error
+[[noreturn]] void throw_frame_failure(const card::Executor& executor, std::string_view what) {
+    if (executor.frame_refused())
+        throw FullFrameRefusedError(
+            "the card refused " + std::string(what) + ": " + executor.error()
+        );
+    throw FullCardError(executor.error() + ", running " + std::string(what));
+}
+
 /// Appends the quads the painters asked for over the world, in paint order,
 /// consecutive quads of one blend in one batch.
 ///
@@ -724,8 +739,10 @@ card::PageHandle Runtime::FullPresentation::card_page(uint32_t page) {
     const uint32_t size = held[page].size;
     if (slot.handle != card::PageHandle{} && slot.size == size && executor.page_alive(slot.handle))
         return slot.handle;
+    // The page at its old size may be named by batches of the frame being
+    // built, so it goes once the frame has run.
     if (slot.handle != card::PageHandle{})
-        executor.destroy_page(slot.handle);
+        executor.retire_page(slot.handle);
     slot = {};
     card::PageDescription description;
     description.width = size;
@@ -753,7 +770,8 @@ void Runtime::FullPresentation::upload_sprite_pages() {
             continue;
         const gw::Page& page = held[index];
         if (page.size == 0 || page.size != slot.size) {
-            executor.destroy_page(slot.handle);
+            // Batches of the frame being built may name it still.
+            executor.retire_page(slot.handle);
             slot = {};
             continue;
         }
@@ -775,6 +793,41 @@ void Runtime::FullPresentation::upload_sprite_pages() {
         sprite_pages.clear_dirty(index);
         slot.revision = page.revision;
     }
+}
+
+bool Runtime::FullPresentation::allow_page_growth(void* context, std::size_t bytes) {
+    return static_cast<Runtime*>(context)->accelerated_buffer_fits(bytes);
+}
+
+void Runtime::FullPresentation::note_page_memory() {
+    const gw::SpritePages* const sets[] = {&sprite_pages, &models.pages(), &models.bright_pages()};
+    std::size_t limit = 0;
+    std::size_t largest = 0;
+    uint64_t held_refusals = 0;
+    for (const gw::SpritePages* set : sets) {
+        limit += set->limits().memory_limit;
+        largest += set->limits().largest_memory_limit;
+        held_refusals += set->statistics().held_refusals;
+    }
+    if (logged_page_memory == 0)
+        logged_page_memory = limit;
+    if (limit > logged_page_memory) {
+        logged_page_memory = limit;
+        std::cout << graphics_log_prefix << "the sprite and texture pages grew to "
+                  << mebibytes(limit) << " MiB for this match\n"
+                  << std::flush;
+    }
+    if (held_refusals == held_refusals_seen)
+        return;
+    held_refusals_seen = held_refusals;
+    if (page_memory_full)
+        return;
+    page_memory_full = true;
+    std::cout << graphics_log_prefix << "the sprite and texture pages hold " << mebibytes(limit)
+              << " MiB, "
+              << (limit >= largest ? "the most they grow to" : "as much as the memory allows")
+              << "; what one frame needs past that is left out of it\n"
+              << std::flush;
 }
 
 void Runtime::FullPresentation::destroy_sprite_card_pages() noexcept {
@@ -808,7 +861,18 @@ void Runtime::free_full_match_state() noexcept {
         return;
     free_full_match_textures();
     auto& full = *full_;
+    // What the match's busiest frame took, for a log a player sends.
+    if (const FullFrameVertices& busiest = full.busiest_frame; busiest.total != 0)
+        std::cout << graphics_log_prefix << "the match's busiest frame held " << busiest.total
+                  << " vertices: " << busiest.shadows << " of shadows, " << busiest.models
+                  << " of models, " << busiest.sprites << " of sprites and the rest of the "
+                  << "ground, the fog and the painters, at zoom " << busiest.zoom << '\n'
+                  << std::flush;
+    full.busiest_frame = {};
     full.sprite_pages.clear();
+    full.sprite_pages.reset_memory_limit();
+    full.logged_page_memory = 0;
+    full.page_memory_full = false;
     full.gray_generation = 0;
     full.sprites = {};
     full.models_palette = {};
@@ -1526,7 +1590,16 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         sprite_inputs.palette = &match_palette_;
         sprite_inputs.gamma = gamma;
         const full::SpritePageHooks hooks{&full, &FullPresentation::card_page_hook};
+        // The frame's sprites and textures stay on their pages until it has
+        // run, and the pages grow where those alone fill them, as far as the
+        // memory guard allows.
+        const gw::GrowthHooks growth{this, &FullPresentation::allow_page_growth};
+        full.sprite_pages.set_growth_hooks(growth);
+        full.models.set_growth_hooks(growth);
+        full.sprite_pages.begin_frame();
+        full.models.begin_frame();
         full.sprites = {};
+        full.frame_vertices = {};
         full.stage_ns = 0;
         // Emits the stages into the frame through a view: straight to the
         // window at the battlefield's corner, or into the world target at
@@ -1551,12 +1624,18 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 sprite_inputs.view = scene;
                 {
                     full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
+                    std::size_t before = frame.vertices.size();
                     full.models.emit_shadows(model_inputs, scene, full.executor, frame);
+                    full.frame_vertices.shadows += frame.vertices.size() - before;
                     for (const WorldDraw& draw : models.draws.draws) {
-                        if (full::sprite_kind(draw.kind))
+                        before = frame.vertices.size();
+                        if (full::sprite_kind(draw.kind)) {
                             sprites.emit(draw);
-                        else if (full::model_kind(draw.kind))
+                            full.frame_vertices.sprites += frame.vertices.size() - before;
+                        } else if (full::model_kind(draw.kind)) {
                             full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
+                            full.frame_vertices.models += frame.vertices.size() - before;
+                        }
                     }
                     full.sprites = sprites.finish();
                 }
@@ -1574,6 +1653,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                               << "; it draws on without what it could not make\n"
                               << std::flush;
                 }
+                full.note_page_memory();
                 full.upload_sprite_pages();
                 if (!full.models.upload(full.executor))
                     throw FullCardError(
@@ -1802,7 +1882,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         if (render_fault_due(RenderFaultPoint::card))
             throw FullCardError(std::string(forced_card_failure));
         if (!full.executor.execute(frame, nullptr))
-            throw FullCardError("the card refused the frame: " + full.executor.error());
+            throw_frame_failure(full.executor, "the frame");
         oa::base::float_precision::restore_program_float_control();
         full.execute_ns = nanoseconds_since(execute_start);
         // The frame counts towards the stage of Full's first frames.
@@ -1817,6 +1897,10 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         full.drawn_world_quads = world_quads;
         full.drawn_batches = static_cast<uint32_t>(frame.batches.size());
         full.drawn_through_target = through_target;
+        full.frame_vertices.total = frame.vertices.size();
+        full.frame_vertices.zoom = zoom;
+        if (full.frame_vertices.total > full.busiest_frame.total)
+            full.busiest_frame = full.frame_vertices;
         ++full.frames;
 
         // What the painters painted, over the card's picture, 1:1: into the
@@ -1881,9 +1965,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             }
             move.batches.push_back(onto);
             if (!full.executor.execute(move, nullptr))
-                throw FullCardError(
-                    "the card refused the zoomed-out target's move: " + full.executor.error()
-                );
+                throw_frame_failure(full.executor, "the zoomed-out target's move");
             oa::base::float_precision::restore_program_float_control();
         } else {
             const SDL_FRect world{
@@ -1898,6 +1980,10 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         }
         finish_match_layers(frame_format, dialogs, upload_start, present_start);
         return true;
+    } catch (const FullFrameRefusedError& error) {
+        // A frame built wrong is the engine's fault, not the driver's.
+        drop_full(error.what(), policy::FullDrop::frame_refused);
+        return false;
     } catch (const FullCardError& error) {
         take_full_failure(error.what());
         return false;

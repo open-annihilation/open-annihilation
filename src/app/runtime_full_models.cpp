@@ -98,13 +98,22 @@ constexpr size_t quad_corner_count = 4;
 /// whose width changes by d pixels from its top to its bottom moves them
 /// by up to d / 4, at its middle row.
 constexpr float strip_shift_allowed = 0.25F;
+/// The most a textured quad's two triangles may move its texels from where
+/// the walk puts them, in pixels of the target, for the quad to be drawn as
+/// them with no strips: half a pixel, within which no texel shows anywhere
+/// but where the walk would show it. Two triangles move them by up to a
+/// quarter of how far the quad is from a parallelogram (twist_of), which
+/// shrinks with the zoom: over the installed game's units about a third of
+/// the textured quads keep their strips at zoom 1, a fifth at 0.5, one in
+/// sixteen at 0.25 and one in forty at the Full tier's floor of a sixth.
+constexpr double two_triangle_shift_allowed = 0.5;
 /// Where a pixel's centre lies within it, across and down.
 constexpr float pixel_centre = 0.5F;
 /// Past this many vertices or indices in the frame, textured quads are
 /// drawn as their two triangles, so that a frame of many models stays
-/// within what the card takes.
-constexpr size_t most_strip_frame_vertices = card::most_frame_vertices / 2;
-constexpr size_t most_strip_frame_indices = card::most_frame_indices / 2;
+/// small.
+constexpr size_t most_strip_frame_vertices = size_t{1} << 19;
+constexpr size_t most_strip_frame_indices = size_t{1} << 21;
 /// The empty map pixels kept round the plane a nanoframe's outline is
 /// found on, past the rows' last pixels the outline reaches.
 constexpr int32_t outline_plane_margin = 2;
@@ -139,9 +148,12 @@ constexpr uint64_t first_texture_number = 1;
 /// one whose image-key texels are a colour.
 constexpr uint64_t variants = 2;
 constexpr uint64_t flat_variant = 1;
-/// Memory the texture pages may take: the installed game's texture
+/// Memory the texture pages start with: the installed game's texture
 /// library is 1.35 MB of indices, 753 frames.
 constexpr size_t page_memory_limit = size_t{32} * 1024 * 1024;
+/// The most the texture pages grow to where one frame's textures fill them,
+/// as far as the growth hooks allow: a mod's library many times the game's.
+constexpr size_t largest_page_memory_limit = size_t{512} * 1024 * 1024;
 
 /// One corner of a polygon: a frame pixel at zoom 1, where on its frame the
 /// corner lies and its colour.
@@ -836,7 +848,8 @@ namespace {
 
 /// Makes the executor's page of one of the sprite pages' pages, or makes it
 /// again when the page was released and made again at another size, and
-/// uploads it whole.
+/// uploads it whole. The page at its old size, which batches of the frame
+/// being built may name, is destroyed once the frame has run.
 bool ensure_page_slot(
     card::Executor& executor,
     gw::SpritePages& pages,
@@ -856,7 +869,7 @@ bool ensure_page_slot(
         executor.page_alive(slot.handle))
         return true;
     if (slot.handle != card::PageHandle{})
-        executor.destroy_page(slot.handle);
+        executor.retire_page(slot.handle);
     slot = {};
     if (page.size == 0)
         return false;
@@ -877,7 +890,8 @@ bool ensure_page_slot(
 }
 
 /// Uploads the texels written to the pages since the last upload, and frees
-/// the executor's pages of pages released since.
+/// the executor's pages of pages released since once the frame being built,
+/// whose batches may name them, has run.
 bool upload_pages(
     card::Executor& executor,
     gw::SpritePages& pages,
@@ -892,7 +906,7 @@ bool upload_pages(
         if (slot.handle == card::PageHandle{})
             continue;
         if (index >= all.size() || all[index].size == 0 || all[index].size != slot.size) {
-            executor.destroy_page(slot.handle);
+            executor.retire_page(slot.handle);
             slot = {};
             continue;
         }
@@ -1707,6 +1721,25 @@ bool Emitter::has_keyed_texels(const Sprite& sprite) {
     return found->second;
 }
 
+namespace {
+
+/// Returns how far a quad is from a parallelogram: the length of its
+/// first and third corners' sum less its second and fourth's, in map
+/// pixels. Its two triangles move its texels from where the processor's
+/// walk puts them by up to a quarter of that, at zoom 1.
+///
+/// @param corners the quad's four corners
+/// @return the twist, 0 for a parallelogram
+[[nodiscard]] double twist_of(std::span<const Corner> corners) noexcept {
+    const auto across =
+        static_cast<double>(corners[0].x) + corners[2].x - corners[1].x - corners[3].x;
+    const auto down =
+        static_cast<double>(corners[0].y) + corners[2].y - corners[1].y - corners[3].y;
+    return std::hypot(across, down);
+}
+
+} // namespace
+
 /// Cuts a textured quad into strips across its rows, so that its texels
 /// run as the processor's walk runs them: in proportion down each side
 /// from the topmost corner to the bottommost, then in proportion along
@@ -1718,17 +1751,19 @@ bool Emitter::has_keyed_texels(const Sprite& sprite) {
 ///     surface with their texture coordinates and colours
 /// @return true with the strips in strip_vertices_ and strip_indices_, no
 ///     strip where every row is empty; false, with nothing built, for a
-///     quad its two triangles draw as the walk does (a parallelogram, or
-///     one of no height), for a quad with a side that turns back up or
-///     runs along a row between two sloped edges, and once the frame holds
-///     most_strip_frame_vertices or most_strip_frame_indices
+///     quad its two triangles draw as the walk does to within
+///     two_triangle_shift_allowed of a pixel (a parallelogram, a quad small
+///     at the zoom, or one of no height), for a quad with a side that turns
+///     back up or runs along a row between two sloped edges, and once the
+///     frame holds most_strip_frame_vertices or most_strip_frame_indices
 bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners) {
     if (corners.size() != quad_corner_count || vertices_.size() != quad_corner_count ||
         frame_.vertices.size() >= most_strip_frame_vertices ||
         frame_.indices.size() >= most_strip_frame_indices)
         return false;
-    if (corners[0].x + corners[2].x == corners[1].x + corners[3].x &&
-        corners[0].y + corners[2].y == corners[1].y + corners[3].y)
+    const double twist = twist_of(corners);
+    counts_.widest_twist = std::max(counts_.widest_twist, twist);
+    if (twist * static_cast<double>(scale_) / 4.0 <= two_triangle_shift_allowed)
         return false;
     size_t top = 0;
     size_t bottom = 0;
@@ -1919,6 +1954,7 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
     if (polygon.texture != nullptr && walk_strips(surface, corners)) {
         if (strip_indices_.empty())
             return;
+        ++counts_.strip_quads;
         const auto opaque_corner = [](const Corner& corner) { return corner.colour.alpha >= 1.0F; };
         const bool opaque = std::ranges::all_of(corners, opaque_corner) &&
                             (polygon.flat_page || !has_keyed_texels(*polygon.texture));
@@ -2674,8 +2710,16 @@ float pixels_per_map_pixel(const SceneView& view) noexcept {
 
 ModelStage::ModelStage()
     : impl_(std::make_unique<Impl>()),
-      pages_(gw::Limits{gw::default_page_size, gw::max_page_size, page_memory_limit}),
-      bright_pages_(gw::Limits{gw::default_page_size, gw::max_page_size, page_memory_limit}) {
+      pages_(
+          gw::Limits{
+              gw::default_page_size, gw::max_page_size, page_memory_limit, largest_page_memory_limit
+          }
+      ),
+      bright_pages_(
+          gw::Limits{
+              gw::default_page_size, gw::max_page_size, page_memory_limit, largest_page_memory_limit
+          }
+      ) {
 }
 
 ModelStage::~ModelStage() = default;
@@ -2705,8 +2749,20 @@ void ModelStage::close(card::Executor& executor) noexcept {
     impl_->shadow_height = 0;
     pages_.clear();
     bright_pages_.clear();
+    pages_.reset_memory_limit();
+    bright_pages_.reset_memory_limit();
     impl_->forget_contents();
     impl_->kept_plane_orders.clear();
+}
+
+void ModelStage::begin_frame() noexcept {
+    pages_.begin_frame();
+    bright_pages_.begin_frame();
+}
+
+void ModelStage::set_growth_hooks(const gw::GrowthHooks& hooks) noexcept {
+    pages_.set_growth_hooks(hooks);
+    bright_pages_.set_growth_hooks(hooks);
 }
 
 void ModelStage::emit_shadows(

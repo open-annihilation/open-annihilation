@@ -10936,6 +10936,22 @@ class Runtime final : public menu::Host,
     /// @param path wave file path; backslashes are allowed
     void play_wave_file(std::string_view path);
 
+    /// Says whether a sound was found missing earlier in the run, so that
+    /// it is not looked for again.
+    ///
+    /// @param resource the WAV's archive path
+    /// @return true once a play of it found no file
+    [[nodiscard]] bool sound_found_missing(std::string_view resource) const;
+
+    /// Reports a sound that did not play: on stderr the first time in the
+    /// run for each sound, and never for one 3.1c's own data names but never
+    /// shipped (audio::game_audio::known_missing_sound); a sound whose file
+    /// was not found is remembered (sound_found_missing).
+    ///
+    /// @param resource the WAV's archive path
+    /// @param error why it did not play
+    void report_unplayed_sound(std::string_view resource, const std::string& error);
+
     /// Flips the novelty voice ("Sing"): unit speech then plays its two
     /// sounds, 3.1c's honk and sing or the mod profile's.
     void toggle_novelty_voice();
@@ -11976,8 +11992,8 @@ class Runtime final : public menu::Host,
         return state;
     }
 
-    /// Plays a frontend entry sound by its ALLSOUND name unless muted; a failure is reported on
-    /// stderr.
+    /// Plays a frontend entry sound by its ALLSOUND name unless muted; a failure is reported
+    /// (report_unplayed_sound).
     ///
     /// @param sound sound to play
     template <typename Sound>
@@ -11989,8 +12005,9 @@ class Runtime final : public menu::Host,
         );
         std::string error;
         if (selection.status == oa::audio::game_audio::SelectionStatus::selected &&
+            !sound_found_missing(selection.sound->resource) &&
             !audio_player_.play(selection, error))
-            std::cerr << "sound unavailable: " << error << '\n';
+            report_unplayed_sound(selection.sound->resource, error);
     }
 
     /// Starts the main menu's music: the CD music's menu mode and the menu voice loop.
@@ -14292,6 +14309,10 @@ class Runtime final : public menu::Host,
     float pointer_y_ = 0;
     oa::formats::gaf::Archive cursor_gaf_{};
     std::set<std::string> missing_gaf_paths_{};
+    /// The sounds found missing in the run, by audio::game_audio::sound_resource_key.
+    std::set<std::string> missing_sounds_{};
+    /// The sounds whose failure to play the run has reported, by the same key.
+    std::set<std::string> reported_sounds_{};
     // The GUI context's cursor and pointer, with the picture the software
     // cursor shows and the cursor table index of the animation shown; the
     // runtime keeps them in place of the Game block's gui_context_block and

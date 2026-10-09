@@ -691,11 +691,28 @@ logs it.
   grey or wholly colour, and in colour under the dithered option; squares
   as the planner's rectangles; lines as quads `max(1, zoom)` pixels wide
   through the centres of their end pixels, selection lines the same from
-  the bridge's map pixels; a frame whose distinct sprites exceed the
-  pages' memory draws none of them, since a cell evicted before the frame
-  ran would show another sprite; and the units, 3D features, projectiles,
+  the bridge's map pixels. The sprite pages, and the model stage's two
+  sets of texture pages, hold every frame a frame uses until it has run
+  (`SpritePages::begin_frame`), so that no cell a frame draws from is
+  evicted under it; where those alone fill the pages, the pages grow,
+  doubling, from 64 MiB for the sprites and 32 MiB for each texture set up
+  to 512 MiB each, as far as the memory guard allows
+  (`FullPresentation::allow_page_growth`, `accelerated_buffer_fits`), each
+  growth logged and the limits put back as the match ends
+  (`note_page_memory`). Past what they may hold, what a frame needs beyond
+  it is left out of that frame, logged once a match and named in the
+  `+stats` renderer row's note, "sprite memory full", in place of the
+  adapter (`FrameStatsRenderer::limit`). A frame whose sprites a cell was
+  still evicted under, which the held frames leave no way to, draws none
+  of them, since that cell would show another sprite; and the units, 3D
+  features, projectiles,
   debris pieces and shatter fragments (`ModelStage`,
-  `runtime_full_models.cpp`) as triangles from the models' meshes, each
+  `runtime_full_models.cpp`) as triangles from the models' meshes, a
+  textured quad cut into strips across its rows where its two triangles
+  would move its texels more than half a pixel from where the processor's
+  walk puts them, a quarter of how far it is from a parallelogram at the
+  zoom (`walk_strips`, `two_triangle_shift_allowed`), so that a frame
+  zoomed out, where quads are small, draws almost none, each
   corner placed from the piece transforms the planner rebuilt with the
   arithmetic of the path the processor draws the piece by (a cached piece
   as its image, a moving piece flat, a carried unit as its carrier
@@ -722,8 +739,11 @@ logs it.
   (`emit_shadows`, the extension point a later better-shadows option
   replaces). Zoomed out, the shadows' alpha, and a feature's shadow frame's
   colour and alpha on the sprite stage, take the list's shadow level's
-  share; at level 0 the stage emits no shadow and neither clears nor
-  composes the target. The fog's dither over everything under the dithered option
+  share; at level 0, which the fade reaches before its strength does
+  (`shadow_least_level`), the stage emits no shadow and neither clears nor
+  composes the target. As a match ends, the log names its busiest frame's
+  vertices, by shadows, models and sprites, and its zoom
+  (`FullFrameVertices`). The fog's dither over everything under the dithered option
   (`append_unseen_dither`), palette index 0 at alpha one half, the even
   tone the processor's every-other pixel averages to, over the objects as
   the processor dithers them, since the pages hold no dithered sprite; and
@@ -758,8 +778,12 @@ logs it.
   the stages' `full::CardError`), or the failure `--render-fault card`
   forces, drops Full with the failing call struck against the driver as a
   `card` strike (`take_full_failure`), which the same failure in the next
-  run on the driver records `full-unusable`; a failed Full function test
-  drops it as the card lacking a feature Full needs, with nothing struck;
+  run on the driver records `full-unusable`; a frame the executor refuses
+  before drawing anything of it, one the stages built wrong
+  (`FullFrameRefusedError`, `card::Executor::frame_refused`), drops Full
+  with nothing struck, since no driver caused it; a failed Full function
+  test drops it as the card lacking a feature Full needs, with nothing
+  struck;
   the memory guard counts Full's pages and targets
   (`AcceleratedBuffer::card_pages`, `card_targets`) and refuses or drops
   Full before Basic, judging Basic afresh on the memory Full freed
@@ -1096,8 +1120,10 @@ logs it.
   of the last second, with the rate the loop keeps, the frame, work, tick,
   draw and present times' least, mean and most in columns, the units
   the last frame drew, the renderer: the tier frames are drawn in and
-  the render driver, as in "standard: metal", with the adapter's name, each
-  cut to 23 bytes, never inside a character; and the display
+  the render driver, as in "standard: metal", with the adapter's name, or
+  "sprite memory full" while the full tier leaves out of a frame what its
+  pages may not hold, each cut to 23 bytes, never inside a character; and
+  the display
   (`set_display_row`, `Runtime::frame_stats_display`): "window", "full
   screen" (on the desktop's mode) or "exclusive" (at a mode of the game's
   own) with the size the match is laid out and drawn at, as in "full screen
@@ -1347,6 +1373,12 @@ logs it.
   sing sounds. The match view (`match_view_player`) follows
   `Game.viewpoint_player`, which "+View" moves: the fog, the units drawn,
   the economy and the units that speak follow the viewed player.
+- A sound that does not play, through any of the game's routes, is
+  reported on stderr once a run for each sound, as "sound unavailable:"
+  and why, and never for one 3.1c's own data names but never shipped
+  (`report_unplayed_sound`, `audio::game_audio::known_missing_sound`); a
+  sound whose file was not found is not looked for again in the run
+  (`sound_found_missing`).
 - `runtime_unit_speech_check.cpp`: `--check-unit-speech`
   (`native-unit-speech`): the commander clicked says its select line, and
   clicked onto open ground its order line, in a skirmish and in a second
@@ -1473,8 +1505,12 @@ logs it.
   the told mark of the main menu's notice. On a machine under 2 GiB
   (`RecordRules`) no trial is written and nothing of the accelerated tier is
   struck or recorded, and what a run with more memory left of it stays for a
-  start from 2 GiB to judge. Strikes and records of another adapter or engine
-  version are dropped, and `clear_failures` gives every driver a fresh try, as
+  start from 2 GiB to judge. Strikes, records and remembered rungs are
+  written under the engine's build, its version and the commit it was built
+  from (`OA_ENGINE_BUILD`, written by `cmake/OaEngineBuild.cmake` on every
+  build), and those of another adapter or build are dropped, so that a new
+  build starts free of an older one's failures; the `native-density` key
+  stays with the engine's version. `clear_failures` gives every driver a fresh try, as
   Off and back and Restore defaults do. The sentinel of the stage a start has
   reached is kept apart in `renderer-sentinel.conf`; `sentinel_step` moves it
   and the trial through a run, from `create` to `running` and each path's

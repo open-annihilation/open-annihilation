@@ -761,6 +761,72 @@ void test_eviction() {
     OA_CHECK(roomy.memory().pages == 3);
 }
 
+/// The frames of the frame under way are never evicted: where they fill the
+/// limit, it grows as far as the growth hooks allow and the largest limit,
+/// doubling, and past that a new frame is refused; the next frame holds
+/// only what it uses.
+void test_held_frames_and_growth() {
+    const Palette palette = test_palette();
+    const size_t one_page = size_t{64} * 64 * texel_bytes;
+    SpritePages pages(Limits{64, 64, one_page, 4 * one_page});
+    pages.set_palette(palette, plain_gamma);
+    const auto place = [&](uint64_t id) {
+        return pages.frame(id, DrawMode::opaque, covered_frame(28, 28)).status;
+    };
+    // 28x28 frames take 32x32 cells: four fill a page.
+    pages.begin_frame();
+    for (uint64_t id = 1; id <= 4; ++id)
+        OA_CHECK(place(id) == FrameStatus::ok);
+    // Without growth hooks the limit stays, and no frame of this frame goes.
+    OA_CHECK(place(5) == FrameStatus::no_room);
+    OA_CHECK(pages.statistics().evictions == 0 && pages.statistics().held_refusals == 1);
+    for (uint64_t id = 1; id <= 4; ++id)
+        OA_CHECK(pages.holds(id, DrawMode::opaque));
+    // The next frame holds only what it uses.
+    pages.begin_frame();
+    OA_CHECK(pages.find(1, DrawMode::opaque).status == FrameStatus::ok);
+    OA_CHECK(place(5) == FrameStatus::ok);
+    OA_CHECK(pages.statistics().evictions == 1 && !pages.holds(2, DrawMode::opaque));
+
+    struct Asked {
+        size_t bytes{};
+        bool allowed{true};
+    } asked;
+
+    pages.set_growth_hooks({&asked, [](void* context, size_t bytes) {
+                                auto& hooks = *static_cast<Asked*>(context);
+                                hooks.bytes += bytes;
+                                return hooks.allowed;
+                            }});
+    // A frame of five frames: four evict the last frame's, the fifth grows
+    // the limit to two pages.
+    pages.begin_frame();
+    for (uint64_t id = 10; id <= 14; ++id)
+        OA_CHECK(place(id) == FrameStatus::ok);
+    OA_CHECK(pages.statistics().evictions == 5 && pages.statistics().growths == 1);
+    OA_CHECK(asked.bytes == one_page && pages.limits().memory_limit == 2 * one_page);
+    OA_CHECK(pages.memory().pages == 2);
+    // Refused growth refuses the frame.
+    for (uint64_t id = 15; id <= 17; ++id)
+        OA_CHECK(place(id) == FrameStatus::ok);
+    asked.allowed = false;
+    OA_CHECK(place(18) == FrameStatus::no_room);
+    OA_CHECK(pages.statistics().held_refusals == 2 && pages.limits().memory_limit == 2 * one_page);
+    // Allowed again, the limit doubles to the largest, and stops there.
+    asked.allowed = true;
+    for (uint64_t id = 18; id <= 25; ++id)
+        OA_CHECK(place(id) == FrameStatus::ok);
+    OA_CHECK(pages.statistics().growths == 2 && pages.limits().memory_limit == 4 * one_page);
+    OA_CHECK(place(26) == FrameStatus::no_room);
+    OA_CHECK(pages.statistics().held_refusals == 3 && pages.memory().pages == 4);
+    // The limit goes back to the one the pages were made with.
+    pages.reset_memory_limit();
+    OA_CHECK(pages.limits().memory_limit == one_page);
+    // A largest limit under the limit is the limit.
+    const SpritePages fixed(Limits{64, 64, 2 * one_page, one_page});
+    OA_CHECK(fixed.limits().largest_memory_limit == 2 * one_page);
+}
+
 void test_slot_reuse() {
     const Palette palette = test_palette();
     SpritePages pages(Limits{256, 256, size_t{256} * 256 * texel_bytes});
@@ -1010,6 +1076,7 @@ int main(int argc, char** argv) {
         test_malformed_frames_refused();
         test_packing();
         test_eviction();
+        test_held_frames_and_growth();
         test_slot_reuse();
         test_palette_and_gray_changes();
         test_dirty_and_revisions();

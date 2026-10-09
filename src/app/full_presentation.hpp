@@ -37,6 +37,11 @@ namespace oa::app {
 /// own name.
 using FullCardError = full::CardError;
 
+/// A frame the card refused before drawing anything of it, which drops Full
+/// to Basic for the run with nothing struck against the driver
+/// (full::FrameRefusedError).
+using FullFrameRefusedError = full::FrameRefusedError;
+
 /// The atlas levels the Full tier uploads and draws from: the tile levels
 /// 0 to 2, the last of which the zoom floor of one sixth draws
 /// (full_terrain::plan_terrain_draw).
@@ -52,9 +57,21 @@ inline constexpr uint32_t full_target_grain = 12;
 /// frame too big for one may have of its own.
 inline constexpr uint32_t full_sprite_page_side = 1024;
 inline constexpr uint32_t full_largest_sprite_page_side = 2048;
-/// Texel memory the sprite pages may hold: four ordinary pages. A
-/// placeholder until the performance pass sets the budget.
-inline constexpr std::size_t full_sprite_page_memory = std::size_t{16} * 1024 * 1024;
+/// Texel memory the sprite pages start a match with: sixteen ordinary pages.
+inline constexpr std::size_t full_sprite_page_memory = std::size_t{64} * 1024 * 1024;
+/// The most the sprite pages, and each of the model stage's page sets, grow
+/// to where one frame's sprites fill them, as far as the memory guard allows
+/// (FullPresentation::allow_page_growth).
+inline constexpr std::size_t full_largest_page_memory = std::size_t{512} * 1024 * 1024;
+
+/// The vertices of a Full frame, by what made them.
+struct FullFrameVertices {
+    std::size_t total{};   ///< every vertex the frame held
+    std::size_t shadows{}; ///< the model stage's shadows
+    std::size_t models{};  ///< the units, 3D features, projectiles, debris and fragments
+    std::size_t sprites{}; ///< sprites, particle squares and lines
+    float zoom{};          ///< the zoom the frame was drawn at
+};
 
 /// The card's page that holds a page of the sprite pages.
 struct FullCardPage {
@@ -236,12 +253,19 @@ struct Runtime::FullPresentation {
     /// are, for ensure_full_world_target to decide.
     void destroy_world_target() noexcept;
 
-    card::CardFrame frame; ///< the frame being built, its memory kept between frames
+    card::CardFrame frame;              ///< the frame being built, its memory kept between frames
+    FullFrameVertices frame_vertices{}; ///< the vertices of the frame being built, or the last
+    /// The match's frame of the most vertices, which the log names as the
+    /// match ends.
+    FullFrameVertices busiest_frame{};
 
     // The sprite stage: the pages, with the match's palette and gray table,
     // and the card's pages that hold them.
     oa::present::gpu_world::SpritePages sprite_pages{oa::present::gpu_world::Limits{
-        full_sprite_page_side, full_largest_sprite_page_side, full_sprite_page_memory
+        full_sprite_page_side,
+        full_largest_sprite_page_side,
+        full_sprite_page_memory,
+        full_largest_page_memory
     }};
     uint64_t gray_generation{}; ///< the pages' palette generation the gray table was built for
     std::vector<FullCardPage> card_pages; ///< the card's pages, by the sprite pages' index
@@ -254,7 +278,8 @@ struct Runtime::FullPresentation {
     void ensure_sprite_palette(const oa::PaletteBytes& palette_bytes, float gamma);
 
     /// Returns the card's page for a sprite page, making it when the page
-    /// is new or has a new size.
+    /// is new or has a new size; the page at its old size is destroyed once
+    /// the frame has run.
     ///
     /// Throws FullCardError when the card cannot make it.
     ///
@@ -272,13 +297,39 @@ struct Runtime::FullPresentation {
 
     /// Uploads what the sprite pages changed since the card's pages last
     /// took their texels: a page made this frame whole, another its dirty
-    /// rectangle; a page released is destroyed.
+    /// rectangle; a page released is destroyed once the frame has run
+    /// (card::Executor::retire_page).
     ///
     /// Throws FullCardError when a page cannot be filled.
     void upload_sprite_pages();
 
     /// Destroys the card's pages of the sprite pages.
     void destroy_sprite_card_pages() noexcept;
+
+    /// Says whether the sprite or model pages may grow by some bytes of
+    /// texels (gpu_world::GrowthHooks::allow): whether the memory guard lets
+    /// them (Runtime::accelerated_buffer_fits).
+    ///
+    /// @param context the runtime
+    /// @param bytes the texel bytes the pages would grow by
+    /// @return true when the memory allows them
+    [[nodiscard]] static bool allow_page_growth(void* context, std::size_t bytes);
+
+    /// Logs the sprite pages and the model stage's pages growing, and, once
+    /// a match, their leaving out what a frame needs past what they may
+    /// hold (page_memory_full).
+    void note_page_memory();
+
+    /// The memory limits of the sprite pages and of the model stage's pages
+    /// together, as the log last named them in this match: what they
+    /// started with, until they grow; 0 before the match's first frame.
+    std::size_t logged_page_memory{};
+    /// The pages left sprites or textures out of a frame in this match,
+    /// holding as much as they may, which the "+stats" renderer row names
+    /// and the log says once.
+    bool page_memory_full{};
+    /// The pages' held_refusals counts together when last looked at.
+    uint64_t held_refusals_seen{};
 
     // The model stage, and what it was given.
     full::ModelStage models;

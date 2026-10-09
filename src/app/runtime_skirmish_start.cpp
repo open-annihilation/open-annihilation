@@ -34,6 +34,7 @@
 #include <iostream>
 #include <iterator>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -52,6 +53,32 @@ constexpr int32_t kStandInPhysicalMemory = 256 * 0x100000;
 // The player timeout of a match no launch switch changed: seconds a silent
 // player is waited for.
 constexpr int32_t kPlayerTimeoutSeconds = 30;
+// The most of a map's undefined features a failed start names.
+constexpr std::size_t kMostMissingFeaturesNamed = 4;
+
+/// Returns why a map naming features that no feature file defines cannot
+/// start: those features, the first few of them by name, as maps made for
+/// other game data name them. 3.1c cannot start such a map either.
+///
+/// @param map the map
+/// @param documents the feature files of the game and its mods
+/// @return the reason, for the failed start's message
+std::string missing_features_reason(
+    const oa::formats::tnt::Map& map, std::span<const oa::formats::tdf::OwnedDocument> documents
+) {
+    std::vector<std::string_view> missing;
+    for (const auto& feature : map.features)
+        if (oa::sim::map_runtime::find_feature_section(documents, feature.name) == nullptr &&
+            std::ranges::find(missing, std::string_view(feature.name)) == missing.end())
+            missing.push_back(feature.name);
+    std::string reason = "the map needs features the game and its mods do not define: ";
+    for (std::size_t at = 0; at < missing.size() && at < kMostMissingFeaturesNamed; ++at)
+        reason += (at == 0 ? "" : ", ") + std::string(missing[at]);
+    if (missing.size() > kMostMissingFeaturesNamed)
+        reason += " and " + std::to_string(missing.size() - kMostMissingFeaturesNamed) + " more";
+    reason += "; it was made for other game data";
+    return reason;
+}
 
 class FeatureCatalogReader final : public oa::sim::map_runtime::FeatureAssetReader {
   public:
@@ -548,8 +575,14 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
         );
     const auto feature_terrain =
         oa::sim::map_runtime::resolve_feature_terrain(*selected_tnt_, feature_documents.value);
-    if (!feature_terrain.ok())
+    if (!feature_terrain.ok()) {
+        if (feature_terrain.error->code ==
+            oa::sim::map_runtime::ErrorCode::missing_feature_definition)
+            throw std::runtime_error(
+                missing_features_reason(*selected_tnt_, feature_documents.value)
+            );
         throw std::runtime_error("cannot resolve map features: " + feature_terrain.error->message);
+    }
     // The map's features fill the table in TNT order, so
     // the plot feature words index it directly. The table references the
     // GAF sequences, 3DO models and burn weapons through feature_assets_.

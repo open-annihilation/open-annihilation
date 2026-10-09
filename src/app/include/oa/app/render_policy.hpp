@@ -254,6 +254,9 @@ enum class FullDrop : uint8_t {
     function_test,   ///< the Full function test failed: the card lacks a feature Full needs
     memory,          ///< the memory guard, which setting the setting to Off and back does not lift
     trial_unwritten, ///< Full's trial record could not be written, so Full was not tried
+    /// The card refused a frame before drawing anything of it: one the Full
+    /// tier built wrong, which no driver caused, so nothing is struck.
+    frame_refused,
 };
 
 /// Everything decide_render_tier reads.

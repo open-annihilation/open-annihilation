@@ -23,8 +23,10 @@ Namespace `oa::present::model`, headers in `include/oa/present/model/`:
 - `rgb_bridge.hpp`: the bridge between the 8-bit surfaces and the RGB frame.
 - `shadow_fade.hpp`: how dark shadows are drawn at a zoom (`shadow_strength`,
   `shadow_level`): the game's own at zoom 1 and closer, easing on a
-  smoothstep of the halvings of the zoom down to none at a quarter, and none
-  farther out; and the faded alpha table a renderer's shadows blend through
+  smoothstep of the halvings of the zoom toward none at a quarter, none once
+  the level would fall below a sixteenth of the game's darkness
+  (`shadow_least_level`), a little before, and none farther out; and the
+  faded alpha table a renderer's shadows blend through
   in between (`ShadowTable`, `ModelRenderer::shadow_table`), the display's
   own with the rows of the shadows' colours mixed toward the colour under
   them.

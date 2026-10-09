@@ -439,6 +439,10 @@ struct FrameStatsRenderer {
     std::string_view anti_aliasing{};
     std::string_view driver{};  ///< SDL's name for the render driver; empty without a renderer
     std::string_view adapter{}; ///< the adapter's name; empty where none was read
+    /// A limit of the machine the tier draws within, which the row's note
+    /// names in place of the adapter: "sprite memory full" while the full
+    /// tier leaves out of a frame what its pages may not hold; empty for none.
+    std::string_view limit{};
 };
 
 /// How the game's window shows the screen, as the "+stats" table's display

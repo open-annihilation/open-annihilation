@@ -39,6 +39,26 @@ std::string sound_resource(std::string_view configured_name) {
     return result;
 }
 
+std::string sound_resource_key(std::string_view resource) {
+    std::string key(resource);
+    for (char& letter : key) {
+        if (letter == '\\')
+            letter = '/';
+        letter = static_cast<char>(std::tolower(static_cast<unsigned char>(letter)));
+    }
+    return key;
+}
+
+bool known_missing_sound(std::string_view resource) {
+    const std::string key = sound_resource_key(resource);
+    std::string_view name = key;
+    if (const auto slash = name.find_last_of('/'); slash != std::string_view::npos)
+        name.remove_prefix(slash + 1);
+    if (const auto dot = name.find_last_of('.'); dot != std::string_view::npos)
+        name.remove_suffix(name.size() - dot);
+    return std::ranges::find(known_missing_sounds, name) != known_missing_sounds.end();
+}
+
 void Registry::add(std::string_view name, std::string_view sound) {
     const std::string category(name);
     (void)resolve(category.c_str(), sound);

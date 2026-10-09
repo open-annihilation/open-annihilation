@@ -60,6 +60,16 @@ class CardError : public std::runtime_error {
     using std::runtime_error::runtime_error;
 };
 
+/// A frame the executor refused before drawing anything of it: one the
+/// stages built wrong, which no driver caused. The presentation drops the
+/// tier for the run as for any CardError, but strikes nothing against the
+/// driver.
+class FrameRefusedError : public CardError {
+  public:
+
+    using CardError::CardError;
+};
+
 /// The view a frame's stages draw through: where the battlefield lies in
 /// the target, the zoom the list was planned at, and what every vertex is
 /// moved and scaled by.
@@ -414,13 +424,19 @@ struct ModelFrameInputs {
 /// What the model stage did since it was made, for checks and the frame
 /// statistics.
 struct ModelStageCounts {
-    uint64_t units{};            ///< unit and 3D feature draws emitted
-    uint64_t carried{};          ///< carried units drawn with their carriers
-    uint64_t projectiles{};      ///< 3DO projectile draws, a missile's child counted with it
-    uint64_t debris{};           ///< debris pieces drawn, those culled on their origin left out
-    uint64_t fragments{};        ///< shatter fragments drawn
-    uint64_t polygons{};         ///< polygons emitted as triangles
-    uint64_t culled{};           ///< polygons left out as back-facing or flat
+    uint64_t units{};       ///< unit and 3D feature draws emitted
+    uint64_t carried{};     ///< carried units drawn with their carriers
+    uint64_t projectiles{}; ///< 3DO projectile draws, a missile's child counted with it
+    uint64_t debris{};      ///< debris pieces drawn, those culled on their origin left out
+    uint64_t fragments{};   ///< shatter fragments drawn
+    uint64_t polygons{};    ///< polygons emitted as triangles
+    uint64_t culled{};      ///< polygons left out as back-facing or flat
+    uint64_t strip_quads{}; ///< textured quads drawn as strips across their rows
+    /// How far the textured quad farthest from a parallelogram was from one,
+    /// in map pixels: the corners' twist (the first and third corners'
+    /// sum less the second and fourth's), four times what its two triangles
+    /// move its texels at zoom 1.
+    double widest_twist{};
     uint64_t shadows{};          ///< silhouettes and shadow sprites emitted
     uint64_t meshes_built{};     ///< meshes built from models
     uint64_t frames_placed{};    ///< texture frames placed on the pages
@@ -459,10 +475,21 @@ class ModelStage {
     void set_palette(const Palette& palette, float gamma);
 
     /// Destroys every page and target the stage made on an executor and
-    /// forgets the meshes, as at a match's end or a device reset.
+    /// forgets the meshes, as at a match's end or a device reset; the pages'
+    /// memory limits go back to what they started with.
     ///
     /// @param[in,out] executor the executor the pages and targets were made on
     void close(card::Executor& executor) noexcept;
+
+    /// Begins a frame: the texture frames it places or finds are held until
+    /// the next one, never evicted to make room, and the pages grow where
+    /// they alone fill them (gpu_world::SpritePages::begin_frame).
+    void begin_frame() noexcept;
+
+    /// Sets what both page sets ask before their memory limits grow.
+    ///
+    /// @param hooks the hooks; empty ones let the limits never grow
+    void set_growth_hooks(const oa::present::gpu_world::GrowthHooks& hooks) noexcept;
 
     /// Emits the frame's shadows: every drawn unit's and 3D feature's
     /// silhouette and every projectile's shadow sprite into the shadow

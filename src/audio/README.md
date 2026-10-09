@@ -14,6 +14,16 @@ playback-suppressed flag and leaves the diagnostic-direct flag unchanged. The
 request to announce a sound is exposed as a flag; telling the other players is
 left to the caller.
 
+3.1c's own `gamedata/sound.tdf` names thirteen sounds its files never held,
+among them `untdone`, the plants' finished-unit sound, and the game plays
+nothing for them: `known_missing_sounds` lists them, and
+`known_missing_sound` matches a resource or configured name against the list
+whatever its folder, extension or case. A failure to play one is never
+reported, and a mod that ships one plays it. `sound_resource_key` gives the
+key a sound is known by from one call to the next: its path in lower case
+with slashes. `game-audio-data` checks that the list is exactly the sounds
+the installed game's `sound.tdf` names and lacks.
+
 The SDL backend reads WAV data through `oa::AssetStore`, so loose-file and HPI
 precedence remain centralized in the asset layer.
 

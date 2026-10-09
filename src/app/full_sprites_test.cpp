@@ -1313,7 +1313,9 @@ void test_fog_states() {
 }
 
 /// A frame whose distinct sprites exceed the pages' memory draws nothing,
-/// and leaves the frame as it was; with room for them, every sprite draws.
+/// and leaves the frame as it was, or, where another stage's batches lie
+/// among the sprites', empties its own; with room for them, every sprite
+/// draws.
 void test_pages_overflow() {
     const auto palette = test_palette();
     std::vector<RenderedFrame> frames;
@@ -1342,6 +1344,47 @@ void test_pages_overflow() {
         OA_CHECK(result.sprites == 0 && result.batches == 0);
         OA_CHECK(frame.batches.empty() && frame.vertices.size() == 4 && frame.indices.size() == 6);
         OA_CHECK(side.pages.statistics().evictions > 0);
+    }
+    {
+        // Another stage's batch among the sprites': the stage's batches are
+        // emptied in place and name no page, so the frame runs whatever
+        // became of the pages they named.
+        CardSide side(field_left + field_width + border, field_top + field_height + border, small);
+        side.pages.set_palette(oa::present::palette_from_bytes(palette), plain_gamma);
+        card::CardFrame frame;
+        full::SpriteStageInputs inputs;
+        inputs.list = &list;
+        inputs.view.width = field_width;
+        inputs.view.height = field_height;
+        inputs.palette = &palette;
+        const full::SpritePageHooks hooks{&side, &CardSide::page_for};
+        full::SpriteFrame sprites(inputs, side.pages, hooks, frame);
+        std::size_t foreign = 0;
+        for (std::size_t index = 0; index < list.draws.size(); ++index) {
+            if (index == 2) {
+                const auto first = static_cast<card::Index>(frame.indices.size());
+                card::append_quad(frame, 0, 0, 1, 1, 0, 0, 1, 1, {});
+                card::Batch other;
+                other.operation = card::Operation::draw;
+                other.first_index = first;
+                other.index_count = static_cast<uint32_t>(frame.indices.size()) - first;
+                frame.batches.push_back(other);
+                foreign = frame.batches.size() - 1;
+            }
+            sprites.emit(list.draws[index]);
+        }
+        const auto result = sprites.finish();
+        OA_CHECK(result.pages_overflowed && result.sprites == 0);
+        for (std::size_t position = 0; position < frame.batches.size(); ++position) {
+            const card::Batch& batch = frame.batches[position];
+            if (position == foreign)
+                OA_CHECK(batch.index_count == 6);
+            else
+                OA_CHECK(batch.index_count == 0 && batch.page == card::PageHandle{});
+        }
+        for (const card::PageHandle page : side.handles)
+            side.executor.destroy_page(page);
+        OA_CHECK(side.executor.execute(frame, nullptr));
     }
     {
         const gpu::Limits enough{64, 64, std::size_t{64} * 64 * gpu::texel_bytes * 2};

@@ -112,7 +112,10 @@ struct RecordsPlace {
     /// files of the records; empty keeps the records and the sentinel in
     /// memory for the run, as with a named --preferences-file.
     std::filesystem::path folder{};
-    std::string engine_version{}; ///< the running engine's version
+    /// The running engine's build: its version and the commit it was built
+    /// from, which strikes, records and remembered rungs are written under,
+    /// so that those of another build are dropped as the file is read.
+    std::string engine_build{};
 };
 
 /// The clock the stages of the sentinel are timed by.

@@ -2225,6 +2225,20 @@ void test_installed_unit_models(oa::AssetStore& assets, const char* dumped) {
         card.stage.bright_pages().memory().frames
     );
     OA_CHECK(loaded >= least_installed_models);
+    // How far two triangles would move a textured quad's texels from where
+    // the walk puts them, at most, for the zooms the strips are cut at and
+    // the one past which they are not.
+    const double twist = card.stage.counts().widest_twist;
+    std::printf(
+        "models: %llu of %llu polygons drawn as strips; the widest twist is %.1f map pixels, "
+        "two triangles moving texels by %.2f pixels at zoom 1, %.2f at 0.5 and %.2f at 0.25\n",
+        static_cast<unsigned long long>(card.stage.counts().strip_quads),
+        static_cast<unsigned long long>(card.stage.counts().polygons),
+        twist,
+        twist / 4.0,
+        twist / 8.0,
+        twist / 16.0
+    );
     for (const ModeTotals& totals : corner_modes)
         print(totals);
     for (const ModeTotals& totals : modes) {

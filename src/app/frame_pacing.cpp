@@ -178,8 +178,8 @@ FrameStatsTable table_rows() noexcept {
 }
 
 /// Fills the renderer row: the tier and the driver as its label, and the
-/// adapter as its note, each cut to one of the table's texts, never inside
-/// a character.
+/// adapter, or a limit the tier draws within, as its note, each cut to one
+/// of the table's texts, never inside a character.
 ///
 /// @param[out] row the row, its kind already set
 /// @param renderer the renderer to name
@@ -203,7 +203,12 @@ void set_renderer_row(FrameStatsRow& row, const FrameStatsRenderer& renderer) no
         append(renderer.driver);
     }
     set_text(row.label, whole_characters({label.data(), length}, kTextCharacters));
-    set_text(row.note, whole_characters(renderer.adapter, kTextCharacters));
+    set_text(
+        row.note,
+        whole_characters(
+            renderer.limit.empty() ? renderer.adapter : renderer.limit, kTextCharacters
+        )
+    );
 }
 
 /// Returns a scale as the display row writes it: at most two decimals,

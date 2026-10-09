@@ -43,9 +43,12 @@ struct BuiltinScreens {
         }
         if (runtime.options_.mute)
             return;
+        const std::string resource = runtime.screen_sound_resource(name);
+        if (runtime.sound_found_missing(resource))
+            return;
         std::string error;
-        if (!runtime.audio_player_.play_resource(runtime.screen_sound_resource(name), error))
-            std::cerr << "sound unavailable: " << error << '\n';
+        if (!runtime.audio_player_.play_resource(resource, error))
+            runtime.report_unplayed_sound(resource, error);
     }
 
     static void register_sound(void* host, const char* category, const char* file) {

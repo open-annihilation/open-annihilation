@@ -1019,7 +1019,7 @@ struct Runtime::RendererLadder {
         runtime.sdl_.renderer = nullptr;
         RecordsPlace place;
         place.folder = folder;
-        place.engine_version = renderer.records_place().engine_version;
+        place.engine_build = renderer.records_place().engine_build;
         renderer.create(runtime.sdl_.window, renderer.faults(), place);
         runtime.sdl_.renderer = renderer.renderer();
         runtime.take_renderer_names(

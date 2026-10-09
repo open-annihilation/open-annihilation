@@ -699,8 +699,9 @@ void test_explosion_flashes() {
 }
 
 /// A frame's shadows set from its zoom: the game's own at zoom 1 and
-/// closer, through the faded table between, and none from a quarter out,
-/// where the renderer's shadow option is cleared for the frame alone.
+/// closer, through the faded table between, and none once they would be
+/// fainter than a sixteenth of the game's own, a little before a quarter
+/// out, where the renderer's shadow option is cleared for the frame alone.
 void test_frame_shadows() {
     const auto palette = test_palette();
     model_render::ModelDisplay display;
@@ -724,7 +725,7 @@ void test_frame_shadows() {
         OA_CHECK(renderer.shadow_table == nullptr);
         OA_CHECK(renderer.graphics_flags == game_flags);
     }
-    for (const float zoom : {0.75F, 0.5F, 1.0F / 3.0F, 0.26F}) {
+    for (const float zoom : {0.75F, 0.5F, 1.0F / 3.0F}) {
         renderer.graphics_flags = game_flags;
         oa::app::set_frame_shadows(list, renderer, table, display, &shadow_sprite, zoom);
         OA_CHECK(list.shadow_level > 0 && list.shadow_level < model_render::shadow_full_level);
@@ -746,7 +747,7 @@ void test_frame_shadows() {
                    renderer.shadow_table[6U * 256U + under] == display.alpha[6U * 256U + under];
         OA_CHECK(kept);
     }
-    for (const float zoom : {0.25F, 0.2F, 1.0F / 6.0F}) {
+    for (const float zoom : {0.26F, 0.25F, 0.2F, 1.0F / 6.0F}) {
         renderer.graphics_flags = game_flags;
         oa::app::set_frame_shadows(list, renderer, table, display, &shadow_sprite, zoom);
         OA_CHECK(list.shadow_level == 0);

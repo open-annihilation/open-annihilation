@@ -116,8 +116,14 @@ existing behaviour changes.
   resolves in a run, and again after any draw, clear or resolve into it.
   When it returns, the render target is `final_target` again, with the
   scissor, draw colour and draw blend mode it found there. Every failure is
-  in `error()`; `counts()` holds the calls, merges, state changes and
+  in `error()`, and `frame_refused()` tells a frame refused before anything
+  of it was drawn, which the frame's builder caused, from a call to SDL
+  that failed; `counts()` holds the calls, merges, state changes and
   texture bytes for checks and the frame statistics.
+- `retire_page(page)` destroys a page once the next frame has run, refused
+  or not, or at `close`: a stage that replaces a page while its frame is
+  built retires the old one, which batches of that frame may still name
+  and draw from as it was.
 
 ## State
 
@@ -137,7 +143,10 @@ are built elsewhere.
   `largest_target_edge` and the caller's texture limit, and at
   `most_pages` and `most_targets` alive; frames beyond
   `most_frame_vertices`, `most_frame_indices` and `most_frame_batches`,
-  and vertices beyond `largest_coordinate` or not finite.
+  and vertices beyond `largest_coordinate` or not finite. The frame limits
+  bound only the memory a frame built wrong could take: SDL takes any count,
+  and a battle of thousands of units at the widest zoom stays far below
+  them.
 - On SDL's software renderer, which runs the Full tier only in checks, an
   axis-aligned quad of one colour becomes a texture copy, so a draw's
   sampling mode applies to it, with `pixel_art` read as nearest, and an
@@ -181,9 +190,11 @@ stretches as that renderer's LINEAR does, in 16.16 positions with 7-bit
 fractions, rows then columns, truncated once, and blends a texture at an
 alpha as it does, with the half made once a run. It checks malformed
 frames, a two-level reduction's among them, and frames naming destroyed
-pages or a target made without its half refused with nothing drawn, pages
-and targets beyond the limit refused with an error naming both, batches
-merged into one call, and the renderer's state put back; and it measures
+pages or a target made without its half refused with nothing drawn, a
+retired page drawn in the next frame and gone after it, a frame of more
+than a million vertices run whole, pages and targets beyond the limit
+refused with an error naming both, batches merged into one call, and the
+renderer's state put back; and it measures
 and prints the processor cost of frames of 5,000 and 20,000 quads, sprite
 quads of one colour and lit quads filled as triangles, and the texture
 bytes of the supersampled targets, which it never checks.

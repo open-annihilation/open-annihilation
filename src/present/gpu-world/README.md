@@ -232,7 +232,21 @@ A page whose last frame goes is released at once. A frame whose own page
 could never fit the limit is refused as `no_room` before anything is
 evicted for it. `memory()` reports the page bytes, the frame bytes as whole
 cells, the limit and the counts; `statistics()` counts hits, decodes,
-evictions and refusals.
+evictions, refusals, growths and the refusals of held frames.
+
+**Frames held through a frame, and growth.** `begin_frame` starts a frame
+drawn on the battlefield: every frame placed or found from then until the
+next `begin_frame` is held and never evicted to make room, so a cell a
+frame's draws read keeps its frame until the frame has run. Room comes from
+the frames of earlier frames; where the held frames alone fill the limit,
+the limit grows, doubling or by what the page needs where that is more, up
+to `Limits::largest_memory_limit`, each time the caller's `GrowthHooks`
+allow the bytes it adds. Past that a new frame is refused as `no_room` and
+counted as a held refusal, and the caller draws the frame without it. A
+page larger than the limit itself waits for the limit to grow and evicts
+nothing first. `reset_memory_limit` brings the limit back to the one the
+pages were made with. Before the first `begin_frame` nothing is held, and
+without growth hooks the limit never grows.
 
 **Malformed frames.** A frame with a width or height of 0 is `empty`; one
 whose pixel or coverage count differs from its size is `malformed` and
@@ -254,7 +268,9 @@ cases through the GAF reader (skips, literals equal to the transparent
 index, an empty row, a skip and a run past the width, composite children at
 their hotspots), malformed frames and streams refused, packing without
 overlap in aligned cells on power-of-two pages, eviction in
-least-recently-used order under the memory limit, cell reuse and shelf
+least-recently-used order under the memory limit, the frames of the frame
+under way held and the limit grown as the hooks allow up to the largest,
+cell reuse and shelf
 release, the palette and gray-table changes with the same tables again
 changing nothing, the dirty rectangles and revisions.
 `present-gpu-world-sprite-pages-data` places every frame of every GAF file

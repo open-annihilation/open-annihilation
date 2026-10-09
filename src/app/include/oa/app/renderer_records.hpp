@@ -226,9 +226,10 @@ struct NativeDensity {
 /// Everything renderer-state.conf holds.
 ///
 /// Strikes, records and remembered rungs belong to the adapter and engine
-/// version they were written under: they are written with the `adapter` key's
-/// adapter and the running engine's version, and those of another adapter or
-/// version are dropped as the file is read.
+/// build they were written under: they are written with the `adapter` key's
+/// adapter and the running engine's build, its version and the commit it was
+/// built from, and those of another adapter or build are dropped as the file
+/// is read, so that a new build starts free of what an older one recorded.
 struct Records {
     std::string adapter{};        ///< empty when the probe never described one
     std::optional<Trial> trial{}; ///< a stage under way, or left over
@@ -397,7 +398,8 @@ struct ParsedRecords {
 /// and under `engine_version`.
 ///
 /// @param values the file's keys and values
-/// @param engine_version the running engine's version
+/// @param engine_version the running engine's build, its version and the
+///     commit it was built from
 /// @return the records and how many keys were dropped
 [[nodiscard]] ParsedRecords parse_records(const Values& values, std::string_view engine_version);
 
@@ -407,7 +409,8 @@ struct ParsedRecords {
 /// adapter (unknown_adapter when it is empty) and `engine_version`.
 ///
 /// @param records the records
-/// @param engine_version the running engine's version
+/// @param engine_version the running engine's build, its version and the
+///     commit it was built from
 /// @return the keys and values
 [[nodiscard]] Values format_records(const Records& records, std::string_view engine_version);
 

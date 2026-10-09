@@ -167,6 +167,7 @@ FullShortfall full_shortfall_of(const render_policy::TierInputs& inputs) noexcep
         return FullShortfall::failed_before;
     switch (inputs.full_drop) {
     case FullDrop::card_failure:
+    case FullDrop::frame_refused:
         return FullShortfall::stopped;
     case FullDrop::memory:
         return FullShortfall::too_little_memory;

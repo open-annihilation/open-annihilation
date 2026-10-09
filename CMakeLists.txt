@@ -1017,6 +1017,22 @@ else()
 endif()
 if(OA_BUILD_PLATFORM)
   add_executable(oa-game ${oa_game_sources})
+  # The engine's build, its version and the commit it was built from, which
+  # the renderer records' strikes and records are written under, so that a
+  # new build starts free of what an older one recorded
+  # (cmake/OaEngineBuild.cmake): written on every build, and again only when
+  # it changes.
+  set(oa_engine_build_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/engine-build")
+  add_custom_target(oa-app-engine-build
+    COMMAND ${CMAKE_COMMAND} "-DVERSION=${PROJECT_VERSION}"
+      "-DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}"
+      "-DOUTPUT=${oa_engine_build_dir}/oa_engine_build.hpp"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/OaEngineBuild.cmake"
+    BYPRODUCTS "${oa_engine_build_dir}/oa_engine_build.hpp"
+    COMMENT "Naming the engine's build"
+    VERBATIM)
+  add_dependencies(oa-game oa-app-engine-build)
+  target_include_directories(oa-game PRIVATE "${oa_engine_build_dir}")
   # The game players start is open-annihilation (open-annihilation.exe on
   # Windows); the target keeps its name, and tests reach the file through
   # $<TARGET_FILE:oa-game>. On macOS it is the application bundle

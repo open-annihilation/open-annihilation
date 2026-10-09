@@ -66,8 +66,11 @@
 #endif
 #include <SDL3/SDL_main.h>
 
+#include "oa_engine_build.hpp"
+
 #ifndef OA_ENGINE_VERSION
-#error "OA_ENGINE_VERSION names the engine's version, which the renderer records are written under"
+#error                                                                                             \
+    "OA_ENGINE_VERSION names the engine's version, which the native-density record is written under"
 #endif
 #ifndef OA_NATIVE_DENSITY_WINDOWS
 #error "OA_NATIVE_DENSITY_WINDOWS (0 or 1) says whether the window opens at native density"
@@ -201,7 +204,7 @@ RenderFaultHooks start_faults(const Options& options) {
 /// @return the place
 RecordsPlace records_place(const Options& options) {
     RecordsPlace place;
-    place.engine_version = OA_ENGINE_VERSION;
+    place.engine_build = OA_ENGINE_BUILD;
     if (options.preferences_file)
         return place;
     try {
@@ -315,10 +318,10 @@ struct HostDisplay {
         density.unattended = options.unattended;
         density.capture = !options.capture_video.empty();
         // The driver the native-density record names under this engine's
-        // version. The game writes no scale-level key, so no rung is
-        // remembered for it.
+        // version, which holds from one build of it to the next. The game
+        // writes no scale-level key, so no rung is remembered for it.
         if (const auto driver = renderer_state::native_density_driver(
-                renderer_host.records().records(), place.engine_version
+                renderer_host.records().records(), OA_ENGINE_VERSION
             ))
             density.record_driver = std::string(*driver);
         window = SDL_CreateWindow(

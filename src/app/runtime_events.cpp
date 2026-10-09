@@ -654,8 +654,8 @@ void Runtime::play_menu_sound(menu::Sound sound) {
     );
     std::string error;
     if (selection.status == oa::audio::game_audio::SelectionStatus::selected &&
-        !audio_player_.play(selection, error))
-        std::cerr << "sound unavailable: " << error << '\n';
+        !sound_found_missing(selection.sound->resource) && !audio_player_.play(selection, error))
+        report_unplayed_sound(selection.sound->resource, error);
 }
 
 void Runtime::take_movie_event(void* context, const SDL_Event& event) {

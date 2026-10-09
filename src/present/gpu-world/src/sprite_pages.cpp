@@ -81,6 +81,8 @@ SpritePages::SpritePages(const Limits& limits) : limits_(limits) {
     limits_.page_size = normalised_page_side(limits.page_size);
     limits_.largest_page_size =
         std::max(limits_.page_size, normalised_page_side(limits.largest_page_size));
+    limits_.largest_memory_limit = std::max(limits.memory_limit, limits.largest_memory_limit);
+    made_memory_limit_ = limits.memory_limit;
 }
 
 void SpritePages::set_palette(const Palette& palette, float gamma) {
@@ -173,9 +175,11 @@ SpritePages::frame(uint64_t frame_id, DrawMode mode, const formats::gaf::Rendere
     const uint32_t side = page_side_for(slot_width, slot_height);
     if (side == 0)
         return refuse(FrameStatus::too_large);
-    // A page the limit never allows is refused before anything is evicted
-    // for it.
-    if (page_texel_bytes(side) > limits_.memory_limit)
+    // A page no limit the pages may reach allows is refused before anything
+    // is evicted for it.
+    const size_t reachable =
+        growth_.allow != nullptr ? limits_.largest_memory_limit : limits_.memory_limit;
+    if (page_texel_bytes(side) > reachable)
         return refuse(FrameStatus::no_room);
 
     const uint32_t entry = new_entry();
@@ -185,12 +189,23 @@ SpritePages::frame(uint64_t frame_id, DrawMode mode, const formats::gaf::Rendere
             add_page(side);
             continue;
         }
-        if (oldest_ == none) {
-            free_entries_.push_back(entry);
-            return refuse(FrameStatus::no_room);
+        // The least recently used entry is held only where every entry is:
+        // room comes from the frames of earlier frames, else from a larger
+        // limit, which a page larger than the limit itself needs whatever
+        // is evicted.
+        if (page_texel_bytes(side) <= limits_.memory_limit && oldest_ != none && !held(oldest_)) {
+            remove_entry(oldest_);
+            ++statistics_.evictions;
+            continue;
         }
-        remove_entry(oldest_);
-        ++statistics_.evictions;
+        if (grow_for(side)) {
+            add_page(side);
+            continue;
+        }
+        free_entries_.push_back(entry);
+        if (oldest_ != none)
+            ++statistics_.held_refusals;
+        return refuse(FrameStatus::no_room);
     }
 
     Entry& placed = entries_[entry];
@@ -289,6 +304,21 @@ uint32_t SpritePages::page_side_for(uint32_t slot_width, uint32_t slot_height) c
 bool SpritePages::can_add_page(uint32_t side) const noexcept {
     const size_t bytes = page_texel_bytes(side);
     return bytes <= limits_.memory_limit && page_bytes_ <= limits_.memory_limit - bytes;
+}
+
+bool SpritePages::grow_for(uint32_t side) {
+    const size_t needed = page_bytes_ + page_texel_bytes(side);
+    if (needed > limits_.largest_memory_limit)
+        return false;
+    const size_t doubled = limits_.memory_limit <= limits_.largest_memory_limit / 2
+                               ? limits_.memory_limit * 2
+                               : limits_.largest_memory_limit;
+    const size_t grown = std::max(doubled, needed);
+    if (growth_.allow == nullptr || !growth_.allow(growth_.context, grown - limits_.memory_limit))
+        return false;
+    limits_.memory_limit = grown;
+    ++statistics_.growths;
+    return true;
 }
 
 uint32_t SpritePages::add_page(uint32_t side) {
@@ -489,6 +519,7 @@ uint32_t SpritePages::new_entry() {
 
 void SpritePages::link_newest(uint32_t entry) noexcept {
     Entry& linked = entries_[entry];
+    linked.used_in = frame_serial_;
     linked.newer = none;
     linked.older = newest_;
     if (newest_ != none)

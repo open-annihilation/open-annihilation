@@ -157,11 +157,52 @@ static void wave_file_routes() {
     );
 }
 
+// The known missing sounds are exactly the sounds gamedata/sound.tdf names
+// that the installed game does not hold.
+static void known_missing_sounds_are_the_unshipped_ones(const oa::AssetStore& assets) {
+    const oa::data::defs::Files files = oa::data::defs::asset_store_files(&assets);
+    Registry registry;
+    const oa::data::defs::SoundCache cache{
+        &registry,
+        [](void* context) { static_cast<Registry*>(context)->clear(); },
+        [](void* context, const char* name, const char* sound) {
+            static_cast<Registry*>(context)->add(name, sound);
+        },
+    };
+    oa::data::defs::SoundCategoryTable categories{};
+    oa::data::defs::load_all_sounds(&files, nullptr, cache, &categories);
+    std::array<bool, known_missing_sounds.size()> named{};
+    std::string unlisted;
+    for (uint32_t index = 0; index < categories.count; ++index) {
+        const oa::data::defs::SoundCategory& category = categories.categories[index];
+        for (const oa::data::defs::SoundChoices& choices : category.events)
+            for (int32_t choice = 0; choice < choices.count; ++choice) {
+                const std::string resource = sound_resource(choices.sounds[choice]);
+                const bool missing = !asset_exists(assets, resource);
+                if (missing && !known_missing_sound(resource))
+                    unlisted += " " + resource;
+                for (std::size_t at = 0; at < known_missing_sounds.size(); ++at)
+                    if (sound_resource_key(resource) ==
+                        "sounds/" + std::string(known_missing_sounds[at]) + ".wav")
+                        named[at] = true;
+            }
+    }
+    oa::data::defs::sound_category_table_free(&categories);
+    if (!unlisted.empty())
+        throw std::runtime_error("sound.tdf names sounds the game lacks:" + unlisted);
+    for (std::size_t at = 0; at < known_missing_sounds.size(); ++at) {
+        const std::string resource = sound_resource(known_missing_sounds[at]);
+        require(named[at], "every known missing sound is one sound.tdf names");
+        require(!asset_exists(assets, resource), "every known missing sound is missing");
+    }
+}
+
 int main(int argc, char** argv) {
     if (oa::test::game_data_requested(argc, argv)) {
         const auto assets = oa::test::require_game_assets("the installed sound names");
         registered_sound_names(assets);
         frontend_sound_names(assets);
+        known_missing_sounds_are_the_unshipped_ones(assets);
         std::cout << "game audio data tests passed\n";
         return 0;
     }
@@ -180,6 +221,15 @@ int main(int argc, char** argv) {
     );
     require(registry.get(2)->resource == "sounds/exit.wav", "existing wav extension");
     require(sound_resource("legacy.mp3") == "sounds/legacy.wav", "resolver replaces extension");
+    require(
+        sound_resource_key("Sounds\\UntDone.WAV") == "sounds/untdone.wav", "a key in lower case"
+    );
+    require(known_missing_sound("sounds/untdone.wav"), "a sound 3.1c never shipped");
+    require(known_missing_sound("UNTDONE1"), "a configured name of one, in any case");
+    require(known_missing_sound("Sounds\\Build.wav"), "with backslashes and an extension");
+    require(!known_missing_sound("sounds/unitdone.wav"), "a sound 3.1c ships");
+    require(!known_missing_sound("sounds/spiderse.wav"), "a mod's own sound");
+    require(!known_missing_sound("sounds/untdone/other.wav"), "a folder of that name");
     require(registry.find("unknown") == missing_sound, "missing sentinel");
     // A null category matches by file name and registers the
     // file without a category; a category match ignores the file.

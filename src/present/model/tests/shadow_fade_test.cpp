@@ -78,8 +78,9 @@ void test_strength_curve() {
     CHECK(shadow_strength(0.5F / wheel_step * wheel_step) == shadow_strength(0.5F));
 }
 
-/// The levels: the game's own exactly where the strength is 1, none
-/// exactly where it is 0, a step of the strength rounded between.
+/// The levels: the game's own exactly where the strength is 1, a step of
+/// the strength rounded between, and none from where it rounds below the
+/// faintest level drawn, with nothing drawn again closer to the strength's 0.
 void test_levels() {
     CHECK(shadow_level(1.0F) == shadow_full_level);
     CHECK(shadow_level(2.5F) == shadow_full_level);
@@ -87,11 +88,23 @@ void test_levels() {
     CHECK(shadow_level(1.0F / 6.0F) == 0);
     CHECK(shadow_level(0.5F) == shadow_full_level / 2);
     CHECK(shadow_level(0.99F) == shadow_full_level - 1);
-    CHECK(shadow_level(shadowless_zoom * 1.01F) == 1);
+    CHECK(shadow_level(shadowless_zoom * 1.01F) == 0);
+    bool faded_out = false;
+    float last_drawn = 1.0F;
     for (float zoom = 0.999F; zoom > shadowless_zoom * 1.001F; zoom *= 0.99F) {
         const uint32_t level = shadow_level(zoom);
-        CHECK(level >= 1 && level < shadow_full_level);
+        if (level == 0) {
+            faded_out = true;
+            continue;
+        }
+        CHECK(!faded_out);
+        CHECK(level >= shadow_least_level && level < shadow_full_level);
+        last_drawn = zoom;
     }
+    CHECK(faded_out);
+    // The faintest shadow drawn is a sixteenth of the game's darkness, a
+    // little closer in than the strength's 0.
+    CHECK(last_drawn > shadowless_zoom && last_drawn < 0.35F);
     CHECK(shadow_level_strength(shadow_full_level) == 1.0F);
     CHECK(shadow_level_strength(0) == 0.0F);
     CHECK(shadow_level_strength(shadow_full_level / 2) == 0.5F);

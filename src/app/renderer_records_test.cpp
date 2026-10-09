@@ -198,6 +198,28 @@ void every_key_round_trips() {
     OA_CHECK(rs::format_records(empty, version).empty());
 }
 
+void a_new_build_starts_free_of_an_older_ones_failures() {
+    // The records are written under the engine's build, its version and the
+    // commit it was built from: another commit of the same version reads
+    // none of them, nor does the version alone.
+    constexpr std::string_view written_under = "0.7.3+0123456789ab";
+    rs::Records records;
+    records.adapter = std::string(adapter);
+    rs::DriverRecords& entry = rs::driver_entry(records, "metal");
+    entry.strike = {
+        rs::StrikeStage::card, rs::AcceleratedPath::magnify, "the-card-refused-the-frame"
+    };
+    entry.full_unusable = {rs::RecordedFailure::card, false};
+    const rs::Values values = rs::format_records(records, written_under);
+    const rs::ParsedRecords same = rs::parse_records(values, written_under);
+    OA_CHECK(same.dropped == 0 && same.records.drivers.size() == 1);
+    for (const std::string_view other : {"0.7.3+ba9876543210", "0.7.3"}) {
+        const rs::ParsedRecords read = rs::parse_records(values, other);
+        OA_CHECK(read.records.drivers.empty() && read.dropped == 2);
+        OA_CHECK(rs::full_allowed(read.records, "metal", false));
+    }
+}
+
 void values_that_cannot_be_read_are_dropped_alone() {
     struct Row {
         const char* key;
@@ -1913,6 +1935,7 @@ int main() {
     crash_evidence_counts_the_first_trial_before_vista_and_on_linux();
     every_key_round_trips();
     values_that_cannot_be_read_are_dropped_alone();
+    a_new_build_starts_free_of_an_older_ones_failures();
     entries_beyond_the_driver_limit_are_dropped();
     sentinels_and_trials_read_and_write();
     adapters_are_kept_in_one_form();
