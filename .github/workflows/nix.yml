@@ -7,11 +7,6 @@
 # the engine for each system with that system's toolchain and tests it. What
 # this covers is what only the flake can — that every output evaluates, and the
 # Windows executables cross-compiled from Linux, which no job there produces.
-#
-# Windows 95 is left out of the matrix: its output rebuilds mingw-w64 and its C
-# run-time library from source, which is the better part of an hour, and it is
-# not a target anyone is asked to work on. `nix build .#win95` runs it on the
-# machine that wants it.
 name: Flake
 on: [push, pull_request, workflow_dispatch]
 jobs:
@@ -35,6 +30,7 @@ jobs:
           - "default"
           - "windows"
           - "windows-i686"
+          - "win95"
     name: build (${{ matrix.installable }})
     steps:
       - uses: actions/checkout@v4
