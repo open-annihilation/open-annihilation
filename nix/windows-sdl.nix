@@ -1,31 +1,27 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-# SDL3 for the Windows 95 build.
+# SDL3 for a Windows build of the engine.
 #
 # nixpkgs' own SDL3 is not used, unlike zlib and FreeType, because this tree
 # needs a static library with its own patch set applied. Everything else about
 # the build is the cross set's: the compiler and the C run-time library come
-# from nix/win95-toolchain.nix, so what this links is what the game links.
+# from the set the caller passes, so what this links is what the game links.
 #
 # The source is nixpkgs', so the version follows the flake's nixpkgs pin.
 # tools/sdl-patches/ is keyed to that version, and a pin that moves past it
 # fails at patch time rather than at run time.
 #
-{ lib, stdenv, cmake, ninja, sdl3 }:
-let
-  # What cmake/toolchains/i686-w64-mingw32.cmake builds the engine with: the
-  # i686 instruction set and no SSE2, which this machine has not got and a
-  # Pentium II has not either; and without the identical-code folding that can
-  # merge a member function with a free function of the same body, so that a
-  # call through the merged function passes its arguments where it is not
-  # looking for them.
-  targetFlags = [ "-march=i686" "-mno-sse2" "-fno-ipa-icf" ];
-in
+# @param pname the derivation's name, which says which Windows it is for
+# @param description the same, in words
+# @param targetFlags the instruction set and code generation the engine is
+#        built with for this target, so that the library and the engine agree
+{ lib, stdenv, cmake, ninja, sdl3, pname, description, targetFlags }:
 stdenv.mkDerivation {
+  inherit pname;
+
   # The source is nixpkgs' SDL3, the same one the other systems build, so the
   # version follows the flake's nixpkgs pin rather than a pin of its own.
-  pname = "SDL3-win95";
   inherit (sdl3) version src;
 
   patches = [
@@ -60,7 +56,7 @@ stdenv.mkDerivation {
   # which is Windows: this is a cross build whose host platform is the target,
   # however much the build machine is a Linux one.
   meta = {
-    description = "The SDL3 library, built for Windows 95";
+    inherit description;
     license = lib.licenses.zlib;
     platforms = lib.platforms.windows;
   };

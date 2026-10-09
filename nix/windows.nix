@@ -1,26 +1,30 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-# The Windows 95 build: the same engine, cross-compiled for that system.
+# A Windows build of the engine: the same source, cross-compiled.
 #
-# The toolchain and the C libraries both come from the cross set, which
-# nix/win95-toolchain.nix rebuilt against the msvcrt20 C run-time library and
-# the Win32 thread backend. zlib and FreeType are nixpkgs' own from that set;
-# only SDL3 is built here (nix/win95-sdl.nix), for its patch and its static
-# library.
+# The toolchain and the C libraries come from the cross set the caller passes,
+# so a build for an older Windows can be given a set built against the C
+# run-time library that Windows ships, and one for a current Windows the
+# default. zlib and FreeType are that set's own; only SDL3 is built here
+# (nix/windows-sdl.nix), for its patch and its static library.
 #
-# cmake/OaWindows95.cmake does the rest — it turns off what Windows 95 has not
-# got, pins the headers at 0x0400, links the stand-ins the executables need, and
-# uses msvcrt20, the C run-time library that ships on both RTM and OSR2.
+# What makes the build a Windows one is cmake/OaWindows95.cmake or
+# cmake/OaWindowsXp.cmake, chosen by the definitions passed in; the toolchain
+# file named below is the one that turns those on for the compiler.
 #
 # Takes the text fonts, because the engine reads them beside the executable the
 # same way it does everywhere else.
 #
-{ lib, stdenv, cmake, ninja, zlib, freetype, sdl3, src, textFonts, version }:
+# @param toolchain the file in cmake/toolchains that names the target
+# @param definitions the -D flags that pick the platform and the float mode
+# @param pname the derivation's name, which says which Windows it is for
+# @param description the same, in words
+{ lib, stdenv, cmake, ninja, zlib, freetype, sdl3, src, textFonts, version
+, toolchain, definitions, pname, description }:
 {
   game = stdenv.mkDerivation {
-    pname = "open-annihilation-win95";
-    inherit version src;
+    inherit pname version src;
 
     nativeBuildInputs = [
       cmake
@@ -36,13 +40,11 @@
     ];
 
     cmakeFlags = [
-      "-DOA_WINDOWS_95=ON"
-      "-DOA_X86_FLOAT=fpu"
-      "-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/i686-w64-mingw32.cmake"
+      "-DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/${toolchain}"
       "-DOA_TEXT_FONTS_DIR=${textFonts}"
       # Nothing here runs on the build machine, so no test may be configured.
       "-DBUILD_TESTING=OFF"
-    ];
+    ] ++ definitions;
 
     buildFlags = [
       "oa-game"
@@ -64,7 +66,7 @@
     '';
 
     meta = with lib; {
-      description = "Open Source port of the Total Annihilation & TA: Kingdoms engines, for Windows 95";
+      inherit description;
       homepage = "https://coreprime.net/";
       # nixpkgs compares this against the system the derivation is built for,
       # which is Windows: this is a cross build whose host platform is the

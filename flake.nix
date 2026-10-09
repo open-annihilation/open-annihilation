@@ -11,10 +11,12 @@
       # system it is asked for.
       systems = [ "x86_64-linux" "aarch64-linux" ];
 
-      # The toolchain overlay goes on every set. It changes nothing where the
-      # target is not MinGW, which is what lets the Windows 95 build come out
-      # of pkgsCross rather than out of a stdenv passed around by hand.
-      mkPkgs = system:
+      # The toolchain overlay goes on the Windows 95 set alone. It changes
+      # every MinGW set, so a build for a current Windows must not see it: it
+      # would get the Windows 95 C run-time library and Win32 version, which
+      # is a mistake no compiler would report.
+      mkPkgs = system: import nixpkgs { inherit system; };
+      mkWin95Pkgs = system:
         import nixpkgs {
           inherit system;
           overlays = [ (import ./nix/win95-toolchain.nix) ];
@@ -43,30 +45,27 @@
       # built is what is checked out rather than a release fetched from GitHub.
       linux = pkgs: pkgs.callPackage ./nix/linux.nix { src = self; inherit version; };
 
-      # The Windows 95 build: the same tree, cross-compiled for that system.
-      win95 = pkgs:
+      # A Windows build of the tree, cross-compiled from a cross set.
+      #
+      # Everything taken from the set is the same whatever the Windows is:
+      # static, because the engine links -static and nixpkgs builds the shared
+      # library only, so without an archive to pick the link falls back to the
+      # DLL's import library and the executable needs libfreetype-6.dll,
+      # zlib1.dll and libgcc_s_dw2-1.dll beside it.
+      #
+      # nixpkgs' FreeType carries the codecs for compressed font formats, which
+      # this engine does not read: it draws TrueType and CFF. Leaving them in
+      # means building libpng, brotli, bzip2 and harfbuzz as well.
+      windowsBuild =
+        pkgs: cross: flags:
+        {
+          pname,
+          windowsName,
+          toolchain,
+          definitions,
+        }:
         let
-          cross = pkgs.pkgsCross.mingw32;
-          fonts = (linux pkgs).textFonts;
-          sdl3 = cross.callPackage ./nix/win95-sdl.nix { };
-
-          # nixpkgs' FreeType carries the codecs for compressed font formats,
-          # which this engine does not read: it draws TrueType and CFF. Leaving
-          # them in means building libpng, brotli, bzip2 and harfbuzz as well.
-          #
-          # Before the headers were pinned to _WIN32_WINNT 0x0400 (in
-          # nix/win95-toolchain.nix) this was also necessary: brotli's
-          # command-line tool called fopen_s and _sopen_s, which msvcrt20 has
-          # not got, so it could not link. That default is what declarations
-          # like those hang off, so the override is now a size choice rather
-          # than a workaround — dropping it is a fair test of whether the
-          # header default is doing its job.
-          #
-          # Static, because the engine links -static (see
-          # cmake/toolchains/mingw-w64-common.cmake) and nixpkgs builds the
-          # shared library only. Without an archive to pick, the link falls back
-          # to the DLL's import library and the executable needs
-          # libfreetype-6.dll, zlib1.dll and libgcc_s_dw2-1.dll beside it.
+          zlib = cross.zlib.override { shared = false; };
           freetype = cross.freetype.overrideAttrs (old: {
             propagatedBuildInputs = [ zlib ];
             configureFlags = (old.configureFlags or [ ]) ++ [
@@ -78,29 +77,66 @@
               "--without-brotli"
             ];
           });
-
-          # Likewise: this must be the archive, not the DLL and its import
-          # library.
-          zlib = cross.zlib.override { shared = false; };
+          sdl3 = cross.callPackage ./nix/windows-sdl.nix {
+            pname = "SDL3-${pname}";
+            description = "The SDL3 library, built for ${windowsName}";
+            targetFlags = flags;
+          };
         in
-        cross.callPackage ./nix/win95.nix {
+        cross.callPackage ./nix/windows.nix {
           src = self;
-          inherit freetype zlib sdl3 version;
-          textFonts = fonts;
+          inherit version freetype zlib sdl3 toolchain definitions;
+          inherit pname;
+          description = "Open Source port of the Total Annihilation & TA: Kingdoms engines, for ${windowsName}";
+          textFonts = (linux pkgs).textFonts;
         };
+
     in
     {
       packages = nixpkgs.lib.genAttrs systems (
         system:
         let
           pkgs = mkPkgs system;
+
+          # The instruction set cmake/toolchains/i686-w64-mingw32.cmake builds
+          # the engine with: the i686 instruction set and no SSE2, which a
+          # Pentium II has not got either; and without the identical-code
+          # folding that can merge a member function with a free function of
+          # the same body, so that a call through the merged function passes
+          # its arguments where it is not looking for them.
+          i686Flags = [ "-march=i686" "-mno-sse2" "-fno-ipa-icf" ];
         in
         {
           # `nix build` with no attribute builds the game for this system.
           default = (linux pkgs).game;
           inherit (linux pkgs) textFonts;
-          # `nix build .#win95` builds the executables for Windows 95.
-          win95 = (win95 pkgs).game;
+
+          # The Windows builds, cross-compiled from this system.
+          windows = (windowsBuild pkgs pkgs.pkgsCross.mingwW64 [ ] {
+            pname = "open-annihilation-windows";
+            windowsName = "Windows";
+            toolchain = "x86_64-w64-mingw32.cmake";
+            definitions = [ ];
+          }).game;
+          windows-i686 = (windowsBuild pkgs pkgs.pkgsCross.mingw32 i686Flags {
+            pname = "open-annihilation-windows-i686";
+            windowsName = "32-bit Windows";
+            toolchain = "i686-w64-mingw32.cmake";
+            definitions = [ ];
+          }).game;
+
+          # `nix build .#win95` builds the executables for Windows 95, from the
+          # one set whose toolchain nix/win95-toolchain.nix rebuilt.
+          win95 =
+            let
+              win95Pkgs = mkWin95Pkgs system;
+            in
+            (windowsBuild win95Pkgs win95Pkgs.pkgsCross.mingw32 i686Flags {
+              pname = "open-annihilation-win95";
+              windowsName = "Windows 95";
+              toolchain = "i686-w64-mingw32.cmake";
+              definitions = [ "-DOA_WINDOWS_95=ON" "-DOA_X86_FLOAT=fpu" ];
+            }).game;
         }
       );
     };
