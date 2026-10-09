@@ -249,6 +249,21 @@ uint32_t measure_text(const Font& f, std::string_view text) noexcept {
     return width;
 }
 
+std::string_view fit_text(const Font& f, std::string_view text, uint32_t width) noexcept {
+    // Glyph widths are never negative, so the first character that would
+    // take the width past `width` ends the longest start that fits.
+    uint32_t used = 0;
+    std::size_t kept = 0;
+    for (const unsigned char c : text) {
+        const uint32_t add = c < first_printable || !f.glyphs[c] ? 0U : f.glyphs[c]->width;
+        if (add > width - used)
+            break;
+        used += add;
+        ++kept;
+    }
+    return text.substr(0, kept);
+}
+
 uint16_t line_height(const Font& f) noexcept {
     const auto& g = f.glyphs[height_reference];
     const auto height = g ? g->height : f.nominal_height;

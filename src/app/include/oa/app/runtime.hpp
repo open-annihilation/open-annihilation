@@ -4584,23 +4584,19 @@ class Runtime final : public menu::Host,
     /// third tick, about ten a second each; the wind moves once each call.
     void tick_mission_briefing();
 
-    /// Returns the briefing art's sequence a gadget shows: the panorama or the planet.
-    ///
-    /// @param gadget the gadget's name, PANORAMA or PLANET
-    /// @return the sequence; null where the art has none
-    [[nodiscard]] const oa::formats::gaf::Sequence*
-    briefing_sequence(std::string_view gadget) const;
-
     /// Draws a briefing's planet art, then its page of text and the MOREBAR caption, all in the
     /// screen's palette.
     ///
-    /// The panorama shows the part of its strip of frames that its scroll has reached, one to
-    /// one in its gadget, and wraps round to the strip's start; the planet's current rotation
-    /// frame stands in its gadget; the art's window frames, its frame for the side, lie over
+    /// The art is drawn from its frames as briefing_art_ holds them, decoded when the briefing
+    /// opened. The panorama shows the part of its strip of frames that its scroll has reached,
+    /// one to one in its gadget, and wraps round to the strip's start; the planet's current
+    /// rotation frame stands in its gadget; the art's window frame for the side lies over
     /// both; and the wind and gravity lines stand in the SOLARSYSTEM gadget in the rows'
-    /// colour. The rows are drawn in the side's text colour and the highlighted words over
-    /// them in their green, yellow or red, each word flashing in another colour for a quarter
-    /// second after every second from when the page was laid out.
+    /// colour, each losing its last characters where it would pass the gadget's width less
+    /// its pen column and one pixel. The rows are drawn in the side's text colour and the
+    /// highlighted words over them in their green, yellow or red, each word flashing in
+    /// another colour for a quarter second after every second from when the page was laid
+    /// out.
     void draw_briefing_overlays();
 
     /// Loads the FNT fonts a briefing's text is drawn in from the loaded panel's font
@@ -13764,9 +13760,23 @@ class Runtime final : public menu::Host,
     // clock_milliseconds() when the briefing's page was last laid out; its
     // highlighted words flash from then.
     uint32_t briefing_page_ms_ = 0;
-    // The name of the briefing art's window frames sequence, drawn over its
-    // panorama and planet; empty where the art has none.
-    std::string briefing_frames_{};
+
+    // The briefing's planet art, each frame decoded once as the briefing
+    // opens and dropped as it is left; empty where the art has none.
+    struct BriefingArt {
+        // The panorama's strip of frames, left to right. A frame that does
+        // not decode keeps its size in the strip and shows nothing.
+        std::vector<oa::formats::gaf::RenderedFrame> panorama;
+        int32_t strip_width = 0; // the panorama frames' widths together
+        // The planet's rotation, a frame a step; one that does not decode
+        // shows nothing for its step.
+        std::vector<oa::formats::gaf::RenderedFrame> planet;
+        // The window frame for the side, drawn from the screen's corner over
+        // the panorama and the planet.
+        std::optional<oa::formats::gaf::RenderedFrame> window;
+    };
+
+    BriefingArt briefing_art_{};
     sim::scenario::Outcome match_outcome_{sim::scenario::Outcome::ongoing};
     oa::formats::gaf::Archive match_titles_{};
     // textures/logos.gaf and its 32x32 logos, kept here in place of their

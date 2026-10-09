@@ -107,6 +107,19 @@ load_named_fnt(AssetStore& assets, std::string_view name, std::string_view langu
 /// @param text bytes of the text
 /// @return width in pixels
 [[nodiscard]] uint32_t measure_text(const Font& font, std::string_view text) noexcept;
+/// Returns the longest start of a text that fits a width, as measure_text
+/// measures it: the text less the last characters that would take it past
+/// the width, as the game trims a label that is too wide.
+///
+/// Characters that add nothing to the width stay, after the last that fits
+/// as anywhere else; a width too narrow for the first character keeps none.
+///
+/// @param font font measured
+/// @param text bytes of the text
+/// @param width widest the start may be, in pixels
+/// @return the start of `text` that fits
+[[nodiscard]] std::string_view
+fit_text(const Font& font, std::string_view text, uint32_t width) noexcept;
 /// Returns the line height: the height of glyph 'I' (0x49) plus two pixels.
 ///
 /// @param font font measured; its nominal height stands in when glyph 'I' is missing

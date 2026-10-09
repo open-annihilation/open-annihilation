@@ -107,6 +107,13 @@ void test_parse_fnt() {
     lowered.word_after_height = 0x01ff;
     CHECK(oa::formats::fnt::row_lift(lowered) == -1);
     CHECK(oa::formats::fnt::measure_text(f, " A\nA") == 9);
+    // A text too wide loses its last characters until it fits; the
+    // newline, which adds nothing, stays after the 'A' that fits.
+    CHECK(oa::formats::fnt::fit_text(f, " A\nA", 9) == " A\nA");
+    CHECK(oa::formats::fnt::fit_text(f, " A\nA", 8) == " A\n");
+    CHECK(oa::formats::fnt::fit_text(f, " A\nA", 5) == " ");
+    CHECK(oa::formats::fnt::fit_text(f, " A\nA", 2).empty());
+    CHECK(oa::formats::fnt::fit_text(f, "", 0).empty());
     CHECK(oa::formats::fnt::line_height(f) == 4);
     // The glyph rows start the lift above the pen row: 'A' with its pen on
     // row 2 has its top row on row 1 and its bottom row on row 2.

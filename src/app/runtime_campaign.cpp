@@ -74,22 +74,41 @@ constexpr std::size_t kBriefingMoreColour = 1;
 constexpr std::string_view kBriefingFrames = "PanMask";
 // The wind and gravity lines in the SOLARSYSTEM gadget: their pens' column
 // from the gadget's left, the wind line's pen row from its top, and the
-// rows from one line to the next.
+// rows from one line to the next. A line loses its last characters where it
+// would pass the gadget's width less its pen column and kSolarLabelRightGap.
 constexpr int32_t kSolarLabelColumn = 80;
 constexpr int32_t kSolarLabelFirstRow = 20;
 constexpr int32_t kSolarLabelRowStep = 20;
+constexpr int32_t kSolarLabelRightGap = 1;
+// The widest a briefing text may be when nothing trims it.
+constexpr int32_t kBriefingTextUnbounded = -1;
 
-/// Returns the width of a briefing panorama's strip: its frames side by side.
+/// Decodes a frame of the briefing's planet art as the game draws it.
 ///
-/// @param panorama the panorama sequence; null for none
-/// @return the strip's width in pixels; 0 for none
-int32_t briefing_strip_width(const oa::formats::gaf::Sequence* panorama) {
-    if (panorama == nullptr)
-        return 0;
-    int32_t width = 0;
-    for (const auto& frame : panorama->frames)
-        width += frame.width;
-    return width;
+/// @param frame the frame
+/// @return the frame's pixels and coverage; where it does not decode, its
+///         size with nothing covered
+oa::formats::gaf::RenderedFrame decoded_briefing_frame(const oa::formats::gaf::Frame& frame) {
+    auto rendered = oa::formats::gaf::render_normal(frame);
+    if (rendered.ok())
+        return std::move(*rendered.frame);
+    oa::formats::gaf::RenderedFrame blank;
+    blank.width = frame.width;
+    blank.height = frame.height;
+    return blank;
+}
+
+/// Decodes every frame of a sequence of the briefing's planet art.
+///
+/// @param sequence the frames
+/// @return the frames decoded, in the sequence's order
+std::vector<oa::formats::gaf::RenderedFrame>
+decoded_briefing_frames(const oa::formats::gaf::Sequence& sequence) {
+    std::vector<oa::formats::gaf::RenderedFrame> frames;
+    frames.reserve(sequence.frames.size());
+    for (const auto& frame : sequence.frames)
+        frames.push_back(decoded_briefing_frame(frame));
+    return frames;
 }
 
 // A highlighted word shows in its colour for kHighlightShownMs, then in
@@ -1121,7 +1140,7 @@ void Runtime::show_mission_briefing() {
     widget_sprites_.clear();
     widget_gaf_frames_.clear();
     widget_text_stages_.clear();
-    briefing_frames_.clear();
+    briefing_art_ = {};
     const oa::data::defs::Files files = asset_files(assets_);
     uint8_t* planet_gaf = nullptr;
     uint32_t planet_gaf_size = 0;
@@ -1132,16 +1151,26 @@ void Runtime::show_mission_briefing() {
             const auto parsed = oa::formats::gaf::parse({planet_gaf, planet_gaf_size});
             if (parsed.ok())
                 for (auto& sequence : parsed.archive->sequences) {
-                    if (names_equal(sequence.name, art.panorama))
+                    if (names_equal(sequence.name, art.panorama)) {
                         widget_sprites_["PANORAMA"] = {
                             renderer::SpriteArchive::screen, sequence.name
                         };
-                    if (names_equal(sequence.name, art.rotation))
+                        briefing_art_.panorama = decoded_briefing_frames(sequence);
+                        briefing_art_.strip_width = 0;
+                        for (const auto& frame : sequence.frames)
+                            briefing_art_.strip_width += frame.width;
+                    }
+                    if (names_equal(sequence.name, art.rotation)) {
                         widget_sprites_["PLANET"] = {
                             renderer::SpriteArchive::screen, sequence.name
                         };
-                    if (names_equal(sequence.name, kBriefingFrames))
-                        briefing_frames_ = sequence.name;
+                        briefing_art_.planet = decoded_briefing_frames(sequence);
+                    }
+                    if (names_equal(sequence.name, kBriefingFrames) && !sequence.frames.empty())
+                        briefing_art_.window =
+                            decoded_briefing_frame(sequence.frames[std::min<std::size_t>(
+                                preferences_.side, sequence.frames.size() - 1U
+                            )]);
                     resources_.sprites.sequences.push_back(std::move(sequence));
                 }
         } catch (const std::exception& error) {
@@ -1186,7 +1215,7 @@ void Runtime::show_mission_briefing() {
         lcg_random,
         nullptr,
         frontend_tick(),
-        briefing_strip_width(briefing_sequence("PANORAMA")),
+        briefing_art_.strip_width,
         &host
     );
     briefing_text_ = missions::campaign_briefing_text(&state.file) != nullptr
@@ -1335,11 +1364,16 @@ void Runtime::click_briefing_gadget(std::string name) {
         stop_briefing_audio();
     if (!state.events.narration.empty())
         play_briefing_narration(state.events.narration, state.events.narration_delay);
+    // Leaving the briefing drops its decoded planet art; a mission that
+    // cannot start leaves the briefing showing it.
     if (state.events.signal == campaign::signal::start_mission) {
         start_campaign_mission();
+        if (screen_ != Screen::briefing)
+            briefing_art_ = {};
         return;
     }
     if (state.events.signal == campaign::signal::back) {
+        briefing_art_ = {};
         load(briefing_parent_);
         return;
     }
@@ -1353,17 +1387,9 @@ void Runtime::tick_mission_briefing() {
     const int32_t scroll = panel.panorama_scroll;
     const int32_t rotation = panel.rotation_frame;
     const std::string wind = panel.wind_label;
-    const auto* panorama = briefing_sequence("PANORAMA");
-    const auto* planet = briefing_sequence("PLANET");
     const auto host = event_host();
     campaign::briefing_solar_system_tick(
-        &panel,
-        &state.file,
-        lcg_random,
-        nullptr,
-        frontend_tick(),
-        briefing_strip_width(panorama),
-        &host
+        &panel, &state.file, lcg_random, nullptr, frontend_tick(), briefing_art_.strip_width, &host
     );
     // The ticker's redraw request is left aside: the screen is redrawn below
     // only when what it shows has changed.
@@ -1372,7 +1398,7 @@ void Runtime::tick_mission_briefing() {
         static_cast<uint32_t>(SDL_GetTicks()),
         frontend_tick() / campaign::kRotationTickDivisor,
         audio_player_.stream_busy(),
-        planet != nullptr ? static_cast<int32_t>(planet->frames.size()) : 0,
+        static_cast<int32_t>(briefing_art_.planet.size()),
         nullptr
     );
     if (narration_on && !panel.narration_on)
@@ -1380,13 +1406,6 @@ void Runtime::tick_mission_briefing() {
     if (narration_on != panel.narration_on || scroll != panel.panorama_scroll ||
         rotation != panel.rotation_frame || wind != panel.wind_label)
         rebuild_surface();
-}
-
-const oa::formats::gaf::Sequence* Runtime::briefing_sequence(std::string_view gadget) const {
-    const auto sprite = widget_sprites_.find(std::string(gadget));
-    return sprite != widget_sprites_.end()
-               ? gaf_sequence(resources_.sprites, sprite->second.sequence)
-               : nullptr;
 }
 
 void Runtime::draw_briefing_overlays() {
@@ -1404,11 +1423,7 @@ void Runtime::draw_briefing_overlays() {
         0, 0, static_cast<int>(surface_.width), static_cast<int>(surface_.height)
     };
     const auto blit_frame =
-        [&](const oa::formats::gaf::Frame& source, int x, int y, const Clip& clip) {
-            const auto rendered = oa::formats::gaf::render_normal(source);
-            if (!rendered.ok())
-                return;
-            const auto& frame = *rendered.frame;
+        [&](const oa::formats::gaf::RenderedFrame& frame, int x, int y, const Clip& clip) {
             const int left = std::max({clip.left, screen_clip.left, x});
             const int top = std::max({clip.top, screen_clip.top, y});
             const int right =
@@ -1445,33 +1460,28 @@ void Runtime::draw_briefing_overlays() {
     const bool planet_art = !briefing_from_pause_;
     // The panorama's strip of frames, laid side by side, shows from its
     // scroll on; the strip's start follows its end.
-    if (const auto* gadget = widget("PANORAMA"); planet_art && gadget != nullptr)
-        if (const auto* panorama = briefing_sequence("PANORAMA")) {
-            const int width = briefing_strip_width(panorama);
-            const int start = width > 0 ? panel.panorama_scroll % width : 0;
-            for (const int repeat : {0, width}) {
-                int left = gadget->common.x - start + repeat;
-                for (const auto& frame : panorama->frames) {
-                    blit_frame(frame, left, gadget->common.y, gadget_clip(*gadget));
-                    left += frame.width;
-                }
+    if (const auto* gadget = widget("PANORAMA");
+        planet_art && gadget != nullptr && !briefing_art_.panorama.empty()) {
+        const int width = briefing_art_.strip_width;
+        const int start = width > 0 ? panel.panorama_scroll % width : 0;
+        for (const int repeat : {0, width}) {
+            int left = gadget->common.x - start + repeat;
+            for (const auto& frame : briefing_art_.panorama) {
+                blit_frame(frame, left, gadget->common.y, gadget_clip(*gadget));
+                left += frame.width;
             }
         }
-    if (const auto* gadget = widget("PLANET"); planet_art && gadget != nullptr)
-        if (const auto* planet = briefing_sequence("PLANET");
-            planet != nullptr && !planet->frames.empty()) {
-            const auto frame =
-                static_cast<std::size_t>(panel.rotation_frame) % planet->frames.size();
-            blit_frame(
-                planet->frames[frame], gadget->common.x, gadget->common.y, gadget_clip(*gadget)
-            );
-        }
-    if (const auto* frames =
-            briefing_frames_.empty() ? nullptr : gaf_sequence(resources_.sprites, briefing_frames_);
-        planet_art && frames != nullptr && !frames->frames.empty()) {
-        const auto side = std::min<std::size_t>(preferences_.side, frames->frames.size() - 1U);
-        blit_frame(frames->frames[side], 0, 0, screen_clip);
     }
+    if (const auto* gadget = widget("PLANET");
+        planet_art && gadget != nullptr && !briefing_art_.planet.empty()) {
+        const auto frame =
+            static_cast<std::size_t>(panel.rotation_frame) % briefing_art_.planet.size();
+        blit_frame(
+            briefing_art_.planet[frame], gadget->common.x, gadget->common.y, gadget_clip(*gadget)
+        );
+    }
+    if (planet_art && briefing_art_.window)
+        blit_frame(*briefing_art_.window, 0, 0, screen_clip);
     const auto& page = panel.page;
     const auto& colours = kBriefingTextColours[preferences_.side == 0 ? 0 : 1];
     const auto pixel_count =
@@ -1511,14 +1521,33 @@ void Runtime::draw_briefing_overlays() {
     // A text in a font, unless the Language settings give some of it to
     // the modern fonts, such as a Chinese briefing: those runs are laid on
     // the screen at once in the colour, on the font's baseline, and the
-    // font's runs wait for copy_glyphs.
+    // font's runs wait for copy_glyphs. A text given a width other than
+    // kBriefingTextUnbounded loses its last characters where it would pass
+    // that width, and nothing after them is drawn.
     const auto draw_text = [&](const oa::formats::fnt::Font& text_font,
                                std::string_view text,
                                int32_t x,
                                int32_t y,
-                               uint8_t colour) {
+                               uint8_t colour,
+                               int32_t max_width) {
+        const bool bounded = max_width != kBriefingTextUnbounded;
+        int32_t room = std::max(max_width, 0); // the width left, when bounded
+        int32_t pen = x;
+        // Draws the start of a run of the font's bytes that fits the room
+        // left, and gives whether the whole run fitted.
+        const auto raster_run = [&](std::string_view bytes) {
+            const std::string_view shown =
+                bounded ? oa::formats::fnt::fit_text(text_font, bytes, static_cast<uint32_t>(room))
+                        : bytes;
+            std::ignore = oa::formats::fnt::raster_text(target, text_font, shown, pen, y);
+            const auto width =
+                static_cast<int32_t>(oa::formats::fnt::measure_text(text_font, shown));
+            pen += width;
+            room -= width;
+            return shown.size() == bytes.size();
+        };
         if (!renderer::needs_text_runs(text, true)) {
-            std::ignore = oa::formats::fnt::raster_text(target, text_font, text, x, y);
+            std::ignore = raster_run(text);
             return;
         }
         const auto entry = static_cast<std::size_t>(colour) * 4U;
@@ -1527,36 +1556,53 @@ void Runtime::draw_briefing_overlays() {
                 ? std::array<uint8_t, 3>{pal[entry], pal[entry + 1], pal[entry + 2]}
                 : std::array<uint8_t, 3>{255, 255, 255};
         const auto face = renderer::fnt_font_face(text_font);
-        int32_t pen = x;
+        const int32_t baseline = y + renderer::fnt_font_baseline(text_font);
         for (const auto& run :
              renderer::split_game_text(text, renderer::fnt_font_characters(text_font), true)) {
-            if (run.modern)
-                if (const auto layers = oa::present::modern_text(
-                        run.text, face, 1, renderer::screen_text_size(run)
-                    )) {
-                    oa::present::lay_text(
-                        canvas, *layers, pen, y + renderer::fnt_font_baseline(text_font), rgb
-                    );
+            if (run.modern) {
+                const int32_t size = renderer::screen_text_size(run);
+                if (const auto layers = oa::present::modern_text(run.text, face, 1, size)) {
+                    if (bounded && layers->advance > room) {
+                        const std::size_t fitted =
+                            oa::present::modern_text_fit(run.text, face, 1, size, room);
+                        if (fitted != 0)
+                            if (const auto part = oa::present::modern_text(
+                                    run.text.substr(0, fitted), face, 1, size
+                                ))
+                                oa::present::lay_text(canvas, *part, pen, baseline, rgb);
+                        return;
+                    }
+                    oa::present::lay_text(canvas, *layers, pen, baseline, rgb);
                     pen += layers->advance;
+                    room -= layers->advance;
                     continue;
                 }
+            }
             const std::string bytes =
                 run.modern ? oa::present::encode_game_text(run.text, false) : run.text;
-            std::ignore = oa::formats::fnt::raster_text(target, text_font, bytes, pen, y);
-            pen += static_cast<int32_t>(oa::formats::fnt::measure_text(text_font, bytes));
+            if (!raster_run(bytes))
+                return;
         }
     };
-    const auto draw_line = [&](std::string_view text, int32_t x, int32_t y, uint8_t colour) {
-        draw_text(font, text, x, y, colour);
+    const auto draw_line = [&](std::string_view text,
+                               int32_t x,
+                               int32_t y,
+                               uint8_t colour,
+                               int32_t max_width = kBriefingTextUnbounded) {
+        draw_text(font, text, x, y, colour, max_width);
     };
     for (uint32_t i = 0; i < page.row_count; ++i)
         draw_line(page.rows[i].text, page.rows[i].x, page.rows[i].y, colours[kBriefingRowColour]);
-    // The wind and gravity lines, in the rows' font and colour.
+    // The wind and gravity lines, in the rows' font and colour, each held to
+    // the gadget's width from its pen column on.
     if (const auto* solar = widget("SOLARSYSTEM"); planet_art && solar != nullptr) {
         const int32_t x = solar->common.x + kSolarLabelColumn;
         const int32_t y = solar->common.y + kSolarLabelFirstRow;
-        draw_line(panel.wind_label, x, y, colours[kBriefingRowColour]);
-        draw_line(panel.gravity_label, x, y + kSolarLabelRowStep, colours[kBriefingRowColour]);
+        const int32_t room = solar->common.width - kSolarLabelColumn - kSolarLabelRightGap;
+        draw_line(panel.wind_label, x, y, colours[kBriefingRowColour], room);
+        draw_line(
+            panel.gravity_label, x, y + kSolarLabelRowStep, colours[kBriefingRowColour], room
+        );
     }
     copy_glyphs(colours[kBriefingRowColour], fnt_font);
     // The highlighted words are drawn over their rows, all in the flash
@@ -1615,7 +1661,8 @@ void Runtime::draw_briefing_overlays() {
         caption,
         x,
         more->common.y + renderer::fnt_game_text_rise(more_font, caption, true),
-        colours[kBriefingMoreColour]
+        colours[kBriefingMoreColour],
+        kBriefingTextUnbounded
     );
     copy_glyphs(colours[kBriefingMoreColour], briefing_more_font_.has_value());
 }
