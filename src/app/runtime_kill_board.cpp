@@ -13,6 +13,7 @@
 #include "oa/ui/frontend_renderer/game_text.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/hud/game_clock.hpp"
+#include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/kill_board.hpp"
 #include "oa/ui/hud/resource_bar.hpp"
 #include "oa/ui/hud/status_panel.hpp"
@@ -701,6 +702,29 @@ void Runtime::check_kill_board() {
     write_ppm(report_directory / "native-kill-board-gone.ppm", gone);
     if (differing_outside(hidden, gone, {cursor}) != 0)
         throw std::runtime_error("kill board check: the board left pixels behind");
+
+    // The key below Escape turns the damage bars on and off where it types
+    // '\', as on an Italian layout, which has no '`' key.
+    const auto press_below_escape = [&] {
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.key = SDLK_BACKSLASH;
+        event.key.scancode = SDL_SCANCODE_GRAVE;
+        handle_sdl_event(event, running);
+    };
+    const auto damage_bars = [&] { return (game.graphics_flags & hud::kGraphicsDamageBars) != 0; };
+    const bool bars_before = damage_bars();
+    press_below_escape();
+    if (damage_bars() == bars_before)
+        throw std::runtime_error(
+            "kill board check: the key below Escape typing '\\' did not turn the damage bars"
+        );
+    press_below_escape();
+    if (damage_bars() != bars_before)
+        throw std::runtime_error(
+            "kill board check: a second press of the key below Escape did not turn the damage "
+            "bars back"
+        );
 
     // Space: from the map's far corner with nothing selected, its press
     // selects nothing and moves no camera.

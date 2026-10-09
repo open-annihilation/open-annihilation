@@ -748,7 +748,9 @@ bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
         code = console::hotkey::tab;
     else if (multiplayer && key.key == SDLK_H)
         code = 'h';
-    else if (key.key == SDLK_GRAVE)
+    // The key below Escape is '`' on every layout, so that a layout with no
+    // '`' key, such as the Italian one, where it types '\', has the key too.
+    else if (key.key == SDLK_GRAVE || key.scancode == SDL_SCANCODE_GRAVE)
         code = '`';
     else if (developer && !remaps && key.key == SDLK_BACKSLASH)
         code = console::hotkey::repeat_command;

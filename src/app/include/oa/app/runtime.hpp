@@ -11135,11 +11135,13 @@ class Runtime final : public menu::Host,
 
     /// Sends a match key to the console's hotkeys.
     ///
-    /// F4 pins the kills board and '`' turns the damage bars on and off. Pause
-    /// flips the pause bit of Game.sim_run_flags and reports it through
-    /// Extension::pause_changed. In a multiplayer game Tab opens and closes the
-    /// team menu and 'h' opens SHARE.GUI. Developer keys: backslash repeats
-    /// the last console line and F11 toggles the debug keys once the passphrase
+    /// F4 pins the kills board and '`', or the key below Escape on any layout,
+    /// turns the damage bars on and off. Pause flips the pause bit of
+    /// Game.sim_run_flags and reports it through Extension::pause_changed. In
+    /// a multiplayer game Tab opens and closes the team menu and 'h' opens
+    /// SHARE.GUI. Developer keys: backslash repeats the last console line
+    /// (where the key below Escape types it, that key turns the damage bars on
+    /// and off instead) and F11 toggles the debug keys once the passphrase
     /// is accepted; while the debug keys are on, '=', ']', 'i' and 'm' go to the
     /// debug dispatcher instead of their normal use. Ctrl+F10 starts a film
     /// capture.

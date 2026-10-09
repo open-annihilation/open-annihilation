@@ -1557,7 +1557,9 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # F4 in a skirmish slides the kills board in at the battlefield's top
       # right through the SDL presenter, with no dialog, and away again.
-      # Space selects nothing and moves no camera; held, it slides the board
+      # The key below Escape, typing '\' as on an Italian layout, turns the
+      # damage bars on and off. Space selects nothing and moves no camera;
+      # held, it slides the board
       # in and raises the status strip over the battlefield's bottom left,
       # every frame leaving the bottom bar as it was. The console's clock
       # hides while Space is held and the strip and the board close, then

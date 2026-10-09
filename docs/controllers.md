@@ -156,7 +156,7 @@ adds.
 | A | The chat line (multiplayer); Steam's keyboard opens | Enter |
 | B | The kill board | F4 |
 | X | Pauses and resumes | Pause |
-| Y | Health bars | `` ` `` |
+| Y | Health bars | `` ` ``, the key below Esc on any layout |
 | D-pad ↑ and ↓ | Faster and slower (not for a watcher) | `+` and `−` |
 | D-pad ← | Clears the messages | F12 |
 | D-pad → | The team menu (multiplayer), the next primary unit (single player) | Tab |
