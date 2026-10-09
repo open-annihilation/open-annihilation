@@ -137,6 +137,10 @@
               toolchain = "i686-w64-mingw32.cmake";
               definitions = [ "-DOA_WINDOWS_95=ON" "-DOA_X86_FLOAT=fpu" ];
             }).game;
+
+          win95-release-zip = pkgs.callPackage ./tools/nix/win95-release-zip.nix {
+            open-annihilation = self.outputs.packages.${system}.win95;
+          };
         }
       );
     };

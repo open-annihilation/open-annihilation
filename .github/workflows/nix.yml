@@ -30,7 +30,7 @@ jobs:
           - "default"
           - "windows"
           - "windows-i686"
-          - "win95"
+          - "win95-release-zip"
     name: build (${{ matrix.installable }})
     steps:
       - uses: actions/checkout@v4
