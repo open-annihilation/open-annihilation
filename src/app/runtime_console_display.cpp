@@ -72,6 +72,9 @@ void Runtime::apply_gamma_rgb(uint8_t* rgb, std::size_t pixels, std::size_t stri
     }
 }
 
+// A step of the self-checks (runtime_checks.cpp), which a build without them
+// leaves out.
+#if OA_SELF_CHECKS
 void Runtime::check_options_gamma() {
     const auto require = [](bool ok, const std::string& what) {
         if (!ok)
@@ -155,6 +158,7 @@ void Runtime::check_options_gamma() {
               << ", CANCEL shows " << shown_gamma(entry_gamma)
               << " again, Previous Menu saves 20\n";
 }
+#endif
 
 void Runtime::check_console_display_commands(const std::function<void(const char*)>& enter_line) {
     namespace flag = console::graphics_flag;

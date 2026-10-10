@@ -36,12 +36,14 @@
 namespace oa::app {
 namespace {
 
+// Message box width the watch-mode notice opens with.
+constexpr int32_t kWatchMessageWidth = 500;
+
+#if OA_SELF_CHECKS
 constexpr uint32_t kRespawnTickLimit = 30 * 20;
 // Start storage the game grants the respawned commander's player from the
 // no-player record's player-info block, which holds no resources.
 constexpr float kRespawnStorageFloor = 200.0F;
-// Message box width the watch-mode notice opens with.
-constexpr int32_t kWatchMessageWidth = 500;
 
 // The player's first live unit of its side's commander type, or null.
 const oa::Unit* live_side_commander(oa::World& world, uint8_t index) {
@@ -60,6 +62,7 @@ const oa::Unit* live_side_commander(oa::World& world, uint8_t index) {
     }
     return nullptr;
 }
+#endif
 
 /// Returns the report that ends a start whose sides name a file the game's
 /// files lack.
@@ -394,6 +397,9 @@ void Runtime::check_player_records(std::string_view context) {
               << " players\n";
 }
 
+// A step of the self-checks (runtime_checks.cpp), which a build without them
+// leaves out.
+#if OA_SELF_CHECKS
 void Runtime::check_deathmatch_respawn() {
     exercise_click(skirmish::resource_name(skirmish::Button::start));
     if (screen_ != Screen::match || !match_)
@@ -439,5 +445,6 @@ void Runtime::check_deathmatch_respawn() {
               << "), selected and centred, start storage " << player.shared_metal_storage << "\n";
     return_to_skirmish_menu();
 }
+#endif
 
 } // namespace oa::app

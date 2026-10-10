@@ -98,6 +98,7 @@ oa::ui::display_layout::Point message_log_corner(
     return {point.x + area.x - layout.battlefield_x(), point.y + area.y - layout.battlefield_y()};
 }
 
+#if OA_SELF_CHECKS
 // The speeds the speed check's stand-in for Extension::speed_changed was
 // told of, in order.
 std::vector<uint16_t>& reported_speeds() {
@@ -108,6 +109,7 @@ std::vector<uint16_t>& reported_speeds() {
 void report_speed(void* /*context*/, Runtime& /*runtime*/, uint16_t speed) {
     reported_speeds().push_back(speed);
 }
+#endif
 
 } // namespace
 
@@ -588,6 +590,9 @@ CanvasRect Runtime::message_log_rect(std::size_t lines) {
     };
 }
 
+// A step of the self-checks (runtime_checks.cpp), which a build without them
+// leaves out.
+#if OA_SELF_CHECKS
 void Runtime::check_game_speed_messages() {
     if (screen_ != Screen::match || !match_)
         throw std::runtime_error("speed check needs a running match");
@@ -1060,5 +1065,6 @@ void Runtime::check_game_speed_messages() {
               << " pixels of the battlefield; the sender's line starts with its " << size << "x"
               << size << " colour logo, its text at x " << marked.text_x << "\n";
 }
+#endif
 
 } // namespace oa::app

@@ -51,17 +51,19 @@ constexpr int kEndingDispatchPasses = 3;
 // Engine ticks the end screen is stepped for, at most, to reach its panel
 // or to leave it.
 constexpr int kEndScreenFrameLimit = 4000;
+// A darkened last frame keeps at most this share of its brightness: a tenth.
+constexpr uint64_t kDarkenedDivisor = 10;
+#if OA_SELF_CHECKS
 // Match ticks a check runs, at most, for a swept match to reach its outcome.
 constexpr uint32_t kOutcomeTickLimit = 30 * 20;
 // Pixels around the pointer a presented frame may differ by: the software
 // cursor.
 constexpr int kCursorReach = 64;
-// A darkened last frame keeps at most this share of its brightness: a tenth.
-constexpr uint64_t kDarkenedDivisor = 10;
 // Where the panel of a game that cannot continue shows Main Menu: in the
 // single button housing of the Outcome0 background.
 constexpr int16_t finished_main_menu_x = 460;
 constexpr int16_t finished_main_menu_y = 416;
+#endif
 
 Runtime& runtime_of(void* context) {
     return *static_cast<Runtime*>(context);
@@ -664,6 +666,9 @@ void Runtime::check_end_screen_darkening(const std::filesystem::path& report_dir
               << previous * 100U / std::max<uint64_t>(opened, 1U) << "% of its brightness\n";
 }
 
+// A step of the self-checks (runtime_checks.cpp), which a build without them
+// leaves out.
+#if OA_SELF_CHECKS
 void Runtime::check_presented_match_end(const std::filesystem::path& report_directory) {
     if (screen_ != Screen::match || !match_)
         throw std::runtime_error("match end check: no match to finish");
@@ -761,6 +766,7 @@ void Runtime::check_presented_match_end(const std::filesystem::path& report_dire
     std::cout << "match end check: the panel shows Main Menu alone at " << main_menu->common.x
               << ',' << main_menu->common.y << '\n';
 }
+#endif
 
 bool Runtime::step_endgame_until_left() {
     if (!endgame_ || !endgame_->match)

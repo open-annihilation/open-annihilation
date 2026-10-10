@@ -456,6 +456,9 @@ void Runtime::end_build_on_shift_release() {
     pending_build_type_ = 0;
 }
 
+// A step of the self-checks (runtime_checks.cpp), which a build without them
+// leaves out.
+#if OA_SELF_CHECKS
 void Runtime::check_build_placement() {
     if (!match_)
         throw std::runtime_error("build placement check needs a running match");
@@ -538,6 +541,7 @@ void Runtime::check_build_placement() {
     match_command_ = saved_command;
     pending_build_type_ = saved_type;
 }
+#endif
 
 void Runtime::place_pending_build(float x, float y) {
     if (!match_ || !selected_tnt_ || pending_build_type_ == 0 || selected_match_unit_ == 0)
