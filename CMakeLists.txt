@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.7.3 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.7.4 LANGUAGES C CXX)
 # A target that links one static library both directly and through
 # another library gets it once on its link line, in dependency order, rather
 # than once for each path that reaches it. The linker then has nothing to
