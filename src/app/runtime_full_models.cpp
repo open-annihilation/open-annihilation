@@ -15,7 +15,9 @@
 // they overlap goes later, and at the same height the one the processor
 // draws later, as the plane keeps a later pixel of the same height; the
 // rest lowest mean depth first. A unit without one keeps the processor's
-// order. The palette's tables are approximated as the
+// order. A polygon of a unit's picture filled with the image key, which the
+// image leaves clear, draws nothing and cuts what it covers out of the
+// polygons drawn before it. The palette's tables are approximated as the
 // design says: the shade rows as a per-vertex multiplier with a bright page
 // for the rows above unlit, the alpha table as alpha 0.5, the blue table as
 // a halved colour and an additive lift, the nanoframe's bands per polygon
@@ -180,6 +182,17 @@ struct Polygon {
     uint32_t primitive{};
     const Sprite* texture{}; ///< null for a polygon filled with its corners' colours
     int32_t depth{};         ///< the depth plane's value, for the sort
+    /// Filled with the image key at every corner. In a unit's picture, which
+    /// leaves the key's pixels clear, it clears what it covers of the
+    /// polygons under it and draws nothing (cut_under_clearing); drawn flat,
+    /// it is a colour like any other.
+    bool clears{};
+    /// Cleared in part by polygons that clear over it: drawn as the pieces
+    /// left of it, piece_count of the cut pieces from first_piece, and not
+    /// at all when none are left.
+    bool cut{};
+    uint32_t first_piece{};
+    uint32_t piece_count{};
 };
 
 /// A run of one row's pixels of a nanoframe's outline, frame pixels at zoom 1.
@@ -188,6 +201,23 @@ struct OutlineRun {
     int32_t y{};
     int32_t width{};
     card::Colour colour{};
+};
+
+/// A corner of a piece of a cut polygon: a point in frame pixels at zoom 1,
+/// between whole pixels, with where on its frame it lies and its colour, as
+/// the polygon's corners give them there.
+struct CutPoint {
+    double x{};
+    double y{};
+    double u{};
+    double v{};
+    card::Colour colour{};
+};
+
+/// One convex piece of a cut polygon: count of the cut points from first.
+struct CutPiece {
+    uint32_t first_point{};
+    uint32_t point_count{};
 };
 
 /// The executor's page of one of the sprite pages' pages.
@@ -576,6 +606,85 @@ bool shared_centre(
     return true;
 }
 
+/// Returns a corner of a polygon as a cut point.
+CutPoint cut_point_of(const Corner& corner) noexcept {
+    return {
+        static_cast<double>(corner.x),
+        static_cast<double>(corner.y),
+        static_cast<double>(corner.u),
+        static_cast<double>(corner.v),
+        corner.colour
+    };
+}
+
+/// Returns the point a share of the way from one cut point to another, with
+/// where on its frame it lies and its colour taken the same share of the way.
+///
+/// @param from the first point
+/// @param to the second
+/// @param along the share of the way, 0 at `from` and 1 at `to`
+/// @return the point between them
+CutPoint cut_point_between(const CutPoint& from, const CutPoint& to, double along) noexcept {
+    const auto mix = [along](double first, double second) {
+        return first + along * (second - first);
+    };
+    const auto mix_level = [&mix](float first, float second) {
+        return static_cast<float>(mix(first, second));
+    };
+    return {
+        mix(from.x, to.x),
+        mix(from.y, to.y),
+        mix(from.u, to.u),
+        mix(from.v, to.v),
+        {mix_level(from.colour.red, to.colour.red),
+         mix_level(from.colour.green, to.colour.green),
+         mix_level(from.colour.blue, to.colour.blue),
+         mix_level(from.colour.alpha, to.colour.alpha)}
+    };
+}
+
+/// Keeps the part of a convex polygon on one side of the line along an edge
+/// of a polygon of positive winding.
+///
+/// @param polygon the convex polygon's points, in their turn
+/// @param from the edge's first corner
+/// @param to its second
+/// @param inner true for the side the edge's polygon lies on, false for the other
+/// @param[out] kept the part on that side, its points in the same turn;
+///     fewer than three where nothing is
+void keep_side(
+    std::span<const CutPoint> polygon,
+    const PlanePoint& from,
+    const PlanePoint& to,
+    bool inner,
+    std::vector<CutPoint>& kept
+) {
+    kept.clear();
+    const double side = inner ? 1.0 : -1.0;
+    for (size_t m = 0; m < polygon.size(); ++m) {
+        const CutPoint& here = polygon[m];
+        const CutPoint& next = polygon[(m + 1) % polygon.size()];
+        const double here_side = side * edge_side(from, to, {here.x, here.y});
+        const double next_side = side * edge_side(from, to, {next.x, next.y});
+        if (here_side >= 0.0)
+            kept.push_back(here);
+        if ((here_side >= 0.0) != (next_side >= 0.0))
+            kept.push_back(cut_point_between(here, next, here_side / (here_side - next_side)));
+    }
+}
+
+/// Twice the area of a polygon of cut points, in square frame pixels at
+/// zoom 1, positive for positive winding.
+double twice_cut_area(std::span<const CutPoint> polygon) noexcept {
+    double sum = 0.0;
+    for (size_t m = 0; m < polygon.size(); ++m) {
+        const CutPoint& here = polygon[m];
+        const CutPoint& next = polygon[(m + 1) % polygon.size()];
+        sum += here.x * next.y - next.x * here.y;
+    }
+    return sum;
+}
+
 /// Digests the shape of a unit's polygons: how many corners each has, and
 /// each corner's place from the first polygon's first corner and its depth,
 /// all the order the depth plane gives them depends on.
@@ -821,6 +930,14 @@ struct ModelStage::Impl {
     PlaneOrderScratch plane_order;
     /// Each depth-plane unit's polygon order, by its draw state.
     std::unordered_map<const void*, KeptPlaneOrder> kept_plane_orders;
+    /// The pieces of the unit's polygons that clearing cut, and their
+    /// corners; with the scratch the cutting works in.
+    std::vector<CutPiece> cut_pieces;
+    std::vector<CutPoint> cut_points;
+    std::vector<std::vector<CutPoint>> cut_left;
+    std::vector<std::vector<CutPoint>> cut_kept;
+    std::vector<CutPoint> cut_rest;
+    std::vector<CutPoint> cut_side;
     std::vector<OutlineRun> outline_runs;
     /// The primitives a nanoframe's outline is found from: their corners,
     /// and how many corners each takes and whether it fills the image.
@@ -1100,6 +1217,7 @@ class Emitter {
     );
     void
     apply_water_and_digger(size_t first_polygon, int32_t lift_threshold, bool own, bool digger);
+    void cut_under_clearing(size_t first_polygon, size_t end_polygon);
     void add_flat_object(
         const Object& object,
         const draw::PreparedObject& prepared,
@@ -1118,6 +1236,18 @@ class Emitter {
     );
     void emit_polygons(const Canvas& surface);
     void emit_polygon(const Canvas& surface, const Polygon& polygon);
+    void emit_cut_polygon(const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed);
+    [[nodiscard]] card::Vertex body_vertex(
+        const Canvas& surface,
+        const Polygon& polygon,
+        const PlacedFrame& placed,
+        double x,
+        double y,
+        double u,
+        double v,
+        const card::Colour& colour
+    ) const;
+    void lift_under_water(const Canvas& surface);
     [[nodiscard]] bool has_keyed_texels(const Sprite& sprite);
     [[nodiscard]] bool walk_strips(const Canvas& surface, std::span<const Corner> corners);
     void emit_outline(const Canvas& surface);
@@ -1364,6 +1494,7 @@ void Emitter::add_piece_polygons(
         polygon.primitive = p;
         polygon.texture = texture;
         polygon.flat_page = flat_page;
+        polygon.clears = !textured;
         int64_t depth_sum = 0;
         int32_t highest_row = 0;
         bool valid = true;
@@ -1404,8 +1535,10 @@ void Emitter::add_piece_polygons(
                 const uint8_t remapped = shade_table
                     [static_cast<size_t>(row) * OA_PALETTE_COLORS + vertex.palette_index];
                 corner.colour = palette_colour(impl_.palette, impl_.gamma, remapped, alpha);
+                polygon.clears = polygon.clears && remapped == draw::image_key;
             } else {
                 corner.colour = {level(vertex.red), level(vertex.green), level(vertex.blue), alpha};
+                polygon.clears = polygon.clears && vertex.palette_index == draw::image_key;
             }
             impl_.corners.push_back(corner);
         }
@@ -1463,6 +1596,9 @@ void Emitter::apply_nanoframe(
         return;
     for (size_t i = first_polygon; i < impl_.polygons.size(); ++i) {
         Polygon& polygon = impl_.polygons[i];
+        // The bands leave the image key's pixels as they are.
+        if (polygon.clears)
+            continue;
         const int32_t value = classify_depth(bands, static_cast<uint8_t>(polygon.depth));
         if (value == draw::remap_keep)
             continue;
@@ -1604,6 +1740,100 @@ void Emitter::apply_water_and_digger(
         if (digger && depth <= draw::digger_clip_depth)
             polygon.corner_count = 0;
     }
+}
+
+/// Clears from a unit's picture what its polygons of the image key cover, as
+/// the processor's picture of the unit leaves the key's pixels clear, so
+/// that the ground shows there: each polygon drawn before one that clears
+/// and sharing area with it keeps only its pieces outside that one, and the
+/// polygons that clear draw nothing. One that faces away clears nothing, as
+/// it fills nothing. A model hides its pieces sunk below the ground behind
+/// walls of the key so.
+///
+/// @param first_polygon the picture's first polygon, in drawing order
+/// @param end_polygon one past its last
+void Emitter::cut_under_clearing(size_t first_polygon, size_t end_polygon) {
+    impl_.cut_pieces.clear();
+    impl_.cut_points.clear();
+    auto& polygons = impl_.polygons;
+    end_polygon = std::min(end_polygon, polygons.size());
+    const auto corners_of = [this](const Polygon& polygon) {
+        return std::span<const Corner>(
+            impl_.corners.data() + polygon.first_corner, polygon.corner_count
+        );
+    };
+    const auto clearing = [&](const Polygon& polygon) {
+        return polygon.clears && polygon.corner_count >= 3 && winding(corners_of(polygon)) > 0;
+    };
+    const auto plane_of = [](const Corner& corner) {
+        return PlanePoint{static_cast<double>(corner.x), static_cast<double>(corner.y)};
+    };
+    if (std::none_of(
+            polygons.begin() + static_cast<std::ptrdiff_t>(first_polygon),
+            polygons.begin() + static_cast<std::ptrdiff_t>(end_polygon),
+            clearing
+        ))
+        return;
+    auto& left = impl_.cut_left;
+    auto& kept = impl_.cut_kept;
+    auto& rest = impl_.cut_rest;
+    auto& side = impl_.cut_side;
+    for (size_t i = first_polygon; i < end_polygon; ++i) {
+        Polygon& polygon = polygons[i];
+        if (polygon.clears || polygon.corner_count < 3)
+            continue;
+        const std::span<const Corner> corners = corners_of(polygon);
+        if (winding(corners) <= 0)
+            continue;
+        bool cut = false;
+        for (size_t j = i + 1; j < end_polygon && !(cut && left.empty()); ++j) {
+            const Polygon& over = polygons[j];
+            if (!clearing(over))
+                continue;
+            const std::span<const Corner> over_corners = corners_of(over);
+            PlanePoint centre;
+            if (!shared_centre(over_corners, corners, corners[0], impl_.plane_order, centre))
+                continue;
+            if (!cut) {
+                left.resize(1);
+                left[0].clear();
+                for (const Corner& corner : corners)
+                    left[0].push_back(cut_point_of(corner));
+                cut = true;
+            }
+            // Each piece outside the clearing polygon's edges, one edge at a
+            // time; what lies inside them all is cleared.
+            kept.clear();
+            for (const std::vector<CutPoint>& piece : left) {
+                rest = piece;
+                for (size_t k = 0; k < over_corners.size() && rest.size() >= 3; ++k) {
+                    const PlanePoint from = plane_of(over_corners[k]);
+                    const PlanePoint to = plane_of(over_corners[(k + 1) % over_corners.size()]);
+                    keep_side(rest, from, to, false, side);
+                    if (side.size() >= 3 && twice_cut_area(side) >= 2.0 * least_shared_area)
+                        kept.push_back(side);
+                    keep_side(rest, from, to, true, side);
+                    rest.swap(side);
+                }
+            }
+            left.swap(kept);
+        }
+        if (!cut)
+            continue;
+        polygon.cut = true;
+        polygon.first_piece = static_cast<uint32_t>(impl_.cut_pieces.size());
+        polygon.piece_count = static_cast<uint32_t>(left.size());
+        for (const std::vector<CutPoint>& piece : left) {
+            CutPiece kept_piece;
+            kept_piece.first_point = static_cast<uint32_t>(impl_.cut_points.size());
+            kept_piece.point_count = static_cast<uint32_t>(piece.size());
+            impl_.cut_pieces.push_back(kept_piece);
+            impl_.cut_points.insert(impl_.cut_points.end(), piece.begin(), piece.end());
+        }
+    }
+    for (size_t i = first_polygon; i < end_polygon; ++i)
+        if (polygons[i].clears)
+            polygons[i].corner_count = 0;
 }
 
 void Emitter::add_flat_object(
@@ -1904,28 +2134,15 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
         ++counts_.culled;
         return;
     }
-    vertices_.clear();
-    for (const Corner& corner : corners) {
-        card::Vertex vertex;
-        vertex.x = surface.origin_x + static_cast<float>(corner.x) * scale_;
-        vertex.y = surface.origin_y + static_cast<float>(corner.y) * scale_;
-        vertex.colour = corner.colour;
-        if (polygon.underwater) {
-            vertex.colour.red *= half_colour;
-            vertex.colour.green *= half_colour;
-            vertex.colour.blue *= half_colour;
-        }
-        if (polygon.texture != nullptr) {
-            const auto page = static_cast<float>(placed.page_size);
-            vertex.u = (static_cast<float>(placed.rect.x) + texel_offset_ +
-                        corner.u * static_cast<float>(placed.rect.width - 1)) /
-                       page;
-            vertex.v = (static_cast<float>(placed.rect.y) + texel_offset_ +
-                        corner.v * static_cast<float>(placed.rect.height - 1)) /
-                       page;
-        }
-        vertices_.push_back(vertex);
+    if (polygon.cut) {
+        emit_cut_polygon(surface, polygon, placed);
+        return;
     }
+    vertices_.clear();
+    for (const Corner& corner : corners)
+        vertices_.push_back(body_vertex(
+            surface, polygon, placed, corner.x, corner.y, corner.u, corner.v, corner.colour
+        ));
     indices_.clear();
     if (polygon.mesh != nullptr && polygon.primitive < polygon.mesh->primitives.size()) {
         const gw::MeshPrimitive& run = polygon.mesh->primitives[polygon.primitive];
@@ -1965,9 +2182,99 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
     }
     append(surface, placed.page, card::Blend::alpha, vertices_, indices_);
     ++counts_.polygons;
-    if (!polygon.underwater || !ensure_solid_page())
+    if (polygon.underwater)
+        lift_under_water(surface);
+}
+
+/// Emits the pieces a polygon keeps where polygons that clear lie over it
+/// (cut_under_clearing), each a fan from its first corner; a polygon with
+/// none left draws nothing.
+///
+/// @param surface the canvas the polygon is drawn on
+/// @param polygon the cut polygon
+/// @param placed where its frame lies on its page, for a textured polygon
+void Emitter::emit_cut_polygon(
+    const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed
+) {
+    vertices_.clear();
+    indices_.clear();
+    const uint32_t end_piece = std::min(
+        polygon.first_piece + polygon.piece_count, static_cast<uint32_t>(impl_.cut_pieces.size())
+    );
+    for (uint32_t p = polygon.first_piece; p < end_piece; ++p) {
+        const CutPiece& piece = impl_.cut_pieces[p];
+        const auto first = static_cast<card::Index>(vertices_.size());
+        for (uint32_t k = 0; k < piece.point_count; ++k) {
+            const CutPoint& point = impl_.cut_points[piece.first_point + k];
+            vertices_.push_back(body_vertex(
+                surface, polygon, placed, point.x, point.y, point.u, point.v, point.colour
+            ));
+        }
+        for (uint32_t k = 1; k + 1 < piece.point_count; ++k) {
+            indices_.push_back(first);
+            indices_.push_back(first + k);
+            indices_.push_back(first + k + 1);
+        }
+    }
+    if (indices_.empty())
         return;
-    // The blue table's lift, added once over the halved polygon.
+    append(surface, placed.page, card::Blend::alpha, vertices_, indices_);
+    ++counts_.polygons;
+    if (polygon.underwater)
+        lift_under_water(surface);
+}
+
+/// Makes the vertex of a point of a polygon's body: placed on the surface,
+/// its colour halved where the polygon is under water, and its place on
+/// the polygon's frame turned into a place on the frame's page.
+///
+/// @param surface the canvas the polygon is drawn on
+/// @param polygon the polygon
+/// @param placed where its frame lies on its page, for a textured polygon
+/// @param x the point across, in frame pixels at zoom 1
+/// @param y the point down
+/// @param u where on the frame it lies across, 0 to 1
+/// @param v where down
+/// @param colour its colour
+/// @return the vertex
+card::Vertex Emitter::body_vertex(
+    const Canvas& surface,
+    const Polygon& polygon,
+    const PlacedFrame& placed,
+    double x,
+    double y,
+    double u,
+    double v,
+    const card::Colour& colour
+) const {
+    card::Vertex vertex;
+    vertex.x = surface.origin_x + static_cast<float>(x) * scale_;
+    vertex.y = surface.origin_y + static_cast<float>(y) * scale_;
+    vertex.colour = colour;
+    if (polygon.underwater) {
+        vertex.colour.red *= half_colour;
+        vertex.colour.green *= half_colour;
+        vertex.colour.blue *= half_colour;
+    }
+    if (polygon.texture != nullptr) {
+        const auto page = static_cast<float>(placed.page_size);
+        vertex.u = (static_cast<float>(placed.rect.x) + texel_offset_ +
+                    static_cast<float>(u) * static_cast<float>(placed.rect.width - 1)) /
+                   page;
+        vertex.v = (static_cast<float>(placed.rect.y) + texel_offset_ +
+                    static_cast<float>(v) * static_cast<float>(placed.rect.height - 1)) /
+                   page;
+    }
+    return vertex;
+}
+
+/// Adds the blue table's lift once over the halved body just appended,
+/// whose vertices and indices vertices_ and indices_ still hold.
+///
+/// @param surface the canvas the body was drawn on
+void Emitter::lift_under_water(const Canvas& surface) {
+    if (!ensure_solid_page())
+        return;
     const card::Colour lift{
         0.0F, 0.0F, level(oa::present::gamma_channel(underwater_blue_lift, impl_.gamma)), 1.0F
     };
@@ -2020,7 +2327,8 @@ void Emitter::emit_silhouettes(
     if (!ensure_solid_page())
         return;
     for (const Polygon& polygon : impl_.polygons) {
-        if (polygon.corner_count < 3)
+        // The image's pixels of the key cast no shadow.
+        if (polygon.corner_count < 3 || polygon.clears)
             continue;
         const std::span<const Corner> corners(
             impl_.corners.data() + polygon.first_corner, polygon.corner_count
@@ -2126,6 +2434,7 @@ void Emitter::draw_model(const ModelDraw& drawn) {
         add_unit_pieces(
             model, *mesh, image_placement, true, false, true, team, image_shading, body_alpha, false
         );
+        cut_under_clearing(0, impl_.polygons.size());
         add_unit_pieces(
             model,
             *mesh,
@@ -2253,6 +2562,7 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     order_as_depth_plane(
         model.state, impl_.corners, impl_.polygons, impl_.plane_order, impl_.kept_plane_orders
     );
+    cut_under_clearing(0, impl_.polygons.size());
     emit_polygons(canvas);
     emit_outline(canvas);
 }

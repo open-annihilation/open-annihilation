@@ -13,7 +13,8 @@
 // shade table, a cloaked unit at half alpha over an opaque canvas, a
 // building under construction with its bands and outline, units under the
 // water line of the viewpoint's side and the other, a digger's clipped
-// polygons, a carried unit composed into its carrier, vehicle and building
+// polygons, a polygon of the image key clearing what it covers of the
+// picture, a carried unit composed into its carrier, vehicle and building
 // shadows through the shadow target and straight into the frame, a
 // projectile with its shadow sprite, a debris piece and a shatter fragment,
 // the texture frames placed once and uploaded once and the pages emptied by
@@ -285,6 +286,34 @@ std::shared_ptr<Model> digger_model() {
     const int32_t h = 4 * unit;
     object.vertices.insert(object.vertices.end(), {{-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {-h, 0, h}});
     object.primitives.push_back(primitive({4, 7, 6, 5}, ink, nullptr));
+    model->objects.push_back(object);
+    return model;
+}
+
+/// A square at the ground, a polygon of the image key four units up over
+/// its northern half and a smaller square eight units up over its middle,
+/// in that order: the key's polygon clears the square at the ground under
+/// it, and the higher square shows over the key's.
+std::shared_ptr<Model> cleared_model() {
+    auto model = std::make_shared<Model>();
+    Object object = square_object(0, ink, nullptr);
+    const int32_t h = half_side * unit;
+    const int32_t key_height = 4 * unit;
+    const int32_t d = 4 * unit;
+    const int32_t deck_height = 8 * unit;
+    object.vertices.insert(
+        object.vertices.end(),
+        {{-h, key_height, -h},
+         {h, key_height, -h},
+         {h, key_height, 0},
+         {-h, key_height, 0},
+         {-d, deck_height, -d},
+         {d, deck_height, -d},
+         {d, deck_height, d},
+         {-d, deck_height, d}}
+    );
+    object.primitives.push_back(primitive({4, 7, 6, 5}, draw::image_key, nullptr));
+    object.primitives.push_back(primitive({8, 11, 10, 9}, second_ink, nullptr));
     model->objects.push_back(object);
     return model;
 }
@@ -1542,6 +1571,40 @@ void test_digger() {
     OA_CHECK(drawn.at(unit_x, unit_z - 4)[0] == second_ink);
 }
 
+// A polygon of the image key clears what it covers of the unit's picture
+// under it, so the ground shows there, from an image with a depth plane and
+// without one; nothing of the key's colour is drawn.
+void test_clearing() {
+    for (const bool depth_plane : {true, false}) {
+        Scene scene;
+        SceneUnit& cleared = scene.add_unit(cleared_model(), 1, unit_x, unit_z);
+        if (depth_plane)
+            cleared.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+        Card card(scene);
+        ProcessorPicture processor;
+        scene.begin_frame(processor, 0);
+        scene.plan_unit(cleared);
+        scene.raster_processor(processor);
+        const CardPicture drawn = card.raster(scene);
+        check_exact(
+            depth_plane ? "cleared, with a depth plane" : "cleared",
+            compare(drawn, processor, scene)
+        );
+        // Under the key's polygon, beside the higher square: clear.
+        OA_CHECK(!drawn_by_processor(processor.at(unit_x - 6, unit_z - 5), scene.key));
+        OA_CHECK(drawn.at(unit_x - 6, unit_z - 5)[3] == 0);
+        // The square at the ground south of the key's polygon, and the
+        // higher square over the key's.
+        OA_CHECK(drawn.at(unit_x, unit_z + 4)[0] == ink);
+        OA_CHECK(drawn.at(unit_x, unit_z - 6)[0] == second_ink);
+        std::size_t key_coloured = 0;
+        for (std::size_t i = 0; i + 3 < drawn.rgba.size(); i += 4)
+            if (drawn.rgba[i + 3] != 0 && drawn.rgba[i] == draw::image_key)
+                ++key_coloured;
+        OA_CHECK(key_coloured == 0);
+    }
+}
+
 // A carried unit: composed into its carrier's depth image at its offset,
 // its height over the carrier lifting it and ordering it in the plane; and
 // drawn flat over a carrier without a depth plane.
@@ -2277,6 +2340,7 @@ int main(int argc, char** argv) {
         test_mobile_nanoframe_once_built();
         test_underwater();
         test_digger();
+        test_clearing();
         test_carried();
         test_shadows();
         test_unfinished_building_shadow();

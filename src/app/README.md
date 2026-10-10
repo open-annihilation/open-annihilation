@@ -726,7 +726,11 @@ logs it.
   nothing nearer of the image lies, found on a depth plane of the model's
   own and drawn as quads of those pixels, each at least a screen pixel
   across and down in a view zoomed out, diggers' and other players'
-  underwater polygons left out; texture frames go on
+  underwater polygons left out, and a polygon filled with the image key
+  drawn as the image leaves it, clear: it draws nothing and cuts what it
+  covers out of the polygons of the unit's picture drawn before it, as a
+  model's walls of the key hide its pieces sunk below the ground (drawn
+  flat, it is a colour); texture frames go on
   sprite pages on first sight in two variants, the image key transparent
   as in a cached image or a colour as in a flat draw; shadows go into a
   transparent shadow target the battlefield's size, every silhouette
