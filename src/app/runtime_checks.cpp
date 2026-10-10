@@ -297,49 +297,6 @@ std::size_t changed_pixels(const std::vector<uint8_t>& before, const std::vector
     return changed;
 }
 
-void Runtime::exercise_click(std::string_view gadget_name) {
-    const auto found = std::find_if(
-        resources_.layout.gadgets.begin(),
-        resources_.layout.gadgets.end(),
-        [gadget_name](const auto& gadget) { return gadget.common.name == gadget_name; }
-    );
-    if (found == resources_.layout.gadgets.end())
-        throw std::runtime_error("navigation check lacks button: " + std::string(gadget_name));
-    const float modal_x =
-        screen_ == Screen::map_selection
-            ? static_cast<float>(
-                  (kCanvasWidth -
-                   static_cast<int>(resources_.layout.gadgets.front().common.width)) /
-                  2
-              )
-            : 0.0F;
-    const float modal_y =
-        screen_ == Screen::map_selection
-            ? static_cast<float>(
-                  (kCanvasHeight -
-                   static_cast<int>(resources_.layout.gadgets.front().common.height)) /
-                  2
-              )
-            : 0.0F;
-    const auto origin = panel_origin();
-    const float x = modal_x + static_cast<float>(origin.x + found->common.x) +
-                    static_cast<float>(found->common.width) / 2.0F;
-    const float y = modal_y + static_cast<float>(origin.y + found->common.y) +
-                    static_cast<float>(found->common.height) / 2.0F;
-    update_pointer(x, y);
-    selected_ =
-        hovered_ && frontend_gadget_pressable(*hovered_) ? static_cast<int32_t>(*hovered_) : -1;
-    rebuild_surface(); // Preserve a complete rendered frame between press and release.
-    update_pointer(x, y);
-    const auto released = hovered_;
-    if (!released || selected_ != static_cast<int32_t>(*released))
-        throw std::runtime_error(
-            "navigation click did not retain selection: " + std::string(gadget_name)
-        );
-    activate();
-    selected_ = -1;
-}
-
 void Runtime::check_match_overlays(
     const std::function<void(renderer::Surface&)>& frame_of, const fs::path& snapshot
 ) {

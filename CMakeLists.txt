@@ -23,7 +23,14 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(OA_BUILD_PLATFORM "Build the SDL3 image and audio shell" ON)
 option(OA_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer; any report stops the process" OFF)
 option(OA_REQUIRE_GAME "Fail configuration when oa-game cannot be built" OFF)
+option(OA_SELF_CHECKS "Build the game's self-checks, the --check-* options the native checks run" ON)
 include(CTest)
+# The native checks run the self-checks, so a build without them builds no
+# tests.
+if(BUILD_TESTING AND NOT OA_SELF_CHECKS)
+  message(FATAL_ERROR "OA_SELF_CHECKS=OFF leaves out the self-checks the tests run; "
+    "configure it with -DBUILD_TESTING=OFF")
+endif()
 find_package(ZLIB REQUIRED)
 # SDL3, for the game, its shell and the tests that open a window; found here,
 # before the targets and tests below that ask whether it was.
@@ -251,6 +258,8 @@ add_subdirectory(src/audio)
 add_library(oa-app-headers INTERFACE)
 add_library(oa::app::headers ALIAS oa-app-headers)
 target_include_directories(oa-app-headers INTERFACE src/app/include)
+# OA_SELF_CHECKS is 1 when the game holds its self-checks (app.hpp).
+target_compile_definitions(oa-app-headers INTERFACE "OA_SELF_CHECKS=$<BOOL:${OA_SELF_CHECKS}>")
 # app.hpp and render_policy.hpp include the engine settings' header,
 # runtime.hpp the gamepad controls' model and game_directory.hpp the found
 # installs' header.
@@ -878,7 +887,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/screen_size
   src/app/screen_mode.cpp src/app/runtime_screen_size.cpp
   src/app/game_directory_dialog.cpp src/app/runtime.cpp
   src/app/runtime_builtin_screens.cpp
-  src/app/runtime_camera.cpp src/app/runtime_campaign.cpp src/app/runtime_checks.cpp
+  src/app/runtime_camera.cpp src/app/runtime_campaign.cpp
   src/app/runtime_console.cpp src/app/runtime_console_options.cpp src/app/runtime_console_debug.cpp
   src/app/runtime_console_sound.cpp src/app/runtime_console_display.cpp
   src/app/runtime_console_units.cpp
@@ -887,73 +896,84 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/screen_size
   src/app/runtime_events.cpp src/app/runtime_frontend_host.cpp src/app/runtime_gaf.cpp
   src/app/runtime_hotkeys.cpp src/app/runtime_hud.cpp src/app/runtime_loading.cpp
   src/app/runtime_match_hud.cpp src/app/runtime_match_menus.cpp src/app/runtime_load_game.cpp
-  src/app/runtime_order_panel.cpp src/app/runtime_order_check.cpp
+  src/app/runtime_order_panel.cpp
   src/app/runtime_match_render.cpp src/app/runtime_messages.cpp src/app/runtime_pointer.cpp
   src/app/runtime_present.cpp src/app/runtime_display.cpp
   src/app/runtime_accelerated.cpp src/app/runtime_render_tier.cpp src/app/runtime_tier_watch.cpp
   src/app/runtime_full.cpp src/app/runtime_full_sprites.cpp src/app/runtime_full_overlays.cpp
-  src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
-  src/app/runtime_terrain_filter.cpp src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp src/app/runtime_fog.cpp
-  src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_build_preview_check.cpp
-  src/app/runtime_pointer_press.cpp src/app/runtime_pointer_check.cpp
-  src/app/runtime_dgun_check.cpp src/app/runtime_attack_command_check.cpp
-  src/app/runtime_tracking_zoom_check.cpp
-  src/app/runtime_match_panel_keys_check.cpp
-  src/app/runtime_turret_draw_check.cpp
+  src/app/runtime_terrain_filter.cpp src/app/runtime_fog.cpp
+  src/app/runtime_pointer_press.cpp
   src/app/runtime_selection.cpp src/app/runtime_selection_shortcuts.cpp
   src/app/runtime_view_panels.cpp src/app/runtime_whiteboard.cpp src/app/runtime_commander_placement.cpp
-  src/app/runtime_megamap.cpp src/app/runtime_megamap_check.cpp src/app/runtime_radar_orders_check.cpp
+  src/app/runtime_megamap.cpp
   src/app/runtime_skirmish_host.cpp
   src/app/runtime_skirmish_start.cpp src/app/runtime_map_units.cpp src/app/runtime_world_draw.cpp src/app/world_draws.cpp src/app/runtime_benchmark.cpp src/app/runtime_music.cpp
   src/app/runtime_saveload.cpp src/app/runtime_sides.cpp src/app/asset_files.cpp
-  src/app/runtime_platform.cpp src/app/runtime_inactive_loop_check.cpp
+  src/app/runtime_platform.cpp
   src/app/runtime_endgame.cpp src/app/runtime_radar.cpp
-  src/app/runtime_factory_check.cpp src/app/runtime_unit_speech_check.cpp
-  src/app/runtime_build_page_check.cpp
-  src/app/runtime_language_check.cpp
-  src/app/runtime_language_switch_check.cpp
-  src/app/runtime_side_column_check.cpp
-  src/app/runtime_match_bars_check.cpp
-  src/app/runtime_unit_pages_check.cpp
-  src/app/runtime_kill_board.cpp src/app/runtime_frontend_controls_check.cpp
-  src/app/runtime_briefing_narration_check.cpp
-  src/app/runtime_build_site_check.cpp src/app/runtime_multiplayer_check.cpp
+  src/app/runtime_kill_board.cpp
   src/app/runtime_check_host.cpp src/app/check_host_input.cpp src/app/runtime_automation_host.cpp
-  src/app/runtime_notices.cpp src/app/runtime_notice_check.cpp src/app/web_link.cpp
+  src/app/runtime_notices.cpp src/app/web_link.cpp
   src/app/web_address.cpp
   src/app/game_file.cpp
   src/app/modern_text.cpp src/app/text_input_area.cpp
-  src/app/runtime_user_folder.cpp src/app/runtime_user_folder_check.cpp
-  src/app/runtime_mod_switch_check.cpp
-  src/app/runtime_mod_warning.cpp src/app/runtime_mod_warning_check.cpp
-  src/app/runtime_mod_install.cpp src/app/runtime_mod_install_check.cpp src/app/mod_install_watch.cpp
+  src/app/runtime_user_folder.cpp
+  src/app/runtime_mod_warning.cpp
+  src/app/runtime_mod_install.cpp src/app/mod_install_watch.cpp
   src/app/user_folder_open.cpp
   src/app/runtime_mission_orders.cpp src/app/runtime_showcase.cpp src/app/match_clock.cpp
   src/app/world_scaling.cpp src/app/far_view.cpp
   src/app/frame_pacing.cpp src/app/frame_stats_panel.cpp src/app/runtime_frame_stats.cpp
-  src/app/runtime_team_panels.cpp src/app/runtime_team_panel_check.cpp
-  src/app/runtime_scroll_bars.cpp src/app/runtime_scroll_bar_check.cpp
+  src/app/runtime_team_panels.cpp
+  src/app/runtime_scroll_bars.cpp
   src/app/runtime_director_view.cpp src/app/runtime_director.cpp src/app/runtime_stage.cpp
-  src/app/presentation_interpolation.cpp src/app/runtime_interpolation_check.cpp
-  src/app/runtime_unit_playout_check.cpp
-  src/app/runtime_engine_settings.cpp src/app/runtime_engine_settings_wiring_check.cpp
-  src/app/runtime_engine_settings_menu.cpp src/app/runtime_engine_settings_check.cpp
-  src/app/runtime_engine_settings_match.cpp src/app/runtime_engine_settings_match_check.cpp
-  src/app/runtime_engine_settings_app_menu.cpp src/app/runtime_engine_settings_dialog_check.cpp
+  src/app/presentation_interpolation.cpp
+  src/app/runtime_engine_settings.cpp
+  src/app/runtime_engine_settings_menu.cpp
+  src/app/runtime_engine_settings_match.cpp
+  src/app/runtime_engine_settings_app_menu.cpp
   src/app/runtime_view_rules.cpp src/app/runtime_game_text.cpp src/app/runtime_language.cpp
   src/app/language_packs.cpp
   src/app/runtime_picture_captions.cpp
-  src/app/runtime_renderer.cpp src/app/runtime_renderer_ladder_check.cpp
-  src/app/runtime_visual_rules_check.cpp
+  src/app/runtime_renderer.cpp
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
-  src/app/runtime_input_modifiers.cpp src/app/runtime_touch_check.cpp src/app/runtime_touch_hud.cpp
+  src/app/runtime_input_modifiers.cpp src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
   src/app/game_files_screen.cpp src/app/game_files_paint.cpp src/app/game_files_dialog.cpp
-  src/app/game_files_check.cpp src/app/runtime_game_files.cpp
+  src/app/runtime_game_files.cpp
   src/app/runtime_pad.cpp src/app/runtime_pad_actions.cpp src/app/runtime_pad_pointer.cpp
-  src/app/runtime_pad_haptics.cpp src/app/runtime_pad_check.cpp src/app/runtime_text_input.cpp
+  src/app/runtime_pad_haptics.cpp src/app/runtime_text_input.cpp
   src/app/folder_chooser_screen.cpp src/app/runtime_found_install.cpp
   src/app/simulation_hash.cpp)
+# The self-checks: the --check-* options with which the game drives itself
+# through its screens and orders and reports a verdict, for the native
+# checks. OA_SELF_CHECKS=OFF leaves them out, as the release packages do.
+set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
+  src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
+  src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
+  src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_build_preview_check.cpp
+  src/app/runtime_pointer_check.cpp src/app/runtime_dgun_check.cpp
+  src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
+  src/app/runtime_match_panel_keys_check.cpp src/app/runtime_turret_draw_check.cpp
+  src/app/runtime_megamap_check.cpp src/app/runtime_radar_orders_check.cpp
+  src/app/runtime_inactive_loop_check.cpp src/app/runtime_factory_check.cpp
+  src/app/runtime_unit_speech_check.cpp src/app/runtime_build_page_check.cpp
+  src/app/runtime_language_check.cpp src/app/runtime_language_switch_check.cpp
+  src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
+  src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
+  src/app/runtime_briefing_narration_check.cpp src/app/runtime_build_site_check.cpp
+  src/app/runtime_multiplayer_check.cpp src/app/runtime_notice_check.cpp
+  src/app/runtime_user_folder_check.cpp src/app/runtime_mod_switch_check.cpp
+  src/app/runtime_mod_warning_check.cpp src/app/runtime_mod_install_check.cpp
+  src/app/runtime_team_panel_check.cpp src/app/runtime_scroll_bar_check.cpp
+  src/app/runtime_interpolation_check.cpp src/app/runtime_unit_playout_check.cpp
+  src/app/runtime_engine_settings_wiring_check.cpp src/app/runtime_engine_settings_check.cpp
+  src/app/runtime_engine_settings_match_check.cpp src/app/runtime_engine_settings_dialog_check.cpp
+  src/app/runtime_renderer_ladder_check.cpp src/app/runtime_visual_rules_check.cpp
+  src/app/runtime_touch_check.cpp src/app/game_files_check.cpp src/app/runtime_pad_check.cpp)
+if(OA_SELF_CHECKS)
+  list(APPEND oa_game_sources ${oa_game_self_check_sources})
+endif()
 # The run manifest of a director render, the settings dialog's header and the
 # Game files screen's header name the engine's version, and the renderer
 # records are written under it.
@@ -2638,7 +2658,7 @@ endif()
 add_subdirectory(src/ui/gadget-render)
 add_subdirectory(src/ui/frontend-dialogs)
 add_subdirectory(tests/content)
-if(TARGET oa-game)
+if(TARGET oa-game AND OA_SELF_CHECKS)
   target_sources(oa-game PRIVATE src/app/runtime_dialog_checks.cpp)
 endif()
 

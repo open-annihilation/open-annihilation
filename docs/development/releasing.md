@@ -12,7 +12,7 @@ package](#the-steam-deck-package)).
 
 ## What it makes
 
-The script writes two files in the folder `--out` names (by default
+The script writes two files and a folder in the folder `--out` names (by default
 `build-release-macos/package`), for the version `v` followed by the
 `VERSION` of the project in `CMakeLists.txt` (or the one `--version` gives,
 with or without the `v`), which the application's `Info.plist` must carry:
@@ -21,6 +21,7 @@ with or without the `v`), which the application's `Info.plist` must carry:
 |---|---|
 | `open-annihilation-vX.Y.Z-macos-universal.zip` | the folder `open-annihilation-vX.Y.Z-macos-universal`, holding `Open Annihilation.app`, `LICENSE`, `ATTRIBUTIONS.md` and `licenses/`, as in every earlier macOS release |
 | `open-annihilation-vX.Y.Z-macos-universal.pkg` | an installer package that puts `Open Annihilation.app` in `/Applications` on the startup disk; Installer asks for an administrator's password |
+| `open-annihilation-vX.Y.Z-macos-universal-symbols/open-annihilation` | the game's executable as the build made it, with the symbols the packaged one is stripped of; it is not shipped, and it is kept for reading the addresses of a player's crash report (its UUID is the packaged executable's) |
 
 Both run on Apple silicon and Intel Macs (arm64 and x86_64) with macOS 11.0
 or later. The folder `work` beside them keeps what the script staged,
@@ -47,8 +48,8 @@ expanded and checked, and the notary service's logs.
    `Contents/Resources/fonts`. The
    `oa-game` target is then built in `build-release-macos`, its CMake cache
    cleared first and its bundle made afresh: a Release build without
-   tests, for both architectures, linking those libraries and no others
-   (never Homebrew's).
+   tests or the game's self-checks (`OA_SELF_CHECKS=OFF`), for both
+   architectures, linking those libraries and no others (never Homebrew's).
 2. **Checks the build:** both architectures, macOS 11.0 as the oldest
    release in each and in `Info.plist`, only the system's libraries linked,
    the source's notices in `Contents/Resources`, the text fonts in its
@@ -60,7 +61,9 @@ expanded and checked, and the notary service's logs.
 3. **Stages the application** as `Open Annihilation.app`, the name its
    `Info.plist` gives (`CFBundleName`), with the notices Git tracks beside
    it. The build tree, `run.sh` and the tests keep the target's names,
-   `open-annihilation.app` and the executable `open-annihilation`.
+   `open-annihilation.app` and the executable `open-annihilation`. The
+   staged executable is stripped of its symbols (`strip`), and the build's
+   own is kept in the `-symbols` folder.
 4. **Signs it inside-out:** any code inside the bundle besides its
    executable first, deepest first (the game has none today), then the
    application, each with the hardened runtime and a secure timestamp

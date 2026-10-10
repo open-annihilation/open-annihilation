@@ -611,8 +611,9 @@ bool run_game_files_until_resolved(
         request.version = std::string("v") + OA_ENGINE_VERSION;
         request.preferences_file = options.preferences_file;
         request.players_own_profile = !options.preferences_file.has_value();
-        if (options.check_game_files)
-            request.check = game_files_check_hooks(options);
+        if constexpr (self_checks_built)
+            if (options.check_game_files)
+                request.check = game_files_check_hooks(options);
         if (run_game_files_screen(request) == GameFilesEnd::quit)
             return false;
         // The continue banner shows once.
@@ -706,6 +707,19 @@ class ModSwitchMemory {
     bool heap_known_{true};         ///< every run's sample reported the heap's use
 };
 
+/// Returns a run's exit status: under --check-game-files, the Game files
+/// check's verdict on it.
+///
+/// @param options the parsed command line
+/// @param status the run's status so far
+/// @return the status the process ends with
+int game_files_status([[maybe_unused]] const Options& options, int status) {
+    if constexpr (self_checks_built)
+        if (options.check_game_files)
+            return finish_game_files_check(options, status);
+    return status;
+}
+
 /// Runs the game once: finds the game folders and their profile, with the
 /// Game files screen where the platform brings game files in and none is
 /// usable, opens the window the first time, plays the intro movies the
@@ -755,9 +769,9 @@ int run_once(
     }
     // Without a usable folder, the Game files screen brings one in.
     if (!run_game_files_until_resolved(options, display, game_files, needed, game_directory))
-        return options.check_game_files ? finish_game_files_check(options, 0) : 0;
+        return game_files_status(options, 0);
     if (!game_directory)
-        return options.check_game_files ? finish_game_files_check(options, 1) : 1;
+        return game_files_status(options, 1);
     // The game files are kept out of device backups unless the player put
     // them back in, with or without the screen.
     if (game_files.installed)
@@ -815,9 +829,10 @@ int run_once(
         display.initialize(options);
     // The Game files check's management route runs its pass over the
     // installed folder before the game starts.
-    if (options.check_game_files && options.game_files_route == GameFilesRoute::manage &&
-        !run_game_files_manage_check(options, display.window, display.renderer_host.renderer()))
-        return finish_game_files_check(options, 1);
+    if constexpr (self_checks_built)
+        if (options.check_game_files && options.game_files_route == GameFilesRoute::manage &&
+            !run_game_files_manage_check(options, display.window, display.renderer_host.renderer()))
+            return finish_game_files_check(options, 1);
     if (options.restarts == 0)
         play_intro(options, options.headless_check ? nullptr : &display);
     // The movies present on the game's renderer.
@@ -870,7 +885,7 @@ int run_once(
     const int status = runtime->run();
     if (!runtime->soft_restart_requested()) {
         if (checked_options)
-            return finish_game_files_check(*checked_options, status);
+            return game_files_status(*checked_options, status);
         return check_mod_switch && status == 0 ? switch_memory.verdict() : status;
     }
     // The next runtime takes over the window as Alt+Enter left it, and the
@@ -1071,8 +1086,9 @@ int main(int argc, char** argv) {
         const Options parsed = parse_options(argc, argv, extension);
         // The Game files screen's check installs its scripted platform
         // before anything reads the hooks.
-        if (parsed.check_game_files)
-            install_game_files_check(parsed);
+        if constexpr (self_checks_built)
+            if (parsed.check_game_files)
+                install_game_files_check(parsed);
         // --print-profile prints the resolved mod profile and stops.
         if (parsed.print_profile)
             return print_mod_profile(

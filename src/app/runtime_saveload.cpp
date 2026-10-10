@@ -474,6 +474,11 @@ uint64_t features_digest_by_name(persist::Bank& bank) {
     return digest;
 }
 
+// Rings of 16-pixel cells searched around a unit for a finished structure's
+// site.
+constexpr int32_t kSiteNearest = 8;
+constexpr int32_t kSiteFarthest = 40;
+
 } // namespace
 
 // Match state the sections read and write that lives outside the World.
@@ -1623,6 +1628,37 @@ uint64_t Runtime::match_world_digest() const {
     return oa::sim::trace::match_state_hash(
         *match_, match_timing_, camera[0], camera[1], saveload_ ? &saveload_->meteor : nullptr
     );
+}
+
+oa::sim::unit_spawn::Slot* Runtime::place_finished_structure(uint16_t type, uint16_t near) {
+    const auto& slots = match_->world().slots;
+    if (type == 0 || type >= spawn_types_.size() || near >= slots.size() ||
+        slots[near].unit == nullptr)
+        return nullptr;
+    const auto cell_x = static_cast<int32_t>(slots[near].unit->position[0] >> 20);
+    const auto cell_z = static_cast<int32_t>(slots[near].unit->position[2] >> 20);
+    std::optional<std::pair<int32_t, int32_t>> site;
+    for (int32_t ring = kSiteNearest; ring < kSiteFarthest && !site; ++ring)
+        for (int32_t dz = -ring; dz <= ring && !site; dz += 2)
+            for (int32_t dx = -ring; dx <= ring && !site; dx += 2)
+                if ((dx == -ring || dx == ring || dz == -ring || dz == ring) &&
+                    match_->building_site(type, cell_x + dx, cell_z + dz, 0))
+                    site = std::pair{cell_x + dx, cell_z + dz};
+    if (!site)
+        return nullptr;
+    const auto& placed_type = spawn_types_[type];
+    const auto x = static_cast<uint32_t>((site->first * 2 + placed_type.footprint_x) * 8);
+    const auto z = static_cast<uint32_t>((site->second * 2 + placed_type.footprint_z) * 8);
+    oa::sim::unit_spawn::Request request;
+    request.player = match_local_player_;
+    request.type = type;
+    request.finished = true;
+    request.state = kGroundOccupancyState;
+    request.position = {
+        x << 16, static_cast<uint32_t>(match_->map_height(x << 16, z << 16)) << 16, z << 16
+    };
+    auto* placed = match_->create(request);
+    return placed != nullptr && placed->unit != nullptr ? placed : nullptr;
 }
 
 void Runtime::give_saveload_orders() {

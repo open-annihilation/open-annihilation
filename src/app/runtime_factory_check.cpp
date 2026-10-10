@@ -21,9 +21,6 @@ namespace {
 
 // Canvas pixels from the factory to the points it is sent to.
 constexpr int kRallyOffset = 160;
-// Rings of 16-pixel cells searched around the commander for the lab's site.
-constexpr int32_t kSiteNearest = 8;
-constexpr int32_t kSiteFarthest = 40;
 // Ticks the lab gets to build one Peewee at full resources (about 440).
 constexpr int kBuildTickLimit = 1200;
 // Ticks the new Peewee walks before it must have closed on the point.
@@ -45,37 +42,6 @@ squared_distance(const std::array<uint32_t, 3>& position, const oa::sim::ground_
 }
 
 } // namespace
-
-oa::sim::unit_spawn::Slot* Runtime::place_finished_structure(uint16_t type, uint16_t near) {
-    const auto& slots = match_->world().slots;
-    if (type == 0 || type >= spawn_types_.size() || near >= slots.size() ||
-        slots[near].unit == nullptr)
-        return nullptr;
-    const auto cell_x = static_cast<int32_t>(slots[near].unit->position[0] >> 20);
-    const auto cell_z = static_cast<int32_t>(slots[near].unit->position[2] >> 20);
-    std::optional<std::pair<int32_t, int32_t>> site;
-    for (int32_t ring = kSiteNearest; ring < kSiteFarthest && !site; ++ring)
-        for (int32_t dz = -ring; dz <= ring && !site; dz += 2)
-            for (int32_t dx = -ring; dx <= ring && !site; dx += 2)
-                if ((dx == -ring || dx == ring || dz == -ring || dz == ring) &&
-                    match_->building_site(type, cell_x + dx, cell_z + dz, 0))
-                    site = std::pair{cell_x + dx, cell_z + dz};
-    if (!site)
-        return nullptr;
-    const auto& placed_type = spawn_types_[type];
-    const auto x = static_cast<uint32_t>((site->first * 2 + placed_type.footprint_x) * 8);
-    const auto z = static_cast<uint32_t>((site->second * 2 + placed_type.footprint_z) * 8);
-    oa::sim::unit_spawn::Request request;
-    request.player = match_local_player_;
-    request.type = type;
-    request.finished = true;
-    request.state = kGroundOccupancyState;
-    request.position = {
-        x << 16, static_cast<uint32_t>(match_->map_height(x << 16, z << 16)) << 16, z << 16
-    };
-    auto* placed = match_->create(request);
-    return placed != nullptr && placed->unit != nullptr ? placed : nullptr;
-}
 
 void Runtime::check_factory_orders() {
     namespace orders = oa::sim::match_runtime;

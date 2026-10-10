@@ -247,6 +247,16 @@ enum class GameFilesExpect : uint8_t {
     next_start,   ///< the manage route's change applied by the next start's recovery
 };
 
+/// Whether the game holds its self-checks: the --check-* options and
+/// --reclaim-check, with which it drives itself and reports a verdict for the
+/// native checks. A build configured with OA_SELF_CHECKS=OFF, as the release
+/// packages are, leaves them out and refuses those options.
+#if defined(OA_SELF_CHECKS) && OA_SELF_CHECKS == 0
+inline constexpr bool self_checks_built = false;
+#else
+inline constexpr bool self_checks_built = true;
+#endif
+
 struct Options {
     // Empty until main() resolves it when --game-dir is not passed.
     fs::path game_dir;

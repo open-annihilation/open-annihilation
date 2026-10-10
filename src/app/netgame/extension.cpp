@@ -927,8 +927,9 @@ struct RuntimeExtension {
     ///
     /// @param context Extension context (unused).
     /// @param runtime The running app.
-    static void check_multiplayer_menu(void* /*context*/, Runtime& runtime) {
-        check_multiplayer_screens(check_host(runtime), runtime_options(runtime));
+    static void check_multiplayer_menu(void* /*context*/, [[maybe_unused]] Runtime& runtime) {
+        if constexpr (self_checks_built)
+            check_multiplayer_screens(check_host(runtime), runtime_options(runtime));
     }
 
     /// Reports the running game's extension_state bits (Extension::state).

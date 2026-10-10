@@ -269,30 +269,33 @@ int Runtime::run() {
             flush_preferences();
             return status;
         }
-        if (options_.check_director_view) {
-            check_director_view();
-            flush_preferences();
-            return 0;
-        }
-        if (options_.check_director_render) {
-            check_director_render();
-            flush_preferences();
-            return 0;
-        }
-        if (options_.check_interpolation) {
-            check_interpolation();
-            flush_preferences();
-            return 0;
-        }
-        if (options_.check_unit_playout) {
-            check_unit_playout();
-            flush_preferences();
-            return 0;
+        if constexpr (self_checks_built) {
+            if (options_.check_director_view) {
+                check_director_view();
+                flush_preferences();
+                return 0;
+            }
+            if (options_.check_director_render) {
+                check_director_render();
+                flush_preferences();
+                return 0;
+            }
+            if (options_.check_interpolation) {
+                check_interpolation();
+                flush_preferences();
+                return 0;
+            }
+            if (options_.check_unit_playout) {
+                check_unit_playout();
+                flush_preferences();
+                return 0;
+            }
         }
         if (extension_run(RunPhase::headless_first))
             return exit_code;
-        if (options_.check_navigation)
-            check_navigation();
+        if constexpr (self_checks_built)
+            if (options_.check_navigation)
+                check_navigation();
         if (extension_run(RunPhase::headless))
             return exit_code;
         if (options_.save_after || !options_.load_file.empty()) {
@@ -337,185 +340,187 @@ int Runtime::run() {
         ~LifecycleWatchRemoval() { runtime->remove_lifecycle_watch(); }
     } lifecycle_watch_removal{this};
 
-    if (options_.check_match_dialogs) {
-        check_match_dialogs();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_load_save) {
-        check_load_save();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_frontend_controls) {
-        check_frontend_controls();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_scroll_bars) {
-        check_scroll_bars();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_engine_settings) {
-        check_engine_settings();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_user_folder) {
-        check_user_folder();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_mod_switch) {
-        check_mod_switch();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_mod_warning) {
-        check_mod_warning();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_mod_install) {
-        check_mod_install();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_renderer_ladder) {
-        const int status = check_renderer_ladder();
-        flush_preferences();
-        return status;
-    }
-    if (options_.check_briefing_narration) {
-        check_briefing_narration();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_match_layers) {
-        check_match_layers();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_render_tiers) {
-        const int status = check_render_tiers();
-        flush_preferences();
-        return status;
-    }
-    if (options_.check_build_preview) {
-        const int status = check_build_preview();
-        flush_preferences();
-        return status;
-    }
-    if (options_.check_match_orders) {
-        check_match_orders();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_factory_orders) {
-        check_factory_orders();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_unit_speech) {
-        check_unit_speech();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_download_builds) {
-        check_download_builds();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_stockpile_builds) {
-        check_stockpile_builds();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_unit_page_memory) {
-        check_unit_page_memory();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_side_column) {
-        check_side_column();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_match_bars) {
-        check_match_bars();
-        flush_preferences();
-        return 0;
-    }
-    if (!options_.check_unit_pages.empty()) {
-        check_unit_pages();
-        flush_preferences();
-        return 0;
-    }
-    if (!options_.check_unit_language.empty()) {
-        check_unit_language();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_language_switch) {
-        check_language_switch();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_kill_board) {
-        check_kill_board();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_paused_save) {
-        check_paused_save();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_simulation_hash) {
-        check_simulation_hash();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_patrol_reclaim) {
-        check_patrol_reclaim();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_reclaim_cursor) {
-        check_reclaim_cursor();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_pointer_interfaces) {
-        check_pointer_interfaces();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_megamap_clicks) {
-        check_megamap_clicks();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_radar_orders) {
-        check_radar_orders();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_touch_controls) {
-        check_touch_controls();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_pad_controls) {
-        check_pad_controls();
-        flush_preferences();
-        return 0;
-    }
-    if (options_.check_multiplayer_menu) {
-        check_multiplayer_menu();
-        flush_preferences();
-        return 0;
+    if constexpr (self_checks_built) {
+        if (options_.check_match_dialogs) {
+            check_match_dialogs();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_load_save) {
+            check_load_save();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_frontend_controls) {
+            check_frontend_controls();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_scroll_bars) {
+            check_scroll_bars();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_engine_settings) {
+            check_engine_settings();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_user_folder) {
+            check_user_folder();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mod_switch) {
+            check_mod_switch();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mod_warning) {
+            check_mod_warning();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_mod_install) {
+            check_mod_install();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_renderer_ladder) {
+            const int status = check_renderer_ladder();
+            flush_preferences();
+            return status;
+        }
+        if (options_.check_briefing_narration) {
+            check_briefing_narration();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_match_layers) {
+            check_match_layers();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_render_tiers) {
+            const int status = check_render_tiers();
+            flush_preferences();
+            return status;
+        }
+        if (options_.check_build_preview) {
+            const int status = check_build_preview();
+            flush_preferences();
+            return status;
+        }
+        if (options_.check_match_orders) {
+            check_match_orders();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_factory_orders) {
+            check_factory_orders();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_unit_speech) {
+            check_unit_speech();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_download_builds) {
+            check_download_builds();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_stockpile_builds) {
+            check_stockpile_builds();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_unit_page_memory) {
+            check_unit_page_memory();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_side_column) {
+            check_side_column();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_match_bars) {
+            check_match_bars();
+            flush_preferences();
+            return 0;
+        }
+        if (!options_.check_unit_pages.empty()) {
+            check_unit_pages();
+            flush_preferences();
+            return 0;
+        }
+        if (!options_.check_unit_language.empty()) {
+            check_unit_language();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_language_switch) {
+            check_language_switch();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_kill_board) {
+            check_kill_board();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_paused_save) {
+            check_paused_save();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_simulation_hash) {
+            check_simulation_hash();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_patrol_reclaim) {
+            check_patrol_reclaim();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_reclaim_cursor) {
+            check_reclaim_cursor();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_pointer_interfaces) {
+            check_pointer_interfaces();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_megamap_clicks) {
+            check_megamap_clicks();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_radar_orders) {
+            check_radar_orders();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_touch_controls) {
+            check_touch_controls();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_pad_controls) {
+            check_pad_controls();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_multiplayer_menu) {
+            check_multiplayer_menu();
+            flush_preferences();
+            return 0;
+        }
     }
     if (options_.benchmark_frames) {
         run_benchmark(*options_.benchmark_frames);
@@ -539,8 +544,9 @@ int Runtime::run() {
            (!options_.frame_limit || frames < *options_.frame_limit)) {
         // The check holds the window inactive before the loop decides whether
         // to wait, and keeps it so for the whole run.
-        if (options_.check_running_while_inactive)
-            begin_inactive_loop_check();
+        if constexpr (self_checks_built)
+            if (options_.check_running_while_inactive)
+                begin_inactive_loop_check();
         park_music_while_inactive();
         // The menu's loop is silent while the application is inactive.
         audio_player_.hold_loop(!application_active_);
@@ -569,8 +575,9 @@ int Runtime::run() {
         ++frames;
         pace_next_frame(running);
     }
-    if (options_.check_running_while_inactive)
-        finish_inactive_loop_check();
+    if constexpr (self_checks_built)
+        if (options_.check_running_while_inactive)
+            finish_inactive_loop_check();
     if (video_capture_) {
         video_capture_->finish();
         video_capture_.reset();
@@ -607,10 +614,11 @@ void Runtime::run_frame(bool& running) {
 void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // The inactive-loop check's wake ends the run. It is not a focus change,
     // and it must not be read as one.
-    if (take_inactive_loop_wake(event)) {
-        exit_requested_ = true;
-        return;
-    }
+    if constexpr (self_checks_built)
+        if (take_inactive_loop_wake(event)) {
+            exit_requested_ = true;
+            return;
+        }
     note_window_activation(event);
     note_input_activity(event);
     // A hardware keyboard's Cmd alternates stand for their keys while touch
@@ -696,8 +704,9 @@ void Runtime::idle_tick() {
     if (profiled)
         begin_profile_window();
     call_hook_or_raise<&Extension::frame>(extension_, *this, FrameStage::pump);
-    if (options_.check_running_while_inactive)
-        note_inactive_loop_frame();
+    if constexpr (self_checks_built)
+        if (options_.check_running_while_inactive)
+            note_inactive_loop_frame();
     if (profiled)
         mark_profile(OA_PROFILE_SYNC);
     call_hook_or_raise<&Extension::frame>(extension_, *this, FrameStage::after_pump);

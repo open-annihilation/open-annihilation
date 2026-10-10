@@ -77,9 +77,12 @@ set_property(SOURCE runtime_net.cpp APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 
 if(TARGET oa-game)
-  # multiplayer_menu_check.cpp drives the game through the engine's check
-  # host and reaches no Runtime member.
-  add_library(oa-app-netgame STATIC ${oa_app_netgame_sources} multiplayer_menu_check.cpp)
+  # multiplayer_menu_check.cpp, a self-check, drives the game through the
+  # engine's check host and reaches no Runtime member.
+  if(OA_SELF_CHECKS)
+    list(APPEND oa_app_netgame_sources multiplayer_menu_check.cpp)
+  endif()
+  add_library(oa-app-netgame STATIC ${oa_app_netgame_sources})
   add_library(oa::app::netgame ALIAS oa-app-netgame)
   target_include_directories(oa-app-netgame PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
   # The engine's extension SDK: its hooks, and the Runtime NetworkPlay

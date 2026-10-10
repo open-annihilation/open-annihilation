@@ -182,6 +182,49 @@ void Runtime::benchmark_scene(std::string_view label, std::size_t frames, bool s
     }
 }
 
+void Runtime::exercise_click(std::string_view gadget_name) {
+    const auto found = std::find_if(
+        resources_.layout.gadgets.begin(),
+        resources_.layout.gadgets.end(),
+        [gadget_name](const auto& gadget) { return gadget.common.name == gadget_name; }
+    );
+    if (found == resources_.layout.gadgets.end())
+        throw std::runtime_error("navigation check lacks button: " + std::string(gadget_name));
+    const float modal_x =
+        screen_ == Screen::map_selection
+            ? static_cast<float>(
+                  (kCanvasWidth -
+                   static_cast<int>(resources_.layout.gadgets.front().common.width)) /
+                  2
+              )
+            : 0.0F;
+    const float modal_y =
+        screen_ == Screen::map_selection
+            ? static_cast<float>(
+                  (kCanvasHeight -
+                   static_cast<int>(resources_.layout.gadgets.front().common.height)) /
+                  2
+              )
+            : 0.0F;
+    const auto origin = panel_origin();
+    const float x = modal_x + static_cast<float>(origin.x + found->common.x) +
+                    static_cast<float>(found->common.width) / 2.0F;
+    const float y = modal_y + static_cast<float>(origin.y + found->common.y) +
+                    static_cast<float>(found->common.height) / 2.0F;
+    update_pointer(x, y);
+    selected_ =
+        hovered_ && frontend_gadget_pressable(*hovered_) ? static_cast<int32_t>(*hovered_) : -1;
+    rebuild_surface(); // Preserve a complete rendered frame between press and release.
+    update_pointer(x, y);
+    const auto released = hovered_;
+    if (!released || selected_ != static_cast<int32_t>(*released))
+        throw std::runtime_error(
+            "navigation click did not retain selection: " + std::string(gadget_name)
+        );
+    activate();
+    selected_ = -1;
+}
+
 void Runtime::start_benchmark_skirmish() {
     exercise_click(menu::resource_name(menu::Button::single_player));
     exercise_click(entry::resource_name(entry::Button::skirmish));
@@ -552,8 +595,9 @@ void Runtime::prepare_headless_match() {
         spawn_combat_armies(options_.combat_units);
     if (!options_.stage_file.empty())
         apply_stage();
-    if (options_.reclaim_check)
-        begin_reclaim_check();
+    if constexpr (self_checks_built)
+        if (options_.reclaim_check)
+            begin_reclaim_check();
     if (options_.camera) {
         match_camera_x_ = options_.camera->first;
         match_camera_z_ = options_.camera->second;
@@ -761,8 +805,9 @@ void Runtime::run_headless_match(std::size_t ticks) {
         } catch (const std::exception& error) {
             report_match_tick_error(error.what());
         }
-        if (options_.reclaim_check)
-            tick_reclaim_check();
+        if constexpr (self_checks_built)
+            if (options_.reclaim_check)
+                tick_reclaim_check();
         rebuild_surface();
         const auto spent = elapsed_ns(start);
         window_ns += spent;
@@ -794,8 +839,9 @@ void Runtime::run_headless_match(std::size_t ticks) {
             worst_ns = 0;
         }
     }
-    if (options_.reclaim_check)
-        finish_reclaim_check();
+    if constexpr (self_checks_built)
+        if (options_.reclaim_check)
+            finish_reclaim_check();
     if (!options_.snapshot.empty())
         write_ppm(options_.snapshot, surface_);
     print_memory_status();

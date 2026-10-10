@@ -846,6 +846,17 @@ the field's place is handed to a stub in the window's coordinates.
 
 - **Core only**, without SDL or game data: configure with
   `-DOA_BUILD_PLATFORM=OFF -DOA_BUILD_INTRO_PLAYER=OFF`.
+- **Without the self-checks:** the game's `--check-*` options and
+  `--reclaim-check`, with which it drives itself through its screens and
+  orders for the native checks, are compiled in by default. Configure with
+  `-DOA_SELF_CHECKS=OFF` and `-DBUILD_TESTING=OFF`, as the release packages
+  are, to leave them out: the game then refuses those options, and its
+  executable is about a fifth smaller. The native checks run them, so such a
+  build builds no tests. Network play's own check options
+  (`--net-loopback-check`, `--check-host-not-found`) stay in.
+- **Release:** a Release build leaves out the functions and data nothing
+  calls or reads (dead stripping on Apple's linker, `--gc-sections`
+  elsewhere; `cmake/OaOptions.cmake`).
 - **Warnings as errors:** configure with `-DOA_WARNINGS_AS_ERRORS=ON` to
   fail the build on any compiler warning in the targets that link
   `oa-options` (`-Werror`, or `/WX` with Visual Studio's compiler, whose

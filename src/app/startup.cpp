@@ -523,6 +523,70 @@ void check_director_options(Options& options) {
     options.skip_intro = true;
 }
 
+/// Refuses the self-checks, a --check-* option or --reclaim-check, in a build
+/// that leaves them out (self_checks_built).
+///
+/// Throws std::runtime_error naming the first one the options ask for.
+///
+/// @param options the parsed options
+void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
+    if constexpr (!self_checks_built) {
+        const std::pair<bool, const char*> checks[] = {
+            {options.reclaim_check, "--reclaim-check"},
+            {options.check_navigation, "--check-navigation"},
+            {options.check_match_dialogs, "--check-match-dialogs"},
+            {options.check_load_save, "--check-load-save"},
+            {options.check_frontend_controls, "--check-frontend-controls"},
+            {options.check_scroll_bars, "--check-scroll-bars"},
+            {options.check_briefing_narration, "--check-briefing-narration"},
+            {options.check_match_layers, "--check-match-layers"},
+            {options.check_render_tiers, "--check-render-tiers"},
+            {options.check_match_orders, "--check-match-orders"},
+            {options.check_factory_orders, "--check-factory-orders"},
+            {options.check_unit_speech, "--check-unit-speech"},
+            {options.check_download_builds, "--check-download-builds"},
+            {options.check_stockpile_builds, "--check-stockpile-builds"},
+            {options.check_unit_page_memory, "--check-unit-page-memory"},
+            {options.check_side_column, "--check-side-column"},
+            {options.check_match_bars, "--check-match-bars"},
+            {!options.check_unit_pages.empty(), "--check-unit-pages"},
+            {options.check_kill_board, "--check-kill-board"},
+            {options.check_paused_save, "--check-paused-save"},
+            {options.check_simulation_hash, "--check-simulation-hash"},
+            {!options.check_unit_language.empty(), "--check-unit-language"},
+            {options.check_language_switch, "--check-language-switch"},
+            {options.check_patrol_reclaim, "--check-patrol-reclaim"},
+            {options.check_reclaim_cursor, "--check-reclaim-cursor"},
+            {options.check_build_preview, "--check-build-preview"},
+            {options.check_pointer_interfaces, "--check-pointer-interfaces"},
+            {options.check_megamap_clicks, "--check-megamap-clicks"},
+            {options.check_radar_orders, "--check-radar-orders"},
+            {options.check_touch_controls, "--check-touch-controls"},
+            {options.check_pad_controls, "--check-pad-controls"},
+            {options.check_running_while_inactive, "--check-running-while-inactive"},
+            {options.check_game_files, "--check-game-files"},
+            {options.check_multiplayer_menu, "--check-multiplayer-menu"},
+            {options.check_director_view, "--check-director-view"},
+            {options.check_director_render, "--check-director-render"},
+            {options.check_interpolation, "--check-interpolation"},
+            {options.check_unit_playout, "--check-unit-playout"},
+            {options.check_engine_settings, "--check-engine-settings"},
+            {options.check_user_folder, "--check-user-folder"},
+            {options.check_mod_switch, "--check-mod-switch"},
+            {options.check_mod_warning, "--check-mod-warning"},
+            {options.check_mod_install, "--check-mod-install"},
+            {options.check_renderer_ladder, "--check-renderer-ladder"},
+        };
+        for (const auto& [given, name] : checks)
+            if (given)
+                throw std::runtime_error(
+                    std::string(name) +
+                    " is a self-check, and this build leaves the self-checks out; Check and "
+                    "Debug builds hold them"
+                );
+    }
+}
+
 } // namespace
 
 [[nodiscard]] std::size_t parse_count(std::string_view text) {
@@ -1050,6 +1114,7 @@ namespace {
             std::string("-") + result.launch.unavailable_switch + " is not handled by this build"
         );
     }
+    refuse_left_out_self_checks(result);
     if (acceleration_differing) {
         // Named in one order whichever came first.
         const std::string& first = acceleration_first->text;

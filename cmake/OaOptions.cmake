@@ -84,6 +84,19 @@ if(NOT TARGET oa-options)
     target_link_libraries(oa-options INTERFACE
       "$<$<STREQUAL:$<TARGET_PROPERTY:TYPE>,EXECUTABLE>:$<LINK_LIBRARY:WHOLE_ARCHIVE,$<TARGET_NAME_IF_EXISTS:oa-platform-steady-clock>>>")
   endif()
+  # A Release build leaves out the functions and data nothing in the program
+  # calls or reads: Apple's linker strips them, and the other linkers drop
+  # the sections nothing refers to, each function and object having one of
+  # its own. Constructors that run before main() are kept: the linkers keep
+  # what they list. Visual Studio's linker drops them in a release build
+  # already.
+  if(APPLE)
+    target_link_options(oa-options INTERFACE "$<$<CONFIG:Release>:LINKER:-dead_strip>")
+  elseif(NOT MSVC)
+    target_compile_options(oa-options INTERFACE
+      "$<$<CONFIG:Release>:-ffunction-sections;-fdata-sections>")
+    target_link_options(oa-options INTERFACE "$<$<CONFIG:Release>:LINKER:--gc-sections>")
+  endif()
   # A 32-bit POSIX build uses 64-bit file offsets and file serial numbers,
   # so it can examine every file and folder a file system holds, however
   # large the file or its serial number.

@@ -41,9 +41,13 @@ Builds the macOS release of Open Annihilation and writes, in DIR:
       holding Open Annihilation.app, LICENSE, ATTRIBUTIONS.md and licenses/
   open-annihilation-VERSION-macos-universal.pkg  an installer package that
       puts Open Annihilation.app in /Applications
+  open-annihilation-VERSION-macos-universal-symbols/open-annihilation  the
+      game's executable as the build made it, with the symbols the packaged
+      one is stripped of, for reading a crash's addresses
 
 The game is a Release build for arm64 and x86_64 and macOS 11.0 or later,
-without tests, with zlib, SDL3 and FreeType linked in from
+without tests or the game's self-checks (OA_SELF_CHECKS=OFF), with its
+executable stripped of its symbols, with zlib, SDL3 and FreeType linked in from
 tools/bootstrap_macos_deps.py, and the text fonts of
 tools/bootstrap_text_fonts.py in its Resources/fonts. The application is signed inside-out with the
 hardened runtime, notarized and stapled, and so is the installer package;
@@ -257,7 +261,7 @@ if [[ -z "$app" ]]; then
     fi
     env -u OA_GAME_DIR -u OA_DEMO_INSTALLER -u CMAKE_PREFIX_PATH \
         cmake -S "$repo_dir" -B "$build_dir" ${generator_args[@]+"${generator_args[@]}"} \
-        -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+        -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DOA_SELF_CHECKS=OFF \
         "-DCMAKE_OSX_ARCHITECTURES=$(IFS=';' && printf '%s' "${architectures[*]}")" \
         "-DCMAKE_OSX_DEPLOYMENT_TARGET=$macos_minimum" \
         "-DCMAKE_IGNORE_PREFIX_PATH=/opt/homebrew;/usr/local" \
@@ -322,8 +326,9 @@ fi
 package="open-annihilation-$version-macos-universal"
 zip_path="$out_dir/$package.zip"
 pkg_path="$out_dir/$package.pkg"
+symbols_dir="$out_dir/$package-symbols"
 work="$out_dir/work"
-rm -rf "$work" "$zip_path" "$pkg_path"
+rm -rf "$work" "$zip_path" "$pkg_path" "$symbols_dir"
 mkdir -p "$work"
 
 step "stage"
@@ -337,6 +342,16 @@ while IFS= read -r path; do
 done <<<"$(notice_files)"
 find "$stage" \( -name .DS_Store -o -name '._*' \) -print -delete
 echo "$staged_app"
+
+# The packaged executable carries no symbols; the build's own, which has
+# them, is kept beside the packages for reading a crash's addresses (its
+# UUID is the packaged one's).
+step "strip"
+mkdir -p "$symbols_dir"
+cp "$staged_app/Contents/MacOS/$app_executable" "$symbols_dir/$app_executable"
+strip "$staged_app/Contents/MacOS/$app_executable"
+echo "$symbols_dir/$app_executable: $(wc -c <"$symbols_dir/$app_executable" | tr -d ' ') bytes," \
+    "$(wc -c <"$staged_app/Contents/MacOS/$app_executable" | tr -d ' ') stripped"
 
 # Code inside the bundle besides its executable is signed before what holds
 # it: every Mach-O file, then every nested bundle, each deepest first, then
