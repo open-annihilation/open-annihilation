@@ -12,9 +12,10 @@ with --skip-intro --mute --check-game-files --data-dir DIR/Library
 --preferences-file DIR/preferences.conf and the variant's options on the
 dummy video and audio drivers and the software renderer, with DIR as the
 working directory. The game prints one verdict line, "game-files check:
-<variant>: passed" or "... failed: <why>", and its status is this script's.
-The pictures of each state, game-files-<variant>-<nn>-<step>-*.png, are
-left in DIR.
+<variant>: passed" or "... failed: <why>", which this script prints with
+the rest of the game's output, and its status is this script's. The
+pictures of each state, game-files-<variant>-<nn>-<step>-*.png, are left
+in DIR.
 
 Without the installed game (or, for the demo variant, the demo's installer)
 the script exits with --skip-code, which ctest reports as skipped.
@@ -303,7 +304,14 @@ def main(argv):
         {"SDL_VIDEO_DRIVER": "dummy", "SDL_AUDIO_DRIVER": "dummy", "SDL_RENDER_DRIVER": "software"}
     )
     say(variant, "runs " + " ".join(command))
-    completed = subprocess.run(command, cwd=work, env=environment, check=False)
+    # The output is taken and printed here: a game built as a windowed
+    # program has no standard output of its own on Windows unless it is
+    # handed one.
+    completed = subprocess.run(
+        command, cwd=work, env=environment, check=False, capture_output=True, text=True,
+        errors="replace",
+    )
+    print(completed.stdout + completed.stderr, end="", flush=True)
     say(variant, f"pictures in {work}")
     return completed.returncode
 
