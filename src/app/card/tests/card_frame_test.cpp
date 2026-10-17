@@ -57,6 +57,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <string>
 #include <vector>
@@ -1835,6 +1836,28 @@ void test_malformed_frames_are_refused() {
     frame = good;
     frame.vertices[3].colour.alpha = std::nanf("");
     refused("a colour that is not a number", frame, "vertex 3");
+    // The reach's edges: largest_coordinate either way and the least
+    // floats past zero are within it, the next float past it and an
+    // infinity are not, nor is an infinite texture coordinate.
+    for (const float within :
+         {card::largest_coordinate,
+          -card::largest_coordinate,
+          -0.0F,
+          std::numeric_limits<float>::denorm_min()}) {
+        frame = good;
+        frame.vertices[1].x = within;
+        frame.vertices[1].u = within;
+        OA_CHECK(card::check_frame(frame).empty());
+    }
+    frame = good;
+    frame.vertices[1].x = std::nextafter(card::largest_coordinate, 2.0F * card::largest_coordinate);
+    refused("a vertex just beyond reach", frame, "vertex 1");
+    frame = good;
+    frame.vertices[2].y = -std::numeric_limits<float>::infinity();
+    refused("a vertex at an infinity", frame, "vertex 2");
+    frame = good;
+    frame.vertices[3].v = std::numeric_limits<float>::infinity();
+    refused("an infinite texture coordinate", frame, "vertex 3");
     frame = good;
     card::Batch resolve;
     resolve.operation = card::Operation::resolve;

@@ -4,22 +4,50 @@
 // Building and checking card command lists.
 #include "oa/app/card.hpp"
 
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 
 namespace oa::app::card {
 
 namespace {
 
+// A frame's every vertex is checked, so the checks read a float's bits:
+// under the strict floating-point model std::isfinite and std::fabs are
+// calls into the runtime library, several a vertex.
+
+/// The bits of a float less its sign: its magnitude, which orders as the
+/// magnitudes do, every finite one below an infinity's and every infinity
+/// below a NaN's.
+///
+/// @param value the float
+/// @return its bits with the sign bit clear
+[[nodiscard]] uint32_t magnitude_bits(float value) noexcept {
+    return std::bit_cast<uint32_t>(value) & 0x7fff'ffffU;
+}
+
+/// The magnitude bits of an infinity: the least that is not a finite number.
+constexpr uint32_t infinity_bits = 0x7f80'0000U;
+static_assert(std::numeric_limits<float>::is_iec559);
+
+/// Says whether a float is a finite number.
+///
+/// @param value the float
+/// @return true when it is neither infinite nor a number
+[[nodiscard]] bool finite(float value) noexcept {
+    return magnitude_bits(value) < infinity_bits;
+}
+
 /// Says whether a colour's channels are all finite numbers.
 ///
 /// @param colour the colour
 /// @return true when none is infinite or not a number
 bool finite(const Colour& colour) noexcept {
-    return std::isfinite(colour.red) && std::isfinite(colour.green) && std::isfinite(colour.blue) &&
-           std::isfinite(colour.alpha);
+    return finite(colour.red) && finite(colour.green) && finite(colour.blue) &&
+           finite(colour.alpha);
 }
 
 /// Says whether a coordinate is a finite number within largest_coordinate.
@@ -27,7 +55,7 @@ bool finite(const Colour& colour) noexcept {
 /// @param value the coordinate
 /// @return true when it is
 bool within_reach(float value) noexcept {
-    return std::isfinite(value) && std::fabs(value) <= largest_coordinate;
+    return magnitude_bits(value) <= std::bit_cast<uint32_t>(largest_coordinate);
 }
 
 /// Names a batch in a fault.
@@ -162,7 +190,7 @@ std::string check_frame(const CardFrame& frame) {
         const Vertex& vertex = frame.vertices[at];
         if (!within_reach(vertex.x) || !within_reach(vertex.y))
             return "vertex " + std::to_string(at) + " lies beyond reach or is not a number";
-        if (!finite(vertex.colour) || !std::isfinite(vertex.u) || !std::isfinite(vertex.v))
+        if (!finite(vertex.colour) || !finite(vertex.u) || !finite(vertex.v))
             return "vertex " + std::to_string(at) +
                    " has a colour or texture coordinate that is "
                    "not a number";
