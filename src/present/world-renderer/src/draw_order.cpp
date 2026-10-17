@@ -48,9 +48,14 @@ void plan_battlefield_draws(
         BattlefieldDraw draw{};
     };
 
+    // Room for every draw at once, so that a frame's lists do not grow as
+    // they fill.
     std::vector<Keyed> ground;
     std::vector<Keyed> lying;
     std::vector<Keyed> raised;
+    ground.reserve(features.size() + units.size());
+    lying.reserve(features.size());
+    raised.reserve(units.size());
     for (uint32_t index = 0; index < features.size(); ++index) {
         const auto& feature = features[index];
         const Keyed keyed{feature.cell_z, 1, feature.cell_x, {DrawnThing::feature, index}};
@@ -73,6 +78,9 @@ void plan_battlefield_draws(
     std::stable_sort(lying.begin(), lying.end(), before);
     std::stable_sort(ground.begin(), ground.end(), before);
     std::stable_sort(raised.begin(), raised.end(), before);
+    plan.lying_features.reserve(lying.size());
+    plan.ground.reserve(ground.size());
+    plan.raised_units.reserve(raised.size());
     for (const auto& keyed : lying)
         plan.lying_features.push_back(keyed.draw.index);
     for (const auto& keyed : ground)

@@ -1831,6 +1831,10 @@ void Runtime::render_match_surface() {
     };
     std::vector<FeatureToDraw> features_to_draw;
     std::vector<oa::present::world_renderer::FeatureDrawSite> feature_sites;
+    // Room for every feature of both kinds, so that the lists do not grow
+    // as a frame fills them.
+    features_to_draw.reserve(match_features_.size() + match_gaf_features_.size());
+    feature_sites.reserve(match_features_.size() + match_gaf_features_.size());
     // A feature off the battlefield is passed over before its fog and its
     // frames are looked at.
     for (auto& feature : match_features_) {
