@@ -1067,6 +1067,22 @@ std::span<const std::string> Sandbox::printed() const noexcept {
     return control_->printed;
 }
 
+void Sandbox::drain_printed(
+    void* context, void (*line)(void* context, std::string_view text)
+) noexcept {
+    if (control_ == nullptr)
+        return;
+    if (line != nullptr) {
+        for (const std::string& kept : control_->printed)
+            line(context, kept);
+    }
+    control_->printed.clear();
+    control_->printed_bytes = 0;
+    control_->lines_left_out = 0;
+    control_->print_closed = false;
+    control_->omission_stored = false;
+}
+
 std::string describe(const ScriptError& error) {
     std::string text;
     text += error.package_id;

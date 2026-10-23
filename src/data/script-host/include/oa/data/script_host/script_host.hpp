@@ -391,6 +391,19 @@ class Sandbox {
     /// @return the kept lines, empty after a move
     [[nodiscard]] std::span<const std::string> printed() const noexcept;
 
+    /// Hands each kept print line to `line`, then forgets them.
+    ///
+    /// Lines go out oldest first, and the omission note is included when one
+    /// was stored. The sandbox can then keep `max_printed_lines` lines again.
+    /// Call this only between phases: `line` runs while the sandbox is not
+    /// inside a call, and the view it receives lasts only for that call.
+    /// `line` must not throw. A null `line` forgets the lines. A moved-from
+    /// sandbox does nothing.
+    ///
+    /// @param context pointer passed to `line`; may be null
+    /// @param line called once per kept line; null forgets the lines
+    void drain_printed(void* context, void (*line)(void* context, std::string_view text)) noexcept;
+
   private:
 
     struct Control;
