@@ -392,10 +392,13 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         script_host::CallHooks load_hooks;
         load_hooks.context = &loaded;
         load_hooks.read = read_entry;
+        outcome.load_ran = true;
         if (!seat.sandbox->run_file(spec.entry, "load", &load_hooks, error)) {
+            outcome.load_instructions = seat.sandbox->instructions_used();
             fail_sandbox_host(outcome, seat, error);
             return false;
         }
+        outcome.load_instructions = seat.sandbox->instructions_used();
         note_prints(seat);
         if (loaded.status == 1) {
             std::array<char, 256> message{};
@@ -421,10 +424,13 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
             fit_hooks.context = &fits;
             fit_hooks.push = push_fits;
             fit_hooks.read = read_fits;
+            outcome.fits_ran = true;
             if (!seat.sandbox->call("fits", fit_hooks, error)) {
+                outcome.fits_instructions = seat.sandbox->instructions_used();
                 fail_sandbox_host(outcome, seat, error);
                 return false;
             }
+            outcome.fits_instructions = seat.sandbox->instructions_used();
             if (fits.status == 1) {
                 note_prints(seat);
                 outcome.result = SeatResult::does_not_fit;
@@ -516,10 +522,13 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
             script_host::CallHooks start_hooks;
             start_hooks.context = &starting;
             start_hooks.push = push_start;
+            outcome.start_ran = true;
             if (!seat.sandbox->call("start", start_hooks, error)) {
+                outcome.start_instructions = seat.sandbox->instructions_used();
                 fail_host(outcome, *brains, player, error);
                 return outcome;
             }
+            outcome.start_instructions = seat.sandbox->instructions_used();
             note_prints(seat);
         }
 
