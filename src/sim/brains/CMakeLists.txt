@@ -5,7 +5,7 @@
 # fits and start run, and the match calls the seat's hooks instead of the
 # built-in order tick.
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
-  src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp)
+  src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp src/failure.cpp)
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include)
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
@@ -45,4 +45,11 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
   add_test(NAME sim-brains-events COMMAND oa-sim-brains-events-test)
   set_tests_properties(sim-brains-events PROPERTIES TIMEOUT 180)
+
+  # A failed turn hands the seat back. The made-up brain is steady-commander.
+  add_executable(oa-sim-brains-failure-test tests/failure_test.cpp)
+  target_link_libraries(oa-sim-brains-failure-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  add_test(NAME sim-brains-failure COMMAND oa-sim-brains-failure-test)
+  set_tests_properties(sim-brains-failure PROPERTIES TIMEOUT 120)
 endif()

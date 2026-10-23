@@ -493,9 +493,17 @@ void Runtime::take_pending_brain_seats() {
             std::vector<oa::sim::brains::NetworkFile> networks;
             const oa::sim::brains::SeatSpec spec =
                 seat_spec(seat.player, *installed, resolved, files, options, networks);
+            prepare_brain_report(
+                seat.player,
+                installed->manifest.name,
+                resolved.version,
+                installed->manifest.id,
+                resolved.level
+            );
             const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
             if (outcome.result != oa::sim::brains::SeatResult::seated) {
                 log_builtin(seat.player, seat.id, failure_text(outcome));
+                report_unseated_brain(seat.player, installed->manifest.name, outcome);
                 oa::sim::ai::computer_players_set_difficulty(
                     oa::sim::ai::match_computer_players(*match_),
                     seat.player,

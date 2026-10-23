@@ -5082,11 +5082,63 @@ class Runtime final : public menu::Host,
     /// Seats each chosen brain on a computer player of this machine.
     ///
     /// A seat with no choice is left alone. A choice on a seat that is not a
-    /// computer is left alone. A brain that cannot be read, does not fit or
-    /// fails to start writes one line to standard error and that seat plays
-    /// as the built-in computer player. Nothing is seated when no match is
-    /// running.
+    /// computer is left alone. A brain that cannot be read writes one line to
+    /// standard error and that seat plays as the built-in computer player. A
+    /// brain that does not fit or fails to start does the same, and also posts
+    /// one notice and writes the seat's log. Nothing is seated when no match
+    /// is running.
     void seat_chosen_brains();
+
+    /// Opens the seat's log and installs the report hooks.
+    ///
+    /// Called before the brain is seated, so lines from fits and start are
+    /// kept. A log that cannot be written is reported once; seating goes on.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param name the manifest's name
+    /// @param version the brain's version
+    /// @param id the brain's id
+    /// @param level the chosen level's id
+    void prepare_brain_report(
+        uint8_t player,
+        std::string_view name,
+        std::string_view version,
+        std::string_view id,
+        std::string_view level
+    );
+
+    /// Writes a seating failure to the log and posts one notice.
+    ///
+    /// A brain that does not fit uses that sentence. A refusal or a failed
+    /// start uses the could-not-start sentence.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param name the manifest's name
+    /// @param outcome what seating returned
+    void report_unseated_brain(
+        uint8_t player, std::string_view name, const oa::sim::brains::SeatOutcome& outcome
+    );
+
+    /// Writes one printed line to that seat's log.
+    ///
+    /// @param context the runtime
+    /// @param player player index, 0 to 9
+    /// @param tick the match tick
+    /// @param line the printed line
+    static void brain_printed(void* context, uint8_t player, uint32_t tick, std::string_view line);
+
+    /// Writes the stop to the log and posts the stopped notice.
+    ///
+    /// @param context the runtime
+    /// @param player player index, 0 to 9
+    /// @param tick the match tick
+    /// @param error the script error
+    static void brain_stopped(
+        void* context,
+        uint8_t player,
+        uint32_t tick,
+        const oa::data::script_host::ScriptError& error
+    );
 
     /// Returns the facts a brain reads as `game`.
     ///
@@ -18503,6 +18555,10 @@ class Runtime final : public menu::Host,
     std::vector<BrainSeat> seated_brains_;
     /// A failure to store the seats has already been logged.
     bool brain_seats_failure_logged_{};
+    /// The seed of the match being started, copied into a brain's log.
+    uint32_t brain_match_seed_{};
+    /// One log per seat for the latest brain seated there.
+    std::array<BrainLog, OA_PLAYER_COUNT> brain_logs_{};
     // The mounted pack map, the game's names, the fits and the refusals;
     // null until a pack map is first named.
     std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{

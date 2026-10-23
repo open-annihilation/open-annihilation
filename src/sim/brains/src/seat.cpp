@@ -190,12 +190,15 @@ void fail_host(
 ) {
     outcome.result = SeatResult::failed;
     outcome.error = error;
+    if (Seat* sitting = brains.seats[player].get())
+        note_prints(*sitting);
     close_seat(brains, player);
 }
 
 void fail_sandbox_host(SeatOutcome& outcome, Seat& seat, const script_host::ScriptError& error) {
     outcome.result = SeatResult::failed;
     outcome.error = error;
+    note_prints(seat);
     seat.sandbox.reset();
 }
 
@@ -213,6 +216,7 @@ void fail_sandbox_text(
     outcome.error.message = message;
     outcome.error.package_id = seat.id;
     write_reason(outcome.reason, message);
+    note_prints(seat);
     seat.sandbox.reset();
 }
 
@@ -388,6 +392,7 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
             fail_sandbox_host(outcome, seat, error);
             return false;
         }
+        note_prints(seat);
         if (loaded.status == 1) {
             std::array<char, 256> message{};
             write_parts(message, spec.entry, " must return a table of hooks", {});
@@ -417,6 +422,7 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
                 return false;
             }
             if (fits.status == 1) {
+                note_prints(seat);
                 outcome.result = SeatResult::does_not_fit;
                 write_reason(outcome.reason, fits.reason);
                 seat.sandbox.reset();
@@ -428,10 +434,12 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
                 );
                 return false;
             }
+            note_prints(seat);
         }
     } catch (const std::exception&) {
         write_reason(outcome.reason, "the seat could not be stored");
         outcome.result = SeatResult::failed;
+        note_prints(seat);
         seat.sandbox.reset();
         return false;
     }
@@ -508,6 +516,7 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
                 fail_host(outcome, *brains, player, error);
                 return outcome;
             }
+            note_prints(seat);
         }
 
         sim::ai::computer_players_set_difficulty(
@@ -516,6 +525,7 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     } catch (const std::exception&) {
         write_reason(outcome.reason, "the seat could not be stored");
         outcome.result = SeatResult::failed;
+        note_prints(seat);
         close_seat(*brains, player);
         return outcome;
     }
