@@ -3,21 +3,31 @@
 
 // Read-only hooks that report what happens in a match: units created and
 // finished, shots placed, shots detonating, damage and deaths. The match
-// calls them (Match::event_hooks) at the points every such event passes
-// through, whoever simulates the unit: this machine, or a recording the
-// match replays. A hook reads the world it is given and nothing else: it
+// reports each event to its primary table (Match::event_hooks), then to
+// each listener in the order it was added, at the points every such event
+// passes through, whoever simulates the unit: this machine, or a recording
+// the match replays. A hook reads the world it is given and nothing else: it
 // never writes match state, draws from the match's random streams or calls
-// back into the match, so a match with event hooks plays out exactly as one
-// without.
+// back into the match, and it never adds or removes a listener. The same
+// rule binds every listener, so a match with event hooks plays out exactly
+// as one without.
 #pragma once
 
 #include "oa/core/projectile.h"
 #include "oa/core/types.h"
 #include "oa/core/world.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace oa::sim::match_runtime {
+
+/// Most listeners one match holds. One more add returns no id.
+inline constexpr std::size_t max_event_listeners = 8;
+
+/// Identity of one listener. 0 is no listener, and an id is never handed out
+/// twice in one match.
+using EventListenerId = uint32_t;
 
 struct KillOutcome;
 

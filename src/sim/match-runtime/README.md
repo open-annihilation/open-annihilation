@@ -213,6 +213,15 @@ skirmish's digests against `match-determinism`'s pins with and without
 them). A limitation: a unit only a state record from elsewhere finishes,
 with no builder link following, is not reported finished.
 
+A match also keeps listeners, each a whole `EventHooks` table added with
+`add_event_listener` and removed with `remove_event_listener`. Each event
+is reported to the primary table first, then to the listeners in the order
+they were added. A match holds at most 8. An id is never reused, and 0 is
+not an id. Listeners follow the same read-only rule, and a hook does not
+add or remove a listener. Replacing or clearing `event_hooks` leaves the
+listeners in place. `match-event-hooks` checks that they change nothing the
+match computes.
+
 ## Sharing with the other players
 
 A multiplayer match shares what it settles through `MultiplayerHooks`, and
