@@ -239,7 +239,21 @@ void Match::advance_path_search() {
             slot->record.attach_parent != 0,
             flags
         };
-        sim::ground_orders::accept_path(view, route);
+        const bool unreachable = sim::ground_orders::accept_path(view, route);
+        if (!unreachable)
+            return;
+        const auto* goal = runtime->navigation.goal;
+        auto* goal_order = goal != nullptr ? goal->order : nullptr;
+        if (goal_order == nullptr)
+            return;
+        if (auto* record = ctx.match->runtime_order(goal_order)) {
+            if (record->path_failure_reported)
+                return;
+            record->path_failure_reported = true;
+        }
+        ctx.match->emit_event<&EventHooks::path_failed>(
+            ctx.match->state(), slot->unit_index, goal_order->kind
+        );
     };
     access.occupancy = [](void* c,
                           sim::simulation_state::Unit& unit,

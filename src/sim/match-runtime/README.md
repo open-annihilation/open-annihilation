@@ -244,6 +244,15 @@ through:
   its position. The feature is the placed feature's type and the plot is
   its index into `World::plots`. A death that leaves no corpse is not
   reported.
+- `path_failed` during the tick's path search, when a route search for a
+  unit simulated here finds no route and the unit is not already at the
+  goal. The report names the unit and the order's mission kind. An order
+  is reported once, so a move that tries again is not reported on every
+  try. The mark is kept on the match's order record and is not saved or
+  hashed; after a load it starts clear, so an order still trying may be
+  reported once more. An order the match does not own is reported each
+  time the search fails. A failed search for a unit already at its goal
+  is not reported. Aircraft do not search routes, so they are not reported.
 
 The hooks receive the world as const and must not change match state, draw
 from its random streams or call back into it; the match computes nothing
