@@ -134,4 +134,24 @@ if(BUILD_TESTING)
   add_test(NAME sim-brains-profile COMMAND oa-sim-brains-profile-test)
   set_tests_properties(sim-brains-profile PROPERTIES TIMEOUT 120)
   oa_add_game_data_test(sim-brains-profile-data oa-sim-brains-profile-test --data)
+
+  # Orders a seated brain gives, beside the same calls from C++. The made-up
+  # brain is order-giver.
+  add_executable(oa-sim-brains-orders-test tests/orders_test.cpp)
+  target_include_directories(oa-sim-brains-orders-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-orders-test PRIVATE
+    "OA_ORDER_GIVER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/order-giver\"")
+  target_link_libraries(oa-sim-brains-orders-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash oa-sim-gameplay-input
+    oa-data-mission-types)
+  add_test(NAME sim-brains-orders COMMAND oa-sim-brains-orders-test)
+  set_tests_properties(sim-brains-orders PROPERTIES TIMEOUT 180)
+
+  # Building sites a seated brain judges, beside the match's own checks.
+  add_executable(oa-sim-brains-sites-test tests/sites_test.cpp)
+  target_link_libraries(oa-sim-brains-sites-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  add_test(NAME sim-brains-sites COMMAND oa-sim-brains-sites-test)
+  set_tests_properties(sim-brains-sites PROPERTIES TIMEOUT 120)
 endif()
