@@ -18,10 +18,11 @@
 // folder is Mods, the oamap kind, whose manifest is oamap.yaml and whose
 // root folder is Maps, the oalang kind, whose manifest is language.yaml
 // and whose root folder is Languages, the expansion kind, whose manifest
-// is oaexp.yaml, and the oamut kind, whose manifest is oamut.yaml and whose
-// root folder is Mutators. An expansion is copied by install_oaexp into
-// Expansions/<game>/<id> with the .oa-content record; its plan refuses the
-// generic unpack. No function here throws: errors are values.
+// is oaexp.yaml, the oamut kind, whose manifest is oamut.yaml and whose
+// root folder is Mutators, and the oabrain kind, whose manifest is
+// oabrain.yaml and whose root folder is Brains. An expansion is copied by
+// install_oaexp into Expansions/<game>/<id> with the .oa-content record; its
+// plan refuses the generic unpack. No function here throws: errors are values.
 #pragma once
 
 #include "oa/app/package_install/origin.hpp"
@@ -115,10 +116,14 @@ enum class Refusal : uint8_t {
     font_unreadable,    ///< a language pack's font file does not open
     warmup_invalid,     ///< a language pack's warm-up text is missing, too large or not UTF-8
     table_errors,       ///< a language pack's table or interface.tdf does not parse
-    script_missing,     ///< a mutator's script is missing, or larger than 1 MiB
-    precompiled,        ///< a mutator's Lua file is precompiled bytecode
-    outside_layout,     ///< a mutator holds a file its layout does not allow
-    icon_invalid,       ///< a mutator's icon is not a square PNG within the limits
+    script_missing,     ///< a mutator's or a brain's script is missing, or larger than 1 MiB
+    precompiled,        ///< a mutator's or a brain's Lua file is precompiled bytecode
+    outside_layout,     ///< a mutator or a brain holds a file its layout does not allow
+    icon_invalid,       ///< a mutator's or a brain's icon is not a square PNG within the limits
+    network_missing,    ///< a brain names a network file it does not hold
+    networks_too_large, ///< a brain's networks together are larger than 64 MiB
+    data_too_large,     ///< a brain's data table is larger than 4 MiB
+    network_mismatch,   ///< a brain's network is not the SHA-256 its manifest names
 };
 
 /// What went wrong, for the player's text and the log.
@@ -399,7 +404,7 @@ struct PackageKind {
 
 /// Returns every kind the game installs, in table order.
 ///
-/// @return the kinds; oamod, then oamap, then oalang, then expansion, then oamut
+/// @return the kinds; oamod, then oamap, then oalang, then expansion, then oamut, then oabrain
 [[nodiscard]] std::span<const PackageKind> package_kinds() noexcept;
 
 /// Returns the kind whose extension a file's name ends with, matched without case.
