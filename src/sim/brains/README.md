@@ -104,7 +104,8 @@ knowledge.
 `steady-commander` on the same fixture. Its hooks record every call. The
 test checks creation, damage, death and a wreck, the order of one turn, a
 gift, a cancelled frame, carry, sight, a blocked path and a completed move,
-alliance and defeat, a missing hook, the bank, a full queue, and that two
+alliance and defeat, a missing hook, a hook that spends the bank and hands
+the seat back, a full queue, and that two
 seated brains and two matches with no brain keep the same random stream and
 state hash.
 
