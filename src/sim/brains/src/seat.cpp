@@ -373,7 +373,11 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         options.package_id = spec.id;
         options.profile = brain_profile(seat, spec.bank);
         options.sources = seat.sources.hooks();
-        options.random_seed = 0;
+        uint32_t match_seed = 0;
+        if (seat.match != nullptr)
+            match_seed = seat.match->random_seed();
+        options.random_seed = brain_random_seed(match_seed, seat.player, spec.id, spec.version);
+        note_classic(seat, spec);
         script_host::ScriptError error;
         auto opened = script_host::Sandbox::open(options, error);
         if (!opened) {

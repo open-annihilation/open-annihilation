@@ -103,6 +103,9 @@ struct SeatSpec {
     std::span<const PackageFile> files{};
     /// The networks the manifest names.
     std::span<const NetworkFile> networks{};
+    /// Replaces the Classic fingerprint baked into this build, for this load.
+    /// Tests set it. The app never sets it. Empty uses the baked-in value.
+    std::string_view classic_fingerprint_for_tests{};
     /// Per-tick bank. The default is the brain profile's bank.
     oa::data::script_host::Bank bank{
         oa::data::script_host::default_tick_allowance,

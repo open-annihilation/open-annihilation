@@ -595,9 +595,10 @@ void check_refuses_a_bad_network_before_lua() {
 }
 
 void check_reads_the_libraries_outside_a_match() {
-    // brain.random and brain.after are absent on this branch: B03 is not
-    // merged. Outside a match, A04's getters that read the match (side and
-    // name) read nil; its methods, such as me:allies, are present.
+    // Outside a match, brain.random, brain.after, brain.every and brain.cancel
+    // are present, and brain.shared_random is absent. A04's getters that read
+    // the match (side and name) read nil; its methods, such as me:allies, are
+    // present.
     Fixture fixture;
     Package package;
     package.player = 7;
@@ -611,8 +612,11 @@ void check_reads_the_libraries_outside_a_match() {
         "  if me.difficulty ~= \"medium\" then return \"difficulty\" end\n"
         "  if me.options.hold ~= true then return \"hold\" end\n"
         "  if type(brain) ~= \"table\" then return \"brain\" end\n"
-        "  if brain.random ~= nil then return \"random\" end\n"
-        "  if brain.after ~= nil then return \"after\" end\n"
+        "  if type(brain.random) ~= \"function\" then return \"random\" end\n"
+        "  if type(brain.after) ~= \"function\" then return \"after\" end\n"
+        "  if type(brain.every) ~= \"function\" then return \"every\" end\n"
+        "  if type(brain.cancel) ~= \"function\" then return \"cancel\" end\n"
+        "  if brain.shared_random ~= nil then return \"shared\" end\n"
         "  if type(f32) ~= \"table\" then return \"f32\" end\n"
         "  if type(geometry) ~= \"table\" then return \"geometry\" end\n"
         "  if type(geometry.sine_scaled) ~= \"function\" then return \"sine\" end\n"

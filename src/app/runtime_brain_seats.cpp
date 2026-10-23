@@ -530,6 +530,7 @@ void Runtime::take_pending_brain_seats() {
         }
     }
     seated_brains_ = std::move(seated);
+    attach_brain_chat();
 }
 
 } // namespace oa::app

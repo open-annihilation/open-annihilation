@@ -108,6 +108,49 @@ struct LibraryFeed {
     void (*keep_verdict)(
         void* context, std::string_view id, const oa::data::mutators::VerdictRecord& record
     ){};
+    /// The verdict remembered for an installed brain against the game being
+    /// played. Called on the main thread. Null remembers none.
+    std::optional<oa::ui::library::Verdict> (*remembered_brain_verdict)(
+        void* context, std::string_view id
+    ){};
+    /// Starts a check of an installed brain against the game being played,
+    /// and returns the work the Library's worker runs. Called on the main
+    /// thread: it gathers the game's facts and does not load the brain.
+    /// The work gives the verdict, or nothing when it is cancelled. An empty
+    /// function means the check could not start. Null: the host checks no
+    /// brain, and every brain's verdict stays unset.
+    std::function<std::optional<oa::ui::library::Verdict>(const std::atomic<bool>& cancel)> (
+        *start_brain_check
+    )(void* context, std::string_view id){};
+    /// Keeps a verdict the worker found, for the installed brain against the
+    /// game being played. Called on the main thread. Null keeps nothing.
+    void (*keep_brain_verdict)(
+        void* context, std::string_view id, const oa::ui::library::Verdict& verdict
+    ){};
+};
+
+/// Which kind of check a job on the Library's one queue is.
+enum class CheckKind : uint8_t {
+    mutator, ///< a mutator's dry run
+    brain,   ///< a brain's load and fits
+};
+
+/// What a remembered brain verdict is for: the brain and the game it was
+/// checked against. Another version, package or mod does not show this one.
+struct BrainVerdictKey {
+    /// The brain's id.
+    std::string id{};
+    /// The manifest's version, as text.
+    std::string version{};
+    /// The package file's SHA-256, hex, or empty when the folder has none.
+    std::string package_sha256{};
+    /// The played mod's id. The base game is `ta-3.1c`.
+    std::string mod_id{};
+    /// The played mod's version. The base game is `3.1c`.
+    std::string mod_version{};
+
+    /// @return true when every field is the same
+    bool operator==(const BrainVerdictKey&) const = default;
 };
 
 /// One mutator that is On, for the list a check is about.
@@ -135,6 +178,14 @@ struct MutatorCheck {
     /// check is dropped. Empty for a fixture's check, which keeps nothing of
     /// its own.
     std::optional<oa::data::mutators::VerdictKey> key{};
+    /// Which check this is. A waiting brain does not replace a waiting mutator
+    /// of the same id, and the other way round.
+    CheckKind kind{CheckKind::mutator};
+    /// The work a brain check runs. Empty when `kind` is a mutator, or when
+    /// the main thread still has to call `start_brain_check`.
+    std::function<std::optional<oa::ui::library::Verdict>(const std::atomic<bool>&)> brain_work{};
+    /// The key a brain job carries. Empty for a mutator, and for a fixture.
+    std::optional<BrainVerdictKey> brain_key{};
 };
 
 /// What a check left for the main thread.
@@ -147,6 +198,12 @@ struct MutatorCheckOutcome {
     std::optional<oa::data::mutators::VerdictRecord> record{};
     /// The key the job carried. Empty when the check had none.
     std::optional<oa::data::mutators::VerdictKey> key{};
+    /// Which check this was.
+    CheckKind kind{CheckKind::mutator};
+    /// The brain's verdict, when a brain check finished and was not cancelled.
+    std::optional<oa::ui::library::Verdict> brain{};
+    /// The key a brain job carried. Empty when the check had none.
+    std::optional<BrainVerdictKey> brain_key{};
 };
 
 /// The Library's worker: one thread of its own, started at its first job and
@@ -269,8 +326,10 @@ struct Runtime::LibraryHost {
     /// packages no longer lets that item hide its update.
     std::map<uint64_t, uint64_t> finished_scans{};
     LibraryWork work{}; ///< the worker and what it found
-    /// The mutator whose check is running. Empty when none is.
+    /// The package whose check is running. Empty when none is.
     std::string checking_id{};
+    /// Which kind `checking_id` names. A mutator and a brain may share an id.
+    CheckKind checking_kind{CheckKind::mutator};
     /// A check was handed to the worker and has not come back.
     bool check_open{};
 
@@ -290,6 +349,20 @@ struct Runtime::LibraryHost {
     std::optional<oa::data::mutators::VerdictKey> prepared_key{};
     /// The key of the verdict `keep_verdict` is about to keep. The main thread only.
     std::optional<oa::data::mutators::VerdictKey> delivered_key{};
+    /// A brain verdict kept for this run, by the brain and the game it was
+    /// checked against. Nothing is written to disk. The main thread only.
+    struct RememberedBrainVerdict {
+        BrainVerdictKey key{};                 ///< the brain and the game
+        oa::ui::library::Verdict verdict{};    ///< what the check found
+    };
+
+    std::vector<RememberedBrainVerdict> brain_verdicts{};
+    /// The key `start_brain_check` just prepared, taken onto the job.
+    /// The main thread only.
+    std::optional<BrainVerdictKey> prepared_brain_key{};
+    /// The key of the brain verdict `keep_brain_verdict` is about to keep.
+    /// The main thread only.
+    std::optional<BrainVerdictKey> delivered_brain_key{};
 
     /// How many times a Library rebuild, or the picker's own list, listed the
     /// Mutators folder to resolve the verdicts it shows. The worker's search
@@ -366,13 +439,26 @@ struct Runtime::LibraryHost {
     /// @param prepared the id, the work and the key the job carries
     void enqueue_prepared_check(Runtime& runtime, MutatorCheck prepared);
 
-    /// Takes a check the worker finished. A verdict it gave is kept, on the
-    /// main thread. A cancelled check is not kept, and the checks that were
-    /// waiting are dropped when a match cancelled this one. Otherwise the
-    /// oldest waiting check is started. Nothing is rebuilt here.
+    /// Takes a check the worker finished, a mutator's or a brain's. A verdict
+    /// it gave is kept, on the main thread. A cancelled check is not kept,
+    /// and the checks that were waiting are dropped when a match cancelled
+    /// this one. Otherwise the oldest waiting check is started. Nothing is
+    /// rebuilt here.
     ///
     /// @return true when a check ended, so the caller rebuilds the model
     bool finish_mutator_check();
+
+    /// Marks one installed brain as checking and hands `start_brain_check`'s
+    /// work to the worker. While a check runs, this id waits its turn,
+    /// replacing a waiting brain check of the same id, and `start_brain_check`
+    /// is called on the main thread when its turn comes. An empty function
+    /// marks nothing. The model is rebuilt so the details say the check is
+    /// running. A brain check shares the worker's one queue with mutator
+    /// checks.
+    ///
+    /// @param runtime the runtime
+    /// @param id the brain's id
+    void begin_brain_check(Runtime& runtime, std::string_view id);
 
     /// Asks for the pictures of the rows in view and a few rows beyond each
     /// edge, the selected row's first, and for a registry icon the Registries
@@ -537,6 +623,50 @@ struct Runtime::LibraryHost {
         void* context, std::string_view id, const oa::data::mutators::VerdictRecord& record
     );
 
+    /// The runtime's own feed: the verdict remembered this run for an
+    /// installed brain against the game being played. A brain that is not
+    /// installed, or a verdict for another version, package or mod,
+    /// remembers nothing. Nothing is read from disk.
+    ///
+    /// @param context the runtime
+    /// @param id the brain's id
+    /// @return the verdict, or nothing
+    static std::optional<oa::ui::library::Verdict>
+    own_remembered_brain_verdict(void* context, std::string_view id);
+
+    /// The runtime's own feed: gathers the game's facts on the main thread
+    /// and returns the work the Library's worker runs. The work loads the
+    /// brain and runs fits, and touches no runtime. An empty function means
+    /// the brain is not installed. The work calls `check_brain` and does not
+    /// call start, and it does not seat the brain.
+    ///
+    /// @param context the runtime
+    /// @param id the brain's id
+    /// @return the work, or an empty function
+    static std::function<std::optional<oa::ui::library::Verdict>(const std::atomic<bool>&)>
+    own_start_brain_check(void* context, std::string_view id);
+
+    /// The runtime's own feed: keeps a brain verdict the worker found, under
+    /// the key the job carried, for this run only.
+    ///
+    /// @param context the runtime
+    /// @param id the brain's id
+    /// @param verdict the verdict
+    static void own_keep_brain_verdict(
+        void* context, std::string_view id, const oa::ui::library::Verdict& verdict
+    );
+
+    /// The key a brain check is about now: the installed copy's id, version
+    /// and package SHA-256, and the played mod's id and version. Nothing
+    /// when that brain is not installed. The worker's listing is used once
+    /// a search has run; otherwise the Brains folder is listed here.
+    ///
+    /// @param runtime the runtime
+    /// @param id the brain's id
+    /// @return the key, or nothing
+    [[nodiscard]] std::optional<BrainVerdictKey>
+    brain_verdict_key(Runtime& runtime, std::string_view id);
+
     /// The list a check is about: the mutator's prerequisites, then the
     /// mutator. Members named in `on` take those options. A cycle, or a
     /// prerequisite that is not installed, returns nothing. The listing is
@@ -625,7 +755,7 @@ struct Runtime::LibraryHost {
   private:
 
     /// Queues a check behind the running one, in place of a waiting check
-    /// of the same mutator. The caller holds `work.mutex`.
+    /// of the same id and kind. The caller holds `work.mutex`.
     ///
     /// @param waiting the check
     void wait_turn(MutatorCheck waiting);

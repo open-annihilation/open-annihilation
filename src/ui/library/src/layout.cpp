@@ -211,6 +211,8 @@ std::string_view action_word(Action action) {
         return "turn-on";
     case Action::check_with_mod:
         return "check-with-mod";
+    case Action::use_by_default:
+        return "use-by-default";
     case Action::get_with:
         return "get-with";
     }

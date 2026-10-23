@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: steady-commander
+name: "Steady Commander"
+version: "1.2"
+author:
+  name: "Ridge Testers"
+description: "A sample package for the Classic fingerprint."
+tags: ["teaching"]
+works-with: ["*"]
+levels:
+  - id: steady
+    name: "Steady"
+    difficulty: medium
