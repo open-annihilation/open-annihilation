@@ -64,6 +64,10 @@ struct Seat {
     int game_hidden_ref{-2};
     script_host::MemorySources sources{};
     std::optional<script_host::Sandbox> sandbox{};
+    /// True when the seat was made after the built-in player's set-up had run.
+    bool handed_over{};
+    /// Assignments `me:assign` refused because the unit was not the seat's.
+    uint32_t refused_assignments{};
 };
 
 /// The brains seated in one match, one slot per player.

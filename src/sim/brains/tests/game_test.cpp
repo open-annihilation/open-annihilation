@@ -596,7 +596,8 @@ void check_refuses_a_bad_network_before_lua() {
 
 void check_reads_the_libraries_outside_a_match() {
     // brain.random and brain.after are absent on this branch: B03 is not
-    // merged. me has no getters beyond B01: A04 is not merged.
+    // merged. Outside a match, A04's getters that read the match (side and
+    // name) read nil; its methods, such as me:allies, are present.
     Fixture fixture;
     Package package;
     package.player = 7;
@@ -615,7 +616,7 @@ void check_reads_the_libraries_outside_a_match() {
         "  if type(f32) ~= \"table\" then return \"f32\" end\n"
         "  if type(geometry) ~= \"table\" then return \"geometry\" end\n"
         "  if type(geometry.sine_scaled) ~= \"function\" then return \"sine\" end\n"
-        "  if me.side ~= nil or me.allies ~= nil or me.name ~= nil then return \"me extra\" end\n"
+        "  if me.side ~= nil or me.name ~= nil then return \"me extra\" end\n"
         "  return true\n"
         "end }\n"
     );

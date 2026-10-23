@@ -483,6 +483,13 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     created->facts = &brains->facts;
     brains->seats[player] = std::move(created);
     Seat& seat = *brains->seats[player];
+    seat.match = &match;
+    const auto& computer_slot = match.computer_player_state();
+    if (computer_slot) {
+        const auto* computer_players =
+            static_cast<const sim::ai::ComputerPlayers*>(computer_slot.get());
+        seat.handed_over = computer_players->initialized != 0;
+    }
 
     if (!open_and_fit(seat, spec, outcome)) {
         close_seat(*brains, player);
