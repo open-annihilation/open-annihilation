@@ -2051,9 +2051,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
             (event_hooks.*Member)(event_hooks.context, args...);
         for (std::size_t listener_index = 0; listener_index < event_listener_count_;
              ++listener_index) {
-            const EventHooks& table = event_listeners_[listener_index].hooks;
-            if (table.*Member != nullptr)
-                (table.*Member)(table.context, args...);
+            const EventHooks& listener_hooks = event_listeners_[listener_index].hooks;
+            if (listener_hooks.*Member != nullptr)
+                (listener_hooks.*Member)(listener_hooks.context, args...);
         }
     }
 
