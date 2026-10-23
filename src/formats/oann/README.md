@@ -203,6 +203,7 @@ does not.
   half to even and held to 32767. The tables of tanh, sigmoid and
   softmax are N06's (`src/data/neural/*`). No floating point is used
   to run a network.
+  Little-endian SHA-256: tanh `cb7f633a633e5280f6e1f1f6e8ce0b8de29df3c80895e21f8f43ec3638081b58`, sigmoid `c4a892ac4c7782b3990d864b2ef6880662da2b77ba7144cc82cfc060781810b7`, exp `887bdd7a27c48be6ffd340ddffbce39dbfa80104546267a23b4921f3c2328e67`.
 - add: `sat16(R(a, e(a), e(out)) + R(b, e(b), e(out)))`. concat: each
   element `sat16(R(x, e(x), e(out)))`, the inputs placed in order along
   `axis`. flatten: the same values.
