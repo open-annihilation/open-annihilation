@@ -17,4 +17,14 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options)
   add_test(NAME sim-brains-seat COMMAND oa-sim-brains-seat-test)
   set_tests_properties(sim-brains-seat PROPERTIES TIMEOUT 120)
+
+  add_executable(oa-sim-brains-me-test tests/me_test.cpp)
+  target_include_directories(oa-sim-brains-me-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-me-test PRIVATE
+    "OA_SIDE_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/side-reader\"")
+  target_link_libraries(oa-sim-brains-me-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
+  add_test(NAME sim-brains-me COMMAND oa-sim-brains-me-test)
+  set_tests_properties(sim-brains-me PROPERTIES TIMEOUT 180)
 endif()
