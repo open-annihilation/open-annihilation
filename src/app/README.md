@@ -3106,8 +3106,8 @@ places and flushes the queue once a frame.
 The three sources are: a line the local human types
 (`Runtime::submit_chat_line`, handed on as `hear_local` with that line's
 mode and targets); a chat record from another machine whose addressee is a
-player of this machine (`NetMatchHooks::seat_chat`, handed on as
-`hear_seat_chat_remote`); and a line another computer seat on this machine
+player of this machine (`NetMatchHooks::seat_chat`, handed on through
+`hear_remote_seat_chat`); and a line another computer seat on this machine
 says, handed to the listener when the queue is flushed, for each other
 computer seat here that hears it.
 

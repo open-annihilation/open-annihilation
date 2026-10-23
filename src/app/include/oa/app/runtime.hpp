@@ -2241,6 +2241,17 @@ class Runtime final : public menu::Host,
     /// @param runtime the running app
     /// @return the source the multiplayer screens bind
     friend oa::ui::frontend_multiplayer::LobbyMapSource pack_map_source(Runtime& runtime);
+    /// Hands a chat line from another machine to the computer seats it
+    /// reached (hear_remote_seat_chat in extension.hpp).
+    ///
+    /// @param runtime the running app
+    /// @param from slot of the sender
+    /// @param addressee slot the record was addressed to
+    /// @param broadcast the record went to every player
+    /// @param line the line as this machine shows it; null is ignored
+    friend void hear_remote_seat_chat(
+        Runtime& runtime, uint8_t from, uint8_t addressee, bool broadcast, const char* line
+    );
 
     // ---- Touch controls (docs/touch-controls.md) --------------------------------------
 

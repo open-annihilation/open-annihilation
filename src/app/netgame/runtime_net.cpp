@@ -1028,8 +1028,8 @@ struct NetworkPlay::NetHost {
         hooks.context = &play;
         hooks.chat = chat;
         hooks.seat_chat =
-            [](void* context, uint8_t sender, uint8_t addressee, bool broadcast, const char* text) {
-                self(context).runtime_.hear_seat_chat_remote(sender, addressee, broadcast, text);
+            [](void* context, uint8_t sender, uint8_t addressee, bool broadcast, const char* line) {
+                hear_remote_seat_chat(self(context).runtime_, sender, addressee, broadcast, line);
             };
         hooks.notice = notice;
         hooks.translate_game_text = translate_text;
