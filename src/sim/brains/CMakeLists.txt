@@ -6,7 +6,7 @@
 # built-in order tick.
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
   src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp
-  src/definitions.cpp src/lua_defs.cpp)
+  src/definitions.cpp src/lua_defs.cpp src/lua_map.cpp src/reach.cpp)
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include)
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
@@ -62,4 +62,16 @@ if(BUILD_TESTING)
   add_test(NAME sim-brains-defs COMMAND oa-sim-brains-defs-test)
   set_tests_properties(sim-brains-defs PROPERTIES TIMEOUT 120)
   oa_add_game_data_test(sim-brains-defs-data oa-sim-brains-defs-test --data)
+
+  # The match map and movement regions. The made-up brain is map-reader.
+  # No installed-map fixture exists, so there is no --data twin.
+  add_executable(oa-sim-brains-map-test tests/map_test.cpp)
+  target_include_directories(oa-sim-brains-map-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-map-test PRIVATE
+    "OA_MAP_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/map-reader\"")
+  target_link_libraries(oa-sim-brains-map-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
+  add_test(NAME sim-brains-map COMMAND oa-sim-brains-map-test)
+  set_tests_properties(sim-brains-map PROPERTIES TIMEOUT 180)
 endif()

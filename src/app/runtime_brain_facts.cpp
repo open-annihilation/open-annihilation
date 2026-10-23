@@ -9,6 +9,7 @@
 #include "oa/core/game_state.h"
 #include "oa/core/side.h"
 #include "oa/data/brain_facts.hpp"
+#include "oa/data/campaign/campaign_file.hpp"
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oamut/manifest.hpp"
@@ -61,6 +62,19 @@ oa::data::brain_facts::GameFacts Runtime::brain_game_facts() const {
         stored.commander = text_of(side.commander, sizeof side.commander);
         facts.mod.sides.push_back(std::move(stored));
     }
+
+    facts.map_name = selected_map_name_runtime_;
+    // brain_game_facts stays const. The map context binds on first use.
+    const oa::data::campaign::CampaignFile* map_context =
+        const_cast<Runtime*>(this)->match_map_context();
+    const char* mission = nullptr;
+    if (map_context != nullptr) {
+        mission = oa::data::campaign::campaign_path(
+            map_context, oa::data::campaign::CampaignPath::mission
+        );
+    }
+    if (mission != nullptr)
+        facts.map_path = mission;
 
     const oa::data::mutators::Loadout* loadout = match_loadout();
     if (loadout == nullptr)

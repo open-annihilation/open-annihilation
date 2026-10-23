@@ -7,6 +7,8 @@
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
 
+#include "reach.hpp"
+
 #include "oa/core/player.h"
 #include "oa/data/brain_facts.hpp"
 #include "oa/data/script_host/memory_sources.hpp"
@@ -94,6 +96,9 @@ struct Seat {
     bool allied_with[OA_PLAYER_COUNT]{};
     /// Last delivered participation, one entry per player.
     bool participating[OA_PLAYER_COUNT]{};
+    /// Movement regions built when a script asks whether two points meet.
+    /// One class is labelled at most once a tick.
+    RegionCache regions{};
 
     /// Releases the two event buffers.
     ~Seat() {
@@ -156,6 +161,12 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome);
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_libraries(lua_State* state, Seat& seat);
+
+/// Installs `game.map`. With no match the field is nil.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_map(lua_State* state, Seat& seat);
 
 /// Returns the profile a brain runs under.
 ///

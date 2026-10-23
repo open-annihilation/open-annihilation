@@ -144,6 +144,8 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_handles(state, seat);
     install_me(state, seat);
     install_definitions(state, seat);
+    // A03's profile library and A05's sight are not on this branch.
+    install_map(state, seat);
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {

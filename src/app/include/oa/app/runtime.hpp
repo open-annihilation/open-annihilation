@@ -5098,6 +5098,8 @@ class Runtime final : public menu::Host,
     /// preferences'. The mod is the profile the match plays, or the base
     /// game's name when the game plays 3.1c, with this match's sides. The
     /// mutators are the running match's loadout in apply order, or none.
+    /// The map name is the selected map, and the map path is that map's
+    /// mission path, or empty when the match has no map context.
     ///
     /// @return the facts, owned outright
     [[nodiscard]] oa::data::brain_facts::GameFacts brain_game_facts() const;

@@ -97,11 +97,14 @@ struct Fixture {
     ///     Non-zero raises the map onto dry land and gives the buildings a
     ///     blocking yard, so a ground move can be searched. Zero leaves the
     ///     match the seat, game and side tests build.
+    /// @param visibility the match's visibility flags. The default is the
+    ///     value every existing caller built. A map test passes 3.
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
         const data::match_rules::MatchRules& rules = {},
-        uint32_t movement_class = 0
+        uint32_t movement_class = 0,
+        uint16_t visibility = 2
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -174,6 +177,14 @@ struct Fixture {
             for (auto& plot : plots)
                 plot.low_height = plot.high_height = 40;
             fields[vehicle].movement_class = movement_class;
+            // Copied into the movement classifier when the match is built.
+            // A slope above 20 is blocked, a slope above 10 is slow, and
+            // water more than 10 below sea level is blocked. Flat land at
+            // height 40 with sea level 20 stays clear.
+            metadata[vehicle].max_slope = 20;
+            metadata[vehicle].bad_slope = 10;
+            metadata[vehicle].max_water_depth = 10;
+            metadata[vehicle].min_water_depth = -100;
             fields[collector].yard_mask = blocking_yard;
             fields[relay].yard_mask = blocking_yard;
             fields[silo].yard_mask = blocking_yard;
@@ -201,9 +212,9 @@ struct Fixture {
             loaded[i].type = types[i];
 
         sim::match_runtime::OfflineInputs input{
-            map,  loaded, types, fields, weapons,   terrain_values,       masks, 32, 32, 40,
-            2,    0,      30,    1,      &scenario, [] { return 1000u; }, plots, {}, 0,  0,
-            0.0F, {}
+            map,        loaded, types, fields, weapons,   terrain_values,       masks, 32, 32, 40,
+            visibility, 0,      30,    1,      &scenario, [] { return 1000u; }, plots, {}, 0,  0,
+            0.0F,       {}
         };
         input.rules = rules;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
