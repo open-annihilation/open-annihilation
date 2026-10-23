@@ -390,6 +390,7 @@ add_library(oa-app-brain-match src/app/brain_match.cpp)
 add_library(oa::app::brain_match ALIAS oa-app-brain-match)
 target_link_libraries(oa-app-brain-match PUBLIC oa-app-headers
   PRIVATE oa-formats-oabrain oa-options)
+target_link_libraries(oa-app-game-options PRIVATE oa-app-brain-match)
 # Brains seated on this machine's computer players (brain_seats.hpp).
 add_library(oa-app-brain-seats src/app/brain_seats.cpp)
 add_library(oa::app::brain_seats ALIAS oa-app-brain-seats)
