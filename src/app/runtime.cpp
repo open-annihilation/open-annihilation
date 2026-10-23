@@ -1487,6 +1487,9 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
     } catch (const std::exception& error) {
         report_match_tick_error(error.what());
     }
+    // A computer seat's chat is posted and sent here, after the ticks, so
+    // the log and the network do not run inside a tick.
+    flush_seat_chat();
     if (match_timing_.pending_steps != 0)
         oa::sim::messages::expire_oldest_message(match_->state().game);
     // The map's timed units are placed once a frame, as they come due.

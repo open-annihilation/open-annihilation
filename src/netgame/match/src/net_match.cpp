@@ -2271,24 +2271,37 @@ bool dispatch_record(NetMatch* m, Player& from, Player& to, const Packet& packet
     case RecordType::ping:
         handle_ping(m, from, to, data, size);
         break;
-    case RecordType::chat:
+    case RecordType::chat: {
         if (m->rules.private_channel != PrivateChannel::none && is_private_chat(data, size)) {
             handle_private(m, from, data, size);
             break;
         }
-        if (is_local(to) && to.status == OA_PLAYER_STATUS_LOCAL && m->hooks.chat != nullptr &&
-            size >= 1) {
-            char text[sizeof(ChatRecord::text) + 1]{};
+        const bool addressed_here = is_local(to) && size >= 1;
+        char text[sizeof(ChatRecord::text) + 1]{};
+        std::string shown;
+        if (addressed_here) {
             std::memcpy(
                 text,
                 data + 1,
                 size - 1 < sizeof(ChatRecord::text) ? size - 1 : sizeof(ChatRecord::text)
             );
-            const auto shown = net_match_chat_text(m, from, text);
+            shown = net_match_chat_text(m, from, text);
+        }
+        if (is_local(to) && to.status == OA_PLAYER_STATUS_LOCAL && m->hooks.chat != nullptr &&
+            size >= 1) {
             m->hooks.chat(m->hooks.context, from.index, shown.c_str());
             recorder_chat_line(m, from, text);
         }
+        if (addressed_here && m->hooks.seat_chat != nullptr)
+            m->hooks.seat_chat(
+                m->hooks.context,
+                from.index,
+                to.index,
+                packet.to_id == broadcast_destination_id,
+                shown.c_str()
+            );
         break;
+    }
     case RecordType::probe: {
         const uint8_t reply = static_cast<uint8_t>(RecordType::probe_reply);
         net_match_send(m, primary_id(world), from.player_id, &reply, 1);
@@ -3613,32 +3626,62 @@ static uint32_t chat_sender_id(const Game& game) noexcept {
     return no_player_id;
 }
 
+namespace {
+
+/// Where one chat line is sent.
+struct ChatRoute {
+    uint32_t to[OA_PLAYER_COUNT]{}; ///< destination ids
+    std::size_t count{};            ///< how many `to` holds
+};
+
+/// Destinations of one chat line.
+///
+/// A command, or mode everyone, is one broadcast. Chosen players are the
+/// slots whose target entry is set and whose player id is not 0. Allies and
+/// enemies are the remote players by the speaker's alliance row. Any other
+/// mode, this machine only included, sends nothing.
+///
+/// @param game the match's players
+/// @param speaker the player whose alliance row routes allies and enemies
+/// @param mode OA_CHAT_MODE_* or the local-only mode
+/// @param targets chosen-player slots; null reaches nobody in chosen mode
+/// @param command a line whose first byte is '+'
+/// @return the destination ids
+ChatRoute chat_route(
+    const Game& game, const Player& speaker, uint8_t mode, const uint8_t* targets, bool command
+) noexcept {
+    ChatRoute route{};
+    if (command || mode == OA_CHAT_MODE_EVERYONE) {
+        route.to[route.count++] = broadcast_destination_id;
+    } else if (mode == OA_CHAT_MODE_CHOSEN) {
+        if (targets != nullptr)
+            for (std::size_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
+                if (targets[slot] != 0 && game.players[slot].player_id != 0)
+                    route.to[route.count++] = game.players[slot].player_id;
+    } else {
+        for (std::size_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            const auto& remote = game.players[slot];
+            if (!is_remote(remote))
+                continue;
+            const bool allied = speaker.alliance[slot] != 0;
+            if ((mode == OA_CHAT_MODE_ALLIES && allied) ||
+                (mode == OA_CHAT_MODE_ENEMIES && !allied))
+                route.to[route.count++] = remote.player_id;
+        }
+    }
+    return route;
+}
+
+} // namespace
+
 void net_match_say(NetMatch* m, const char* text) noexcept {
     m->said_parts.clear();
     auto& game = m->world->game;
     const auto from = chat_sender_id(game);
     const uint8_t mode = game.chat_mode;
-    // Where the chat mode sends the line.
-    uint32_t to[OA_PLAYER_COUNT];
-    std::size_t destinations = 0;
-    if ((text != nullptr && text[0] == '+') || mode == OA_CHAT_MODE_EVERYONE) {
-        to[destinations++] = broadcast_destination_id;
-    } else if (mode == OA_CHAT_MODE_CHOSEN) {
-        for (std::size_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
-            if (game.chat_targets[slot] != 0 && game.players[slot].player_id != 0)
-                to[destinations++] = game.players[slot].player_id;
-    } else {
-        const auto& self = game.players[game.local_player_index];
-        for (std::size_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
-            const auto& p = game.players[slot];
-            if (!is_remote(p))
-                continue;
-            const bool allied = self.alliance[slot] != 0;
-            if ((mode == OA_CHAT_MODE_ALLIES && allied) ||
-                (mode == OA_CHAT_MODE_ENEMIES && !allied))
-                to[destinations++] = p.player_id;
-        }
-    }
+    const bool command = text != nullptr && text[0] == '+';
+    const ChatRoute route =
+        chat_route(game, game.players[game.local_player_index], mode, game.chat_targets, command);
     if (text == nullptr || !m->unicode_chat) {
         // The text's first 64 bytes, the rest zero: a line of 64 characters
         // or more fills the field with no terminator, as 3.1c's record
@@ -3647,16 +3690,42 @@ void net_match_say(NetMatch* m, const char* text) noexcept {
         ChatRecord r{};
         if (text != nullptr)
             std::memcpy(r.text, text, chat_bytes_within(text, sizeof r.text));
-        for (std::size_t i = 0; i < destinations; ++i)
-            send_record(m, from, to[i], r);
+        for (std::size_t i = 0; i < route.count; ++i)
+            send_record(m, from, route.to[i], r);
     } else {
-        auto parts = say_unicode(m, from, {to, destinations}, text, sizeof(ChatRecord::text), true);
+        auto parts =
+            say_unicode(m, from, {route.to, route.count}, text, sizeof(ChatRecord::text), true);
         if (parts.size() > 1)
             m->said_parts = std::move(parts);
     }
     // The recorder answers a command after the line that typed it.
     if (const auto* self = player_of(m->world, from); self != nullptr && text != nullptr)
         recorder_chat_line(m, *self, text);
+}
+
+void net_match_say_from(
+    NetMatch* match, uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets
+) noexcept {
+    if (match == nullptr || match->world == nullptr || line == nullptr || seat >= OA_PLAYER_COUNT)
+        return;
+    const Player& speaker = match->world->game.players[seat];
+    if (speaker.in_use == 0 || speaker.status != OA_PLAYER_STATUS_COMPUTER)
+        return;
+    if (speaker.player_id == no_player_id || speaker.player_id == broadcast_destination_id)
+        return;
+    if (chat_command(line))
+        return;
+    const ChatRoute route = chat_route(match->world->game, speaker, mode, targets, false);
+    if (!match->unicode_chat) {
+        ChatRecord record{};
+        std::memcpy(record.text, line, chat_bytes_within(line, sizeof record.text));
+        for (std::size_t i = 0; i < route.count; ++i)
+            send_record(match, speaker.player_id, route.to[i], record);
+        return;
+    }
+    (void)say_unicode(
+        match, speaker.player_id, {route.to, route.count}, line, sizeof(ChatRecord::text), true
+    );
 }
 
 std::string net_match_chat_text(const NetMatch* m, const Player& from, std::string_view bytes) {

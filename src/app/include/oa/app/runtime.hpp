@@ -78,6 +78,7 @@
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/settings.hpp"
 #include "oa/app/renderer_records.hpp"
+#include "oa/app/seat_chat.hpp"
 #include "oa/ui/frontend_multiplayer/host_mutators.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
@@ -13639,6 +13640,34 @@ class Runtime final : public menu::Host,
     /// the speed lock (read_speed_lock_line).
     void submit_chat_line();
 
+    /// Queues a line for a computer seat on this machine.
+    ///
+    /// Refuses with not_a_seat while no match runs. The line is posted and
+    /// sent after the frame's ticks (flush_seat_chat).
+    ///
+    /// @param seat player slot
+    /// @param text the words, without a "<Name>" head
+    /// @param mode everyone, allies, enemies or chosen
+    /// @param target player slot for chosen
+    /// @return why the line was queued or refused
+    [[nodiscard]] seat_chat::Said
+    say_for_seat(uint8_t seat, std::string_view text, uint8_t mode, uint8_t target);
+
+    /// Replaces the listener that hears chat for the computer seats.
+    ///
+    /// @param listener the listener; a null heard hears nothing
+    void set_seat_chat_listener(const seat_chat::Listener& listener) noexcept;
+
+    /// Hands a chat line from another machine to the computer seats it reached.
+    ///
+    /// A null line is ignored. With no match running, nothing is handed on.
+    ///
+    /// @param from slot of the sender
+    /// @param addressee slot the record was addressed to
+    /// @param broadcast the record went to every player
+    /// @param text the line as this machine shows it; null is ignored
+    void hear_seat_chat_remote(uint8_t from, uint8_t addressee, bool broadcast, const char* text);
+
     /// Holds back a ".take" or ".takecmd" chat line while another player's
     /// commander lies destroyed (sharing.take-requires-live-commander), and
     /// tells this player why.
@@ -14532,6 +14561,9 @@ class Runtime final : public menu::Host,
     }
 
   private:
+
+    /// Posts and sends the computer seats' queued chat after the frame's ticks.
+    void flush_seat_chat();
 
     /// Reads the Summary fields a load needs from a save file.
     ///
@@ -17344,6 +17376,8 @@ class Runtime final : public menu::Host,
     oa::ui::hud::KillBoard kill_board_{};
     // The message log's random numbers (message_hooks), never the match's.
     PresentationRandom message_random_{};
+    // Chat a computer seat on this machine reads and sends (seat_chat.hpp).
+    seat_chat::SeatChat seat_chat_{};
     std::optional<oa::ui::gui_layout::Layout> talk_layout_{};
     oa::formats::gaf::Archive match_talk_{};
     int32_t match_camera_x_ = 0, match_camera_z_ = 0;

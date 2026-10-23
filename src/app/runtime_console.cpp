@@ -666,7 +666,12 @@ void Runtime::submit_chat_line() {
         if (!runtime->match_ || runtime->refuse_take_line(text))
             return;
         const auto hooks = runtime->message_hooks();
-        oa::sim::messages::post_chat(runtime->match_->state(), speaker, text, kind, target, hooks);
+        auto& world = runtime->match_->state();
+        oa::sim::messages::post_chat(world, speaker, text, kind, target, hooks);
+        if (text != nullptr)
+            runtime->seat_chat_.hear_local(
+                world, speaker.index, text, world.game.chat_mode, world.game.chat_targets
+            );
         runtime->status_ = text;
         runtime->read_speed_lock_line(text);
     };

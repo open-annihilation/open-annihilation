@@ -1027,6 +1027,10 @@ struct NetworkPlay::NetHost {
         nm::NetMatchHooks hooks{};
         hooks.context = &play;
         hooks.chat = chat;
+        hooks.seat_chat =
+            [](void* context, uint8_t sender, uint8_t addressee, bool broadcast, const char* text) {
+                self(context).runtime_.hear_seat_chat_remote(sender, addressee, broadcast, text);
+            };
         hooks.notice = notice;
         hooks.translate_game_text = translate_text;
         hooks.rand15 = rand15;
@@ -2665,6 +2669,14 @@ void NetworkPlay::net_send_chat(const char* line) {
     if (!net_ || !net_->active || net_->loading || line == nullptr || *line == '\0')
         return;
     nm::net_match_say(net_->net.get(), line);
+}
+
+void NetworkPlay::net_send_seat_chat(
+    uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets
+) {
+    if (!net_ || !net_->active || net_->loading || line == nullptr || *line == '\0')
+        return;
+    nm::net_match_say_from(net_->net.get(), seat, line, mode, targets);
 }
 
 const char* NetworkPlay::shared_chat_line(const char* line, std::size_t index) const {

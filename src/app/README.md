@@ -2501,6 +2501,8 @@ language and both sizes.
 - `runtime_hud.cpp`, `runtime_match_hud.cpp`: the HUD.
 - `runtime_messages.cpp`: the in-game message log (`Game.chat_lines`) drawn
   over the battlefield, and the speed and message part of `--check-navigation`.
+- `runtime_seat_chat.cpp`: chat a computer seat on this machine reads and
+  sends. The listener, the pace and the queue live in `oa-app-seat-chat`.
 - `runtime_console.cpp`, `runtime_console_debug.cpp`: the in-game console's
   host hooks, the debug grid, "Profile" bars and DebugBreak, and the console
   part of `--check-navigation`.
@@ -3061,6 +3063,40 @@ language and both sizes.
   that with Smooth motion Off every frame draws the runner where its
   playout has it at the latest tick, the world as with it On; and that,
   with no such player, every frame is.
+
+## Chat a computer seat reads and sends
+
+A computer seat on this machine can read chat and say a line of its own.
+`oa-app-seat-chat` (`src/app/seat_chat.cpp`) keeps one listener, a pace and
+a queue. The runtime (`runtime_seat_chat.cpp`) feeds the listener from three
+places and flushes the queue once a frame.
+
+The three sources are: a line the local human types
+(`Runtime::submit_chat_line`, handed on as `hear_local` with that line's
+mode and targets); a chat record from another machine whose addressee is a
+player of this machine (`NetMatchHooks::seat_chat`, handed on as
+`hear_seat_chat_remote`); and a line another computer seat on this machine
+says, handed to the listener when the queue is flushed, for each other
+computer seat here that hears it.
+
+The listener is one function. It is called with the seat, the sender, who
+the line was said to (everyone, allies, enemies or the seat alone) and the
+words without the "<Name>" head. With no listener the lines are still
+posted and sent, and nobody is called.
+
+A seat may say at most one line per 30 ticks of `Game.tick`, counted per
+seat, so a replay of the same start repeats the same lines. The first line
+is always allowed. `Runtime::advance_match_clock` flushes the queue after
+the frame's steps and before the oldest message expires, so the message log
+is written and a network record is sent outside `Match::tick`. A line shows
+in the local message log when the local player hears it, and goes out to
+other machines from the seat's own player id.
+
+These are not handed to a seat: a command the local human types (a line
+whose first character is '+'), `NetworkPlay::net_say`, the automatic lines
+of the loopback check, a private-channel record, a command ('+' or '.'
+first, after spaces), an empty line, the seat's own line, a line the seat
+does not hear, and a further line inside 30 ticks.
 
 ## Touch controls
 

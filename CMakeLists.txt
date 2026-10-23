@@ -380,6 +380,11 @@ add_library(oa-app-mutators-memory src/app/mutators_memory.cpp)
 add_library(oa::app::mutators_memory ALIAS oa-app-mutators-memory)
 target_link_libraries(oa-app-mutators-memory PUBLIC oa-app-headers oa-platform-preferences
   oa-data-mutators PRIVATE oa-options)
+# Chat a computer seat on this machine reads and sends (seat_chat.hpp).
+add_library(oa-app-seat-chat src/app/seat_chat.cpp)
+add_library(oa::app::seat_chat ALIAS oa-app-seat-chat)
+target_link_libraries(oa-app-seat-chat PUBLIC oa-app-headers oa-sim-messages oa-core-types
+  PRIVATE oa-options)
 # A mod profile's display rules as the records and decisions of the modules
 # that carry them out (view_rules.hpp).
 add_library(oa-app-view-rules src/app/view_rules.cpp)
@@ -847,6 +852,12 @@ if(BUILD_TESTING)
     oa-test-support oa-options)
   add_test(NAME app-mutators-memory COMMAND oa-app-mutators-memory-test)
   set_tests_properties(app-mutators-memory PROPERTIES TIMEOUT 30)
+  # Chat a computer seat reads and sends: what it may say, who hears it, and
+  # the pace of one line per 30 ticks.
+  add_executable(oa-app-seat-chat-test src/app/seat_chat_test.cpp)
+  target_link_libraries(oa-app-seat-chat-test PRIVATE oa-app-seat-chat oa-options)
+  add_test(NAME app-seat-chat COMMAND oa-app-seat-chat-test)
+  set_tests_properties(app-seat-chat PROPERTIES TIMEOUT 30)
   # The draw states the match renderer keeps per unit slot and per 3D feature.
   add_executable(oa-match-model-draws-test src/app/match_model_draws_test.cpp)
   target_link_libraries(oa-match-model-draws-test PRIVATE oa-app-headers oa-present-model oa-sim-feature-runtime
@@ -1077,7 +1088,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_hotkeys.cpp src/app/runtime_hud.cpp src/app/runtime_loading.cpp
   src/app/runtime_match_hud.cpp src/app/runtime_match_menus.cpp src/app/runtime_load_game.cpp
   src/app/runtime_order_panel.cpp
-  src/app/runtime_match_render.cpp src/app/runtime_messages.cpp src/app/runtime_pointer.cpp
+  src/app/runtime_match_render.cpp src/app/runtime_messages.cpp src/app/runtime_seat_chat.cpp
+  src/app/runtime_pointer.cpp
   src/app/sticky_edge.cpp
   src/app/runtime_present.cpp src/app/runtime_display.cpp
   src/app/runtime_accelerated.cpp src/app/runtime_render_tier.cpp src/app/runtime_tier_watch.cpp
@@ -1251,6 +1263,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-data-mutator-library
   oa-data-mutators
   oa-app-mutators-memory
+  oa-app-seat-chat
   oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker

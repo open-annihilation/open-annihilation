@@ -75,6 +75,7 @@ constexpr EntryName kMessageHookNames[] = {
     {offsetof(sim::messages::Hooks, center_camera), "center_camera"},
     {offsetof(sim::messages::Hooks, shared_chat_line), "shared_chat_line"},
     {offsetof(sim::messages::Hooks, shared_chat_line_bytes), "shared_chat_line_bytes"},
+    {offsetof(sim::messages::Hooks, share_seat_chat), "share_seat_chat"},
 };
 
 constexpr EntryName kConsoleHostNames[] = {

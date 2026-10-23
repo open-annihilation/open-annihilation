@@ -57,6 +57,234 @@ Hooks hooks_for(Recorder& r) {
 void set_capacity(Game& g, int32_t lines) {
     g.text_lines = lines;
 }
+
+struct SeatCtx {
+    Recorder rec{};
+    int seat_shares = 0;
+    int plain_shares = 0;
+    uint8_t seat = 0;
+    uint8_t mode = 0;
+    uint8_t targets[OA_PLAYER_COUNT]{};
+    bool saw_targets = false;
+    char line[most_chat_line_bytes]{};
+    std::size_t limit = 0;
+    bool limit_hook = false;
+};
+
+Hooks seat_hooks(SeatCtx& ctx) {
+    Hooks hooks{};
+    hooks.context = &ctx;
+    hooks.play_sound = [](void* c, const char* name) {
+        if (std::strcmp(name, "MessageArrived") == 0)
+            ++static_cast<SeatCtx*>(c)->rec.arrived;
+    };
+    hooks.share_chat = [](void* c, const char*) { ++static_cast<SeatCtx*>(c)->plain_shares; };
+    hooks.record_chat = [](void* c, const char*) { ++static_cast<SeatCtx*>(c)->rec.recorded; };
+    hooks.game_kind = [](void* c) { return static_cast<SeatCtx*>(c)->rec.kind; };
+    hooks.share_seat_chat =
+        [](void* c, uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets) {
+            auto& share = *static_cast<SeatCtx*>(c);
+            ++share.seat_shares;
+            share.seat = seat;
+            share.mode = mode;
+            share.saw_targets = targets != nullptr;
+            if (targets != nullptr)
+                std::memcpy(share.targets, targets, OA_PLAYER_COUNT);
+            else
+                std::memset(share.targets, 0, OA_PLAYER_COUNT);
+            share.line[0] = '\0';
+            if (line != nullptr)
+                std::snprintf(share.line, sizeof share.line, "%s", line);
+        };
+    hooks.shared_chat_line_bytes = [](void* c) -> std::size_t {
+        const auto& held = *static_cast<SeatCtx*>(c);
+        return held.limit_hook ? held.limit : 0;
+    };
+    return hooks;
+}
+
+void name_player(Player& player, uint8_t index, const char* name) {
+    player.index = index;
+    player.in_use = 1;
+    std::memcpy(player.second_name, name, std::strlen(name) + 1);
+}
+
+void seat_chat_checks() {
+    const ChatLineParts aimed = split_chat_line("<Steve->Bob> hello");
+    CHECK(aimed.speaker == "Steve" && aimed.target == "Bob" && aimed.words == "hello");
+    const ChatLineParts plain = split_chat_line("<Steve> hello");
+    CHECK(plain.speaker == "Steve" && plain.target.empty() && plain.words == "hello");
+    const ChatLineParts bare = split_chat_line("hello");
+    CHECK(bare.speaker.empty() && bare.target.empty() && bare.words == "hello");
+    const ChatLineParts open = split_chat_line("<Steve hello");
+    CHECK(open.speaker.empty() && open.target.empty() && open.words == "<Steve hello");
+    const ChatLineParts empty = split_chat_line("");
+    CHECK(empty.speaker.empty() && empty.target.empty() && empty.words.empty());
+
+    CHECK(chat_mode_of_target("") == OA_CHAT_MODE_EVERYONE);
+    CHECK(chat_mode_of_target("Allies") == OA_CHAT_MODE_ALLIES);
+    CHECK(chat_mode_of_target("ALLIES") == OA_CHAT_MODE_ALLIES);
+    CHECK(chat_mode_of_target("aLLieS") == OA_CHAT_MODE_ALLIES);
+    CHECK(chat_mode_of_target("Enemies") == OA_CHAT_MODE_ENEMIES);
+    CHECK(chat_mode_of_target("enemies") == OA_CHAT_MODE_ENEMIES);
+    CHECK(chat_mode_of_target("Bob") == OA_CHAT_MODE_CHOSEN);
+    CHECK(chat_mode_of_target("Ally") == OA_CHAT_MODE_CHOSEN);
+    CHECK(chat_mode_of_target(" Allies") == OA_CHAT_MODE_CHOSEN);
+
+    CHECK(chat_words_command("+x"));
+    CHECK(chat_words_command(".x"));
+    CHECK(chat_words_command("  +x"));
+    CHECK(chat_words_command("  .x"));
+    CHECK(!chat_words_command("x"));
+    CHECK(!chat_words_command("  "));
+    CHECK(!chat_words_command("x+"));
+    CHECK(!chat_words_command("\t+x"));
+    CHECK(!chat_words_command(""));
+
+    World* world = world_create();
+    if (world == nullptr) {
+        ++failures;
+        return;
+    }
+    Game& game = world->game;
+    set_capacity(game, 30);
+    game.local_player_index = 0;
+    name_player(game.players[0], 0, "You");
+    name_player(game.players[1], 1, "Steve");
+    name_player(game.players[2], 2, "Bob");
+    name_player(game.players[4], 4, "Ann");
+    // Slot 1 allies with 2. Slot 2 does not ally back. Allies and enemies follow
+    // the speaker's row, the same row the human chat path uses.
+    game.players[1].alliance[2] = 1;
+    game.players[2].alliance[1] = 0;
+
+    CHECK(seat_hears(game, 1, 0, OA_CHAT_MODE_EVERYONE, nullptr));
+    CHECK(seat_hears(game, 1, 2, OA_CHAT_MODE_EVERYONE, nullptr));
+    CHECK(!seat_hears(game, 1, 1, OA_CHAT_MODE_EVERYONE, nullptr));
+    CHECK(seat_hears(game, 1, 2, OA_CHAT_MODE_ALLIES, nullptr));
+    CHECK(!seat_hears(game, 1, 0, OA_CHAT_MODE_ALLIES, nullptr));
+    CHECK(!seat_hears(game, 1, 2, OA_CHAT_MODE_ENEMIES, nullptr));
+    CHECK(seat_hears(game, 1, 0, OA_CHAT_MODE_ENEMIES, nullptr));
+    CHECK(!seat_hears(game, 2, 1, OA_CHAT_MODE_ALLIES, nullptr));
+    CHECK(seat_hears(game, 2, 1, OA_CHAT_MODE_ENEMIES, nullptr));
+    uint8_t chosen[OA_PLAYER_COUNT]{};
+    chosen[0] = 1;
+    CHECK(seat_hears(game, 1, 0, OA_CHAT_MODE_CHOSEN, chosen));
+    CHECK(!seat_hears(game, 1, 2, OA_CHAT_MODE_CHOSEN, chosen));
+    CHECK(!seat_hears(game, 1, 0, OA_CHAT_MODE_CHOSEN, nullptr));
+    CHECK(!seat_hears(game, 1, 1, OA_CHAT_MODE_CHOSEN, chosen));
+    chosen[1] = 1;
+    CHECK(!seat_hears(game, 1, 1, OA_CHAT_MODE_EVERYONE, chosen));
+    game.players[1].alliance[1] = 1;
+    CHECK(!seat_hears(game, 1, 1, OA_CHAT_MODE_ALLIES, nullptr));
+    CHECK(!seat_hears(game, 1, 0, chat_mode_local_only, nullptr));
+    CHECK(!seat_hears(game, 10, 0, OA_CHAT_MODE_EVERYONE, nullptr));
+    CHECK(!seat_hears(game, 1, 10, OA_CHAT_MODE_EVERYONE, nullptr));
+    CHECK(!seat_hears(game, 255, 0, OA_CHAT_MODE_EVERYONE, nullptr));
+    CHECK(!seat_hears(game, 1, 255, OA_CHAT_MODE_EVERYONE, nullptr));
+
+    SeatCtx ctx;
+    ctx.rec.kind = 3;
+    const Hooks hooks = seat_hooks(ctx);
+    const Player& steve = game.players[1];
+    post_chat(*world, steve, "hi", kind_status, nullptr, hooks);
+    CHECK(ctx.plain_shares == 1 && ctx.seat_shares == 0);
+    ctx.plain_shares = 0;
+    ctx.rec.recorded = 0;
+    ctx.rec.arrived = 0;
+    clear_messages(game);
+
+    post_seat_chat(*world, steve, "hi", OA_CHAT_MODE_EVERYONE, nullptr, hooks);
+    CHECK(std::strcmp(ctx.line, "<Steve> hi") == 0);
+    CHECK(ctx.seat == 1 && ctx.mode == OA_CHAT_MODE_EVERYONE && !ctx.saw_targets);
+    CHECK(ctx.seat_shares == 1 && ctx.plain_shares == 0 && ctx.rec.recorded == 1);
+    CHECK(game.chat_head == 1);
+    const MessageLine* shown = message_line(game, 0);
+    CHECK(std::strcmp(shown->text, "<Steve> hi") == 0);
+    CHECK(shown->sender == 1 && (shown->kind & kind_mask) == kind_player_chat);
+    CHECK(ctx.rec.arrived == 1);
+
+    ctx.seat_shares = 0;
+    ctx.rec.recorded = 0;
+    ctx.rec.arrived = 0;
+    clear_messages(game);
+    post_seat_chat(*world, steve, "go", OA_CHAT_MODE_ALLIES, nullptr, hooks);
+    CHECK(std::strcmp(ctx.line, "<Steve->Allies> go") == 0);
+    CHECK(ctx.rec.recorded == 0 && game.chat_head == 0 && ctx.rec.arrived == 0);
+    game.players[1].alliance[0] = 1;
+    post_seat_chat(*world, steve, "go", OA_CHAT_MODE_ALLIES, nullptr, hooks);
+    CHECK(game.chat_head == 1 && message_line(game, 0)->sender == 1);
+    CHECK(std::strcmp(message_line(game, 0)->text, "<Steve->Allies> go") == 0);
+    CHECK(ctx.rec.recorded == 0 && ctx.rec.arrived == 1);
+    game.players[1].alliance[0] = 0;
+
+    ctx.seat_shares = 0;
+    ctx.rec.arrived = 0;
+    clear_messages(game);
+    post_seat_chat(*world, steve, "go", OA_CHAT_MODE_ENEMIES, nullptr, hooks);
+    CHECK(std::strcmp(ctx.line, "<Steve->Enemies> go") == 0);
+    CHECK(ctx.rec.recorded == 0 && game.chat_head == 1 && ctx.rec.arrived == 1);
+    CHECK(message_line(game, 0)->sender == 1);
+
+    uint8_t targets[OA_PLAYER_COUNT]{};
+    targets[2] = 1;
+    targets[4] = 1;
+    ctx.seat_shares = 0;
+    ctx.rec.arrived = 0;
+    clear_messages(game);
+    post_seat_chat(*world, steve, "go", OA_CHAT_MODE_CHOSEN, targets, hooks);
+    CHECK(std::strcmp(ctx.line, "<Steve->Bob> go") == 0);
+    CHECK(ctx.seat == 1 && ctx.mode == OA_CHAT_MODE_CHOSEN && ctx.saw_targets);
+    CHECK(ctx.targets[2] == 1 && ctx.targets[4] == 1 && ctx.targets[0] == 0);
+    CHECK(ctx.rec.recorded == 0 && game.chat_head == 0 && ctx.rec.arrived == 0);
+    targets[0] = 1;
+    post_seat_chat(*world, steve, "go", OA_CHAT_MODE_CHOSEN, targets, hooks);
+    CHECK(std::strcmp(ctx.line, "<Steve->You> go") == 0);
+    CHECK(game.chat_head == 1 && message_line(game, 0)->sender == 1);
+
+    ctx.seat_shares = 0;
+    ctx.rec.recorded = 0;
+    ctx.rec.arrived = 0;
+    clear_messages(game);
+    post_seat_chat(*world, steve, "here", chat_mode_local_only, nullptr, hooks);
+    CHECK(ctx.seat_shares == 0 && ctx.plain_shares == 0 && ctx.rec.recorded == 0);
+    CHECK(game.chat_head == 0 && ctx.rec.arrived == 0);
+
+    ctx.rec.kind = 0;
+    ctx.seat_shares = 0;
+    post_seat_chat(*world, steve, "hi", OA_CHAT_MODE_EVERYONE, nullptr, hooks);
+    CHECK(ctx.rec.recorded == 0 && ctx.seat_shares == 1);
+    ctx.rec.kind = 3;
+
+    const std::string long_words(191, 'a');
+    ctx.seat_shares = 0;
+    post_seat_chat(*world, steve, long_words, OA_CHAT_MODE_EVERYONE, nullptr, hooks);
+    CHECK(std::strlen(ctx.line) == 199);
+    CHECK(std::strncmp(ctx.line, "<Steve> ", 8) == 0);
+    std::string hanzi(190, 'a');
+    hanzi += "\xe4\xbd\xa0";
+    post_seat_chat(*world, steve, hanzi, OA_CHAT_MODE_EVERYONE, nullptr, hooks);
+    CHECK(std::strlen(ctx.line) == 198);
+
+    ctx.limit_hook = true;
+    ctx.limit = 20;
+    post_seat_chat(*world, steve, "abcdefghijklmnop", OA_CHAT_MODE_EVERYONE, nullptr, hooks);
+    CHECK(std::strlen(ctx.line) == 19);
+    CHECK(std::strcmp(ctx.line, "<Steve> abcdefghijk") == 0);
+    ctx.limit_hook = false;
+
+    const int shares = ctx.seat_shares;
+    const int recorded = ctx.rec.recorded;
+    const int arrived = ctx.rec.arrived;
+    const uint32_t head = game.chat_head;
+    post_seat_chat(*world, steve, "+metal", OA_CHAT_MODE_EVERYONE, nullptr, hooks);
+    post_seat_chat(*world, steve, "  .take", OA_CHAT_MODE_EVERYONE, nullptr, hooks);
+    CHECK(ctx.seat_shares == shares && ctx.plain_shares == 0 && ctx.rec.recorded == recorded);
+    CHECK(ctx.rec.arrived == arrived && game.chat_head == head);
+
+    world_destroy(world);
+}
+
 } // namespace
 
 int main() {
@@ -453,6 +681,7 @@ int main() {
 
     world_destroy(v);
     world_destroy(w);
+    seat_chat_checks();
     if (failures != 0)
         return 1;
     std::puts("sim-messages: ok");

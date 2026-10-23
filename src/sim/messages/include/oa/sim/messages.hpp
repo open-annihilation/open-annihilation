@@ -128,6 +128,12 @@ struct Hooks {
     /// a long line into up to four "<Name> part" records): at most
     /// most_chat_line_bytes. Null, or 0, keeps 3.1c's 200.
     std::size_t (*shared_chat_line_bytes)(void* context){};
+    /// Hands a line a computer seat of this machine said to the other
+    /// players, from that seat, routed by the mode and targets. Null shares
+    /// nothing.
+    void (*share_seat_chat)(
+        void* context, uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets
+    ){};
 };
 
 /// Returns the number of lines the ring keeps (Game.text_lines).
@@ -310,6 +316,84 @@ void post_chat(
     const char* text,
     uint8_t kind,
     const char* target,
+    const Hooks& hooks
+);
+
+/// The speaker, the target and the words of one chat line.
+struct ChatLineParts {
+    std::string_view speaker{}; ///< name in the head; empty when the line has none
+    std::string_view target{};  ///< name after "->"; empty when the head names none
+    std::string_view words{};   ///< the line after the head, or the whole line
+};
+
+/// Splits a chat line into its speaker, its target and its words.
+///
+/// A line "<Speaker->Target> words" splits as named. "<Speaker> words" has
+/// an empty target. The head ends at the line's first "> ", as
+/// format_shown_chat_line reads it. A line without that head is all words,
+/// with an empty speaker and target.
+///
+/// @param line the chat line, as said or received
+/// @return the three parts, each a view of `line`
+[[nodiscard]] ChatLineParts split_chat_line(std::string_view line) noexcept;
+
+/// Gives the chat mode a head's target names.
+///
+/// An empty target is everyone. "Allies" and "Enemies" are those modes,
+/// ASCII case ignored. Any other target is one chosen player.
+///
+/// @param target the target from split_chat_line
+/// @return OA_CHAT_MODE_EVERYONE, ALLIES, ENEMIES or CHOSEN
+[[nodiscard]] uint8_t chat_mode_of_target(std::string_view target) noexcept;
+
+/// Tells whether words are a command: '+' or '.' first, after leading spaces.
+///
+/// @param words the words, without a "<Name>" head
+/// @return true for a command
+[[nodiscard]] bool chat_words_command(std::string_view words) noexcept;
+
+/// Tells whether a seat hears a line a speaker said.
+///
+/// The speaker never hears its own line. Everyone hears mode 0. Allies and
+/// enemies go by the speaker's alliance row. Chosen players go by
+/// `targets`. The local-only mode reaches nobody. A seat or a speaker
+/// outside 0..9 hears nothing.
+///
+/// @param game the match's players
+/// @param speaker slot of the player who said the line
+/// @param seat slot asked about
+/// @param mode OA_CHAT_MODE_* or chat_mode_local_only
+/// @param targets chosen-player slots; null reaches nobody in chosen mode
+/// @return true when `seat` hears the line
+[[nodiscard]] bool seat_hears(
+    const Game& game, uint8_t speaker, uint8_t seat, uint8_t mode, const uint8_t* targets
+) noexcept;
+
+/// Ticks of Game.tick a computer seat waits between lines it says.
+inline constexpr uint32_t seat_chat_interval_ticks = 30;
+
+/// Formats, shares, records and shows a line a computer seat said.
+///
+/// The line is "<name->target> text", as post_chat writes it: no target for
+/// everyone, "Allies", "Enemies", or the first chosen player's chat name.
+/// It is cut as post_chat cuts. It is shared through share_seat_chat unless
+/// the mode is local-only, and recorded through record_chat only for a
+/// multiplayer line to everyone. The log shows it, through
+/// format_shown_chat_line, as a player chat line from the seat, only when
+/// the local player hears it. A command is neither shared nor shown.
+///
+/// @param[in,out] world message log
+/// @param seat the computer seat speaking
+/// @param words the words, without a "<Name>" head
+/// @param mode OA_CHAT_MODE_* or chat_mode_local_only
+/// @param targets chosen-player slots; null when the mode names none
+/// @param hooks sharing, recording, translation, sound and panel services
+void post_seat_chat(
+    World& world,
+    const Player& seat,
+    std::string_view words,
+    uint8_t mode,
+    const uint8_t* targets,
     const Hooks& hooks
 );
 
