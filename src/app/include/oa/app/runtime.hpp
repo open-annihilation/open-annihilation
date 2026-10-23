@@ -32,6 +32,7 @@
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/language_pack.hpp"
 #include "oa/data/brain_facts.hpp"
+#include "oa/data/brain_library/seats.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
@@ -107,6 +108,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace oa::ui::console {
@@ -417,6 +419,25 @@ struct MutatorPickerRequest {
     /// chosen. The picker then says so. Callers that leave it false open on
     /// a chosen set, or on none.
     bool remembered{false};
+};
+
+/// One computer player a match will seat with a brain.
+///
+/// `saved` is the state a saved game will hand back. This ticket leaves it
+/// empty. An empty `version` and `package_sha256` are a brain installed by
+/// hand, whose folder has no origin record.
+struct BrainSeat {
+    uint8_t player{};                                 ///< the player, 0 to 9
+    std::filesystem::path folder{};                   ///< the brain's folder
+    std::string id{};                                 ///< the brain's id
+    std::string version{};                            ///< the manifest's version
+    std::string package_sha256{};                     ///< the package file's SHA-256, or empty
+    std::string level{};                              ///< the level's id
+    oa::data::brain_library::Difficulty difficulty{}; ///< the level's income
+    /// Option id and canonical value, in the brain's option order.
+    std::vector<std::pair<std::string, std::string>> options{};
+    /// Saved state a later ticket fills. Empty until then.
+    std::optional<std::vector<uint8_t>> saved{};
 };
 
 /// Where the mutator picker reads what it lists, and where it queues a download.
@@ -2220,6 +2241,17 @@ class Runtime final : public menu::Host,
     /// @param runtime the running app
     /// @return the source the multiplayer screens bind
     friend oa::ui::frontend_multiplayer::LobbyMapSource pack_map_source(Runtime& runtime);
+    /// Hands a chat line from another machine to the computer seats it
+    /// reached (hear_remote_seat_chat in extension.hpp).
+    ///
+    /// @param runtime the running app
+    /// @param from slot of the sender
+    /// @param addressee slot the record was addressed to
+    /// @param broadcast the record went to every player
+    /// @param line the line as this machine shows it; null is ignored
+    friend void hear_remote_seat_chat(
+        Runtime& runtime, uint8_t from, uint8_t addressee, bool broadcast, const char* line
+    );
 
     // ---- Touch controls (docs/touch-controls.md) --------------------------------------
 
@@ -4481,8 +4513,9 @@ class Runtime final : public menu::Host,
     ///
     /// The value of open-annihilation.brain.default when a brain of that id
     /// is installed, and empty when the key is absent, empty, or names a
-    /// brain that is not installed. While the Library is open this reads the
-    /// worker's listing and does not open the Brains folder.
+    /// brain that is not installed. Once the Library's worker has searched,
+    /// this reads that listing and does not open the Brains folder. Before
+    /// that search, the folder is read.
     ///
     /// @return the id, or empty for the built-in computer player
     [[nodiscard]] std::string default_brain() const;
@@ -4908,6 +4941,87 @@ class Runtime final : public menu::Host,
     ///
     /// @return true when the flag is set
     [[nodiscard]] bool mutators_refused_for_run() const noexcept;
+
+    /// The seats stored for one setup.
+    ///
+    /// None when the key is absent or its text is not seats.
+    ///
+    /// @param setup the setup
+    /// @return the seats, or none
+    [[nodiscard]] std::optional<oa::data::brain_library::Seats>
+    remembered_brain_seats(oa::data::brain_library::Setup setup) const;
+
+    /// Stores the seats a setup started with and saves the preferences.
+    ///
+    /// Writes only when a seat names a brain, or the setup's key is already
+    /// there. A failure to save is logged once and is not thrown.
+    ///
+    /// @param setup the setup
+    /// @param seats the seats
+    void remember_brain_seats(
+        oa::data::brain_library::Setup setup, const oa::data::brain_library::Seats& seats
+    );
+
+    /// The seats a setup keeps for this run.
+    ///
+    /// Skirmish and campaign fill theirs when the setup is entered. The
+    /// battle room's record is kept here for a later ticket and is not
+    /// loaded with them.
+    ///
+    /// @param setup the setup
+    /// @return the seats
+    [[nodiscard]] oa::data::brain_library::Seats&
+    setup_brain_seats(oa::data::brain_library::Setup setup);
+
+    /// The brains the computer players of one start will play.
+    ///
+    /// A seat that names no brain is left out: the built-in player was
+    /// chosen and stays chosen. A player with no seat takes the default
+    /// brain, at `default_level` for `setup_difficulty`. A brain that is not
+    /// installed, or that does not fit the game being played, is left out
+    /// and logged. A level the brain lacks takes `default_level`. An option
+    /// the brain lacks is dropped. A value it does not allow takes the
+    /// option's default.
+    ///
+    /// @param seats the setup's seats
+    /// @param computer_players the computer players, each a slot 0 to 9
+    /// @param setup_difficulty the setup's difficulty
+    /// @return one seat for each computer player that plays a brain
+    [[nodiscard]] std::vector<BrainSeat> resolve_brain_seats(
+        const oa::data::brain_library::Seats& seats,
+        std::span<const uint8_t> computer_players,
+        oa::data::brain_library::Difficulty setup_difficulty
+    );
+
+    /// Holds the brains the next match seats.
+    ///
+    /// An empty list seats nobody. The list stays until that match takes it
+    /// or `cancel_brain_seats_once` drops it. A match already running is
+    /// left as it is.
+    ///
+    /// @param seats the brains, one for each computer player that plays one
+    void seat_brains_once(std::vector<BrainSeat> seats);
+
+    /// Drops the brains held for the next match.
+    ///
+    /// A quiet no-op when none are held. A caller calls this when the match
+    /// start that `seat_brains_once` armed does not seat them.
+    void cancel_brain_seats_once() noexcept;
+
+    /// Tells whether brains are held for the next match.
+    ///
+    /// True from `seat_brains_once` until the next match takes the list or
+    /// `cancel_brain_seats_once` drops it, including a list that seats nobody.
+    ///
+    /// @return true while a list is held
+    [[nodiscard]] bool brain_seats_held_for_next_match() const noexcept;
+
+    /// The brains the running match seated.
+    ///
+    /// Empty when no match is running, and when the match seated none.
+    ///
+    /// @return the brains, in the order they were seated
+    [[nodiscard]] const std::vector<BrainSeat>& seated_brains() const noexcept;
 
   private:
 
@@ -6916,9 +7030,26 @@ class Runtime final : public menu::Host,
     /// The facts a brain reads are stored first, before any brain is seated.
     /// They take the profile and the side build lists read from
     /// gamedata/sidedata.tdf; the match applies both before its first tick's
-    /// orders run. Throws std::runtime_error when either cannot be loaded or
+    /// orders run. Brains held for this start are seated after those players
+    /// are configured. Throws std::runtime_error when either cannot be loaded or
     /// stored.
     void configure_computer_players();
+
+    /// Remembers the computer seats a setup starts with and holds the brains
+    /// the next match seats.
+    ///
+    /// A computer slot keeps its own seat, including one that names no brain.
+    /// A slot with none takes the default brain, at `default_level`, with no
+    /// options. The match is handed what `resolve_brain_seats` keeps.
+    ///
+    /// @param setup the setup
+    void hand_setup_brain_seats(oa::data::brain_library::Setup setup);
+
+    /// Seats the brains held for this match, after the C++ players are configured.
+    ///
+    /// Each one goes through `seat_brain`. One that cannot be seated stays
+    /// with the built-in player. With nothing held, this does nothing.
+    void take_pending_brain_seats();
 
     /// Reloads the computer players' profile (ReloadAIProfiles): it is read again and reapplied
     /// over reset tables. A profile that cannot be stored is reported on the status line and
@@ -18361,6 +18492,17 @@ class Runtime final : public menu::Host,
     bool mutator_refusal_logged_{};
     /// A failure to store or erase a remembered set has already been logged.
     bool mutator_sets_failure_logged_{};
+    /// The seats skirmish, the battle room and campaign keep for this run.
+    /// Empty until that setup is entered. The battle room's stays empty
+    /// until a later ticket fills it.
+    std::array<oa::data::brain_library::Seats, 3> setup_brain_seats_{};
+    /// The brains the next match seats. Disengaged means none were handed.
+    /// An engaged empty list seats nobody.
+    std::optional<std::vector<BrainSeat>> pending_brain_seats_;
+    /// The brains the running match seated. Empty when no match is running.
+    std::vector<BrainSeat> seated_brains_;
+    /// A failure to store the seats has already been logged.
+    bool brain_seats_failure_logged_{};
     // The mounted pack map, the game's names, the fits and the refusals;
     // null until a pack map is first named.
     std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{

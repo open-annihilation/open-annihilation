@@ -19,7 +19,8 @@
 // This extension calls set_extension_window_source and extension_clock.
 // Version 15 adds the OA UI kit, which this extension does not use.
 // Version 16 adds run_mutators, which this extension does not call.
-constexpr uint32_t kExtensionApiVersionFollowed = 16;
+// Version 17 adds hear_remote_seat_chat, which this extension does not call.
+constexpr uint32_t kExtensionApiVersionFollowed = 17;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "

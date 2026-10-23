@@ -1004,6 +1004,7 @@ void Runtime::configure_computer_players() {
     const auto profile = read_computer_profile();
     if (!oa::sim::ai::configure_match_computer_players(*match_, profile, lists, campaign_mission_))
         throw std::runtime_error("cannot store the computer players' profile and build lists");
+    take_pending_brain_seats();
 }
 
 void Runtime::reload_computer_profiles() {
@@ -1866,6 +1867,9 @@ void Runtime::start_campaign_mission() {
     }
     campaign_mission_ = true;
     bool campaign_seated = false;
+    // A hold this start armed and the match never took must not seat a later
+    // one. A hold already set, for a saved game, is left as it is.
+    bool armed_brains = false;
     try {
         if (!load_campaign_map(mission_file)) {
             campaign_mission_ = false;
@@ -1880,6 +1884,10 @@ void Runtime::start_campaign_mission() {
         // after this one start with.
         if (!mutators_held_for_next_match())
             hand_chosen_mutators(mutators_memory::Setup::campaign);
+        if (!brain_seats_held_for_next_match()) {
+            hand_setup_brain_seats(oa::data::brain_library::Setup::campaign);
+            armed_brains = true;
+        }
         bootstrap_match(
             {.units_per_player = static_cast<uint16_t>(state.file.units_per_player),
              .place_commanders = false}
@@ -1893,6 +1901,8 @@ void Runtime::start_campaign_mission() {
         if (match_ == nullptr)
             offer_mutator_start_question();
     }
+    if (armed_brains && brain_seats_held_for_next_match())
+        cancel_brain_seats_once();
     // A start that never builds a match puts the player's setup back. The
     // preferences then keep those slots, not the mission's two players.
     if (campaign_seated && !match_)

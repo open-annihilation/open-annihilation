@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The default computer player. The preference names an installed brain, or
-// the built-in player when it names none. While the Library is open the
-// id is taken from the worker's listing, so this does not open a manifest
-// or measure a network on the Library's thread.
+// the built-in player when it names none. Once the Library's worker has
+// searched, the id is taken from that listing, so this does not open a
+// manifest on the Library's thread. Before that search the Brains folder
+// is read: a match can start while the worker has not listed anything.
 
 #include "library_host.hpp"
 
@@ -35,11 +36,13 @@ std::string Runtime::default_brain() const {
             if (host->work.searches > 0)
                 copied = host->work.brain_listing;
         }
-        if (!copied)
-            return {};
-        if (oa::data::brain_library::find(*copied, id) == nullptr)
-            return {};
-        return id;
+        // No search yet: the listing is empty, not a refusal of this id.
+        // The folder read below is the same one a closed Library uses.
+        if (copied) {
+            if (oa::data::brain_library::find(*copied, id) == nullptr)
+                return {};
+            return id;
+        }
     }
     if (oa::data::brain_library::find(installed_brains(), id) == nullptr)
         return {};
