@@ -460,15 +460,23 @@ void changed_samples_are_not_classic() {
     const std::string fingerprint = brains::classic_sample_fingerprint;
     Sample changed = sample;
     for (std::size_t index = 0; index < changed.paths.size(); ++index) {
-        if (changed.paths[index] == "lua/a.lua" && !changed.bytes[index].empty())
-            changed.bytes[index][0] = static_cast<uint8_t>(changed.bytes[index][0] ^ 0x1u);
+        if (changed.paths[index] == "lua/a.lua" && !changed.bytes[index].empty()) {
+            // The last byte is a newline. Flipping it stays inside Lua's
+            // whitespace, so the package still loads and only the fingerprint moves.
+            const std::size_t last = changed.bytes[index].size() - 1;
+            changed.bytes[index][last] = static_cast<uint8_t>(changed.bytes[index][last] ^ 0x1u);
+        }
     }
     Sample extra = sample;
     extra.paths.emplace_back("notes.txt");
     extra.bytes.push_back({'x'});
-    Sample missing = sample;
-    missing.paths.pop_back();
-    missing.bytes.pop_back();
+    Sample missing;
+    for (std::size_t index = 0; index < sample.paths.size(); ++index) {
+        if (sample.paths[index] == "README.md")
+            continue;
+        missing.paths.push_back(sample.paths[index]);
+        missing.bytes.push_back(sample.bytes[index]);
+    }
     const Sample* cases[] = {&changed, &extra, &missing};
     for (const Sample* one : cases) {
         CHECK(fingerprint_text(*one) != fingerprint);
