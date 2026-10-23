@@ -134,6 +134,17 @@ setup has no set. Restore defaults does not erase them.
 uses as the default computer player. Absent, empty, or an id that is not
 installed, the built-in computer player is the default. Restore defaults
 does not erase it. USE BY DEFAULT writes it.
+`open-annihilation.brains.skirmish`,
+`open-annihilation.brains.multiplayer` and
+`open-annihilation.brains.campaign` each hold the computer seats that
+setup last started a game with, as the seat text: each seat's place and,
+when it names one, its brain, level and options. A skirmish's START and a
+campaign mission's start write their key when a seat names a brain, or
+when the key is already there. A start whose seats name no brain, and
+whose key is absent, writes nothing. The multiplayer key is the battle
+room's and is written the same way when that setup starts a game. Absent,
+or text that cannot be read as seats, the setup has no seats. Restore
+defaults does not erase them.
 `open-annihilation.user-folder` holds the folder the player keeps their
 saved games, screenshots, films, recordings and mods in, as an absolute
 UTF-8 path, in place of `Open Annihilation` in Documents; absent or

@@ -1639,13 +1639,28 @@ void Runtime::load(Screen screen) {
     // it is entered from anywhere else. NEWGAME and Any
     // Mission drop theirs when Single Player or the main menu opens them.
     if (screen == Screen::skirmish && screen_ != Screen::map_selection &&
-        screen_ != Screen::skirmish && screen_ != Screen::loading)
+        screen_ != Screen::skirmish && screen_ != Screen::loading) {
         skirmish_mutators_.clear();
+        const oa::data::brain_library::Setup skirmish_setup =
+            oa::data::brain_library::Setup::skirmish;
+        if (const std::optional<oa::data::brain_library::Seats> remembered =
+                remembered_brain_seats(skirmish_setup))
+            setup_brain_seats(skirmish_setup) = *remembered;
+        else
+            setup_brain_seats(skirmish_setup) = {};
+    }
     if ((screen == Screen::new_campaign || screen == Screen::any_mission) &&
         (screen_ == Screen::single_player || screen_ == Screen::main_menu)) {
         campaign_mutators_.clear();
         if (mutators_held_for_next_match())
             cancel_loadout_once();
+        const oa::data::brain_library::Setup campaign_setup =
+            oa::data::brain_library::Setup::campaign;
+        if (const std::optional<oa::data::brain_library::Seats> remembered =
+                remembered_brain_seats(campaign_setup))
+            setup_brain_seats(campaign_setup) = *remembered;
+        else
+            setup_brain_seats(campaign_setup) = {};
     }
     if (const auto* previous = screen_find(&screens_, screen_id(screen_));
         previous != nullptr && previous->leave != nullptr) {

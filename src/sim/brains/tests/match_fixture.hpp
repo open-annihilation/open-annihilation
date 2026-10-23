@@ -7,6 +7,7 @@
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -78,6 +79,8 @@ struct Fixture {
     std::array<data::unit_definitions::RuntimeDefinitionMetadata, type_count> metadata;
     std::array<sim::match_runtime::RuntimeTypeFields, type_count> fields{};
     std::vector<uint8_t> yard_cells = std::vector<uint8_t>(4, 4);
+    /// Yard of a building that claims its footprint, so a vehicle cannot path through it.
+    std::array<uint8_t, 4> blocking_yard{0x2f, 0x2f, 0x2f, 0x2f};
     data::unit_definitions::UnitTargetCategoryMasks target_masks;
     sim::combat_state::WeaponRegistry weapons;
     std::vector<sim::spatial_state::Plot> plots;
@@ -90,10 +93,15 @@ struct Fixture {
     /// @param downloadable_type a type marked downloadable, or 0 for none
     /// @param builder_income whether the vehicle makes energy and metal
     /// @param rules the match rules
+    /// @param movement_class a movement class for the vehicle, or 0 for none.
+    ///     Non-zero raises the map onto dry land and gives the buildings a
+    ///     blocking yard, so a ground move can be searched. Zero leaves the
+    ///     match the seat, game and side tests build.
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
-        const data::match_rules::MatchRules& rules = {}
+        const data::match_rules::MatchRules& rules = {},
+        uint32_t movement_class = 0
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -159,6 +167,17 @@ struct Fixture {
             defs[vehicle].metal_make = builder_metal_make;
         }
         fields[vehicle].movement_class = 0;
+        if (movement_class != 0) {
+            map.sea_level = 20;
+            for (auto& attribute : map.attributes)
+                attribute.height = 40;
+            for (auto& plot : plots)
+                plot.low_height = plot.high_height = 40;
+            fields[vehicle].movement_class = movement_class;
+            fields[collector].yard_mask = blocking_yard;
+            fields[relay].yard_mask = blocking_yard;
+            fields[silo].yard_mask = blocking_yard;
+        }
         defs[collector].energy_make = 20.0F;
         types[silo].simulation.flags |= OA_UNIT_DEF_FLAG_BUILDER | OA_UNIT_DEF_FLAG_HAS_WEAPONS;
         defs[silo].builder = true;

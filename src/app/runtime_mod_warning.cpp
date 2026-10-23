@@ -320,15 +320,27 @@ bool Runtime::start_skirmish_as_chosen(const entry::Event& event) {
 }
 
 bool Runtime::start_skirmish_from_setup(const entry::Event& event) {
+    // A hold this START armed and the match never took must not seat a later one.
+    bool armed_brains = false;
     try {
         // START hands the setup's chosen mutators on first, so a set that
         // cannot be read fails here as any start does, and the set stays.
-        if (button_result(skirmish::MenuHandle{kFrontendMenuHandle}, skirmish::Button::start) != 0)
+        if (button_result(skirmish::MenuHandle{kFrontendMenuHandle}, skirmish::Button::start) !=
+            0) {
             hand_chosen_mutators(mutators_memory::Setup::skirmish);
+            cancel_brain_seats_once();
+            armed_brains = true;
+            hand_setup_brain_seats(oa::data::brain_library::Setup::skirmish);
+        }
     } catch (const std::exception& failure) {
+        if (armed_brains)
+            cancel_brain_seats_once();
         return note_failed_skirmish_start(failure);
     }
-    return start_skirmish_as_chosen(event);
+    const bool started = start_skirmish_as_chosen(event);
+    if (armed_brains && brain_seats_held_for_next_match())
+        cancel_brain_seats_once();
+    return started;
 }
 
 } // namespace oa::app
