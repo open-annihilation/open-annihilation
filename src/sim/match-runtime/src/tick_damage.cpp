@@ -299,6 +299,12 @@ void Match::spawn_corpse(sim::unit_spawn::Slot& slot, uint8_t wreck_level, bool 
         }
         smoke = false;
     }
+    // unit_died has already fired, and the dead unit's record still holds
+    // its position. A placement that returns no feature leaves no wreck.
+    if (placed != nullptr)
+        emit_event<&EventHooks::wreck_placed>(
+            world, slot.unit_index, corpse, static_cast<uint32_t>(index)
+        );
     if (world.plots[index].feature == corpse)
         wrecks_.push_back(
             {corpse,

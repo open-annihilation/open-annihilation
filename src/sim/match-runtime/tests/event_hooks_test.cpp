@@ -104,6 +104,18 @@ struct EndedReport {
     bool done{};
 };
 
+struct CarryReport {
+    uint16_t unit{};
+    uint16_t carrier{};
+    bool loaded{};
+};
+
+struct WreckReport {
+    uint16_t unit{};
+    uint16_t feature{};
+    uint32_t plot{};
+};
+
 struct GivenReport {
     uint16_t unit{};
     uint16_t copy{};
@@ -129,6 +141,8 @@ struct Recorder {
     std::vector<GivenReport> given;
     std::vector<uint16_t> idle;
     std::vector<EndedReport> ended;
+    std::vector<CarryReport> carried;
+    std::vector<WreckReport> wrecks;
     std::vector<BirthStep> births;
 
     /// Returns hooks that report into this recorder.
@@ -172,6 +186,14 @@ struct Recorder {
         hooks.order_ended =
             [](void* context, const World&, uint16_t unit, uint8_t kind, bool done) {
                 static_cast<Recorder*>(context)->ended.push_back({unit, kind, done});
+            };
+        hooks.unit_carried =
+            [](void* context, const World&, uint16_t unit, uint16_t carrier, bool loaded) {
+                static_cast<Recorder*>(context)->carried.push_back({unit, carrier, loaded});
+            };
+        hooks.wreck_placed =
+            [](void* context, const World&, uint16_t unit, uint16_t feature, uint32_t plot) {
+                static_cast<Recorder*>(context)->wrecks.push_back({unit, feature, plot});
             };
         hooks.shot_placed = [](void* context,
                                const World&,
@@ -341,6 +363,24 @@ bool operator==(const EndedReport& left, const EndedReport& right) {
     return left.unit == right.unit && left.kind == right.kind && left.done == right.done;
 }
 
+/// Tells whether two carry reports name the same link change.
+///
+/// @param left first report
+/// @param right second report
+/// @return true when every field is equal
+bool operator==(const CarryReport& left, const CarryReport& right) {
+    return left.unit == right.unit && left.carrier == right.carrier && left.loaded == right.loaded;
+}
+
+/// Tells whether two wreck reports name the same corpse.
+///
+/// @param left first report
+/// @param right second report
+/// @return true when every field is equal
+bool operator==(const WreckReport& left, const WreckReport& right) {
+    return left.unit == right.unit && left.feature == right.feature && left.plot == right.plot;
+}
+
 /// Tells whether two recorders kept the same reports, entry for entry.
 ///
 /// @param left first recorder
@@ -351,7 +391,8 @@ bool same_records(const Recorder& left, const Recorder& right) {
            left.finished == right.finished && left.shots == right.shots &&
            left.detonations == right.detonations && left.damage == right.damage &&
            left.deaths == right.deaths && left.given == right.given && left.idle == right.idle &&
-           left.ended == right.ended && left.births == right.births;
+           left.ended == right.ended && left.carried == right.carried &&
+           left.wrecks == right.wrecks && left.births == right.births;
 }
 
 /// The skirmish with every hook set plays exactly as without, to

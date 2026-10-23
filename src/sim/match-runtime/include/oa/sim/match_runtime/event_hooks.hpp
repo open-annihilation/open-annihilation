@@ -4,7 +4,8 @@
 // Read-only hooks that report what happens in a match: units created and
 // which unit started them, units finished, units given to another player,
 // a unit going idle, an order ending, shots placed, shots detonating,
-// damage and deaths. The match
+// damage and deaths, a unit carried or dropped, and the wreck a death
+// leaves. The match
 // reports each event to its primary table (Match::event_hooks), then to
 // each listener in the order it was added, at the points every such event
 // passes through, whoever simulates the unit: this machine, or a recording
@@ -197,6 +198,34 @@ struct EventHooks {
     /// @param done true when the handler finished the order, false when it failed
     void (*order_ended)(
         void* context, const oa::World& world, uint16_t unit, uint8_t kind, bool done
+    ){};
+
+    /// Reports a carry link that changed, on this machine or from another
+    /// machine's record, after the link is in place; null reports none.
+    ///
+    /// The unit is reported once with `loaded` false and the carrier it left,
+    /// then once with `loaded` true and the carrier it joined. A link that
+    /// only changes the piece, and a link that was refused, are not reported.
+    ///
+    /// @param context EventHooks::context
+    /// @param world the match's world
+    /// @param unit the carried unit's slot
+    /// @param carrier the carrier it left or joined
+    /// @param loaded false when it left that carrier, true when it joined it
+    void (*unit_carried)(
+        void* context, const oa::World& world, uint16_t unit, uint16_t carrier, bool loaded
+    ){};
+
+    /// Reports a corpse a death placed, after that unit's `unit_died`, while
+    /// the dead unit's record still holds its position; null reports none.
+    ///
+    /// @param context EventHooks::context
+    /// @param world the match's world
+    /// @param unit the dead unit's slot
+    /// @param feature the placed feature's type, a FeatureDef index
+    /// @param plot the index into World::plots the corpse was placed in
+    void (*wreck_placed)(
+        void* context, const oa::World& world, uint16_t unit, uint16_t feature, uint32_t plot
     ){};
 };
 
