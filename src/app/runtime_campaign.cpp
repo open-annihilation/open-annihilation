@@ -13,6 +13,7 @@
 #include "oa/app/asset_files.hpp"
 
 #include "oa/sim/ai.hpp"
+#include "oa/sim/brains/seat.hpp"
 #include "oa/data/campaign/campaign_assets.hpp"
 #include "oa/data/campaign/campaign_file.hpp"
 #include "oa/core/unit_def.h"
@@ -988,6 +989,7 @@ std::string Runtime::read_computer_profile() {
 void Runtime::configure_computer_players() {
     if (!match_)
         return;
+    oa::sim::brains::set_match_game_facts(*match_, brain_game_facts());
     // Every type's build list as the game holds it, its CANBUILD entries then
     // the download menus': per type, a count then its ids.
     const auto& tables = unit_table_.tables;
