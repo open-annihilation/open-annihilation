@@ -566,6 +566,7 @@ class TickHost final : public sim::simulation_state::Host,
     /// @param m the match
     explicit TickHost(Match& m) : match(m) {
         sim::simulation_state::Host::rules = m.rules_view();
+        sim::simulation_state::Host::order_ends = {&m, &Match::report_order_end};
         sim::ground_orders::Host::rules = m.rules_view();
     }
 
