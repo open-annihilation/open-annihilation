@@ -14,7 +14,9 @@
 
 #include "oa/core/world.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace oa::sim::detection {
 
@@ -80,6 +82,54 @@ struct Sightings {
     // searches that find nothing seen fall back to the radar list.
     uint8_t radar_fallback{};
 };
+
+/// One known unit in a list kept in unit slot order.
+struct SightedUnit {
+    uint16_t unit{};       ///< the unit's slot
+    uint32_t generation{}; ///< the generation that tells this unit from the next to take the slot
+};
+
+/// Compares two lists of known units and reports what entered and what left.
+///
+/// Both lists are in ascending slot order. An entry matches another only when
+/// its slot and its generation both match. Each entry only the earlier list
+/// holds is reported lost, and each only the later list holds is reported
+/// gained, in slot order. Where one slot is in both lists with different
+/// generations, the lost entry is reported before the gained one. Nothing is
+/// allocated.
+///
+/// @tparam Entry a type with unit and generation members
+/// @tparam Lost a callable taking one earlier-list entry
+/// @tparam Gained a callable taking one later-list entry
+/// @param before the earlier list
+/// @param after the later list
+/// @param lost called with each entry only before holds
+/// @param gained called with each entry only after holds
+template <class Entry, class Lost, class Gained>
+void diff_sighted(
+    std::span<const Entry> before, std::span<const Entry> after, Lost&& lost, Gained&& gained
+) {
+    std::size_t before_at = 0;
+    std::size_t after_at = 0;
+    while (before_at < before.size() || after_at < after.size()) {
+        const bool before_left = before_at < before.size();
+        const bool after_left = after_at < after.size();
+        if (before_left && after_left && before[before_at].unit == after[after_at].unit &&
+            before[before_at].generation == after[after_at].generation) {
+            ++before_at;
+            ++after_at;
+            continue;
+        }
+        // The same slot with a new generation is lost before it is gained.
+        if (before_left && (!after_left || before[before_at].unit <= after[after_at].unit)) {
+            lost(before[before_at]);
+            ++before_at;
+            continue;
+        }
+        gained(after[after_at]);
+        ++after_at;
+    }
+}
 
 /// Returns the squared horizontal distance between two points as the game sums it.
 ///

@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <initializer_list>
 #include <limits>
+#include <span>
 
 using namespace oa;
 using namespace oa::sim::detection;
@@ -502,6 +503,109 @@ void test_created_picture_bits() {
     CHECK(created_picture_bits(unit, enemy) == picture_sonar);
 }
 
+// One call diff_sighted made, in the order it made them.
+struct DiffCall {
+    bool gained{};
+    uint16_t unit{};
+    uint32_t generation{};
+    uint16_t mark{};
+};
+
+// Appends one call. The lists under test stay within a handful of entries.
+template <class Entry>
+void note_diff(DiffCall* log, int& count, bool gained, const Entry& entry, uint16_t mark) {
+    CHECK(count < 8);
+    log[count++] = DiffCall{gained, entry.unit, entry.generation, mark};
+}
+
+void test_diff_sighted() {
+    DiffCall log[8]{};
+    int count = 0;
+    const auto lost = [&](const auto& entry) { note_diff(log, count, false, entry, 0); };
+    const auto gained = [&](const auto& entry) { note_diff(log, count, true, entry, 0); };
+    const auto calls = [&]() {
+        return std::span<const DiffCall>{log, static_cast<std::size_t>(count)};
+    };
+
+    diff_sighted(std::span<const SightedUnit>{}, std::span<const SightedUnit>{}, lost, gained);
+    CHECK(count == 0);
+
+    const SightedUnit two[] = {{1, 4}, {3, 5}};
+    count = 0;
+    diff_sighted(std::span<const SightedUnit>{}, std::span<const SightedUnit>{two}, lost, gained);
+    CHECK(count == 2);
+    CHECK(log[0].gained && log[0].unit == 1 && log[0].generation == 4);
+    CHECK(log[1].gained && log[1].unit == 3 && log[1].generation == 5);
+
+    count = 0;
+    diff_sighted(std::span<const SightedUnit>{two}, std::span<const SightedUnit>{}, lost, gained);
+    CHECK(count == 2);
+    CHECK(!log[0].gained && log[0].unit == 1 && log[0].generation == 4);
+    CHECK(!log[1].gained && log[1].unit == 3 && log[1].generation == 5);
+
+    // Disjoint slots, then a shared slot between them, then a slot only the
+    // later list holds, then one only the earlier list holds.
+    const SightedUnit before[] = {{1, 1}, {4, 1}, {6, 1}};
+    const SightedUnit after[] = {{2, 1}, {4, 2}, {5, 1}};
+    count = 0;
+    diff_sighted(
+        std::span<const SightedUnit>{before}, std::span<const SightedUnit>{after}, lost, gained
+    );
+    const DiffCall interleaved[] = {
+        {false, 1, 1, 0},
+        {true, 2, 1, 0},
+        {false, 4, 1, 0},
+        {true, 4, 2, 0},
+        {true, 5, 1, 0},
+        {false, 6, 1, 0},
+    };
+    CHECK(calls().size() == 6);
+    for (int index = 0; index < count; ++index) {
+        CHECK(log[index].gained == interleaved[index].gained);
+        CHECK(log[index].unit == interleaved[index].unit);
+        CHECK(log[index].generation == interleaved[index].generation);
+    }
+
+    // The same slot with a new generation is lost, then gained.
+    const SightedUnit old_slot[] = {{2, 1}};
+    const SightedUnit new_slot[] = {{2, 2}};
+    count = 0;
+    diff_sighted(
+        std::span<const SightedUnit>{old_slot}, std::span<const SightedUnit>{new_slot}, lost, gained
+    );
+    CHECK(count == 2);
+    CHECK(!log[0].gained && log[0].unit == 2 && log[0].generation == 1);
+    CHECK(log[1].gained && log[1].unit == 2 && log[1].generation == 2);
+
+    count = 0;
+    diff_sighted(
+        std::span<const SightedUnit>{two}, std::span<const SightedUnit>{two}, lost, gained
+    );
+    CHECK(count == 0);
+
+    // An entry with a field past the slot and generation: the template reads
+    // those two, and the callable still sees the rest. A changed extra field
+    // on a matching slot is not a change.
+    struct Marked {
+        uint16_t unit{};
+        uint32_t generation{};
+        uint16_t mark{};
+    };
+
+    const Marked marked_before[] = {{2, 1, 9}, {4, 3, 8}};
+    const Marked marked_after[] = {{2, 1, 7}, {4, 4, 6}};
+    count = 0;
+    diff_sighted(
+        std::span<const Marked>{marked_before},
+        std::span<const Marked>{marked_after},
+        [&](const Marked& entry) { note_diff(log, count, false, entry, entry.mark); },
+        [&](const Marked& entry) { note_diff(log, count, true, entry, entry.mark); }
+    );
+    CHECK(count == 2);
+    CHECK(!log[0].gained && log[0].unit == 4 && log[0].generation == 3 && log[0].mark == 8);
+    CHECK(log[1].gained && log[1].unit == 4 && log[1].generation == 4 && log[1].mark == 6);
+}
+
 void test_expose_cloaker() {
     Unit unit{};
     unit.flags = OA_UNIT_FLAG_LIVE | cloak_ordered;
@@ -528,6 +632,7 @@ int main() {
     test_pad_list();
     test_sighted_within();
     test_expose_cloaker();
+    test_diff_sighted();
     test_finished_unit();
     if (failures)
         std::fprintf(stderr, "%d detection checks failed\n", failures);

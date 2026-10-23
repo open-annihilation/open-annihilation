@@ -224,6 +224,29 @@ const Command brain_commands[] = {
         run_brain_pack,
         {},
     },
+    {
+        "net",
+        "MODEL.onnx --calibrate DATA [--out FILE] [--weights int8|int16] "
+        "[--max-difference X] [--force] [--json]",
+        "Convert an ONNX model to a .oann.",
+        "Reads MODEL.onnx, a model of the default domain at opset 11 to 21, and writes a .oann. "
+        "The layers are Gemm and MatMul (a following Add of a constant is the bias), Conv, "
+        "MaxPool, Relu, LeakyRelu, Tanh, Sigmoid, Softmax, Add, Concat, Flatten, Reshape, ArgMax "
+        "and Gather. Identity and Dropout are skipped. The first dimension of every input is the "
+        "batch and is removed. --calibrate is a file of JSON lines; a line whose kind is sample "
+        "holds features as whole numbers in 65536ths. Weights are int8 unless --weights int16 is "
+        "set. The integer network is run on the same samples, and the report gives each output's "
+        "largest difference, or the share of samples an argmax agrees on. --max-difference "
+        "refuses a larger difference and writes nothing. Without --out the file is the model's "
+        "path with .oann. An existing file needs --force. --json prints one object. Exit 0 when "
+        "the file was written and every difference is within the limit. Exit 1 when the model "
+        "cannot be converted or a difference passes the limit. Exit 2 when the arguments are not "
+        "the command's.",
+        1,
+        any_count,
+        run_brain_net,
+        {},
+    },
 };
 
 const Command command_table[] = {
@@ -373,11 +396,14 @@ const Command command_table[] = {
     {
         "brain",
         "COMMAND",
-        "Pack brains.",
-        "Packs a brain folder into a .oabrain. brain pack reads a folder whose top holds "
-        "oabrain.yaml. oa-tool check reports a brain's facts: summary, description, homepage, "
-        "tags, author, requires, works_with, levels, full_awareness, networks, network_bytes, "
-        "options, icon, entry, scripts and data. A folder without oabrain.yaml is a usage error.",
+        "Pack brains and convert a network.",
+        "Packs a brain folder into a .oabrain and converts an ONNX model into a .oann. brain pack "
+        "reads a folder whose top holds oabrain.yaml. oa-tool check reports a brain's facts: "
+        "summary, description, homepage, tags, author, requires, works_with, levels, "
+        "full_awareness, networks, network_bytes, options, icon, entry, scripts and data. A "
+        "folder without oabrain.yaml is a usage error. brain net reads an ONNX model of opset 11 "
+        "to 21, quantises it with a calibration file and reports how far the integer network is "
+        "from the floating-point one.",
         0,
         0,
         nullptr,
