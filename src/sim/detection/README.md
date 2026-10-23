@@ -27,6 +27,9 @@ Sightings, rebuilt every 30 ticks:
 - `sightings_due`, `clear_sightings` and `file_sighting` fill the seen list,
   the radar list and the player's own repair pads. `finished_unit` and
   `sighting_candidate` are the gates on that walk.
+- `diff_sighted` compares two slot-ordered lists of known units. An entry
+  matches only when its slot and its generation both match, so a slot a new
+  unit has taken is one lost and one gained. It allocates nothing.
 - `pads_in_reach` and `pad_in_reach` are the pads a damaged aircraft may
   choose. `sighted_within` is the cloak distance test.
 
@@ -61,7 +64,10 @@ stream, and they do not expose a cloaker.
 grid, jammers, shared radar, sightings, repair pads and the picture
 functions: `stamp_picture` against `stamp_contact` when the viewer is the
 viewpoint, another viewer's own units left unstamped, the jammer rule's
-truth table and `created_picture_bits`.
+truth table and `created_picture_bits`. `diff_sighted` is checked with
+empty lists, gains, losses, interleaved slots, a reused slot's generation,
+identical lists, and a list entry that carries a field past the slot and
+the generation.
 
 ## Limitations
 

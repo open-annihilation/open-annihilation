@@ -3413,6 +3413,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // the seen, radar and pad lists of every player.
     std::array<sim::detection::Sightings, OA_PLAYER_COUNT> sightings_{};
     std::vector<uint16_t> sighting_slots_;
+    // Each player's seen list at its previous knowledge refresh, one entry
+    // per unit slot for every player. Kept up whether or not anyone is
+    // listening, and empty after a load, so the first refresh reports every
+    // seen enemy as gained.
+    std::unique_ptr<sim::detection::SightedUnit[]> seen_before_;
+    // How many entries each player's previous seen list holds.
+    std::array<uint32_t, OA_PLAYER_COUNT> seen_before_count_{};
+    // Scratch for one refresh: the list now, the units gained and the units
+    // lost, each one entry per unit slot.
+    std::unique_ptr<sim::detection::SightedUnit[]> seen_work_;
     std::vector<sim::combat_state::TargetUnit> sighting_query_;
     std::array<sim::combat_state::StrategicRefreshState, 10> strategic_states_;
     std::optional<StrategicEnvironment> strategic_environment_;

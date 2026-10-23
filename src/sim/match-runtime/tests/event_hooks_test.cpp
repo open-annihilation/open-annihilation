@@ -27,6 +27,7 @@
 #include <exception>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -129,6 +130,12 @@ struct GivenReport {
     bool live_at_call{};
 };
 
+struct SeenChangeReport {
+    uint8_t player{};
+    std::vector<sim::detection::SightedUnit> gained;
+    std::vector<sim::detection::SightedUnit> lost;
+};
+
 // Order of creation, created-by and finished reports. A created-by report
 // sits immediately after its unit's created report, and a building created
 // finished is reported finished after that.
@@ -150,6 +157,7 @@ struct Recorder {
     std::vector<WreckReport> wrecks;
     std::vector<PathFailedReport> path_failed;
     std::vector<BirthStep> births;
+    std::vector<SeenChangeReport> seen;
 
     /// Returns hooks that report into this recorder.
     ///
@@ -201,6 +209,15 @@ struct Recorder {
             [](void* context, const World&, uint16_t unit, uint16_t feature, uint32_t plot) {
                 static_cast<Recorder*>(context)->wrecks.push_back({unit, feature, plot});
             };
+        hooks.seen_changed = [](void* context,
+                                const World&,
+                                uint8_t player,
+                                std::span<const sim::detection::SightedUnit> gained,
+                                std::span<const sim::detection::SightedUnit> lost) {
+            static_cast<Recorder*>(context)->seen.push_back(
+                {player, {gained.begin(), gained.end()}, {lost.begin(), lost.end()}}
+            );
+        };
         hooks.path_failed = [](void* context, const World&, uint16_t unit, uint8_t kind) {
             static_cast<Recorder*>(context)->path_failed.push_back({unit, kind});
         };
@@ -390,6 +407,42 @@ bool operator==(const WreckReport& left, const WreckReport& right) {
     return left.unit == right.unit && left.feature == right.feature && left.plot == right.plot;
 }
 
+/// Tells whether two sighted lists name the same slots and generations.
+///
+/// @param left one list
+/// @param right the other list
+/// @return true when they match entry for entry
+bool same_sighted(
+    const std::vector<sim::detection::SightedUnit>& left,
+    const std::vector<sim::detection::SightedUnit>& right
+) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index)
+        if (left[index].unit != right[index].unit ||
+            left[index].generation != right[index].generation)
+            return false;
+    return true;
+}
+
+/// Tells whether two recorders kept the same seen-list changes.
+///
+/// @param left first recorder
+/// @param right second recorder
+/// @return true when every seen_changed report matches
+bool same_seen(const Recorder& left, const Recorder& right) {
+    if (left.seen.size() != right.seen.size())
+        return false;
+    for (std::size_t index = 0; index < left.seen.size(); ++index) {
+        if (left.seen[index].player != right.seen[index].player)
+            return false;
+        if (!same_sighted(left.seen[index].gained, right.seen[index].gained) ||
+            !same_sighted(left.seen[index].lost, right.seen[index].lost))
+            return false;
+    }
+    return true;
+}
+
 /// Tells whether two path-failure reports name the same unit and order.
 ///
 /// @param left first report
@@ -411,7 +464,7 @@ bool same_records(const Recorder& left, const Recorder& right) {
            left.deaths == right.deaths && left.given == right.given && left.idle == right.idle &&
            left.ended == right.ended && left.carried == right.carried &&
            left.wrecks == right.wrecks && left.path_failed == right.path_failed &&
-           left.births == right.births;
+           left.births == right.births && same_seen(left, right);
 }
 
 /// The skirmish with every hook set plays exactly as without, to

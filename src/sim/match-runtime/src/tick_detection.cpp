@@ -508,6 +508,54 @@ void Match::refresh_player_knowledge(uint8_t player) {
     if (knowledge != nullptr)
         sim::ai::computer_knowledge_settle(*knowledge, tally);
     sightings.refreshed_tick = tick;
+    const auto seen_stride = static_cast<std::size_t>(sightings.capacity);
+    detection::SightedUnit* const now_list = seen_work_.get();
+    uint32_t now_count = 0;
+    for (uint32_t filed = 0; filed < sightings.seen_count; ++filed) {
+        const auto unit_slot = sightings.seen[filed];
+        now_list[now_count] = detection::SightedUnit{
+            unit_slot, bridge_->runtime(slots_.at(unit_slot)).instance_generation
+        };
+        ++now_count;
+    }
+    if (event_wanted<&EventHooks::seen_changed>()) {
+        detection::SightedUnit* const gained_list = now_list + seen_stride;
+        detection::SightedUnit* const lost_list = gained_list + seen_stride;
+        uint32_t gained_count = 0;
+        uint32_t lost_count = 0;
+        const auto* const before_list =
+            seen_before_.get() + static_cast<std::size_t>(player) * seen_stride;
+        detection::diff_sighted(
+            std::span<const detection::SightedUnit>{
+                before_list, static_cast<std::size_t>(seen_before_count_[player])
+            },
+            std::span<const detection::SightedUnit>{now_list, static_cast<std::size_t>(now_count)},
+            [&](const detection::SightedUnit& entry) {
+                lost_list[lost_count] = entry;
+                ++lost_count;
+            },
+            [&](const detection::SightedUnit& entry) {
+                gained_list[gained_count] = entry;
+                ++gained_count;
+            }
+        );
+        if (gained_count != 0 || lost_count != 0) {
+            emit_event<&EventHooks::seen_changed>(
+                world,
+                player,
+                std::span<const detection::SightedUnit>{
+                    gained_list, static_cast<std::size_t>(gained_count)
+                },
+                std::span<const detection::SightedUnit>{
+                    lost_list, static_cast<std::size_t>(lost_count)
+                }
+            );
+        }
+    }
+    auto* const stored = seen_before_.get() + static_cast<std::size_t>(player) * seen_stride;
+    for (uint32_t copied = 0; copied < now_count; ++copied)
+        stored[copied] = now_list[copied];
+    seen_before_count_[player] = now_count;
     if (random_.bounded(detection::sighting_period) == 0)
         refresh_strategic_state(player);
 }

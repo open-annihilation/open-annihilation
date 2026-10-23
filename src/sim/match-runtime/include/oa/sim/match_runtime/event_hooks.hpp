@@ -4,8 +4,9 @@
 // Read-only hooks that report what happens in a match: units created and
 // which unit started them, units finished, units given to another player,
 // a unit going idle, an order ending, shots placed, shots detonating,
-// damage and deaths, a unit carried or dropped, the wreck a death leaves,
-// and a goal a unit cannot reach. The match
+// damage and deaths, a unit carried or dropped, the wreck a death
+// leaves, the enemies a player has gained or lost sight of, and a goal
+// a unit cannot reach. The match
 // reports each event to its primary table (Match::event_hooks), then to
 // each listener in the order it was added, at the points every such event
 // passes through, whoever simulates the unit: this machine, or a recording
@@ -19,9 +20,11 @@
 #include "oa/core/projectile.h"
 #include "oa/core/types.h"
 #include "oa/core/world.h"
+#include "oa/sim/detection.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
 
 namespace oa::sim::match_runtime {
 
@@ -226,6 +229,27 @@ struct EventHooks {
     /// @param plot the index into World::plots the corpse was placed in
     void (*wreck_placed)(
         void* context, const oa::World& world, uint16_t unit, uint16_t feature, uint32_t plot
+    ){};
+
+    /// Reports the enemies a player gained and lost sight of, at the end of
+    /// that player's knowledge refresh when its seen list changed; null
+    /// reports none.
+    ///
+    /// The spans are valid for the call only. A lost unit may have died, or
+    /// its slot may hold another unit now, which a reader tells from the
+    /// world and the generation.
+    ///
+    /// @param context EventHooks::context
+    /// @param world the match's world
+    /// @param player the player whose seen list changed
+    /// @param gained enemies that entered the seen list, in slot order
+    /// @param lost enemies that left the seen list, in slot order
+    void (*seen_changed)(
+        void* context,
+        const oa::World& world,
+        uint8_t player,
+        std::span<const oa::sim::detection::SightedUnit> gained,
+        std::span<const oa::sim::detection::SightedUnit> lost
     ){};
 
     /// Reports that a unit simulated here cannot reach its order's goal.
