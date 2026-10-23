@@ -90,25 +90,34 @@ made by hand; that is not an error.
 ## `oa-tool pack` and `oa-tool check`
 
 `oa-tool pack FOLDER` writes a `.oamod`, a `.oalang`, a `.oamap`, a
-`.oaexp` or a `.oamut`. The folder's top holds one manifest, `oamod.yaml`,
-`language.yaml`, `oamap.yaml`, `oaexp.yaml` or `oamut.yaml`. The manifest is
-written first, then every other file in byte order of its path, with fixed
-times. A file whose extension, without regard to case, is `png`, `jpg`,
-`jpeg`, `gif`, `ogg`, `mp3`, `zip`, `gz`, `bz2`, `xz`, `7z`, `oamod`,
-`oalang` or `oamap`, and an empty file, is stored. Every other file is
-deflated. An expansion is different: every file is stored. The same files
-give the same bytes on any machine with the same zlib.
+`.oaexp`, a `.oamut` or a `.oabrain`. The folder's top holds one manifest,
+`oamod.yaml`, `language.yaml`, `oamap.yaml`, `oaexp.yaml`, `oamut.yaml` or
+`oabrain.yaml`. The manifest is written first, then every other file in
+byte order of its path, with fixed times. A file whose extension, without
+regard to case, is `png`, `jpg`, `jpeg`, `gif`, `ogg`, `mp3`, `zip`, `gz`,
+`bz2`, `xz`, `7z`, `oamod`, `oalang` or `oamap`, and an empty file, is
+stored. Every other file is deflated. An expansion is different: every file
+is stored. The same files give the same bytes on any machine with the same
+zlib.
 
 `--out FILE` names the package. Without it, the name comes from the manifest
 and is written in the current folder. A mutator's default name is
-`<id>-<version>.oamut`. `--force` replaces an existing file. A folder the
-installer would refuse is not packed, and a mutator whose manifest, Lua
-source or rule file is broken is not packed: every problem is listed, a
-manifest problem as `oamut.yaml:<line>:<column>`, and a script or rule
-problem as `<path>:<line>: <message>`. Lua is compiled and rule files are
-parsed, and neither is run. A map pack needs `--game-dir DIR` for the
+`<id>-<version>.oamut`. A brain's default name is `<id>-<version>.oabrain`.
+`--force` replaces an existing file. A folder the installer would refuse is
+not packed, and a mutator whose manifest, Lua source or rule file is broken
+is not packed: every problem is listed, a manifest problem as
+`oamut.yaml:<line>:<column>`, and a script or rule problem as
+`<path>:<line>: <message>`. A brain whose manifest, layout, Lua source,
+network SHA-256 or icon is broken is not packed either: a manifest problem
+is `oabrain.yaml:<line>:<column>`, a script problem is
+`<path>:<line>: <message>`, a file outside the layout is
+`<path>: outside the files a brain may hold`, and a network whose bytes are
+not the digest the manifest names is
+`<file>: its SHA-256 is <hex>, not the <hex> oabrain.yaml gives`. Lua is
+compiled and rule files are parsed, and neither is run. A network file is
+hashed and not interpreted. A map pack needs `--game-dir DIR` for the
 game's palette, which previews use. `--game-dir` on a mod, a language pack,
-an expansion or a mutator is a usage error.
+an expansion, a mutator or a brain is a usage error.
 
 `oa-tool check FILE` runs the same checks an install runs before it writes,
 and reports whether that install would accept the file. `--json` prints one
@@ -124,7 +133,10 @@ JSON object. The keys, in order, are `check`, `ok`, `problems`, `warnings`,
 - an expansion: `extends`, `needs` and `author`;
 - a mutator: `summary`, `description`, `homepage`, `tags`, `author`,
   `requires`, `works_with`, `conflicts_with`, `layers`, `options`, `icon`,
-  `entry`, `scripts`, `rules` and `legacy`.
+  `entry`, `scripts`, `rules` and `legacy`;
+- a brain: `summary`, `description`, `homepage`, `tags`, `author`,
+  `requires`, `works_with`, `levels`, `full_awareness`, `networks`,
+  `network_bytes`, `options`, `icon`, `entry`, `scripts` and `data`.
 
 `requires.engine` is the requirement as written. `requires.mutators` and
 `conflicts_with` are objects with `id` and, when a range was written,
@@ -141,10 +153,24 @@ neither is run. `oa-tool mutator pack` and `oa-tool mutator check` are the
 same two commands limited to a mutator: a folder without `oamut.yaml`, or a
 file of another kind, is a usage error.
 
-An expansion does not take `--game-dir`.
+A brain's `summary` is the description's first line. `author` is the name.
+`requires` is an object: `engine` as written, and `expansions` an array of
+ids, left out when the manifest names neither. `works_with` is the
+conditions as written. `levels` lists each level's `id`, `name` and
+`difficulty`. `full_awareness` is always a boolean. `networks` lists each
+network's `id`, `file`, `sha256` and `size`, and is left out when the brain
+ships none. `network_bytes` is always a whole number, those sizes added
+together. `options` and `icon` have the mutator's shape. `scripts` is how
+many Lua files compiled. `data` lists the table paths in byte order. A
+brain's Lua is compiled and not run, and a `.oann` file is hashed and not
+interpreted. `oa-tool brain pack` is `pack` limited to a brain: a folder
+without `oabrain.yaml` is a usage error.
+
+An expansion does not take `--game-dir`. A brain does not take `--game-dir`.
 
 A key the package does not have is left out. `revision` is null when a
-language pack has no packaging revision, and for every mutator. A map pack
+language pack has no packaging revision, and for every mutator and every
+brain. A map pack
 needs `--game-dir`, the
 game folder. Each `--mod FOLDER[=KEY]` is one more target after the base
 game `ta-3.1c`. `maps` lists each map. `compatible` holds `ta-3.1c` and then

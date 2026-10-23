@@ -10,6 +10,7 @@
 #include "check.hpp"
 
 #include "arguments.hpp"
+#include "check_brain.hpp"
 #include "check_map.hpp"
 #include "check_mutator.hpp"
 #include "command.hpp"
@@ -22,6 +23,7 @@
 #include "oa/data/map_pack/manifest.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/data/mod_profile/registry.hpp"
+#include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/zip/stream.hpp"
 #include "oa/platform/files.hpp"
@@ -746,6 +748,26 @@ void describe_expansion(const install::Package& package, json::JsonWriter& write
     write_text(writer, "author", manifest.author.name);
 }
 
+/// Checks an opened brain's files and appends each problem.
+///
+/// @param package the brain
+/// @param[in,out] problems the problems
+/// @param[out] checked the script, network and table check
+void append_brain_problems(
+    const install::Package& package, std::vector<std::string>& problems, BrainChecked& checked
+) {
+    checked = {};
+    const std::vector<uint8_t> bytes = read_packaged_manifest(package);
+    oa::formats::oabrain::Manifest manifest;
+    std::vector<oa::formats::oabrain::Problem> found;
+    if (!oa::formats::oabrain::read_manifest(bytes, manifest, found)) {
+        for (const oa::formats::oabrain::Problem& one : found)
+            problems.push_back(oa::formats::oabrain::describe(one));
+        return;
+    }
+    check_brain_files(entries_of(package), manifest, problems, checked);
+}
+
 /// Writes the report and returns the exit code.
 ///
 /// @param file the package's path
@@ -819,6 +841,11 @@ int report(
     if (oamut)
         check_mutator_scripts_and_rules(entries_of(*package), problems, mutator);
 
+    const bool oabrain = package != nullptr && kind != nullptr && kind->name == "oabrain";
+    BrainChecked brain;
+    if (oabrain)
+        append_brain_problems(*package, problems, brain);
+
     json::JsonWriter writer;
     writer.begin_object();
     writer.key("check");
@@ -840,7 +867,7 @@ int report(
         write_text(writer, "name", package->incoming.name);
         write_text(writer, "version", package->incoming.version);
         writer.key("revision");
-        if (oamut)
+        if (oamut || oabrain)
             writer.null();
         else
             writer.integer(package->incoming.revision);
@@ -867,6 +894,8 @@ int report(
             describe_expansion(*package, writer);
         else if (oamut)
             describe_oamut(*package, writer, mutator);
+        else if (oabrain)
+            describe_oabrain(*package, writer, brain);
     }
     writer.end_object();
 
@@ -996,6 +1025,10 @@ int run_check(std::span<const std::string> arguments, Output& output) {
         kind = package->kind;
     if (kind != nullptr && kind->name == "expansion" && game_dir != nullptr) {
         report_usage(output, "option '--game-dir' is not for an expansion");
+        return exit_usage;
+    }
+    if (kind != nullptr && kind->name == "oabrain" && game_dir != nullptr) {
+        report_usage(output, "option '--game-dir' is not for a brain");
         return exit_usage;
     }
     const bool accepted_map = package != nullptr && kind != nullptr && kind->name == "oamap";

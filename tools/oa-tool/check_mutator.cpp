@@ -393,11 +393,13 @@ void write_choice_value(json::JsonWriter& writer, const mut::ChoiceValue& value)
         writer.string(value.text);
 }
 
+} // namespace
+
 /// Writes one option's summary.
 ///
 /// @param[in,out] writer the array
 /// @param option the option
-void write_option(json::JsonWriter& writer, const mut::Option& option) {
+void write_option_facts(json::JsonWriter& writer, const mut::Option& option) {
     writer.begin_object();
     writer.key("id");
     writer.string(option.id);
@@ -441,12 +443,16 @@ void write_option(json::JsonWriter& writer, const mut::Option& option) {
 /// Writes the icon's path, digest, size and pixel size.
 ///
 /// @param package the package
-/// @param manifest the manifest
+/// @param path the icon's path in the manifest
+/// @param size_limit the most bytes of that file
 /// @param[in,out] writer the object
-void write_icon(
-    const install::Package& package, const mut::Manifest& manifest, json::JsonWriter& writer
+void write_icon_facts(
+    const install::Package& package,
+    std::string_view path,
+    uint64_t size_limit,
+    json::JsonWriter& writer
 ) {
-    if (manifest.icon.empty())
+    if (path.empty())
         return;
     std::string stored;
     const zip::StreamEntry* found = nullptr;
@@ -454,18 +460,18 @@ void write_icon(
         if (file.entry >= package.directory.entries.size())
             continue;
         const zip::StreamEntry& entry = package.directory.entries[file.entry];
-        if (!entry.directory && same_ascii(file.name, manifest.icon)) {
+        if (!entry.directory && same_ascii(file.name, path)) {
             stored = file.name;
             found = &entry;
             break;
         }
     }
-    if (found == nullptr || found->bytes > install::oamut::most_icon_bytes)
+    if (found == nullptr || found->bytes > size_limit)
         return;
     PackageEntries entries = entries_of(package);
     std::vector<uint8_t> bytes;
     bool too_large = false;
-    if (!read_limited(entries, stored, install::oamut::most_icon_bytes, bytes, too_large))
+    if (!read_limited(entries, stored, static_cast<std::size_t>(size_limit), bytes, too_large))
         return;
     png::Info info{};
     if (!png::has_signature(bytes) || !png::read_info(bytes, png::Messages{}, &info))
@@ -475,7 +481,7 @@ void write_icon(
     writer.key("icon");
     writer.begin_object();
     writer.key("path");
-    writer.string(manifest.icon);
+    writer.string(path);
     writer.key("sha256");
     writer.string(std::string_view{hex.data(), hex.size()});
     writer.key("size");
@@ -486,8 +492,6 @@ void write_icon(
     writer.integer(static_cast<int64_t>(info.header.height));
     writer.end_object();
 }
-
-} // namespace
 
 PackageEntries entries_of(const install::Package& package) {
     return PackageEntries{const_cast<install::Package*>(&package), &list_package, &read_package};
@@ -619,10 +623,10 @@ void describe_oamut(
         writer.key("options");
         writer.begin_array();
         for (const mut::Option& option : manifest.options)
-            write_option(writer, option);
+            write_option_facts(writer, option);
         writer.end_array();
     }
-    write_icon(package, manifest, writer);
+    write_icon_facts(package, manifest.icon, install::oamut::most_icon_bytes, writer);
     write_text(writer, "entry", manifest.entry);
     writer.key("scripts");
     writer.integer(static_cast<int64_t>(checked.scripts));
