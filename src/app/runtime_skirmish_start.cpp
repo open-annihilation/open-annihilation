@@ -1534,8 +1534,10 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // A new skirmish or campaign mission has finished loading here; its
     // players' pass waits for the first tick. A saved game, a network game
     // and a recorded game load more after this and end theirs when they have.
-    if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game())
+    if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game()) {
+        seat_chosen_brains();
         match_->finish_load();
+    }
     status_ = "Offline match world prepared for " + selected_map_name_runtime_ + " with " +
               std::to_string(unit_definitions_.size()) + " unit runtimes, " +
               std::to_string(feature_table_.defs.size()) + " feature definitions and " +

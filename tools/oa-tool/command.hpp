@@ -108,7 +108,7 @@ class Failure : public std::runtime_error {
 
 // The package command, defined in pack.cpp.
 
-/// Packs a folder as a .oamod, a .oalang, a .oamap, a .oaexp or a .oamut.
+/// Packs a folder as a .oamod, a .oalang, a .oamap, a .oaexp, a .oamut or a .oabrain.
 ///
 /// One positional argument is the folder. `--out FILE` names the package,
 /// and `--force` replaces a file that already exists. `--game-dir DIR` is
@@ -161,6 +161,22 @@ class Failure : public std::runtime_error {
 ///         the arguments are not the command's
 /// @throws Failure when the folder cannot be packed
 [[nodiscard]] int run_mutator_pack(std::span<const std::string> arguments, Output& output);
+
+// The brain commands, defined in brain.cpp.
+
+/// Packs a brain folder as a .oabrain.
+///
+/// One positional argument is the folder. It must hold `oabrain.yaml` at its
+/// top; another folder is a usage error. The other arguments are `run_pack`'s,
+/// and the package is packed by that command. `--game-dir` is a usage error.
+///
+/// @param arguments the folder and any options
+/// @param[in,out] output receives the packed line, and a usage line when the
+///        folder is not a brain
+/// @return exit_done, or exit_usage when the folder holds no oabrain.yaml or
+///         the arguments are not the command's
+/// @throws Failure when the folder cannot be packed
+[[nodiscard]] int run_brain_pack(std::span<const std::string> arguments, Output& output);
 
 /// Checks a .oamut and reports the facts a catalogue lists.
 ///

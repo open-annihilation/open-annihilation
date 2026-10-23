@@ -176,6 +176,17 @@ waiting batches are the table `structure-gifts`
 (`oa/sim/match_runtime/structure_gifts.hpp`); `match-structure-gifts` checks
 them.
 
+## Seat hooks
+
+`Match::seat_hooks` (`SeatHooks`, `seat_hooks.hpp`) is one computer seat's
+turn when something other than the built-in computer player plays it.
+`play` is called at that seat's controller point and returns true when it
+played the tick. A null `play`, or one that returns false, leaves the
+built-in order tick to run. The weapon sweep runs either way. Hooks set on
+a seat that is not a computer are never called. The hooks and the brains'
+state (`Match::seat_state`) are not saved, hashed or shared, and the state
+ends with the match.
+
 ## Event hooks
 
 `Match::event_hooks` (`EventHooks`, `event_hooks.hpp`) reports what happens
@@ -244,6 +255,31 @@ through:
   its position. The feature is the placed feature's type and the plot is
   its index into `World::plots`. A death that leaves no corpse is not
   reported.
+- `seen_changed` at the end of a player's knowledge refresh, every 30 ticks,
+  when the enemies on its seen list changed. The gained list is the enemies
+  that entered and the lost list is the enemies that left, each with the
+  unit's slot and the generation that tells that unit from the next one to
+  take the slot. The comparison is `detection::diff_sighted`: a slot a new
+  unit has taken is one lost entry and one gained entry, and the lost entry
+  comes first. A lost unit may have died, or its slot may hold another unit
+  now. The lists are valid only for the call. The player's own units and its
+  allies are not on the seen list, so they are not reported, and nothing is
+  reported when the list is unchanged. A player with no controller, a
+  mirrored player among them, is not refreshed. After a load the previous
+  lists are empty, so the first refresh reports every seen enemy as gained:
+  a brain that starts again from a save hears the enemies its seat can see.
+  The previous lists are kept up even when no one is listening, so a
+  listener added during a match hears only real changes at its first
+  refresh.
+- `path_failed` during the tick's path search, when a route search for a
+  unit simulated here finds no route and the unit is not already at the
+  goal. The report names the unit and the order's mission kind. An order
+  is reported once, so a move that tries again is not reported on every
+  try. The mark is kept on the match's order record and is not saved or
+  hashed; after a load it starts clear, so an order still trying may be
+  reported once more. An order the match does not own is reported each
+  time the search fails. A failed search for a unit already at its goal
+  is not reported. Aircraft do not search routes, so they are not reported.
 
 The hooks receive the world as const and must not change match state, draw
 from its random streams or call back into it; the match computes nothing
@@ -560,8 +596,9 @@ then.
 The match sets the computer players up in the load's players' pass, or on
 its first tick when a match did not end a load (`finish_load`). Each tick every
 player whose record holds a controller (`Player.controller`) runs it: a
-computer player's controller first runs its order-callback tick (the squad
-sort and due tasks in `src/sim/ai`), then the weapon sweep retargets the slots of
+computer player's controller calls the seat's play hook when one is set, and
+runs its order-callback tick (the squad sort and due tasks in `src/sim/ai`)
+only when the hook is absent or returns false. The weapon sweep then retargets the slots of
 units that fire at will; command-fire weapons take part only for computer
 players. Interceptors aim at an enemy missile; other weapons take a random
 enemy in range. The knowledge refresh follows for the same players: every 30

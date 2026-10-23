@@ -152,10 +152,11 @@ void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host) {
     n.flags |= route_changed;
 }
 
-void accept_path(UnitView u, std::span<const RoutePoint> points) {
+bool accept_path(UnitView u, std::span<const RoutePoint> points) {
     auto& n = u.navigation;
+    const bool failed = points.empty() && n.goal && !goal_contains_unit(*n.goal, u.geometry);
     if (points.empty()) {
-        if (n.goal && !goal_contains_unit(*n.goal, u.geometry))
+        if (failed)
             signal(n.goal, path_failed_event);
         n.flags &= uint8_t(~route_bit);
     } else {
@@ -164,6 +165,7 @@ void accept_path(UnitView u, std::span<const RoutePoint> points) {
         n.flags |= route_bit;
     }
     n.flags = uint8_t((n.flags & ~search_pending) | route_changed);
+    return failed;
 }
 
 void advance_path(Navigation& n, uint32_t count) {

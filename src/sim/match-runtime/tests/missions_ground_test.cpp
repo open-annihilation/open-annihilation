@@ -3,9 +3,12 @@
 
 #include "match_tick_access.hpp"
 #include "oa/base/text.hpp"
+#include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -121,6 +124,173 @@ std::vector<FeatureDef> feature_table() {
 
 sim::ground_orders::Point cell_point(int32_t x, int32_t z) {
     return {(x * 16 + 8) << 16, 0, (z * 16 + 8) << 16};
+}
+
+struct PathFailure {
+    uint16_t unit{};
+    uint8_t kind{};
+};
+
+// Buildings stand on every cell around the unit, so a route search for a goal
+// outside that ring finds no way through. The move keeps trying; the listener
+// hears the failure once per order.
+void unreachable_goals_are_reported() {
+    constexpr int32_t cells = 32;
+    constexpr uint8_t ground_height = 40;
+    constexpr uint16_t mover_type = 1;
+    constexpr uint16_t building_type = 2;
+    constexpr uint16_t type_count = 3;
+    constexpr sim::unit_spawn::AssetHandle mover_class = 1;
+    constexpr int32_t home_x = 8;
+    constexpr int32_t home_z = 8;
+    constexpr int32_t blocked_x = 20;
+    constexpr int32_t blocked_z = 8;
+    constexpr int32_t open_home_x = 16;
+    constexpr int32_t open_home_z = 16;
+    constexpr int32_t open_x = 18;
+    constexpr int32_t open_z = 16;
+    constexpr int32_t stay_x = 16;
+    constexpr int32_t stay_z = 22;
+
+    formats::tnt::Map map;
+    map.attribute_width = map.attribute_height = cells;
+    map.sea_level = 20;
+    map.attributes.resize(static_cast<std::size_t>(cells * cells));
+    for (auto& attribute : map.attributes)
+        attribute.height = ground_height;
+    std::vector<sim::visibility_state::TerrainCell> terrain(
+        static_cast<std::size_t>(cells * cells)
+    );
+    std::vector<sim::spatial_state::Plot> plots(static_cast<std::size_t>(cells * cells));
+    for (auto& cell : plots)
+        cell.low_height = cell.high_height = ground_height;
+    sim::visibility_state::SightMask mask;
+    mask.width = mask.height = 1;
+    mask.pixels = {1};
+    const std::array masks{mask};
+    auto model = std::make_shared<formats::objects3d::Model>();
+    model->objects.resize(1);
+    model->objects[0].name = "root";
+    model->objects[0].vertices = {{0, 0, 0}, {0, 20 << 16, 0}};
+    auto script = std::make_shared<formats::cob::CobProgram>();
+    script->code = {sim::script_vm::opcode::return_};
+    script->scripts = {{"Create", 0}};
+    script->entry_points = {0};
+    script->piece_names = {"root"};
+
+    std::array<sim::unit_spawn::LoadedType, type_count> loaded;
+    std::array<sim::unit_spawn::Type, type_count> types;
+    std::array<data::unit_definitions::UnitDefinition, type_count> defs;
+    std::array<data::unit_definitions::RuntimeDefinitionMetadata, type_count> metadata;
+    data::unit_definitions::UnitTargetCategoryMasks target_masks;
+    std::array<sim::match_runtime::RuntimeTypeFields, type_count> fields{};
+    const std::array<uint8_t, 1> yard{0x2f};
+    for (uint16_t i = 1; i < type_count; ++i) {
+        types[i].simulation.flags = OA_UNIT_DEF_FLAG_AVAILABLE;
+        types[i].simulation.maximum_health = 100;
+        types[i].footprint_x = types[i].footprint_z = 1;
+        types[i].bm_code = i == building_type ? 0 : 1;
+        types[i].model = reinterpret_cast<uintptr_t>(model.get());
+        types[i].cob = reinterpret_cast<uintptr_t>(script.get());
+        loaded[i].model = model;
+        loaded[i].script = script;
+        loaded[i].type = types[i];
+        loaded[i].unit_name = i == building_type ? "WALL" : "MOVER";
+        defs[i].sight_distance = 64;
+        defs[i].acceleration_fixed = 65536;
+        defs[i].brake_rate_fixed = 65536;
+        defs[i].max_velocity_fixed = 2 * 65536;
+        defs[i].turn_rate = 1024;
+        metadata[i].footprint_x = metadata[i].footprint_z = 1;
+        fields[i].definition = &defs[i];
+        fields[i].runtime_metadata = &metadata[i];
+        fields[i].target_masks = &target_masks;
+        fields[i].movement_class = sim::unit_spawn::AssetHandle{0};
+    }
+    fields[mover_type].movement_class = mover_class;
+    fields[building_type].yard_mask = yard;
+    sim::combat_state::WeaponRegistry weapons;
+    Services services;
+    Scenario scenario;
+    sim::match_runtime::OfflineInputs input{map,   loaded,    types,     fields, weapons, terrain,
+                                            masks, cells / 2, cells / 2, 16,     2,       0,
+                                            30,    1,         &scenario, {},     plots,   {},
+                                            0,     0,         0.0F};
+    sim::match_runtime::Match match(input, services);
+    match.configure_strategic_environment({0, 0.5F, 0});
+    match.simulation().players[0].present = true;
+    match.simulation().players[0].status = 1;
+    std::array<uint8_t, 10> allies{};
+    allies[0] = 1;
+    match.configure_player_alliances(0, allies);
+    match.configure_outcomes(0, allies, false);
+    match.state().unit_defs[mover_type].abilities = OA_UNIT_DEF_ABILITY_CAN_MOVE;
+    CHECK(match.movement_map(mover_class) != nullptr);
+
+    const auto centre = [](int32_t cell) { return static_cast<uint32_t>(cell * 16 + 8) << 16; };
+    for (int32_t dz = -1; dz <= 1; ++dz)
+        for (int32_t dx = -1; dx <= 1; ++dx) {
+            if (dx == 0 && dz == 0)
+                continue;
+            auto* wall = match.create(
+                {0, building_type, {centre(home_x + dx), 0, centre(home_z + dz)}, true, 1, 0}
+            );
+            CHECK(wall != nullptr);
+            CHECK(wall->record.cell_x == home_x + dx && wall->record.cell_z == home_z + dz);
+        }
+    auto* mover = match.create({0, mover_type, {centre(home_x), 0, centre(home_z)}, true, 1, 0});
+    CHECK(mover && mover->record.movement && match.ground_runtime(mover->unit_index));
+    CHECK(mover->record.cell_x == home_x && mover->record.cell_z == home_z);
+
+    std::vector<PathFailure> heard;
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &heard;
+    hooks.path_failed = [](void* context, const World&, uint16_t unit, uint8_t kind) {
+        static_cast<std::vector<PathFailure>*>(context)->push_back({unit, kind});
+    };
+    CHECK(match.add_event_listener(hooks) != 0);
+
+    auto see_all = [&] {
+        auto& bits = match.sight_mutable().player_bits;
+        std::fill(bits.begin(), bits.end(), uint16_t{0xffff});
+    };
+    auto advance = [&](int count) {
+        for (int step_index = 0; step_index < count; ++step_index) {
+            see_all();
+            ++match.simulation().tick;
+            match.tick();
+        }
+    };
+
+    match.simulation().tick = 100;
+    const auto mover_index = mover->unit_index;
+    auto& issued =
+        match.issue_ground_move(mover_index, {centre(blocked_x), 0, centre(blocked_z)}, false);
+    CHECK(!match.order_refused(issued));
+    advance(120);
+    CHECK(heard.size() == 1);
+    CHECK(heard[0].unit == mover_index);
+    CHECK(heard[0].kind == sim::ground_orders::move_ground_kind);
+
+    (void)match.issue_ground_move(mover_index, {centre(blocked_x), 0, centre(blocked_z)}, false);
+    advance(120);
+    CHECK(heard.size() == 2);
+    CHECK(heard[1].unit == mover_index);
+    CHECK(heard[1].kind == sim::ground_orders::move_ground_kind);
+
+    auto* wanderer =
+        match.create({0, mover_type, {centre(open_home_x), 0, centre(open_home_z)}, true, 1, 0});
+    CHECK(wanderer && wanderer->record.cell_x == open_home_x);
+    (void)match.issue_ground_move(wanderer->unit_index, {centre(open_x), 0, centre(open_z)}, false);
+    advance(120);
+    CHECK(heard.size() == 2);
+
+    auto* stayer = match.create({0, mover_type, {centre(stay_x), 0, centre(stay_z)}, true, 1, 0});
+    CHECK(stayer && stayer->record.cell_x == stay_x && stayer->record.cell_z == stay_z);
+    (void)match.issue_ground_move(stayer->unit_index, {centre(stay_x), 0, centre(stay_z)}, false);
+    advance(40);
+    CHECK(heard.size() == 2);
+    std::cout << "unreachable goals are reported passed\n";
 }
 } // namespace
 
@@ -623,6 +793,7 @@ int main() {
         quiet.stop_orders(worker->unit_index);
     }
 
+    unreachable_goals_are_reported();
     std::cout << "ground missions passed\n";
     return 0;
 }
