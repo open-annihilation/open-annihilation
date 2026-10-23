@@ -4475,6 +4475,16 @@ class Runtime final : public menu::Host,
     /// A package change before the first read leaves the listing unmade.
     void reload_installed_brains() const;
 
+    /// Returns the default brain's id.
+    ///
+    /// The value of open-annihilation.brain.default when a brain of that id
+    /// is installed, and empty when the key is absent, empty, or names a
+    /// brain that is not installed. While the Library is open this reads the
+    /// worker's listing and does not open the Brains folder.
+    ///
+    /// @return the id, or empty for the built-in computer player
+    [[nodiscard]] std::string default_brain() const;
+
   public:
 
     /// Replaces the mutators the next matches apply.

@@ -738,6 +738,14 @@
 	it=Dopo lo zoom;
 	}
 
+[Air]
+	{
+	de=Luft;
+	fr=Air;
+	es=Aire;
+	it=Aria;
+	}
+
 [Aircraft]
 	{
 	de=Luftfahrzeuge;
@@ -1392,6 +1400,22 @@
 	fr=Intégré;
 	es=Integrado;
 	it=Integrato;
+	}
+
+[Built-in computer player]
+	{
+	de=Eingebauter Computerspieler;
+	fr=Joueur ordinateur intégré;
+	es=Jugador de ordenador integrado;
+	it=Giocatore computer integrato;
+	}
+
+[Open Annihilation's own computer player. It plays as Total Annihilation's does.]
+	{
+	de=Open Annihilations eigener Computerspieler. Er spielt wie der von Total Annihilation.;
+	fr=Le joueur ordinateur d'Open Annihilation. Il joue comme celui de Total Annihilation.;
+	es=El jugador de ordenador de Open Annihilation. Juega como el de Total Annihilation.;
+	it=Il giocatore computer di Open Annihilation. Gioca come quello di Total Annihilation.;
 	}
 
 [Built into the game]
@@ -2538,6 +2562,14 @@
 	it=TRASCINA PER MUOVERE · DOPPIO TOCCO O TIENI PREMUTO PER POSIZIONARE;
 	}
 
+[Default]
+	{
+	de=Standard;
+	fr=Par défaut;
+	es=Predeterminado;
+	it=Predefinito;
+	}
+
 [Demo]
 	{
 	de=Demo;
@@ -3042,6 +3074,14 @@
 	it=Ogni parte delle schermate proprie di OA, in ciascuno dei suoi stati, a questa dimensione.;
 	}
 
+[Experimental]
+	{
+	de=Experimentell;
+	fr=Expérimental;
+	es=Experimental;
+	it=Sperimentale;
+	}
+
 [Expansions]
 	{
 	de=Erweiterungen;
@@ -3464,6 +3504,14 @@
 	fr=Depuis {pack};
 	es=De {pack};
 	it=Da {pack};
+	}
+
+[Full awareness]
+	{
+	de=Volle Sicht;
+	fr=Vue complète;
+	es=Visión total;
+	it=Vista completa;
 	}
 
 [Full]
@@ -5410,6 +5458,14 @@
 	it=File di avvio (.oalaunch);
 	}
 
+[Learned]
+	{
+	de=Gelernt;
+	fr=Appris;
+	es=Aprendido;
+	it=Appreso;
+	}
+
 [Left out]
 	{
 	de=Ausgelassen;
@@ -5778,6 +5834,14 @@
 	it=MUTATORE AGGIORNATO;
 	}
 
+[Made for {names}]
+	{
+	de=Für {names} gemacht;
+	fr=Fait pour {names};
+	es=Hecho para {names};
+	it=Fatto per {names};
+	}
+
 [Made at your first download]
 	{
 	de=Bei deinem ersten Download erzeugt;
@@ -6136,6 +6200,14 @@
 	fr=MAINTENANT;
 	es=AHORA;
 	it=ORA;
+	}
+
+[Naval]
+	{
+	de=See;
+	fr=Naval;
+	es=Naval;
+	it=Navale;
 	}
 
 [Native pixel density]
@@ -8194,6 +8266,14 @@
 	it=Tasto di rotazione della costruzione;
 	}
 
+[Rush]
+	{
+	de=Ansturm;
+	fr=Ruée;
+	es=Ataque;
+	it=Assalto;
+	}
+
 [Rules]
 	{
 	de=Regeln;
@@ -8520,6 +8600,14 @@
 	fr=Chercher des langues;
 	es=Buscar idiomas;
 	it=Cerca lingue;
+	}
+
+[Search brains, authors, tags]
+	{
+	de=Gehirne, Autoren, Stichworte suchen;
+	fr=Chercher des cerveaux, des auteurs, des mots-clés;
+	es=Buscar cerebros, autores, etiquetas;
+	it=Cerca cervelli, autori, etichette;
 	}
 
 [Search maps]
@@ -9312,6 +9400,14 @@
 	fr=Prend effet au prochain démarrage.;
 	es=Tiene efecto desde el próximo inicio.;
 	it=Ha effetto dal prossimo avvio.;
+	}
+
+[Teaching]
+	{
+	de=Lehrt;
+	fr=Enseigne;
+	es=Enseña;
+	it=Insegna;
 	}
 
 [Team Number Alliances]
@@ -10552,6 +10648,14 @@
 	fr=Réessayer;
 	es=Reintentar;
 	it=Riprova;
+	}
+
+[Turtle]
+	{
+	de=Bunker;
+	fr=Tortue;
+	es=Tortuga;
+	it=Tartaruga;
 	}
 
 [Turn it on in the Library.]
@@ -14720,6 +14824,14 @@
 	fr=· nécessite {name};
 	es=· requiere {name};
 	it=· richiede {name};
+	}
+
+[· {reason}]
+	{
+	de=· {reason};
+	fr=· {reason};
+	es=· {reason};
+	it=· {reason};
 	}
 
 [· not compatible with this mod]

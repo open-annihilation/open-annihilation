@@ -130,6 +130,10 @@ writes its key only when that game has mutators. `--mutator` and a
 launch file never write them, and a game without mutators leaves them
 as they are. Absent, or text that cannot be read as that loadout, the
 setup has no set. Restore defaults does not erase them.
+`open-annihilation.brain.default` holds the id of the brain the player
+uses as the default computer player. Absent, empty, or an id that is not
+installed, the built-in computer player is the default. Restore defaults
+does not erase it. USE BY DEFAULT writes it.
 `open-annihilation.user-folder` holds the folder the player keeps their
 saved games, screenshots, films, recordings and mods in, as an absolute
 UTF-8 path, in place of `Open Annihilation` in Documents; absent or

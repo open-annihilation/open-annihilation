@@ -90,11 +90,18 @@ constexpr std::string_view name_prefix = "library.";
 
 /// The tabs, in the order they are shown.
 constexpr std::array<Tab, tab_total> tab_order{
-    Tab::active, Tab::mods, Tab::maps, Tab::mutators, Tab::languages, Tab::updates, Tab::registries
+    Tab::active,
+    Tab::mods,
+    Tab::maps,
+    Tab::mutators,
+    Tab::brains,
+    Tab::languages,
+    Tab::updates,
+    Tab::registries
 };
 /// The words the tabs are named by, in that order.
 constexpr std::array<std::string_view, tab_total> tab_words{
-    "active", "mods", "maps", "mutators", "languages", "updates", "registries"
+    "active", "mods", "maps", "mutators", "brains", "languages", "updates", "registries"
 };
 /// The filters, in the order they are shown.
 constexpr std::array<Filter, filter_total> filter_order{
@@ -114,6 +121,11 @@ constexpr std::array<std::string_view, filter_total> filter_words{
 const std::vector<std::string>* shown_tags(const Entry& entry) {
     if (entry.id.kind == Kind::mutator)
         return mutator_tag_list(entry);
+    if (entry.id.kind == Kind::brain) {
+        if (const BrainFacts* facts = brain_facts(entry))
+            return &facts->tags;
+        return nullptr;
+    }
     if (entry.listing != nullptr)
         return &entry.listing->tags;
     return nullptr;
@@ -132,6 +144,8 @@ const std::vector<std::string>* shown_tags(const Entry& entry) {
 std::string_view tag_caption(const Library& library, std::string_view tag, bool labelled) {
     if (!labelled)
         return tag;
+    if (library.tab == Tab::brains)
+        return brain_tag_label(tag, library.text);
     return tag_label(tag, library.text);
 }
 
@@ -706,6 +720,8 @@ kit::ChipLook entry_chip(const Library& library, const Entry& entry) {
 /// @param entry the entry
 /// @return the version; empty when neither names one
 std::string entry_version(const Library& library, const Entry& entry) {
+    if (is_built_in_brain(entry.id))
+        return std::string(shown(library.text, words::registry_built_in));
     if (entry.installed != nullptr)
         return version_text(*entry.installed, library.text);
     if (entry.listing != nullptr)
@@ -939,6 +955,14 @@ kit::ListRowLook row_look(
         } else if (entry.id.kind == Kind::mutator && entry.not_compatible) {
             look.by = std::string(shown(library.text, words::row_not_compatible));
             look.by_colour = kit::colour::lock;
+        } else if (entry.id.kind == Kind::brain && entry.not_compatible) {
+            if (const BrainFacts* facts = brain_facts(entry)) {
+                const std::string reason = brain_unfit_reason(library.inputs, *facts, library.text);
+                if (!reason.empty()) {
+                    look.by = filled(library.text, words::row_brain_unfit, {{"reason", reason}});
+                    look.by_colour = kit::colour::lock;
+                }
+            }
         }
         if (named) {
             look.lines.push_back(lines.row);
@@ -970,7 +994,9 @@ kit::ListRowLook row_look(
         look.lines.push_back(lines.row);
     else if (entry.listing != nullptr && !entry.listing->summary.empty())
         look.lines.push_back(entry.listing->summary);
-    else if (is_base_game(entry.id) || is_built_in_language(entry.id)) {
+    else if (
+        is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id)
+    ) {
         const std::string_view about = entry_summary(entry);
         if (!about.empty())
             look.lines.push_back(std::string(about));
@@ -979,7 +1005,50 @@ kit::ListRowLook row_look(
         look.aside.push_back(version);
     if (!size.empty())
         look.aside.push_back(size);
-    if (form == RowForm::large) {
+    if (form == RowForm::large && entry.id.kind == Kind::brain) {
+        // Default, then Full awareness, then the tags, then why it does not
+        // fit. When the line cannot hold them, the tags are the ones dropped.
+        std::vector<kit::ChipLook> kept_chips;
+        if (entry.is_default) {
+            kit::ChipLook chip;
+            chip.text = std::string(shown(library.text, words::chip_default));
+            chip.state = kit::ChipState::installed;
+            kept_chips.push_back(std::move(chip));
+        }
+        const BrainFacts* facts = brain_facts(entry);
+        if (facts != nullptr && facts->full_awareness) {
+            kit::ChipLook chip;
+            chip.text = std::string(shown(library.text, words::chip_full_awareness));
+            chip.state = kit::ChipState::update;
+            kept_chips.push_back(std::move(chip));
+        }
+        std::vector<kit::ChipLook> labels;
+        if (facts != nullptr) {
+            for (const std::string& tag : facts->tags) {
+                kit::ChipLook chip;
+                chip.text = std::string(brain_tag_label(tag, library.text));
+                chip.state = kit::ChipState::filter;
+                labels.push_back(std::move(chip));
+            }
+        }
+        std::vector<kit::ChipLook> unfit;
+        if (entry.not_compatible && facts != nullptr) {
+            const std::string reason = brain_unfit_reason(library.inputs, *facts, library.text);
+            if (!reason.empty())
+                unfit.push_back(state_chip(reason));
+        }
+        std::vector<kit::ChipLook> preferred = kept_chips;
+        preferred.insert(preferred.end(), labels.begin(), labels.end());
+        preferred.insert(preferred.end(), unfit.begin(), unfit.end());
+        const int32_t room = chip_line_room(building, look, row_width, row_height);
+        if (chips_fit(building, preferred, room)) {
+            look.tags = std::move(preferred);
+        } else {
+            look.tags = std::move(kept_chips);
+            look.tags.insert(look.tags.end(), unfit.begin(), unfit.end());
+            look.tags.insert(look.tags.end(), labels.begin(), labels.end());
+        }
+    } else if (form == RowForm::large) {
         std::vector<kit::ChipLook> labels;
         if (const std::vector<std::string>* tags = shown_tags(entry)) {
             for (const std::string& tag : *tags) {
@@ -1344,6 +1413,8 @@ std::string_view placeholder_of(const Library& library) {
         return shown(library.text, words::search_maps);
     case Tab::mutators:
         return shown(library.text, words::search_mutators);
+    case Tab::brains:
+        return shown(library.text, words::search_brains);
     case Tab::languages:
         return shown(library.text, words::search_languages);
     case Tab::updates:
@@ -1552,13 +1623,14 @@ void add_chip_row(Building& building, const kit::Rect& row) {
         );
     }
     const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
-    const bool labelled = library.tab == Tab::mutators;
+    const bool mutator_tab = library.tab == Tab::mutators;
+    const bool labelled = mutator_tab || library.tab == Tab::brains;
     std::vector<int32_t> widths;
     int32_t total = 0;
     for (const auto& [tag, count] : tags) {
         kit::PillLook look;
         look.text = std::string(tag_caption(library, tag, labelled));
-        if (labelled)
+        if (mutator_tab)
             look.tag = kit::tag_icon_of(tag);
         widths.push_back(kit::pill_width(*building.fonts, look));
         total += widths.back() + metrics.chip_gap;
@@ -1585,7 +1657,7 @@ void add_chip_row(Building& building, const kit::Rect& row) {
         }
         kit::PillLook look;
         look.text = std::string(tag_caption(library, tags[index].first, labelled));
-        if (labelled)
+        if (mutator_tab)
             look.tag = kit::tag_icon_of(tags[index].first);
         look.state =
             library.tag == tags[index].first ? kit::PillState::active : kit::PillState::inactive;
@@ -1691,7 +1763,12 @@ void add_filter_pane(Building& building, const kit::Rect& pane) {
                 filled(
                     library.text,
                     words::tag_with_count,
-                    {{"tag", tag_caption(library, tags[index].first, library.tab == Tab::mutators)},
+                    {{"tag",
+                      tag_caption(
+                          library,
+                          tags[index].first,
+                          library.tab == Tab::mutators || library.tab == Tab::brains
+                      )},
                      {"count", std::to_string(tags[index].second)}}
                 ),
                 library.tag == tags[index].first,
@@ -5988,7 +6065,7 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
             items.push_back(std::move(item));
         }
         const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
-        const bool labelled = library.tab == Tab::mutators;
+        const bool labelled = library.tab == Tab::mutators || library.tab == Tab::brains;
         for (std::size_t index = 0; index < tags.size(); ++index) {
             MenuItem item;
             item.caption = filled(
@@ -6012,7 +6089,12 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
             item.caption = filled(
                 library.text,
                 words::tag_with_count,
-                {{"tag", tag_caption(library, tags[index].first, library.tab == Tab::mutators)},
+                {{"tag",
+                  tag_caption(
+                      library,
+                      tags[index].first,
+                      library.tab == Tab::mutators || library.tab == Tab::brains
+                  )},
                  {"count", std::to_string(tags[index].second)}}
             );
             item.word = name_word(tags[index].first);
@@ -6244,7 +6326,7 @@ kit::DisplayList library_layout(
             add_list(
                 building,
                 {left, list_top, list_width, window.footer_rule - window.gap - list_top},
-                large ? RowForm::large : RowForm::regular
+                (large || library.tab == Tab::brains) ? RowForm::large : RowForm::regular
             );
             left += list_width + window.padding;
             add_details_pane(building, {left, top, window.right - left, panes_height});

@@ -274,6 +274,46 @@ void test_translated_tag() {
     OA_CHECK(found(library, "econ") == Keys({"capital@fixture-core", "quarry@fixture-core"}));
 }
 
+/// Translates Economy and Default, and leaves every other word as written.
+///
+/// @param english the pattern
+/// @return its translation, or the pattern
+std::string_view brain_words_in_german(void*, std::string_view english) {
+    if (english == lib::words::tag_economy)
+        return "Wirtschaft";
+    if (english == lib::words::chip_default)
+        return "Standard";
+    return english;
+}
+
+/// A brain listing with one tag and nothing else filled in.
+///
+/// @param key the key
+/// @param name the name
+/// @param tag the tag id
+/// @return the listing
+lib::Listing brain(std::string_view key, std::string_view name, std::string_view tag) {
+    lib::Listing made = mod(core, key, name);
+    made.kind = Kind::brain;
+    lib::BrainFacts facts;
+    facts.tags = {std::string(tag)};
+    made.brain = std::move(facts);
+    return made;
+}
+
+/// A translated brain tag finds that brain, and "default" finds the built-in
+/// player, in English and under the translated Default.
+void test_brain_search() {
+    lib::Library library;
+    library.text.shown = brain_words_in_german;
+    lib::refresh(library, inputs_with({brain("wide-watch", "Wide Watch", "economy")}));
+    lib::set_tab(library, lib::Tab::brains);
+    OA_CHECK(found(library, "Wirtschaft") == Keys({"wide-watch@fixture-core"}));
+    OA_CHECK(found(library, "default") == Keys({"@built-in@"}));
+    OA_CHECK(found(library, "Standard") == Keys({"@built-in@"}));
+    OA_CHECK(found(library, "").front() == "@built-in@");
+}
+
 void test_installed_names() {
     lib::Inputs inputs = inputs_with({});
     lib::Installed own;
@@ -294,6 +334,7 @@ int main() {
     test_folding();
     test_tag_prefix();
     test_translated_tag();
+    test_brain_search();
     test_query_cap();
     test_ties();
     test_installed_names();

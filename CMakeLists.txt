@@ -1127,6 +1127,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mutators_hacks.cpp
   src/app/runtime_mutators_maps.cpp
   src/app/runtime_mutators_memory.cpp
+  src/app/runtime_default_brain.cpp
   src/app/runtime_pack_maps.cpp
   src/app/pack_map_source.cpp
   src/app/runtime_get_map.cpp

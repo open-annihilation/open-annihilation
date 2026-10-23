@@ -144,6 +144,8 @@ std::string_view tab_word(library::Tab tab) noexcept {
         return "maps";
     case library::Tab::mutators:
         return "mutators";
+    case library::Tab::brains:
+        return "brains";
     case library::Tab::languages:
         return "languages";
     case library::Tab::updates:
@@ -626,6 +628,7 @@ void Runtime::check_text_fit() {
                 library::Tab::mods,
                 library::Tab::maps,
                 library::Tab::mutators,
+                library::Tab::brains,
                 library::Tab::languages,
                 library::Tab::updates,
                 library::Tab::registries

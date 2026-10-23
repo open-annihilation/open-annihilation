@@ -147,8 +147,7 @@ library::Kind kind_of(data::catalogue::Kind kind) noexcept {
     case data::catalogue::Kind::oamut:
         return library::Kind::mutator;
     case data::catalogue::Kind::oabrain:
-        // Not reached. The row loop takes a brain aside before it asks for a kind.
-        return library::Kind::mod;
+        return library::Kind::brain;
     }
     return library::Kind::mod;
 }
@@ -168,6 +167,8 @@ std::optional<library::Kind> kind_of(const package_install::PackageKind* kind) {
         return library::Kind::language;
     if (kind->name == "oamut")
         return library::Kind::mutator;
+    if (kind->name == "oabrain")
+        return library::Kind::brain;
     return std::nullopt;
 }
 
@@ -449,6 +450,52 @@ mutator_at(const data::mutator_library::Listing& listing, const std::filesystem:
     return nullptr;
 }
 
+/// Finds the installed brain whose folder is a package's folder.
+///
+/// @param listing the Brains folder
+/// @param folder the package's folder
+/// @return the brain, or null
+const data::brain_library::InstalledBrain*
+brain_at(const data::brain_library::Listing& listing, const std::filesystem::path& folder) {
+    for (const data::brain_library::InstalledBrain& brain : listing.brains) {
+        if (brain.folder == folder)
+            return &brain;
+        std::error_code error;
+        if (std::filesystem::equivalent(brain.folder, folder, error))
+            return &brain;
+    }
+    return nullptr;
+}
+
+/// Fills the names a player reads on a brain's works-with mods. `*` and the
+/// base game stay unnamed. Installed copies are tried before listings.
+///
+/// @param[in,out] inputs the Library's inputs, listings and installed filled
+void name_brain_facts(library::Inputs& inputs) {
+    const auto mod_name = [&](std::string_view id) -> std::string {
+        for (const library::Installed& item : inputs.installed)
+            if (item.kind == library::Kind::mod && item.key == id)
+                return item.name;
+        for (const library::Listing& listing : inputs.listings)
+            if (listing.kind == library::Kind::mod && listing.key == id)
+                return listing.name;
+        return {};
+    };
+    const auto name_one = [&](library::BrainFacts& facts) {
+        for (library::WorksWith& item : facts.works_with) {
+            if (!item.name.empty() || item.id == "*" || item.id == library::supported_base)
+                continue;
+            item.name = mod_name(item.id);
+        }
+    };
+    for (library::Listing& listing : inputs.listings)
+        if (listing.brain)
+            name_one(*listing.brain);
+    for (library::Installed& installed : inputs.installed)
+        if (installed.brain)
+            name_one(*installed.brain);
+}
+
 /// Fills the names a player reads on mutator facts: a prerequisite from a
 /// mutator of that id, a works-with mod from a mod of that id. `*` and the
 /// base game stay unnamed. Installed copies are tried before listings.
@@ -494,7 +541,8 @@ void name_mutator_facts(library::Inputs& inputs) {
 /// Searches for the installed packages and their updates on the worker:
 /// lists the player's folder, matches each package to the catalogues and
 /// adopts each file install a catalogue lists, finds the updates, and reads
-/// each installed mod's own picture and each installed mutator's icon.
+/// each installed mod's own picture and each installed mutator's and
+/// brain's icon.
 ///
 /// @param work the worker's state, whose results it fills under its lock
 /// @param snapshot the catalogues in effect
@@ -507,13 +555,19 @@ void search_updates(
     std::vector<content::Update> updates;
     std::vector<ModBadge> pictures;
     std::vector<std::optional<library::MutatorFacts>> mutator_facts;
+    std::vector<std::optional<library::BrainFacts>> brain_facts;
     data::mutator_library::Listing mutators;
+    data::brain_library::Listing brains;
     try {
         if (!folder.empty())
             installed = content::list_installed(folder);
         if (!folder.empty())
             mutators = data::mutator_library::list_installed(
                 folder / std::string(data::mutator_library::mutators_folder_name)
+            );
+        if (!folder.empty())
+            brains = data::brain_library::list_installed(
+                folder / std::string(data::brain_library::brains_folder_name)
             );
         // A folder with no package SHA-256 is read here, off the main thread,
         // so the rebuild after this search finds its digest kept.
@@ -532,6 +586,7 @@ void search_updates(
             const std::optional<library::Kind> kind = kind_of(package.kind);
             ModBadge badge;
             std::optional<library::MutatorFacts> facts;
+            std::optional<library::BrainFacts> one_brain;
             if (kind == library::Kind::mod)
                 badge = read_mod_summary(package.folder).badge;
             else if (kind == library::Kind::mutator) {
@@ -541,9 +596,17 @@ void search_updates(
                     if (!mutator->manifest.icon.empty())
                         badge = read_limited_badge(mutator->folder / mutator->manifest.icon);
                 }
+            } else if (kind == library::Kind::brain) {
+                if (const data::brain_library::InstalledBrain* found =
+                        brain_at(brains, package.folder)) {
+                    one_brain = brain_facts_of(found->manifest, found->network_bytes);
+                    if (!found->manifest.icon.empty())
+                        badge = read_limited_badge(found->folder / found->manifest.icon);
+                }
             }
             pictures.push_back(std::move(badge));
             mutator_facts.push_back(std::move(facts));
+            brain_facts.push_back(std::move(one_brain));
         }
         updates = content::find_updates(installed, snapshot, content::this_engine_rules());
     } catch (const std::exception& error) {
@@ -562,6 +625,8 @@ void search_updates(
     work.installed_badges = std::move(pictures);
     work.installed_mutators = std::move(mutator_facts);
     work.mutator_listing = std::move(mutators);
+    work.installed_brains = std::move(brain_facts);
+    work.brain_listing = std::move(brains);
     ++work.searches;
 }
 
@@ -1862,10 +1927,6 @@ library::Inputs Runtime::library_inputs() {
             if (entry.package == nullptr)
                 continue;
             const data::catalogue::Package& package = *entry.package;
-            // The Library lists brains on the Brains tab (U01) and never among
-            // mods, maps, languages or mutators.
-            if (package.kind == data::catalogue::Kind::oabrain)
-                continue;
             if (package.kind == data::catalogue::Kind::expansion) {
                 library::DownloadableExpansion offered;
                 offered.id = package.id;
@@ -1914,6 +1975,19 @@ library::Inputs Runtime::library_inputs() {
                 listing.game_hacks = 0;
                 listing.view_hacks = 0;
                 listing.mutator = facts_of(package);
+            }
+            if (package.kind == data::catalogue::Kind::oabrain) {
+                // A brain's base, hacks and expansion list are not a mod's.
+                // Another base, a hack list or a required expansion would
+                // block GET, or replace the row's own fit words.
+                if (listing.base != library::supported_base)
+                    listing.base.clear();
+                listing.hack_ids.clear();
+                listing.game_hacks = 0;
+                listing.view_hacks = 0;
+                listing.required_expansions.clear();
+                listing.supported_games.clear();
+                listing.brain = brain_facts_of(package);
             }
             const content::RegistryView* view = registry_view(*snapshot, entry.registry);
             for (const data::catalogue::MapEntry& map : package.maps) {
@@ -1967,6 +2041,7 @@ library::Inputs Runtime::library_inputs() {
     std::vector<content::Update> updates;
     std::vector<ModBadge> pictures;
     std::vector<std::optional<library::MutatorFacts>> mutator_facts;
+    std::vector<std::optional<library::BrainFacts>> brain_facts;
     {
         base::threads::LockGuard guard(host.work.mutex);
         installed = host.work.installed;
@@ -1974,6 +2049,7 @@ library::Inputs Runtime::library_inputs() {
         updates = host.work.updates;
         pictures = host.work.installed_badges;
         mutator_facts = host.work.installed_mutators;
+        brain_facts = host.work.installed_brains;
         // searches starts at 0. One more keeps a named reading apart from
         // "the inputs do not say", which is 0.
         inputs.installed_generation = host.work.searches + 1;
@@ -2011,6 +2087,12 @@ library::Inputs Runtime::library_inputs() {
             shown.badge = badge_of(pictures[index]);
         if (index < mutator_facts.size())
             shown.mutator = std::move(mutator_facts[index]);
+        if (index < brain_facts.size())
+            shown.brain = std::move(brain_facts[index]);
+        if (*kind == library::Kind::brain) {
+            shown.required_expansions.clear();
+            shown.supported_games.clear();
+        }
         inputs.installed.push_back(std::move(shown));
     }
     // The mod folders the game offers, as the Library lists them beside
@@ -2103,6 +2185,7 @@ library::Inputs Runtime::library_inputs() {
         }
     }
     name_mutator_facts(inputs);
+    name_brain_facts(inputs);
     for (const content::Update& update : updates) {
         if (update.installed >= installed.size())
             continue;
@@ -2321,6 +2404,7 @@ library::Inputs Runtime::library_inputs() {
     const fs::path& game_folder =
         options_.game_folders.empty() ? options_.game_dir : options_.game_folders.back();
     inputs.base_game_badge = base_game_icon(game_folder);
+    inputs.default_brain = default_brain();
     return inputs;
 }
 

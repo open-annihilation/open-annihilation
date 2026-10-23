@@ -18,8 +18,10 @@
 #include "oa/app/runtime.hpp"
 #include "oa/base/threads.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/data/brain_library/library.hpp"
 #include "oa/data/catalogue/catalogue.hpp"
 #include "oa/data/mutator_library/library.hpp"
+#include "oa/formats/oabrain/manifest.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/dry_run.hpp"
 #include "oa/data/mutators/verdicts.hpp"
@@ -181,6 +183,12 @@ struct LibraryWork {
     std::vector<std::optional<oa::ui::library::MutatorFacts>> installed_mutators{};
     /// The Mutators folder as the last search listed it.
     oa::data::mutator_library::Listing mutator_listing{};
+    /// Each installed package's brain facts, in `installed`'s order. Unset
+    /// for every other kind. The names are empty until the main thread
+    /// resolves them from the other inputs.
+    std::vector<std::optional<oa::ui::library::BrainFacts>> installed_brains{};
+    /// The Brains folder as the last search listed it. Read on the worker.
+    oa::data::brain_library::Listing brain_listing{};
     uint64_t searches{};  ///< counts the searches done
     bool pictures_due{};  ///< pictures wait to be read or fetched
     bool match_running{}; ///< a match runs: nothing is fetched
@@ -732,6 +740,83 @@ inline oa::ui::library::MutatorFacts facts_of(const oa::data::catalogue::Package
                 line.values.push_back(value.text);
         facts.options.push_back(std::move(line));
     }
+    return facts;
+}
+
+/// Maps a manifest difficulty onto the Library's, in the same order.
+///
+/// @param difficulty the manifest's difficulty
+/// @return the Library's
+inline oa::ui::library::BrainDifficulty
+brain_difficulty_of(oa::formats::oabrain::Difficulty difficulty) noexcept {
+    switch (difficulty) {
+    case oa::formats::oabrain::Difficulty::easy:
+        return oa::ui::library::BrainDifficulty::easy;
+    case oa::formats::oabrain::Difficulty::medium:
+        return oa::ui::library::BrainDifficulty::medium;
+    case oa::formats::oabrain::Difficulty::hard:
+        return oa::ui::library::BrainDifficulty::hard;
+    }
+    return oa::ui::library::BrainDifficulty::easy;
+}
+
+/// Copies an installed brain's facts. Names stay empty for the caller to fill.
+///
+/// @param manifest the installed manifest
+/// @param network_bytes the networks' files, in bytes, already measured
+/// @return the facts
+inline oa::ui::library::BrainFacts
+brain_facts_of(const oa::formats::oabrain::Manifest& manifest, uint64_t network_bytes) {
+    oa::ui::library::BrainFacts facts;
+    facts.tags = manifest.tags;
+    for (const oa::formats::oabrain::Level& level : manifest.levels) {
+        oa::ui::library::BrainLevel line;
+        line.id = level.id;
+        line.name = level.name;
+        line.difficulty = brain_difficulty_of(level.difficulty);
+        facts.levels.push_back(std::move(line));
+    }
+    for (const oa::formats::oamut::Condition& condition : manifest.works_with) {
+        oa::ui::library::WorksWith item;
+        item.id = condition.id;
+        item.range = condition.range_text;
+        facts.works_with.push_back(std::move(item));
+    }
+    facts.requires_engine = manifest.requires_engine;
+    facts.requires_expansions = manifest.requires_expansions;
+    facts.full_awareness = manifest.full_awareness;
+    facts.network_bytes = network_bytes;
+    return facts;
+}
+
+/// Copies a catalogue brain's facts. Names stay empty for the caller to fill.
+///
+/// @param package the catalogue entry
+/// @return the facts
+inline oa::ui::library::BrainFacts brain_facts_of(const oa::data::catalogue::Package& package) {
+    oa::ui::library::BrainFacts facts;
+    facts.tags = package.tags;
+    for (const oa::data::catalogue::BrainLevel& level : package.levels) {
+        oa::ui::library::BrainLevel line;
+        line.id = level.id;
+        line.name = level.name;
+        line.difficulty = brain_difficulty_of(level.difficulty);
+        facts.levels.push_back(std::move(line));
+    }
+    for (const std::string& written : package.works_with) {
+        const std::optional<oa::formats::oamut::Condition> condition =
+            oa::formats::oamut::parse_condition(written);
+        if (!condition)
+            continue;
+        oa::ui::library::WorksWith item;
+        item.id = condition->id;
+        item.range = condition->range_text;
+        facts.works_with.push_back(std::move(item));
+    }
+    facts.requires_engine = package.requires_engine_text;
+    facts.requires_expansions = package.required_expansions;
+    facts.full_awareness = package.full_awareness;
+    facts.network_bytes = package.network_bytes;
     return facts;
 }
 
