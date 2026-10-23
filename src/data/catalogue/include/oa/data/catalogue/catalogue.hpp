@@ -8,6 +8,7 @@
 
 #include "oa/base/sha256.hpp"
 #include "oa/data/registry/descriptor.hpp"
+#include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/formats/url.hpp"
@@ -44,12 +45,13 @@ enum class Kind : uint8_t {
     oamap,     ///< a map pack
     expansion, ///< an expansion package
     oamut,     ///< a mutator
+    oabrain,   ///< a brain
 };
 
 /// The kind as the catalogue writes it.
 ///
 /// @param kind the kind
-/// @return `oalang`, `oamod`, `oamap`, `expansion` or `oamut`; never null
+/// @return `oalang`, `oamod`, `oamap`, `expansion`, `oamut` or `oabrain`; never null
 [[nodiscard]] inline const char* kind_name(Kind kind) noexcept {
     switch (kind) {
     case Kind::oalang:
@@ -62,6 +64,8 @@ enum class Kind : uint8_t {
         return "expansion";
     case Kind::oamut:
         return "oamut";
+    case Kind::oabrain:
+        return "oabrain";
     }
     return "";
 }
@@ -72,7 +76,7 @@ enum class Kind : uint8_t {
 /// Every other kind's file ends with the kind's own name.
 ///
 /// @param kind the kind
-/// @return `oalang`, `oamod`, `oamap`, `oaexp` or `oamut`; never null
+/// @return `oalang`, `oamod`, `oamap`, `oaexp`, `oamut` or `oabrain`; never null
 [[nodiscard]] inline const char* package_extension(Kind kind) noexcept {
     if (kind == Kind::expansion)
         return "oaexp";
@@ -107,6 +111,14 @@ struct ChoiceValueText {
     std::string text;   ///< the value as written
 };
 
+/// One level a brain offers that this build knows.
+struct BrainLevel {
+    std::string id;   ///< a level id: lower-case kebab-case of 1 to 32 bytes
+    std::string name; ///< the name a player sees, 1 to 64 bytes
+    /// `easy`, `medium` or `hard`.
+    formats::oabrain::Difficulty difficulty{formats::oabrain::Difficulty::easy};
+};
+
 /// One option as the catalogue summarises it, for the Library to show.
 struct OptionSummary {
     std::string id;    ///< an option id, a Lua name of 1 to 32 bytes
@@ -133,7 +145,8 @@ struct Package {
     Kind kind = Kind::oamod;
     std::string id;   ///< the package key; unique in the catalogue, ignoring case
     std::string name; ///< the name a player sees, 1 to 64 bytes
-    /// 1 to 32 bytes; empty when this kind names none. A mutator's is a mutator version.
+    /// 1 to 32 bytes; empty when this kind names none. A mutator's or a brain's is a
+    /// version of one to three parts.
     std::string version;
     int32_t revision{};            ///< a mod's revision, 1 to 65535; 0 when this package names none
     int64_t release{};             ///< the release number, 1 to 2^31-1
@@ -179,15 +192,21 @@ struct Package {
     std::vector<MutatorRequirement> requires_mutators;
     /// Mutators this one cannot run beside. Empty for every other kind.
     std::vector<MutatorRequirement> conflicts_with;
-    /// Conditions this mutator works with, as written. Empty for every other kind.
+    /// Conditions a mutator or a brain works with, as written. Empty for every other kind.
     std::vector<std::string> works_with;
     /// Layers this mutator uses, known names kept once. Empty for every other kind.
     std::vector<formats::oamut::Layer> layers;
     /// How this mutator treats a unit or weapon that already has that name.
     /// Absent when the entry names none, and absent for every other kind.
     std::optional<formats::oamut::ClashMode> clashes;
-    /// One summary per option. Empty for every other kind.
+    /// One summary per option of a mutator or a brain. Empty for every other kind.
     std::vector<OptionSummary> options;
+    /// Levels this build knows, in the order written. Empty, false or 0 for every other kind.
+    std::vector<BrainLevel> levels;
+    /// Whether a brain sees every unit. Empty, false or 0 for every other kind.
+    bool full_awareness{false};
+    /// The bytes of a brain's networks taken together. Empty, false or 0 for every other kind.
+    uint64_t network_bytes{};
 };
 
 /// One catalogue that was read. `problems` holds why entries were skipped.
@@ -236,8 +255,8 @@ read_catalogue(std::span<const uint8_t> bytes, Catalogue& out, std::string* erro
 
 /// Reports whether a package key is the key for its kind.
 ///
-/// A mod, a map pack, an expansion or a mutator uses lower-case kebab-case
-/// of 1 to 64 bytes: words of `a`-`z` and `0`-`9` joined by single hyphens.
+/// A mod, a map pack, an expansion, a mutator or a brain uses lower-case
+/// kebab-case of 1 to 64 bytes: words of `a`-`z` and `0`-`9` joined by single hyphens.
 /// A language pack uses a language tag of 2 to 35 bytes: letters, then
 /// hyphen-joined parts of letters and digits. No key contains an at sign.
 ///
