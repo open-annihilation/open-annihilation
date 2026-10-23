@@ -130,6 +130,8 @@ void Match::update_player_slots() {
         follow_alliances_in_sight();
         if (player == state().game.viewpoint_player)
             scan_contacts();
+        if (player_contacts_kept(index))
+            scan_player_contacts(index);
     }
     // A multiplayer game ends once no human participant is left.
     if (multiplayer_outcomes_) {

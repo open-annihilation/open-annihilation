@@ -6,7 +6,10 @@
 #include "oa/sim/ai.hpp"
 #include "oa/sim/detection.hpp"
 
+#include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <span>
 
 namespace oa::sim::match_runtime {
 namespace {
@@ -236,6 +239,227 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
             (unit.state_flags & OA_UNIT_STATE_CLOAKED) == 0 &&
             point_seen_by(viewer.index, fixed_words(unit.position)))
             unit.flags |= detection::radar_contact;
+    }
+}
+
+void Match::keep_player_contacts(uint8_t player, bool keep) {
+    if (player >= OA_PLAYER_COUNT) {
+        fault_.note("player contact picture is outside the ten players");
+        return;
+    }
+    const auto stride = slots_.size();
+    if (!keep) {
+        if (player_contacts_ != nullptr) {
+            uint8_t* row = player_contacts_.get() + static_cast<std::size_t>(player) * stride;
+            for (std::size_t slot = 0; slot < stride; ++slot)
+                row[slot] = static_cast<uint8_t>(0);
+        }
+        player_contacts_kept_[player] = static_cast<uint8_t>(0);
+        player_contacts_tick_[player] = 0;
+        return;
+    }
+    if (player_contacts_ == nullptr)
+        player_contacts_ = std::make_unique<uint8_t[]>(stride * OA_PLAYER_COUNT);
+    player_contacts_kept_[player] = static_cast<uint8_t>(1);
+    player_contacts_tick_[player] = 0;
+    auto& world = state();
+    uint8_t* row = player_contacts_.get() + static_cast<std::size_t>(player) * stride;
+    const auto unit_count = static_cast<std::size_t>(world.unit_slot_count);
+    for (std::size_t slot = 0; slot < stride; ++slot) {
+        if (slot < unit_count && (world.units[slot].flags & OA_UNIT_FLAG_LIVE) != 0)
+            row[slot] = sim::detection::created_picture_bits(world.units[slot], player);
+        else
+            row[slot] = static_cast<uint8_t>(0);
+    }
+}
+
+bool Match::player_contacts_kept(uint8_t player) const noexcept {
+    return player < OA_PLAYER_COUNT && player_contacts_kept_[player] != 0;
+}
+
+std::span<const uint8_t> Match::player_contact_bits(uint8_t player) const noexcept {
+    if (player >= OA_PLAYER_COUNT || player_contacts_kept_[player] == 0 ||
+        player_contacts_ == nullptr)
+        return {};
+    const auto stride = slots_.size();
+    return std::span<const uint8_t>{
+        player_contacts_.get() + static_cast<std::size_t>(player) * stride, stride
+    };
+}
+
+uint32_t Match::player_contacts_tick(uint8_t player) const noexcept {
+    if (player >= OA_PLAYER_COUNT)
+        return 0;
+    return player_contacts_tick_[player];
+}
+
+void Match::scan_player_contacts(uint8_t player) {
+    namespace detection = sim::detection;
+    if (player >= OA_PLAYER_COUNT || player_contacts_kept_[player] == 0 ||
+        participant_count() <= 1 || player_contacts_ == nullptr)
+        return;
+    auto& world = state();
+    const auto stride = slots_.size();
+    const uint32_t unit_count = world.unit_slot_count;
+    const uint32_t limit = unit_count < stride ? unit_count : static_cast<uint32_t>(stride);
+    uint8_t* bits = player_contacts_.get() + static_cast<std::size_t>(player) * stride;
+    const bool allied_vision = rules().intel.allied_los_sharing.enabled;
+    auto& picture_player = world.game.players[player];
+
+    // The first pass matches the viewpoint scan's, without the watcher and
+    // slotless-viewer clauses: those belong to the local screen.
+    for (uint32_t slot = 1; slot < limit; ++slot) {
+        auto& unit = world.units[slot];
+        if ((unit.flags & OA_UNIT_FLAG_LIVE) == 0)
+            continue;
+        if (allied_vision) {
+            if (!owner_allies(unit, player)) {
+                bits[slot] = static_cast<uint8_t>(0);
+                continue;
+            }
+        } else if (unit.owner_index != player) {
+            const auto* owner = oa::world_unit_owner(&world, &unit);
+            if (!(owner != nullptr && detection::shares_radar(world, picture_player, *owner))) {
+                bits[slot] = static_cast<uint8_t>(0);
+                continue;
+            }
+        }
+        bits[slot] =
+            static_cast<uint8_t>(bits[slot] | detection::picture_radar | detection::picture_sonar);
+    }
+
+    uint32_t owned = 0;
+    (void)oa::world_player_units(&world, &picture_player, &owned);
+    if (!allied_vision || owned == 0) {
+        scan_picture_pass(player, picture_player, owned != 0);
+    } else {
+        for (uint8_t ally_index = 0; ally_index < OA_PLAYER_COUNT; ++ally_index) {
+            const auto& ally_player = world.game.players[ally_index];
+            if (ally_player.alliance[player] == 0)
+                continue;
+            uint32_t ally_owned = 0;
+            (void)oa::world_player_units(&world, &ally_player, &ally_owned);
+            scan_picture_pass(player, ally_player, ally_owned != 0);
+        }
+    }
+    player_contacts_tick_[player] = world.game.tick;
+}
+
+void Match::scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool scan_own_units) {
+    namespace detection = sim::detection;
+    auto& world = state();
+    const auto stride = slots_.size();
+    const uint32_t unit_count = world.unit_slot_count;
+    const uint32_t limit = unit_count < stride ? unit_count : static_cast<uint32_t>(stride);
+    uint8_t* bits = player_contacts_.get() + static_cast<std::size_t>(picture) * stride;
+
+    // Radar reaches twice the scanner's integer altitude further; the walk
+    // covers the larger of the plain radar and sonar ranges. The stamp skips
+    // the picture player's units, including during an ally's pass.
+    struct Stamp {
+        detection::ScanRecord scan;
+        oa::World* world;
+        uint8_t* bits;
+        uint8_t picture_player;
+        std::size_t slot_count;
+    };
+
+    uint32_t owned = 0;
+    auto* units = scan_own_units ? oa::world_player_units(&world, &viewer, &owned) : nullptr;
+    if (units != nullptr)
+        for (uint32_t i = 0; i < owned; ++i) {
+            const auto& scanner = units[i];
+            if (!unit_is_live_target(scanner.flags) ||
+                (scanner.state_flags & OA_UNIT_STATE_ACTIVE) == 0)
+                continue;
+            const auto* def = oa::world_unit_def_of(&world, &scanner);
+            if (def == nullptr || (def->radar_distance == 0 && def->sonar_distance == 0))
+                continue;
+            const int16_t radar = def->radar_distance;
+            const int16_t sonar = def->sonar_distance;
+            const auto altitude = static_cast<int32_t>(
+                static_cast<int16_t>(static_cast<uint32_t>(scanner.position.y) >> 16)
+            );
+            const auto lifted = static_cast<uint32_t>(radar + altitude * 2);
+            Stamp stamp{{}, &world, bits, picture, stride};
+            stamp.scan.radar_range_squared = static_cast<int32_t>(lifted * lifted);
+            stamp.scan.sonar_range_squared = static_cast<int32_t>(sonar) * sonar;
+            stamp.scan.position = scanner.position;
+            const int16_t reach = radar <= sonar ? sonar : radar;
+            for_each_unit_in_radius(
+                {scanner.position.x, scanner.position.y, scanner.position.z},
+                whole_to_fixed(reach),
+                [](void* context, sim::unit_spawn::Slot& slot) {
+                    const auto& walked = *static_cast<const Stamp*>(context);
+                    if (slot.unit_index >= walked.slot_count)
+                        return;
+                    detection::stamp_picture(
+                        walked.scan,
+                        walked.picture_player,
+                        slot.record,
+                        *walked.world,
+                        walked.bits[slot.unit_index]
+                    );
+                },
+                &stamp
+            );
+        }
+
+    struct JamRow {
+        uint8_t* bits;
+        std::size_t slot_count;
+    };
+
+    const bool allied_jammers_ignored = rules().intel.allied_jammers_ignored.enabled;
+    JamRow row{bits, stride};
+    for (uint32_t slot = 1; slot < limit; ++slot) {
+        const auto& jammer = world.units[slot];
+        if ((jammer.flags & OA_UNIT_FLAG_LIVE) == 0 || jammer.owner_index == viewer.index ||
+            (jammer.state_flags & OA_UNIT_STATE_ACTIVE) == 0 ||
+            !detection::seat_jammer_jams(allied_jammers_ignored, viewer, jammer))
+            continue;
+        const auto* def = oa::world_unit_def_of(&world, &jammer);
+        if (def == nullptr)
+            continue;
+        const sim::ground_orders::Point centre{
+            jammer.position.x, jammer.position.y, jammer.position.z
+        };
+        if (def->radar_distance_jam != 0)
+            for_each_unit_in_radius(
+                centre,
+                whole_to_fixed(def->radar_distance_jam),
+                [](void* context, sim::unit_spawn::Slot& slot) {
+                    const auto& walked = *static_cast<const JamRow*>(context);
+                    if (slot.unit_index >= walked.slot_count)
+                        return;
+                    detection::jam_picture_radar(walked.bits[slot.unit_index]);
+                },
+                &row
+            );
+        if (def->sonar_distance_jam != 0)
+            for_each_unit_in_radius(
+                centre,
+                whole_to_fixed(def->sonar_distance_jam),
+                [](void* context, sim::unit_spawn::Slot& slot) {
+                    const auto& walked = *static_cast<const JamRow*>(context);
+                    if (slot.unit_index >= walked.slot_count)
+                        return;
+                    detection::jam_picture_sonar(walked.bits[slot.unit_index]);
+                },
+                &row
+            );
+    }
+
+    // A picture does not expose cloakers: that writes simulation state the
+    // viewpoint scan already applies once.
+    // Each pass reads that pass's player's sight, as the viewpoint scan's
+    // pass does. A picture of the viewpoint then matches the contact bits.
+    for (uint32_t slot = 1; slot < limit; ++slot) {
+        const auto& unit = world.units[slot];
+        if ((unit.flags & OA_UNIT_FLAG_LIVE) != 0 && (bits[slot] & detection::picture_radar) == 0 &&
+            (unit.state_flags & OA_UNIT_STATE_CLOAKED) == 0 &&
+            point_seen_by(viewer.index, fixed_words(unit.position)))
+            bits[slot] = static_cast<uint8_t>(bits[slot] | detection::picture_radar);
     }
 }
 

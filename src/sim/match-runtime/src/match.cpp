@@ -627,6 +627,20 @@ void Match::report_created(const sim::unit_spawn::Slot* slot, bool finished, uin
     if (slot == nullptr || slot->unit == nullptr)
         return;
     const auto unit = slot->unit_index;
+    // A kept picture starts the new slot as a new unit's flags start, with
+    // that player as the viewer. This does not wait on an event hook.
+    if (player_contacts_ != nullptr) {
+        const auto stride = slots_.size();
+        if (unit < stride) {
+            const auto& created = state().units[unit];
+            for (uint8_t picture = 0; picture < OA_PLAYER_COUNT; ++picture) {
+                if (player_contacts_kept_[picture] == 0)
+                    continue;
+                player_contacts_[static_cast<std::size_t>(picture) * stride + unit] =
+                    sim::detection::created_picture_bits(created, picture);
+            }
+        }
+    }
     bridge_->runtime(slots_.at(unit)).finished_reported = false;
     const auto& world = state();
     emit_event<&EventHooks::unit_created>(world, unit);
