@@ -97,6 +97,8 @@ struct Fixture {
     ///     Non-zero raises the map onto dry land and gives the buildings a
     ///     blocking yard, so a ground move can be searched. Zero leaves the
     ///     match the seat, game and side tests build.
+    /// @param random_seed the match seed. The shared stream starts from it,
+    ///     and a seated brain mixes it into its own stream.
     /// @param visibility the match's visibility flags. 2 is line of sight
     ///     without mapping, which is what the other brain tests build.
     explicit Fixture(
@@ -104,6 +106,7 @@ struct Fixture {
         bool builder_income = true,
         const data::match_rules::MatchRules& rules = {},
         uint32_t movement_class = 0,
+        uint32_t random_seed = 1,
         uint16_t visibility = 2
     ) {
         map.attribute_width = map.attribute_height = map_cells;
@@ -204,8 +207,8 @@ struct Fixture {
             loaded[i].type = types[i];
 
         sim::match_runtime::OfflineInputs input{
-            map,        loaded, types, fields, weapons,   terrain_values,       masks, 32, 32, 40,
-            visibility, 0,      30,    1,      &scenario, [] { return 1000u; }, plots, {}, 0,  0,
+            map,        loaded, types, fields,      weapons,   terrain_values,       masks, 32, 32, 40,
+            visibility, 0,      30,    random_seed, &scenario, [] { return 1000u; }, plots, {}, 0,  0,
             0.0F,       {}
         };
         input.rules = rules;

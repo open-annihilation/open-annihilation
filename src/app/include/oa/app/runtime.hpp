@@ -4520,6 +4520,15 @@ class Runtime final : public menu::Host,
     /// @return the id, or empty for the built-in computer player
     [[nodiscard]] std::string default_brain() const;
 
+    /// Stores the default computer player.
+    ///
+    /// An installed brain's id writes open-annihilation.brain.default. An
+    /// empty id erases the key, so the built-in player is the default. A
+    /// failure to store it is logged once.
+    ///
+    /// @param id the brain's id, or empty for the built-in player
+    void set_default_brain(std::string_view id);
+
   public:
 
     /// Replaces the mutators the next matches apply.
@@ -5087,6 +5096,35 @@ class Runtime final : public menu::Host,
     /// as the built-in computer player. Nothing is seated when no match is
     /// running.
     void seat_chosen_brains();
+
+    /// Queues a line a seated brain asked to say.
+    ///
+    /// @param context this runtime
+    /// @param seat the brain's player
+    /// @param text the words
+    /// @param mode everyone, allies, enemies or chosen
+    /// @param target the chosen player
+    /// @return the seat-chat answer as a number
+    static uint8_t brain_chat_say(
+        void* context, uint8_t seat, std::string_view text, uint8_t mode, uint8_t target
+    );
+
+    /// Queues a line a computer seat heard, for that seat's next turn.
+    ///
+    /// @param context this runtime
+    /// @param seat the seat that heard the line
+    /// @param from the sender
+    /// @param mode everyone, allies, enemies or chosen
+    /// @param words the words, without a name head
+    static void brain_chat_heard(
+        void* context, uint8_t seat, uint8_t from, uint8_t mode, std::string_view words
+    );
+
+    /// Connects seated brains to the match's chat.
+    ///
+    /// Does nothing when no brain is seated, so a match without brains keeps
+    /// the listener the seat chat already has.
+    void attach_brain_chat();
 
     /// Returns the facts a brain reads as `game`.
     ///
@@ -18492,6 +18530,8 @@ class Runtime final : public menu::Host,
     bool mutator_refusal_logged_{};
     /// A failure to store or erase a remembered set has already been logged.
     bool mutator_sets_failure_logged_{};
+    /// A failure to store or erase the default brain has already been logged.
+    bool brain_default_failure_logged_{};
     /// The seats skirmish, the battle room and campaign keep for this run.
     /// Empty until that setup is entered. The battle room's stays empty
     /// until a later ticket fills it.
