@@ -7,6 +7,7 @@
 
 #include "oa/app/package_install.hpp"
 #include "oa/formats/json.hpp"
+#include "oa/formats/oamut/manifest.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -76,6 +77,34 @@ void describe_oamut(
     const oa::app::package_install::Package& package,
     oa::formats::json::JsonWriter& writer,
     const MutatorChecked& checked
+);
+
+/// Writes one option's summary, in the mutator's shape.
+///
+/// The keys are id, label, type and default. A choice adds values and, when
+/// the manifest names them, labels. A number adds min, max and step.
+///
+/// @param[in,out] writer the array the object is written into
+/// @param option the option
+void write_option_facts(
+    oa::formats::json::JsonWriter& writer, const oa::formats::oamut::Option& option
+);
+
+/// Writes the icon's path, digest, size and pixel size.
+///
+/// The key is left out when `path` is empty, the package has no such file,
+/// the file is larger than `size_limit`, or the bytes are not a PNG.
+/// `path` is the manifest's spelling.
+///
+/// @param package the package
+/// @param path the icon's path in the manifest
+/// @param size_limit the most bytes of that file
+/// @param[in,out] writer the object the fact is written into
+void write_icon_facts(
+    const oa::app::package_install::Package& package,
+    std::string_view path,
+    uint64_t size_limit,
+    oa::formats::json::JsonWriter& writer
 );
 
 } // namespace oa::tool
