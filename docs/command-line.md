@@ -466,6 +466,9 @@ one, for the engine's developers.
 | `--load PATH.sav` | Starts the headless run from a saved game. |
 | `--give-orders` | Gives the units orders in a headless run. |
 | `--seed N` | Starts the random numbers from `N`, so two runs play alike. |
+| `--brain-match A,B` | Plays a two-seat headless skirmish. Each seat is an installed brain id, a brain folder, or `builtin`. It needs `--headless-check`, `--match-ticks` and `--brain-map`. [Below](#--brain-match). |
+| `--brain-levels L1,L2` | The level of each `--brain-match` seat. A built-in level is `easy`, `medium` or `hard`, and `hard` when the word is left out. A brain's level is a level id from its manifest, and its first level when the word is left out. |
+| `--brain-map NAME` | The map a `--brain-match` plays. |
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
 | `--trace-lookups FILE` | Writes every game file and listing the run looks up, and, for a path a mutator serves or hides, which mutator. |
@@ -537,6 +540,63 @@ pointer lines should reach that edge's column or row. Then:
   outermost row or column on that side; with `top:-8` the match pointer
   lines stop at `y=8`. A line after `scale-changed` or
   `display-mode-changed` shows when the window moved there.
+
+#### `--brain-match`
+
+```sh
+open-annihilation --headless-check --brain-match steady-commander,builtin --brain-levels steady,hard --brain-map "Ashap Plateau" --seed 4242 --match-ticks 1800
+```
+
+Both seats are computer players. `A` and `B` are separated by one comma and
+are not trimmed. `builtin` is the built-in computer player. A seat that
+holds `/` or `\`, or starts with `.`, is a brain's folder. Any other seat
+is the id of a brain installed under the user folder's `Brains`.
+`--brain-levels` is two levels in the same order, or left out. A brain
+match needs `--headless-check`, `--match-ticks` and `--brain-map`.
+`--brain-levels` and `--brain-map` need `--brain-match`. A brain match
+cannot be combined with `--stage`, `--combat`, `--load`, `--save-after`,
+`--campaign`, `--frame-rate` or `--benchmark`.
+
+The match stops at the first tick where one seat has units and the other
+has none (that seat wins), or where neither seat has units (a draw). When
+both still have units after `--match-ticks` ticks, there is no winner.
+The same command prints the same lines on every run. Each line starts
+with `brain match: `, and every number is a whole decimal. A stored
+amount with a fraction is cut toward zero. Seats are numbered 1 and 2.
+
+```text
+brain match: map Ashap Plateau seed 4242 ticks 1800
+brain match: seat 1 steady-commander 1.2 level steady side 0
+brain match: seat 2 built-in level hard side 1
+brain match: end tick 1800 winner none reason time
+brain match: seat 1 units 4 built 3 lost 0 kills 0 metal 512 energy 980 metal-produced 1203 energy-produced 4410 instructions 1834000 status playing
+brain match: seat 2 units 9 built 8 lost 0 kills 0 metal 220 energy 1500 metal-produced 1650 energy-produced 5120 instructions - status built-in
+brain match: digest 0123456789abcdef
+```
+
+| Word | What it says |
+|---|---|
+| `map`, `seed`, `ticks` | The map, the seed the match played, and the tick count the command asked for. |
+| `seat N` and a brain | The brain's id, its version, the level id it played, and the seat's side. A folder is named by its last piece, never by the path. |
+| `built-in` | This seat is the built-in computer player, at `easy`, `medium` or `hard`. |
+| `end tick` | The tick the match stopped on. |
+| `winner` | `seat 1`, `seat 2`, or `none`. |
+| `reason` | `last-standing` when one seat still has units, `draw` when neither does, or `time` when the tick count is spent with both still in play. |
+| `units` | Live units of that seat. |
+| `built`, `lost`, `kills` | Units the seat has built, lost and killed. |
+| `metal`, `energy` | Metal and energy in store. |
+| `metal-produced`, `energy-produced` | Metal and energy the seat has produced. |
+| `instructions` | Instructions the brain's calls have used, or `-` for a built-in seat. |
+| `status` | `playing`, `stopped-at` and the tick the brain stopped, or `built-in`. |
+| `stopped:` | The next line of a seat whose brain stopped, naming the script and the line. The match plays on. |
+| `digest` | The world digest, 16 lower-case hex digits. |
+
+A seat whose brain could not be seated is not played. The run prints
+`brain match: seat 2 ridge-raider was not seated:` and the reason, and
+exits with status 1. A map that cannot be played prints
+`brain match: map NAME could not be played` and exits with status 1. An
+option the command refuses also exits with status 1. Status 0 means the
+match played to the end above, whoever won.
 
 ## Ways to launch a game
 

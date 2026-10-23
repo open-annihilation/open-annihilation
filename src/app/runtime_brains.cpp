@@ -57,6 +57,12 @@ void Runtime::prepare_brain_report(
 ) {
     if (match_ == nullptr || player >= OA_PLAYER_COUNT)
         return;
+    brain_seat_id_[player] = std::string(id);
+    brain_seat_version_[player] = std::string(version);
+    brain_seat_level_[player] = std::string(level);
+    brain_seat_stopped_[player] = false;
+    brain_stop_tick_[player] = 0;
+    brain_stop_text_[player].clear();
     oa::sim::brains::ReportHooks hooks;
     hooks.context = this;
     hooks.printed = &Runtime::brain_printed;
@@ -122,6 +128,12 @@ void Runtime::brain_stopped(
     if (runtime == nullptr || player >= OA_PLAYER_COUNT)
         return;
     try {
+        runtime->brain_seat_stopped_[player] = true;
+        runtime->brain_stop_tick_[player] = tick;
+        std::string described = oa::data::script_host::describe(error);
+        if (described.empty())
+            described = notice_reason(error);
+        runtime->brain_stop_text_[player] = std::move(described);
         BrainLog& log = runtime->brain_logs_[player];
         log.stop(tick, error);
         runtime->post_match_message(
@@ -182,7 +194,11 @@ void Runtime::attach_brain_chat() {
 void Runtime::seat_chosen_brains() {
     if (match_ == nullptr)
         return;
-    const std::filesystem::path brains_folder = user_folder() / std::string(brains_folder_name);
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        brain_unseated_id_[player].clear();
+        brain_unseated_reason_[player].clear();
+    }
+    const std::filesystem::path installed_root = user_folder() / std::string(brains_folder_name);
     bool seated_one = false;
     for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
         const std::optional<BrainSeatChoice>& choice = brain_seat_choices_[player];
@@ -191,21 +207,30 @@ void Runtime::seat_chosen_brains() {
         const oa::Player& record = match_->state().game.players[player];
         if (record.in_use == 0 || record.status != OA_PLAYER_STATUS_COMPUTER)
             continue;
+        std::filesystem::path brains_folder = installed_root;
+        std::string id = choice->id;
+        if (!choice->folder.empty()) {
+            brains_folder = choice->folder.parent_path();
+            const std::string named = choice->folder.filename().string();
+            if (!named.empty())
+                id = named;
+        }
+        const auto refuse = [&](std::string_view reason) {
+            report_seat(player, id, reason);
+            brain_unseated_id_[player] = id;
+            brain_unseated_reason_[player] = std::string(reason);
+        };
         try {
             std::string error;
             const std::optional<InstalledBrain> installed =
-                read_installed_brain(brains_folder, choice->id, error);
+                read_installed_brain(brains_folder, id, error);
             if (!installed) {
-                report_seat(
-                    player, choice->id, error.empty() ? "the brain could not be read" : error
-                );
+                refuse(error.empty() ? "the brain could not be read" : error);
                 continue;
             }
             ResolvedSeat resolved;
             if (!resolve_seat(*installed, *choice, resolved, error)) {
-                report_seat(
-                    player, choice->id, error.empty() ? "the brain could not be seated" : error
-                );
+                refuse(error.empty() ? "the brain could not be seated" : error);
                 continue;
             }
             std::vector<oa::sim::brains::PackageFile> files;
@@ -222,16 +247,14 @@ void Runtime::seat_chosen_brains() {
             );
             const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
             if (outcome.result != oa::sim::brains::SeatResult::seated) {
-                report_seat(player, choice->id, failure_text(outcome));
+                refuse(failure_text(outcome));
                 report_unseated_brain(player, installed->manifest.name, outcome);
             } else {
                 seated_one = true;
             }
         } catch (const std::exception& ex) {
             const char* text = ex.what();
-            report_seat(
-                player, choice->id, text != nullptr ? text : "the brain could not be seated"
-            );
+            refuse(text != nullptr ? text : "the brain could not be seated");
         }
     }
     if (seated_one) {

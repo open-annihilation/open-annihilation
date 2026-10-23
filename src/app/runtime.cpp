@@ -648,6 +648,11 @@ int Runtime::run() {
             flush_preferences();
             return result;
         }
+        if (!options_.brain_match.empty()) {
+            const int status = run_headless_brain_match(options_.match_ticks.value_or(0));
+            flush_preferences();
+            return status;
+        }
         if (options_.match_ticks) {
             if (options_.frame_rate)
                 run_headless_frames(*options_.match_ticks, *options_.frame_rate);
