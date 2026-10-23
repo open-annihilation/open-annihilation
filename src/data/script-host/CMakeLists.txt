@@ -177,6 +177,6 @@ if(BUILD_TESTING)
   add_executable(oa-data-script-host-plain-data-test tests/plain_data_test.cpp)
   target_link_libraries(oa-data-script-host-plain-data-test PRIVATE
     oa-data-script-host oa-test-support oa-options)
-  add_test(NAME data-script-host-plain-data COMMAND oa-data-script-host-plain-data-test)
-  set_tests_properties(data-script-host-plain-data PROPERTIES TIMEOUT 60)
+  add_test(NAME data-script-host-plain-values COMMAND oa-data-script-host-plain-data-test)
+  set_tests_properties(data-script-host-plain-values PROPERTIES TIMEOUT 60)
 endif()

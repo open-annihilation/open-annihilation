@@ -473,7 +473,7 @@ tables and strings. A string longer than 40 bytes also pays the usual
 string charge when it is created.
 
 The caller keeps its `PlainData` and `PlainDataProblem` outside the frame
-a raise can skip. `data-script-host-plain-data` checks the bytes, the
+a raise can skip. `data-script-host-plain-values` checks the bytes, the
 refusals, the round trip and the charge.
 
 ## Tests
@@ -583,7 +583,7 @@ trailing slash do not match. Replacing a path keeps one file. A sandbox
 opened on those hooks runs `brain.lua`, and `require("a.b")` reads
 `lua/a/b.lua` from the same object.
 
-`data-script-host-plain-data` encodes plain values to fixed bytes, including
+`data-script-host-plain-values` encodes plain values to fixed bytes, including
 one table built five ways and from two sandboxes. A round trip keeps
 integers, floats, signed zero, infinities, a NaN, strings, fixed counts and
 nested tables, and encoding the result gives the same bytes. It refuses a
