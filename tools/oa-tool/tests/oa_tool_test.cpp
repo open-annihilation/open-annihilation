@@ -235,8 +235,9 @@ void test_help() {
     OA_CHECK(table[7].subcommands[1].name == "check");
     OA_CHECK(table[7].subcommands[2].name == "import");
     OA_CHECK(table[7].subcommands[3].name == "diff");
-    OA_CHECK(table[8].subcommands.size() == 1);
+    OA_CHECK(table[8].subcommands.size() == 2);
     OA_CHECK(table[8].subcommands[0].name == "pack");
+    OA_CHECK(table[8].subcommands[1].name == "net");
     OA_CHECK(table[10].subcommands.size() == 2);
     OA_CHECK(table[9].subcommands.size() == 4);
     OA_CHECK(table[9].subcommands[0].name == "keygen");

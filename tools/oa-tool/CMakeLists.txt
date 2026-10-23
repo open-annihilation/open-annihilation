@@ -135,6 +135,14 @@ if(BUILD_TESTING)
   add_test(NAME tools-oa-tool-brain COMMAND oa-tool-brain-test)
   set_tests_properties(tools-oa-tool-brain PROPERTIES TIMEOUT 60)
 
+  # brain net: models this test writes, quantised and checked against the
+  # integer network, and the refusals of a bad file or a bad invocation.
+  add_executable(oa-tool-brain-net-test tests/brain_net_test.cpp)
+  target_link_libraries(oa-tool-brain-net-test PRIVATE oa-tool-commands oa-formats-oann
+    oa-data-neural oa-formats-json oa-base-sha256 oa-test-support oa-options)
+  add_test(NAME tools-oa-tool-brain-net COMMAND oa-tool-brain-net-test)
+  set_tests_properties(tools-oa-tool-brain-net PROPERTIES TIMEOUT 120)
+
   # mutator import: made-up .tam files and a zip become mutator folders.
   add_executable(oa-tool-mutator-import-test tests/mutator_import_test.cpp)
   target_link_libraries(oa-tool-mutator-import-test PRIVATE oa-tool-commands oa-test-support
