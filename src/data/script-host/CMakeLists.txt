@@ -135,6 +135,20 @@ if(BUILD_TESTING)
   add_test(NAME data-script-host-text COMMAND oa-data-script-host-text-test)
   set_tests_properties(data-script-host-text PROPERTIES TIMEOUT 30)
 
+  # A per-tick instruction bank, its real-time backstop, and print lines handed out.
+  add_executable(oa-data-script-host-bank-test tests/bank_test.cpp)
+  target_link_libraries(oa-data-script-host-bank-test PRIVATE
+    oa-data-script-host oa-test-support oa-options)
+  add_test(NAME data-script-host-bank COMMAND oa-data-script-host-bank-test)
+  set_tests_properties(data-script-host-bank PROPERTIES TIMEOUT 120)
+
+  # Package files served from memory, matched byte for byte.
+  add_executable(oa-data-script-host-memory-sources-test tests/memory_sources_test.cpp)
+  target_link_libraries(oa-data-script-host-memory-sources-test PRIVATE
+    oa-data-script-host oa-test-support oa-options)
+  add_test(NAME data-script-host-memory-sources COMMAND oa-data-script-host-memory-sources-test)
+  set_tests_properties(data-script-host-memory-sources PROPERTIES TIMEOUT 30)
+
   # Fixed counts against an independent table, through C++ and through a sandbox.
   add_executable(oa-data-script-host-fixed-test tests/fixed_test.cpp)
   target_link_libraries(oa-data-script-host-fixed-test PRIVATE

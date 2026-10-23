@@ -26,8 +26,19 @@ The interpreter underneath is Lua 5.4.9, built as the C library
   caller's work on a later phase and calls no script.
 - `run_file` loads a package path as a text chunk and runs it as one phase.
   `call` runs the function `push` placed on the stack, then `read` sees how
-  many results came back. Each phase has a fresh instruction allowance and
-  a fresh real-time limit.
+  many results came back. Each of those phases has a fresh instruction
+  allowance and a fresh real-time limit.
+- `call_banked` runs one call the way `call` does, but the allowance is the
+  bank's balance and the real-time limit is the bank's. The instructions
+  that call used come off the balance. `refill_bank` adds one tick's
+  allowance, and the balance never passes the limit. A profile with no bank
+  makes `call_banked` return an error and leaves the sandbox usable.
+- `drain_printed` hands the lines `print` kept to the caller, oldest first,
+  then forgets them, so the next call can print again. Call it between
+  phases. A null receiver forgets the lines without handing them over.
+- `MemorySources` holds a package's files and serves them through
+  `SourceHooks`. A path matches byte for byte. The hooks point at the
+  object, so it must not move while a sandbox uses them.
 - A false return fills a `ScriptError`. `describe` prints
   `<package>: <phase>: <chunk>:<line>: <message>`, and leaves the chunk and
   the line out when the chunk is unknown.
@@ -102,6 +113,32 @@ moves that state; the moved-from object has no state.
   slow one. In multiplayer the loadout digest refuses a match whose machines
   disagree, so the difference cannot desync a match. A dry run records
   `time_limit` like any other failure.
+- A profile may carry a bank. The defaults are 2,000,000 instructions a
+  tick (`default_tick_allowance`), 30 ticks (`default_bank_ticks`) and 250
+  milliseconds (`default_call_time_limit`). The bank opens full. Its limit
+  is one tick's allowance times the tick count, and that count includes the
+  current tick, so the default limit is 60,000,000. `ticks` below 1 counts
+  as 1, and the product saturates at the largest count. A banked call
+  spends the instructions it used, and no more than the balance it started
+  with. The count steps as it does for any other phase, by
+  `budget_check_interval`, so up to 999 instructions of each call go
+  uncounted. The balance is that count alone: no clock, thread or signal.
+  A phase that is not banked (`open`, `run_file`, `call`, `run_host`,
+  `compile_check`) still uses the profile's allowance and leaves the
+  balance unchanged.
+- A banked call's real-time limit is the bank's, 250 milliseconds unless
+  the profile names another. Past it the call stops with `time_limit` and
+  the message `<phase> ran for more than 250 milliseconds on this computer;
+  the stop is for the computer's speed, not the script's instructions`.
+  The length is spelled the same way as the phase limit above (`250
+  milliseconds`, `1 second`). A phase that is not banked keeps
+  `OpenOptions::time_limit` and today's sentence. A `pcall` or `xpcall`
+  cannot keep a banked call going past a spent balance or a passed time
+  limit.
+- `drain_printed` hands out every kept line, oldest first, including the
+  omission note when lines were dropped, then clears the print limits. The
+  next call can keep `max_printed_lines` lines again. It is only for the
+  gap between phases.
 - `string.find`, `string.match`, `string.gmatch` and `string.gsub` count
   their work against that allowance. A step is one entry into the matcher,
   one character a `*`, `+` or `-` repetition tries, or one character a `%b`
@@ -328,11 +365,14 @@ and alignment are not the same on every machine the engine builds for.
 
 ## Profiles
 
-A profile is a name, an instruction allowance, a memory cap and an optional
-`install`. One interpreter serves every profile. `mutator_profile` is the
-default. A later profile, such as a computer player's with a per-tick
-allowance, adds its own functions from `install` without a second interpreter.
-Each sandbox still has its own state.
+A profile is a name, an instruction allowance, a memory cap, an optional
+`install`, and an optional bank. One interpreter serves every profile.
+`mutator_profile` is the default and carries no bank, so every phase still
+gets the allowance in `budget`. A profile whose bank has a `per_tick` above
+zero opens with that bank full: a computer player can spend a saved balance
+on one heavy turn, and a refill puts one tick's allowance back, up to 30
+ticks including the current one. The profile adds its own functions from
+`install` without a second interpreter. Each sandbox still has its own state.
 
 ## Tests
 
@@ -411,6 +451,28 @@ memory with shorter strings is still a memory error.
 where a value sits, the `string.format` refusals, the absent pack functions,
 C collation, the refusal to open under another collation, numeric or
 character-type locale, and that no route makes a weak table.
+
+`data-script-host-bank` uses a made-up package. The bank opens at 30 ticks,
+a refill stops at that limit, and a profile with no bank stays usable. A
+banked call spends exactly the instructions it counted, and two sandboxes
+on the same calls and refills hold the same balance. Spending the balance
+down, refilling, and overspending stops with the banked instruction
+sentence. A loop, including one inside `pcall` and one inside `xpcall`
+with a looping handler, stops on the balance and the failure sticks. A
+banked call that cannot spend its allowance stops on the bank's real-time
+limit, with the sentence that names the computer's speed; a phase that is
+not banked in that sandbox keeps the sandbox's own limit and today's
+sentence. `run_file`, `call` and `run_host` keep the profile allowance and
+leave the balance unchanged, and after a banked call a `call` reports
+today's instruction sentence again. `drain_printed` hands 300 printed
+lines out as 256, in order, ending with the omission note, and the next
+call can print again. A drain with no receiver forgets the lines.
+
+`data-script-host-memory-sources` stores files and reads them back by the
+exact path, including through `SourceHooks`. A different case and a
+trailing slash do not match. Replacing a path keeps one file. A sandbox
+opened on those hooks runs `brain.lua`, and `require("a.b")` reads
+`lua/a/b.lua` from the same object.
 
 ## Limitations
 
