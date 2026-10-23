@@ -348,8 +348,8 @@ int push_start(void* context, lua_State* state) {
     return 3;
 }
 
-bool play_turn(void*, match_runtime::Match&, uint8_t) {
-    return true;
+bool play_turn(void* context, match_runtime::Match& match, uint8_t player) {
+    return deliver_turn(context, match, player);
 }
 
 } // namespace
@@ -524,6 +524,7 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     hooks.context = brains->seats[player].get();
     hooks.play = play_turn;
     match.set_seat_hooks(player, hooks);
+    ensure_listener(*brains, match);
     outcome.result = SeatResult::seated;
     return outcome;
 }
