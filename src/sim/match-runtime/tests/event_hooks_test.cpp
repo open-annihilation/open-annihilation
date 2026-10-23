@@ -98,6 +98,12 @@ struct CreatedByReport {
     uint16_t builder{};
 };
 
+struct EndedReport {
+    uint16_t unit{};
+    uint8_t kind{};
+    bool done{};
+};
+
 struct GivenReport {
     uint16_t unit{};
     uint16_t copy{};
@@ -121,6 +127,8 @@ struct Recorder {
     std::vector<DamageReport> damage;
     std::vector<DeathReport> deaths;
     std::vector<GivenReport> given;
+    std::vector<uint16_t> idle;
+    std::vector<EndedReport> ended;
     std::vector<BirthStep> births;
 
     /// Returns hooks that report into this recorder.
@@ -158,6 +166,13 @@ struct Recorder {
                 {unit, copy, from, to, (world.units[unit].flags & OA_UNIT_FLAG_LIVE) != 0}
             );
         };
+        hooks.unit_idle = [](void* context, const World&, uint16_t unit) {
+            static_cast<Recorder*>(context)->idle.push_back(unit);
+        };
+        hooks.order_ended =
+            [](void* context, const World&, uint16_t unit, uint8_t kind, bool done) {
+                static_cast<Recorder*>(context)->ended.push_back({unit, kind, done});
+            };
         hooks.shot_placed = [](void* context,
                                const World&,
                                const Projectile& shot,
@@ -317,6 +332,15 @@ bool operator==(const DeathReport& left, const DeathReport& right) {
            left.settled_elsewhere == right.settled_elsewhere;
 }
 
+/// Tells whether two ended-order reports name the same order.
+///
+/// @param left first report
+/// @param right second report
+/// @return true when every field is equal
+bool operator==(const EndedReport& left, const EndedReport& right) {
+    return left.unit == right.unit && left.kind == right.kind && left.done == right.done;
+}
+
 /// Tells whether two recorders kept the same reports, entry for entry.
 ///
 /// @param left first recorder
@@ -326,7 +350,8 @@ bool same_records(const Recorder& left, const Recorder& right) {
     return left.created == right.created && left.created_by == right.created_by &&
            left.finished == right.finished && left.shots == right.shots &&
            left.detonations == right.detonations && left.damage == right.damage &&
-           left.deaths == right.deaths && left.given == right.given && left.births == right.births;
+           left.deaths == right.deaths && left.given == right.given && left.idle == right.idle &&
+           left.ended == right.ended && left.births == right.births;
 }
 
 /// The skirmish with every hook set plays exactly as without, to
@@ -375,6 +400,12 @@ void skirmish_reports_every_kind() {
         CHECK(recorder.created_by[i].unit == run.units[i] && recorder.created_by[i].builder == 0);
     }
     CHECK(recorder.finished.empty());
+    // The fixture's type has no default mission, so a unit that runs out of
+    // orders is not given one and is never reported idle. An order that does
+    // end belongs to a unit the skirmish spawned.
+    CHECK(recorder.idle.empty());
+    for (const auto& ended : recorder.ended)
+        CHECK(spawned(run, ended.unit));
 
     // The guns' shots, each from a spawned unit, aimed at a point and a unit.
     CHECK(recorder.shots_from(ShotSource::weapon) > 0);
