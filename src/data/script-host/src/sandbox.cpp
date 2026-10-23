@@ -49,13 +49,13 @@ static void script_count_hook(lua_State* state, lua_Debug* /*activation*/) {
     }
     if (control->allowance_spent) {
         lua_sethook(state, script_count_hook, LUA_MASKCOUNT, 1);
-        luaL_error(state, "%s", control->instruction_message);
+        luaL_error(state, "%s", control->spent_allowance_message);
     }
     control->instructions_used += static_cast<uint64_t>(budget_check_interval);
     if (control->instructions_used >= control->instruction_allowance) {
         control->allowance_spent = true;
         lua_sethook(state, script_count_hook, LUA_MASKCOUNT, 1);
-        luaL_error(state, "%s", control->instruction_message);
+        luaL_error(state, "%s", control->spent_allowance_message);
     }
     if (phase_past_time_limit(control)) {
         raise_time_limit(state);
@@ -109,7 +109,63 @@ void write_time_message(Control& control) {
     cursor = append_text(cursor, end, digits);
     cursor = append_text(cursor, end, " ");
     cursor = append_text(cursor, end, unit);
+    if (control.banked_call) {
+        append_text(
+            cursor,
+            end,
+            " on this computer; the stop is for the computer's speed, not the script's "
+            "instructions"
+        );
+        return;
+    }
     append_text(cursor, end, "; its work is too large or never ends");
+}
+
+/// Copies a profile's bank. A zero `per_tick` stores no bank. The balance opens at the limit.
+void copy_profile_bank(Control& control, const Bank& bank) {
+    control.bank_per_tick = bank.per_tick;
+    control.bank_call_time_limit = bank.call_time_limit;
+    if (bank.per_tick == 0) {
+        control.bank_limit = 0;
+        control.bank_balance = 0;
+        return;
+    }
+    const uint32_t ticks = bank.ticks < 1 ? 1 : bank.ticks;
+    if (bank.per_tick > UINT64_MAX / static_cast<uint64_t>(ticks))
+        control.bank_limit = UINT64_MAX;
+    else
+        control.bank_limit = bank.per_tick * static_cast<uint64_t>(ticks);
+    control.bank_balance = control.bank_limit;
+}
+
+/// Writes the sentence a banked call raises when it spends `balance`.
+void write_banked_instruction_message(Control& control, uint64_t balance) {
+    char balance_text[32]{};
+    char per_tick_text[32]{};
+    char limit_text[32]{};
+    append_u64(balance_text, balance_text + sizeof balance_text, balance);
+    append_u64(per_tick_text, per_tick_text + sizeof per_tick_text, control.bank_per_tick);
+    append_u64(limit_text, limit_text + sizeof limit_text, control.bank_limit);
+    char* cursor = control.banked_instruction_message;
+    char* end = control.banked_instruction_message + sizeof control.banked_instruction_message;
+    cursor = append_text(cursor, end, "the script ran past its allowance of ");
+    cursor = append_text(cursor, end, balance_text);
+    cursor = append_text(cursor, end, " instructions (");
+    cursor = append_text(cursor, end, per_tick_text);
+    cursor = append_text(cursor, end, " a tick, banked up to ");
+    cursor = append_text(cursor, end, limit_text);
+    append_text(cursor, end, ")");
+}
+
+/// Puts the profile allowance back and takes `balance`'s used count off the bank.
+void restore_banked_call(Control& control, uint64_t balance) noexcept {
+    const uint64_t used = control.instructions_used;
+    const uint64_t spent = used < balance ? used : balance;
+    control.bank_balance -= spent;
+    control.instruction_allowance = control.profile_instruction_allowance;
+    control.time_limit = control.profile_time_limit;
+    control.banked_call = false;
+    control.spent_allowance_message = control.instruction_message;
 }
 
 // Strips one leading "chunk:line: " prefix. The chunk is the text before the
@@ -714,7 +770,7 @@ bool Sandbox::enter(std::string_view phase, ScriptError& error) {
             result.message = control_->memory_message;
         } else if (instructions) {
             result.kind = ErrorKind::instruction_budget;
-            result.message = control_->instruction_message;
+            result.message = control_->spent_allowance_message;
         } else if (timed_out) {
             result.kind = ErrorKind::time_limit;
             result.message = control_->time_message;
@@ -761,12 +817,16 @@ std::optional<Sandbox> Sandbox::open(const OpenOptions& options, ScriptError& er
             control->memory_cap = options.profile.budget.memory_bytes;
             control->instruction_allowance = options.profile.budget.instructions;
             control->time_limit = options.time_limit;
+            control->profile_instruction_allowance = control->instruction_allowance;
+            control->profile_time_limit = control->time_limit;
+            copy_profile_bank(*control, options.profile.bank);
             control->sources = options.sources;
             control->package_id = options.package_id;
             control->random_seed = options.random_seed;
             control->install = options.profile.install;
             control->install_context = options.profile.context;
             write_budget_messages(*control);
+            control->spent_allowance_message = control->instruction_message;
         } catch (const std::bad_alloc&) {
             error.kind = ErrorKind::memory_budget;
             error.phase = "open";
@@ -907,6 +967,76 @@ bool Sandbox::call(std::string_view phase, const CallHooks& hooks, ScriptError& 
     }
 }
 
+void Sandbox::refill_bank() noexcept {
+    if (control_ == nullptr || control_->bank_per_tick == 0)
+        return;
+    if (control_->bank_balance >= control_->bank_limit) {
+        control_->bank_balance = control_->bank_limit;
+        return;
+    }
+    const uint64_t room = control_->bank_limit - control_->bank_balance;
+    if (control_->bank_per_tick > room)
+        control_->bank_balance = control_->bank_limit;
+    else
+        control_->bank_balance += control_->bank_per_tick;
+}
+
+bool Sandbox::call_banked(std::string_view phase, const CallHooks& hooks, ScriptError& error) {
+    try {
+        if (!prepare(error))
+            return false;
+        if (control_->bank_per_tick == 0) {
+            error = {};
+            error.kind = ErrorKind::runtime;
+            error.package_id = control_->package_id;
+            error.phase.assign(phase.begin(), phase.end());
+            error.message = "this sandbox's profile has no bank";
+            return false;
+        }
+        if (control_->bank_balance == 0) {
+            write_banked_instruction_message(*control_, 0);
+            ScriptError result;
+            result.kind = ErrorKind::instruction_budget;
+            result.package_id = control_->package_id;
+            result.phase.assign(phase.begin(), phase.end());
+            result.message = control_->banked_instruction_message;
+            fail(result);
+            error = failure_;
+            return false;
+        }
+
+        // The allowance is the balance this call starts with. The count it
+        // uses comes off that balance afterwards, success or failure.
+        const uint64_t balance = control_->bank_balance;
+        control_->instruction_allowance = balance;
+        control_->time_limit = control_->bank_call_time_limit;
+        control_->banked_call = true;
+        write_banked_instruction_message(*control_, balance);
+        control_->spent_allowance_message = control_->banked_instruction_message;
+        control_->instructions_used = 0;
+        control_->call_hooks = hooks;
+        control_->has_read = hooks.read != nullptr;
+        control_->mode = PhaseMode::call;
+        const bool ran = enter(phase, error);
+        restore_banked_call(*control_, balance);
+        return ran;
+    } catch (const std::bad_alloc&) {
+        return fail_allocation(error);
+    }
+}
+
+uint64_t Sandbox::bank_balance() const noexcept {
+    if (control_ == nullptr || control_->bank_per_tick == 0)
+        return 0;
+    return control_->bank_balance;
+}
+
+uint64_t Sandbox::bank_limit() const noexcept {
+    if (control_ == nullptr || control_->bank_per_tick == 0)
+        return 0;
+    return control_->bank_limit;
+}
+
 lua_State* Sandbox::state() const noexcept {
     return state_;
 }
@@ -935,6 +1065,22 @@ std::span<const std::string> Sandbox::printed() const noexcept {
     if (control_ == nullptr)
         return {};
     return control_->printed;
+}
+
+void Sandbox::drain_printed(
+    void* context, void (*line)(void* context, std::string_view text)
+) noexcept {
+    if (control_ == nullptr)
+        return;
+    if (line != nullptr) {
+        for (const std::string& kept : control_->printed)
+            line(context, kept);
+    }
+    control_->printed.clear();
+    control_->printed_bytes = 0;
+    control_->lines_left_out = 0;
+    control_->print_closed = false;
+    control_->omission_stored = false;
 }
 
 std::string describe(const ScriptError& error) {

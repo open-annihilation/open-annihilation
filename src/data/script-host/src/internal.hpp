@@ -122,11 +122,32 @@ struct Sandbox::Control {
     bool time_expired{};
     bool sandbox_failed{};
 
+    /// Instructions one refill adds. Zero means the profile has no bank.
+    uint64_t bank_per_tick{};
+    /// Most the balance may hold. The bank opens at this value.
+    uint64_t bank_limit{};
+    /// Instructions still available to a banked call.
+    uint64_t bank_balance{};
+    /// Real time one banked call may run.
+    std::chrono::milliseconds bank_call_time_limit{default_call_time_limit};
+    /// Set for the duration of a banked call. The time sentence reads it.
+    bool banked_call{};
+    /// Profile allowance put back when a banked call ends.
+    uint64_t profile_instruction_allowance{default_instruction_budget};
+    /// Profile real-time limit put back when a banked call ends.
+    std::chrono::milliseconds profile_time_limit{default_time_limit};
+
     ErrorKind pending_kind{ErrorKind::none};
     ErrorKind raised_kind{ErrorKind::none};
     bool location_locked{};
     int32_t error_line{};
     char instruction_message[budget_message_bytes]{};
+    /// Sentence a banked call raises when it spends its balance.
+    char banked_instruction_message[budget_message_bytes]{};
+    /// Text a spent allowance raises. A banked call points this at the banked
+    /// sentence and puts it back afterwards. Every other phase leaves it on
+    /// `instruction_message`.
+    const char* spent_allowance_message = instruction_message;
     char time_message[budget_message_bytes]{};
     char memory_message[budget_message_bytes]{};
     char error_message[message_buffer_bytes]{};
@@ -410,12 +431,12 @@ inline void charge(lua_State* state, uint64_t units) {
     }
     if (control->allowance_spent) {
         rearm_count_hook(state);
-        luaL_error(state, "%s", control->instruction_message);
+        luaL_error(state, "%s", control->spent_allowance_message);
     }
     add_charge(control, units);
     if (control->allowance_spent) {
         rearm_count_hook(state);
-        luaL_error(state, "%s", control->instruction_message);
+        luaL_error(state, "%s", control->spent_allowance_message);
     }
     if (phase_past_time_limit(control)) {
         raise_time_limit(state);
