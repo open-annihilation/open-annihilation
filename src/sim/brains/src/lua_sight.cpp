@@ -46,6 +46,8 @@ constexpr uint64_t search_charge = 64;
 constexpr int32_t sight_cell_size = 32;
 constexpr uint8_t grid_sight = 0;
 constexpr uint8_t grid_explored = 1;
+// The definition collection already owns oa.brain.units.
+constexpr const char* world_units_meta = "oa.brain.world_units";
 
 struct ContactBody {
     uint16_t slot{};
@@ -829,7 +831,7 @@ void install_sight(lua_State* lua, Seat& seat) {
     seat_may_see = seat_sees;
     install_type(lua, "oa.brain.contact", contact_index, contact_newindex);
     install_type(lua, "oa.brain.grid", grid_index, grid_newindex);
-    install_type(lua, "oa.brain.units", units_index, units_newindex);
+    install_type(lua, world_units_meta, units_index, units_newindex);
 
     add_me_getter(lua, "full_awareness", getter_full_awareness);
     add_me_getter(lua, "seen", getter_seen);
@@ -847,7 +849,7 @@ void install_sight(lua_State* lua, Seat& seat) {
     add_me_method(lua, "seen_raw", method_seen_raw);
     auto* body = static_cast<UnitsBody*>(lua_newuserdatauv(lua, sizeof(UnitsBody), 0));
     body->unused = 0;
-    luaL_getmetatable(lua, "oa.brain.units");
+    luaL_getmetatable(lua, world_units_meta);
     if (lua_type(lua, -1) == LUA_TTABLE)
         lua_setmetatable(lua, -2);
     else
