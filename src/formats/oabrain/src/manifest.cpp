@@ -265,7 +265,9 @@ void read_level(
     }
     shared::refuse_unknown_keys(item, level_keys, block, problems);
     Level level;
-    bool fields_ok = true;
+    // A valid id still defines the level. A refused name or difficulty must
+    // not also make a translation of that id "not a level of this brain".
+    bool keep_id = false;
     const oamod::Node* id = oamod::find_entry(item, "id");
     if (id == nullptr || id->kind != oamod::NodeKind::string || !level_id(id->text)) {
         shared::add_problem(
@@ -275,15 +277,14 @@ void read_level(
             block + ".id must be 1 to " + std::to_string(most_level_id_bytes) +
                 " bytes of lower-case kebab-case"
         );
-        fields_ok = false;
     } else if (repeats(seen, id->text)) {
         shared::add_problem(
             problems, id->position, block + ".id", block + ".id repeats " + id->text
         );
-        fields_ok = false;
     } else {
         level.id = id->text;
         seen.push_back(level.id);
+        keep_id = true;
     }
     const oamod::Node* name = oamod::find_entry(item, "name");
     if (name == nullptr || name->kind != oamod::NodeKind::string || name->text.empty() ||
@@ -295,7 +296,6 @@ void read_level(
             block + ".name must be 1 to " + std::to_string(most_level_name_bytes) +
                 " bytes with no control character"
         );
-        fields_ok = false;
     } else {
         level.name = name->text;
     }
@@ -311,11 +311,10 @@ void read_level(
             block + ".difficulty",
             block + ".difficulty must be easy, medium or hard"
         );
-        fields_ok = false;
     } else {
         level.difficulty = *parsed;
     }
-    if (fields_ok)
+    if (keep_id)
         levels.push_back(std::move(level));
 }
 
@@ -731,12 +730,26 @@ void read_document_manifest(
     if (const oamod::Node* networks = oamod::find_entry(root, "networks"))
         read_networks(*networks, manifest.networks, problems);
 
-    if (const oamod::Node* options = oamod::find_entry(root, "options"))
-        shared::read_options(*options, manifest.options, problems);
+    const oamod::Node* options_node = oamod::find_entry(root, "options");
+    if (options_node != nullptr)
+        shared::read_options(*options_node, manifest.options, problems);
 
     if (const oamod::Node* strings = oamod::find_entry(root, "strings")) {
+        // One broken options value is one rule. Until every entry is an
+        // option, a translation of an id is not a second refusal.
+        const bool options_incomplete =
+            options_node != nullptr && (options_node->kind != oamod::NodeKind::mapping ||
+                                        options_node->children.size() != manifest.options.size());
+        std::vector<Problem> string_problems;
         std::vector<oamut::Translation> words;
-        shared::read_strings(*strings, manifest.options, level_language_key, words, problems);
+        shared::read_strings(
+            *strings, manifest.options, level_language_key, words, string_problems
+        );
+        for (Problem& problem : string_problems) {
+            if (options_incomplete && problem.message.ends_with(" names no option"))
+                continue;
+            problems.push_back(std::move(problem));
+        }
         if (strings->kind == oamod::NodeKind::mapping) {
             for (oamut::Translation& word : words) {
                 Translation translation;
