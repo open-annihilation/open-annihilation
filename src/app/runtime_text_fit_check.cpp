@@ -13,6 +13,7 @@
 // button, in every language and both sizes; its words must read whole.
 // The Brains tab's details are painted too: one brain not installed and one
 // installed, at both sizes and at 960x540, Compact on its details page.
+// "Load with the built-in player?" is painted with two 64-byte names.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
@@ -34,6 +35,7 @@
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/prerequisites.hpp"
+#include "oa/ui/brain_picker/prompts.hpp"
 #include "oa/ui/mutator_picker/prompts.hpp"
 #include "oa/ui/mutator_picker/screen.hpp"
 
@@ -62,6 +64,7 @@ namespace library = oa::ui::library;
 namespace first_run = oa::ui::first_run;
 namespace dialogs = oa::ui::frontend_dialogs;
 namespace picker = oa::ui::mutator_picker;
+namespace brain_prompts = oa::ui::brain_picker;
 namespace layout = oa::ui::display_layout;
 
 /// Languages the check opens every screen in, in order, unless --check-language
@@ -103,6 +106,15 @@ constexpr std::string_view kLongText =
 constexpr std::string_view kMutatorName =
     "Mutator With A Fairly Long Name That Reaches Sixty-Four Bytes xx";
 static_assert(kMutatorName.size() == 64);
+
+/// A brain's name at the manifest's most, 64 bytes. The missing-brain
+/// question wraps one paragraph for each.
+constexpr std::string_view kBrainName =
+    "Brain With A Fairly Long Name That Reaches Sixty-Four Bytes xxxx";
+constexpr std::string_view kOtherBrainName =
+    "Other Brain With A Long Name That Reaches Sixty-Four Bytes xxxxx";
+static_assert(kBrainName.size() == 64);
+static_assert(kOtherBrainName.size() == 64);
 
 /// Looks one interface word up in the language the check is showing.
 ///
@@ -1007,6 +1019,21 @@ void Runtime::check_text_fit() {
                 paint_prompt(
                     picker::did_not_start_question(many_differs, hooks),
                     "mutator-prompts/differ-many"
+                );
+                brain_prompts::MissingBrain first_missing;
+                first_missing.name = std::string(kBrainName);
+                first_missing.version = "1.2";
+                first_missing.player = 0;
+                brain_prompts::MissingBrain second_missing;
+                second_missing.name = std::string(kOtherBrainName);
+                second_missing.version = "1.3";
+                second_missing.player = 1;
+                const brain_prompts::MissingBrain missing_brains[] = {
+                    first_missing, second_missing
+                };
+                paint_prompt(
+                    brain_prompts::load_built_in_question(missing_brains, hooks),
+                    "brain-prompts/load-built-in"
                 );
             }
 

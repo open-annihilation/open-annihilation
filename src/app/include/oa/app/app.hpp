@@ -505,6 +505,9 @@ struct Options {
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.
     bool check_paused_save = false;
+    // Saves a skirmish a brain plays, loads that brain with its state, and
+    // asks to load with the built-in player when the brain is missing.
+    bool check_saved_brains = false;
     // Reads the simulation hash with no mod and under a mod, then after a
     // Developer Mode override that changes the simulation, without a new start.
     bool check_simulation_hash = false;

@@ -423,8 +423,8 @@ struct MutatorPickerRequest {
 
 /// One computer player a match will seat with a brain.
 ///
-/// `saved` is the state a saved game will hand back. This ticket leaves it
-/// empty. An empty `version` and `package_sha256` are a brain installed by
+/// `saved` is the state a saved game hands back to `start`. Empty is no
+/// state. An empty `version` and `package_sha256` are a brain installed by
 /// hand, whose folder has no origin record.
 struct BrainSeat {
     uint8_t player{};                                 ///< the player, 0 to 9
@@ -436,7 +436,8 @@ struct BrainSeat {
     oa::data::brain_library::Difficulty difficulty{}; ///< the level's income
     /// Option id and canonical value, in the brain's option order.
     std::vector<std::pair<std::string, std::string>> options{};
-    /// Saved state a later ticket fills. Empty until then.
+    /// Saved state `start` receives. Empty when the brain saved none, or when
+    /// the installed brain is not the version and package the save recorded.
     std::optional<std::vector<uint8_t>> saved{};
 };
 
@@ -5032,6 +5033,16 @@ class Runtime final : public menu::Host,
     /// @return the brains, in the order they were seated
     [[nodiscard]] const std::vector<BrainSeat>& seated_brains() const noexcept;
 
+    /// The seats the last successful load of a saved game handed to the match.
+    ///
+    /// Empty when that load seated no brain, and after a load that stopped
+    /// before its match. Each seat is the brain that was seated: its place,
+    /// id, the installed version and package, the level and options it plays
+    /// at, and the name players see.
+    ///
+    /// @return those seats
+    [[nodiscard]] const oa::data::brain_library::Seats& loaded_brain_seats() const noexcept;
+
   private:
 
     /// Remembers the mutators that stopped a start, for "Start without X?".
@@ -6486,6 +6497,14 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_mutator_prompts();
+
+    /// Runs --check-saved-brains: a skirmish Steady Commander plays is saved
+    /// and loaded with its state, a save with no brain has no account, a
+    /// newer brain leaves the state out, and a missing brain asks to load
+    /// with the built-in player.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_saved_brains();
 
     /// Stops the check's feed from asking for verdicts, clears the ones it
     /// published, and moves its generation on.
@@ -15001,6 +15020,40 @@ class Runtime final : public menu::Host,
     /// @return false, with the status line set, when the mutators cannot be played
     bool check_saved_mutators(oa::data::persist::Bank* bank);
 
+    /// Writes the Brains account of a save made while brains are seated:
+    /// each seat's player, brain, version, package, level, options and name,
+    /// and the plain data its save() returned. A match that seated no brain
+    /// writes nothing, so its save keeps the bytes it has today.
+    ///
+    /// @param[in,out] bank the save being written
+    /// @throws std::runtime_error when the account cannot be written
+    void save_brains(oa::data::persist::Bank* bank);
+
+    /// Seats the brains a save names, before the match's first tick.
+    ///
+    /// A save with no Brains account seats none, so a campaign start hands
+    /// none of its own. Text that does not parse is refused. A brain that is
+    /// not installed is refused, unless this load was asked to play the
+    /// built-in player on those seats, which then seats the others. Saved
+    /// state is handed on only when the installed version and package are
+    /// the saved ones.
+    ///
+    /// @param[in,out] bank the save, read whole
+    /// @return false, with the status line set, when the save cannot be played
+    bool check_saved_brains(oa::data::persist::Bank* bank);
+
+    /// Asks "Load with the built-in player?" when the save names a brain that
+    /// is not installed, pushing the question over the screen that asked.
+    ///
+    /// A save with no Brains account, or text that does not parse, asks
+    /// nothing: the load itself refuses text that does not parse. LOAD WITH
+    /// THE BUILT-IN PLAYER loads this path with the built-in player on the
+    /// missing seats. BACK loads nothing.
+    ///
+    /// @param path the save, already resolved
+    /// @return true when the question was asked and the load has not started
+    bool offer_builtin_brain_load(const std::filesystem::path& path);
+
     /// Restores each rule-state table of the match from the save's ModProfile
     /// account; a table the save does not hold keeps its state as built.
     ///
@@ -18615,6 +18668,11 @@ class Runtime final : public menu::Host,
     std::optional<std::vector<BrainSeat>> pending_brain_seats_;
     /// The brains the running match seated. Empty when no match is running.
     std::vector<BrainSeat> seated_brains_;
+    /// The seats the last successful load handed on. Cleared when that load
+    /// stops before its match.
+    oa::data::brain_library::Seats loaded_brain_seats_{};
+    /// True for the one load that plays the built-in player on a missing brain.
+    bool load_missing_brains_as_builtin_{false};
     /// A failure to store the seats has already been logged.
     bool brain_seats_failure_logged_{};
     /// The seed of the match being started, copied into a brain's log.

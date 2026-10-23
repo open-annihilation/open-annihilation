@@ -745,6 +745,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_saved_brains) {
+            check_saved_brains();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_button) {
             check_mutator_button();
             flush_preferences();

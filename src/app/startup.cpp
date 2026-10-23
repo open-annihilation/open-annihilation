@@ -333,6 +333,7 @@ void check_game_files_options(Options& options) {
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
+        {options.check_saved_brains, "--check-saved-brains"},
         {options.check_simulation_hash, "--check-simulation-hash"},
         {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
@@ -562,6 +563,7 @@ void check_director_options(Options& options) {
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
+        {options.check_saved_brains, "--check-saved-brains"},
         {options.check_simulation_hash, "--check-simulation-hash"},
         {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
@@ -660,6 +662,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {!options.check_unit_pages.empty(), "--check-unit-pages"},
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
+            {options.check_saved_brains, "--check-saved-brains"},
             {options.check_simulation_hash, "--check-simulation-hash"},
             {options.check_zoom_memory, "--check-zoom-memory"},
             {!options.check_unit_language.empty(), "--check-unit-language"},
@@ -893,6 +896,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-match-bars", &Options::check_match_bars},
     {"--check-kill-board", &Options::check_kill_board},
     {"--check-paused-save", &Options::check_paused_save},
+    {"--check-saved-brains", &Options::check_saved_brains},
     {"--check-simulation-hash", &Options::check_simulation_hash},
     {"--check-zoom-memory", &Options::check_zoom_memory},
     {"--check-language-switch", &Options::check_language_switch},
@@ -1482,7 +1486,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-download-builds] [--check-stockpile-builds] "
                      "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
                      "[--check-unit-pages whole|scaled:TYPE,...] "
-                     "[--check-kill-board] [--check-paused-save] [--check-simulation-hash] "
+                     "[--check-kill-board] [--check-paused-save] [--check-saved-brains] "
+                     "[--check-simulation-hash] "
                      "[--check-zoom-memory] "
                      "[--check-unit-language TAG] "
                      "[--check-language-switch [--check-language TAG]] "
@@ -1726,11 +1731,11 @@ void write_startup_line(std::string_view text) {
         result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
-        result.check_paused_save || result.check_simulation_hash || result.check_zoom_memory ||
-        result.check_map_packs || result.check_map_browser || result.check_mutator_button ||
-        result.check_mutator_room || result.check_mutator_picker || result.check_mutator_prompts ||
-        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
-        result.check_click_snap;
+        result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
+        result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
+        result.check_mutator_button || result.check_mutator_room || result.check_mutator_picker ||
+        result.check_mutator_prompts || result.check_map_pack_lists ||
+        result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||
