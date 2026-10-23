@@ -20,9 +20,10 @@ brain plays as the built-in computer player.
   a later change adds a library: one call, after the ones already there.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
-  tables. `game` is then filled from the seat's facts. It has to work when
-  the seat has no match: `game.in_match` is false, and `me` still carries
-  the player, level, difficulty and options copied from the spec.
+  tables. `game` is then filled from the seat's facts, and unit handles and
+  the read-only `me` surface are installed. It has to work when the seat has
+  no match: `game.in_match` is false, and `me` still carries the player,
+  level, difficulty and options copied from the spec.
 
 ## State
 
@@ -91,10 +92,58 @@ libraries a check can call when no match is open.
 
 `match-seat-hooks` covers the controller switch with no brain loaded.
 
+`sim-brains-me` (`tests/me_test.cpp`) seats the made-up brain `side-reader`
+on the same fixture and reads that seat's units, squads, economy and
+knowledge.
+
+## Handles and my side
+
+A unit handle is one Lua object for one slot and one generation. The
+generation is `SlotRuntime::instance_generation`, the count the match already
+keeps for that slot. The seat caches the object by slot and replaces it when
+the generation changes, so the same unit is the same table key. A slot reused
+after a death is not the old unit: `id` and `slot` still read, and `alive` is
+false when the slot is one of the seat's. Every other field of that handle is
+nil.
+
+`id` and `slot` read on any handle. A seen field reads the seat's own live
+unit. Another player's unit reads nil for those fields until A05 replaces
+`seat_may_see`, which this seat leaves false. An own field or method reads
+only the seat's own live unit. A05 adds seen fields through
+`add_unit_getter`. A07 adds own methods, including orders, through
+`add_unit_method`.
+
+`me` stays the table B01 created. `player`, `level`, `difficulty` and
+`options` move into a hidden table, and assigning `me` raises `me is
+read-only`. The seat then reads its name, side, team and color, its resources
+as `f32`, and its surpluses as Lua numbers. `tick` is the match tick.
+`handed_over` is recorded when the seat is made: false before the built-in
+player's set-up has run, true when a seat is made after that. `me.knowledge`
+is that built-in player's knowledge record for the seat (`tick`, `builders`,
+`base`, and `knowledge:owned`), or nil when the record is not there.
+
+`me:units` and `me:each_unit` walk the seat's occupied slots in slot order.
+`me:each_unit` takes that list before the first call. `me:squad`,
+`me:squad_size` and `me:squad_member` follow the engine's member order.
+Squad 0 skips a member that is not live or whose `Unit.squad` is not 0, so a
+restored unit can sit in squad 0's list after it has joined another squad.
+Squads 1 to 9 are the lists the engine holds. `me:assign` calls
+`set_unit_squad` at once. A unit the seat does not own, or a dead handle,
+returns false and counts one refusal.
+
+`brain.distance` and `brain.direction` measure between two units or two
+positions with the engine's own maths. A unit whose position the seat may not
+read contributes nil.
+
+With no match, the four fields from B01 remain, `handed_over` is false, and
+the other getters are nil. `me:units` and `me:squad` are empty,
+`me:unit_count` and `me:squad_size` are 0, and `me:assign` returns false.
+`brain.distance` and `brain.direction` still work on positions.
+
 ## Limitations
 
 No events and no `onTick` yet (B02): the seat's play returns without calling
-the script. Orders, chat and networks in Lua are not here. The AI profile,
-the map and the units are not on `game` yet.
-A failed seat is not handed back beyond leaving the built-in player in
-place. `check_brain` does not call `start`.
+  tables. `game` is then filled from the seat's facts, and unit handles and
+  the read-only `me` surface are installed. It has to work when the seat has
+  no match: `game.in_match` is false, and `me` still carries the player,
+  level, difficulty and options copied from the spec.
