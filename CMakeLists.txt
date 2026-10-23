@@ -209,6 +209,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/brain-library)
 add_subdirectory(src/data/map-fit)
 add_subdirectory(src/data/pe-icon)
 add_subdirectory(src/formats/zip)
@@ -1120,6 +1121,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
   src/app/runtime_mutator_library.cpp
+  src/app/runtime_brain_library.cpp
   src/app/runtime_mutators.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp
@@ -1262,6 +1264,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-ui-game-files oa-app-package-install
   oa-app-map-packs
   oa-data-mutator-library
+  oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
   oa-app-seat-chat
