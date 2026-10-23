@@ -152,7 +152,8 @@ void install_goal(UnitView u, Goal* goal, uint32_t tick, Host& host);
 ///
 /// @param u unit geometry and navigator
 /// @param points route points in integer world X/Z; truncated to the navigator capacity
-void accept_path(UnitView u, std::span<const RoutePoint> points);
+/// @return true when path_failed_event was raised, false otherwise
+bool accept_path(UnitView u, std::span<const RoutePoint> points);
 /// Drops route points from the front of the route.
 ///
 /// Clears route_present when fewer than two points remain. A count past the

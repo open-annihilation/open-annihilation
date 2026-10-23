@@ -3064,6 +3064,18 @@ language and both sizes.
   playout has it at the latest tick, the world as with it On; and that,
   with no such player, every frame is.
 
+## Brain seats
+
+A computer seat of a skirmish or a campaign mission can be played by an
+installed brain. `set_brain_seat` names the brain, the level and the
+options for one player. Just before a new game finishes loading, the
+runtime reads that brain from `Brains` in the player's folder, checks that
+it fits, and seats it. A seat with no brain, or a brain that does not fit
+or cannot be read, plays as the built-in computer player. A saved game, a
+network game and a recording do not seat a brain. The package is read by
+`oa-app-brain-seats` (`brain_seats.hpp`); the seat itself lives in the
+simulation.
+
 ## Chat a computer seat reads and sends
 
 A computer seat on this machine can read chat and say a line of its own.

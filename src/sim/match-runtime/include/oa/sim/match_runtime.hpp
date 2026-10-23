@@ -6,6 +6,7 @@
 #include "oa/sim/match_runtime/attack_orders.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/match_runtime/event_hooks.hpp"
+#include "oa/sim/match_runtime/seat_hooks.hpp"
 #include "oa/sim/match_runtime/fault.hpp"
 #include "oa/sim/match_runtime/match_trace.hpp"
 #include "oa/sim/match_runtime/spawn_bridge.hpp"
@@ -2051,9 +2052,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
             (event_hooks.*Member)(event_hooks.context, args...);
         for (std::size_t listener_index = 0; listener_index < event_listener_count_;
              ++listener_index) {
-            const EventHooks& table = event_listeners_[listener_index].hooks;
-            if (table.*Member != nullptr)
-                (table.*Member)(table.context, args...);
+            const EventHooks& listener_hooks = event_listeners_[listener_index].hooks;
+            if (listener_hooks.*Member != nullptr)
+                (listener_hooks.*Member)(listener_hooks.context, args...);
         }
     }
 
@@ -2381,9 +2382,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         return project_spatial(slot);
     }
 
-    /// Runs a player's controller tick: a computer player's controller runs
-    /// its order-callback tick, then the weapon sweep runs with the computer
-    /// flag.
+    /// Runs a player's controller tick: a computer seat with hooks calls them
+    /// and runs the built-in order tick only when they did not play; the
+    /// weapon sweep then runs with the computer flag.
     ///
     /// @param player Player index 0..9.
     void run_player_controller(uint8_t player);
@@ -2391,6 +2392,35 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Returns the computer players' state (src/sim/ai owns the state and the
     /// decisions).
     std::shared_ptr<void>& computer_player_state() noexcept { return computer_player_state_; }
+
+    /// Replaces one seat's hooks. A player outside 0..9 does nothing.
+    ///
+    /// The hooks are not saved, hashed or shared with other machines.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param hooks the seat's turn; a default value clears it
+    void set_seat_hooks(uint8_t player, SeatHooks hooks) noexcept {
+        if (player >= OA_PLAYER_COUNT)
+            return;
+        seat_hooks_[player] = hooks;
+    }
+
+    /// Returns one seat's hooks.
+    ///
+    /// @param player player index, 0 to 9
+    /// @return that seat's hooks, or a default value outside 0..9
+    [[nodiscard]] SeatHooks seat_hooks(uint8_t player) const noexcept {
+        if (player >= OA_PLAYER_COUNT)
+            return {};
+        return seat_hooks_[player];
+    }
+
+    /// Returns the brains' state. Whoever seats a brain owns what it points at.
+    ///
+    /// The state ends with the match. It is not saved, hashed or shared.
+    ///
+    /// @return the state, empty until a brain is seated
+    std::shared_ptr<void>& seat_state() noexcept { return seat_state_; }
 
     /// Returns a type's typed fields, taken from its loaded UnitDef.
     ///
@@ -3246,6 +3276,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         ConstructionOrderState construction;
         sim::simulation_state::Unit* unit{};
         RuntimeOrder* observer_next{};
+        /// Set once the order's unreachable goal was reported; not saved or hashed.
+        bool path_failure_reported{};
     };
 
     // What TickHost::owned gives for an order the match does not own, and
@@ -3381,6 +3413,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // the seen, radar and pad lists of every player.
     std::array<sim::detection::Sightings, OA_PLAYER_COUNT> sightings_{};
     std::vector<uint16_t> sighting_slots_;
+    // Each player's seen list at its previous knowledge refresh, one entry
+    // per unit slot for every player. Kept up whether or not anyone is
+    // listening, and empty after a load, so the first refresh reports every
+    // seen enemy as gained.
+    std::unique_ptr<sim::detection::SightedUnit[]> seen_before_;
+    // How many entries each player's previous seen list holds.
+    std::array<uint32_t, OA_PLAYER_COUNT> seen_before_count_{};
+    // Scratch for one refresh: the list now, the units gained and the units
+    // lost, each one entry per unit slot.
+    std::unique_ptr<sim::detection::SightedUnit[]> seen_work_;
     std::vector<sim::combat_state::TargetUnit> sighting_query_;
     std::array<sim::combat_state::StrategicRefreshState, 10> strategic_states_;
     std::optional<StrategicEnvironment> strategic_environment_;
@@ -3717,6 +3759,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     std::array<std::map<uint32_t, std::vector<uint16_t>>, 10> groups_;
     SharedRandom random_;
     std::shared_ptr<void> computer_player_state_;
+    // One seat's turn, when something other than the built-in computer player
+    // plays it. Not saved, hashed or shared. Declared before the brains'
+    // state so that state is destroyed first.
+    std::array<SeatHooks, OA_PLAYER_COUNT> seat_hooks_{};
+    std::shared_ptr<void> seat_state_;
     uint32_t lcg_seed_{};
     std::unique_ptr<sim::effect_particles::EffectWorld> effects_;
     formats::gaf::Sequence flash_tiers_[sim::effect_particles::flash_tier_count];

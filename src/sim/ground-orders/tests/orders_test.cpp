@@ -439,4 +439,45 @@ int main() {
         );
         CHECK(unheld_turning.turn == -960 && unheld_turning.speed == 42 * pixel);
     }
+
+    // An empty route raises the failure only when a goal is set and the unit
+    // is outside it. A route, a unit already inside its goal, and a navigator
+    // with no goal raise nothing.
+    {
+        oa::sim::simulation_state::Order failed_order;
+        Goal goal;
+        goal.order = &failed_order;
+        goal.shape = GoalShape::circle;
+        goal.cell = {10, 10};
+        Navigation failed_nav;
+        failed_nav.goal = &goal;
+        failed_nav.flags = search_pending_flag;
+        oa::sim::unit_movement::Unit geometry;
+        geometry.cell = {0, 0};
+        oa::sim::unit_movement::Movement failed_motion;
+        std::array<uint8_t, 3> failed_weapons{};
+        UnitView failed_view{state, geometry, failed_motion, failed_nav, false, failed_weapons};
+        CHECK(accept_path(failed_view, {}) == true);
+        CHECK((failed_order.raised_events & path_failed_event) != 0);
+        CHECK((failed_nav.flags & route_present_flag) == 0);
+        CHECK((failed_nav.flags & search_pending_flag) == 0);
+
+        failed_order.raised_events = 0;
+        geometry.cell = {10, 10};
+        failed_nav.flags = search_pending_flag;
+        CHECK(accept_path(failed_view, {}) == false);
+        CHECK(failed_order.raised_events == 0);
+
+        failed_nav.flags = search_pending_flag;
+        const RoutePoint route[] = {{1, 2}, {3, 4}};
+        CHECK(accept_path(failed_view, route) == false);
+        CHECK(failed_order.raised_events == 0);
+        CHECK(failed_nav.count == 2 && (failed_nav.flags & route_present_flag) != 0);
+
+        failed_nav.goal = nullptr;
+        failed_nav.flags = search_pending_flag;
+        geometry.cell = {0, 0};
+        CHECK(accept_path(failed_view, {}) == false);
+        CHECK(failed_order.raised_events == 0);
+    }
 }
