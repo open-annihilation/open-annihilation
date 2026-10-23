@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // pack: a folder with one manifest becomes a .oamod, a .oalang, a .oamap,
-// a .oaexp or a .oamut.
+// a .oaexp, a .oamut or a .oabrain.
 // A mod or a language is written here. A map is handed to pack_map. The
 // manifest is written first, then every other file in byte order of its
 // path, stored or deflated by a fixed rule, with the writer's fixed times.
@@ -11,6 +11,7 @@
 // complete; a refusal deletes that result.
 
 #include "arguments.hpp"
+#include "check_brain.hpp"
 #include "check_mutator.hpp"
 #include "command.hpp"
 #include "expansion.hpp"
@@ -22,6 +23,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/data/languages/language_pack.hpp"
 #include "oa/data/mod_profile.hpp"
+#include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/formats/zip/stream.hpp"
@@ -864,6 +866,116 @@ int pack_mutator(
     return exit_done;
 }
 
+/// Packs a folder whose top holds oabrain.yaml.
+///
+/// The manifest, the layout, the scripts, the networks and the icon are
+/// checked before anything is written. The installer then reads the package
+/// back, and a refusal deletes it. Lua is compiled and not run.
+///
+/// @param items the folder's files
+/// @param manifest_name the manifest's name, as the folder spells it
+/// @param out_path the --out path; empty for the default name
+/// @param force an existing output may be replaced
+/// @param output where the result and the diagnostics are printed
+/// @return exit_done
+int pack_brain(
+    std::vector<Item> items,
+    const std::string& manifest_name,
+    const std::string& out_path,
+    bool force,
+    Output& output
+) {
+    std::sort(items.begin(), items.end(), [&](const Item& left, const Item& right) {
+        const bool left_manifest = !left.folder && left.name == manifest_name;
+        const bool right_manifest = !right.folder && right.name == manifest_name;
+        if (left_manifest != right_manifest)
+            return left_manifest;
+        return bytes_before(entry_name(left), entry_name(right));
+    });
+    detail::check_names(items);
+
+    const Item* manifest_item = nullptr;
+    std::size_t file_count = 0;
+    for (const Item& item : items) {
+        if (!item.folder)
+            ++file_count;
+        if (!item.folder && item.name == manifest_name)
+            manifest_item = &item;
+    }
+    if (manifest_item == nullptr)
+        throw Failure("the folder holds no oabrain.yaml");
+    if (manifest_item->bytes > oa::formats::oamod::max_input_bytes)
+        throw Failure(manifest_name + " is larger than 256 KiB");
+    const std::vector<uint8_t> manifest_bytes =
+        read_capped(manifest_item->path, manifest_item->bytes, manifest_name);
+
+    std::vector<std::string> problems;
+    oa::formats::oabrain::Manifest manifest;
+    std::vector<oa::formats::oabrain::Problem> manifest_problems;
+    const bool manifest_ok =
+        oa::formats::oabrain::read_manifest(manifest_bytes, manifest, manifest_problems);
+    if (!manifest_ok) {
+        for (const oa::formats::oabrain::Problem& one : manifest_problems)
+            problems.push_back(oa::formats::oabrain::describe(one));
+    } else {
+        FolderEntries folder{&items};
+        BrainChecked checked;
+        check_brain_files(
+            PackageEntries{&folder, &list_folder, &read_folder}, manifest, problems, checked
+        );
+    }
+    if (!problems.empty()) {
+        for (const std::string& problem : problems)
+            output.err << problem << '\n';
+        throw Failure(manifest_ok ? "the brain has errors" : "oabrain.yaml has errors");
+    }
+
+    fs::path destination;
+    if (!out_path.empty()) {
+        destination = fs::path(std::u8string(out_path.begin(), out_path.end()));
+    } else {
+        const std::string name =
+            manifest.id + "-" + oa::formats::oamut::version_text(manifest.version) + ".oabrain";
+        if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos ||
+            !install::portable_name_problem(name).empty())
+            throw Failure("the package's name is not a file name");
+        destination = name;
+    }
+    const std::string destination_name = folded(utf8_of(destination.filename()));
+    if (!ends_with_extension(destination_name, ".oabrain"))
+        throw Failure("a brain folder is packed as a .oabrain file");
+
+    std::error_code error;
+    if (!destination.parent_path().empty() &&
+        !fs::is_directory(fs::symlink_status(destination.parent_path(), error)))
+        throw Failure("cannot write " + utf8_of(destination));
+    const fs::file_status existing = fs::symlink_status(destination, error);
+    if (!error && fs::exists(existing)) {
+        if (fs::is_directory(existing))
+            throw Failure("the output is a folder: " + utf8_of(destination));
+        if (!force)
+            throw Failure("the output already exists: " + utf8_of(destination));
+    }
+
+    fs::path part = destination;
+    part += ".part";
+    RemoveUnless part_file(part);
+    const uint64_t written = write_part(part, items);
+    replace_output(part, destination);
+    part_file.release();
+    RemoveUnless output_file(destination);
+    verify_mutator(destination, output);
+    const sha256::Digest digest = digest_file(destination, written);
+    output_file.release();
+
+    const auto hex = sha256::to_hex(digest);
+    output.out << "packed " << utf8_of(destination) << ": " << file_count << " files, " << written
+               << " bytes, sha256 ";
+    output.out.write(hex.data(), static_cast<std::streamsize>(hex.size()));
+    output.out << '\n';
+    return exit_done;
+}
+
 /// Packs one folder.
 ///
 /// @param folder the folder
@@ -885,6 +997,7 @@ int pack_folder(
     std::string map_name;
     std::string expansion_name;
     std::string mutator_name;
+    std::string brain_name;
     for (const Item& item : items) {
         if (item.folder || item.name.find('/') != std::string::npos)
             continue;
@@ -898,16 +1011,31 @@ int pack_folder(
             expansion_name = item.name;
         else if (same_ascii(item.name, "oamut.yaml"))
             mutator_name = item.name;
+        else if (same_ascii(item.name, "oabrain.yaml"))
+            brain_name = item.name;
     }
     const int manifests = (mod_name.empty() ? 0 : 1) + (language_name.empty() ? 0 : 1) +
                           (map_name.empty() ? 0 : 1) + (expansion_name.empty() ? 0 : 1) +
-                          (mutator_name.empty() ? 0 : 1);
+                          (mutator_name.empty() ? 0 : 1) + (brain_name.empty() ? 0 : 1);
     if (manifests == 0)
         throw Failure(
             "the folder holds no oamod.yaml or language.yaml or oamap.yaml or oaexp.yaml or "
-            "oamut.yaml"
+            "oamut.yaml or oabrain.yaml"
         );
     if (manifests > 1) {
+        if (!brain_name.empty() && manifests == 2) {
+            if (!mod_name.empty())
+                throw Failure("the folder holds both oamod.yaml and oabrain.yaml");
+            if (!language_name.empty())
+                throw Failure("the folder holds both language.yaml and oabrain.yaml");
+            if (!map_name.empty())
+                throw Failure("the folder holds both oamap.yaml and oabrain.yaml");
+            if (!expansion_name.empty())
+                throw Failure("the folder holds both oaexp.yaml and oabrain.yaml");
+            throw Failure("the folder holds both oamut.yaml and oabrain.yaml");
+        }
+        if (!brain_name.empty())
+            throw Failure("the folder holds more than one manifest");
         if (!mutator_name.empty() && manifests == 2) {
             if (!mod_name.empty())
                 throw Failure("the folder holds both oamod.yaml and oamut.yaml");
@@ -945,6 +1073,13 @@ int pack_folder(
         if (game_dir.has_value())
             request.game_dir = fs::path(std::u8string(game_dir->begin(), game_dir->end()));
         return pack_map(request, output);
+    }
+    if (!brain_name.empty()) {
+        if (game_dir.has_value()) {
+            report_usage(output, "--game-dir is not for a brain");
+            return exit_usage;
+        }
+        return pack_brain(std::move(items), brain_name, out_path, force, output);
     }
     if (game_dir.has_value()) {
         report_usage(output, "--game-dir is only for a map pack");

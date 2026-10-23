@@ -596,7 +596,7 @@ struct DataPlaces {
     fs::path applications_folder{};
     fs::path hicolor_folder{};
     fs::path package_file{};
-    fs::path entry_file{};        ///< the desktop entry of the five the game installs or adds
+    fs::path entry_file{};        ///< the desktop entry of the six the game installs or adds
     fs::path launch_entry_file{}; ///< the desktop entry of launch files
     fs::path mime_stamp{};
     fs::path applications_stamp{};
@@ -767,7 +767,7 @@ Registration register_in(
         icon_changed = true;
 
     // Each file is written while it lists a type, and removed once it would list none: the
-    // MIME package with none of the six, the entry of the five with none of them, and the
+    // MIME package with none of the seven, the entry of the six with none of them, and the
     // launch file's entry without it.
     const auto keep = [&](const fs::path& file, const std::string& text, const fs::path& stamp) {
         if (text.empty())

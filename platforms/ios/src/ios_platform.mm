@@ -500,7 +500,9 @@ void install_landscape_window() {
 NSString* const kOpenedFilesFolder = @"Opened mods";
 
 /// The file name extensions of a file opened in the game; matched without case.
-NSString* const kOpenedExtensions[] = {@"oamod", @"oalang", @"oamap", @"oamut", @"oareg"};
+NSString* const kOpenedExtensions[] = {
+    @"oamod", @"oalang", @"oamap", @"oamut", @"oabrain", @"oareg"
+};
 
 /// The name of the Documents folder where the system put the copies it made for the app on
 /// older iOS releases.
@@ -576,7 +578,7 @@ OpenedFiles& opened_files() {
 /// Whether a URL names a file opened in the game by its extension.
 ///
 /// @param url the URL the system opened
-/// @return true for a file URL whose extension is one of the five, in any case
+/// @return true for a file URL whose extension is one of the six, in any case
 bool names_opened_file(NSURL* url) {
     if (!url.isFileURL)
         return false;

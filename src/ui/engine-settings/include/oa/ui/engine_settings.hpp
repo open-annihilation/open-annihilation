@@ -196,6 +196,9 @@ inline constexpr std::string_view file_type_oareg = "open-annihilation.file-type
 /// "on" or "off" (EngineSettings::file_type_oamut). Absent, or any text
 /// other than off, the game opens mutator packages.
 inline constexpr std::string_view file_type_oamut = "open-annihilation.file-types.oamut";
+/// "on" or "off" (EngineSettings::file_type_oabrain). Absent, or any text
+/// other than off, the game opens brain packages.
+inline constexpr std::string_view file_type_oabrain = "open-annihilation.file-types.oabrain";
 /// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
 /// other than off, the game opens launch files.
 inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
@@ -1112,10 +1115,11 @@ struct EngineSettings {
     /// the switch shows whether this copy is the default opener, and OK
     /// changes that only when the switch moved. iOS takes the type from the app.
     bool file_type_oamod{true};
-    bool file_type_oamap{true};  ///< the game opens map packs (.oamap)
-    bool file_type_oalang{true}; ///< the game opens language packs (.oalang)
-    bool file_type_oareg{true};  ///< the game opens registry files (.oareg)
-    bool file_type_oamut{true};  ///< the game opens mutator packages (.oamut)
+    bool file_type_oamap{true};   ///< the game opens map packs (.oamap)
+    bool file_type_oalang{true};  ///< the game opens language packs (.oalang)
+    bool file_type_oareg{true};   ///< the game opens registry files (.oareg)
+    bool file_type_oamut{true};   ///< the game opens mutator packages (.oamut)
+    bool file_type_oabrain{true}; ///< the game opens brain packages (.oabrain)
     /// The game opens launch files (.oalaunch), which start it in their
     /// battle room, as -c does.
     bool file_type_oalaunch{true};

@@ -279,7 +279,7 @@ Registration withdraw_file_types(const TypeSet types, const Places& places) {
 
 namespace {
 
-/// The exported content type of `extension`, or null when it is not one of the six.
+/// The exported content type of `extension`, or null when it is not one of the seven.
 const ExportedContentType* exported_of(std::string_view extension) noexcept {
     for (const ExportedContentType& type : exported_content_types)
         if (type.extension == extension)
@@ -312,6 +312,8 @@ void set_open(TypeSet& open, std::string_view extension, bool on) noexcept {
         open.map = on;
     else if (extension == mutator_extension)
         open.mutator = on;
+    else if (extension == brain_extension)
+        open.brain = on;
     else if (extension == registry_extension)
         open.registry = on;
     else if (extension == launch_extension)
@@ -391,6 +393,7 @@ std::vector<std::string> extensions_still_opened(const TypeSet asked, const Type
     add(asked.language, open.language, language_extension);
     add(asked.registry, open.registry, registry_extension);
     add(asked.mutator, open.mutator, mutator_extension);
+    add(asked.brain, open.brain, brain_extension);
     add(asked.launch, open.launch, launch_extension);
     return stayed;
 }

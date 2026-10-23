@@ -20,9 +20,9 @@ One brain's networks together stay within 64 MiB.
   prepare a network's inputs use `rescale`.
 - `operations_per_charge` is 64. `max_operations_per_run` is 2^28.
   `max_brain_network_bytes` is 64 MiB.
-- `Network::build` checks the model, refuses a layer kind this build does not
-  run, and refuses a network of more than `max_operations_per_run` operations.
-  A refusal is a `formats::oann::Problem`.
+- `Network::build` checks the model and refuses a network of more than
+  `max_operations_per_run` operations. Every format-1 kind runs. A refusal
+  is a `formats::oann::Problem`.
 - `memory_bytes` and `memory_bytes_of` count constants at their own type's
   size and every input, activation and output at its type's size.
   `operations` and `charge_units` are the cost of one run.
@@ -64,14 +64,27 @@ python3 -I src/data/neural/tests/neural_reference.py
 ```
 
 Its printout, from `N02-NEURAL-REFERENCE-BEGIN` through
-`N02-NEURAL-REFERENCE-END`, is the table in the test. The SHA-256 of the
-mixed network's outputs is pinned. It is the same on every build and moves
-only when the arithmetic changes.
+`N02-NEURAL-REFERENCE-END`, and from `N06-NEURAL-REFERENCE-BEGIN` through
+`N06-NEURAL-REFERENCE-END`, is the table in the test. The first block is the
+mixed network. The second is a grid: convolution, relu, pooling, a second
+convolution, tanh, flatten, dense, sigmoid, then softmax beside argmax, on
+16 pictures. The SHA-256 of each network's outputs is pinned. Each is the
+same on every build and moves only when the arithmetic changes.
+
+`tests/tables_reference.py` prints `src/data/neural/src/tables.inc`, the tanh,
+sigmoid and exponent tables. That file is the script's output and is never
+edited by hand. Run it with:
+
+```sh
+python3 -I src/data/neural/tests/tables_reference.py
+```
+
+The test pins the SHA-256 of each table's little-endian bytes, and the
+entries at 0, 1, 2047, 2048, 2049, 4094 and 4095. Convolution and pooling
+are also checked against values worked by hand.
 
 ## Limitations
 
 - Single-threaded. One run at a time on a network, with no internal lock.
 - No layer fusion. Each layer runs on its own.
 - Each seat holds its own copy of a network.
-- conv2d, maxpool, tanh, sigmoid and softmax are not run by this build.
-  `build` refuses them.

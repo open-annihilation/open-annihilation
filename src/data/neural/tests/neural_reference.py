@@ -4,12 +4,19 @@
 # Outputs of the integer network runner's fixed cases. Run with:
 #   python3 -I src/data/neural/tests/neural_reference.py
 # The stdout, from N02-NEURAL-REFERENCE-BEGIN through
-# N02-NEURAL-REFERENCE-END, is pasted into neural_test.cpp. The arithmetic
+# N02-NEURAL-REFERENCE-END, and from N06-NEURAL-REFERENCE-BEGIN through
+# N06-NEURAL-REFERENCE-END, is pasted into neural_test.cpp. The arithmetic
 # is whole numbers only, the same rules as the network file. Nothing here
-# calls the engine.
+# calls the engine. The tanh, sigmoid and exponent tables come from
+# tables_reference.py.
 
 import hashlib
 import sys
+from pathlib import Path
+
+# python3 -I leaves the script's directory off sys.path. The tables live beside this file.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import tables_reference
 
 INT64_MIN = -1 << 63
 INT64_MAX = (1 << 63) - 1
@@ -118,6 +125,108 @@ def embedding(indexes, table, width):
     return out
 
 
+def conv2d(
+    samples,
+    channels,
+    height,
+    width,
+    weights,
+    kernels,
+    kernel_h,
+    kernel_w,
+    stride_h,
+    stride_w,
+    pad_h,
+    pad_w,
+    bias,
+    in_exp,
+    weight_exp,
+    out_exp,
+):
+    """samples is [c, h, w]. weights is [k, c, kernel_h, kernel_w]. A miss reads 0."""
+    out_h = (height + 2 * pad_h - kernel_h) // stride_h + 1
+    out_w = (width + 2 * pad_w - kernel_w) // stride_w + 1
+    out = []
+    for kernel in range(kernels):
+        for out_y in range(out_h):
+            for out_x in range(out_w):
+                total = 0 if bias is None else bias[kernel]
+                for channel in range(channels):
+                    for kernel_y in range(kernel_h):
+                        for kernel_x in range(kernel_w):
+                            in_y = out_y * stride_h + kernel_y - pad_h
+                            in_x = out_x * stride_w + kernel_x - pad_w
+                            sample = 0
+                            if 0 <= in_y < height and 0 <= in_x < width:
+                                sample = samples[(channel * height + in_y) * width + in_x]
+                            weight_at = (
+                                ((kernel * channels + channel) * kernel_h + kernel_y) * kernel_w
+                                + kernel_x
+                            )
+                            total += sample * weights[weight_at]
+                out.append(sat16(rescale(total, in_exp + weight_exp, out_exp)))
+    return out
+
+
+def maxpool(samples, channels, height, width, kernel_h, kernel_w, stride_h, stride_w):
+    """The largest value in each window. The window stays inside the input."""
+    out_h = (height - kernel_h) // stride_h + 1
+    out_w = (width - kernel_w) // stride_w + 1
+    out = []
+    for channel in range(channels):
+        for out_y in range(out_h):
+            for out_x in range(out_w):
+                best = None
+                for kernel_y in range(kernel_h):
+                    for kernel_x in range(kernel_w):
+                        in_y = out_y * stride_h + kernel_y
+                        in_x = out_x * stride_w + kernel_x
+                        sample = samples[(channel * height + in_y) * width + in_x]
+                        if best is None or sample > best:
+                            best = sample
+                out.append(best)
+    return out
+
+
+def activation_index(value, exponent):
+    """clamp(R(value, exponent, -8) + 2048, 0, 4095)."""
+    scaled = rescale(value, exponent, -8)
+    indexed = scaled + 2048
+    if indexed < 0:
+        return 0
+    if indexed > 4095:
+        return 4095
+    return indexed
+
+
+def tanh_activation(samples, exponent):
+    table = tables_reference.tanh_table()
+    return [table[activation_index(sample, exponent)] for sample in samples]
+
+
+def sigmoid_activation(samples, exponent):
+    table = tables_reference.sigmoid_table()
+    return [table[activation_index(sample, exponent)] for sample in samples]
+
+
+def softmax(samples, exponent):
+    """q is EXP[d] for d <= 4095 and 0 otherwise. The division is whole numbers."""
+    table = tables_reference.exp_table()
+    peak = samples[0]
+    for sample in samples[1:]:
+        if sample > peak:
+            peak = sample
+    terms = []
+    for sample in samples:
+        distance = rescale(peak - sample, exponent, -8)
+        if distance > 4095:
+            terms.append(0)
+        else:
+            terms.append(table[distance])
+    total = sum(terms)
+    return [(term * 32767 + total // 2) // total for term in terms]
+
+
 class Lcg:
     """The sequence the mixed network's test writes. State starts at 1."""
 
@@ -178,6 +287,53 @@ def mixed_outputs():
     joined = concat_rank1(body, 0, tail, 2, 0)
     pick = argmax(joined)
     return joined, pick
+
+
+def grid_outputs():
+    """Sixteen runs of the grid network in neural_test.cpp.
+
+    The sequence starts again at 1. Weights come first, then each picture.
+    The picture's exponent is -30 and the convolutions shift the sums down,
+    so a picture changes the scores. The second convolution is 1x1.
+    """
+    stream = Lcg()
+    conv_w = [stream.next_i8() for _ in range(54)]
+    conv2_w = [stream.next_i8() for _ in range(4)]
+    dense_w = [stream.next_i8() for _ in range(512)]
+    dense_rows = [dense_w[row * 128 : (row + 1) * 128] for row in range(4)]
+    scores = []
+    picks = []
+    for _ in range(16):
+        picture = [stream.next_i16() for _ in range(3 * 16 * 16)]
+        convolved = conv2d(picture, 3, 16, 16, conv_w, 2, 3, 3, 1, 1, 1, 1, None, -30, 0, -18)
+        activated = relu(convolved)
+        pooled = maxpool(activated, 2, 16, 16, 2, 2, 2, 2)
+        second = conv2d(pooled, 2, 8, 8, conv2_w, 2, 1, 1, 1, 1, 0, 0, None, -18, 0, -12)
+        squashed = tanh_activation(second, -12)
+        flat = flatten(squashed)
+        hidden = dense(flat, dense_rows, None, -15, 0, -12)
+        gated = sigmoid_activation(hidden, -12)
+        choice = softmax(gated, -15)
+        scores.extend(choice)
+        picks.append(argmax(gated))
+    return scores, picks
+
+
+def digest_bytes(scores, picks):
+    """Little-endian int16 scores, then one little-endian int32 pick per run."""
+    raw = bytearray()
+    per_run = len(scores) // len(picks)
+    for run, pick in enumerate(picks):
+        for value in scores[run * per_run : (run + 1) * per_run]:
+            bits = value & 0xFFFF
+            raw.append(bits & 0xFF)
+            raw.append((bits >> 8) & 0xFF)
+        bits = pick & 0xFFFFFFFF
+        raw.append(bits & 0xFF)
+        raw.append((bits >> 8) & 0xFF)
+        raw.append((bits >> 16) & 0xFF)
+        raw.append((bits >> 24) & 0xFF)
+    return hashlib.sha256(raw).hexdigest()
 
 
 def digest_of(joined, pick):
@@ -249,6 +405,110 @@ def main():
         [7, 8, 1000, -1000, 7, 8],
         "embed i16",
     )
+    # 1*1 + 4*1 = 5. Outside the 2x2 window is not read.
+    expect(
+        conv2d([1, 2, 3, 4], 1, 2, 2, [1, 0, 0, 1], 1, 2, 2, 1, 1, 0, 0, None, 0, 0, 0),
+        [5],
+        "conv stride 1",
+    )
+    # The same sum moved to exponent 1: (5 + 1) >> 1 = 3.
+    expect(
+        conv2d([1, 2, 3, 4], 1, 2, 2, [1, 0, 0, 1], 1, 2, 2, 1, 1, 0, 0, None, 0, 0, 1),
+        [3],
+        "conv shift",
+    )
+    # Four 2x2 windows of ones: 14, 22, 46, 54.
+    picture = list(range(1, 17))
+    expect(
+        conv2d(picture, 1, 4, 4, [1, 1, 1, 1], 1, 2, 2, 2, 2, 0, 0, None, 0, 0, 0),
+        [14, 22, 46, 54],
+        "conv stride 2",
+    )
+    # Pad 1, kernel 1..9. Corner windows read 0 outside the 2x2.
+    # (0,0) = 5+12+24+36 = 77. (0,1) = 4+10+21+32 = 67.
+    # (1,0) = 2+6+15+24 = 47. (1,1) = 1+4+12+20 = 37.
+    expect(
+        conv2d(
+            [1, 2, 3, 4],
+            1,
+            2,
+            2,
+            [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            1,
+            3,
+            3,
+            1,
+            1,
+            1,
+            1,
+            None,
+            0,
+            0,
+            0,
+        ),
+        [77, 67, 47, 37],
+        "conv pad",
+    )
+    # int16 kernel, bias -4 added before the scale: 1*2 + 4*3 - 4 = 10.
+    expect(
+        conv2d([1, 2, 3, 4], 1, 2, 2, [2, 0, 0, 3], 1, 2, 2, 1, 1, 0, 0, [-4], 0, 0, 0),
+        [10],
+        "conv bias",
+    )
+    # Stride 2, pad 1, bias 10, diagonal kernel. Windows read 0 past the edge.
+    # 6+10, 3+10, 7+10, 14+10.
+    expect(
+        conv2d(
+            [1, 2, 3, 4, 5, 6, 7, 8, 9],
+            1,
+            3,
+            3,
+            [1, 0, 0, 0, 1, 0, 0, 0, 1],
+            1,
+            3,
+            3,
+            2,
+            2,
+            1,
+            1,
+            [10],
+            0,
+            0,
+            0,
+        ),
+        [16, 13, 17, 24],
+        "conv stride 2 pad bias",
+    )
+    expect(maxpool(picture, 1, 4, 4, 2, 2, 2, 2), [6, 8, 14, 16], "pool 2")
+    # 3x3 stride 1. The -1 is in the first window and is not the largest.
+    expect(
+        maxpool([1, 2, 3, 4, 5, 6, 7, 8, 9, 0, -1, 10, 11, 12, 13, 14], 1, 4, 4, 3, 3, 1, 1),
+        [9, 10, 13, 14],
+        "pool 3",
+    )
+    # Exponent 0: x -8 and 8 clamp to the ends, 0 is the centre, 1 is index 2304.
+    expect(tanh_activation([-8, 8, 0, 1], 0), [-32768, 32767, 0, 24956], "tanh")
+    expect(sigmoid_activation([-8, 8, 0, 1], 0), [11, 32757, 16384, 23955], "sigmoid")
+    # Exponent -8 leaves the stored value as the offset from 2048. 1 is index 2049.
+    expect(tanh_activation([1], -8), [128], "tanh index")
+    expect(sigmoid_activation([1], -8), [16416], "sigmoid index")
+    # Four equal inputs. q = 2^30, S = 2^32, each output is 32769 / 4 = 8192.
+    expect(softmax([5, 5, 5, 5], 0), [8192, 8192, 8192, 8192], "softmax equal")
+    # The peak's distance is 0. The others are 100 << 8 = 25600, past 4095, so 0.
+    # (2^30 * 32767 + 2^29) / 2^30 = 32767.
+    expect(softmax([100, 0, 0], 0), [32767, 0, 0], "softmax peak")
+    # d(20) = 10 << 8 = 2560. d(0) = 30 << 8 = 7680, which is past 4095, so exactly 0.
+    gap = tables_reference.exp_table()[2560]
+    total = (1 << 30) + gap
+    expect(
+        softmax([30, 20, 0], 0),
+        [
+            ((1 << 30) * 32767 + total // 2) // total,
+            (gap * 32767 + total // 2) // total,
+            0,
+        ],
+        "softmax far",
+    )
 
     joined, pick = mixed_outputs()
     digest = digest_of(joined, pick)
@@ -273,6 +533,40 @@ def main():
         f'constexpr std::string_view pinned_mixed_digest = "{digest}";',
         "// N02-NEURAL-REFERENCE-END",
     ]
+    scores, picks = grid_outputs()
+    grid_digest = digest_bytes(scores, picks)
+    lines.extend(
+        [
+            "// N06-NEURAL-REFERENCE-BEGIN",
+            cpp_array("int16_t", "k_conv_stride1", [5]),
+            cpp_array("int16_t", "k_conv_shift", [3]),
+            cpp_array("int16_t", "k_conv_stride2", [14, 22, 46, 54]),
+            cpp_array("int16_t", "k_conv_pad", [77, 67, 47, 37]),
+            cpp_array("int16_t", "k_conv_bias", [10]),
+            cpp_array("int16_t", "k_conv_stride2_pad", [16, 13, 17, 24]),
+            cpp_array("int16_t", "k_pool2", [6, 8, 14, 16]),
+            cpp_array("int16_t", "k_pool3", [9, 10, 13, 14]),
+            cpp_array("int16_t", "k_tanh", [-32768, 32767, 0, 24956]),
+            cpp_array("int16_t", "k_sigmoid", [11, 32757, 16384, 23955]),
+            cpp_array("int16_t", "k_tanh_index", [128]),
+            cpp_array("int16_t", "k_sigmoid_index", [16416]),
+            cpp_array("int16_t", "k_softmax_equal", [8192, 8192, 8192, 8192]),
+            cpp_array("int16_t", "k_softmax_peak", [32767, 0, 0]),
+            cpp_array(
+                "int16_t",
+                "k_softmax_far",
+                [
+                    ((1 << 30) * 32767 + total // 2) // total,
+                    (gap * 32767 + total // 2) // total,
+                    0,
+                ],
+            ),
+            cpp_array("int16_t", "k_grid_scores", scores),
+            cpp_array("int32_t", "k_grid_picks", picks),
+            f'constexpr std::string_view pinned_grid_digest = "{grid_digest}";',
+            "// N06-NEURAL-REFERENCE-END",
+        ]
+    )
     sys.stdout.write("\n".join(lines) + "\n")
 
 

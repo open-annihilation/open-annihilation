@@ -169,6 +169,10 @@ namespace oa::data::mutator_library {
 struct Listing;
 } // namespace oa::data::mutator_library
 
+namespace oa::data::brain_library {
+struct Listing;
+} // namespace oa::data::brain_library
+
 namespace oa::data::mutators {
 struct ChosenMap;
 struct Loadout;
@@ -4452,6 +4456,26 @@ class Runtime final : public menu::Host,
     /// A package change before the first read leaves the listing unmade.
     void reload_installed_mutators() const;
 
+    /// The installed brains, read from the player's Brains folder.
+    struct BrainLibraryState;
+
+    /// Frees the brain listing.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_brain_library_state(BrainLibraryState* state) noexcept;
+
+    /// Returns the installed brains, read on first use from
+    /// `<user folder>/Brains` and read again after every change of a
+    /// brain package.
+    ///
+    /// @return the listing
+    [[nodiscard]] const oa::data::brain_library::Listing& installed_brains() const;
+
+    /// Reads the Brains folder again when a listing is already held.
+    ///
+    /// A package change before the first read leaves the listing unmade.
+    void reload_installed_brains() const;
+
   public:
 
     /// Replaces the mutators the next matches apply.
@@ -6306,7 +6330,7 @@ class Runtime final : public menu::Host,
     /// window at 640x480 and the language as it found it.
     void check_window_edge_rows_fit();
 
-    /// Checks that System's File Type Registration and its six file-type
+    /// Checks that System's File Type Registration and its seven file-type
     /// switches fit the settings dialog on a 640x480 window in English and
     /// German, at the section's top and its end, as part of
     /// --check-engine-settings. Leaves the window at 640x480 and the
@@ -18220,6 +18244,9 @@ class Runtime final : public menu::Host,
     // The installed mutators; null until first read.
     mutable std::unique_ptr<MutatorLibraryState, void (*)(MutatorLibraryState*) noexcept>
         mutator_library_state_{nullptr, destroy_mutator_library_state};
+    // The installed brains; null until first read.
+    mutable std::unique_ptr<BrainLibraryState, void (*)(BrainLibraryState*) noexcept>
+        brain_library_state_{nullptr, destroy_brain_library_state};
     // The mutators the next matches apply, and the running match's result;
     // null until a choice is stored.
     std::unique_ptr<MutatorState, void (*)(MutatorState*) noexcept> mutator_state_{

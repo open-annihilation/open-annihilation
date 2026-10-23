@@ -3,7 +3,8 @@
 
 // What each kind of package asks of the running game. A kind is named in
 // one branch of each function: a mod package (oamod), a map pack (oamap),
-// a language pack (oalang), an expansion and a mutator (oamut). An
+// a language pack (oalang), an expansion, a mutator (oamut) and a brain
+// (oabrain). An
 // expansion is copied by install_oaexp; these hooks are not its install.
 
 #include "map_packs.hpp"
@@ -110,6 +111,10 @@ bool Runtime::package_target_in_use(
     // installs. Nothing holds its folder open.
     if (kind.name == "oamut")
         return false;
+    // Nothing installs while a match runs, and only a match reads a brain's
+    // files. Nothing holds its folder open.
+    if (kind.name == "oabrain")
+        return false;
     return false;
 }
 
@@ -124,6 +129,9 @@ bool Runtime::package_offers_play(const package_install::PackageKind& kind) cons
         return false;
     // Installing a mutator does not turn it on, and PLAY NOW is not offered.
     if (kind.name == "oamut")
+        return false;
+    // Installing a brain does not seat it, and PLAY NOW is not offered.
+    if (kind.name == "oabrain")
         return false;
     return false;
 }
@@ -147,6 +155,10 @@ void Runtime::package_changed(const package_install::PackageKind& kind, const fs
     // unmade: nothing has asked for it yet.
     if (kind.name == "oamut")
         reload_installed_mutators();
+    // The listing is read again. A change before the first read leaves it
+    // unmade: nothing has asked for it yet.
+    if (kind.name == "oabrain")
+        reload_installed_brains();
 }
 
 package_install::PackageOptions
@@ -177,6 +189,9 @@ Runtime::package_options(const package_install::PackageKind& kind) const {
         return options;
     // A mutator's hooks read the package themselves and need no context.
     if (kind.name == "oamut")
+        return options;
+    // A brain's hooks read the package themselves and need no context.
+    if (kind.name == "oabrain")
         return options;
     return options;
 }

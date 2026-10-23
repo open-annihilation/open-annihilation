@@ -1,10 +1,10 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The integer runner: rescale, one small network of each kind this build
-// runs, a mixed network pinned against neural_reference.py, and the refusals.
-// The pinned digest is the same on every build and moves only with the
-// arithmetic.
+// The integer runner: rescale, one small network of each format-1 kind, a
+// mixed network and a grid network pinned against neural_reference.py, and
+// the refusals. The pinned digests are the same on every build and move
+// only with the arithmetic.
 
 #include "oa/data/neural/arithmetic.hpp"
 #include "oa/data/neural/network.hpp"
@@ -26,6 +26,9 @@
 #include <vector>
 
 namespace {
+
+// The generated activation tables. The same text is compiled into the runner.
+#include "../src/tables.inc"
 
 using oa::data::neural::Network;
 using oa::data::neural::NetworkSet;
@@ -71,7 +74,53 @@ constexpr int16_t k_mixed_cat[] = {32767, -29006, 22384, -22982, -21485, 32767, 
 constexpr int32_t k_mixed_pick = 0;
 constexpr std::string_view pinned_mixed_digest = "dde635fa4de824150a1ca292e896a61063c8ffe599b797579fd576f6d7deacfb";
 // N02-NEURAL-REFERENCE-END
+// N06-NEURAL-REFERENCE-BEGIN
+constexpr int16_t k_conv_stride1[] = {5};
+constexpr int16_t k_conv_shift[] = {3};
+constexpr int16_t k_conv_stride2[] = {14, 22, 46, 54};
+constexpr int16_t k_conv_pad[] = {77, 67, 47, 37};
+constexpr int16_t k_conv_bias[] = {10};
+constexpr int16_t k_conv_stride2_pad[] = {16, 13, 17, 24};
+constexpr int16_t k_pool2[] = {6, 8, 14, 16};
+constexpr int16_t k_pool3[] = {9, 10, 13, 14};
+constexpr int16_t k_tanh[] = {-32768, 32767, 0, 24956};
+constexpr int16_t k_sigmoid[] = {11, 32757, 16384, 23955};
+constexpr int16_t k_tanh_index[] = {128};
+constexpr int16_t k_sigmoid_index[] = {16416};
+constexpr int16_t k_softmax_equal[] = {8192, 8192, 8192, 8192};
+constexpr int16_t k_softmax_peak[] = {32767, 0, 0};
+constexpr int16_t k_softmax_far[] = {32766, 1, 0};
+constexpr int16_t k_grid_scores[] = {5730, 5730, 5730, 15576, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 8192, 5730, 5730, 5730, 15576, 5730, 5730, 5730, 15576, 5730, 5730, 5730, 15576, 8192, 8192, 8192, 8192, 5730, 5730, 5730, 15576, 8192, 8192, 8192, 8192, 5730, 5730, 5730, 15576, 11977, 11977, 4406, 4406, 9729, 9729, 3579, 9729, 4406, 11977, 4406, 11977, 5730, 5730, 5730, 15576, 5730, 5730, 5730, 15576};
+constexpr int32_t k_grid_picks[] = {3, 0, 0, 0, 3, 3, 3, 0, 3, 0, 3, 0, 0, 1, 3, 3};
+constexpr std::string_view pinned_grid_digest = "eaf045a125e072e763f3d79aead6be32a4115d83b92600fb248d5f89c8ea09e6";
+constexpr std::string_view k_tanh_sha256 = "cb7f633a633e5280f6e1f1f6e8ce0b8de29df3c80895e21f8f43ec3638081b58";
+constexpr std::string_view k_sigmoid_sha256 = "c4a892ac4c7782b3990d864b2ef6880662da2b77ba7144cc82cfc060781810b7";
+constexpr std::string_view k_exp_sha256 = "887bdd7a27c48be6ffd340ddffbce39dbfa80104546267a23b4921f3c2328e67";
+// N06-NEURAL-REFERENCE-END
 // clang-format on
+
+// Entries at 0, 1, 2047, 2048, 2049, 4094 and 4095, from tables_reference.py.
+static_assert(tanh_table[0] == -32768);
+static_assert(tanh_table[1] == -32768);
+static_assert(tanh_table[2047] == -128);
+static_assert(tanh_table[2048] == 0);
+static_assert(tanh_table[2049] == 128);
+static_assert(tanh_table[4094] == 32767);
+static_assert(tanh_table[4095] == 32767);
+static_assert(sigmoid_table[0] == 11);
+static_assert(sigmoid_table[1] == 11);
+static_assert(sigmoid_table[2047] == 16352);
+static_assert(sigmoid_table[2048] == 16384);
+static_assert(sigmoid_table[2049] == 16416);
+static_assert(sigmoid_table[4094] == 32757);
+static_assert(sigmoid_table[4095] == 32757);
+static_assert(exp_table[0] == 1073741824U);
+static_assert(exp_table[1] == 1069555701U);
+static_assert(exp_table[2047] == 361610U);
+static_assert(exp_table[2048] == 360200U);
+static_assert(exp_table[2049] == 358796U);
+static_assert(exp_table[4094] == 122U);
+static_assert(exp_table[4095] == 121U);
 
 constexpr int64_t k_int64_min = -9223372036854775807LL - 1;
 constexpr int64_t k_int64_max = 9223372036854775807LL;
@@ -214,6 +263,29 @@ Layer make_layer(
     return layer;
 }
 
+Layer spatial(
+    LayerKind kind,
+    std::initializer_list<uint16_t> inputs,
+    uint16_t output,
+    uint8_t kernel_h,
+    uint8_t kernel_w,
+    uint8_t stride_h,
+    uint8_t stride_w,
+    uint8_t pad_h,
+    uint8_t pad_w,
+    uint16_t weights = no_tensor,
+    uint16_t bias = no_tensor
+) {
+    Layer layer = make_layer(kind, inputs, output, weights, bias);
+    layer.kernel_h = kernel_h;
+    layer.kernel_w = kernel_w;
+    layer.stride_h = stride_h;
+    layer.stride_w = stride_w;
+    layer.pad_h = pad_h;
+    layer.pad_w = pad_w;
+    return layer;
+}
+
 std::optional<Network> load_network(const Model& model) {
     Problem problem;
     const auto bytes = write(model, problem);
@@ -247,6 +319,11 @@ void fill(Network& network, std::size_t port, std::initializer_list<int16_t> val
             samples[element] = value;
         ++element;
     }
+}
+
+std::string digest_of(std::span<const uint8_t> bytes) {
+    const auto text = oa::base::sha256::to_hex(oa::base::sha256::digest_of(bytes));
+    return std::string(text.begin(), text.end());
 }
 
 void expect_message(const Problem& problem, const char* want) {
@@ -737,29 +814,440 @@ void test_mixed() {
     OA_CHECK(hex == pinned_mixed_digest);
 }
 
+void append_i16_bytes(std::vector<uint8_t>& bytes, int16_t value) {
+    const auto bits = static_cast<uint16_t>(value);
+    bytes.push_back(static_cast<uint8_t>(bits));
+    bytes.push_back(static_cast<uint8_t>(bits >> 8U));
+}
+
+void append_i32_bytes(std::vector<uint8_t>& bytes, int32_t value) {
+    const auto bits = static_cast<uint32_t>(value);
+    bytes.push_back(static_cast<uint8_t>(bits));
+    bytes.push_back(static_cast<uint8_t>(bits >> 8U));
+    bytes.push_back(static_cast<uint8_t>(bits >> 16U));
+    bytes.push_back(static_cast<uint8_t>(bits >> 24U));
+}
+
+void test_tables() {
+    // Little-endian bytes of the three generated tables.
+    std::vector<uint8_t> tanh_bytes;
+    std::vector<uint8_t> sigmoid_bytes;
+    std::vector<uint8_t> exp_bytes;
+    tanh_bytes.reserve(tanh_table.size() * 2);
+    sigmoid_bytes.reserve(sigmoid_table.size() * 2);
+    exp_bytes.reserve(exp_table.size() * 4);
+    for (const int16_t value : tanh_table)
+        append_i16_bytes(tanh_bytes, value);
+    for (const int16_t value : sigmoid_table)
+        append_i16_bytes(sigmoid_bytes, value);
+    for (const uint32_t value : exp_table)
+        append_i32_bytes(exp_bytes, static_cast<int32_t>(value));
+    const std::string tanh_hex = digest_of(tanh_bytes);
+    const std::string sigmoid_hex = digest_of(sigmoid_bytes);
+    const std::string exp_hex = digest_of(exp_bytes);
+    if (tanh_hex != k_tanh_sha256)
+        std::fprintf(stderr, "tanh sha256 %s\n", tanh_hex.c_str());
+    if (sigmoid_hex != k_sigmoid_sha256)
+        std::fprintf(stderr, "sigmoid sha256 %s\n", sigmoid_hex.c_str());
+    if (exp_hex != k_exp_sha256)
+        std::fprintf(stderr, "exp sha256 %s\n", exp_hex.c_str());
+    OA_CHECK(tanh_hex == k_tanh_sha256);
+    OA_CHECK(sigmoid_hex == k_sigmoid_sha256);
+    OA_CHECK(exp_hex == k_exp_sha256);
+}
+
+void test_conv() {
+    // Stride 1, no padding, no bias, int8. 1*1 + 4*1 = 5.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 2, 2}));
+        model.tensors.push_back(constant_i8("w", 0, {1, 1, 2, 2}, {1, 0, 0, 1}));
+        model.tensors.push_back(valued("out", Role::output, 0, {1, 1, 1}));
+        model.layers.push_back(spatial(LayerKind::conv2d, {0}, 2, 2, 2, 1, 1, 0, 0, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_conv_stride1, "conv-s1");
+    }
+    // The same sum at output exponent 1: (5 + 1) >> 1 = 3.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 2, 2}));
+        model.tensors.push_back(constant_i8("w", 0, {1, 1, 2, 2}, {1, 0, 0, 1}));
+        model.tensors.push_back(valued("out", Role::output, 1, {1, 1, 1}));
+        model.layers.push_back(spatial(LayerKind::conv2d, {0}, 2, 2, 2, 1, 1, 0, 0, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_conv_shift, "conv-shift");
+    }
+    // Stride 2, no padding, no bias, int8. Each window is four ones:
+    // 14, 22, 46 and 54.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 4, 4}));
+        model.tensors.push_back(constant_i8("w", 0, {1, 1, 2, 2}, {1, 1, 1, 1}));
+        model.tensors.push_back(valued("out", Role::output, 0, {1, 2, 2}));
+        model.layers.push_back(spatial(LayerKind::conv2d, {0}, 2, 2, 2, 2, 2, 0, 0, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_conv_stride2, "conv-s2");
+    }
+    // Padding 1, stride 1, no bias, int8. The kernel is 1..9. A corner
+    // reads 0 outside the 2x2. (0,0) = 77, (0,1) = 67, (1,0) = 47, (1,1) = 37.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 2, 2}));
+        model.tensors.push_back(constant_i8("w", 0, {1, 1, 3, 3}, {1, 2, 3, 4, 5, 6, 7, 8, 9}));
+        model.tensors.push_back(valued("out", Role::output, 0, {1, 2, 2}));
+        model.layers.push_back(spatial(LayerKind::conv2d, {0}, 2, 3, 3, 1, 1, 1, 1, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_conv_pad, "conv-pad");
+    }
+    // Stride 1, no padding, int16 weights, bias -4. 1*2 + 4*3 - 4 = 10.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 2, 2}));
+        model.tensors.push_back(constant_i16("w", 0, {1, 1, 2, 2}, {2, 0, 0, 3}));
+        model.tensors.push_back(constant_i32("b", 0, {1}, {-4}));
+        model.tensors.push_back(valued("out", Role::output, 0, {1, 1, 1}));
+        model.layers.push_back(spatial(LayerKind::conv2d, {0}, 3, 2, 2, 1, 1, 0, 0, 1, 2));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_conv_bias, "conv-bias");
+    }
+    // Stride 2, padding 1, int16 weights, bias 10. The diagonal kernel
+    // reads 0 past the 3x3. The windows are 6, 3, 7 and 14, plus 10.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 3, 3}));
+        model.tensors.push_back(constant_i16("w", 0, {1, 1, 3, 3}, {1, 0, 0, 0, 1, 0, 0, 0, 1}));
+        model.tensors.push_back(constant_i32("b", 0, {1}, {10}));
+        model.tensors.push_back(valued("out", Role::output, 0, {1, 2, 2}));
+        model.layers.push_back(spatial(LayerKind::conv2d, {0}, 3, 3, 3, 2, 2, 1, 1, 1, 2));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4, 5, 6, 7, 8, 9});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_conv_stride2_pad, "conv-s2-pad");
+    }
+}
+
+void test_maxpool() {
+    // 2x2 stride 2. The windows are 6, 8, 14 and 16.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 4, 4}));
+        model.tensors.push_back(valued("out", Role::output, 0, {1, 2, 2}));
+        model.layers.push_back(spatial(LayerKind::maxpool, {0}, 1, 2, 2, 2, 2, 0, 0));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_pool2, "pool2");
+    }
+    // 3x3 stride 1. The -1 sits in the first window and is not the largest.
+    // The windows are 9, 10, 13 and 14.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {1, 4, 4}));
+        model.tensors.push_back(valued("out", Role::output, 0, {1, 2, 2}));
+        model.layers.push_back(spatial(LayerKind::maxpool, {0}, 1, 3, 3, 1, 1, 0, 0));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1, 2, 3, 4, 5, 6, 7, 8, 9, 0, -1, 10, 11, 12, 13, 14});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_pool3, "pool3");
+    }
+}
+
+void test_tanh_and_sigmoid() {
+    // Exponent 0. -8 and 8 clamp to the ends of the table. 0 is the centre.
+    // 1 lands at index 2304, between the centre and the high end.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {4}));
+        model.tensors.push_back(valued("out", Role::output, -15, {4}));
+        model.layers.push_back(make_layer(LayerKind::tanh, {0}, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {-8, 8, 0, 1});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_tanh, "tanh");
+    }
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {4}));
+        model.tensors.push_back(valued("out", Role::output, -15, {4}));
+        model.layers.push_back(make_layer(LayerKind::sigmoid, {0}, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {-8, 8, 0, 1});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_sigmoid, "sigmoid");
+    }
+    // Exponent -8 keeps the stored value as the offset from 2048.
+    // 1 is index 2049.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, -8, {1}));
+        model.tensors.push_back(valued("out", Role::output, -15, {1}));
+        model.layers.push_back(make_layer(LayerKind::tanh, {0}, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_tanh_index, "tanh-index");
+    }
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, -8, {1}));
+        model.tensors.push_back(valued("out", Role::output, -15, {1}));
+        model.layers.push_back(make_layer(LayerKind::sigmoid, {0}, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {1});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_sigmoid_index, "sigmoid-index");
+    }
+}
+
+void test_softmax() {
+    // Four equal inputs. q = 2^30, S = 2^32, and each share is 32769 / 4 = 8192.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {4}));
+        model.tensors.push_back(valued("out", Role::output, -15, {4}));
+        model.layers.push_back(make_layer(LayerKind::softmax, {0}, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {5, 5, 5, 5});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_softmax_equal, "softmax-equal");
+    }
+    // 100 against zeros. The others are 100 << 8 = 25600, past 4095, so 0.
+    // (2^30 * 32767 + 2^29) / 2^30 = 32767.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {3}));
+        model.tensors.push_back(valued("out", Role::output, -15, {3}));
+        model.layers.push_back(make_layer(LayerKind::softmax, {0}, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {100, 0, 0});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_softmax_peak, "softmax-peak");
+    }
+    // d(20) = 10 << 8 = 2560. d(0) = 30 << 8 = 7680, past 4095, so exactly 0.
+    {
+        Model model;
+        model.tensors.push_back(valued("in", Role::input, 0, {3}));
+        model.tensors.push_back(valued("out", Role::output, -15, {3}));
+        model.layers.push_back(make_layer(LayerKind::softmax, {0}, 1));
+        auto network = load_network(model);
+        if (!network)
+            return;
+        fill(*network, 0, {30, 20, 0});
+        if (!ran(*network))
+            return;
+        expect_i16(network->output(0), k_softmax_far, "softmax-far");
+    }
+}
+
+void test_grid() {
+    // conv 2*16*16*3*3*3 = 13824, relu 512, pool 2*8*8*2*2 = 512,
+    // conv 2*8*8*2*1*1 = 256, tanh 128, flatten 128, dense 4*128 = 512,
+    // sigmoid 4, softmax 16, argmax 4. Total 15896.
+    // Bytes: picture 1536, conv weights 54, conv 1024, relu 1024, pool 256,
+    // conv weights 4, conv 256, tanh 256, flat 256, dense weights 512,
+    // dense 8, sigmoid 8, scores 8, pick 4. Total 5206.
+    Sequence stream;
+    Model model;
+    model.tensors.push_back(valued("pic", Role::input, -30, {3, 16, 16}));
+    Tensor conv_w = valued("cw", Role::constant, 0, {2, 3, 3, 3}, ElementType::int8);
+    for (int element = 0; element < 54; ++element)
+        push_i8(conv_w.data, stream.next_i8());
+    model.tensors.push_back(std::move(conv_w));
+    model.tensors.push_back(valued("conv", Role::activation, -18, {2, 16, 16}));
+    model.tensors.push_back(valued("rel", Role::activation, -18, {2, 16, 16}));
+    model.tensors.push_back(valued("pool", Role::activation, -18, {2, 8, 8}));
+    Tensor conv2_w = valued("cw2", Role::constant, 0, {2, 2, 1, 1}, ElementType::int8);
+    for (int element = 0; element < 4; ++element)
+        push_i8(conv2_w.data, stream.next_i8());
+    model.tensors.push_back(std::move(conv2_w));
+    model.tensors.push_back(valued("conv2", Role::activation, -12, {2, 8, 8}));
+    model.tensors.push_back(valued("th", Role::activation, -15, {2, 8, 8}));
+    model.tensors.push_back(valued("flat", Role::activation, -15, {128}));
+    Tensor dense_w = valued("dw", Role::constant, 0, {4, 128}, ElementType::int8);
+    for (int element = 0; element < 512; ++element)
+        push_i8(dense_w.data, stream.next_i8());
+    model.tensors.push_back(std::move(dense_w));
+    model.tensors.push_back(valued("den", Role::activation, -12, {4}));
+    model.tensors.push_back(valued("sig", Role::activation, -15, {4}));
+    model.tensors.push_back(valued("scores", Role::output, -15, {4}));
+    model.tensors.push_back(valued("pick", Role::output, 0, {1}, ElementType::int32));
+
+    model.layers.push_back(spatial(LayerKind::conv2d, {0}, 2, 3, 3, 1, 1, 1, 1, 1));
+    model.layers.push_back(make_layer(LayerKind::relu, {2}, 3));
+    model.layers.push_back(spatial(LayerKind::maxpool, {3}, 4, 2, 2, 2, 2, 0, 0));
+    model.layers.push_back(spatial(LayerKind::conv2d, {4}, 6, 1, 1, 1, 1, 0, 0, 5));
+    model.layers.push_back(make_layer(LayerKind::tanh, {6}, 7));
+    model.layers.push_back(make_layer(LayerKind::flatten, {7}, 8));
+    model.layers.push_back(make_layer(LayerKind::dense, {8}, 10, 9));
+    model.layers.push_back(make_layer(LayerKind::sigmoid, {10}, 11));
+    model.layers.push_back(make_layer(LayerKind::softmax, {11}, 12));
+    model.layers.push_back(make_layer(LayerKind::argmax, {11}, 13));
+
+    OA_CHECK(Network::memory_bytes_of(model) == 5206);
+    auto network = load_network(model);
+    if (!network)
+        return;
+    OA_CHECK(network->operations() == 15896);
+    OA_CHECK(network->memory_bytes() == 5206);
+    OA_CHECK(network->inputs().size() == 1);
+    OA_CHECK(network->outputs().size() == 2);
+    OA_CHECK(network->outputs()[1].index);
+
+    std::vector<int16_t> scores;
+    std::vector<int32_t> picks;
+    scores.reserve(64);
+    picks.reserve(16);
+    for (int run = 0; run < 16; ++run) {
+        const std::span<int16_t> picture = network->input(0);
+        OA_CHECK(picture.size() == 768);
+        if (picture.size() != 768)
+            return;
+        for (int16_t& sample : picture)
+            sample = stream.next_i16();
+        if (!ran(*network))
+            return;
+        const std::span<const int16_t> got = network->output(0);
+        OA_CHECK(got.size() == 4);
+        if (got.size() != 4)
+            return;
+        for (const int16_t value : got)
+            scores.push_back(value);
+        picks.push_back(network->output_index(1));
+    }
+    expect_i16(scores, k_grid_scores, "grid");
+    OA_CHECK(picks.size() == 16);
+    if (picks.size() != 16)
+        return;
+    for (std::size_t run = 0; run < picks.size(); ++run)
+        OA_CHECK(picks[run] == k_grid_picks[run]);
+
+    std::vector<uint8_t> bytes;
+    for (std::size_t run = 0; run < picks.size(); ++run) {
+        for (std::size_t element = 0; element < 4; ++element)
+            append_i16_bytes(bytes, scores[run * 4 + element]);
+        append_i32_bytes(bytes, picks[run]);
+    }
+    const std::string hex = digest_of(bytes);
+    if (hex != pinned_grid_digest)
+        std::fprintf(stderr, "grid sha256 %s\n", hex.c_str());
+    OA_CHECK(hex == pinned_grid_digest);
+}
+
+void test_every_kind() {
+    // One model holds every format-1 kind, so build refuses none of them.
+    Model model;
+    model.tensors.push_back(valued("pic", Role::input, 0, {1, 4, 4}));
+    model.tensors.push_back(constant_i8("kern", 0, {1, 1, 1, 1}, {1}));
+    model.tensors.push_back(valued("seen", Role::activation, 0, {1, 4, 4}));
+    model.tensors.push_back(valued("rel", Role::activation, 0, {1, 4, 4}));
+    model.tensors.push_back(valued("pool", Role::activation, 0, {1, 2, 2}));
+    model.tensors.push_back(valued("curved", Role::activation, -15, {1, 2, 2}));
+    model.tensors.push_back(valued("flat", Role::activation, -15, {4}));
+    model.tensors.push_back(constant_i8("dw", 0, {2, 4}, {1, 0, 0, 0, 0, 1, 0, 0}));
+    model.tensors.push_back(constant_i32("db", -15, {2}, {0, 0}));
+    model.tensors.push_back(valued("den", Role::activation, -15, {2}));
+    model.tensors.push_back(valued("leaked", Role::activation, -15, {2}));
+    model.tensors.push_back(valued("sig", Role::activation, -15, {2}));
+    model.tensors.push_back(valued("side", Role::input, -15, {2}));
+    model.tensors.push_back(valued("sum", Role::activation, -15, {2}));
+    model.tensors.push_back(valued("tail", Role::input, -15, {2}));
+    model.tensors.push_back(valued("cat", Role::activation, -15, {4}));
+    model.tensors.push_back(valued("ids", Role::input, 0, {2}));
+    model.tensors.push_back(constant_i8("rows", 0, {4, 1}, {1, 2, 3, 4}));
+    model.tensors.push_back(valued("emb", Role::activation, 0, {2, 1}));
+    model.tensors.push_back(valued("wide", Role::output, 0, {2}));
+    model.tensors.push_back(valued("scores", Role::output, -15, {4}));
+    model.tensors.push_back(valued("pick", Role::output, 0, {1}, ElementType::int32));
+
+    model.layers.push_back(spatial(LayerKind::conv2d, {0}, 2, 1, 1, 1, 1, 0, 0, 1));
+    model.layers.push_back(make_layer(LayerKind::relu, {2}, 3));
+    model.layers.push_back(spatial(LayerKind::maxpool, {3}, 4, 2, 2, 2, 2, 0, 0));
+    model.layers.push_back(make_layer(LayerKind::tanh, {4}, 5));
+    model.layers.push_back(make_layer(LayerKind::flatten, {5}, 6));
+    model.layers.push_back(make_layer(LayerKind::dense, {6}, 9, 7, 8));
+    Layer leaky = make_layer(LayerKind::leaky_relu, {9}, 10);
+    leaky.alpha = 3277;
+    model.layers.push_back(leaky);
+    model.layers.push_back(make_layer(LayerKind::sigmoid, {10}, 11));
+    model.layers.push_back(make_layer(LayerKind::add, {11, 12}, 13));
+    model.layers.push_back(make_layer(LayerKind::concat, {13, 14}, 15));
+    model.layers.push_back(make_layer(LayerKind::embedding, {16}, 18, 17));
+    model.layers.push_back(make_layer(LayerKind::flatten, {18}, 19));
+    model.layers.push_back(make_layer(LayerKind::softmax, {15}, 20));
+    model.layers.push_back(make_layer(LayerKind::argmax, {15}, 21));
+
+    auto network = load_network(model);
+    if (!network)
+        return;
+    fill(*network, 0, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
+    fill(*network, 1, {1, -1});
+    fill(*network, 2, {2, 3});
+    fill(*network, 3, {1, 0});
+    if (!ran(*network))
+        return;
+    OA_CHECK(network->output(0).size() == 2);
+    OA_CHECK(network->output(1).size() == 4);
+    OA_CHECK(network->outputs().size() == 3);
+    OA_CHECK(network->outputs()[2].index);
+}
+
 void test_refusals() {
     Model empty;
     Problem problem;
     OA_CHECK(!Network::build(empty, problem).has_value());
     expect_message(problem, "the model has 0 tensors, and needs 2 to 4096");
-
-    Model conv;
-    conv.tensors.push_back(valued("grid", Role::input, 0, {1, 2, 2}));
-    conv.tensors.push_back(constant_i8("kern", 0, {1, 1, 1, 1}, {1}));
-    conv.tensors.push_back(valued("seen", Role::output, 0, {1, 2, 2}));
-    Layer conv_layer = make_layer(LayerKind::conv2d, {0}, 2, 1);
-    conv_layer.kernel_h = 1;
-    conv_layer.kernel_w = 1;
-    conv_layer.stride_h = 1;
-    conv_layer.stride_w = 1;
-    conv.layers.push_back(conv_layer);
-    if (const std::optional<Problem> found = check(conv)) {
-        std::fprintf(stderr, "conv check: %s\n", found->message.c_str());
-        OA_CHECK(false);
-    } else {
-        OA_CHECK(!Network::build(conv, problem).has_value());
-        expect_message(problem, "layer 0 (conv2d) is not run by this build");
-    }
 
     // 1024 relu layers of 64*64*65 elements. 1024 * 266240 = 272629760,
     // which is over 2^28.
@@ -832,6 +1320,13 @@ int main() {
     test_embedding_row();
     test_counts();
     test_mixed();
+    test_tables();
+    test_conv();
+    test_maxpool();
+    test_tanh_and_sigmoid();
+    test_softmax();
+    test_grid();
+    test_every_kind();
     test_refusals();
     return oa::test::check_exit_status();
 }

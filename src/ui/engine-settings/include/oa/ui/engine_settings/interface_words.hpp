@@ -81,6 +81,7 @@ inline constexpr std::string_view interface_words[] = {
     "Behind the resource bar's text.",
     "Both",
     "Box",
+    "Brain packages (.oabrain)",
     "Build Preview",
     "Build Rotation",
     "Build Site Kickout",

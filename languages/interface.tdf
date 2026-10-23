@@ -826,6 +826,14 @@
 	it=E altri {n}. Il registro li ha tutti.;
 	}
 
+[Another copy of Open Annihilation is changing your Brains folder. Try again once it has finished.]
+	{
+	de=Eine andere Kopie von Open Annihilation ändert deinen Gehirneordner. Versuche es erneut, wenn sie fertig ist.;
+	fr=Une autre copie d'Open Annihilation modifie ton dossier de cerveaux. Réessaie une fois qu'elle a fini.;
+	es=Otra copia de Open Annihilation está cambiando tu carpeta de cerebros. Inténtalo de nuevo cuando termine.;
+	it=Un'altra copia di Open Annihilation sta modificando la tua cartella dei cervelli. Riprova quando ha finito.;
+	}
+
 [Another copy of Open Annihilation is changing your Maps folder. Try again once it has finished.]
 	{
 	de=Eine andere Kopie von Open Annihilation ändert deinen Kartenordner. Versuche es erneut, wenn sie fertig ist.;
@@ -1032,6 +1040,30 @@
 	fr=EXPLOSER;
 	es=DETONAR;
 	it=ESPLODI;
+	}
+
+[BRAIN INSTALLED]
+	{
+	de=GEHIRN INSTALLIERT;
+	fr=CERVEAU INSTALLÉ;
+	es=CEREBRO INSTALADO;
+	it=CERVELLO INSTALLATO;
+	}
+
+[BRAIN NOT INSTALLED]
+	{
+	de=GEHIRN NICHT INSTALLIERT;
+	fr=CERVEAU NON INSTALLÉ;
+	es=CEREBRO NO INSTALADO;
+	it=CERVELLO NON INSTALLATO;
+	}
+
+[BRAIN UPDATED]
+	{
+	de=GEHIRN AKTUALISIERT;
+	fr=CERVEAU MIS À JOUR;
+	es=CEREBRO ACTUALIZADO;
+	it=CERVELLO AGGIORNATO;
 	}
 
 [BUILD]
@@ -1272,6 +1304,22 @@
 	fr=Cadre;
 	es=Marco;
 	it=Riquadro;
+	}
+
+[Brain packages (.oabrain)]
+	{
+	de=Gehirn-Pakete (.oabrain);
+	fr=Paquets de cerveau (.oabrain);
+	es=Paquetes de cerebro (.oabrain);
+	it=Pacchetti di cervello (.oabrain);
+	}
+
+[Brains]
+	{
+	de=Gehirne;
+	fr=Cerveaux;
+	es=Cerebros;
+	it=Cervelli;
 	}
 
 [Build Preview]
@@ -4114,6 +4162,14 @@
 	it=INSTALLA A FIANCO;
 	}
 
+[INSTALL BRAIN]
+	{
+	de=GEHIRN INSTALLIEREN;
+	fr=INSTALLER LE CERVEAU;
+	es=INSTALAR CEREBRO;
+	it=INSTALLA CERVELLO;
+	}
+
 [INSTALL LANGUAGE]
 	{
 	de=SPRACHE INSTALLIEREN;
@@ -4144,6 +4200,14 @@
 	fr=INSTALLÉ;
 	es=INSTALADO;
 	it=INSTALLATO;
+	}
+
+[INSTALLING BRAIN]
+	{
+	de=GEHIRN WIRD INSTALLIERT;
+	fr=INSTALLATION DU CERVEAU;
+	es=INSTALANDO CEREBRO;
+	it=INSTALLAZIONE CERVELLO;
 	}
 
 [INSTALLING EXPANSION]
@@ -4354,6 +4418,14 @@
 	it=ID di installazione;
 	}
 
+[Install the brain {name} {version}?]
+	{
+	de=Das Gehirn {name} {version} installieren?;
+	fr=Installer le cerveau {name} {version} ?;
+	es=¿Instalar el cerebro {name} {version}?;
+	it=Installare il cervello {name} {version}?;
+	}
+
 [Install the expansion {name}?]
 	{
 	de=Die Expansion {name} installieren?;
@@ -4514,6 +4586,14 @@
 	it=Contiene un file cifrato: {name}.;
 	}
 
+[It holds more than {limit} folders, more than a brain may take.]
+	{
+	de=Es enthält mehr als {limit} Ordner, mehr als ein Gehirn haben darf.;
+	fr=Il contient plus de {limit} dossiers, plus qu'un cerveau ne peut en avoir.;
+	es=Contiene más de {limit} carpetas, más de las que puede tener un cerebro.;
+	it=Contiene più di {limit} cartelle, più di quante ne possa avere un cervello.;
+	}
+
 [It holds more than {limit} folders, more than a map pack may take.]
 	{
 	de=Es enthält mehr als {limit} Ordner, mehr als ein Kartenpaket haben darf.;
@@ -4552,6 +4632,14 @@
 	fr=Il ne contient pas de language.yaml.;
 	es=No contiene language.yaml.;
 	it=Non contiene language.yaml.;
+	}
+
+[It holds no oabrain.yaml at its top, or in a single folder at its top.]
+	{
+	de=Es enthält kein oabrain.yaml ganz oben oder in einem einzelnen Ordner ganz oben.;
+	fr=Il ne contient pas d'oabrain.yaml à sa racine, ni dans un seul dossier à sa racine.;
+	es=No contiene oabrain.yaml en su nivel superior, ni en una sola carpeta en su nivel superior.;
+	it=Non contiene oabrain.yaml in cima, né in una sola cartella in cima.;
 	}
 
 [It holds no oaexp.yaml at its top, or in a single folder at its top.]
@@ -4674,6 +4762,14 @@
 	it=Gli serve un altro Open Annihilation.;
 	}
 
+[It needs {size} free, and the disk holding your Brains folder has {free}.]
+	{
+	de=Es braucht {size} frei, und der Datenträger mit deinem Ordner Brains hat {free}.;
+	fr=Il lui faut {size} de libre, et le disque de ton dossier Brains a {free}.;
+	es=Necesita {size} libres, y el disco de tu carpeta Brains tiene {free}.;
+	it=Servono {size} liberi, e il disco della tua cartella Brains ha {free}.;
+	}
+
 [It needs {size} free, and the disk holding your Maps folder has {free}.]
 	{
 	de=Es braucht {size} frei, und der Datenträger mit deinem Ordner Maps hat {free}.;
@@ -4730,6 +4826,14 @@
 	it=Smussa la vista allontanata.;
 	}
 
+[It unpacks to {size} from {packed}, far more than a brain's files take.]
+	{
+	de=Es entpackt sich auf {size} aus {packed}, weit mehr, als die Dateien eines Gehirns brauchen.;
+	fr=Il se décompresse en {size} depuis {packed}, bien plus que les fichiers d'un cerveau.;
+	es=Se descomprime a {size} desde {packed}, mucho más de lo que ocupan los archivos de un cerebro.;
+	it=Si estrae in {size} da {packed}, molto più di quanto occupino i file di un cervello.;
+	}
+
 [It unpacks to {size} from {packed}, far more than a map pack's files take.]
 	{
 	de=Es entpackt sich auf {size} aus {packed}, weit mehr, als die Dateien eines Kartenpakets brauchen.;
@@ -4752,6 +4856,14 @@
 	fr=Il se décompresse en {size} depuis {packed}, bien plus que les fichiers d'un mutateur.;
 	es=Se descomprime a {size} desde {packed}, mucho más de lo que ocupan los archivos de un mutador.;
 	it=Si estrae in {size} da {packed}, molto più di quanto occupino i file di un mutatore.;
+	}
+
+[It unpacks to {size}, more than the {limit} a brain may take.]
+	{
+	de=Es entpackt sich auf {size}, mehr als die {limit}, die ein Gehirn haben darf.;
+	fr=Il se décompresse en {size}, plus que les {limit} qu'un cerveau peut prendre.;
+	es=Se descomprime a {size}, más del {limit} que puede ocupar un cerebro.;
+	it=Si estrae in {size}, più del {limit} che un cervello può occupare.;
 	}
 
 [It unpacks to {size}, more than the {limit} a map pack may take.]
@@ -4898,6 +5010,46 @@
 	it=Il suo profilo di mod non si può usare:;
 	}
 
+[Its network {name} does not match the SHA-256 its oabrain.yaml gives.]
+	{
+	de=Sein Netzwerk {name} entspricht nicht dem SHA-256, den sein oabrain.yaml angibt.;
+	fr=Son réseau {name} ne correspond pas au SHA-256 que son oabrain.yaml donne.;
+	es=Su red {name} no coincide con el SHA-256 que da su oabrain.yaml.;
+	it=La sua rete {name} non corrisponde allo SHA-256 che dà il suo oabrain.yaml.;
+	}
+
+[Its network {name} is missing.]
+	{
+	de=Sein Netzwerk {name} fehlt.;
+	fr=Son réseau {name} est absent.;
+	es=Falta su red {name}.;
+	it=Manca la sua rete {name}.;
+	}
+
+[Its networks take {size}, more than the {limit} a brain may hold.]
+	{
+	de=Seine Netzwerke brauchen {size}, mehr als die {limit}, die ein Gehirn haben darf.;
+	fr=Ses réseaux prennent {size}, plus que les {limit} qu'un cerveau peut contenir.;
+	es=Sus redes ocupan {size}, más del {limit} que puede tener un cerebro.;
+	it=Le sue reti occupano {size}, più del {limit} che un cervello può avere.;
+	}
+
+[Its oabrain.yaml has errors:]
+	{
+	de=Sein oabrain.yaml hat Fehler:;
+	fr=Son oabrain.yaml a des erreurs :;
+	es=Su oabrain.yaml tiene errores:;
+	it=Il suo oabrain.yaml ha errori:;
+	}
+
+[Its oabrain.yaml is larger than 256 KiB.]
+	{
+	de=Sein oabrain.yaml ist größer als 256 KiB.;
+	fr=Son oabrain.yaml dépasse 256 KiB.;
+	es=Su oabrain.yaml supera los 256 KiB.;
+	it=Il suo oabrain.yaml supera i 256 KiB.;
+	}
+
 [Its oaexp.yaml has errors.]
 	{
 	de=Sein oaexp.yaml hat Fehler.;
@@ -4984,6 +5136,14 @@
 	fr=Son script {name} est absent.;
 	es=Falta su script {name}.;
 	it=Manca il suo script {name}.;
+	}
+
+[Its table {name} is larger than 4 MiB.]
+	{
+	de=Seine Tabelle {name} ist größer als 4 MiB.;
+	fr=Sa table {name} dépasse 4 MiB.;
+	es=Su tabla {name} supera los 4 MiB.;
+	it=La sua tabella {name} supera i 4 MiB.;
 	}
 
 [Its warm-up text cannot be read.]
@@ -7458,6 +7618,14 @@
 	it=REINSTALLA;
 	}
 
+[REINSTALL BRAIN]
+	{
+	de=GEHIRN NEU INSTALLIEREN;
+	fr=RÉINSTALLER LE CERVEAU;
+	es=REINSTALAR CEREBRO;
+	it=REINSTALLA CERVELLO;
+	}
+
 [REINSTALL LANGUAGE]
 	{
 	de=SPRACHE NEU INSTALLIEREN;
@@ -7552,6 +7720,14 @@
 	fr=REMPLACER;
 	es=REEMPLAZAR;
 	it=SOSTITUISCI;
+	}
+
+[REPLACE BRAIN]
+	{
+	de=GEHIRN ERSETZEN;
+	fr=REMPLACER LE CERVEAU;
+	es=REEMPLAZAR CEREBRO;
+	it=SOSTITUISCI CERVELLO;
 	}
 
 [REPLACE GAME FILES]
@@ -9498,6 +9674,14 @@
 	it=La cartella che c'era prima resta come Total Annihilation (vecchia), {size}.;
 	}
 
+[The folder {name} does not hold this brain. It is left as it is.]
+	{
+	de=Der Ordner {name} enthält dieses Gehirn nicht. Er bleibt, wie er ist.;
+	fr=Le dossier {name} ne contient pas ce cerveau. Il est laissé tel quel.;
+	es=La carpeta {name} no contiene este cerebro. Se deja como está.;
+	it=La cartella {name} non contiene questo cervello. Resta com'è.;
+	}
+
 [The folder {name} does not hold this map pack. It is left as it is.]
 	{
 	de=Der Ordner {name} enthält dieses Kartenpaket nicht. Er bleibt, wie er ist.;
@@ -9776,6 +9960,14 @@
 	fr=Le pack n'a pas été installé : {reason};
 	es=El paquete no se instaló: {reason};
 	it=Il pacchetto non è stato installato: {reason};
+	}
+
+[The package holds {name}, outside the files a brain may hold.]
+	{
+	de=Das Paket enthält {name}, außerhalb der Dateien, die ein Gehirn haben darf.;
+	fr=Le paquet contient {name}, en dehors des fichiers qu'un cerveau peut contenir.;
+	es=El paquete contiene {name}, fuera de los archivos que puede tener un cerebro.;
+	it=Il pacchetto contiene {name}, fuori dai file che un cervello può avere.;
 	}
 
 [The package holds {name}, outside the folders a mutator may hold.]
@@ -10544,6 +10736,14 @@
 	fr=TOUT METTRE À JOUR;
 	es=ACTUALIZAR TODO;
 	it=AGGIORNA TUTTO;
+	}
+
+[UPDATE BRAIN]
+	{
+	de=GEHIRN AKTUALISIEREN;
+	fr=METTRE À JOUR LE CERVEAU;
+	es=ACTUALIZAR CEREBRO;
+	it=AGGIORNA CERVELLO;
 	}
 
 [UPDATE LANGUAGE]
@@ -11440,6 +11640,22 @@
 	fr=Il te faut le dossier d'une copie installée de Total Annihilation, celui qui contient totala1.hpi : environ 1.1 GB avec les deux extensions et la musique. Les installateurs du jeu complet sont des programmes Windows et ne peuvent pas servir ici. Installe le jeu sur un ordinateur et apporte son dossier.;
 	es=Necesitas la carpeta de una copia instalada de Total Annihilation, la que contiene totala1.hpi: unos 1.1 GB con ambas expansiones y la música. Los instaladores del juego completo son programas de Windows y no se pueden usar aquí. Instala el juego en un ordenador y trae su carpeta.;
 	it=Ti serve la cartella di una copia installata di Total Annihilation, quella che contiene totala1.hpi: circa 1.1 GB con entrambe le espansioni e la musica. Gli installer del gioco completo sono programmi Windows e non si possono usare qui. Installa il gioco su un computer e porta la sua cartella.;
+	}
+
+[Your Brains folder changed while this brain was being installed; nothing was changed. Open the file again.]
+	{
+	de=Dein Ordner Brains hat sich geändert, während dieses Gehirn installiert wurde. Es wurde nichts geändert. Öffne die Datei erneut.;
+	fr=Ton dossier Brains a changé pendant l'installation de ce cerveau. Rien n'a été changé. Ouvre le fichier à nouveau.;
+	es=Tu carpeta Brains cambió mientras se instalaba este cerebro. No se cambió nada. Abre el archivo de nuevo.;
+	it=La tua cartella Brains è cambiata mentre questo cervello veniva installato. Non è stato cambiato nulla. Apri di nuovo il file.;
+	}
+
+[Your Brains folder has no free folder name for it.]
+	{
+	de=Dein Ordner Brains hat keinen freien Ordnernamen dafür.;
+	fr=Ton dossier Brains n'a aucun nom de dossier libre pour lui.;
+	es=Tu carpeta Brains no tiene un nombre de carpeta libre para él.;
+	it=La tua cartella Brains non ha un nome di cartella libero per esso.;
 	}
 
 [Your Maps folder changed while this map pack was being installed; nothing was changed. Open the file again.]
@@ -13466,6 +13682,14 @@
 	it={name} da {installed} è installato. Sostituirlo con {name} da {new}? Quello da {installed} viene tenuto, e RIPRISTINA lo riporta.;
 	}
 
+[{name} is installed. Choose it for a computer player when you set up a game.]
+	{
+	de={name} ist installiert. Wähle es für einen Computerspieler, wenn du ein Spiel einrichtest.;
+	fr={name} est installé. Choisis-le pour un joueur ordinateur quand tu prépares une partie.;
+	es={name} está instalado. Elígelo para un jugador de ordenador cuando prepares una partida.;
+	it={name} è installato. Sceglilo per un giocatore del computer quando prepari una partita.;
+	}
+
 [{name} is installed. Turn it on in the Library.]
 	{
 	de={name} ist installiert. Schalte sie in der Bibliothek ein.;
@@ -13488,6 +13712,14 @@
 	fr={name} n'est pas copié, donc cette sauvegarde ne peut pas se charger avec.;
 	es={name} no está copiado, así que esta partida no se puede cargar con eso.;
 	it={name} non è stato copiato, quindi questo salvataggio non si può caricare con quello.;
+	}
+
+[{name} is precompiled Lua. A brain holds Lua source only.]
+	{
+	de={name} ist vorkompiliertes Lua. Ein Gehirn enthält nur Lua-Quelltext.;
+	fr={name} est du Lua précompilé. Un cerveau ne contient que du source Lua.;
+	es={name} es Lua precompilado. Un cerebro solo contiene código fuente Lua.;
+	it={name} è Lua precompilato. Un cervello contiene solo sorgente Lua.;
 	}
 
 [{name} is precompiled Lua. A mutator holds Lua source only.]

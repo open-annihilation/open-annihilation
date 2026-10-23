@@ -80,7 +80,8 @@ On Linux, in a terminal in the game's folder:
 - A word that begins with `-` or `/` and a letter, such as `-c` or `/d`, is
   one of 3.1c's switches ([The 3.1c command line](#the-31c-command-line)).
   Any other word names the language, as in 3.1c: `german`.
-- A `.oamod`, `.oalang`, `.oamap` or `.oareg` file named on its own is opened
+- A `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file named on
+  its own is opened
   as `--open FILE` opens it. A launch file is named with `-c` or `--launch`:
   on its own, its name is just a word of 3.1c's command line, and no launch
   starts.
@@ -147,7 +148,7 @@ the console it was started from.
 | `--preferences-file PATH` | Reads and writes the preferences in `PATH` instead of the usual file. Your Open Annihilation folder is then the one beside it ([settings](settings.md#where-the-settings-are-kept)). |
 | `--data-dir PATH` | Keeps the data the game unpacks for itself in `PATH`, in place of the system's per-user data folder. |
 | `--log-dir PATH` | Writes this run's log into `PATH`, whatever kind of run it is. What the game prints goes into the log too; only `--status-stdout`'s lines stay on standard output. |
-| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
+| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
 | `--install-mod FILE` | The same as `--open FILE`. |
 | `--no-game-files-screen` | With no usable game folder, shows the notice with its look-again button instead of the Game files screen, where a system offers both ([game files](game-files.md)). |
 

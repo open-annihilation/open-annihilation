@@ -209,6 +209,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/brain-library)
 add_subdirectory(src/data/map-fit)
 add_subdirectory(src/data/pe-icon)
 add_subdirectory(src/formats/zip)
@@ -1132,6 +1133,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
   src/app/runtime_mutator_library.cpp
+  src/app/runtime_brain_library.cpp
   src/app/runtime_mutators.cpp
   src/app/runtime_brains.cpp
   src/app/runtime_mutators_check.cpp
@@ -1275,6 +1277,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-ui-game-files oa-app-package-install
   oa-app-map-packs
   oa-data-mutator-library
+  oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
   oa-app-brain-seats
@@ -3877,9 +3880,9 @@ if(BUILD_TESTING)
     # have the sizes the builds and the platforms want.
     add_test(NAME branding-icons COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_icons.py --check)
     set_tests_properties(branding-icons PROPERTIES TIMEOUT 60)
-    # The macOS and iOS bundles declare the game's six file types as its own and open each as
-    # its owner, with the icon each system takes; the Windows uninstaller withdraws all six and
-    # iOS brings in the five the game installs or adds (tools/check_bundle_file_types.py).
+    # The macOS and iOS bundles declare the game's seven file types as its own and open each as
+    # its owner, with the icon each system takes; the Windows uninstaller withdraws all seven and
+    # iOS brings in the six the game installs or adds (tools/check_bundle_file_types.py).
     add_test(NAME app-bundle-file-types COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_bundle_file_types.py
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/Info.plist.in ${CMAKE_CURRENT_SOURCE_DIR}/platforms/ios/Info.plist.in)
