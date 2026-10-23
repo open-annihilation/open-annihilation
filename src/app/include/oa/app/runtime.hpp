@@ -5188,6 +5188,8 @@ class Runtime final : public menu::Host,
     /// preferences'. The mod is the profile the match plays, or the base
     /// game's name when the game plays 3.1c, with this match's sides. The
     /// mutators are the running match's loadout in apply order, or none.
+    /// The map name is the selected map, and the map path is that map's
+    /// mission path, or empty when the match has no map context.
     /// The AI profile is the file `computer_profile_file` reads, and the
     /// report path is the map's profile slot, empty when that slot is null.
     /// `ai_profiles` is every readable profile under the AI directory, at

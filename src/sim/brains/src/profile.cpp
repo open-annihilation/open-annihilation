@@ -12,6 +12,7 @@
 #include "handles_internal.hpp"
 #include "lua_game.hpp"
 #include "orders.hpp"
+#include "sight.hpp"
 
 #include "oa/data/script_host/f32.hpp"
 #include "oa/data/script_host/fixed.hpp"
@@ -151,6 +152,8 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_shared_random(state, seat);
     install_definitions(state, seat);
     install_profile(state, seat);
+    install_map(state, seat);
+    install_sight(state, seat);
     install_orders(state, seat);
 }
 

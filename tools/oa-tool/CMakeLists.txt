@@ -25,6 +25,7 @@ target_include_directories(oa-tool-commands PRIVATE
   ${PROJECT_SOURCE_DIR}/src/ui/library/include
   ${PROJECT_SOURCE_DIR}/src/ui/map-browser/include
   ${PROJECT_SOURCE_DIR}/src/ui/mutator-picker/include
+  ${PROJECT_SOURCE_DIR}/src/ui/brain-picker/include
   ${PROJECT_SOURCE_DIR}/src/ui/touch-hud/include)
 target_include_directories(oa-tool-commands SYSTEM PRIVATE
   ${PROJECT_SOURCE_DIR}/third_party/monocypher)
