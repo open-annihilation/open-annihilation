@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One Lua state per package, with a profile, a memory cap, a fresh
-// instruction allowance and a fresh real-time limit for every phase. Scripts
-// see only the libraries this host opens, and every error comes back as a value.
+// instruction allowance and a fresh real-time limit for every phase. A
+// profile may also carry a bank for one call at a time. Scripts see only
+// the libraries this host opens, and every error comes back as a value.
 #pragma once
 
 #include <chrono>
@@ -83,6 +84,23 @@ inline constexpr uint64_t table_walk_charge = 64;
 /// another.
 inline constexpr std::chrono::milliseconds default_time_limit{10000};
 
+/// Instructions a bank adds for one tick.
+///
+/// A banked call spends from a balance that starts at `default_bank_ticks`
+/// times this allowance. The figure is a starting point, to be revised once
+/// a full computer-player script has been measured.
+inline constexpr uint64_t default_tick_allowance = 2'000'000;
+
+/// Most ticks of allowance a bank may hold, the current tick included.
+///
+/// The balance opens at this many ticks and a refill never passes it.
+inline constexpr uint32_t default_bank_ticks = 30;
+
+/// Real time one banked call may run before that call stops.
+///
+/// This is a backstop for a hang. It does not change the instruction balance.
+inline constexpr std::chrono::milliseconds default_call_time_limit{250};
+
 /// Most bytes in one string. A script that would make a longer one stops.
 inline constexpr std::size_t string_length_limit = std::size_t{64} << 10;
 
@@ -160,6 +178,21 @@ struct Budget {
     std::size_t memory_bytes{default_memory_budget};
 };
 
+/// A per-tick instruction balance a profile may carry.
+///
+/// `per_tick` 0 means the profile has no bank. `ticks` below 1 counts as 1.
+/// The limit is `per_tick` times `ticks`, saturating at `UINT64_MAX`. The
+/// bank opens full, so the first call may spend the whole limit. That limit
+/// counts the current tick.
+struct Bank {
+    /// Instructions added at each refill. Zero means the profile has no bank.
+    uint64_t per_tick{};
+    /// How many ticks of `per_tick` the bank may hold, the current tick included.
+    uint32_t ticks{default_bank_ticks};
+    /// Real time one banked call may run. The default is `default_call_time_limit`.
+    std::chrono::milliseconds call_time_limit{default_call_time_limit};
+};
+
 /// Reads one package file by its exact path. `read` is null when every file is missing.
 ///
 /// `read` returns false when the package has no file at that path. It matches
@@ -179,6 +212,8 @@ struct Profile {
     Budget budget{};
     void* context{};
     void (*install)(void* context, lua_State* state){};
+    /// Per-tick instruction bank. `per_tick` 0 means this profile has no bank.
+    Bank bank{};
 };
 
 /// Returns the profile a mutator runs under: default budgets and no extra globals.
@@ -274,6 +309,43 @@ class Sandbox {
     /// @param[out] error set when the call returns false
     /// @return false when this phase or an earlier one failed
     [[nodiscard]] bool call(std::string_view phase, const CallHooks& hooks, ScriptError& error);
+
+    /// Adds one tick's allowance to the bank, up to its limit.
+    ///
+    /// Does nothing when the profile has no bank or this sandbox was moved from.
+    /// The balance is a count. This call does not read a clock.
+    void refill_bank() noexcept;
+
+    /// Calls the function `hooks.push` pushes, under the bank's balance.
+    ///
+    /// The instruction allowance for this call is the balance, and the
+    /// real-time limit is the bank's. When the call returns, the instructions
+    /// it used are taken off the balance, and the profile's own allowance and
+    /// real-time limit are put back. A profile with no bank returns false,
+    /// runs nothing and leaves the sandbox usable. A balance of zero fails
+    /// the sandbox without running the call.
+    ///
+    /// @param phase name recorded on an error
+    /// @param hooks push and read for this call
+    /// @param[out] error set when the call returns false
+    /// @return false when this call or an earlier phase failed, or when the
+    ///     profile has no bank
+    [[nodiscard]] bool
+    call_banked(std::string_view phase, const CallHooks& hooks, ScriptError& error);
+
+    /// Returns the instructions the bank still holds.
+    ///
+    /// @return the balance, or 0 when the profile has no bank or this sandbox
+    ///     was moved from
+    [[nodiscard]] uint64_t bank_balance() const noexcept;
+
+    /// Returns the most instructions the bank may hold.
+    ///
+    /// The limit counts the current tick. The bank opens holding this many.
+    ///
+    /// @return the limit, or 0 when the profile has no bank or this sandbox
+    ///     was moved from
+    [[nodiscard]] uint64_t bank_limit() const noexcept;
 
     /// Returns the state a hook may use while a phase is running.
     ///
