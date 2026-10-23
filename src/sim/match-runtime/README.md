@@ -234,6 +234,16 @@ through:
   order, or the head order of a result that clears the queue. Orders removed
   with that head by the clear, orders a new command replaces, the secondary
   queue's orders and orders of a dying unit are not reported.
+- `unit_carried` at the end of `link_carried_unit`, after the link is in
+  place, whether this machine made the link or `apply_carry_link` took it
+  from another machine's record. The unit is reported unloaded from the
+  carrier it left, then loaded onto the carrier it joined. A link that only
+  changes the piece, and a link the carry checks refuse, are not reported.
+- `wreck_placed` from `spawn_corpse` when a death places a corpse feature,
+  after that unit's `unit_died` and while the dead unit's record still holds
+  its position. The feature is the placed feature's type and the plot is
+  its index into `World::plots`. A death that leaves no corpse is not
+  reported.
 
 The hooks receive the world as const and must not change match state, draw
 from its random streams or call back into it; the match computes nothing

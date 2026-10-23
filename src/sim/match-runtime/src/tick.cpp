@@ -470,6 +470,12 @@ void Match::link_carried_unit(uint16_t child, uint16_t parent, int8_t piece, uin
             static_cast<uint8_t>((movement->movement.flags & ~3u) | (mode & 3u));
     attachment_local_update(child, parent);
     finalize_attachment(child);
+    // The link is in place. Report the carrier left, then the one joined.
+    // A piece-only change keeps the same carrier and is not reported.
+    if (old != 0 && old != parent)
+        emit_event<&EventHooks::unit_carried>(state(), child, old, false);
+    if (parent != 0 && parent != old)
+        emit_event<&EventHooks::unit_carried>(state(), child, parent, true);
 }
 
 } // namespace oa::sim::match_runtime

@@ -570,6 +570,135 @@ void cargo_dies_through_scaled_damage() {
     std::cout << "cargo dies through scaled damage passed\n";
 }
 
+// A listener hears a unit loaded, unloaded, moved from one carrier to another,
+// and the same from a link another machine recorded. A refused link is silent.
+// A carrier's death unloads its cargo before that cargo's own death.
+void carry_links_are_reported() {
+    enum class Kind : uint8_t { carried, died };
+
+    struct Entry {
+        Kind kind{};
+        uint16_t unit{};
+        uint16_t carrier{};
+        bool loaded{};
+    };
+
+    struct Log {
+        std::vector<Entry> entries;
+    } log;
+
+    Fixture f;
+    auto& carrier = idle(f, 0, 64, 64);
+    auto& other = idle(f, 0, 128, 64);
+    auto& cargo = idle(f, 0, 80, 160);
+    auto& killer = idle(f, 1, 200, 200);
+    f.run(1);
+
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &log;
+    hooks.unit_carried =
+        [](void* context, const World&, uint16_t unit, uint16_t parent, bool loaded) {
+            static_cast<Log*>(context)->entries.push_back({Kind::carried, unit, parent, loaded});
+        };
+    hooks.unit_died =
+        [](
+            void* context, const World&, uint16_t unit, const sim::match_runtime::KillOutcome&, bool
+        ) { static_cast<Log*>(context)->entries.push_back({Kind::died, unit, 0, false}); };
+    CHECK(f.match->add_event_listener(hooks) != 0);
+
+    f.match->set_carry_link(cargo.unit_index, carrier.unit_index, -1, 1);
+    CHECK(log.entries.size() == 1);
+    CHECK(
+        log.entries[0].kind == Kind::carried && log.entries[0].unit == cargo.unit_index &&
+        log.entries[0].carrier == carrier.unit_index && log.entries[0].loaded
+    );
+
+    // The same carrier, another piece: the link is accepted and not reported.
+    log.entries.clear();
+    f.match->set_carry_link(cargo.unit_index, carrier.unit_index, 2, 0);
+    CHECK(log.entries.empty());
+    CHECK(cargo.record.attach_piece == 2);
+
+    log.entries.clear();
+    f.match->set_carry_link(cargo.unit_index, 0, -1, 1);
+    CHECK(log.entries.size() == 1);
+    CHECK(
+        log.entries[0].kind == Kind::carried && log.entries[0].unit == cargo.unit_index &&
+        log.entries[0].carrier == carrier.unit_index && !log.entries[0].loaded
+    );
+    CHECK(cargo.record.attach_parent == 0);
+
+    log.entries.clear();
+    f.match->set_carry_link(cargo.unit_index, carrier.unit_index, -1, 1);
+    f.match->set_carry_link(cargo.unit_index, other.unit_index, -1, 1);
+    CHECK(log.entries.size() == 3);
+    CHECK(
+        log.entries[0].loaded && log.entries[0].carrier == carrier.unit_index &&
+        log.entries[1].unit == cargo.unit_index && !log.entries[1].loaded &&
+        log.entries[1].carrier == carrier.unit_index && log.entries[2].loaded &&
+        log.entries[2].carrier == other.unit_index
+    );
+
+    // The direct transfer left the cargo on `other`, so the recorded unload
+    // names that carrier, then the same load and straight transfer follow.
+    log.entries.clear();
+    f.match->apply_carry_link(cargo.unit_index, 0, -1, 1);
+    f.match->apply_carry_link(cargo.unit_index, carrier.unit_index, -1, 1);
+    f.match->apply_carry_link(cargo.unit_index, other.unit_index, 1, 0);
+    CHECK(log.entries.size() == 4);
+    CHECK(
+        !log.entries[0].loaded && log.entries[0].carrier == other.unit_index &&
+        log.entries[1].loaded && log.entries[1].carrier == carrier.unit_index &&
+        !log.entries[2].loaded && log.entries[2].carrier == carrier.unit_index &&
+        log.entries[3].loaded && log.entries[3].carrier == other.unit_index
+    );
+    for (const auto& entry : log.entries)
+        CHECK(entry.kind == Kind::carried && entry.unit == cargo.unit_index);
+
+    // The carrier still holds cargo, so it cannot itself be carried, and a
+    // unit cannot carry itself. Both links are refused and report nothing.
+    log.entries.clear();
+    f.match->set_carry_link(other.unit_index, carrier.unit_index, -1, 1);
+    f.match->apply_carry_link(other.unit_index, carrier.unit_index, -1, 1);
+    f.match->set_carry_link(cargo.unit_index, cargo.unit_index, -1, 1);
+    f.match->apply_carry_link(cargo.unit_index, cargo.unit_index, -1, 1);
+    CHECK(log.entries.empty());
+    CHECK(sim::match_runtime::link_parent(cargo.record) == other.unit_index);
+    CHECK(sim::match_runtime::link_parent(other.record) == 0);
+
+    log.entries.clear();
+    kill(f, other, killer);
+    bool cargo_unloaded = false;
+    bool cargo_died = false;
+    for (const auto& entry : log.entries) {
+        if (entry.kind == Kind::carried && entry.unit == cargo.unit_index && !entry.loaded &&
+            entry.carrier == other.unit_index) {
+            CHECK(!cargo_died);
+            cargo_unloaded = true;
+        }
+        if (entry.kind == Kind::died && entry.unit == cargo.unit_index)
+            cargo_died = true;
+    }
+    CHECK(cargo_unloaded);
+    if (!cargo_died)
+        f.run(1);
+    cargo_died = false;
+    cargo_unloaded = false;
+    for (const auto& entry : log.entries) {
+        if (entry.kind == Kind::carried && entry.unit == cargo.unit_index && !entry.loaded &&
+            entry.carrier == other.unit_index) {
+            CHECK(!cargo_died);
+            cargo_unloaded = true;
+        }
+        if (entry.kind == Kind::died && entry.unit == cargo.unit_index) {
+            CHECK(cargo_unloaded);
+            cargo_died = true;
+        }
+    }
+    CHECK(cargo_unloaded && cargo_died);
+    std::cout << "carry links are reported passed\n";
+}
+
 // A capture kills the unit it copies for the capturer through the damage path with
 // 30000 of kind 4 from no source; so does a capture by a mirrored player's
 // unit, which leaves no copy here.
@@ -815,6 +944,93 @@ void dismissed_corpse_does_not_smoke() {
     std::cout << "dismissed corpse does not smoke passed\n";
 }
 
+// On the dismissed-corpse fixture, wreck level 1 reports the corpse after the
+// death, while the unit's position is still on its record. Level 0, and a
+// level whose dead feature leads nowhere, report no wreck.
+void wrecks_are_reported() {
+    struct Wreck {
+        uint16_t unit{};
+        uint16_t feature{};
+        uint32_t plot{};
+        bool position_held{};
+        bool after_death{};
+    };
+
+    struct Log {
+        std::vector<uint16_t> deaths;
+        std::vector<Wreck> wrecks;
+        FixedVec3 position{};
+    } log;
+
+    FeatureDef corpse{};
+    corpse.footprint_x = corpse.footprint_z = 1;
+    corpse.dead_feature = 0xffff;
+    const auto smoke_art = BlastArt::frames(4);
+    Fixture f(
+        {.high_ground_from = 0,
+         .effect_sequence = [&smoke_art](
+                                std::string_view, std::string_view entry
+                            ) { return entry == "smoke 1" ? &smoke_art : nullptr; },
+         .features = {corpse}}
+    );
+    auto& wrecked = idle(f, 0, 64, 64);
+    auto& bare = idle(f, 0, 160, 96);
+    auto& barren = idle(f, 0, 96, 160);
+    f.run(1);
+
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &log;
+    hooks.unit_died = [](void* context,
+                         const World&,
+                         uint16_t unit,
+                         const sim::match_runtime::KillOutcome&,
+                         bool) { static_cast<Log*>(context)->deaths.push_back(unit); };
+    hooks.wreck_placed =
+        [](void* context, const World& world, uint16_t unit, uint16_t feature, uint32_t plot) {
+            auto* recorded = static_cast<Log*>(context);
+            bool after_death = false;
+            for (const auto dead : recorded->deaths)
+                if (dead == unit)
+                    after_death = true;
+            recorded->wrecks.push_back(
+                {unit,
+                 feature,
+                 plot,
+                 same_point(world.units[unit].position, recorded->position),
+                 after_death}
+            );
+        };
+    CHECK(f.match->add_event_listener(hooks) != 0);
+
+    auto& world = f.match->state();
+    oa::world_unit_def_of(&world, &wrecked.record)->corpse = 0;
+    oa::world_unit_def_of(&world, &bare.record)->corpse = 0;
+    oa::world_unit_def_of(&world, &barren.record)->corpse = 0;
+    const auto* plot = oa::world_plot(&world, wrecked.record.cell_x, wrecked.record.cell_z);
+    CHECK(plot != nullptr);
+    const auto plot_index = static_cast<uint32_t>(plot - world.plots);
+
+    log.position = wrecked.record.position;
+    f.match->teardown_dead_unit(wrecked, {sim::match_runtime::DeathKind::weapon, 0, 1});
+    CHECK(log.deaths.size() == 1 && log.deaths[0] == wrecked.unit_index);
+    CHECK(log.wrecks.size() == 1);
+    CHECK(
+        log.wrecks[0].unit == wrecked.unit_index && log.wrecks[0].feature == 0 &&
+        log.wrecks[0].plot == plot_index && log.wrecks[0].position_held && log.wrecks[0].after_death
+    );
+
+    log.position = bare.record.position;
+    f.match->teardown_dead_unit(bare, {sim::match_runtime::DeathKind::weapon, 0, 0});
+    CHECK(log.deaths.size() == 2 && log.deaths[1] == bare.unit_index);
+    CHECK(log.wrecks.size() == 1);
+
+    log.position = barren.record.position;
+    f.match->teardown_dead_unit(barren, {sim::match_runtime::DeathKind::weapon, 0, 2});
+    CHECK(log.deaths.size() == 3 && log.deaths[2] == barren.unit_index);
+    CHECK(log.wrecks.size() == 1);
+    std::cout << "wrecks are reported passed\n";
+}
+
 // The SelfDestruct order damages the unit from itself.
 void self_destruct_order_is_its_own_source() {
     Fixture f;
@@ -983,10 +1199,12 @@ int main() {
         point_sounds_are_placed_by_the_view();
         weapon_start_sounds_at_the_muzzle();
         cargo_dies_through_scaled_damage();
+        carry_links_are_reported();
         capture_kills_through_scaled_damage();
         hand_overs_are_reported();
         hotkey_self_destruct_is_scaled();
         dismissed_corpse_does_not_smoke();
+        wrecks_are_reported();
         unit_type_killed_counts_every_death();
         unit_type_killed_counts_tick_deaths();
         spawn_in_dead_slot_advances_instance_generation();

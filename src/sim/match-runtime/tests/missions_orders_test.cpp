@@ -1141,7 +1141,22 @@ void idle_and_ended_orders_are_reported() {
 }
 
 void built_factory_produces() {
+    struct Carry {
+        uint16_t unit{};
+        uint16_t carrier{};
+        bool loaded{};
+    };
+
+    std::vector<Carry> carries;
     Fixture f;
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &carries;
+    hooks.unit_carried =
+        [](void* context, const oa::World&, uint16_t unit, uint16_t carrier, bool loaded) {
+            static_cast<std::vector<Carry>*>(context)->push_back({unit, carrier, loaded});
+        };
+    CHECK(f.match->add_event_listener(hooks) != 0);
+
     auto& builder = f.spawn(0, builder_type, 100, 100);
     std::array<uint8_t, 10> allies{};
     allies[0] = 1;
@@ -1178,6 +1193,16 @@ void built_factory_produces() {
         const auto* tank = find(tank_type);
         return tank && tank->record.build_remaining == 0.0F && !f.head(factory.unit_index);
     }));
+    const auto* tank = find(tank_type);
+    CHECK(tank != nullptr);
+    std::vector<Carry> pad;
+    for (const auto& carry : carries)
+        if (carry.unit == tank->unit_index)
+            pad.push_back(carry);
+    CHECK(pad.size() == 2);
+    CHECK(pad[0].loaded && pad[0].carrier == factory.unit_index);
+    CHECK(!pad[1].loaded && pad[1].carrier == factory.unit_index);
+    std::cout << "built factory produces passed\n";
 }
 
 // The factory's frame names the builder that placed it, and the tank names
