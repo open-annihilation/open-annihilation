@@ -2,16 +2,160 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "fixture.hpp"
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
+#include <string>
+#include <vector>
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
         if (!(x))                                                                                  \
             throw std::runtime_error(#x);                                                          \
     } while (false)
+
+/// An order the scheduler removes because its handler ended it is reported
+/// before it is destroyed, and a result that keeps the order is not.
+void ended_orders_are_reported() {
+    constexpr uint8_t retry_flag = 0x80; // the order will be tried again
+    TestWorld tables(2, 2);
+    auto& world = *tables;
+    Fixture listening;
+    Fixture quiet;
+    auto& unit = tables.units[1];
+    unit.def = oa::oa_ref_from_index(1);
+    auto& player = tables.player(0);
+    player.in_use = 1;
+    player.status = 1;
+    unit.owner = oa::world_player_ref_of(&world, &player);
+    auto& queue = tables.orders[1];
+    world.game.tick = 100;
+    listening.order_ends.context = &listening;
+    listening.order_ends.ended = [](void* context, const Unit&, const Order& ended, bool done) {
+        static_cast<Fixture*>(context)->calls.push_back(
+            "ended:" + std::to_string(ended.kind) + ":" + (done ? "1" : "0")
+        );
+    };
+
+    struct Outcome {
+        StepFault fault{};
+        bool empty{};
+        uint8_t head_kind{};
+        bool waiting{};
+        bool retry{};
+        std::vector<std::string> calls;
+    };
+
+    // A budget of eight steps is enough for one removal and the order that
+    // follows it. A result that keeps its order spends the budget.
+    const auto drive = [&](Fixture& host, uint32_t result, int count, uint8_t kind) {
+        Order orders[3]{};
+        for (int index = 0; index < count; ++index)
+            orders[index].kind = static_cast<uint8_t>(kind + index);
+        queue.primary = &orders[0];
+        for (int index = 1; index < count; ++index)
+            orders[index - 1].next = &orders[index];
+        host.calls.clear();
+        host.random_value = 4;
+        host.handler = [result](Unit&, Order&) { return result; };
+        const auto fault = primary_orders(world, queue, unit, host, 8);
+        const Outcome outcome{
+            fault,
+            queue.primary == nullptr,
+            queue.primary != nullptr ? queue.primary->kind : uint8_t{0},
+            queue.primary != nullptr && queue.primary->wait_events != 0,
+            queue.primary != nullptr && (queue.primary->flags & retry_flag) != 0,
+            host.calls
+        };
+        queue.primary = nullptr;
+        host.handler = {};
+        return outcome;
+    };
+    const auto ended_lines = [](const std::vector<std::string>& calls) {
+        std::vector<std::string> lines;
+        for (const auto& call : calls)
+            if (call.starts_with("ended:"))
+                lines.push_back(call);
+        return lines;
+    };
+    const auto without_ended = [](const std::vector<std::string>& calls) {
+        std::vector<std::string> lines;
+        for (const auto& call : calls)
+            if (!call.starts_with("ended:"))
+                lines.push_back(call);
+        return lines;
+    };
+    const auto same_queue = [](const Outcome& left, const Outcome& right) {
+        return left.fault == right.fault && left.empty == right.empty &&
+               left.head_kind == right.head_kind && left.waiting == right.waiting &&
+               left.retry == right.retry;
+    };
+    const auto ended_before_destroy = [](const std::vector<std::string>& calls, const char* line) {
+        const auto ended_at = std::find(calls.begin(), calls.end(), line);
+        const auto destroy_at = std::find(calls.begin(), calls.end(), "destroy");
+        return ended_at != calls.end() && destroy_at != calls.end() && ended_at < destroy_at;
+    };
+
+    constexpr uint8_t kind = 11;
+    for (const uint32_t result : {0u, 1u, 2u, 3u, 4u, 6u}) {
+        const auto heard = drive(listening, result, 1, kind);
+        const auto silent = drive(quiet, result, 1, kind);
+        CHECK(ended_lines(heard.calls).empty());
+        CHECK(!heard.empty);
+        CHECK(same_queue(heard, silent));
+        CHECK(without_ended(heard.calls) == silent.calls);
+    }
+    {
+        const auto heard = drive(listening, 5, 1, kind);
+        const auto silent = drive(quiet, 5, 1, kind);
+        CHECK(heard.empty);
+        CHECK((heard.calls == std::vector<std::string>{"dispatch", "ended:11:1", "destroy"}));
+        CHECK(ended_before_destroy(heard.calls, "ended:11:1"));
+        CHECK(same_queue(heard, silent));
+        CHECK(without_ended(heard.calls) == silent.calls);
+    }
+    {
+        const auto heard = drive(listening, 8, 1, kind);
+        const auto silent = drive(quiet, 8, 1, kind);
+        CHECK(heard.empty);
+        CHECK((heard.calls == std::vector<std::string>{"dispatch", "ended:11:0", "destroy"}));
+        CHECK(ended_before_destroy(heard.calls, "ended:11:0"));
+        CHECK(same_queue(heard, silent));
+        CHECK(without_ended(heard.calls) == silent.calls);
+    }
+    {
+        const auto heard = drive(listening, 9, 2, kind);
+        const auto silent = drive(quiet, 9, 2, kind);
+        CHECK(!heard.empty && heard.head_kind == static_cast<uint8_t>(kind + 1) && heard.waiting);
+        CHECK((ended_lines(heard.calls) == std::vector<std::string>{"ended:11:0"}));
+        CHECK(ended_before_destroy(heard.calls, "ended:11:0"));
+        CHECK(same_queue(heard, silent));
+        CHECK(without_ended(heard.calls) == silent.calls);
+    }
+    {
+        const auto heard = drive(listening, 9, 1, kind);
+        const auto silent = drive(quiet, 9, 1, kind);
+        CHECK(ended_lines(heard.calls).empty());
+        CHECK(!heard.empty && heard.waiting && heard.retry && heard.head_kind == kind);
+        CHECK(same_queue(heard, silent));
+        CHECK(without_ended(heard.calls) == silent.calls);
+    }
+    {
+        const auto heard = drive(listening, 7, 3, kind);
+        const auto silent = drive(quiet, 7, 3, kind);
+        CHECK(heard.empty);
+        CHECK(
+            (heard.calls ==
+             std::vector<std::string>{"dispatch", "ended:11:0", "destroy", "destroy", "destroy"})
+        );
+        CHECK(ended_before_destroy(heard.calls, "ended:11:0"));
+        CHECK(std::count(heard.calls.begin(), heard.calls.end(), "ended:11:0") == 1);
+        CHECK(same_queue(heard, silent));
+        CHECK(without_ended(heard.calls) == silent.calls);
+    }
+}
 
 int main() {
     Player inactive{};
@@ -452,5 +596,6 @@ int main() {
                 pass.units[slot].health_percent == 50
             );
     }
+    ended_orders_are_reported();
     std::cout << "simulation state tests passed\n";
 }

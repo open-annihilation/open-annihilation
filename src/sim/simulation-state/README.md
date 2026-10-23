@@ -21,6 +21,14 @@ weapon work succeeded is supplied. `Host::dispatch_mission` runs the mission
 handler of an order's kind; implementing the individual handlers is the next
 main integration step.
 
+`Host::order_ends` reports an order the primary scheduler is about to remove
+because its handler ended it. `primary_orders` calls it before the removal,
+with done true for result 5, and false for result 8, for a 9 that gives way
+to the next order, and for the head order of a result that clears the queue.
+A null report does nothing, and the report must not change the unit, the
+order or the queue. A result that keeps, waits or rotates an order is not
+reported, and a 9 that waits because nothing follows it is not reported.
+
 Build independently:
 
 ```

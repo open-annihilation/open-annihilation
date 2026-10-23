@@ -222,6 +222,18 @@ through:
 - `unit_died` as `teardown_dead_unit` starts on a live unit, before its
   type, owner and position are cleared: each death once, settled here or
   elsewhere.
+- `unit_idle` when a finished unit simulated here runs out of orders and is
+  given its default mission (`TickHost::queue_default_mission`). A unit
+  without a movement object, and a default mission the match does not run,
+  are not reported, so a building is never idle. A frame waiting for its
+  builder is not idle. The report fires once each time the unit runs out of
+  orders, not on every tick it stands by.
+- `order_ended` just before the scheduler removes an order its handler
+  ended, with the order's mission kind and whether it was done or failed.
+  Done is a handler result of 5; failed is 8, a 9 that gives way to the next
+  order, or the head order of a result that clears the queue. Orders removed
+  with that head by the clear, orders a new command replaces, the secondary
+  queue's orders and orders of a dying unit are not reported.
 
 The hooks receive the world as const and must not change match state, draw
 from its random streams or call back into it; the match computes nothing

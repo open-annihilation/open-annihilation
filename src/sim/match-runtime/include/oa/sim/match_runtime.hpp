@@ -3920,6 +3920,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param builder Slot of the unit whose work finished it; `unit` for a
     ///     building created finished.
     void report_finished(uint16_t unit, uint16_t builder);
+    /// Reports an order its handler ended, just before the scheduler removes
+    /// it, to event_hooks.order_ended.
+    ///
+    /// @param match the match, as OrderEnds::context
+    /// @param unit unit carrying the order
+    /// @param order order about to be removed
+    /// @param done true when the handler finished the order, false when it failed
+    static void report_order_end(
+        void* match, const oa::Unit& unit, const sim::simulation_state::Order& order, bool done
+    );
     /// Tests set_carry_link's checks: the child is a live unit, not a
     /// building, carrying nothing; a parent is another live unit, not
     /// carried itself.

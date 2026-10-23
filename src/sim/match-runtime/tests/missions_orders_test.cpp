@@ -1020,6 +1020,126 @@ void queued_order_cancels_its_match() {
     CHECK(f.match->cancel_queued_order(id, qmove_kind, 0, &other_edge, true) && kinds().empty());
 }
 
+// A short move ends once, then a tank whose type stands by is reported idle
+// once. A tank with no default mission, a nanoframe waiting for its builder
+// and a finished factory are never reported idle.
+void idle_and_ended_orders_are_reported() {
+    struct Report {
+        bool idle{};
+        uint16_t unit{};
+        uint8_t kind{};
+        bool done{};
+    };
+
+    Fixture f;
+    std::vector<Report> reports;
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &reports;
+    hooks.order_ended =
+        [](void* context, const oa::World&, uint16_t unit, uint8_t kind, bool done) {
+            static_cast<std::vector<Report>*>(context)->push_back({false, unit, kind, done});
+        };
+    hooks.unit_idle = [](void* context, const oa::World&, uint16_t unit) {
+        static_cast<std::vector<Report>*>(context)->push_back({true, unit, 0, false});
+    };
+    CHECK(f.match->add_event_listener(hooks) != 0);
+
+    std::array<uint8_t, 10> allies{};
+    allies[0] = 1;
+    f.match->configure_outcomes(0, allies, true);
+    uint32_t clock = f.tick();
+    const auto advance = [&] {
+        f.match->simulation().tick = clock++;
+        f.match->tick();
+    };
+    const auto count_of = [&](uint16_t unit, bool idle) {
+        int count = 0;
+        for (const auto& report : reports)
+            if (report.unit == unit && report.idle == idle)
+                ++count;
+        return count;
+    };
+
+    f.match->state().unit_defs[tank_type].default_mission_type = sim::ground_orders::standby_kind;
+    auto& mover = f.spawn(0, tank_type, 100, 100);
+    const auto move_kind =
+        f.match->issue_ground_move(mover.unit_index, point(108, 100), false).kind;
+    bool arrived = false;
+    for (uint32_t passed = 0; passed < 1200 && !arrived; ++passed) {
+        advance();
+        arrived = count_of(mover.unit_index, false) == 1 && count_of(mover.unit_index, true) == 1;
+    }
+    CHECK(arrived);
+    CHECK(count_of(mover.unit_index, false) == 1);
+    CHECK(count_of(mover.unit_index, true) == 1);
+    int mover_reports = 0;
+    bool ended_first = false;
+    for (const auto& report : reports) {
+        if (report.unit != mover.unit_index)
+            continue;
+        if (mover_reports == 0) {
+            CHECK(!report.idle && report.kind == move_kind && report.done);
+            ended_first = true;
+        } else {
+            CHECK(report.idle);
+        }
+        ++mover_reports;
+    }
+    CHECK(ended_first && mover_reports == 2);
+    CHECK(
+        f.head(mover.unit_index) &&
+        f.head(mover.unit_index)->kind == sim::ground_orders::standby_kind
+    );
+    const auto after_arrival = reports.size();
+    for (uint32_t passed = 0; passed < 60; ++passed)
+        advance();
+    CHECK(reports.size() == after_arrival);
+
+    // An unfinished tank waiting on GetBuilt, and one with an empty queue,
+    // are not idle. The factory has no movement object, so its default
+    // mission is never queued.
+    auto& waiting = f.spawn(0, tank_type, 40, 40, false);
+    CHECK(waiting.record.build_remaining != 0.0F);
+    (void)f.order(waiting.unit_index, get_built_kind);
+    auto& bare = f.spawn(0, tank_type, 48, 48, false);
+    CHECK(bare.record.build_remaining != 0.0F);
+    f.match->state().unit_defs[factory_type].default_mission_type =
+        sim::ground_orders::standby_kind;
+    auto& factory = f.spawn(0, factory_type, 200, 200);
+    CHECK(!f.match->ground_runtime(factory.unit_index));
+    for (uint32_t passed = 0; passed < 60; ++passed)
+        advance();
+    CHECK(count_of(waiting.unit_index, true) == 0);
+    CHECK(count_of(bare.unit_index, true) == 0);
+    CHECK(count_of(factory.unit_index, true) == 0);
+    CHECK(reports.size() == after_arrival);
+    CHECK(f.head(waiting.unit_index) && f.head(waiting.unit_index)->kind == get_built_kind);
+
+    f.match->state().unit_defs[tank_type].default_mission_type = 0;
+    auto& plain = f.spawn(0, tank_type, 80, 80);
+    const auto plain_kind = f.match->issue_ground_move(plain.unit_index, point(88, 80), false).kind;
+    bool plain_arrived = false;
+    for (uint32_t passed = 0; passed < 1200 && !plain_arrived; ++passed) {
+        advance();
+        plain_arrived = count_of(plain.unit_index, false) == 1;
+    }
+    CHECK(plain_arrived);
+    CHECK(count_of(plain.unit_index, false) == 1);
+    CHECK(count_of(plain.unit_index, true) == 0);
+    for (const auto& report : reports)
+        if (report.unit == plain.unit_index)
+            CHECK(!report.idle && report.kind == plain_kind && report.done);
+    const auto after_plain = reports.size();
+    for (uint32_t passed = 0; passed < 60; ++passed)
+        advance();
+    CHECK(reports.size() == after_plain);
+    CHECK(count_of(plain.unit_index, true) == 0);
+    CHECK(count_of(waiting.unit_index, true) == 0);
+    CHECK(count_of(bare.unit_index, true) == 0);
+    CHECK(count_of(factory.unit_index, true) == 0);
+    std::cout << "idle and ended orders are reported passed\n";
+}
+
 void built_factory_produces() {
     Fixture f;
     auto& builder = f.spawn(0, builder_type, 100, 100);
@@ -1613,6 +1733,7 @@ int main() {
         factory_queue_counts();
         queued_order_cancels_its_match();
         built_factory_produces();
+        idle_and_ended_orders_are_reported();
         new_units_name_their_builder();
         factory_move_hands_off();
         repair_orders();
