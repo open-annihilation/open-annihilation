@@ -66,6 +66,14 @@ sim::unit_spawn::Slot& place(Fixture& f, uint8_t player, uint32_t x, uint32_t z)
     auto& slot = f.spawn(player, x, z);
     slot.record.flags &= ~OA_UNIT_FLAG_FIRE_ORDER_MASK;
     slot.record.state_flags &= static_cast<uint8_t>(~OA_UNIT_STATE_ACTIVE);
+    // Spawn leaves the unit at height 32: this model has no ground plate, so
+    // the ground fit does not lower it. The sight stamp shifts a row every 64
+    // units of height; the sight query subtracts half the height before the
+    // 32-unit cell. Height 32 is half a cell, so on a multiple of 32 (the row
+    // the spotter shares with the unit it should see) the query reads the
+    // next cell and the one-cell mask misses it. One unit up stays above the
+    // sea and names the cell the stamp already covers.
+    slot.record.position.y = static_cast<int32_t>(1u << 16);
     return slot;
 }
 
