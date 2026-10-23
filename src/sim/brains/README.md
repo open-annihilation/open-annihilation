@@ -24,14 +24,14 @@ brain plays as the built-in computer player.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
   tables. `game` is then filled from the seat's facts, and unit handles,
-  the read-only `me` surface, and the definition collections are installed,
-  then `brain.say`, `brain.random`, `brain.after`, `brain.every` and
-  `brain.cancel`. `brain.shared_random` is installed only when the seat is
-  Classic and it has a match. It has to work when the seat has no match:
-  `game.in_match` is false, `me` still carries the player, level,
-  difficulty and options copied from the spec, `units`, `weapons` and
-  `features` exist and are empty, and `brain.say` answers that chat is
-  not connected.
+  the read-only `me` surface, the definition collections and the AI profile
+  fields are installed, then `brain.say`, `brain.random`, `brain.after`,
+  `brain.every` and `brain.cancel`. `brain.shared_random` is installed only
+  when the seat is Classic and it has a match. It has to work when the seat
+  has no match: `game.in_match` is false, `me` still carries the player,
+  level, difficulty and options copied from the spec, `units`, `weapons` and
+  `features` exist and are empty, and `brain.say` answers that chat is not
+  connected.
 
 ## State
 
@@ -404,3 +404,75 @@ lookup is nil.
 computer-build fixture and also runs that brain with no match.
 `sim-brains-defs-data` compares every installed unit's kept fields with the
 value the match loaded.
+
+## AI profile data
+
+`game.ai_profile` is the profile the match's computer players read. It has
+`path`, `name` (the file name without its folder or a trailing `.txt`, as
+written), `text`, `too_large`, `lines` and `report_path`. `text` is nil and
+`too_large` is true when the text passes the host's string limit, 64 KiB;
+the lines are still parsed. `report_path` is the map's profile slot, nil
+when that slot is empty, and it can differ from `path`. An empty path makes
+`game.ai_profile` nil.
+
+`game.ai_profiles()` returns every profile in the facts, in the listed
+order. `game.parse_profile(text)` parses any text, such as a type's
+`ai_weight`, and leaves `path` and `name` unset. Each call builds a new
+read-only table. Assigning a field raises `a profile is read-only`. The
+charge is the text's bytes plus one unit per word.
+
+`lines` is one table per line `computer_profile_lines` reports. A line has
+`number`, `words`, `command` (the first word in lower case) and, by command:
+
+- `plan`: `any`, `easy`, `medium`, `hard`. `any` is true only when at least
+  one word follows `plan` and the first of them is `any`. Each keyword is
+  true when some word after `plan` equals it. ASCII case is ignored.
+- `weight`: `name` (the second word, or `""`), `factor` (an `f32`,
+  `static_cast<float>(std::strtod)` of the third word, or 0 when it is
+  missing) and `unit`.
+- `limit`: `name`, `count` (`static_cast<int32_t>(std::strtol)` base 10 of
+  the third word; `-1` stays `-1`) and `unit`.
+
+`unit` is true when `name` equals some type's unit name, ignoring ASCII
+case. An empty name is not a unit. Outside a match `unit` is nil.
+
+The grammar is the built-in player's. A line ends at `\n`, and a file with
+no final newline still has that last line. Words are separated by space,
+tab, `\r`, `\n`, `\v` or `\f`. `#` ends the line, even inside a word. A
+line keeps at most 20 words, and those words share 126 bytes, so a long
+word is cut. Anything that is not `plan`, `weight` or `limit`, including
+`//`, is still a line.
+
+`profile:select(keyword)` is one pass for `"easy"`, `"medium"` or `"hard"`.
+Any other keyword raises `select expects easy, medium or hard`. The plan
+flag starts matched, so lines before the first plan apply. A plan line
+sets the flag from that line's `any` or its keyword, and the flag is not
+kept after the call. The result is `{weights = {…}, limits = {…}}`, the
+line tables that apply. The built-in player keeps the flag from one pass
+to the next and applies a downloadable type's own lines twice. This pass
+does neither.
+
+In a match, `game.build_list(type)` is a new sequence of `units` records.
+`type` is a unit record, a unit name or a type index, resolved by
+`resolve_unit_type`. The list is computed from the runs
+`match_computer_players` holds, by the built-in player's rules: from type
+0, a count then that many ids; a type gets a list only when it is not 0
+and it is a builder; an id that is 0 or not below the type count is
+skipped; at most `build_list_kept(Match::limits().build_lists) + 1` ids
+are kept. A non-builder, or a type the runs do not reach, is an empty
+sequence. `game.build_list_cap` is that limit. `game.downloadables_allowed`
+is false when the computer players were configured for a campaign.
+
+`brain.strengths(type)` returns the seat's three strategic bytes, each read
+as `int8_t`: build priority, metal, energy. The charge is 2. It returns
+nil when the seat's table does not reach the type. The table is empty
+until the match prepares its computer players, which is before the brain's
+first `onTick`, and it is replaced when the match refreshes that player.
+
+Outside a match the profile fields still work and `unit` is nil.
+`build_list`, `build_list_cap`, `downloadables_allowed` and
+`brain.strengths` are nil.
+
+`sim-brains-profile` seats the made-up brain `profile-reader` on the
+computer-build fixture. `sim-brains-profile-data` parses every installed
+`ai/*.txt` profile.

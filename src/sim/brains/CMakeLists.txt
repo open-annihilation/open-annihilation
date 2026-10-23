@@ -31,7 +31,7 @@ add_custom_command(
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
   src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp src/classic.cpp
   src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
-  src/failure.cpp "${oa_classic_fingerprint_header}")
+  src/failure.cpp src/lua_profile.cpp "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
@@ -120,4 +120,17 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options)
   add_test(NAME sim-brains-failure COMMAND oa-sim-brains-failure-test)
   set_tests_properties(sim-brains-failure PROPERTIES TIMEOUT 120)
+
+  # AI profile lines, build lists and strategic strengths. The made-up brain
+  # is profile-reader. --data checks every installed ai/*.txt profile.
+  add_executable(oa-sim-brains-profile-test tests/profile_test.cpp)
+  target_include_directories(oa-sim-brains-profile-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-profile-test PRIVATE
+    "OA_PROFILE_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/profile-reader\"")
+  target_link_libraries(oa-sim-brains-profile-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-data-defs oa-formats-hpi oa-test-game-data)
+  add_test(NAME sim-brains-profile COMMAND oa-sim-brains-profile-test)
+  set_tests_properties(sim-brains-profile PROPERTIES TIMEOUT 120)
+  oa_add_game_data_test(sim-brains-profile-data oa-sim-brains-profile-test --data)
 endif()

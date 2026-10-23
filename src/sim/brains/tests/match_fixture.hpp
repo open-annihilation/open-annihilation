@@ -4,6 +4,7 @@
 // The computer-build fixture, copied for a brain seated on its computer player.
 #pragma once
 
+#include "oa/data/limits.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
 
@@ -99,12 +100,14 @@ struct Fixture {
     ///     match the seat, game and side tests build.
     /// @param random_seed the match seed. The shared stream starts from it,
     ///     and a seated brain mixes it into its own stream.
+    /// @param limits the match's capacity limits. The default is 3.1c's.
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
         const data::match_rules::MatchRules& rules = {},
         uint32_t movement_class = 0,
-        uint32_t random_seed = 1
+        uint32_t random_seed = 1,
+        const data::limits::Limits& limits = {}
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -209,6 +212,7 @@ struct Fixture {
             0.0F, {}
         };
         input.rules = rules;
+        input.limits = limits;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
         match->set_difficulty(OA_DIFFICULTY_MEDIUM);
         for (uint8_t p = 0; p < 2; ++p) {
