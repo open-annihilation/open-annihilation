@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One banked call at the seat's controller point. It delivers the queued
-// events, then alliance and defeat changes, then onTick.
+// events, then radar contacts, then alliance and defeat changes, then onTick.
 
 #include "internal.hpp"
+#include "sight.hpp"
 
 #include "oa/sim/brains/handles.hpp"
+#include "oa/sim/detection.hpp"
 #include "oa/sim/match_runtime.hpp"
 
 #include "oa/core/feature_def.h"
@@ -19,6 +21,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <span>
+#include <utility>
 
 namespace oa::sim::brains {
 namespace {
@@ -366,6 +370,42 @@ void report_diplomacy(lua_State* state, Seat& seat, int hooks, bool table) {
     }
 }
 
+void deliver_radar(lua_State* state, Seat& seat, int hooks, bool table) {
+    if (seat.match == nullptr)
+        return;
+    const uint32_t tick = seat.match->player_contacts_tick(seat.player);
+    if (seat.contacts_compared && tick == seat.delivered_contacts_tick)
+        return;
+    const uint32_t count = collect_enemy_contacts(state, seat);
+    const std::span<const ContactEntry> before{
+        seat.delivered_contacts.get(), static_cast<std::size_t>(seat.delivered_contact_count)
+    };
+    const std::span<const ContactEntry> after{
+        seat.contact_work.get(), static_cast<std::size_t>(count)
+    };
+    sim::detection::diff_sighted(
+        before,
+        after,
+        [&](const ContactEntry& lost) {
+            if (!table || !start_hook(state, hooks, "onRadarLost"))
+                return;
+            push_contact(state, seat, lost);
+            lua_call(state, 1, 0);
+        },
+        [&](const ContactEntry& gained) {
+            if (!table || !start_hook(state, hooks, "onRadarContact"))
+                return;
+            push_contact(state, seat, gained);
+            lua_call(state, 1, 0);
+        }
+    );
+    std::swap(seat.delivered_contacts, seat.contact_work);
+    seat.delivered_contact_count = count;
+    seat.delivered_contacts_tick = tick;
+    seat.contacts_compared = true;
+    remember_contacts(state, seat);
+}
+
 void call_tick(lua_State* state, Seat& seat, int hooks) {
     if (!start_hook(state, hooks, "onTick"))
         return;
@@ -385,6 +425,7 @@ static int deliver_hooks(lua_State* state) {
     const int hooks = lua_gettop(state);
     const bool table = lua_istable(state, hooks) != 0;
     walk_events(state, *seat, hooks, table, seen_bits);
+    deliver_radar(state, *seat, hooks, table);
     report_diplomacy(state, *seat, hooks, table);
     if (table)
         call_tick(state, *seat, hooks);

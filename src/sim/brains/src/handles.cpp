@@ -1,14 +1,16 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Unit handles and the fields a seat may read on its own units. Another
-// player's unit stops at id and slot until a later ticket replaces
-// seat_may_see.
+// Unit handles and the fields a seat may read. A seen field of another
+// player's unit reads when the seat can see that unit, or when the seat
+// has full awareness. health and health_percent stay hidden when the type
+// hides damage, unless the seat owns the unit or has full awareness.
 
 #include "handles_internal.hpp"
 
 #include "internal.hpp"
 
+#include "oa/core/unit_def.h"
 #include "oa/core/world.h"
 #include "oa/data/mission_types.hpp"
 #include "oa/data/script_host/f32.hpp"
@@ -93,6 +95,19 @@ const oa::UnitDef* arg_def(lua_State* lua, const oa::Unit* unit) {
     if (seat == nullptr || seat->match == nullptr || unit == nullptr)
         return nullptr;
     return oa::world_unit_def_of(&seat->match->state(), unit);
+}
+
+bool damage_hidden(lua_State* lua, const oa::Unit* unit) {
+    const Seat* seat = seat_of(lua);
+    if (seat != nullptr && seat->full_awareness)
+        return false;
+    UnitRef ref{};
+    if (seat != nullptr && to_unit(lua, 1, &ref) && seat_owns(*seat, ref))
+        return false;
+    const oa::UnitDef* def = arg_def(lua, unit);
+    if (def == nullptr)
+        return false;
+    return (def->flags & OA_UNIT_DEF_FLAG_HIDE_DAMAGE) != 0;
 }
 
 void push_nil(lua_State* lua) {
@@ -382,7 +397,7 @@ int getter_heading(lua_State* lua) {
 
 int getter_health(lua_State* lua) {
     const oa::Unit* unit = arg_unit(lua);
-    if (unit == nullptr) {
+    if (unit == nullptr || damage_hidden(lua, unit)) {
         push_nil(lua);
         return 1;
     }
@@ -392,7 +407,7 @@ int getter_health(lua_State* lua) {
 
 int getter_health_percent(lua_State* lua) {
     const oa::Unit* unit = arg_unit(lua);
-    if (unit == nullptr) {
+    if (unit == nullptr || damage_hidden(lua, unit)) {
         push_nil(lua);
         return 1;
     }

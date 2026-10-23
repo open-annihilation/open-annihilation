@@ -97,11 +97,14 @@ struct Fixture {
     ///     Non-zero raises the map onto dry land and gives the buildings a
     ///     blocking yard, so a ground move can be searched. Zero leaves the
     ///     match the seat, game and side tests build.
+    /// @param visibility the match's visibility flags. 2 is line of sight
+    ///     without mapping, which is what the other brain tests build.
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
         const data::match_rules::MatchRules& rules = {},
-        uint32_t movement_class = 0
+        uint32_t movement_class = 0,
+        uint16_t visibility = 2
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -201,9 +204,9 @@ struct Fixture {
             loaded[i].type = types[i];
 
         sim::match_runtime::OfflineInputs input{
-            map,  loaded, types, fields, weapons,   terrain_values,       masks, 32, 32, 40,
-            2,    0,      30,    1,      &scenario, [] { return 1000u; }, plots, {}, 0,  0,
-            0.0F, {}
+            map,        loaded, types, fields, weapons,   terrain_values,       masks, 32, 32, 40,
+            visibility, 0,      30,    1,      &scenario, [] { return 1000u; }, plots, {}, 0,  0,
+            0.0F,       {}
         };
         input.rules = rules;
         match = std::make_unique<sim::match_runtime::Match>(input, services);

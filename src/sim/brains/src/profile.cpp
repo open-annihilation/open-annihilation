@@ -10,6 +10,7 @@
 #include "definitions.hpp"
 #include "handles_internal.hpp"
 #include "lua_game.hpp"
+#include "sight.hpp"
 
 #include "oa/data/script_host/f32.hpp"
 #include "oa/data/script_host/fixed.hpp"
@@ -144,6 +145,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_handles(state, seat);
     install_me(state, seat);
     install_definitions(state, seat);
+    install_sight(state, seat);
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {

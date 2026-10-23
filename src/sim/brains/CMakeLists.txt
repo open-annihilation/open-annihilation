@@ -6,7 +6,7 @@
 # built-in order tick.
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
   src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp
-  src/definitions.cpp src/lua_defs.cpp)
+  src/definitions.cpp src/lua_defs.cpp src/lua_sight.cpp)
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include)
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
@@ -47,6 +47,19 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
   add_test(NAME sim-brains-events COMMAND oa-sim-brains-events-test)
   set_tests_properties(sim-brains-events PROPERTIES TIMEOUT 180)
+
+  # What a seat may see, and the search a full-awareness brain may run.
+  # The made-up brains are fog-reader and full-sight.
+  add_executable(oa-sim-brains-sight-test tests/sight_test.cpp)
+  target_include_directories(oa-sim-brains-sight-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-sight-test PRIVATE
+    "OA_FOG_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/fog-reader\""
+    "OA_FULL_SIGHT_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/full-sight\"")
+  target_link_libraries(oa-sim-brains-sight-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
+  add_test(NAME sim-brains-sight COMMAND oa-sim-brains-sight-test)
+  set_tests_properties(sim-brains-sight PROPERTIES TIMEOUT 180)
 
   # Unit, weapon and feature records. The made-up brain is definition-reader.
   # --data compares every installed unit with the value the match loaded.
