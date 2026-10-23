@@ -19,6 +19,7 @@
 /// An order the scheduler removes because its handler ended it is reported
 /// before it is destroyed, and a result that keeps the order is not.
 void ended_orders_are_reported() {
+    constexpr uint8_t retry_flag = 0x80; // the order will be tried again
     TestWorld tables(2, 2);
     auto& world = *tables;
     Fixture listening;
@@ -65,7 +66,7 @@ void ended_orders_are_reported() {
             queue.primary == nullptr,
             queue.primary != nullptr ? queue.primary->kind : uint8_t{0},
             queue.primary != nullptr && queue.primary->wait_events != 0,
-            queue.primary != nullptr && (queue.primary->flags & 0x80) != 0,
+            queue.primary != nullptr && (queue.primary->flags & retry_flag) != 0,
             host.calls
         };
         queue.primary = nullptr;
