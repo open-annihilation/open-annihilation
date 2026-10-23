@@ -391,6 +391,13 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     const uint8_t player = spec.player;
     brains->seats[player] = std::move(created);
     Seat& seat = *brains->seats[player];
+    seat.match = &match;
+    const auto& computer_slot = match.computer_player_state();
+    if (computer_slot) {
+        const auto* computer_players =
+            static_cast<const sim::ai::ComputerPlayers*>(computer_slot.get());
+        seat.handed_over = computer_players->initialized != 0;
+    }
 
     try {
         script_host::OpenOptions options;
