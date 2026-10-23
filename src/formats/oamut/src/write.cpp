@@ -4,8 +4,10 @@
 #include "oa/formats/oamut/manifest.hpp"
 
 #include "oa/formats/oamod.hpp"
+#include "oa/formats/oamut/shared.hpp"
 
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -200,6 +202,37 @@ void write_translation(std::string& out, const Translation& translation) {
     }
 }
 
+/// Writes the top-level author block.
+///
+/// @param[in,out] out the text
+/// @param author the author
+void write_author_block(std::string& out, const Author& author) {
+    line(out, 0, "author:");
+    field(out, 1, "name", quoted(author.name));
+    if (!author.email.empty())
+        field(out, 1, "email", quoted(author.email));
+}
+
+/// Writes the options block. Nothing is written when `options` is empty.
+///
+/// @param[in,out] out the text
+/// @param options the options
+void write_options_block(std::string& out, const std::vector<Option>& options) {
+    if (options.empty())
+        return;
+    line(out, 0, "options:");
+    for (const Option& option : options)
+        write_option(out, option);
+}
+
+/// The quoted-scalar writer, named apart from the shared entry point.
+///
+/// @param text the string
+/// @return the quoted scalar
+std::string relay_quoted(std::string_view text) {
+    return quoted(text);
+}
+
 /// Writes one legacy record.
 ///
 /// @param[in,out] out the text
@@ -226,10 +259,7 @@ std::string write_manifest(const Manifest& manifest) {
     field(out, 0, "id", quoted(manifest.id));
     field(out, 0, "name", quoted(manifest.name));
     field(out, 0, "version", quoted(version_text(manifest.version)));
-    line(out, 0, "author:");
-    field(out, 1, "name", quoted(manifest.author.name));
-    if (!manifest.author.email.empty())
-        field(out, 1, "email", quoted(manifest.author.email));
+    shared::write_author(out, manifest.author);
     if (!manifest.description.empty())
         field(out, 0, "description", quoted(manifest.description));
     if (!manifest.homepage.empty())
@@ -267,11 +297,7 @@ std::string write_manifest(const Manifest& manifest) {
     write_list(out, 0, "layers", layers);
     if (manifest.clashes.has_value())
         field(out, 0, "clashes", quoted(clash_mode_name(*manifest.clashes)));
-    if (!manifest.options.empty()) {
-        line(out, 0, "options:");
-        for (const Option& option : manifest.options)
-            write_option(out, option);
-    }
+    shared::write_options(out, manifest.options);
     if (!manifest.strings.empty()) {
         line(out, 0, "strings:");
         for (const Translation& translation : manifest.strings)
@@ -286,5 +312,25 @@ std::string write_manifest(const Manifest& manifest) {
     }
     return out;
 }
+
+namespace shared {
+
+std::string quoted(std::string_view text) {
+    return relay_quoted(text);
+}
+
+std::string condition_text(const Condition& condition) {
+    return condition_scalar(condition);
+}
+
+void write_author(std::string& out, const Author& author) {
+    write_author_block(out, author);
+}
+
+void write_options(std::string& out, const std::vector<Option>& options) {
+    write_options_block(out, options);
+}
+
+} // namespace shared
 
 } // namespace oa::formats::oamut

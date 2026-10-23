@@ -27,6 +27,12 @@ The text is the strict YAML a mod profile is written in
   below. `layer_name` and `parse_layer` are the nine layer names.
   `clash_mode_name` and `parse_clash_mode` are `add` and `replace`.
 
+`oa/formats/oamut/shared.hpp` is the part a brain manifest shares: the author,
+works-with, options and strings, read and written by the same functions this
+reader uses. A brain passes its own language keys, such as `levels`, and
+those keys are not refused. The mutator reader passes none. Nothing a
+mutator accepts changes.
+
 ## State
 
 None. Callers pass bytes and a `Manifest` and get values back. Nothing here
