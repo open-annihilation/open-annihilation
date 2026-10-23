@@ -238,6 +238,16 @@ class NetworkPlay {
     /// @param line Chat line, speaker prefix included; null sends nothing.
     void net_send_chat(const char* line);
 
+    /// Sends a chat line a computer seat of this machine said, from that seat.
+    ///
+    /// Nothing is sent without a running network match or for an empty line.
+    ///
+    /// @param seat Player slot of the computer seat.
+    /// @param line Formatted chat line; null sends nothing.
+    /// @param mode Chat mode the line was said in.
+    /// @param targets Chosen-player slots, or null when the mode names none.
+    void net_send_seat_chat(uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets);
+
     /// Gives the lines the chat line net_send_chat just sent went out as,
     /// when Unicode chat cut it into more than one record.
     ///

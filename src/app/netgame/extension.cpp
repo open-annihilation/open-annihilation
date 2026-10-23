@@ -1478,7 +1478,8 @@ struct RuntimeExtension {
     /// Adds network play's message-log hooks (Extension::message_hooks).
     ///
     /// Chat lines go to every player and to the match report, and an open
-    /// session makes the game kind multiplayer.
+    /// session makes the game kind multiplayer. A computer seat's line goes
+    /// out from that seat.
     ///
     /// @param context Extension context (unused).
     /// @param runtime The running app (unused; the hooks' context is the runtime).
@@ -1487,6 +1488,14 @@ struct RuntimeExtension {
     message_hooks(void* /*context*/, Runtime& /*runtime*/, oa::sim::messages::Hooks& hooks) {
         hooks.share_chat = [](void* context, const char* chat) {
             NetworkPlay::of(*static_cast<Runtime*>(context)).net_send_chat(chat);
+        };
+        hooks.share_seat_chat = [](void* context,
+                                   uint8_t seat,
+                                   const char* line,
+                                   uint8_t mode,
+                                   const uint8_t* targets) {
+            NetworkPlay::of(*static_cast<Runtime*>(context))
+                .net_send_seat_chat(seat, line, mode, targets);
         };
         hooks.shared_chat_line =
             [](void* context, const char* chat, std::size_t index) -> const char* {

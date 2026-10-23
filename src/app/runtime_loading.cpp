@@ -329,6 +329,7 @@ void Runtime::leave_match() {
     chat_composing_ = false;
     chat_buffer_.clear();
     chat_composition_.clear();
+    seat_chat_.reset();
     match_zoom_ = kDefaultBattlefieldZoom;
     match_zoom_target_ = kDefaultBattlefieldZoom;
     zoom_focus_ = {};

@@ -188,6 +188,7 @@ messages::Hooks Runtime::message_hooks() {
 }
 
 void Runtime::bind_message_log() {
+    seat_chat_.reset();
     auto& game = match_->state().game;
     message_random_ = {};
     messages::set_log_options(

@@ -1087,7 +1087,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_hotkeys.cpp src/app/runtime_hud.cpp src/app/runtime_loading.cpp
   src/app/runtime_match_hud.cpp src/app/runtime_match_menus.cpp src/app/runtime_load_game.cpp
   src/app/runtime_order_panel.cpp
-  src/app/runtime_match_render.cpp src/app/runtime_messages.cpp src/app/runtime_pointer.cpp
+  src/app/runtime_match_render.cpp src/app/runtime_messages.cpp src/app/runtime_seat_chat.cpp
+  src/app/runtime_pointer.cpp
   src/app/sticky_edge.cpp
   src/app/runtime_present.cpp src/app/runtime_display.cpp
   src/app/runtime_accelerated.cpp src/app/runtime_render_tier.cpp src/app/runtime_tier_watch.cpp
@@ -1261,6 +1262,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-data-mutator-library
   oa-data-mutators
   oa-app-mutators-memory
+  oa-app-seat-chat
   oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
