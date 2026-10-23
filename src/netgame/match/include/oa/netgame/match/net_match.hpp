@@ -203,6 +203,20 @@ struct NetMatchHooks {
     void (*whiteboard_marks)(
         void* context, uint8_t sender_slot, const uint8_t* batch, std::size_t size
     ){};
+
+    /// Hands a chat line to a seat of this machine, a human or a computer
+    /// player, as this machine shows it. A broadcast was addressed to every
+    /// player. A private-channel record is not handed on. Null hears nothing.
+    ///
+    /// @param context NetMatchHooks.context.
+    /// @param sender Player slot of the sender.
+    /// @param addressee Player slot the record was addressed to; the local
+    ///        player for a broadcast.
+    /// @param broadcast The record went to every player.
+    /// @param text The line as this machine shows it, NUL-terminated.
+    void (*seat_chat)(
+        void* context, uint8_t sender, uint8_t addressee, bool broadcast, const char* text
+    ){};
 };
 
 /// The health a unit has in the recorder's eyes before any full record of it was seen.
@@ -745,6 +759,25 @@ void net_match_set_speed(NetMatch* match, int32_t speed, bool broadcast) noexcep
 /// @param text Line to send, as this machine holds game text; null sends an
 ///        empty line.
 void net_match_say(NetMatch* match, const char* text) noexcept;
+
+/// Sends a chat line from a computer seat of this machine, from that seat's player id.
+///
+/// Sends nothing unless the seat is in use, a computer player, with a
+/// player id, and the line is not a command ('+' or '.' first, after a
+/// "<Name> " head). Everyone is one broadcast. Chosen players are the
+/// slots `targets` names whose player id is not 0. Allies and enemies are
+/// the remote players by the seat's own alliance row. Any other mode sends
+/// nothing. With Unicode chat the line goes out as the parts say_unicode
+/// makes. NetMatch::said_parts and the recorder are left as they were.
+///
+/// @param[in,out] match Running match; null sends nothing.
+/// @param seat Player slot of the computer seat.
+/// @param line The line, speaker prefix included; null sends nothing.
+/// @param mode Chat mode (OA_CHAT_MODE_*).
+/// @param targets Chosen-player slots; null when the mode names none.
+void net_match_say_from(
+    NetMatch* match, uint8_t seat, const char* line, uint8_t mode, const uint8_t* targets
+) noexcept;
 
 /// Gives a received chat line as this machine shows it, in the form it holds game text.
 ///

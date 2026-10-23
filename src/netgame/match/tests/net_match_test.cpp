@@ -956,6 +956,16 @@ struct SeatedMachine {
 
     std::vector<std::string> chats;   // chat lines the chat hook showed
     std::vector<std::string> notices; // lines the notice hook showed
+
+    // Chat lines the seat_chat hook heard: sender, addressee, broadcast, text.
+    struct SeatLine {
+        uint8_t sender{};
+        uint8_t addressee{};
+        bool broadcast{};
+        std::string text;
+    };
+
+    std::vector<SeatLine> seat_lines;
     // What the translate hook gives, by the game's English; a text not here
     // has no translation.
     std::map<std::string, std::string> translations;
@@ -985,6 +995,12 @@ struct SeatedMachine {
         hooks.chat = [](void* c, uint8_t, const char* text) {
             static_cast<SeatedMachine*>(c)->chats.emplace_back(text);
         };
+        hooks.seat_chat =
+            [](void* c, uint8_t sender, uint8_t addressee, bool broadcast, const char* text) {
+                static_cast<SeatedMachine*>(c)->seat_lines.push_back(
+                    {sender, addressee, broadcast, text != nullptr ? text : ""}
+                );
+            };
         hooks.notice = [](void* c, const char* text) {
             static_cast<SeatedMachine*>(c)->notices.emplace_back(text);
         };
@@ -1207,6 +1223,155 @@ void chat_follows_the_chat_mode() {
             )
         );
     }
+}
+
+// A chat record addressed to a computer seat of this machine reaches seat_chat
+// and not the human chat hook. A broadcast reaches both. A private-channel
+// record reaches neither.
+void seat_chat_reaches_seats() {
+    start_case("seat_chat_reaches_seats");
+    constexpr uint32_t kSender = 7, kHuman = 9, kComputer = 10;
+    WireRules rules{};
+    rules.private_channel = PrivateChannel::sub_id_dispatch;
+    const Seat sender_view[4] = {
+        {kSender, OA_PLAYER_STATUS_LOCAL, 1},
+        {kHuman, OA_PLAYER_STATUS_MIRRORED, 2},
+        {kComputer, OA_PLAYER_STATUS_MIRRORED, 2},
+        {}
+    };
+    const Seat receiver_view[4] = {
+        {kSender, OA_PLAYER_STATUS_MIRRORED, 1},
+        {kHuman, OA_PLAYER_STATUS_LOCAL, 2},
+        {kComputer, OA_PLAYER_STATUS_COMPUTER, 2},
+        {}
+    };
+    SeatedMachine sender(sender_view, 0, rules);
+    SeatedMachine receiver(receiver_view, 1, rules);
+    join(sender, receiver);
+
+    ChatRecord line{};
+    std::snprintf(line.text, sizeof line.text, "%s", "<Ann> to the seat");
+    deliver(sender, receiver, kSender, kComputer, line);
+    CHECK(receiver.chats.empty());
+    CHECK(receiver.seat_lines.size() == 1);
+    if (receiver.seat_lines.size() == 1) {
+        CHECK(receiver.seat_lines[0].sender == 0);
+        CHECK(receiver.seat_lines[0].addressee == 2);
+        CHECK(!receiver.seat_lines[0].broadcast);
+        CHECK(receiver.seat_lines[0].text == "<Ann> to the seat");
+    }
+
+    receiver.chats.clear();
+    receiver.seat_lines.clear();
+    std::snprintf(line.text, sizeof line.text, "%s", "<Ann> everyone");
+    deliver(sender, receiver, kSender, broadcast_destination_id, line);
+    CHECK(receiver.chats.size() == 1 && receiver.chats[0] == "<Ann> everyone");
+    CHECK(receiver.seat_lines.size() == 1);
+    if (receiver.seat_lines.size() == 1) {
+        CHECK(receiver.seat_lines[0].sender == 0);
+        CHECK(receiver.seat_lines[0].addressee == 1);
+        CHECK(receiver.seat_lines[0].broadcast);
+        CHECK(receiver.seat_lines[0].text == "<Ann> everyone");
+    }
+
+    receiver.chats.clear();
+    receiver.seat_lines.clear();
+    uint8_t raw[private_record_bytes]{};
+    raw[0] = static_cast<uint8_t>(RecordType::chat);
+    CHECK(net_match_send(sender.match.get(), kSender, kComputer, raw, sizeof raw));
+    packet_layer_flush(sender.connection.packets, 0, true);
+    (void)net_match_pump(receiver.match.get());
+    CHECK(receiver.chats.empty());
+    CHECK(receiver.seat_lines.empty());
+    CHECK(receiver.match->private_records >= 1);
+}
+
+// A computer seat sends from its own player id, routed by its own alliance
+// row, which here differs from the human's. A command, a mirrored or human
+// seat, and a seat without an id send nothing, and said_parts stays put.
+void seats_say_from_their_own_id() {
+    start_case("seats_say_from_their_own_id");
+    constexpr uint32_t kComputer = 6, kLocal = 7, kAlly = 9, kEnemy = 10, kOther = 11;
+    const Seat view[4] = {
+        {kComputer, OA_PLAYER_STATUS_COMPUTER, 1},
+        {kAlly, OA_PLAYER_STATUS_MIRRORED, 2},
+        {kEnemy, OA_PLAYER_STATUS_MIRRORED, 3},
+        {kOther, OA_PLAYER_STATUS_MIRRORED, 4}
+    };
+    SeatedMachine machine(view, 0);
+    auto& local = machine.player(4);
+    local.in_use = 1;
+    local.status = OA_PLAYER_STATUS_LOCAL;
+    local.player_id = kLocal;
+    machine.world->game.local_player_index = 4;
+    local.alliance[1] = 1;
+    auto& seat = machine.player(0);
+    seat.alliance[2] = 1;
+
+    const auto destinations = [&](uint8_t mode, const char* text, const uint8_t* targets) {
+        machine.forget_sent();
+        machine.match->said_parts = {"kept"};
+        net_match_say_from(machine.match.get(), 0, text, mode, targets);
+        std::vector<uint32_t> to;
+        for (const auto& record : machine.sent(RecordType::chat)) {
+            CHECK(record.from == kComputer && record.bytes.size() == 65);
+            if (record.bytes.size() == 65)
+                CHECK(std::memcmp(record.bytes.data() + 1, text, std::strlen(text)) == 0);
+            to.push_back(record.to);
+        }
+        CHECK((machine.match->said_parts == std::vector<std::string>{"kept"}));
+        return to;
+    };
+    CHECK(
+        (destinations(OA_CHAT_MODE_EVERYONE, "<Comp> hi", nullptr) ==
+         std::vector<uint32_t>{broadcast_destination_id})
+    );
+    CHECK((
+        destinations(OA_CHAT_MODE_ALLIES, "<Comp> allies", nullptr) == std::vector<uint32_t>{kEnemy}
+    ));
+    machine.forget_sent();
+    machine.world->game.chat_mode = OA_CHAT_MODE_ALLIES;
+    net_match_say(machine.match.get(), "<me> allies");
+    {
+        const auto sent = machine.sent(RecordType::chat);
+        CHECK(sent.size() == 1 && sent[0].from == kLocal && sent[0].to == kAlly);
+    }
+    CHECK(
+        (destinations(OA_CHAT_MODE_ENEMIES, "<Comp> enemies", nullptr) ==
+         std::vector<uint32_t>{kAlly, kOther})
+    );
+    uint8_t targets[OA_PLAYER_COUNT]{};
+    targets[3] = 1;
+    machine.world->game.chat_targets[1] = 1;
+    CHECK(
+        (destinations(OA_CHAT_MODE_CHOSEN, "<Comp> one", targets) == std::vector<uint32_t>{kOther})
+    );
+    CHECK(destinations(OA_CHAT_MODE_EVERYONE, "+SetShareMetal 5", nullptr).empty());
+    CHECK(destinations(OA_CHAT_MODE_EVERYONE, "<Comp> .take", nullptr).empty());
+
+    const auto sends_nothing = [&](uint8_t slot, const char* text) {
+        machine.forget_sent();
+        machine.match->said_parts = {"kept"};
+        net_match_say_from(machine.match.get(), slot, text, OA_CHAT_MODE_EVERYONE, nullptr);
+        CHECK(machine.sent(RecordType::chat).empty());
+        CHECK((machine.match->said_parts == std::vector<std::string>{"kept"}));
+    };
+    sends_nothing(1, "<x> hi");
+    sends_nothing(4, "<x> hi");
+    seat.in_use = 0;
+    sends_nothing(0, "<x> hi");
+    seat.in_use = 1;
+    seat.player_id = no_player_id;
+    sends_nothing(0, "<x> hi");
+    seat.player_id = 0;
+    sends_nothing(0, "<x> hi");
+    seat.player_id = kComputer;
+    machine.match->unicode_chat = true;
+    CHECK(
+        (destinations(OA_CHAT_MODE_EVERYONE, "<Comp> hi", nullptr) ==
+         std::vector<uint32_t>{broadcast_destination_id})
+    );
+    machine.match->unicode_chat = false;
 }
 
 // Every 60 ticks a third of the metal above the SetShareMetal threshold and
@@ -4702,6 +4867,8 @@ int main() {
     pause_goes_out_from_the_primary();
     channel_reclaimed_from_a_departed_player();
     chat_follows_the_chat_mode();
+    seat_chat_reaches_seats();
+    seats_say_from_their_own_id();
     automatic_sharing_follows_the_thresholds();
     automatic_sharing_picks_the_last_poorer_player();
     give_goes_out_when_both_take_part();
