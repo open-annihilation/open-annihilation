@@ -205,14 +205,18 @@ void make_brain(const fs::path& folder, Fault fault, const std::vector<uint8_t>&
     const uint32_t side = fault == Fault::icon ? 300 : 64;
     const std::vector<uint8_t> picture = side == 64 ? icon : png_image(side);
     write_bytes(folder / "icon.png", picture);
-    // A case-insensitive volume keeps the first spelling of a directory. The
-    // capital spelling is outside a brain's layout, so it is created before
-    // lua/tasks. Otherwise the file lands in lua/tasks and is a legal module.
+    // lua/Tasks is outside a brain's layout: a module's folders are lower
+    // case. It is the only file under lua/. A second file at lua/tasks is a
+    // different directory on a case-sensitive volume, and pack then refuses
+    // the case clash before the layout line. On a case-insensitive volume
+    // the two spellings are one directory, so the module is stored under
+    // Tasks and the layout line names a different path. One file makes both
+    // volumes refuse lua/Tasks/x.lua.
     if (fault == Fault::layout)
         write_text(folder / "lua" / "Tasks" / "x.lua", "return 1\n");
     if (fault == Fault::lua)
         write_text(folder / "lua" / "tasks" / "land_strike.lua", "local strike = 1\nreturn (\n");
-    else
+    else if (fault != Fault::layout)
         write_text(
             folder / "lua" / "tasks" / "land_strike.lua", "local strike = 1\nreturn strike\n"
         );
