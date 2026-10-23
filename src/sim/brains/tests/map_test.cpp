@@ -452,7 +452,6 @@ got = {
     reach_air_ud = map:reachable({x = 1, z = 1}, {x = 2, z = 2}, units.ARMSOLAR),
     reach_type = map:reachable({x = 1, z = 1}, {x = 9, z = 9}, 2),
     reach_own = map:reachable(friend, {x = 200, z = 168}, "kbot"),
-    hidden_nil = map:reachable(enemy, {x = 168, z = 168}, "boat") == nil,
     meta = getmetatable(map) == false,
     missing = map.no_such_field == nil,
     err_boat = text_of(function() map:passable("boat", 0, 0) end),
@@ -588,7 +587,6 @@ void read_surface(Fixture& fixture, host::Sandbox& sandbox) {
     expect_flag(got, "reach_air_ud", true);
     expect_flag(got, "reach_type", true);
     expect_flag(got, "reach_own", true);
-    expect_flag(got, "hidden_nil", true);
     expect_flag(got, "meta", true);
     expect_flag(got, "missing", true);
     expect_text(got, "err_boat", "unknown movement class: boat");
@@ -923,9 +921,19 @@ int main() {
         host::Sandbox& sandbox = seat_reader(fixture, script, true);
         brains::Seat* seat = seat_for(fixture);
         auto& ally = fixture.spawn(computer, vehicle, 14, 14);
-        auto& enemy = fixture.spawn(0, vehicle, 18, 18);
+        // Cell 60 is outside the vehicle's sight of 200; asked without full awareness.
+        auto& enemy = fixture.spawn(0, vehicle, 60, 60);
         push_global(sandbox, *seat, brains::unit_ref(*fixture.match, ally.unit_index), "friend");
         push_global(sandbox, *seat, brains::unit_ref(*fixture.match, enemy.unit_index), "enemy");
+        CHECK(!fixture.match->unit_visible(computer, enemy.unit_index));
+        seat->full_awareness = false;
+        const Bag hidden = probe(
+            sandbox,
+            "got = { hidden_nil = game.map:reachable(enemy, {x = 168, z = 168}, \"boat\") == nil "
+            "}\n"
+        );
+        seat->full_awareness = true;
+        expect_flag(hidden, "hidden_nil", true);
         read_surface(fixture, sandbox);
         read_charges(fixture, sandbox);
         open_gap(fixture);
