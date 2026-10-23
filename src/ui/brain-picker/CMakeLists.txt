@@ -1,11 +1,10 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-# The brain seat picker's model: which brain a computer seat plays, at which
-# level, with which options, and the words each row, the details, the footer,
-# the seat's label and its hover card show. It reads no file, clock,
-# preference or network.
-add_library(oa-ui-brain-picker src/model.cpp src/text.cpp)
+# The brain seat picker's model and its screen: which brain a computer seat
+# plays, and the kit window that draws the list, the details and the footer.
+# It reads no file, clock, preference or network.
+add_library(oa-ui-brain-picker src/draw.cpp src/input.cpp src/layout.cpp src/model.cpp src/text.cpp)
 add_library(oa::ui::brain_picker ALIAS oa-ui-brain-picker)
 target_include_directories(oa-ui-brain-picker PUBLIC include)
 target_compile_features(oa-ui-brain-picker PUBLIC cxx_std_20)
@@ -22,4 +21,33 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME ui-brain-picker-model COMMAND oa-ui-brain-picker-model-test)
   set_tests_properties(ui-brain-picker-model PROPERTIES TIMEOUT 60)
+
+  # The pointer, a finger, the keys, the wheel and the controller, and a
+  # choice that still fits the model after each one.
+  add_executable(oa-ui-brain-picker-input-test tests/input_test.cpp)
+  target_link_libraries(oa-ui-brain-picker-input-test PRIVATE oa-ui-brain-picker oa-ui-kit
+    oa-test-support oa-options)
+  add_test(NAME ui-brain-picker-input COMMAND oa-ui-brain-picker-input-test)
+  set_tests_properties(ui-brain-picker-input PROPERTIES TIMEOUT 60)
+
+  # The screen at Compact, Regular and Large: parts inside the window, no two
+  # controls meeting except a row and the list, the rows, the options, Tab's
+  # order, the names, and the texts fitting.
+  add_executable(oa-ui-brain-picker-layout-test tests/layout_test.cpp)
+  target_link_libraries(oa-ui-brain-picker-layout-test PRIVATE oa-ui-brain-picker oa-ui-kit
+    oa-test-support oa-options)
+  add_test(NAME ui-brain-picker-layout COMMAND oa-ui-brain-picker-layout-test)
+  set_tests_properties(ui-brain-picker-layout PROPERTIES TIMEOUT 60)
+
+  # Each picture drawn twice in the installed game's fonts, byte for byte the
+  # same and nothing outside the window; with --frames DIR it writes them.
+  add_executable(oa-ui-brain-picker-draw-test tests/draw_test.cpp)
+  target_link_libraries(oa-ui-brain-picker-draw-test PRIVATE oa-ui-brain-picker oa-ui-kit
+    oa-data-languages oa-formats-png oa-formats-hpi oa-platform-text-font oa-present
+    oa-test-game-data oa-test-support oa-options)
+  oa_copy_text_fonts(oa-ui-brain-picker-draw-test
+    "$<TARGET_FILE_DIR:oa-ui-brain-picker-draw-test>")
+  oa_add_game_data_test(ui-brain-picker-draw-data oa-ui-brain-picker-draw-test --data
+    "${PROJECT_SOURCE_DIR}/languages/interface.tdf")
+  set_tests_properties(ui-brain-picker-draw-data PROPERTIES TIMEOUT 60)
 endif()
