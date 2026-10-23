@@ -203,7 +203,8 @@ tick's unit sweep.
 Radar contacts wait on per-player radar (A05). Chat waits on A08. Timers
 run inside this call later (B03). Handing a stopped seat back to the
 built-in player, with the notice and the log, is B04. Shots are not
-delivered.
+delivered. Placed map features are not listed; `features` is the
+feature-type table.
 
 ## Definitions
 
@@ -256,9 +257,3 @@ lookup is nil.
 computer-build fixture and also runs that brain with no match.
 `sim-brains-defs-data` compares every installed unit's kept fields with the
 value the match loaded.
-
-## Limitations
-
-No events and no `onTick` yet (B02): the seat's play returns without calling
-a script. Placed map features are not listed; `features` is the feature-type
-table.
