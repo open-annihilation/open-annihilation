@@ -22,7 +22,7 @@ namespace oa::app {
 inline constexpr std::string_view brains_folder_name = "Brains";
 
 /// The most bytes of files one installed brain may hold, taken together.
-inline constexpr std::uintmax_t installed_package_bytes = std::uintmax_t{128} << 20;
+inline constexpr uintmax_t installed_package_bytes = uintmax_t{128} << 20;
 
 /// The brain, level and options one seat was given.
 ///

@@ -214,7 +214,7 @@ void refuses_a_folder_over_the_size_guard() {
     Scratch scratch;
     const fs::path folder = scratch.path / "steady-commander";
     plant(folder, "steady-commander");
-    fs::resize_file(folder / "data" / "plans.csv", (std::uintmax_t{128} << 20) + 1);
+    fs::resize_file(folder / "data" / "plans.csv", (uintmax_t{128} << 20) + 1);
     std::string error;
     const auto installed = seats::read_installed_brain(scratch.path, "steady-commander", error);
     OA_CHECK(!installed.has_value());

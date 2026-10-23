@@ -70,7 +70,7 @@ bool listed_paths(const fs::path& folder, std::vector<std::string>& paths, std::
         error = "the package folder is missing";
         return false;
     }
-    std::uintmax_t total = 0;
+    uintmax_t total = 0;
     try {
         const fs::recursive_directory_iterator end;
         fs::recursive_directory_iterator cursor{folder};
@@ -105,7 +105,7 @@ bool listed_paths(const fs::path& folder, std::vector<std::string>& paths, std::
                 return false;
             }
             std::error_code size_error;
-            const std::uintmax_t size = entry.file_size(size_error);
+            const uintmax_t size = entry.file_size(size_error);
             if (size_error) {
                 error = "the package folder could not be read";
                 return false;

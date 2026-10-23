@@ -85,6 +85,11 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
 
+    /// Builds the computer-build match, with the local player and one computer.
+    ///
+    /// @param downloadable_type a type marked downloadable, or 0 for none
+    /// @param builder_income whether the vehicle makes energy and metal
+    /// @param rules the match rules
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
@@ -200,6 +205,13 @@ struct Fixture {
             OA_UNIT_DEF_ABILITY_CAN_MOVE | OA_UNIT_DEF_ABILITY_CAN_STOP;
     }
 
+    /// Places one unit and returns its slot.
+    ///
+    /// @param player the owner
+    /// @param type the unit type
+    /// @param cell_x the map cell across
+    /// @param cell_z the map cell down
+    /// @return the new slot
     sim::unit_spawn::Slot& spawn(uint8_t player, Type type, int32_t cell_x, int32_t cell_z) {
         const auto at = [](int32_t cell) { return static_cast<uint32_t>(cell * 16 + 8) << 16; };
         auto* slot = match->create({player, type, {at(cell_x), 0, at(cell_z)}, true, 1, 0});
@@ -208,7 +220,11 @@ struct Fixture {
         return *slot;
     }
 
-    // Ticks until `done` holds or the run ends; false when it never held.
+    /// Ticks until `done` holds or the run ends.
+    ///
+    /// @param ticks how many ticks to try
+    /// @param done returns true when the run can stop
+    /// @return true when `done` held
     bool run(uint32_t ticks, const std::function<bool()>& done) {
         for (uint32_t i = 0; i < ticks; ++i) {
             ++match->state().game.tick;
@@ -219,6 +235,11 @@ struct Fixture {
         return false;
     }
 
+    /// Counts one player's units of one type.
+    ///
+    /// @param owner the player
+    /// @param type the unit type
+    /// @return how many of that type the player has
     size_t count(uint8_t owner, Type type) const {
         size_t n = 0;
         for (const auto& slot : match->world().slots)
