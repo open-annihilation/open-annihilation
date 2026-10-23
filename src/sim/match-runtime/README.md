@@ -176,6 +176,17 @@ waiting batches are the table `structure-gifts`
 (`oa/sim/match_runtime/structure_gifts.hpp`); `match-structure-gifts` checks
 them.
 
+## Seat hooks
+
+`Match::seat_hooks` (`SeatHooks`, `seat_hooks.hpp`) is one computer seat's
+turn when something other than the built-in computer player plays it.
+`play` is called at that seat's controller point and returns true when it
+played the tick. A null `play`, or one that returns false, leaves the
+built-in order tick to run. The weapon sweep runs either way. Hooks set on
+a seat that is not a computer are never called. The hooks and the brains'
+state (`Match::seat_state`) are not saved, hashed or shared, and the state
+ends with the match.
+
 ## Event hooks
 
 `Match::event_hooks` (`EventHooks`, `event_hooks.hpp`) reports what happens
@@ -560,8 +571,9 @@ then.
 The match sets the computer players up in the load's players' pass, or on
 its first tick when a match did not end a load (`finish_load`). Each tick every
 player whose record holds a controller (`Player.controller`) runs it: a
-computer player's controller first runs its order-callback tick (the squad
-sort and due tasks in `src/sim/ai`), then the weapon sweep retargets the slots of
+computer player's controller calls the seat's play hook when one is set, and
+runs its order-callback tick (the squad sort and due tasks in `src/sim/ai`)
+only when the hook is absent or returns false. The weapon sweep then retargets the slots of
 units that fire at will; command-fire weapons take part only for computer
 players. Interceptors aim at an enemy missile; other weapons take a random
 enemy in range. The knowledge refresh follows for the same players: every 30
