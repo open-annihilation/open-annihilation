@@ -263,10 +263,11 @@ void seat_reader(Fixture& fixture, const std::string& script, const std::string&
     }
 }
 
-oa::data::brain_facts::GameFacts facts_of(const std::string& profile, const std::string& report) {
+oa::data::brain_facts::GameFacts
+facts_of(const std::string& profile_text, const std::string& report) {
     oa::data::brain_facts::GameFacts facts;
     facts.ai_profile.path = "ai/Sample.txt";
-    facts.ai_profile.text = profile;
+    facts.ai_profile.text = profile_text;
     facts.ai_profile_report_path = report;
     oa::data::brain_facts::ProfileFile alpha;
     alpha.path = "ai/alpha.txt";
@@ -303,13 +304,13 @@ lua_Integer global_integer(lua_State* lua, const char* name) {
 
 void require_start(
     lua_State* lua,
-    const std::string& profile,
+    const std::string& profile_text,
     const std::string& report,
     lua_Integer cap,
     const char* downloads,
     const std::string& dump
 ) {
-    CHECK(global_string(lua, "seen_text") == profile);
+    CHECK(global_string(lua, "seen_text") == profile_text);
     CHECK(global_string(lua, "seen_name") == "Sample");
     CHECK(global_string(lua, "seen_path") == "ai/Sample.txt");
     CHECK(global_string(lua, "seen_report") == report);
@@ -395,7 +396,7 @@ void append_run(std::vector<uint16_t>& runs, const std::vector<uint16_t>& ids) {
 void play(
     const std::string& script,
     const std::string& manifest,
-    const std::string& profile,
+    const std::string& profile_text,
     const std::string& dump,
     const std::vector<uint16_t>& runs,
     const data::limits::Limits& limits,
@@ -412,18 +413,20 @@ void play(
         sizeof fixture.match->state().unit_defs[collector].ai_weight,
         "weight core 0.5\n"
     );
-    CHECK(oa::sim::ai::configure_match_computer_players(*fixture.match, profile, runs, campaign));
+    CHECK(
+        oa::sim::ai::configure_match_computer_players(*fixture.match, profile_text, runs, campaign)
+    );
     const oa::sim::ai::ComputerPlayers* players =
         oa::sim::ai::match_computer_players(*fixture.match);
     CHECK(players->profile_text != nullptr);
-    CHECK(players->profile_length == profile.size());
-    CHECK(std::memcmp(players->profile_text, profile.data(), profile.size()) == 0);
+    CHECK(players->profile_length == profile_text.size());
+    CHECK(std::memcmp(players->profile_text, profile_text.data(), profile_text.size()) == 0);
     CHECK(fixture.match->strategic_state(computer).strengths.empty());
-    brains::set_match_game_facts(*fixture.match, facts_of(profile, report));
+    brains::set_match_game_facts(*fixture.match, facts_of(profile_text, report));
     seat_reader(fixture, script, manifest);
     host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
     CHECK(sandbox != nullptr);
-    require_start(sandbox->state(), profile, report, cap, downloads, dump);
+    require_start(sandbox->state(), profile_text, report, cap, downloads, dump);
     fixture.match->tick();
     call_after(fixture);
     players = oa::sim::ai::match_computer_players(*fixture.match);
@@ -438,13 +441,13 @@ void play(
 }
 
 void check_outside(
-    const std::string& script, const std::string& manifest, const std::string& profile
+    const std::string& script, const std::string& manifest, const std::string& profile_text
 ) {
     brains::PackageFile files[2];
     fill_files(script, manifest, files);
     brains::SeatSpec spec = spec_of();
     spec.files = files;
-    const oa::data::brain_facts::GameFacts facts = facts_of(profile, "");
+    const oa::data::brain_facts::GameFacts facts = facts_of(profile_text, "");
     const brains::SeatOutcome outcome = brains::check_brain(spec, facts);
     if (outcome.result != brains::SeatResult::seated) {
         std::string why(outcome.reason.data());
@@ -616,26 +619,28 @@ int main(int argc, char** argv) {
         check_installed();
         return 0;
     }
-    const std::string profile = sample_profile();
+    const std::string profile_text = sample_profile();
     const std::vector<HandLine> lines = hand_lines();
-    require_sample_lines(profile, lines);
+    require_sample_lines(profile_text, lines);
     const std::string dump = expected_dump(lines);
     const std::string script = load_text("brain.lua");
     const std::string manifest = load_text("oabrain.yaml");
-    check_outside(script, manifest, profile);
+    check_outside(script, manifest, profile_text);
 
     std::vector<uint16_t> short_runs;
     append_run(short_runs, {});
     append_run(short_runs, std::vector<uint16_t>(40, collector));
     append_run(short_runs, {});
     append_run(short_runs, {});
-    play(script, manifest, profile, dump, short_runs, {}, true, "ai/Hover.txt", 31, "false", 31);
+    play(
+        script, manifest, profile_text, dump, short_runs, {}, true, "ai/Hover.txt", 31, "false", 31
+    );
 
     data::limits::Limits raised;
     raised.build_lists.copy = 40;
     std::vector<uint16_t> full_runs = short_runs;
     append_run(full_runs, {missile});
     append_run(full_runs, {});
-    play(script, manifest, profile, dump, full_runs, raised, false, "", 41, "true", 40);
+    play(script, manifest, profile_text, dump, full_runs, raised, false, "", 41, "true", 40);
     return 0;
 }
