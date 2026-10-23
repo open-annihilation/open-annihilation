@@ -2439,6 +2439,14 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param type Type index.
     /// @return The definition, or null past the table or without one.
     const data::unit_definitions::UnitDefinition* unit_definition(uint16_t type) const noexcept;
+    /// Returns a weapon's combat definition, including its damage table.
+    ///
+    /// The pointer addresses the registry the match was given. An unused slot
+    /// still has a definition; its damage is the slot's default.
+    ///
+    /// @param id Weapon id, the registry index.
+    /// @return The definition. Never null.
+    const sim::combat_state::WeaponDefinition* weapon_definition(uint8_t id) const noexcept;
     /// Returns the unit slots of a player's squad.
     ///
     /// @param player Player index 0..9.
