@@ -91,6 +91,10 @@ struct GameFacts {
     ModFacts mod{};
     /// The mutators in apply order. Empty when the match applied none.
     std::vector<MutatorFacts> mutators{};
+    /// The selected map's name. Empty when no map is selected.
+    std::string map_name{};
+    /// The mission path, such as `Maps/DryFlats.TNT`. Empty when there is none.
+    std::string map_path{};
     /// The profile the match's computer players read. An empty path means
     /// none was read.
     ProfileFile ai_profile{};

@@ -1410,6 +1410,14 @@
 	it=Integrato · Predefinito;
 	}
 
+[Built-in]
+	{
+	de=Eingebaut;
+	fr=Intégré;
+	es=Integrado;
+	it=Integrato;
+	}
+
 [Built-in computer player]
 	{
 	de=Eingebauter Computerspieler;
@@ -1424,6 +1432,14 @@
 	fr=Le joueur ordinateur d'Open Annihilation. Il joue comme celui de Total Annihilation.;
 	es=El jugador de ordenador de Open Annihilation. Juega como el de Total Annihilation.;
 	it=Il giocatore computer di Open Annihilation. Gioca come quello di Total Annihilation.;
+	}
+
+[Built into Open Annihilation]
+	{
+	de=In Open Annihilation eingebaut;
+	fr=Intégré à Open Annihilation;
+	es=Integrado en Open Annihilation;
+	it=Integrato in Open Annihilation;
 	}
 
 [Built into the game]
@@ -2216,6 +2232,14 @@
 	fr=Commandants;
 	es=Comandantes;
 	it=Comandanti;
+	}
+
+[Computer player]
+	{
+	de=Computerspieler;
+	fr=Joueur ordinateur;
+	es=Jugador de ordenador;
+	it=Giocatore computer;
 	}
 
 [Console]
@@ -5522,6 +5546,14 @@
 	it=Disposizione per mancini;
 	}
 
+[Level]
+	{
+	de=Stufe;
+	fr=Niveau;
+	es=Nivel;
+	it=Livello;
+	}
+
 [Levels]
 	{
 	de=Stufen;
@@ -8690,6 +8722,14 @@
 	it=Cerca aggiornamenti;
 	}
 
+[Sees every unit on the map]
+	{
+	de=Sieht jede Einheit auf der Karte;
+	fr=Voit chaque unité sur la carte;
+	es=Ve todas las unidades del mapa;
+	it=Vede ogni unità sulla mappa;
+	}
+
 [Sees every unit on the map, as Total Annihilation's own computer player does]
 	{
 	de=Sieht jede Einheit auf der Karte, so wie der Computerspieler von Total Annihilation.;
@@ -8744,6 +8784,14 @@
 	fr=Autoréparation selon le temps de soin;
 	es=Autorreparación según el tiempo de cura;
 	it=Autoriparazione secondo il tempo di cura;
+	}
+
+[Set by the Difficulty button: {level}]
+	{
+	de=Vom Schwierigkeitsknopf gesetzt: {level};
+	fr=Fixé par le bouton Difficulté : {level};
+	es=Fijado por el botón Dificultad: {level};
+	it=Impostato dal pulsante Difficoltà: {level};
 	}
 
 [Set by the host]
@@ -11218,6 +11266,14 @@
 	it=Usa l'inglese;
 	}
 
+[Use for every computer seat]
+	{
+	de=Für jeden Computersitz verwenden;
+	fr=Utiliser pour chaque siège ordinateur;
+	es=Usar para cada asiento de ordenador;
+	it=Usa per ogni posto computer;
+	}
+
 [Use modern fonts for game text]
 	{
 	de=Moderne Schriften für den Spieltext;
@@ -11312,6 +11368,14 @@
 	fr=Vérification de {name};
 	es=Comprobando {name};
 	it=Verifica di {name};
+	}
+
+[Version]
+	{
+	de=Version;
+	fr=Version;
+	es=Versión;
+	it=Versione;
 	}
 
 [Version Check]
@@ -13274,6 +13338,22 @@
 	it={a}, {b};
 	}
 
+[{brain} {version} · {level}]
+	{
+	de={brain} {version} · {level};
+	fr={brain} {version} · {level};
+	es={brain} {version} · {level};
+	it={brain} {version} · {level};
+	}
+
+[{brain} · {level}]
+	{
+	de={brain} · {level};
+	fr={brain} · {level};
+	es={brain} · {level};
+	it={brain} · {level};
+	}
+
 [{brain} could not start ({reason}); the engine plays this seat]
 	{
 	de={brain} konnte nicht starten ({reason}). Die Engine spielt diesen Platz.;
@@ -13706,6 +13786,14 @@
 	it={kinds} · {n} file;
 	}
 
+[{label} · every computer seat]
+	{
+	de={label} · jeder Computersitz;
+	fr={label} · chaque siège ordinateur;
+	es={label} · cada asiento de ordenador;
+	it={label} · ogni posto computer;
+	}
+
 [{label}: {values}]
 	{
 	de={label}: {values};
@@ -13864,6 +13952,14 @@
 	fr={name} ajouté pour {dependant};
 	es={name} se añadió para {dependant};
 	it={name} aggiunto per {dependant};
+	}
+
+[{name} cannot play this seat now, so it starts on the built-in player.]
+	{
+	de={name} kann diesen Sitz jetzt nicht spielen, also startet er mit dem eingebauten Spieler.;
+	fr={name} ne peut pas jouer ce siège maintenant, donc il commence avec le joueur intégré.;
+	es={name} no puede jugar este asiento ahora, así que empieza con el jugador integrado.;
+	it={name} non può giocare questo posto adesso, quindi parte con il giocatore integrato.;
 	}
 
 [{name} from {installed} is installed. Replace it with {name} from {new}? The one from {installed} is kept, and ROLL BACK brings it back.]
@@ -14504,6 +14600,14 @@
 	fr={save_heading} / {now_heading};
 	es={save_heading} / {now_heading};
 	it={save_heading} / {now_heading};
+	}
+
+[{seat} · {mod}]
+	{
+	de={seat} · {mod};
+	fr={seat} · {mod};
+	es={seat} · {mod};
+	it={seat} · {mod};
 	}
 
 [{setup} · {mod}]

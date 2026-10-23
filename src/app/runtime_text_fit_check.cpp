@@ -475,8 +475,11 @@ void Runtime::check_text_fit() {
     /// would replace a verdict the check set by hand.
     const auto inject_brains = [&] {
         LibraryHost& host = library_host();
+        // Only this check's own listing counts: a catalogue may list a brain
+        // with the same key under another registry.
         for (const library::Listing& listed : host.model.inputs.listings) {
-            if (listed.kind == library::Kind::brain && listed.key == "steady-commander")
+            if (listed.kind == library::Kind::brain && listed.key == "steady-commander" &&
+                listed.registry == "fit-core")
                 return;
         }
         library::Inputs inputs = host.model.inputs;

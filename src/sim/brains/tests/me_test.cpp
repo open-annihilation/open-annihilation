@@ -468,6 +468,51 @@ local function nil_own(unit)
     end
 end
 
+local function seen_unit(unit, prefix)
+    expect(unit.id, _G[prefix .. "_id"], prefix .. " id")
+    expect(unit.slot, _G[prefix .. "_slot"], prefix .. " slot")
+    expect(flag(unit.alive, prefix .. " alive"), 1, prefix .. " alive")
+    expect(unit.owner, _G[prefix .. "_owner"], prefix .. " owner")
+    expect(unit.type_index, _G[prefix .. "_type_index"], prefix .. " type")
+    expect(unit.type_name, _G[prefix .. "_type_name"], prefix .. " type name")
+    expect(raw_of(unit.x, prefix .. " x"), _G[prefix .. "_x"], prefix .. " x")
+    expect(raw_of(unit.y, prefix .. " y"), _G[prefix .. "_y"], prefix .. " y")
+    expect(raw_of(unit.z, prefix .. " z"), _G[prefix .. "_z"], prefix .. " z")
+    expect(raw_of(unit.position.x, prefix .. " px"), _G[prefix .. "_x"], prefix .. " px")
+    expect(raw_of(unit.position.y, prefix .. " py"), _G[prefix .. "_y"], prefix .. " py")
+    expect(raw_of(unit.position.z, prefix .. " pz"), _G[prefix .. "_z"], prefix .. " pz")
+    expect(unit.heading, _G[prefix .. "_heading"], prefix .. " heading")
+    expect(unit.health, _G[prefix .. "_health"], prefix .. " health")
+    expect(unit.health_percent, _G[prefix .. "_health_percent"], prefix .. " percent")
+    expect(unit.max_health, _G[prefix .. "_max_health"], prefix .. " max health")
+    expect(unit.build_remaining:bits(), _G[prefix .. "_remaining"], prefix .. " remaining")
+    expect(flag(unit.finished, prefix .. " finished"), _G[prefix .. "_finished"], prefix .. " finished")
+    expect(flag(unit.building, prefix .. " building"), _G[prefix .. "_building"], prefix .. " building")
+end
+
+local private_names = {
+    "armed", "selectable", "live", "dying", "active", "cloaked",
+    "mobile", "squad", "move_order", "fire_order", "kills",
+}
+
+local function nil_private(unit)
+    for _, name in ipairs(private_names) do
+        nil_field(unit, name)
+    end
+    if unit:head_order() ~= nil then
+        error("head_order")
+    end
+    if unit:has_background_order() ~= nil then
+        error("has_background_order")
+    end
+    if unit:orders() ~= nil then
+        error("orders")
+    end
+    if unit:reaches() ~= nil then
+        error("reaches")
+    end
+end
+
 local function same_unit(unit, prefix)
     expect(unit.id, _G[prefix .. "_id"], prefix .. " id")
     expect(unit.slot, _G[prefix .. "_slot"], prefix .. " slot")
@@ -589,19 +634,12 @@ must_fail(
 must_fail(
     function() brain.distance({z = 0}, {x = 0, z = 0}) end,
     "brain.distance: x must be a fixed value or a whole number")
-if brain.distance(enemy, {x = 0, z = 0}) ~= nil then
-    error("enemy distance")
-end
-if brain.direction({x = 0, z = 0}, enemy) ~= nil then
-    error("enemy direction")
-end
-
-expect(enemy.id, enemy_id, "enemy id")
-expect(enemy.slot, enemy_slot, "enemy slot")
-nil_own(enemy)
-if enemy.alive ~= nil then
-    error("enemy alive")
-end
+-- This enemy stands inside the seat's sight, so its seen fields and the
+-- geometry read. Own fields stay nil.
+seen_unit(enemy, "enemy")
+expect(brain.distance(enemy, {x = 0, z = 0}):raw(), enemy_distance, "enemy distance")
+expect(brain.direction({x = 0, z = 0}, enemy), enemy_direction, "enemy direction")
+nil_private(enemy)
 
 expect(me.player, seat_player, "player")
 expect(me.level, level_text, "level")
@@ -1086,8 +1124,30 @@ void read_the_side(const std::string& script) {
     publish_geometry(published);
 
     const brains::UnitRef enemy_ref = brains::unit_ref(*fixture.match, placed.enemy);
+    oa::Unit* enemy_unit = oa::world_unit_at(&world, placed.enemy);
+    CHECK(enemy_unit != nullptr);
+    // The seat's relay at cell 16,16 has sight 200, which covers this unit at
+    // cell 8,8, so seen fields and brain.distance read it.
+    CHECK(fixture.match->unit_visible(computer, placed.enemy));
+    publish_unit(published, "enemy", world, *enemy_unit);
     add_number(published, "enemy_id", handle_id(enemy_ref));
     add_number(published, "enemy_slot", placed.enemy);
+    // Distance is the enemy toward the origin. Direction is the origin toward
+    // the enemy, so the two headings are opposite.
+    const int32_t toward_origin_dx = wrapped_difference(0, enemy_unit->position.x);
+    const int32_t toward_origin_dz = wrapped_difference(0, enemy_unit->position.z);
+    const int32_t toward_enemy_dx = wrapped_difference(enemy_unit->position.x, 0);
+    const int32_t toward_enemy_dz = wrapped_difference(enemy_unit->position.z, 0);
+    add_number(
+        published,
+        "enemy_distance",
+        oa::base::game_math::distance(toward_origin_dx, toward_origin_dz)
+    );
+    add_number(
+        published,
+        "enemy_direction",
+        oa::base::game_math::direction(toward_enemy_dx, toward_enemy_dz)
+    );
     add_number(published, "seat_player", computer);
     add_view(published, "level_text", "medium");
     add_view(published, "difficulty_text", "medium");
