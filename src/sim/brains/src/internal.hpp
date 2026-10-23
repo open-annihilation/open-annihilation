@@ -4,8 +4,11 @@
 // The seat a match keeps behind seat_state. Not part of the public header.
 #pragma once
 
+#include "oa/sim/brains/chat.hpp"
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
+
+#include "reach.hpp"
 
 #include "oa/core/player.h"
 #include "oa/data/brain_facts.hpp"
@@ -63,6 +66,25 @@ struct EventBuffer {
     uint32_t capacity{};
 };
 
+/// Most chat lines waiting for one turn.
+inline constexpr uint8_t max_chat_lines = 32;
+/// Most bytes stored of one chat line.
+inline constexpr std::size_t chat_line_bytes = 256;
+
+/// One chat line waiting for a seat's turn. The words are not terminated.
+struct ChatLine {
+    uint8_t from{};
+    uint8_t mode{};
+    uint16_t length{};
+    std::array<char, chat_line_bytes> words{};
+};
+
+/// Lines waiting for one turn. `count` is how many `lines` are filled.
+struct ChatQueue {
+    std::array<ChatLine, max_chat_lines> lines{};
+    uint8_t count{};
+};
+
 /// One option copied into the seat, so the script can read it after the call.
 struct StoredOption {
     char id[option_id_bytes + 1]{};
@@ -105,7 +127,14 @@ struct Seat {
     EventBuffer delivering{};
     /// Events dropped because the incoming buffer was full or could not grow.
     uint32_t dropped{};
-    /// True after a banked call failed. Later turns do nothing.
+    /// Chat lines heard since the last turn. A line heard during the turn
+    /// lands here and waits until the next turn.
+    ChatQueue chat_incoming{};
+    /// Chat lines the turn in progress is delivering.
+    ChatQueue chat_delivering{};
+    /// Chat lines dropped because the incoming queue already held 32.
+    uint32_t dropped_chat{};
+    /// True after a failed turn was handed back. `stopped` has been called.
     bool stopped{};
     /// True once a turn has stored alliance and participation.
     bool diplomacy_known{};
@@ -119,6 +148,9 @@ struct Seat {
     WaitingTimer timers[max_timers]{};
     /// The next timer id. It starts at 1 and only grows.
     uint32_t next_timer_sequence{1};
+    /// Movement regions built when a script asks whether two points meet.
+    /// One class is labelled at most once a tick.
+    RegionCache regions{};
 
     /// Releases the two event buffers.
     ~Seat() {
@@ -138,6 +170,10 @@ struct Brains {
     uint32_t listener_id{};
     /// True once registration has been attempted. It is not tried again.
     bool listener_tried{};
+    /// Hooks the app set. Empty until `set_report_hooks`.
+    ReportHooks reports{};
+    /// How a seated brain says a line. A null `say` means chat is not connected.
+    ChatHooks chat{};
 };
 
 /// Writes a refusal or a fits reason, cut to 255 bytes.
@@ -181,6 +217,17 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome);
 /// @param seat the seat being opened
 void install_libraries(lua_State* state, Seat& seat);
 
+/// Adds `brain.say`. Works when the seat's match is null.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_chat(lua_State* state, Seat& seat);
+/// Installs `game.map`. With no match the field is nil.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_map(lua_State* state, Seat& seat);
+
 /// Returns the profile a brain runs under.
 ///
 /// @param seat the seat, whose address the profile keeps for its install
@@ -199,7 +246,8 @@ void ensure_listener(Brains& brains, match_runtime::Match& match);
 /// Delivers one seated turn and returns true.
 ///
 /// Returns false when the seat has no running brain, so the built-in computer
-/// player takes the turn. A stopped seat returns true and makes no call.
+/// player takes the turn. A failed turn hands the seat back and still returns
+/// true, so the built-in player starts on the following tick.
 ///
 /// @param context the seat
 /// @param match the match
@@ -207,6 +255,23 @@ void ensure_listener(Brains& brains, match_runtime::Match& match);
 /// @return false when the built-in player should take the turn
 bool deliver_turn(void* context, match_runtime::Match& match, uint8_t player);
 
+/// Drains the sandbox's print lines into the match's report hooks.
+///
+/// A seat with no sandbox, or a match with no printed hook, forgets the
+/// lines. The view passed to the hook lasts for that call.
+///
+/// @param seat the seat
+void note_prints(Seat& seat);
+
+/// Closes a failed seat and lets the built-in player take the next tick.
+///
+/// The first call drains printed lines, calls `stopped` once, clears the
+/// seat's hooks and closes the sandbox. A later call only clears the hooks
+/// and closes the sandbox. The failing turn's play still returns true.
+///
+/// @param seat the seat
+/// @param error the script error; it must stay alive for this call
+void hand_back(Seat& seat, const script_host::ScriptError& error);
 /// The seed of one brain's own xoshiro256** stream.
 ///
 /// The first eight bytes, little-endian, of the SHA-256 of the match seed as

@@ -402,6 +402,47 @@ void computer_profile_apply(
     ComputerPlayers* state, const ComputerHost& host, std::string_view text
 ) noexcept;
 
+/// One profile line, as the built-in player's tokenizer stores it.
+///
+/// `number` counts from 1, one per `\n`, including a line that has no words.
+/// A file with no final newline still has that last line. `words` is valid
+/// only while the visit runs: the words live in the tokenizer's stack
+/// storage. A line is cut into at most 20 words, separated by space, tab,
+/// `\r`, `\n`, `\v` or `\f`. `#` ends the line, even inside a word, and that
+/// word ends there too. The words of one line share 126 bytes, so a long
+/// word is cut and a full line stops early.
+struct ProfileLine {
+    uint32_t number{};          ///< line number, from 1, one per `\n`
+    uint32_t count{};           ///< stored words, 1 to 20
+    const char* const* words{}; ///< stored words; valid only during the visit
+};
+
+/// Walks a profile text with the built-in player's tokenizer.
+///
+/// Only a line with at least one word is reported. The first word is the
+/// command. Compared ignoring ASCII case, `plan`, `weight` and `limit` are
+/// the commands the player applies; anything else, including `//`, is a line
+/// and is not applied. A `plan` line matches when it has at least one word
+/// after `plan` and either the first of those is `any` (ignoring case; a
+/// later `any` counts for nothing) or one of them equals the difficulty
+/// keyword `easy`, `medium` or `hard`. A `plan` with no further word matches
+/// nothing. The player's plan flag starts matched, so lines before the first
+/// `plan` apply, and the player keeps that flag from one pass to the next.
+/// `weight <name> <factor>` reads the factor with
+/// `static_cast<float>(std::strtod(word, nullptr))` of the third word, which
+/// is `""` when the word is missing, so the factor is 0. `limit <name>
+/// <count>` reads the count with `static_cast<int32_t>(std::strtol(word,
+/// nullptr, 10))`; `-1` is unlimited. This walk does not apply either
+/// command, and it does not apply a downloadable type's own lines a second
+/// time: the player does that itself.
+///
+/// @param text profile text, or empty
+/// @param visit called once per line that has a word; null does nothing
+/// @param context passed through to `visit`
+void computer_profile_lines(
+    std::string_view text, void (*visit)(void* context, const ProfileLine& line), void* context
+) noexcept;
+
 /// Applies a "weight <unit or category> <percent>" line to one player.
 ///
 /// Scales the weight of every unlocked matching type; a unit name matches exactly and

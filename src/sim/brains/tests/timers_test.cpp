@@ -335,23 +335,56 @@ int source_line(const char* script, const char* needle) {
     return line;
 }
 
+/// What the report hooks heard when a seat stopped.
+struct TimerStop {
+    int stops{};
+    uint8_t player{};
+    host::ErrorKind kind{host::ErrorKind::none};
+    std::string chunk;
+    int line{};
+    std::string message;
+};
+
+/// Records a stop; the error lasts only for this call, so it is copied.
+///
+/// @param context the TimerStop
+/// @param player the seat's player
+/// @param tick the match tick
+/// @param error the script error
+void remember_timer_stop(void* context, uint8_t player, uint32_t, const host::ScriptError& error) {
+    auto* note = static_cast<TimerStop*>(context);
+    note->stops += 1;
+    note->player = player;
+    note->kind = error.kind;
+    note->chunk = error.chunk;
+    note->line = error.line;
+    note->message = error.message;
+}
+
 void a_timer_error_stops_the_seat() {
     Fixture fixture;
     Package package;
     package.script = error_script;
-    host::Sandbox* sandbox = seat_ready(fixture, package);
+    TimerStop note;
+    brains::ReportHooks hooks;
+    hooks.context = &note;
+    hooks.stopped = &remember_timer_stop;
+    brains::set_report_hooks(*fixture.match, hooks);
+    (void)seat_ready(fixture, package);
     advance(fixture);
-    CHECK(sandbox->failed());
-    CHECK(sandbox->failure().kind == host::ErrorKind::runtime);
-    CHECK(sandbox->failure().chunk == "brain.lua");
-    CHECK(sandbox->failure().line == source_line(error_script, "error(\"timer broke\")"));
-    CHECK(sandbox->failure().message.find("timer broke") != std::string::npos);
-    CHECK(brains::brain_seated(*fixture.match, computer));
+    // A failed turn hands the seat back (B04): the sandbox is closed, so the
+    // error is read from the report, not from the sandbox.
+    CHECK(note.stops == 1);
+    CHECK(note.player == computer);
+    CHECK(note.kind == host::ErrorKind::runtime);
+    CHECK(note.chunk == "brain.lua");
+    CHECK(note.line == source_line(error_script, "error(\"timer broke\")"));
+    CHECK(note.message.find("timer broke") != std::string::npos);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
+    CHECK(brains::seat_sandbox(*fixture.match, computer) == nullptr);
     advance(fixture);
-    CHECK(sandbox->failed());
-    CHECK(brains::brain_seated(*fixture.match, computer));
-    host::ScriptError error;
-    CHECK(!sandbox->run_host("read", nullptr, nullptr, error));
+    CHECK(note.stops == 1);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
 }
 
 const char* check_script = R"(local hooks = {}

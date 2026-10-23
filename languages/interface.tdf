@@ -13354,6 +13354,30 @@
 	it={brain} · {level};
 	}
 
+[{brain} could not start ({reason}); the engine plays this seat]
+	{
+	de={brain} konnte nicht starten ({reason}). Die Engine spielt diesen Platz.;
+	fr={brain} n'a pas pu démarrer ({reason}). Le jeu joue cette place.;
+	es={brain} no pudo empezar ({reason}). El juego juega este puesto.;
+	it={brain} non è riuscito a partire ({reason}). Il gioco gioca questo posto.;
+	}
+
+[{brain} does not fit this game ({reason}); the engine plays this seat]
+	{
+	de={brain} passt nicht zu diesem Spiel ({reason}). Die Engine spielt diesen Platz.;
+	fr={brain} ne convient pas à cette partie ({reason}). Le jeu joue cette place.;
+	es={brain} no encaja en esta partida ({reason}). El juego juega este puesto.;
+	it={brain} non è adatto a questa partita ({reason}). Il gioco gioca questo posto.;
+	}
+
+[{brain} stopped ({reason}); the engine plays this seat on]
+	{
+	de={brain} hat aufgehört ({reason}). Die Engine spielt diesen Platz weiter.;
+	fr={brain} s'est arrêté ({reason}). Le jeu joue cette place.;
+	es={brain} se ha parado ({reason}). El juego juega este puesto.;
+	it={brain} si è fermato ({reason}). Il gioco gioca questo posto.;
+	}
+
 [{changes} Waiting to be removed: {names}.]
 	{
 	de={changes} Wartet auf das Entfernen: {names}.;

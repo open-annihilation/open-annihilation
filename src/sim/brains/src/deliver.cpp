@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One banked call at the seat's controller point. It delivers the queued
-// events, then alliance and defeat changes, then due timers, then onTick.
+// events, then alliance and defeat changes, then chat, then due timers,
+// then onTick.
 
 #include "internal.hpp"
 
@@ -10,15 +11,18 @@
 #include "oa/sim/match_runtime.hpp"
 
 #include "oa/core/feature_def.h"
+#include "oa/core/game_state.h"
 #include "oa/core/world.h"
 #include "oa/data/mission_types.hpp"
 #include "oa/data/script_host/fixed.hpp"
+#include "oa/data/script_host/script_host.hpp"
 #include "oa/sim/simulation_state.hpp"
 
 #include "lua.hpp"
 
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 
 namespace oa::sim::brains {
 namespace {
@@ -366,6 +370,35 @@ void report_diplomacy(lua_State* state, Seat& seat, int hooks, bool table) {
     }
 }
 
+const char* chat_audience(uint8_t mode) {
+    if (mode == OA_CHAT_MODE_EVERYONE)
+        return "all";
+    if (mode == OA_CHAT_MODE_ALLIES)
+        return "allies";
+    if (mode == OA_CHAT_MODE_ENEMIES)
+        return "enemies";
+    if (mode == OA_CHAT_MODE_CHOSEN)
+        return "me";
+    return nullptr;
+}
+
+void deliver_chat(lua_State* state, Seat& seat, int hooks, bool table) {
+    const uint8_t count = seat.chat_delivering.count;
+    for (uint8_t index = 0; index < count; ++index) {
+        script_host::charge_work(state, script_host::element_charge);
+        if (!table)
+            continue;
+        const ChatLine& line = seat.chat_delivering.lines[index];
+        const char* audience = chat_audience(line.mode);
+        if (audience == nullptr || !start_hook(state, hooks, "onChat"))
+            continue;
+        lua_pushinteger(state, static_cast<lua_Integer>(line.from));
+        lua_pushlstring(state, line.words.data(), static_cast<std::size_t>(line.length));
+        lua_pushstring(state, audience);
+        lua_call(state, 3, 0);
+    }
+}
+
 void call_tick(lua_State* state, Seat& seat, int hooks) {
     if (!start_hook(state, hooks, "onTick"))
         return;
@@ -386,6 +419,7 @@ static int deliver_hooks(lua_State* state) {
     const bool table = lua_istable(state, hooks) != 0;
     walk_events(state, *seat, hooks, table, seen_bits);
     report_diplomacy(state, *seat, hooks, table);
+    deliver_chat(state, *seat, hooks, table);
     run_due_timers(state, *seat);
     if (table)
         call_tick(state, *seat, hooks);
@@ -408,20 +442,27 @@ bool deliver_turn(void* context, match_runtime::Match&, uint8_t) {
         return false;
     script_host::Sandbox& sandbox = *seat->sandbox;
     if (seat->stopped || sandbox.failed()) {
-        seat->stopped = true;
+        script_host::ScriptError none;
+        const script_host::ScriptError& error = sandbox.failed() ? sandbox.failure() : none;
+        hand_back(*seat, error);
         return true;
     }
     const EventBuffer held = seat->incoming;
     seat->incoming = seat->delivering;
     seat->delivering = held;
     seat->incoming.count = 0;
+    std::swap(seat->chat_incoming, seat->chat_delivering);
+    seat->chat_incoming.count = 0;
     sandbox.refill_bank();
     script_host::ScriptError error;
     script_host::CallHooks call;
     call.context = seat;
     call.push = push_tick;
-    if (!sandbox.call_banked("tick", call, error))
-        seat->stopped = true;
+    if (!sandbox.call_banked("tick", call, error)) {
+        hand_back(*seat, error);
+        return true;
+    }
+    note_prints(*seat);
     return true;
 }
 

@@ -16,18 +16,22 @@ brain plays as the built-in computer player.
   reads. A seat made before that reads a default game.
 - `check_brain` loads a brain and runs `fits` with no match. `start` is not
   called, and the sandbox is closed before it returns.
+- `set_report_hooks` stores where a seat reports printed lines and a stop.
+  The simulation writes no file and posts no message. Empty functions
+  report nothing. The hooks are kept before any brain is seated.
 - The brain profile is named `brain`. `install_libraries` is the one place
   a later change adds a library: one call, after the ones already there.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
   tables. `game` is then filled from the seat's facts, and unit handles,
-  the read-only `me` surface, and the definition collections are installed.
-  It then installs `brain.random`, `brain.after`, `brain.every` and
-  `brain.cancel`. `brain.shared_random` is installed only when the seat is
-  Classic and it has a match. It has to work when the seat has no match:
-  `game.in_match` is false, `me` still carries the player, level,
-  difficulty and options copied from the spec, and `units`, `weapons` and
-  `features` exist and are empty.
+  the read-only `me` surface, the definition collections, the AI profile
+  fields and `game.map` are installed, then `brain.say`, `brain.random`,
+  `brain.after`, `brain.every` and `brain.cancel`. `brain.shared_random` is
+  installed only when the seat is Classic and it has a match. It has to
+  work when the seat has no match: `game.in_match` is false, `game.map` is
+  nil, `me` still carries the player, level, difficulty and options copied
+  from the spec, `units`, `weapons` and `features` exist and are empty, and
+  `brain.say` answers that chat is not connected.
 
 ## State
 
@@ -77,6 +81,63 @@ An installer in `install_libraries` must work when the seat's match is
 null. This ticket's own tables do: they read the facts pointer and the
 texts copied onto the seat, not the match.
 
+## The map
+
+`game.map` is the match map. Outside a match it is nil. Inside a match it
+is one read-only object for the life of the seat. Assigning a field raises
+`map is read-only`. An unknown name reads nil. `getmetatable` is false.
+
+`name` is the map's name and `path` is its mission path, such as
+`Maps/DryFlats.TNT`. `path` is nil when the facts have no path. `world` is
+always nil: the engine has no world type to report. `width` is the map in
+cells. `world_width` and `world_height` are the same edges in world units.
+`sea_level` is an integer. `tide` is an `f32`. `wind_min` and `wind_max`
+are the wind's strength range, and `map:wind()` returns the current speed
+and direction as two integers. `surface_metal` is the metal of the first
+cell that is not a metal deposit.
+
+The cell count and a corner height share the name `height`, and Lua keeps
+one value per name. `map.height` is a function. `map:height()` with no cell
+is the height in cells. `map:height(cx, cz)` is that cell's corner height,
+or nil off the map. `map:heights(cx, cz)` is the cell's low and high
+height, or nil off the map. `map:ground(x, z)` is the sampled ground height
+at a world position, including off the map, where the engine reports -1.
+`x` and `z` are fixed values or whole world units. `map:metal(cx, cz)` is
+that cell's metal, or 0 off the map. `map:metal_feature(cx, cz)` is whether
+the cell is a metal deposit, false off the map.
+
+`map:metal_spots()` and `map:geo_spots()` are the deposits in the engine's
+scan order, rows then columns. Each entry is `{cx, cz}`. Walking the map
+costs one charge per cell.
+
+`map:classes()` lists the movement classes the match's unit types use, in
+handle order. Each entry is `name`, `handle`, `footprint_x` and
+`footprint_z`. A class the match did not build a movement map for is left
+out. Walking the types costs one charge per type.
+
+`map:passable(class, cx, cz)` is that class's cell value: 0 blocked, 1 slow
+or not clear, 3 clear, and 0 off the map. It does not look at what the seat
+has seen. `map:anchor(class, position)` is the cell a unit of that class
+would stand on at that position.
+
+`map:reachable(a, b, class)` is true when the two positions can meet by
+moving through that class's open cells, including a diagonal step. The
+regions are the ones the movement map holds for the seat. They are built
+the first time that class is asked in a tick, and kept for later questions
+in the same tick. Four classes are kept. A fifth frees the oldest tick, and
+a tie frees the smaller handle. A question does not search for a path and
+does not change the movement map, its projection or its occupancy. Building
+the regions costs one charge per sixteen cells, rounded up. Each question
+costs 16 more. A question that fails its arguments costs nothing.
+
+A class is a class name, ignoring ASCII case, a unit type's record, a unit
+type's name, or an integer. An integer that is a class handle is that
+class. Any other integer in range is a unit type. A type with no movement
+class can reach any two positions, including off the map. `passable` and
+`anchor` refuse that type with `unknown movement class`. A unit handle is
+not a class. A position the seat may not read makes `reachable` return nil
+and still costs 16. It is not an error, and the class is not checked.
+
 ## Tests
 
 `sim-brains-seat` (`tests/seat_test.cpp`) seats the made-up brain
@@ -104,9 +165,25 @@ knowledge.
 `steady-commander` on the same fixture. Its hooks record every call. The
 test checks creation, damage, death and a wreck, the order of one turn, a
 gift, a cancelled frame, carry, sight, a blocked path and a completed move,
-alliance and defeat, a missing hook, the bank, a full queue, and that two
+alliance and defeat, a missing hook, a hook that spends the bank and hands
+the seat back, a full queue, and that two
 seated brains and two matches with no brain keep the same random stream and
 state hash.
+
+`sim-brains-failure` (`tests/failure_test.cpp`) seats `steady-commander` on
+the same fixture. A turn that raises, spends the bank, hits the real-time
+limit, fills memory, or builds a string past the limit closes the sandbox
+and clears the hooks on that turn. The built-in player's squad countdown
+stays where it was on that tick and moves on the next. Printed lines keep
+the tick they were printed on. A brain that never fails is not handed back.
+`fits` and `start` do not report a stop.
+
+`sim-brains-chat` (`tests/chat_test.cpp`) seats the made-up brain
+`chat-listener` on the same fixture. Lines queued with `hear_chat` reach
+`onChat` at the next turn, in order, after the events and before `onTick`.
+`brain.say` passes each audience to the test's say hook and returns each
+answer. Two matches with no brain, and two matches whose brain says a line
+every tick, keep the same random stream and state hash.
 
 `sim-brains-random` (`tests/random_test.cpp`) checks the brain's own stream
 against `tests/random_reference.py`, that replacing `math.random` leaves
@@ -207,12 +284,14 @@ missing `onTick` is fine.
 
 One turn is one banked call. It delivers the queued events in the order they
 fired, then alliance changes for the other players in index order, then a
-defeat for each player who was participating and no longer is, then the
-timers whose due tick has come, then `onTick`. The timers run even when the
-hooks table is missing. The first turn stores the alliances and who is
-participating and reports none of those changes. A failed call marks the
-seat stopped; later turns return without a call. Orders a hook gives take
-effect in the next tick's unit sweep.
+defeat for each player who was participating and no longer is, then chat,
+then the timers whose due tick has come, then `onTick`. The timers run even
+when the hooks table is missing. The first turn stores the alliances and who
+is participating and reports none of those changes. A failed call closes
+the sandbox, clears the seat's hooks and reports the stop once. The failing
+turn still counts as played. The next turn has no hooks, so the built-in
+computer player takes it. Orders a hook gives take effect in the next
+tick's unit sweep.
 
 ## Timers
 
@@ -283,12 +362,52 @@ Tests may set `classic_fingerprint_for_tests` on the spec. When it is not
 empty it replaces the fingerprint baked into the build, for that load. The
 app never sets it.
 
+## Chat
+
+`onChat(from, text, to)` runs once per line that reached the seat since its
+last turn, in arrival order. `from` is the sender's player index. `text` is
+the words, with no name head. `to` is `all`, `allies`, `enemies` or `me`
+(a line addressed to this seat). A missing `onChat` is skipped, and the line
+is still consumed. A line heard while the hooks run waits for the next turn.
+At most 32 lines wait for one turn; a further line is dropped and counted by
+`dropped_chat_lines`. Words longer than 256 bytes are cut between whole
+characters. A long line that arrived as several parts is several calls.
+
+`brain.say(text [, to])` hands one line to the match at once. `to` is
+`all` (the default), `allies`, `enemies` or a player index from 0 to 9.
+Anything else raises. It returns true when the line was queued, and otherwise
+false plus `not_a_seat`, `empty`, `command`, `too_soon`, `no_target` or
+`no_chat`. It does not pace, post to the log or send a command itself: the
+match does that. With no say hook, or outside a match, the answer is
+`no_chat`.
+
+The app sets that hook, and the listener that queues heard lines, only once
+a brain is seated. A match with no brain keeps the chat listener it already
+had. The simulation reaches the app only through this hook.
+
+## When a brain fails
+
+A failed turn closes the sandbox and clears the seat's hooks before that
+turn returns. The report hooks hear the stop once, with the script error
+still alive, after the printed lines of that call have been drained. A
+later turn finds no hooks and does not call into the brain. The built-in
+computer player already has a controller for the seat, made when the
+computer players were set up, and the next order tick resumes the tasks it
+already holds. Every task still has its next tick at 0, so they all run on
+that first order tick. The squad sort follows 30 order ticks later and
+reads the squads the brain left. Nothing about that controller is rebuilt.
+
+A brain that is refused, fails to start, or does not fit never has hooks,
+so the built-in player plays from the start. `fits` and `start` drain
+their printed lines and do not report a stop. The app posts the seating
+notice from the outcome. A defeated player is simply no longer called. The
+sandbox closes with the match.
+
 ## Limitations
 
-Radar contacts wait on per-player radar (A05). Chat waits on A08. Handing a
-stopped seat back to the built-in player, with the notice and the log, is
-B04. Shots are not delivered. A saved game does not keep timers or the
-brain's stream: the brain starts again from `start`. Placed map features are not listed; `features` is the
+Radar contacts wait on per-player radar (A05). Shots are not delivered. A
+saved game does not keep timers or the brain's stream: the brain starts
+again from `start`. Placed map features are not listed; `features` is the
 feature-type table.
 
 ## Definitions
@@ -342,3 +461,82 @@ lookup is nil.
 computer-build fixture and also runs that brain with no match.
 `sim-brains-defs-data` compares every installed unit's kept fields with the
 value the match loaded.
+
+`sim-brains-map` (`tests/map_test.cpp`) seats the made-up brain `map-reader`
+on the computer-build fixture. It reads the map, the cells, the deposits
+and one movement class, checks reachability around a wall once a gap is
+open, and checks that a question does not move the movement map. Outside a
+match, `check_brain` sees `game.map` nil. There is no installed-map run:
+nothing in the suite loads a map the game would install.
+
+## AI profile data
+
+`game.ai_profile` is the profile the match's computer players read. It has
+`path`, `name` (the file name without its folder or a trailing `.txt`, as
+written), `text`, `too_large`, `lines` and `report_path`. `text` is nil and
+`too_large` is true when the text passes the host's string limit, 64 KiB;
+the lines are still parsed. `report_path` is the map's profile slot, nil
+when that slot is empty, and it can differ from `path`. An empty path makes
+`game.ai_profile` nil.
+
+`game.ai_profiles()` returns every profile in the facts, in the listed
+order. `game.parse_profile(text)` parses any text, such as a type's
+`ai_weight`, and leaves `path` and `name` unset. Each call builds a new
+read-only table. Assigning a field raises `a profile is read-only`. The
+charge is the text's bytes plus one unit per word.
+
+`lines` is one table per line `computer_profile_lines` reports. A line has
+`number`, `words`, `command` (the first word in lower case) and, by command:
+
+- `plan`: `any`, `easy`, `medium`, `hard`. `any` is true only when at least
+  one word follows `plan` and the first of them is `any`. Each keyword is
+  true when some word after `plan` equals it. ASCII case is ignored.
+- `weight`: `name` (the second word, or `""`), `factor` (an `f32`,
+  `static_cast<float>(std::strtod)` of the third word, or 0 when it is
+  missing) and `unit`.
+- `limit`: `name`, `count` (`static_cast<int32_t>(std::strtol)` base 10 of
+  the third word; `-1` stays `-1`) and `unit`.
+
+`unit` is true when `name` equals some type's unit name, ignoring ASCII
+case. An empty name is not a unit. Outside a match `unit` is nil.
+
+The grammar is the built-in player's. A line ends at `\n`, and a file with
+no final newline still has that last line. Words are separated by space,
+tab, `\r`, `\n`, `\v` or `\f`. `#` ends the line, even inside a word. A
+line keeps at most 20 words, and those words share 126 bytes, so a long
+word is cut. Anything that is not `plan`, `weight` or `limit`, including
+`//`, is still a line.
+
+`profile:select(keyword)` is one pass for `"easy"`, `"medium"` or `"hard"`.
+Any other keyword raises `select expects easy, medium or hard`. The plan
+flag starts matched, so lines before the first plan apply. A plan line
+sets the flag from that line's `any` or its keyword, and the flag is not
+kept after the call. The result is `{weights = {…}, limits = {…}}`, the
+line tables that apply. The built-in player keeps the flag from one pass
+to the next and applies a downloadable type's own lines twice. This pass
+does neither.
+
+In a match, `game.build_list(type)` is a new sequence of `units` records.
+`type` is a unit record, a unit name or a type index, resolved by
+`resolve_unit_type`. The list is computed from the runs
+`match_computer_players` holds, by the built-in player's rules: from type
+0, a count then that many ids; a type gets a list only when it is not 0
+and it is a builder; an id that is 0 or not below the type count is
+skipped; at most `build_list_kept(Match::limits().build_lists) + 1` ids
+are kept. A non-builder, or a type the runs do not reach, is an empty
+sequence. `game.build_list_cap` is that limit. `game.downloadables_allowed`
+is false when the computer players were configured for a campaign.
+
+`brain.strengths(type)` returns the seat's three strategic bytes, each read
+as `int8_t`: build priority, metal, energy. The charge is 2. It returns
+nil when the seat's table does not reach the type. The table is empty
+until the match prepares its computer players, which is before the brain's
+first `onTick`, and it is replaced when the match refreshes that player.
+
+Outside a match the profile fields still work and `unit` is nil.
+`build_list`, `build_list_cap`, `downloadables_allowed` and
+`brain.strengths` are nil.
+
+`sim-brains-profile` seats the made-up brain `profile-reader` on the
+computer-build fixture. `sim-brains-profile-data` parses every installed
+`ai/*.txt` profile.
