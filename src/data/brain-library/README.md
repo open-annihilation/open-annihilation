@@ -59,6 +59,36 @@ the order and the problems, `find`, a missing folder, the network sizes of
 a brain with two networks, Lantern Scout's 12,345-byte network, and a brain
 whose network file is missing.
 
+`data-brain-library-seats` reads and writes a setup's seats: a round trip,
+the exact bytes of two seats, members out of order, an unknown member left
+out of the reading, each broken rule refused, and `default_level` for each
+difficulty over Steady Commander's three levels, Ridge Raider's one level
+and a brain with none.
+
+## Seats
+
+`oa/data/brain_library/seats.hpp` is the record a setup remembers for its
+computer seats, and the one text that record is stored as.
+
+- `Seat` is one place, 0 to 9. An empty brain is the built-in computer
+  player. The version and the package SHA-256 stay empty while the setup
+  holds the seat and are filled when a game is saved. The level is a
+  brain's level id, or `easy`, `medium` or `hard` for the built-in player,
+  and empty when the seat takes the setup's own difficulty. Options stay in
+  the brain's order, each value in that option's canonical text.
+- `seats_text` writes compact JSON. Members are in byte order and seats are
+  in order of place. An empty member is left out, and `place` is always
+  written: `{"seats":[{"brain":"steady-commander","level":"firm","options":{"aggression":"high"},"place":1}]}`.
+- `parse_seats` reads that shape in any member order, ignores a member it
+  does not know, and returns nothing when a rule is broken. It accepts at
+  most ten seats, distinct places 0 to 9, a kebab-case brain and level of
+  at most 64 bytes, a version of at most 32 bytes, a package SHA-256 of 64
+  lower-case hex digits, and at most 16 options whose ids are kebab-case of
+  at most 64 bytes and whose values are at most 64 bytes. The whole text is
+  at most 16 KiB. It does not throw, and it does not trust a count.
+- `default_level` is the first level of a difficulty, or the last level
+  when the brain has none of that difficulty, or 0 when it has no levels.
+
 ## Limitations
 
 Whether a brain is chosen for a seat is not known here. The manifest is not

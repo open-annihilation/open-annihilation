@@ -221,6 +221,21 @@ inline constexpr std::string_view mutators_campaign = "open-annihilation.mutator
 /// the built-in computer player is the default. Restore defaults does not
 /// erase it. USE BY DEFAULT writes it.
 inline constexpr std::string_view brain_default = "open-annihilation.brain.default";
+/// The computer seats a skirmish last started with, as the seat text.
+/// Absent, or text that cannot be read as seats, means no seats. START
+/// writes it when a seat names a brain, or when it is already there.
+/// Restore defaults does not erase it.
+inline constexpr std::string_view brains_skirmish = "open-annihilation.brains.skirmish";
+/// The computer seats the battle room last started with, as the seat text.
+/// Absent, or text that cannot be read as seats, means no seats. That
+/// setup writes it when a seat names a brain, or when it is already there.
+/// Restore defaults does not erase it.
+inline constexpr std::string_view brains_multiplayer = "open-annihilation.brains.multiplayer";
+/// The computer seats a campaign last started with, as the seat text.
+/// Absent, or text that cannot be read as seats, means no seats. A
+/// mission's start writes it when a seat names a brain, or when it is
+/// already there. Restore defaults does not erase it.
+inline constexpr std::string_view brains_campaign = "open-annihilation.brains.campaign";
 static_assert(base_game.find('|') == std::string_view::npos);
 static_assert(base_game.find('\\') == std::string_view::npos);
 static_assert(expansions_prefix.find('|') == std::string_view::npos);
@@ -230,6 +245,9 @@ static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
 static_assert(brain_default.find('|') == std::string_view::npos);
+static_assert(brains_skirmish.find('|') == std::string_view::npos);
+static_assert(brains_multiplayer.find('|') == std::string_view::npos);
+static_assert(brains_campaign.find('|') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
