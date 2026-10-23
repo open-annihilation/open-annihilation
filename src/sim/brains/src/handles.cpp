@@ -260,7 +260,10 @@ int unit_tostring(lua_State* lua) {
     if (!to_unit(lua, 1, &ref))
         return luaL_error(lua, "a unit handle cannot be read");
     lua_pushfstring(
-        lua, "unit %u.%u", static_cast<unsigned>(ref.slot), static_cast<unsigned>(ref.generation)
+        lua,
+        "unit %I.%I",
+        static_cast<lua_Integer>(ref.slot),
+        static_cast<lua_Integer>(ref.generation)
     );
     return 1;
 }
