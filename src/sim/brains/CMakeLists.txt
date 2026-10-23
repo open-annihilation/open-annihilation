@@ -5,7 +5,7 @@
 # fits and start run, and the match calls the seat's hooks instead of the
 # built-in order tick.
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
-  src/check.cpp)
+  src/check.cpp src/handles.cpp src/lua_me.cpp)
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include)
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
@@ -29,4 +29,14 @@ if(BUILD_TESTING)
     OA_FACT_READER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/fact-reader")
   add_test(NAME sim-brains-game COMMAND oa-sim-brains-game-test)
   set_tests_properties(sim-brains-game PROPERTIES TIMEOUT 120)
+
+  add_executable(oa-sim-brains-me-test tests/me_test.cpp)
+  target_include_directories(oa-sim-brains-me-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-me-test PRIVATE
+    "OA_SIDE_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/side-reader\"")
+  target_link_libraries(oa-sim-brains-me-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
+  add_test(NAME sim-brains-me COMMAND oa-sim-brains-me-test)
+  set_tests_properties(sim-brains-me PROPERTIES TIMEOUT 180)
 endif()
