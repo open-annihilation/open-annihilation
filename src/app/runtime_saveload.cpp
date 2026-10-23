@@ -1506,22 +1506,25 @@ bool Runtime::read_save_summary(const fs::path& path, ui::frontend::LoadSummary&
 }
 
 bool Runtime::load_saved_game(const fs::path& path) {
+    // The built-in answer is for this load only. A stop before the brains are
+    // checked, including a throw, must not leave it set for a later load.
+    struct DropBuiltinAnswer {
+        Runtime& runtime;
+
+        ~DropBuiltinAnswer() { runtime.load_missing_brains_as_builtin_ = false; }
+    } drop_builtin_answer{*this};
+
     BankGuard guard;
     persist::Bank* bank = &guard.bank;
     persist::BankError error{};
     if (!read_whole_save(guard, path, &error)) {
-        load_missing_brains_as_builtin_ = false;
         status_ = std::string("Invalid savegame file: ") + error.message;
         return false;
     }
-    if (!check_saved_mod_profile(bank)) {
-        load_missing_brains_as_builtin_ = false;
+    if (!check_saved_mod_profile(bank))
         return false;
-    }
-    if (!check_saved_mutators(bank)) {
-        load_missing_brains_as_builtin_ = false;
+    if (!check_saved_mutators(bank))
         return false;
-    }
     if (!check_saved_brains(bank))
         return false;
 
