@@ -5,6 +5,7 @@
 // asks for. The simulation never reads the package itself.
 #pragma once
 
+#include "oa/data/brain_library/library.hpp"
 #include "oa/formats/oabrain/manifest.hpp"
 #include "oa/sim/brains/seat.hpp"
 
@@ -19,7 +20,8 @@
 namespace oa::app {
 
 /// The folder of installed brains under the player's own folder.
-inline constexpr std::string_view brains_folder_name = "Brains";
+/// The brain library defines the name; the installer uses the same one.
+using oa::data::brain_library::brains_folder_name;
 
 /// The most bytes of files one installed brain may hold, taken together.
 inline constexpr uintmax_t installed_package_bytes = uintmax_t{128} << 20;

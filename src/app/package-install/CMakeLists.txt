@@ -18,9 +18,10 @@ add_library(oa::app::package_install ALIAS oa-app-package-install)
 target_include_directories(oa-app-package-install PUBLIC include)
 target_compile_features(oa-app-package-install PUBLIC cxx_std_20)
 target_link_libraries(oa-app-package-install PUBLIC oa-formats-zip oa-formats-hpi oa-data-mod-profile
-  oa-data-map-pack oa-data-map-fit oa-platform-preferences oa-ui-engine-settings oa-base-sha256
+  oa-data-brain-library oa-data-map-pack oa-data-map-fit oa-platform-preferences
+  oa-ui-engine-settings oa-base-sha256
   PRIVATE oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-data-mutator-library
-  oa-data-brain-library oa-data-content-bundles oa-formats-png oa-data-languages
+  oa-data-content-bundles oa-formats-png oa-data-languages
   oa-data-registry oa-app-mod-profile oa-app-user-folder oa-app-game-directory
   oa-ui-game-files oa-platform-shims oa-platform-file-types
   oa-platform-text-font oa-base-threads oa-options)

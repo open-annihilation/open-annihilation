@@ -7,6 +7,7 @@
 
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/prompts.hpp"
+#include "oa/data/brain_library/library.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -21,11 +22,8 @@ namespace oa::app::package_install::oabrain {
 inline constexpr std::string_view oabrain_extension = ".oabrain";
 
 /// The folder of the player's own folder that holds installed brains.
-///
-/// The same name as oa::data::brain_library::brains_folder_name. This
-/// header does not include that library: the module links it privately, and
-/// a public header would then fail to compile for a target that does not.
-inline constexpr std::string_view brains_folder_name = "Brains";
+/// The brain library defines the name; a seat uses the same one.
+using oa::data::brain_library::brains_folder_name;
 
 /// The most bytes of a brain's icon. A larger file is refused.
 inline constexpr uint64_t most_icon_bytes = uint64_t{256} << 10;
