@@ -21,9 +21,11 @@ brain plays as the built-in computer player.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
   tables. `game` is then filled from the seat's facts, and unit handles and
-  the read-only `me` surface are installed. It has to work when the seat has
-  no match: `game.in_match` is false, and `me` still carries the player,
-  level, difficulty and options copied from the spec.
+  the read-only `me` surface are installed. It then installs `brain.random`,
+  `brain.after`, `brain.every` and `brain.cancel`. `brain.shared_random` is
+  installed only when the seat is Classic and it has a match. It has to work
+  when the seat has no match: `game.in_match` is false, and `me` still
+  carries the player, level, difficulty and options copied from the spec.
 
 ## State
 
@@ -103,6 +105,18 @@ gift, a cancelled frame, carry, sight, a blocked path and a completed move,
 alliance and defeat, a missing hook, the bank, a full queue, and that two
 seated brains and two matches with no brain keep the same random stream and
 state hash.
+
+`sim-brains-random` (`tests/random_test.cpp`) checks the brain's own stream
+against `tests/random_reference.py`, that replacing `math.random` leaves
+`brain.random`, that those draws do not move the match's shared stream, and
+that Classic is the fingerprint of the files. The sample package is
+`tests/classic-sample`.
+
+`sim-brains-timers` (`tests/timers_test.cpp`) checks that `brain.after` and
+`brain.every` run after the queued events and before `onTick`, in due-tick
+then sequence order, including a cancel from an earlier timer of the same
+turn, the waiting limit and the argument errors, and that an error inside a
+timer stops the seat and names the timer's chunk and line.
 
 ## Handles and my side
 
@@ -191,15 +205,85 @@ missing `onTick` is fine.
 
 One turn is one banked call. It delivers the queued events in the order they
 fired, then alliance changes for the other players in index order, then a
-defeat for each player who was participating and no longer is, then
-`onTick`. The first turn stores the alliances and who is participating and
-reports none of those changes. A failed call marks the seat stopped; later
-turns return without a call. Orders a hook gives take effect in the next
-tick's unit sweep.
+defeat for each player who was participating and no longer is, then the
+timers whose due tick has come, then `onTick`. The timers run even when the
+hooks table is missing. The first turn stores the alliances and who is
+participating and reports none of those changes. A failed call marks the
+seat stopped; later turns return without a call. Orders a hook gives take
+effect in the next tick's unit sweep.
+
+## Timers
+
+`brain.after(ticks, fn)` runs `fn` once, that many turns after the turn that
+created it. `start` sees the seating tick, so a timer it creates is due that
+many turns later. `brain.every(ticks, fn)` runs then, and again every
+`ticks` turns after the due tick it just met. `ticks` is an integer from 1
+to 2147483647. Anything else raises `brain.after: ticks must be an integer
+from 1 to 2147483647`, or the same sentence for `brain.every`. Each call
+returns an id. Ids are sequence numbers, starting at 1, and they only grow.
+`brain.cancel(id)` returns true when it removed a waiting timer and false
+otherwise. A brain may keep 1024 timers waiting; one more raises
+`brain.after: a brain may keep at most 1024 timers waiting`, or the same
+sentence for `brain.every`.
+
+Due timers run in order of due tick, then sequence number. One cancelled by
+an earlier timer of the same turn does not run. One created during the turn
+is due on a later turn. An `every` timer's next due tick is the due tick it
+just met plus its period. Each run charges one element of work. An error
+inside a timer stops the seat the way a hook error does, and the failure
+names the timer's chunk and line.
+
+With no match the three functions still check their arguments, and
+`brain.after`, `brain.every` and `brain.cancel` can store and cancel timers.
+No turn runs them.
+
+## Random
+
+`brain.random` is the `math.random` function taken when the profile
+installs, so both draw from the brain's own xoshiro256** stream. A script
+that replaces `math.random` does not change `brain.random`. `brain.random(n)`
+returns an integer from 1 to n, as `math.random(n)` does.
+
+The stream is seeded from the first eight bytes, little-endian, of the
+SHA-256 of the match seed written as eight little-endian bytes (the 32-bit
+seed zero-extended), then the player index as one byte, then the brain's id,
+a zero byte, and the version. The same four values always give the same
+draws. A load check has no match seed, so it uses 0. Draws from this stream
+do not advance the match's shared stream.
+
+`brain.shared_random(bound)` draws from that shared stream, the one unit
+scripts and the simulation draw from. `bound` is an integer from 0 to
+4294967295; anything else raises `brain.shared_random: argument 1 must be an
+integer from 0 to 4294967295`. The result is the match's own bounded draw: a
+value below `bound`, or 0 without advancing the stream when `bound`, read as
+a signed 32-bit value, is below 2. For any other brain, and for every brain
+with no match, `brain.shared_random` is nil.
+
+## Classic
+
+A seat is Classic only when its files are the files of this build's
+`brains/classic/` folder: the same paths and the same bytes. The id, the
+name, the manifest and the install path prove nothing. The test compares
+fingerprints. One line per file, in byte order of the path, is the SHA-256
+of that file in lower-case hex, a space, the path and a newline. The
+installer's record `.oa-origin.yaml` is left out. The fingerprint is the
+SHA-256 of that text, written the same way. The build computes it from
+`brains/classic/` and writes a generated header. A missing folder, or one
+with no other file, has an empty fingerprint, and then no package is Classic.
+
+`seat_is_classic` is the one test for every Classic privilege. The
+privileges are the shared stream (`brain.shared_random`, and later a draw
+from a copy of it) and the direct write of the standing bits. Full awareness
+is the manifest's own flag, kept on the seat. `seat_is_classic` does not
+decide it.
+
+Tests may set `classic_fingerprint_for_tests` on the spec. When it is not
+empty it replaces the fingerprint baked into the build, for that load. The
+app never sets it.
 
 ## Limitations
 
-Radar contacts wait on per-player radar (A05). Chat waits on A08. Timers
-run inside this call later (B03). Handing a stopped seat back to the
-built-in player, with the notice and the log, is B04. Shots are not
-delivered.
+Radar contacts wait on per-player radar (A05). Chat waits on A08. Handing a
+stopped seat back to the built-in player, with the notice and the log, is
+B04. Shots are not delivered. A saved game does not keep timers or the
+brain's stream: the brain starts again from `start`.

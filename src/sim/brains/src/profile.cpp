@@ -142,6 +142,9 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_game(state, seat);
     install_handles(state, seat);
     install_me(state, seat);
+    install_random(state);
+    install_timers(state, seat);
+    install_shared_random(state, seat);
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {
