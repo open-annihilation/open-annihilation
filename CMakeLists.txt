@@ -247,6 +247,7 @@ add_subdirectory(src/sim/unit-health)
 add_subdirectory(src/sim/weapon-execution)
 add_subdirectory(src/sim/match-runtime)
 add_subdirectory(src/sim/ai)
+add_subdirectory(src/sim/brains)
 add_subdirectory(src/sim/unit-effects)
 add_subdirectory(src/sim/effect-particles)
 add_subdirectory(src/sim/selection)
@@ -382,6 +383,11 @@ add_library(oa-app-mutators-memory src/app/mutators_memory.cpp)
 add_library(oa::app::mutators_memory ALIAS oa-app-mutators-memory)
 target_link_libraries(oa-app-mutators-memory PUBLIC oa-app-headers oa-platform-preferences
   oa-data-mutators PRIVATE oa-options)
+# Brains seated on this machine's computer players (brain_seats.hpp).
+add_library(oa-app-brain-seats src/app/brain_seats.cpp)
+add_library(oa::app::brain_seats ALIAS oa-app-brain-seats)
+target_link_libraries(oa-app-brain-seats PUBLIC oa-app-headers oa-sim-brains oa-formats-oabrain
+  PRIVATE oa-base-sha256 oa-options)
 # Chat a computer seat on this machine reads and sends (seat_chat.hpp).
 add_library(oa-app-seat-chat src/app/seat_chat.cpp)
 add_library(oa::app::seat_chat ALIAS oa-app-seat-chat)
@@ -854,6 +860,12 @@ if(BUILD_TESTING)
     oa-test-support oa-options)
   add_test(NAME app-mutators-memory COMMAND oa-app-mutators-memory-test)
   set_tests_properties(app-mutators-memory PROPERTIES TIMEOUT 30)
+  # An installed brain's files, the refusals, and the seat a choice resolves to.
+  add_executable(oa-app-brain-seats-test src/app/brain_seats_test.cpp)
+  target_link_libraries(oa-app-brain-seats-test PRIVATE oa-app-brain-seats oa-test-support
+    oa-base-sha256 oa-options)
+  add_test(NAME app-brain-seats COMMAND oa-app-brain-seats-test)
+  set_tests_properties(app-brain-seats PROPERTIES TIMEOUT 60)
   # Chat a computer seat reads and sends: what it may say, who hears it, and
   # the pace of one line per 30 ticks.
   add_executable(oa-app-seat-chat-test src/app/seat_chat_test.cpp)
@@ -1123,6 +1135,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mutator_library.cpp
   src/app/runtime_brain_library.cpp
   src/app/runtime_mutators.cpp
+  src/app/runtime_brains.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp
   src/app/runtime_mutators_maps.cpp
@@ -1251,7 +1264,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-window-icon
   oa-app-video-capture oa-app-render-host
   oa-ui-frontend-renderer oa-ui-gui-input oa-ui-frontend-state oa-audio-sdl
-  oa-platform-preferences oa-app-command-line oa-formats-tnt oa-sim-unit-spawn-runtime oa-data-mission-types oa-data-limits oa-data-pe-icon oa-present-world-renderer oa-sim-combat-state oa-sim-match-runtime oa-sim-unit-effects oa-sim-map-runtime oa-base-game-loop oa-sim-gameplay-input oa-sim-sprite-animation oa-ui-screen-registry oa-options
+  oa-platform-preferences oa-app-command-line oa-formats-tnt oa-sim-unit-spawn-runtime oa-data-mission-types oa-data-limits oa-data-pe-icon oa-present-world-renderer oa-sim-combat-state oa-sim-match-runtime oa-sim-brains oa-sim-unit-effects oa-sim-map-runtime oa-base-game-loop oa-sim-gameplay-input oa-sim-sprite-animation oa-ui-screen-registry oa-options
   oa-ui-hud oa-present-model oa-present-unit-playout oa-ui-frontend oa-ui-campaign oa-sim-session oa-ui-console
   oa-ui-services oa-sim-mission-units oa-sim-match-runtime-mission-units oa-sim-selection oa-sim-messages oa-sim-speed
   oa-data-campaign-assets oa-sim-profile oa-sim-state-hash oa-app-extensions
@@ -1267,6 +1280,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
+  oa-app-brain-seats
   oa-app-seat-chat
   oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles

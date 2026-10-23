@@ -78,6 +78,7 @@
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/settings.hpp"
 #include "oa/app/renderer_records.hpp"
+#include "oa/app/brain_seats.hpp"
 #include "oa/app/seat_chat.hpp"
 #include "oa/ui/frontend_multiplayer/host_mutators.hpp"
 #include "oa/ui/frontend_renderer/scroll_bars.hpp"
@@ -4485,6 +4486,15 @@ class Runtime final : public menu::Host,
     /// @param chosen the mutators, top first
     void choose_match_mutators(std::vector<oa::data::mutators::ResolvedMutator> chosen);
 
+    /// Names the brain one seat plays, or clears that seat.
+    ///
+    /// A player outside 0 to 9 does nothing. An empty choice clears the seat.
+    /// A skirmish or a campaign mission seats the choices before its first tick.
+    ///
+    /// @param player player index, 0 to 9
+    /// @param choice the brain, the level and the options; empty clears the seat
+    void set_brain_seat(uint8_t player, std::optional<BrainSeatChoice> choice);
+
     /// Returns the mutators the next matches apply.
     ///
     /// @return the list, top first; empty when none were chosen
@@ -4943,6 +4953,15 @@ class Runtime final : public menu::Host,
     ///
     /// @param bootstrap the match being started
     void apply_match_mutators(const MatchBootstrap& bootstrap);
+
+    /// Seats each chosen brain on a computer player of this machine.
+    ///
+    /// A seat with no choice is left alone. A choice on a seat that is not a
+    /// computer is left alone. A brain that cannot be read, does not fit or
+    /// fails to start writes one line to standard error and that seat plays
+    /// as the built-in computer player. Nothing is seated when no match is
+    /// running.
+    void seat_chosen_brains();
 
     /// Fills the pipeline's hack check from this run's profile.
     ///
@@ -18233,6 +18252,8 @@ class Runtime final : public menu::Host,
     std::unique_ptr<MutatorState, void (*)(MutatorState*) noexcept> mutator_state_{
         nullptr, destroy_mutator_state
     };
+    /// The brain named for each seat. Empty until a setup chooses one.
+    std::array<std::optional<BrainSeatChoice>, OA_PLAYER_COUNT> brain_seat_choices_{};
     /// Dry runs `check_mutators`, the Library and the picker have kept.
     /// A verdict read from the file does not count, and nor does a cancelled run.
     uint32_t mutator_dry_runs_{};
