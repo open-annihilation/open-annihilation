@@ -427,6 +427,55 @@ on one heavy turn, and a refill puts one tick's allowance back, up to 30
 ticks including the current one. The profile adds its own functions from
 `install` without a second interpreter. Each sandbox still has its own state.
 
+## Plain data
+
+`oa/data/script_host/plain_data.hpp` turns one Lua value into bytes a saved
+game can keep, and pushes those bytes back as a value. The bytes are the
+same on every build, and the same whatever order a table was filled in.
+
+Plain data is nil, booleans, integers, floats, strings, fixed counts and
+tables of those. Nil is only the top value, the one a save that returns
+nothing produces. A fixed count is the userdata `fixed` builds. Anything
+else is refused, and the refusal names the place from the top, as
+`saved.units[3]: a function cannot be saved`. A string key that is a name
+is written after a dot. Any other string key is `["…"]`. An integer key is
+in brackets.
+
+The bytes are little-endian. They start with the four letters `OAPD` and a
+format byte `1`, then one value, and nothing after it:
+
+- `0` nil, `1` false, `2` true;
+- `3` and an 8-byte two's-complement integer;
+- `4` and the 8 bytes of a double. A NaN is written as the quiet NaN
+  `0x7ff8000000000000`. A signed zero stays signed;
+- `5`, a 4-byte length and the bytes, at most 65,536;
+- `6` and an 8-byte fixed count inside the fixed range;
+- `7`, a 4-byte entry count, then each key and its value. Integer keys come
+  first, ascending. String keys follow, in byte order. A key is itself an
+  integer or a string value.
+
+A table reached twice, without being inside itself, is written twice and
+comes back as two tables. A cycle is refused. A table with a metatable is
+refused. A key that is not an integer or a string is refused. Lua already
+stores a float key whose value is a whole number as an integer, so that key
+is saved as an integer and `math.type` of a real integer stays `"integer"`.
+A float and an integer stay distinct.
+
+The value may be 64 levels deep, counting the outermost, and the bytes may
+be 1 MiB, header included. One more level, or one more byte, is refused.
+Encoding charges `units_for_bytes` of the encoded size plus one unit per
+value written, keys included, and only after the walk has dropped its
+containers: the walk makes no call that can raise, and the charge can.
+Nothing is charged when the value is refused. Pushing checks the bytes
+first, without Lua, and raises `the saved data is damaged: …` when they are
+not one plain value. It then charges the same count as it builds the
+tables and strings. A string longer than 40 bytes also pays the usual
+string charge when it is created.
+
+The caller keeps its `PlainData` and `PlainDataProblem` outside the frame
+a raise can skip. `data-script-host-plain-data` checks the bytes, the
+refusals, the round trip and the charge.
+
 ## Tests
 
 `data-script-host-lua` loads a text chunk and checks that the state frees
@@ -533,6 +582,17 @@ exact path, including through `SourceHooks`. A different case and a
 trailing slash do not match. Replacing a path keeps one file. A sandbox
 opened on those hooks runs `brain.lua`, and `require("a.b")` reads
 `lua/a/b.lua` from the same object.
+
+`data-script-host-plain-data` encodes plain values to fixed bytes, including
+one table built five ways and from two sandboxes. A round trip keeps
+integers, floats, signed zero, infinities, a NaN, strings, fixed counts and
+nested tables, and encoding the result gives the same bytes. It refuses a
+function, userdata that is not fixed (including an `f32`), a metatable, a
+cycle, a boolean key, a float key, 65 levels and 1,048,577 bytes. Checking
+refuses a truncated value, a bad tag, unsorted and repeated keys, a string
+past 65,536 bytes, a fixed count out of range, trailing bytes and a nil
+below the top. Damaged bytes fail the phase. The same value charges the
+same count twice, and a larger value charges more.
 
 ## Limitations
 
