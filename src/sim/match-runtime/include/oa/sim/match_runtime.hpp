@@ -3276,6 +3276,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         ConstructionOrderState construction;
         sim::simulation_state::Unit* unit{};
         RuntimeOrder* observer_next{};
+        /// Set once the order's unreachable goal was reported; not saved or hashed.
+        bool path_failure_reported{};
     };
 
     // What TickHost::owned gives for an order the match does not own, and

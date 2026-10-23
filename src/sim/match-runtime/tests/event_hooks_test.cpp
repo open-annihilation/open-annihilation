@@ -117,6 +117,11 @@ struct WreckReport {
     uint32_t plot{};
 };
 
+struct PathFailedReport {
+    uint16_t unit{};
+    uint8_t kind{};
+};
+
 struct GivenReport {
     uint16_t unit{};
     uint16_t copy{};
@@ -150,6 +155,7 @@ struct Recorder {
     std::vector<EndedReport> ended;
     std::vector<CarryReport> carried;
     std::vector<WreckReport> wrecks;
+    std::vector<PathFailedReport> path_failed;
     std::vector<BirthStep> births;
     std::vector<SeenChangeReport> seen;
 
@@ -211,6 +217,9 @@ struct Recorder {
             static_cast<Recorder*>(context)->seen.push_back(
                 {player, {gained.begin(), gained.end()}, {lost.begin(), lost.end()}}
             );
+        };
+        hooks.path_failed = [](void* context, const World&, uint16_t unit, uint8_t kind) {
+            static_cast<Recorder*>(context)->path_failed.push_back({unit, kind});
         };
         hooks.shot_placed = [](void* context,
                                const World&,
@@ -434,6 +443,15 @@ bool same_seen(const Recorder& left, const Recorder& right) {
     return true;
 }
 
+/// Tells whether two path-failure reports name the same unit and order.
+///
+/// @param left first report
+/// @param right second report
+/// @return true when every field is equal
+bool operator==(const PathFailedReport& left, const PathFailedReport& right) {
+    return left.unit == right.unit && left.kind == right.kind;
+}
+
 /// Tells whether two recorders kept the same reports, entry for entry.
 ///
 /// @param left first recorder
@@ -445,7 +463,8 @@ bool same_records(const Recorder& left, const Recorder& right) {
            left.detonations == right.detonations && left.damage == right.damage &&
            left.deaths == right.deaths && left.given == right.given && left.idle == right.idle &&
            left.ended == right.ended && left.carried == right.carried &&
-           left.wrecks == right.wrecks && left.births == right.births && same_seen(left, right);
+           left.wrecks == right.wrecks && left.path_failed == right.path_failed &&
+           left.births == right.births && same_seen(left, right);
 }
 
 /// The skirmish with every hook set plays exactly as without, to

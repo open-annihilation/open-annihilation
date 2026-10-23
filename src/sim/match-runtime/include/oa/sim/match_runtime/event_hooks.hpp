@@ -5,7 +5,8 @@
 // which unit started them, units finished, units given to another player,
 // a unit going idle, an order ending, shots placed, shots detonating,
 // damage and deaths, a unit carried or dropped, the wreck a death
-// leaves, and the enemies a player has gained or lost sight of. The match
+// leaves, the enemies a player has gained or lost sight of, and a goal
+// a unit cannot reach. The match
 // reports each event to its primary table (Match::event_hooks), then to
 // each listener in the order it was added, at the points every such event
 // passes through, whoever simulates the unit: this machine, or a recording
@@ -250,6 +251,18 @@ struct EventHooks {
         std::span<const oa::sim::detection::SightedUnit> gained,
         std::span<const oa::sim::detection::SightedUnit> lost
     ){};
+
+    /// Reports that a unit simulated here cannot reach its order's goal.
+    ///
+    /// A route search for that goal found no route, and the unit was not
+    /// already at the goal. An order is reported once, during the tick's
+    /// path search, even when it keeps trying. Null reports none.
+    ///
+    /// @param context EventHooks::context
+    /// @param world the match's world
+    /// @param unit the unit's slot
+    /// @param kind the order's mission kind
+    void (*path_failed)(void* context, const oa::World& world, uint16_t unit, uint8_t kind){};
 };
 
 } // namespace oa::sim::match_runtime
