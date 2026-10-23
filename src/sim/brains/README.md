@@ -16,6 +16,9 @@ brain plays as the built-in computer player.
   reads. A seat made before that reads a default game.
 - `check_brain` loads a brain and runs `fits` with no match. `start` is not
   called, and the sandbox is closed before it returns.
+- `set_report_hooks` stores where a seat reports printed lines and a stop.
+  The simulation writes no file and posts no message. Empty functions
+  report nothing. The hooks are kept before any brain is seated.
 - The brain profile is named `brain`. `install_libraries` is the one place
   a later change adds a library: one call, after the ones already there.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
@@ -105,9 +108,18 @@ knowledge.
 `steady-commander` on the same fixture. Its hooks record every call. The
 test checks creation, damage, death and a wreck, the order of one turn, a
 gift, a cancelled frame, carry, sight, a blocked path and a completed move,
-alliance and defeat, a missing hook, the bank, a full queue, and that two
+alliance and defeat, a missing hook, a hook that spends the bank and hands
+the seat back, a full queue, and that two
 seated brains and two matches with no brain keep the same random stream and
 state hash.
+
+`sim-brains-failure` (`tests/failure_test.cpp`) seats `steady-commander` on
+the same fixture. A turn that raises, spends the bank, hits the real-time
+limit, fills memory, or builds a string past the limit closes the sandbox
+and clears the hooks on that turn. The built-in player's squad countdown
+stays where it was on that tick and moves on the next. Printed lines keep
+the tick they were printed on. A brain that never fails is not handed back.
+`fits` and `start` do not report a stop.
 
 `sim-brains-chat` (`tests/chat_test.cpp`) seats the made-up brain
 `chat-listener` on the same fixture. Lines queued with `hear_chat` reach
@@ -216,11 +228,13 @@ missing `onTick` is fine.
 One turn is one banked call. It delivers the queued events in the order they
 fired, then alliance changes for the other players in index order, then a
 defeat for each player who was participating and no longer is, then chat,
-then the timers whose due tick has come, then `onTick`. The timers run even when the
-hooks table is missing. The first turn stores the alliances and who is
-participating and reports none of those changes. A failed call marks the
-seat stopped; later turns return without a call. Orders a hook gives take
-effect in the next tick's unit sweep.
+then the timers whose due tick has come, then `onTick`. The timers run even
+when the hooks table is missing. The first turn stores the alliances and who
+is participating and reports none of those changes. A failed call closes
+the sandbox, clears the seat's hooks and reports the stop once. The failing
+turn still counts as played. The next turn has no hooks, so the built-in
+computer player takes it. Orders a hook gives take effect in the next
+tick's unit sweep.
 
 ## Timers
 
@@ -314,12 +328,29 @@ The app sets that hook, and the listener that queues heard lines, only once
 a brain is seated. A match with no brain keeps the chat listener it already
 had. The simulation reaches the app only through this hook.
 
+## When a brain fails
+
+A failed turn closes the sandbox and clears the seat's hooks before that
+turn returns. The report hooks hear the stop once, with the script error
+still alive, after the printed lines of that call have been drained. A
+later turn finds no hooks and does not call into the brain. The built-in
+computer player already has a controller for the seat, made when the
+computer players were set up, and the next order tick resumes the tasks it
+already holds. Every task still has its next tick at 0, so they all run on
+that first order tick. The squad sort follows 30 order ticks later and
+reads the squads the brain left. Nothing about that controller is rebuilt.
+
+A brain that is refused, fails to start, or does not fit never has hooks,
+so the built-in player plays from the start. `fits` and `start` drain
+their printed lines and do not report a stop. The app posts the seating
+notice from the outcome. A defeated player is simply no longer called. The
+sandbox closes with the match.
+
 ## Limitations
 
-Radar contacts wait on per-player radar (A05). Handing a
-stopped seat back to the built-in player, with the notice and the log, is
-B04. Shots are not delivered. A saved game does not keep timers or the
-brain's stream: the brain starts again from `start`. Placed map features are not listed; `features` is the
+Radar contacts wait on per-player radar (A05). Shots are not delivered. A
+saved game does not keep timers or the brain's stream: the brain starts
+again from `start`. Placed map features are not listed; `features` is the
 feature-type table.
 
 ## Definitions

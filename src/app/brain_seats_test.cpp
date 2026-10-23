@@ -16,8 +16,9 @@
 #include <cstdio>
 #include <exception>
 #include <filesystem>
-#include <stdexcept>
 #include <fstream>
+#include <iterator>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -347,6 +348,85 @@ void seat_spec_views_match() {
     OA_CHECK(spec.files.data() == files.data());
 }
 
+std::string reason_in(std::string_view notice) {
+    const std::size_t open = notice.rfind('(');
+    const std::size_t close = notice.find("); the engine", open);
+    if (open == std::string_view::npos || close == std::string_view::npos || close <= open)
+        return {};
+    return std::string(notice.substr(open + 1, close - open - 1));
+}
+
+void notices_cut_a_reason_on_a_character() {
+    const std::string dropped_reason(159, 'a');
+    const std::string over = dropped_reason + "\xC3\xA9";
+    const std::string exact(158, 'a');
+    const std::string kept_reason = exact + "\xC3\xA9";
+    const std::string_view words[] = {
+        seats::brain_could_not_start_words,
+        seats::brain_does_not_fit_words,
+        seats::brain_stopped_words,
+    };
+    for (const std::string_view word : words) {
+        const std::string dropped = seats::brain_notice(word, "Steady", over);
+        const std::string cut = reason_in(dropped);
+        OA_CHECK(cut == dropped_reason);
+        OA_CHECK(cut.find('\xC3') == std::string::npos);
+        OA_CHECK(dropped.find("Steady") != std::string::npos);
+        const std::string kept = seats::brain_notice(word, "Steady", kept_reason);
+        OA_CHECK(reason_in(kept) == kept_reason);
+        OA_CHECK(kept.find("\xC3\xA9") != std::string::npos);
+    }
+}
+
+void log_writes_the_header_and_stops_at_one_mebibyte() {
+    const fs::path root = oa::test::make_scratch_directory("B04-brain-log");
+    fs::path path;
+    {
+        seats::BrainLog log;
+        log.begin(root, 2, "Steady Commander", "1", "steady-commander", "steady", 42);
+        OA_CHECK(log.open());
+        path = log.path();
+        OA_CHECK(path.filename() == "seat-3.log");
+        OA_CHECK(path.parent_path().filename() == "brains");
+        OA_CHECK(path.parent_path().parent_path().filename() == "logs");
+        log.line(0, "from-start");
+        host::ScriptError error;
+        error.kind = host::ErrorKind::runtime;
+        error.package_id = "steady-commander";
+        error.phase = "tick";
+        error.chunk = "brain.lua";
+        error.line = 4;
+        error.message = "attempt to index a nil value";
+        error.traceback = "stack traceback:\n\tbrain.lua:4: in main chunk";
+        log.stop(7, error);
+        const std::string wide(400, 'w');
+        while (log.open())
+            log.line(9, wide);
+        OA_CHECK(!log.open());
+    }
+    std::ifstream in(path, std::ios::binary);
+    OA_CHECK(static_cast<bool>(in));
+    const std::string file((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    constexpr std::size_t mebibyte = std::size_t{1} << 20;
+    OA_CHECK(file.size() <= mebibyte);
+    OA_CHECK(file.starts_with(
+        "Steady Commander 1 (steady-commander), level steady, seat 3, match seed 42\n"
+    ));
+    OA_CHECK(file.find("tick 0: from-start\n") != std::string::npos);
+    OA_CHECK(
+        file.find(
+            "tick 7: stopped: steady-commander: tick: brain.lua:4: attempt to index a nil value\n"
+        ) != std::string::npos
+    );
+    OA_CHECK(file.find("stack traceback:\n") != std::string::npos);
+    OA_CHECK(file.find("\tbrain.lua:4: in main chunk\n") != std::string::npos);
+    const std::string ending = "the log is full\n";
+    OA_CHECK(file.size() >= ending.size());
+    OA_CHECK(file.compare(file.size() - ending.size(), ending.size(), ending) == 0);
+    std::error_code ignored;
+    fs::remove_all(root, ignored);
+}
+
 } // namespace
 
 int main() {
@@ -361,6 +441,8 @@ int main() {
         resolves_the_first_level_and_the_defaults();
         refuses_an_unknown_level_option_or_value();
         seat_spec_views_match();
+        notices_cut_a_reason_on_a_character();
+        log_writes_the_header_and_stops_at_one_mebibyte();
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "app-brain-seats: %s\n", ex.what());
         return 1;

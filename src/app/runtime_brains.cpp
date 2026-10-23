@@ -9,8 +9,10 @@
 
 #include "oa/core/player.h"
 #include "oa/data/script_host/script_host.hpp"
+#include "oa/platform/preferences.hpp"
 #include "oa/sim/brains/chat.hpp"
 #include "oa/sim/brains/seat.hpp"
+#include "oa/sim/messages.hpp"
 
 #include <cstdint>
 #include <exception>
@@ -38,7 +40,98 @@ std::string failure_text(const oa::sim::brains::SeatOutcome& outcome) {
     return "the brain could not be seated";
 }
 
+std::string notice_reason(const oa::data::script_host::ScriptError& error) {
+    if (error.chunk.empty())
+        return error.message;
+    return error.chunk + ":" + std::to_string(error.line) + ": " + error.message;
+}
+
 } // namespace
+
+void Runtime::prepare_brain_report(
+    uint8_t player,
+    std::string_view name,
+    std::string_view version,
+    std::string_view id,
+    std::string_view level
+) {
+    if (match_ == nullptr || player >= OA_PLAYER_COUNT)
+        return;
+    oa::sim::brains::ReportHooks hooks;
+    hooks.context = this;
+    hooks.printed = &Runtime::brain_printed;
+    hooks.stopped = &Runtime::brain_stopped;
+    oa::sim::brains::set_report_hooks(*match_, hooks);
+    try {
+        brain_logs_[player].begin(
+            oa::platform::preferences::data_directory(),
+            player,
+            name,
+            version,
+            id,
+            level,
+            brain_match_seed_
+        );
+    } catch (const std::exception&) {
+        brain_logs_[player].fail(player);
+    }
+}
+
+void Runtime::report_unseated_brain(
+    uint8_t player, std::string_view name, const oa::sim::brains::SeatOutcome& outcome
+) {
+    if (player >= OA_PLAYER_COUNT)
+        return;
+    const uint32_t tick = match_ != nullptr ? match_->state().game.tick : 0;
+    BrainLog& log = brain_logs_[player];
+    std::string reason;
+    if (outcome.result == oa::sim::brains::SeatResult::failed &&
+        outcome.error.kind != oa::data::script_host::ErrorKind::none) {
+        log.stop(tick, outcome.error);
+        reason = notice_reason(outcome.error);
+    } else {
+        reason =
+            outcome.reason[0] != '\0' ? std::string(outcome.reason.data()) : failure_text(outcome);
+        log.stop_text(tick, reason);
+    }
+    const std::string_view words = outcome.result == oa::sim::brains::SeatResult::does_not_fit
+                                       ? brain_does_not_fit_words
+                                       : brain_could_not_start_words;
+    try {
+        post_match_message(brain_notice(words, name, reason), oa::sim::messages::kind_status);
+    } catch (const std::exception&) {
+        // The notice must not stop seating the other players.
+    }
+}
+
+void Runtime::brain_printed(void* context, uint8_t player, uint32_t tick, std::string_view line) {
+    auto* runtime = static_cast<Runtime*>(context);
+    if (runtime == nullptr || player >= OA_PLAYER_COUNT)
+        return;
+    try {
+        runtime->brain_logs_[player].line(tick, line);
+    } catch (const std::exception&) {
+        // A printed line must not escape into the tick.
+    }
+}
+
+void Runtime::brain_stopped(
+    void* context, uint8_t player, uint32_t tick, const oa::data::script_host::ScriptError& error
+) {
+    auto* runtime = static_cast<Runtime*>(context);
+    if (runtime == nullptr || player >= OA_PLAYER_COUNT)
+        return;
+    try {
+        BrainLog& log = runtime->brain_logs_[player];
+        log.stop(tick, error);
+        runtime->post_match_message(
+            brain_notice(brain_stopped_words, log.name(), notice_reason(error)),
+            oa::sim::messages::kind_status
+        );
+    } catch (const std::exception&) {
+        // The stop must not escape into the tick.
+    }
+}
 
 void Runtime::set_brain_seat(uint8_t player, std::optional<BrainSeatChoice> choice) {
     if (player >= OA_PLAYER_COUNT)
@@ -120,11 +213,20 @@ void Runtime::seat_chosen_brains() {
             std::vector<oa::sim::brains::NetworkFile> networks;
             const oa::sim::brains::SeatSpec spec =
                 seat_spec(player, *installed, resolved, files, options, networks);
+            prepare_brain_report(
+                player,
+                installed->manifest.name,
+                resolved.version,
+                installed->manifest.id,
+                resolved.level
+            );
             const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
-            if (outcome.result != oa::sim::brains::SeatResult::seated)
+            if (outcome.result != oa::sim::brains::SeatResult::seated) {
                 report_seat(player, choice->id, failure_text(outcome));
-            else
+                report_unseated_brain(player, installed->manifest.name, outcome);
+            } else {
                 seated_one = true;
+            }
         } catch (const std::exception& ex) {
             const char* text = ex.what();
             report_seat(
