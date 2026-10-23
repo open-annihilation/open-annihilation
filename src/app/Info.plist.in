@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   The macOS bundle's properties, configured when the build is configured
-  (cmake/OaGameBundle.cmake). The bundle declares the six file types as its own
+  (cmake/OaGameBundle.cmake). The bundle declares the seven file types as its own
   (UTExportedTypeDeclarations) and opens each as its owner (CFBundleDocumentTypes), so
   that opening one in the Finder starts the game: a mod package (.oamod), a language pack
-  (.oalang), a map pack (.oamap), a mutator package (.oamut), a registry file (.oareg) and a
-  launch file (.oalaunch).
-  Each of the first five conforms to public.data, not public.zip-archive or public.archive,
+  (.oalang), a map pack (.oamap), a mutator package (.oamut), a brain package (.oabrain), a
+  registry file (.oareg) and a launch file (.oalaunch).
+  Each of the first six conforms to public.data, not public.zip-archive or public.archive,
   although a package is a zip: as a zip, a browser that opens safe files after downloading
   them, and archive tools, would unpack it instead of handing it to the game. A registry file
   conforms to public.data too, so a browser downloads it rather than showing it. A launch
@@ -135,6 +135,27 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>net.coreprime.open-annihilation.oabrain</string>
+			<key>UTTypeDescription</key>
+			<string>Open Annihilation brain</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>oabrain</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-oabrain</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>net.coreprime.open-annihilation.oareg</string>
 			<key>UTTypeDescription</key>
 			<string>Open Annihilation registry</string>
@@ -236,6 +257,22 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>net.coreprime.open-annihilation.oamut</string>
+			</array>
+			<key>CFBundleTypeIconSystemGenerated</key>
+			<integer>1</integer>
+			<key>CFBundleTypeIconFile</key>
+			<string>${MACOSX_BUNDLE_ICON_FILE}</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Open Annihilation brain</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.coreprime.open-annihilation.oabrain</string>
 			</array>
 			<key>CFBundleTypeIconSystemGenerated</key>
 			<integer>1</integer>

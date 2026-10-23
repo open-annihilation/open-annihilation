@@ -1306,6 +1306,14 @@
 	it=Riquadro;
 	}
 
+[Brain packages (.oabrain)]
+	{
+	de=Gehirn-Pakete (.oabrain);
+	fr=Paquets de cerveau (.oabrain);
+	es=Paquetes de cerebro (.oabrain);
+	it=Pacchetti di cervello (.oabrain);
+	}
+
 [Brains]
 	{
 	de=Gehirne;

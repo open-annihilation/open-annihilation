@@ -67,7 +67,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 85> kExpected{{
+constexpr std::array<Expected, 86> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -147,6 +147,7 @@ constexpr std::array<Expected, 85> kExpected{{
     {Setting::file_type_oalang, RowKind::toggle, "Language packs (.oalang)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_oareg, RowKind::toggle, "Registry files (.oareg)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_oamut, RowKind::toggle, "Mutator packages (.oamut)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::file_type_oabrain, RowKind::toggle, "Brain packages (.oabrain)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::file_type_oalaunch, RowKind::toggle, "Launch files (.oalaunch)", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
 #if defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE
     {Setting::file_types_note, RowKind::text, "File types", 1, 1, 0, 0, 0, false, Lock::none, nullptr},

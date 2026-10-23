@@ -208,7 +208,7 @@ constexpr std::array<Setting, 3> kModChatRows{
 constexpr std::array<Setting, 0> kDownloadsRows{};
 /// System where the game registers file types at run time: Your files, then
 /// Welcome setup, then the group's heading and one switch for each type.
-constexpr std::array<Setting, 9> kSystemRuntimeRows{
+constexpr std::array<Setting, 10> kSystemRuntimeRows{
     Setting::user_folder,
     Setting::welcome_setup,
     Setting::file_type_registration,
@@ -217,6 +217,7 @@ constexpr std::array<Setting, 9> kSystemRuntimeRows{
     Setting::file_type_oalang,
     Setting::file_type_oareg,
     Setting::file_type_oamut,
+    Setting::file_type_oabrain,
     Setting::file_type_oalaunch,
 };
 /// System where the app's bundle declares the types: Your files, then
@@ -2458,6 +2459,8 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      .spec = engine_switch<&E::file_type_oareg>("file-type-oareg", "Registry files (.oareg)", {})},
     {.setting = S::file_type_oamut,
      .spec = engine_switch<&E::file_type_oamut>("file-type-oamut", "Mutator packages (.oamut)", {})},
+    {.setting = S::file_type_oabrain,
+     .spec = engine_switch<&E::file_type_oabrain>("file-type-oabrain", "Brain packages (.oabrain)", {})},
     {.setting = S::file_type_oalaunch,
      .spec = engine_switch<&E::file_type_oalaunch>("file-type-oalaunch", "Launch files (.oalaunch)", {})},
     {.setting = S::file_types_note,
@@ -2566,6 +2569,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "file-type-oalang",
     "file-type-oareg",
     "file-type-oamut",
+    "file-type-oabrain",
     "file-type-oalaunch",
     "file-types",
     "skirmish-players",

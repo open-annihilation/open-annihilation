@@ -10,10 +10,11 @@
   local network wording for LAN games, the Documents folder visible in the Files app and the
   Finder, a mouse or trackpad read as a pointer, the type of the game's archives (.hpi,
   .ufo, .ccx and .gp3 files), which the Game files screen's picker offers when the player adds
-  archives (src/ios_game_files.mm), and the six file types as the app's own, which it opens
+  archives (src/ios_game_files.mm), and the seven file types as the app's own, which it opens
   as each type's owner from the Files app and the share sheet (src/ios_platform.mm): a mod
   package (.oamod), a language pack (.oalang), a map pack (.oamap), a mutator package
-  (.oamut), a registry file (.oareg) and a launch file (.oalaunch). Each of the first five
+  (.oamut), a brain package (.oabrain), a registry file (.oareg) and a launch file
+  (.oalaunch). Each of the first six
   conforms to public.data, not
   public.zip-archive or public.archive, so that nothing unpacks a package as a zip instead of
   handing it to the game, and a browser downloads a registry file rather than showing it; a
@@ -227,6 +228,27 @@
 		</dict>
 		<dict>
 			<key>UTTypeIdentifier</key>
+			<string>net.coreprime.open-annihilation.oabrain</string>
+			<key>UTTypeDescription</key>
+			<string>Open Annihilation brain</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>oabrain</string>
+				</array>
+				<key>public.mime-type</key>
+				<array>
+					<string>application/x-oabrain</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeIdentifier</key>
 			<string>net.coreprime.open-annihilation.oareg</string>
 			<key>UTTypeDescription</key>
 			<string>Open Annihilation registry</string>
@@ -316,6 +338,18 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>net.coreprime.open-annihilation.oamut</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Open Annihilation brain</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>net.coreprime.open-annihilation.oabrain</string>
 			</array>
 		</dict>
 		<dict>

@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Check that the macOS and iOS bundles declare .oamod, .oalang, .oamap, .oamut, .oareg and .oalaunch as the game's own types.
+"""Check that the macOS and iOS bundles declare .oamod, .oalang, .oamap, .oamut, .oabrain, .oareg and .oalaunch as the game's own types.
 
 Reads the two Info.plist templates (src/app/Info.plist.in and platforms/ios/Info.plist.in, or
 the two named) as property lists and fails unless each, for every type in TYPES:
@@ -52,6 +52,8 @@ TYPES = (
      "application/x-oamap", "map", ["public.data"]),
     ("net.coreprime.open-annihilation.oamut", "Open Annihilation mutator", "oamut",
      "application/x-oamut", "mutator", ["public.data"]),
+    ("net.coreprime.open-annihilation.oabrain", "Open Annihilation brain", "oabrain",
+     "application/x-oabrain", "brain", ["public.data"]),
     ("net.coreprime.open-annihilation.oareg", "Open Annihilation registry", "oareg",
      "application/x-oareg", "registry", ["public.data"]),
     ("net.coreprime.open-annihilation.oalaunch", "Open Annihilation launch file", "oalaunch",
@@ -298,8 +300,8 @@ def main(argv=None):
         print(f"check_bundle_file_types: {len(findings)} finding(s)", file=sys.stderr)
         return 1
     print("check_bundle_file_types: both bundles declare and open .oamod, .oalang, .oamap, "
-          ".oamut, .oareg and .oalaunch, macOS takes plain text it is handed, the Windows "
-          "uninstaller withdraws all six and iOS brings in the five the game installs or adds")
+          ".oamut, .oabrain, .oareg and .oalaunch, macOS takes plain text it is handed, the Windows "
+          "uninstaller withdraws all seven and iOS brings in the six the game installs or adds")
     return 0
 
 
