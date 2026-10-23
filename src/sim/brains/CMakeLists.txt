@@ -63,4 +63,16 @@ if(BUILD_TESTING)
   set_tests_properties(sim-brains-defs PROPERTIES TIMEOUT 120)
   oa_add_game_data_test(sim-brains-defs-data oa-sim-brains-defs-test --data)
 
+  # AI profile lines, build lists and strategic strengths. The made-up brain
+  # is profile-reader. --data checks every installed ai/*.txt profile.
+  add_executable(oa-sim-brains-profile-test tests/profile_test.cpp)
+  target_include_directories(oa-sim-brains-profile-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-profile-test PRIVATE
+    "OA_PROFILE_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/profile-reader\"")
+  target_link_libraries(oa-sim-brains-profile-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-data-defs oa-formats-hpi oa-test-game-data)
+  add_test(NAME sim-brains-profile COMMAND oa-sim-brains-profile-test)
+  set_tests_properties(sim-brains-profile PROPERTIES TIMEOUT 120)
+  oa_add_game_data_test(sim-brains-profile-data oa-sim-brains-profile-test --data)
 endif()
