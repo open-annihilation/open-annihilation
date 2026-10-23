@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Read-only hooks that report what happens in a match: units created and
-// finished, shots placed, shots detonating, damage and deaths. The match
+// which unit started them, units finished, units given to another player,
+// shots placed, shots detonating, damage and deaths. The match
 // reports each event to its primary table (Match::event_hooks), then to
 // each listener in the order it was added, at the points every such event
 // passes through, whoever simulates the unit: this machine, or a recording
@@ -129,6 +130,44 @@ struct EventHooks {
         uint16_t unit,
         const KillOutcome& outcome,
         bool settled_elsewhere
+    ){};
+
+    /// Reports which unit's work started a new unit, right after unit_created
+    /// for the same unit and before unit_finished when a building is created
+    /// finished; null reports none.
+    ///
+    /// @param context EventHooks::context
+    /// @param world the match's world
+    /// @param unit the new unit's slot
+    /// @param builder the slot of the unit whose work started it: the mobile
+    ///        builder of a nanoframe, the factory of a factory's frame, the
+    ///        resurrecting unit of a raised one, or the aircraft of a building
+    ///        built from the air. 0 when no unit made it: a commander, a
+    ///        mission's unit, a hand-over's copy, or a copy of another
+    ///        machine's unit
+    void (*unit_created_by)(
+        void* context, const oa::World& world, uint16_t unit, uint16_t builder
+    ){};
+
+    /// Reports one capture, share-panel gift or structure gift, after the copy
+    /// is created and reported created when this machine makes it, and before
+    /// the old unit's death; null reports none. A transfer that changes
+    /// nothing is not reported.
+    ///
+    /// @param context EventHooks::context
+    /// @param world the match's world
+    /// @param unit the old unit's slot, still live
+    /// @param copy the new unit's slot, or 0 when the receiver's own machine
+    ///        makes the copy
+    /// @param from the old owner's player index
+    /// @param to the new owner's player index
+    void (*unit_given)(
+        void* context,
+        const oa::World& world,
+        uint16_t unit,
+        uint16_t copy,
+        uint8_t from,
+        uint8_t to
     ){};
 };
 

@@ -612,8 +612,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// Creates a unit through the unit-spawn sequence (SpawnBridge::create).
     ///
     /// @param request Type, player, position, slot and state of the unit.
+    /// @param builder Slot of the unit whose work started this one, reported
+    ///     with it. 0 when no unit made it: a commander, a mission's unit, a
+    ///     hand-over's copy, or a copy of another machine's unit.
     /// @return The new unit's slot, or null for an ordinary refusal.
-    sim::unit_spawn::Slot* create(const sim::unit_spawn::Request& request);
+    sim::unit_spawn::Slot* create(const sim::unit_spawn::Request& request, uint16_t builder = 0);
     /// Places a player's commander at a start position, centring the
     /// viewpoint player's view on it (SpawnBridge::start_player).
     ///
@@ -1413,7 +1416,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// the old unit dies as captured (lethal damage of the captured kind
     /// with no attacker). The copy then takes the old unit's state flags. A
     /// unit simulated elsewhere given to a player simulated elsewhere is
-    /// left alone after its captured event.
+    /// left alone after its captured event. A hand-over that creates the
+    /// copy here, or that leaves the copy to the receiver's machine, is
+    /// reported to event_hooks.unit_given while the old unit is still live
+    /// and before that unit dies. A transfer that changes nothing is not
+    /// reported.
     ///
     /// Nothing happens when the new owner already owns the unit, is outside
     /// the ten players or is not present, or the unit is not live or is
@@ -3896,13 +3903,16 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param unit Finished unit; must be live.
     /// @param builder Unit whose work finished it, or the unit itself.
     void link_built_unit(sim::unit_spawn::Slot& unit, sim::unit_spawn::Slot& builder);
-    /// Reports a unit the spawn placed to event_hooks.unit_created, then, for
-    /// a building (bmcode 0) created finished, to unit_finished as finished
-    /// by itself, as the spawn shares it.
+    /// Reports a unit the spawn placed to event_hooks.unit_created, then to
+    /// unit_created_by with `builder`, then, for a building (bmcode 0) created
+    /// finished, to unit_finished as finished by itself, as the spawn shares
+    /// it.
     ///
     /// @param slot The new unit's slot; null reports nothing.
     /// @param finished Whether the request created the unit finished.
-    void report_created(const sim::unit_spawn::Slot* slot, bool finished);
+    /// @param builder Slot of the unit whose work started it, or 0 when no
+    ///     unit made it.
+    void report_created(const sim::unit_spawn::Slot* slot, bool finished, uint16_t builder);
     /// Reports a unit finished to event_hooks.unit_finished, once from its
     /// creation on, whichever path finishes it first.
     ///
