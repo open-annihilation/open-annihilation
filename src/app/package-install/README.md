@@ -3,15 +3,16 @@
 This module installs packages into a folder of the player's own folder. One
 table of kinds says what differs; it holds the mod kind, `oamod`, the
 map pack kind, `oamap`, the language pack kind, `oalang`, the expansion
-kind, `expansion`, and the mutator kind, `oamut`. A mod package
-is a zip archive of a mod's folder, the one that holds its `oamod.yaml`; it
-installs into `Mods/<id>`, by the id its profile gives, whatever the file is
-called. A map pack installs into `Maps/<id>`. A language pack installs into
-`Languages/<tag>`, by the tag its `language.yaml` gives. An expansion
-installs into `Expansions/<game>/<id>` and is copied by `install_oaexp`,
-which writes the table's files and a `.oa-content` record. A mutator
-installs into `Mutators/<id>`. The module has no
-SDL: the game's runtime shows what it asks
+kind, `expansion`, the mutator kind, `oamut`, and the brain kind,
+`oabrain`. A mod package is a zip archive of a mod's folder, the one that
+holds its `oamod.yaml`; it installs into `Mods/<id>`, by the id its profile
+gives, whatever the file is called. A map pack installs into `Maps/<id>`.
+A language pack installs into `Languages/<tag>`, by the tag its
+`language.yaml` gives. An expansion installs into `Expansions/<game>/<id>`
+and is copied by `install_oaexp`, which writes the table's files and a
+`.oa-content` record. A mutator installs into `Mutators/<id>`. A brain
+installs into `Brains/<id>`. The module has no SDL: the game's runtime
+shows what it asks
 and answers (`src/app/runtime_mod_install.cpp`,
 "Mod packages" in [src/app](../README.md#mod-packages-oamod) and
 "Map packs" in [src/app](../README.md#map-packs-oamap)).
@@ -259,6 +260,64 @@ The installed mutators are listed by `oa-data-mutator-library` from each
 folder's `oamut.yaml` and `.oa-origin.yaml` alone. The game reads that list
 on first use and again after every mutator package change.
 
+### Brains (.oabrain)
+
+The hooks are `src/plan_oabrain.cpp` and `src/prompts_oabrain.cpp`
+(`oa/app/package_install/oabrain.hpp`). The shared reading, unpacking,
+renames, lock, `.backup`, recovery and origin record are the ones above.
+Nothing in an install parses a script or runs one. Before anything is
+written the kind checks, in `read_manifest`, and refuses with the problem
+named:
+
+- `oabrain.yaml` reads with the brain manifest reader. Every diagnostic is
+  kept; the prompt shows the first three and the log has them all.
+- Each `requires.expansions` id is an expansion this build knows.
+- The id can name a folder on Windows.
+- Every file is one `file_role` allows, on the name as the package wrote
+  it. A file outside that layout is refused.
+- The entry script (`entry`, default `brain.lua`) is in the package.
+- No `.lua` file, the entry included, starts with the byte `0x1B`. Each is
+  read through `read_entry` with a bound of 1 MiB. A larger script is
+  refused. An empty file is source.
+- The icon, when named, is in the package, a PNG, square, from 1 to 256
+  pixels on a side and at most 256 KiB. Every icon failure shares one
+  sentence.
+- Every network the manifest names is in the package, and those entries'
+  sizes together are at most 64 MiB.
+- Each data table is at most 4 MiB.
+- `requires.engine`, when the manifest writes one, is met by this build.
+  The sentence names the range and this build's version.
+
+After unpacking, and before the files are put in place, `check_staged`
+reads the staged `oabrain.yaml` and hashes each network in 64 KiB pieces.
+A hash that is not the one the manifest names is refused, the staging is
+discarded, and a brain already installed is left as it was.
+
+The revision is always 0. A file the player opened asks "Install the brain
+{name} {version}?" before a new folder is made. The same version asks to
+reinstall. Another version asks to update. Nothing is installed alongside.
+A catalogue package whose target's origin record names the same registry
+replaces that folder with no question and keeps one `.backup`, before the
+versions are compared. The same id from another registry asks to replace,
+and the question names both registries. A folder that does not hold this
+brain's `oabrain.yaml` is left as it is. A folder that holds nothing but
+empty folders reads as missing.
+
+The installed prompt says "{name} is installed. Choose it for a computer
+player when you set up a game." and offers OPEN FOLDER and OK. PLAY NOW is
+never offered: installing a brain does not seat it.
+
+A catalogue brain also installs when the main menu is not showing, on any
+screen except while a match loads or runs, and it shows no prompt, as a
+catalogue map pack does. A plan that needs a question goes back to the
+inbox and is asked on the settled main menu. A file the player opened, of
+any kind, still waits for the settled main menu.
+
+The installed brains are listed by `oa-data-brain-library` from each
+folder's `oabrain.yaml` and `.oa-origin.yaml` alone. A network file the
+manifest names is measured, not opened. The game reads that list on first
+use and again after every brain package change.
+
 ## What a package holds
 
 A zip archive (`oa/formats/zip/stream.hpp` says which) whose top holds
@@ -476,10 +535,10 @@ a replace that fails leaves the previous record as it was.
   `discard_pending_change`, leaving the installed version, its record and
   `.backup`, with no staged files, while a waiting roll back is left.
 - `app-package-install-kinds`: the kind table holds `oamod`, `oamap`,
-  `oalang`, `expansion` and `oamut`, a file is a package by those extensions, the seven folder names
-  of each, and a made-up kind built in the test installs, replaces, rolls
-  back, recovers and discards through the generic code, including a staged
-  check that refuses.
+  `oalang`, `expansion`, `oamut` and `oabrain`, a file is a package by
+  those extensions, the seven folder names of each, and a made-up kind
+  built in the test installs, replaces, rolls back, recovers and discards
+  through the generic code, including a staged check that refuses.
 - `app-package-install-oamut`: a mutator installed into a scratch Mutators
   folder, a reinstall question for the same package, an update that keeps
   `.backup` and a roll back that swaps them, a catalogue replace from the
@@ -488,6 +547,15 @@ a replace that fails leaves the previous record as it was.
   the discarder deletes, a package inside one top folder, and each refusal,
   including a script, an icon, an unmet engine and more folders than a
   mutator may take. The installed prompt offers no PLAY NOW.
+- `app-package-install-oabrain`: a brain installed into a scratch Brains
+  folder, `check_staged` accepting its network, a reinstall question for
+  the same package, an update that keeps `.backup` and a roll back that
+  swaps them, a catalogue replace from the same registry with no question
+  and a question that names another registry, a folder that holds something
+  else left as it was, an uninstall the discarder deletes, a package inside
+  one top folder, and each refusal, including a script, an icon, a network,
+  a table, an unmet engine and a staged network whose bytes differ from the
+  manifest's SHA-256. The installed prompt offers no PLAY NOW.
 - `app-package-install-oalang`: the pseudo pack installed into a scratch
   Languages folder, a Reinstall question for the same package, a Replace
   that keeps the old revision in `.backup`, a manifest inside one top
@@ -513,4 +581,6 @@ another Unicode form, are refused where it does, when the second cannot be
 made anew, and both unpack where it does not. Archives that span several
 disks or carry data before their first entry are not read. The stock game
 data has no unit texts in a pack's word, so a pack's `units.tdf` is checked
-and read, and those names stay as the game data gives them.
+and read, and those names stay as the game data gives them. Hashing a
+staged brain network is one call of at most 64 MiB on the frame that runs
+it.

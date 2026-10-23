@@ -104,6 +104,15 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME app-package-install-oamut COMMAND oa-app-package-install-oamut-test)
   set_tests_properties(app-package-install-oamut PROPERTIES TIMEOUT 30)
+  # A brain: its manifest, the files it may hold, its scripts, icon, networks
+  # and tables, the engine it needs, a catalogue replace, a question, a staged
+  # network hash, and each refusal.
+  add_executable(oa-app-package-install-oabrain-test tests/oabrain_test.cpp)
+  target_link_libraries(oa-app-package-install-oabrain-test PRIVATE oa-app-package-install
+    oa-formats-zip oa-formats-png oa-formats-oabrain oa-base-sha256 ZLIB::ZLIB oa-test-support
+    oa-options)
+  add_test(NAME app-package-install-oabrain COMMAND oa-app-package-install-oabrain-test)
+  set_tests_properties(app-package-install-oabrain PROPERTIES TIMEOUT 30)
   # A language pack: its manifest, the engine it needs, its tables, fonts and
   # warm-up, a question, a replace that keeps .backup, and a font that does
   # not open after unpacking.
