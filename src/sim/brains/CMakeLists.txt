@@ -31,7 +31,8 @@ add_custom_command(
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
   src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp src/classic.cpp
   src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
-  src/failure.cpp src/lua_profile.cpp "${oa_classic_fingerprint_header}")
+  src/failure.cpp src/lua_profile.cpp src/lua_orders.cpp
+  "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)

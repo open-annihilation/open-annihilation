@@ -6,6 +6,7 @@
 // then onTick.
 
 #include "internal.hpp"
+#include "orders.hpp"
 
 #include "oa/sim/brains/handles.hpp"
 #include "oa/sim/match_runtime.hpp"
@@ -447,6 +448,9 @@ bool deliver_turn(void* context, match_runtime::Match&, uint8_t) {
         hand_back(*seat, error);
         return true;
     }
+    // start was the turn before the first of these calls. A fresh seat is
+    // already on that turn, so only a live deliver starts another.
+    begin_order_turn(*seat);
     const EventBuffer held = seat->incoming;
     seat->incoming = seat->delivering;
     seat->delivering = held;
