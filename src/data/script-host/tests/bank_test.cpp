@@ -92,13 +92,18 @@ void put(Package& package, std::string path, std::string_view source) {
     package.files[std::move(path)] = std::vector<uint8_t>(source.begin(), source.end());
 }
 
+// Instruction and bank cases count instructions. Sixty seconds is past any
+// build's speed, so the count stops the call. The clock case below keeps a
+// short limit and is the one that proves the backstop.
+constexpr std::chrono::milliseconds instruction_call_limit{60'000};
+
 host::Profile bank_profile() {
     return host::Profile{
         "bank-test",
         host::Budget{50'000'000, std::size_t{8} << 20},
         nullptr,
         nullptr,
-        host::Bank{2'000'000, 30, std::chrono::milliseconds{250}},
+        host::Bank{2'000'000, 30, instruction_call_limit},
     };
 }
 
@@ -317,7 +322,7 @@ void ticks_below_one_count_as_one() {
         host::Budget{50'000'000, std::size_t{8} << 20},
         nullptr,
         nullptr,
-        host::Bank{2'000'000, 0, std::chrono::milliseconds{250}},
+        host::Bank{2'000'000, 0, instruction_call_limit},
     };
     auto sandbox = open_with(package, error, profile);
     if (!sandbox)
@@ -336,7 +341,7 @@ void the_limit_saturates() {
         host::Budget{50'000'000, std::size_t{8} << 20},
         nullptr,
         nullptr,
-        host::Bank{UINT64_MAX, 30, std::chrono::milliseconds{250}},
+        host::Bank{UINT64_MAX, 30, instruction_call_limit},
     };
     auto sandbox = open_with(package, error, profile);
     if (!sandbox)
@@ -525,6 +530,8 @@ void a_banked_call_stops_on_the_clock() {
     host::Budget budget;
     budget.instructions = std::numeric_limits<uint64_t>::max();
     budget.memory_bytes = std::size_t{8} << 20;
+    // Short on purpose: this case proves the real-time backstop. The
+    // instruction cases use instruction_call_limit instead.
     const host::Profile profile{
         "timed",
         budget,
