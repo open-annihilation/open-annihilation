@@ -20,8 +20,17 @@
 #include <exception>
 #include <new>
 #include <string_view>
+#include <utility>
 
 namespace oa::sim::brains {
+
+void write_reason(std::array<char, 256>& reason, std::string_view text) {
+    const std::size_t count = text.size() < reason_limit ? text.size() : reason_limit;
+    for (std::size_t index = 0; index < count; ++index)
+        reason[index] = text[index];
+    reason[count] = '\0';
+}
+
 namespace {
 
 constexpr const char* hook_names[] = {
@@ -48,13 +57,6 @@ constexpr const char* hook_names[] = {
     "save",
     "report",
 };
-
-void write_reason(std::array<char, 256>& reason, std::string_view text) {
-    const std::size_t count = text.size() < reason_limit ? text.size() : reason_limit;
-    for (std::size_t index = 0; index < count; ++index)
-        reason[index] = text[index];
-    reason[count] = '\0';
-}
 
 void write_parts(
     std::array<char, 256>& reason,
@@ -191,10 +193,15 @@ void fail_host(
     close_seat(brains, player);
 }
 
-void fail_text(
+void fail_sandbox_host(SeatOutcome& outcome, Seat& seat, const script_host::ScriptError& error) {
+    outcome.result = SeatResult::failed;
+    outcome.error = error;
+    seat.sandbox.reset();
+}
+
+void fail_sandbox_text(
     SeatOutcome& outcome,
-    Brains& brains,
-    uint8_t player,
+    Seat& seat,
     std::string_view phase,
     std::string_view chunk,
     std::string_view message
@@ -204,9 +211,9 @@ void fail_text(
     outcome.error.phase = phase;
     outcome.error.chunk = chunk;
     outcome.error.message = message;
-    outcome.error.package_id = brains.seats[player] ? brains.seats[player]->id : "";
+    outcome.error.package_id = seat.id;
     write_reason(outcome.reason, message);
-    close_seat(brains, player);
+    seat.sandbox.reset();
 }
 
 bool copy_seat(Seat& seat, const SeatSpec& spec) {
@@ -347,6 +354,90 @@ bool play_turn(void*, match_runtime::Match&, uint8_t) {
 
 } // namespace
 
+bool package_acceptable(const SeatSpec& spec, SeatOutcome& outcome) {
+    return texts_fit(spec, outcome) && entry_present(spec, outcome) &&
+           networks_match(spec, outcome);
+}
+
+bool copy_spec_into(Seat& seat, const SeatSpec& spec) {
+    return copy_seat(seat, spec);
+}
+
+bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
+    try {
+        script_host::OpenOptions options;
+        options.package_id = spec.id;
+        options.profile = brain_profile(seat, spec.bank);
+        options.sources = seat.sources.hooks();
+        options.random_seed = 0;
+        script_host::ScriptError error;
+        auto opened = script_host::Sandbox::open(options, error);
+        if (!opened) {
+            fail_sandbox_host(outcome, seat, error);
+            return false;
+        }
+        seat.sandbox = std::move(*opened);
+
+        LoadBox loaded;
+        loaded.seat = &seat;
+        loaded.status = 1;
+        script_host::CallHooks load_hooks;
+        load_hooks.context = &loaded;
+        load_hooks.read = read_entry;
+        if (!seat.sandbox->run_file(spec.entry, "load", &load_hooks, error)) {
+            fail_sandbox_host(outcome, seat, error);
+            return false;
+        }
+        if (loaded.status == 1) {
+            std::array<char, 256> message{};
+            write_parts(message, spec.entry, " must return a table of hooks", {});
+            fail_sandbox_text(outcome, seat, "load", spec.entry, message.data());
+            return false;
+        }
+        if (loaded.status == 2) {
+            const char* hook = loaded.hook != nullptr ? loaded.hook : "hook";
+            std::array<char, 256> prefix{};
+            write_parts(prefix, spec.entry, ": ", hook);
+            std::array<char, 256> message{};
+            write_parts(message, prefix.data(), " must be a function", {});
+            fail_sandbox_text(outcome, seat, "load", spec.entry, message.data());
+            return false;
+        }
+
+        if (seat.has_fits) {
+            FitsBox fits;
+            fits.seat = &seat;
+            fits.status = 2;
+            script_host::CallHooks fit_hooks;
+            fit_hooks.context = &fits;
+            fit_hooks.push = push_fits;
+            fit_hooks.read = read_fits;
+            if (!seat.sandbox->call("fits", fit_hooks, error)) {
+                fail_sandbox_host(outcome, seat, error);
+                return false;
+            }
+            if (fits.status == 1) {
+                outcome.result = SeatResult::does_not_fit;
+                write_reason(outcome.reason, fits.reason);
+                seat.sandbox.reset();
+                return false;
+            }
+            if (fits.status != 0) {
+                fail_sandbox_text(
+                    outcome, seat, "fits", spec.entry, "fits must return true or a reason"
+                );
+                return false;
+            }
+        }
+    } catch (const std::exception&) {
+        write_reason(outcome.reason, "the seat could not be stored");
+        outcome.result = SeatResult::failed;
+        seat.sandbox.reset();
+        return false;
+    }
+    return true;
+}
+
 bool brain_seated(const match_runtime::Match& match, uint8_t player) noexcept {
     if (player >= OA_PLAYER_COUNT)
         return false;
@@ -369,8 +460,7 @@ script_host::Sandbox* seat_sandbox(match_runtime::Match& match, uint8_t player) 
 SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     SeatOutcome outcome;
     outcome.result = SeatResult::failed;
-    if (!player_ready(match, spec, outcome) || !texts_fit(spec, outcome) ||
-        !entry_present(spec, outcome) || !networks_match(spec, outcome))
+    if (!player_ready(match, spec, outcome) || !package_acceptable(spec, outcome))
         return outcome;
 
     Brains* brains = brains_from(match, outcome);
@@ -384,85 +474,23 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         write_reason(outcome.reason, "the seat could not be stored");
         return outcome;
     }
-    if (!copy_seat(*created, spec)) {
+    if (!copy_spec_into(*created, spec)) {
         write_reason(outcome.reason, "the seat could not be stored");
         return outcome;
     }
     const uint8_t player = spec.player;
+    created->match = &match;
+    created->facts = &brains->facts;
     brains->seats[player] = std::move(created);
     Seat& seat = *brains->seats[player];
 
+    if (!open_and_fit(seat, spec, outcome)) {
+        close_seat(*brains, player);
+        return outcome;
+    }
+
     try {
-        script_host::OpenOptions options;
-        options.package_id = spec.id;
-        options.profile = brain_profile(seat, spec.bank);
-        options.sources = seat.sources.hooks();
-        options.random_seed = 0;
         script_host::ScriptError error;
-        auto opened = script_host::Sandbox::open(options, error);
-        if (!opened) {
-            fail_host(outcome, *brains, player, error);
-            return outcome;
-        }
-        seat.sandbox = std::move(*opened);
-
-        LoadBox loaded;
-        loaded.seat = &seat;
-        loaded.status = 1;
-        script_host::CallHooks load_hooks;
-        load_hooks.context = &loaded;
-        load_hooks.read = read_entry;
-        if (!seat.sandbox->run_file(spec.entry, "load", &load_hooks, error)) {
-            fail_host(outcome, *brains, player, error);
-            return outcome;
-        }
-        if (loaded.status == 1) {
-            std::array<char, 256> message{};
-            write_parts(message, spec.entry, " must return a table of hooks", {});
-            fail_text(outcome, *brains, player, "load", spec.entry, message.data());
-            return outcome;
-        }
-        if (loaded.status == 2) {
-            const char* hook = loaded.hook != nullptr ? loaded.hook : "hook";
-            std::array<char, 256> prefix{};
-            write_parts(prefix, spec.entry, ": ", hook);
-            std::array<char, 256> message{};
-            write_parts(message, prefix.data(), " must be a function", {});
-            fail_text(outcome, *brains, player, "load", spec.entry, message.data());
-            return outcome;
-        }
-
-        if (seat.has_fits) {
-            FitsBox fits;
-            fits.seat = &seat;
-            fits.status = 2;
-            script_host::CallHooks fit_hooks;
-            fit_hooks.context = &fits;
-            fit_hooks.push = push_fits;
-            fit_hooks.read = read_fits;
-            if (!seat.sandbox->call("fits", fit_hooks, error)) {
-                fail_host(outcome, *brains, player, error);
-                return outcome;
-            }
-            if (fits.status == 1) {
-                outcome.result = SeatResult::does_not_fit;
-                write_reason(outcome.reason, fits.reason);
-                close_seat(*brains, player);
-                return outcome;
-            }
-            if (fits.status != 0) {
-                fail_text(
-                    outcome,
-                    *brains,
-                    player,
-                    "fits",
-                    spec.entry,
-                    "fits must return true or a reason"
-                );
-                return outcome;
-            }
-        }
-
         if (seat.has_start) {
             StartBox starting;
             starting.seat = &seat;
@@ -480,6 +508,7 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         );
     } catch (const std::exception&) {
         write_reason(outcome.reason, "the seat could not be stored");
+        outcome.result = SeatResult::failed;
         close_seat(*brains, player);
         return outcome;
     }
@@ -490,6 +519,15 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     match.set_seat_hooks(player, hooks);
     outcome.result = SeatResult::seated;
     return outcome;
+}
+
+void set_match_game_facts(match_runtime::Match& match, oa::data::brain_facts::GameFacts facts) {
+    SeatOutcome outcome;
+    outcome.result = SeatResult::failed;
+    Brains* brains = brains_from(match, outcome);
+    if (brains == nullptr)
+        return;
+    brains->facts = std::move(facts);
 }
 
 } // namespace oa::sim::brains

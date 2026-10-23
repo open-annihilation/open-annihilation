@@ -209,6 +209,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/brain-facts)
 add_subdirectory(src/data/brain-library)
 add_subdirectory(src/data/map-fit)
 add_subdirectory(src/data/pe-icon)
@@ -1136,6 +1137,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_brain_library.cpp
   src/app/runtime_mutators.cpp
   src/app/runtime_brains.cpp
+  src/app/runtime_brain_facts.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp
   src/app/runtime_mutators_maps.cpp
@@ -1257,7 +1259,8 @@ endif()
 # records are written under it.
 set_property(SOURCE src/app/runtime_director.cpp src/app/runtime_engine_settings.cpp
   src/app/main.cpp src/app/game_files_screen.cpp src/app/runtime_game_files.cpp
-  src/app/runtime_mutators.cpp src/app/runtime_mutators_check.cpp APPEND
+  src/app/runtime_mutators.cpp src/app/runtime_mutators_check.cpp
+  src/app/runtime_brain_facts.cpp APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-game-directory oa-app-mod-profile
   oa-app-user-folder
