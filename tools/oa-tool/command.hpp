@@ -178,6 +178,24 @@ class Failure : public std::runtime_error {
 /// @throws Failure when the folder cannot be packed
 [[nodiscard]] int run_brain_pack(std::span<const std::string> arguments, Output& output);
 
+/// Converts an ONNX model to a .oann and reports the integer difference.
+///
+/// One positional argument is the model. `--calibrate` is required. `--out`
+/// names the .oann; without it the model's path is used with `.oann`.
+/// `--weights` is `int8` or `int16`. `--max-difference` refuses a larger
+/// difference and writes nothing. `--force` replaces an existing file.
+/// `--json` prints one object. A model that cannot be converted, or a
+/// difference past the limit, writes nothing.
+///
+/// @param arguments the model and the options
+/// @param[in,out] output receives the report, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done when the file was written and every difference is within
+///         the limit, or exit_usage when the arguments are not the command's
+/// @throws Failure when the model cannot be converted or a difference passes
+///         the limit
+[[nodiscard]] int run_brain_net(std::span<const std::string> arguments, Output& output);
+
 /// Checks a .oamut and reports the facts a catalogue lists.
 ///
 /// One positional argument is the package. A file of another kind is a usage

@@ -27,7 +27,9 @@ The path is:
 4. `tick_navigation` tests the goal-cell radius, raises arrival, detaches
    completed goals, consumes nearby route points, and marks a search needed
    after collisions or route exhaustion. An external search result is
-   supplied through `accept_path`.
+   supplied through `accept_path`, which returns true when that result is
+   empty and the unit is not already at the goal (it has raised
+   `path_failed_event` on the goal's order) and false otherwise.
 
 `search_ready` holds the pending bit and the 60-tick gate, and
 `SearchController` owns the four fields of the active search record (unit,

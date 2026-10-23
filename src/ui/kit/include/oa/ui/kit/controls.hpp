@@ -329,8 +329,9 @@ void add_search(
 // ---- Tabs ----
 
 /// Returns each tab's rectangle, left to right from the strip's left, each
-/// as tall as the strip: its caption in the small font with tab_tracking,
-/// tab_padding either side, and its count after the caption. A pill shows a
+/// as tall as the strip: its caption in the small font with the look's
+/// tracking, or the theme's tab_tracking, that padding either side, or the
+/// theme's tab_padding, and its count after the caption. A pill shows a
 /// count above 0. Words show a count of 0 or more, and skip a negative one.
 ///
 /// @param fonts the fonts

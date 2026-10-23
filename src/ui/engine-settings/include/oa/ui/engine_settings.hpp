@@ -217,6 +217,10 @@ inline constexpr std::string_view mutators_multiplayer = "open-annihilation.muta
 /// options. Absent, or text that cannot be read as that loadout, means no
 /// set. Restore defaults does not erase it.
 inline constexpr std::string_view mutators_campaign = "open-annihilation.mutators.campaign";
+/// The default brain's id. Absent, empty, or an id no installed brain has,
+/// the built-in computer player is the default. Restore defaults does not
+/// erase it. USE BY DEFAULT writes it.
+inline constexpr std::string_view brain_default = "open-annihilation.brain.default";
 static_assert(base_game.find('|') == std::string_view::npos);
 static_assert(base_game.find('\\') == std::string_view::npos);
 static_assert(expansions_prefix.find('|') == std::string_view::npos);
@@ -225,6 +229,7 @@ static_assert(content_note.find('|') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
+static_assert(brain_default.find('|') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.

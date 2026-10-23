@@ -127,6 +127,11 @@ void test_listing(const Scratch& scratch) {
     write_text(brains / "calm-line" / "nets" / "one.oann", std::string(100, 'x'));
     write_text(brains / "calm-line" / "nets" / "two.oann", std::string(250, 'y'));
 
+    brain::Manifest lantern = manifest_of("lantern-scout", "Lantern Scout");
+    add_network(lantern, "scout", "nets/scout.oann", 'd');
+    write_brain(brains / "lantern-scout", lantern);
+    write_text(brains / "lantern-scout" / "nets" / "scout.oann", std::string(12345, 'z'));
+
     write_brain(brains / "steady-commander", manifest_of("steady-commander", "Steady Commander"));
     brain::Manifest wide = manifest_of("wide-watch", "Wide Watch");
     add_network(wide, "gone", "nets/gone.oann", 'c');
@@ -200,15 +205,17 @@ void test_listing(const Scratch& scratch) {
     fs::create_directory_symlink(elsewhere, brains / "linked-hands", link_error);
 
     const lib::Listing listing = lib::list_installed(brains);
-    OA_CHECK(listing.brains.size() == 5);
-    if (listing.brains.size() == 5) {
+    OA_CHECK(listing.brains.size() == 6);
+    if (listing.brains.size() == 6) {
         OA_CHECK(listing.brains[0].manifest.id == "calm-line");
-        OA_CHECK(listing.brains[1].manifest.id == "other-id");
-        OA_CHECK(listing.brains[2].manifest.id == "quiet-hold");
-        OA_CHECK(listing.brains[3].manifest.id == "steady-commander");
-        OA_CHECK(listing.brains[4].manifest.id == "wide-watch");
+        OA_CHECK(listing.brains[1].manifest.id == "lantern-scout");
+        OA_CHECK(listing.brains[2].manifest.id == "other-id");
+        OA_CHECK(listing.brains[3].manifest.id == "quiet-hold");
+        OA_CHECK(listing.brains[4].manifest.id == "steady-commander");
+        OA_CHECK(listing.brains[5].manifest.id == "wide-watch");
     }
     OA_CHECK(lib::find(listing, "calm-line") != nullptr);
+    OA_CHECK(lib::find(listing, "lantern-scout") != nullptr);
     OA_CHECK(lib::find(listing, "other-id") != nullptr);
     OA_CHECK(lib::find(listing, "quiet-hold") != nullptr);
     OA_CHECK(lib::find(listing, "steady-commander") != nullptr);
@@ -227,6 +234,9 @@ void test_listing(const Scratch& scratch) {
     OA_CHECK(calm_found != nullptr && calm_found->release == 7);
     OA_CHECK(calm_found != nullptr && calm_found->manifest.name == "Calm Line");
     OA_CHECK(calm_found != nullptr && calm_found->network_bytes == 350);
+
+    const lib::InstalledBrain* lantern_found = lib::find(listing, "lantern-scout");
+    OA_CHECK(lantern_found != nullptr && lantern_found->network_bytes == 12345);
 
     const lib::InstalledBrain* steady = lib::find(listing, "steady-commander");
     OA_CHECK(steady != nullptr && steady->folder_name == "steady-commander");

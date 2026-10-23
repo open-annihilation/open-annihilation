@@ -291,7 +291,8 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
 /// @return true when it is
 bool designed_name(const std::string& name) {
     static const std::regex pattern(
-        "library\\.(tab\\.(active|mods|maps|mutators|languages|updates|registries|scroll-left|"
+        "library\\.(tab\\.(active|mods|maps|mutators|brains|languages|updates|registries|scroll-"
+        "left|"
         "scroll-right)|"
         "search|filter|"
         "filter\\.(all|new|installed|updates|tag-[a-z0-9-]+)|tag\\.[a-z0-9-]+|tags|tags\\.[a-z0-9-]"
@@ -1280,6 +1281,7 @@ void tab_follows_the_declared_order() {
         "library.tab.mods",
         "library.tab.maps",
         "library.tab.mutators",
+        "library.tab.brains",
         "library.tab.languages",
         "library.tab.updates",
         "library.tab.registries",
@@ -1322,9 +1324,9 @@ void tab_follows_the_declared_order() {
     OA_CHECK(regular.size() > regular_end.size() + 5);
     OA_CHECK(std::equal(regular_end.rbegin(), regular_end.rend(), regular.rbegin()));
     OA_CHECK(
-        regular.size() > 11 && regular[0] == "library.tab.active" &&
-        regular[7] == "library.search" && regular[8] == "library.filter.all" &&
-        regular[9] == "library.filter.new"
+        regular.size() > 12 && regular[0] == "library.tab.active" &&
+        regular[8] == "library.search" && regular[9] == "library.filter.all" &&
+        regular[10] == "library.filter.new"
     );
 }
 
@@ -4223,7 +4225,7 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
     library = with_ridge();
     lib::ScreenState commands;
     kit::DisplayList shown = laid_out(library, commands, narrow);
-    for (int32_t step = 0; library.tab != lib::Tab::registries && step < 6; ++step)
+    for (int32_t step = 0; library.tab != lib::Tab::registries && step < 8; ++step)
         lib::library_command(library, commands, shown, lib::ScreenCommand::next_tab);
     shown = laid_out(library, commands, narrow);
     OA_CHECK(library.tab == lib::Tab::registries);
@@ -4247,6 +4249,8 @@ std::string_view wordy_tabs(void*, std::string_view english) {
         return "Mapyyyyyyy";
     if (english == lib::words::tab_mutators)
         return "Mutatoryyyyyy";
+    if (english == lib::words::tab_brains)
+        return "Mozkyyy";
     if (english == lib::words::tab_languages)
         return "Movyyyyyyyy";
     if (english == lib::words::tab_updates)
@@ -4270,7 +4274,7 @@ kit::Rect pressed_area(const kit::Control& control) {
 /// and Large, the tabs take the whole row and the search a row under them:
 /// every tab is shown whole and none lies under the search, so a press on
 /// a tab, Registries among them, opens it. English fits beside the search
-/// at Large. At Regular the seven captions take the row.
+/// at Large. At Regular the eight captions take the row.
 void wordy_tabs_take_the_row_over_the_search() {
     for (const fixture::NamedFrame& named : fixture::frames()) {
         if (named.frame.size_class == kit::SizeClass::compact)
@@ -4296,7 +4300,14 @@ void wordy_tabs_take_the_row_over_the_search() {
                     OA_CHECK(!beside);
             }
             for (const std::string_view word :
-                 {"active", "mods", "maps", "mutators", "languages", "updates", "registries"}) {
+                 {"active",
+                  "mods",
+                  "maps",
+                  "mutators",
+                  "brains",
+                  "languages",
+                  "updates",
+                  "registries"}) {
                 const kit::Control* tab = fixture::named(list, "library.tab." + std::string(word));
                 OA_CHECK(tab != nullptr);
                 if (tab == nullptr)
@@ -4994,9 +5005,221 @@ void get_with_is_a_control() {
     }
 }
 
+/// A Library of made-up brains, on the Brains tab. The built-in player is
+/// the default. Wide Watch sees everything. Ridge Raider is made for Ridge.
+///
+/// @return the Library
+lib::Library brains_library() {
+    lib::Inputs inputs;
+    lib::Registry built_in;
+    built_in.id = "fixture-core";
+    built_in.name = "Fixture Core";
+    built_in.built_in = true;
+    inputs.registries.push_back(built_in);
+    inputs.engine = {0, 8, 0};
+    inputs.version_text = "v0.8.0";
+    const auto add = [&](std::string key, std::string name, lib::BrainFacts facts) {
+        lib::Listing made;
+        made.registry = "fixture-core";
+        made.kind = lib::Kind::brain;
+        made.key = std::move(key);
+        made.name = std::move(name);
+        made.version = "1.0";
+        made.author = "Fixture Author";
+        made.summary = "A made-up brain.";
+        made.size = 1024;
+        made.brain = facts;
+        inputs.listings.push_back(std::move(made));
+    };
+    lib::BrainFacts wide_facts;
+    wide_facts.tags = {"economy"};
+    wide_facts.full_awareness = true;
+    wide_facts.works_with.push_back({"*", {}, {}});
+    add("wide-watch", "Wide Watch", wide_facts);
+    lib::Installed wide = fixture::installed(inputs.listings.back(), "1.0", 1);
+    wide.brain = wide_facts;
+    inputs.installed.push_back(std::move(wide));
+    lib::BrainFacts ridge_facts;
+    ridge_facts.tags = {"rush"};
+    ridge_facts.works_with.push_back({"ridge", {}, "Ridge"});
+    add("ridge-raider", "Ridge Raider", ridge_facts);
+    lib::BrainFacts steady_facts;
+    steady_facts.tags = {"classic"};
+    steady_facts.works_with.push_back({"*", {}, {}});
+    add("steady-commander", "Steady Commander", steady_facts);
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::brains);
+    return library;
+}
+
+/// Where a named brain row sits in the visible list, or -1.
+///
+/// @param library the Library
+/// @param key the brain's key
+/// @return the place
+int32_t brain_place(const lib::Library& library, std::string_view key) {
+    for (int32_t place = 0; place < static_cast<int32_t>(library.visible.size()); ++place) {
+        const lib::Entry& entry = library.entries[library.visible[static_cast<std::size_t>(place)]];
+        if (entry.id.key == key)
+            return place;
+    }
+    return -1;
+}
+
+/// Lays the list out with one brain row at the top, and returns its look.
+///
+/// @param library the Library
+/// @param frame the frame
+/// @param key the brain's key
+/// @param[out] list the display list
+/// @return the row's look; null when the row is not there
+const kit::ListRowLook* reveal_brain(
+    const lib::Library& library,
+    const kit::Frame& frame,
+    std::string_view key,
+    kit::DisplayList& list
+) {
+    lib::ScreenState state;
+    state.reveal_row = brain_place(library, key);
+    list = laid_out(library, state, frame);
+    std::string name = "library.row.";
+    if (key != lib::built_in_brain_key)
+        name += "fixture-core.";
+    name += std::string(key == lib::built_in_brain_key ? "built-in" : key);
+    return row_look_named(list, name);
+}
+
+/// Tells whether a row's chips include a text.
+///
+/// @param row the row
+/// @param text the chip's words
+/// @return the chip; null when the row has none
+const kit::ChipLook* chip_named(const kit::ListRowLook& row, std::string_view text) {
+    for (const kit::ChipLook& chip : row.tags)
+        if (chip.text == text)
+            return &chip;
+    return nullptr;
+}
+
+/// The Brains tab lays out at every frame. Its rows carry Default, Full
+/// awareness and the tags at Regular and Large, and the unfit words in the
+/// lock colour. Compact writes those words after the title. Tag pills and
+/// the filter pane label the tags and draw no mutator icon. An unfit row
+/// stays bright and its GET stays on.
+void brains_tab_holds_its_invariants() {
+    const lib::Library library = brains_library();
+    const std::string full(lib::words::search_brains);
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+        const kit::Point window = lib::window_size(named.frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " brains");
+        OA_EXPECT_NONE(meeting_controls(list), named.name + " brains");
+        OA_EXPECT_NONE(order_problems(list), named.name + " brains");
+        OA_EXPECT_NONE(name_problems(list), named.name + " brains");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " brains");
+        const kit::Control* tab = fixture::named(list, "library.tab.brains");
+        OA_CHECK(tab != nullptr && tab->text.starts_with("Brains ("));
+        OA_CHECK(open_tab_is_shown(list));
+        const std::string placeholder = search_placeholder(list);
+        const bool whole = placeholder == full;
+        const bool cut = placeholder.size() >= 3 && placeholder.ends_with("...") &&
+                         full.starts_with(placeholder.substr(0, placeholder.size() - 3));
+        OA_CHECK(whole || cut);
+        if (named.frame.size_class != kit::SizeClass::compact)
+            OA_CHECK(whole);
+
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        const bool regular = named.frame.size_class == kit::SizeClass::regular;
+        const bool large = named.frame.size_class == kit::SizeClass::large;
+        kit::DisplayList shown;
+        const kit::ListRowLook* built_in =
+            reveal_brain(library, named.frame, lib::built_in_brain_key, shown);
+        OA_CHECK(built_in != nullptr && built_in->title == "Built-in computer player");
+        if (built_in != nullptr) {
+            if (compact) {
+                OA_CHECK(!built_in->lines.empty() && built_in->lines.front() == "Built in");
+            } else {
+                OA_CHECK(
+                    std::find(built_in->aside.begin(), built_in->aside.end(), "Built in") !=
+                    built_in->aside.end()
+                );
+                const kit::ChipLook* chip = chip_named(*built_in, "Default");
+                OA_CHECK(chip != nullptr && chip->state == kit::ChipState::installed);
+            }
+        }
+
+        const kit::ListRowLook* wide = reveal_brain(library, named.frame, "wide-watch", shown);
+        OA_CHECK(wide != nullptr);
+        if (wide != nullptr && !compact) {
+            const kit::ChipLook* awareness = chip_named(*wide, "Full awareness");
+            const kit::ChipLook* economy = chip_named(*wide, "Economy");
+            OA_CHECK(awareness != nullptr && awareness->state == kit::ChipState::update);
+            OA_CHECK(economy != nullptr && economy->state == kit::ChipState::filter);
+            OA_CHECK(chip_named(*wide, "Default") == nullptr);
+        }
+
+        const kit::ListRowLook* raider = reveal_brain(library, named.frame, "ridge-raider", shown);
+        const kit::Control* raider_row =
+            fixture::named(shown, "library.row.fixture-core.ridge-raider");
+        const kit::Control* raider_get =
+            fixture::named(shown, "library.row.fixture-core.ridge-raider.get");
+        OA_CHECK(raider != nullptr && raider_get != nullptr && raider_get->enabled);
+        OA_CHECK(raider != nullptr && raider->chip.has_value() && !raider->chip->disabled);
+        OA_CHECK(raider_row != nullptr && !row_is_dimmed(shown, raider_row->rect));
+        if (raider != nullptr && compact) {
+            OA_CHECK(raider->by == "· Made for Ridge");
+            OA_CHECK(raider->by_colour == kit::colour::lock);
+        }
+        if (raider != nullptr && !compact) {
+            const kit::ChipLook* unfit = chip_named(*raider, "Made for Ridge");
+            const kit::ChipLook* rush = chip_named(*raider, "Rush");
+            OA_CHECK(unfit != nullptr && unfit->state == kit::ChipState::update);
+            OA_CHECK(rush != nullptr && rush->state == kit::ChipState::filter);
+        }
+
+        if (regular) {
+            const kit::PillLook* economy = pill_named(list, "library.tag.economy");
+            const kit::PillLook* rush = pill_named(list, "library.tag.rush");
+            OA_CHECK(economy != nullptr && economy->text == "Economy" && !economy->tag.has_value());
+            OA_CHECK(rush != nullptr && rush->text == "Rush" && !rush->tag.has_value());
+        }
+        if (large) {
+            const kit::NavLook* nav = nullptr;
+            for (const kit::Item& item : list.items) {
+                if (item.role != kit::Role::nav)
+                    continue;
+                if (const auto* look = std::get_if<kit::NavLook>(&item.look);
+                    look != nullptr && !look->entries.empty())
+                    nav = look;
+            }
+            OA_CHECK(nav != nullptr);
+            if (nav != nullptr) {
+                bool economy = false;
+                for (const kit::NavEntry& entry : nav->entries) {
+                    if (!entry.caption.starts_with("Economy"))
+                        continue;
+                    economy = true;
+                    OA_CHECK(!entry.tag.has_value());
+                }
+                OA_CHECK(economy);
+            }
+        }
+    }
+
+    kit::Frame narrow;
+    narrow.area = {0, 0, 280, 480};
+    narrow.size_class = kit::SizeClass::compact;
+    narrow.scale_percent = 100;
+    const kit::DisplayList narrow_list = laid_out(library, {}, narrow);
+    OA_CHECK(open_tab_is_shown(narrow_list));
+    OA_EXPECT_NONE(fixture::texts_not_fitting(narrow_list, fonts()), "narrow brains");
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
+    brains_tab_holds_its_invariants();
     mutator_rows_show_badges_chips_and_icons();
     mutator_actions_rules_and_danger();
     get_with_is_a_control();

@@ -12,7 +12,9 @@
 #include "oa/sim/world_environment/wind.hpp"
 #include <bit>
 #include <cmath>
+#include <cstddef>
 #include <cstdlib>
+#include <memory>
 
 namespace oa::sim::match_runtime {
 namespace {
@@ -352,6 +354,9 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         sightings.pads = sightings.radar + sighting_capacity;
         sightings.capacity = sighting_capacity;
     }
+    const auto seen_stride = static_cast<std::size_t>(sighting_capacity);
+    seen_before_ = std::make_unique<sim::detection::SightedUnit[]>(seen_stride * sightings_.size());
+    seen_work_ = std::make_unique<sim::detection::SightedUnit[]>(seen_stride * 3);
     type_bounds_.resize(input.types.size());
     for (std::size_t i = 1; i < input.types.size(); ++i) {
         if (!input.loaded[i].model)

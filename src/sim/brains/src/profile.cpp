@@ -8,6 +8,7 @@
 #include "internal.hpp"
 
 #include "handles_internal.hpp"
+#include "lua_game.hpp"
 
 #include "oa/data/script_host/f32.hpp"
 #include "oa/data/script_host/fixed.hpp"
@@ -138,6 +139,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     lua_newtable(state);
     lua_setglobal(state, "game");
     push_me(state, seat);
+    install_game(state, seat);
     install_handles(state, seat);
     install_me(state, seat);
 }

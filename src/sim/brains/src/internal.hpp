@@ -7,6 +7,7 @@
 #include "oa/sim/brains/seat.hpp"
 
 #include "oa/core/player.h"
+#include "oa/data/brain_facts.hpp"
 #include "oa/data/script_host/memory_sources.hpp"
 
 #include <array>
@@ -55,6 +56,12 @@ struct Seat {
     bool has_start{};
     /// Empty registry reference until the entry's table is stored.
     int hooks_ref{-2};
+    /// The match this seat plays in. Null for a load check.
+    match_runtime::Match* match{};
+    /// The facts `game` is built from. Null reads a default game.
+    const oa::data::brain_facts::GameFacts* facts{};
+    /// Registry reference of `game`'s hidden table. -2 is LUA_NOREF.
+    int game_hidden_ref{-2};
     script_host::MemorySources sources{};
     std::optional<script_host::Sandbox> sandbox{};
     /// The match this seat plays, or null when a brain is checked with none.
@@ -67,8 +74,42 @@ struct Seat {
 
 /// The brains seated in one match, one slot per player.
 struct Brains {
+    /// Facts every seat made after they were stored reads. A default game until then.
+    oa::data::brain_facts::GameFacts facts{};
     std::array<std::unique_ptr<Seat>, OA_PLAYER_COUNT> seats{};
 };
+
+/// Writes a refusal or a fits reason, cut to 255 bytes.
+///
+/// @param reason the outcome's text
+/// @param text the sentence
+void write_reason(std::array<char, 256>& reason, std::string_view text);
+
+/// Tells whether the package texts, the entry and the networks are acceptable.
+///
+/// @param spec the package
+/// @param outcome set when they are not
+/// @return false when the package is refused
+bool package_acceptable(const SeatSpec& spec, SeatOutcome& outcome);
+
+/// Copies the spec into the seat.
+///
+/// @param seat the seat
+/// @param spec the package, the level and the options
+/// @return false when the sources cannot be stored
+bool copy_spec_into(Seat& seat, const SeatSpec& spec);
+
+/// Opens the sandbox, loads the entry and runs fits.
+///
+/// On success the sandbox stays open and start has not been called. On
+/// failure `outcome` is set and the sandbox is closed. The seat's match is
+/// not read.
+///
+/// @param seat the seat, with its facts already set
+/// @param spec the package
+/// @param outcome set when the load or fits fails
+/// @return true when the brain fits
+bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome);
 
 /// Opens the libraries a brain may call, in a fixed order.
 ///

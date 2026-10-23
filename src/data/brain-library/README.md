@@ -50,13 +50,14 @@ installed for the rest of the process.
 
 ## Tests
 
-`data-brain-library` lists a scratch Brains folder: three good brains, a
+`data-brain-library` lists a scratch Brains folder: six good brains, a
 broken manifest, a folder with none, an oversized manifest, the installer's
 staging folder, a `.backup` holding another id, a symbolic link where the
 system makes one, two folders with one id, a plain file left untouched, a
 catalogue origin, a file origin, a damaged record and an oversized record,
 the order and the problems, `find`, a missing folder, the network sizes of
-a brain with two networks, and a brain whose network file is missing.
+a brain with two networks, Lantern Scout's 12,345-byte network, and a brain
+whose network file is missing.
 
 ## Limitations
 

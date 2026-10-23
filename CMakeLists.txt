@@ -209,6 +209,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/brain-facts)
 add_subdirectory(src/data/brain-library)
 add_subdirectory(src/data/map-fit)
 add_subdirectory(src/data/pe-icon)
@@ -303,13 +304,13 @@ target_include_directories(oa-app-headers INTERFACE src/app/include)
 # OA_SELF_CHECKS is 1 when the game holds its self-checks (app.hpp).
 target_compile_definitions(oa-app-headers INTERFACE "OA_SELF_CHECKS=$<BOOL:${OA_SELF_CHECKS}>")
 # app.hpp and render_policy.hpp include the engine settings' header,
-# runtime.hpp the gamepad controls' model, game_directory.hpp the found
-# installs' header and the content choice, and extension.hpp the UI kit's
-# headers and the registrations of Settings pages, kit screens, notices and
-# prompts.
+# runtime.hpp the gamepad controls' model and, through brain_seats.hpp, the
+# brain library's folder name, game_directory.hpp the found installs' header
+# and the content choice, and extension.hpp the UI kit's headers and the
+# registrations of Settings pages, kit screens, notices and prompts.
 target_link_libraries(oa-app-headers INTERFACE oa-base-sha256 oa-data-languages oa-data-limits
-  oa-data-mod-profile oa-ui-engine-settings oa-ui-pad-controls oa-platform-game-installs
-  oa-ui-kit oa-ui-screen-registry oa-data-content-bundles)
+  oa-data-mod-profile oa-data-brain-library oa-ui-engine-settings oa-ui-pad-controls
+  oa-platform-game-installs oa-ui-kit oa-ui-screen-registry oa-data-content-bundles)
 # oa-game's command line, which the option tests parse without a running app.
 add_library(oa-app-game-options src/app/startup.cpp)
 add_library(oa::app::game_options ALIAS oa-app-game-options)
@@ -387,7 +388,7 @@ target_link_libraries(oa-app-mutators-memory PUBLIC oa-app-headers oa-platform-p
 add_library(oa-app-brain-seats src/app/brain_seats.cpp)
 add_library(oa::app::brain_seats ALIAS oa-app-brain-seats)
 target_link_libraries(oa-app-brain-seats PUBLIC oa-app-headers oa-sim-brains oa-formats-oabrain
-  PRIVATE oa-base-sha256 oa-options)
+  oa-data-brain-library PRIVATE oa-base-sha256 oa-options)
 # Chat a computer seat on this machine reads and sends (seat_chat.hpp).
 add_library(oa-app-seat-chat src/app/seat_chat.cpp)
 add_library(oa::app::seat_chat ALIAS oa-app-seat-chat)
@@ -1136,10 +1137,12 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_brain_library.cpp
   src/app/runtime_mutators.cpp
   src/app/runtime_brains.cpp
+  src/app/runtime_brain_facts.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp
   src/app/runtime_mutators_maps.cpp
   src/app/runtime_mutators_memory.cpp
+  src/app/runtime_default_brain.cpp
   src/app/runtime_pack_maps.cpp
   src/app/pack_map_source.cpp
   src/app/runtime_get_map.cpp
@@ -1256,7 +1259,8 @@ endif()
 # records are written under it.
 set_property(SOURCE src/app/runtime_director.cpp src/app/runtime_engine_settings.cpp
   src/app/main.cpp src/app/game_files_screen.cpp src/app/runtime_game_files.cpp
-  src/app/runtime_mutators.cpp src/app/runtime_mutators_check.cpp APPEND
+  src/app/runtime_mutators.cpp src/app/runtime_mutators_check.cpp
+  src/app/runtime_brain_facts.cpp APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-game-directory oa-app-mod-profile
   oa-app-user-folder

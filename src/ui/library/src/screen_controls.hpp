@@ -20,17 +20,18 @@ namespace oa::ui::library::controls {
 /// The first tab's control; the others follow in Tab's order.
 inline constexpr kit::ControlId first_tab = 1;
 /// The tab strip's arrow toward the earlier tabs. It is not a tab.
-inline constexpr kit::ControlId tab_scroll_left = 8;
+/// The tabs occupy 1 through tab_total, so this follows the eighth tab.
+inline constexpr kit::ControlId tab_scroll_left = 9;
 /// The tab strip's arrow toward the later tabs. It is not a tab.
-inline constexpr kit::ControlId tab_scroll_right = 9;
+inline constexpr kit::ControlId tab_scroll_right = 10;
 /// The search field.
-inline constexpr kit::ControlId search = 10;
+inline constexpr kit::ControlId search = 11;
 /// Compact's filter drop-down (library.filter).
-inline constexpr kit::ControlId filter_menu = 11;
+inline constexpr kit::ControlId filter_menu = 12;
 /// The drop-down of the tags that do not fit (library.tags).
-inline constexpr kit::ControlId tags_menu = 12;
+inline constexpr kit::ControlId tags_menu = 13;
 /// The Compact details page's MORE ▾ (library.action).
-inline constexpr kit::ControlId more_menu = 13;
+inline constexpr kit::ControlId more_menu = 14;
 /// The All chip or nav entry; New, Installed and Updates follow in Filter's order.
 inline constexpr kit::ControlId first_filter = 20;
 /// UPDATE ALL.

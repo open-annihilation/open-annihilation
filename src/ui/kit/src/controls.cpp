@@ -401,15 +401,32 @@ int32_t count_width(const Fonts* fonts, int32_t count) {
     return std::max(kMetrics.tab_count_height, digits + 2 * kMetrics.tab_count_padding);
 }
 
-/// Returns a tab caption's width in the small font with tab_tracking.
+/// Returns the points either side of a caption: the look's, or the theme's.
+///
+/// @param look the tabs
+/// @return the padding, in points
+int32_t tab_side_padding(const TabsLook& look) noexcept {
+    return look.side_padding >= 0 ? look.side_padding : kMetrics.tab_padding;
+}
+
+/// Returns the points between a caption's characters: the look's, or the theme's.
+///
+/// @param look the tabs
+/// @return the tracking, in points
+int32_t tab_letter_gap(const TabsLook& look) noexcept {
+    return look.tracking >= 0 ? look.tracking : kMetrics.tab_tracking;
+}
+
+/// Returns a tab caption's width in the small font with the given tracking.
 ///
 /// @param fonts the fonts, or null for no columns
 /// @param caption the caption
+/// @param tracking the points between characters
 /// @return the width, in points
-int32_t caption_width(const Fonts* fonts, std::string_view caption) {
+int32_t caption_width(const Fonts* fonts, std::string_view caption, int32_t tracking) {
     if (fonts == nullptr || caption.empty())
         return 0;
-    return tracked_width(*fonts, FontRole::small, caption, kMetrics.tab_tracking);
+    return tracked_width(*fonts, FontRole::small, caption, tracking);
 }
 
 // ---- Cards ----
@@ -1059,8 +1076,10 @@ std::vector<Rect> tab_rects(const Fonts& fonts, const Rect& strip, const TabsLoo
     std::vector<Rect> rects;
     rects.reserve(look.captions.size());
     int32_t left = strip.x;
+    const int32_t side = tab_side_padding(look);
+    const int32_t letter_gap = tab_letter_gap(look);
     for (std::size_t index = 0; index < look.captions.size(); ++index) {
-        int32_t width = 2 * kMetrics.tab_padding + caption_width(&fonts, look.captions[index]);
+        int32_t width = 2 * side + caption_width(&fonts, look.captions[index], letter_gap);
         const int32_t count = count_of(look, index);
         const int32_t digits = shown_count_width(&fonts, look, count);
         if (digits > 0)
@@ -1283,22 +1302,24 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
             look.right_arrow_hovered ? colour::text : colour::hint
         );
     const Canvas room = clipped(canvas, placed.view);
+    const int32_t side = tab_side_padding(look);
+    const int32_t letter_gap = tab_letter_gap(look);
     for (std::size_t index = 0; index < placed.tabs.size() && index < look.captions.size();
          ++index) {
         const Rect& tab = placed.tabs[index];
         const bool selected = index == look.selected;
         const bool hovered = look.hovered.has_value() && *look.hovered == index;
         const std::string& caption = look.captions[index];
-        const int32_t caption_columns = caption_width(canvas.fonts, caption);
+        const int32_t caption_columns = caption_width(canvas.fonts, caption, letter_gap);
         const int32_t above_rule = tab.height - kMetrics.tab_rule;
         line(
             room,
             FontRole::small,
             caption,
-            {tab.x + kMetrics.tab_padding, tab.y, caption_columns, above_rule},
+            {tab.x + side, tab.y, caption_columns, above_rule},
             Align::left,
             selected || hovered ? colour::text : colour::hint,
-            kMetrics.tab_tracking
+            letter_gap
         );
         const int32_t count = count_of(look, index);
         if (look.count_style == TabCountStyle::words) {
@@ -1306,7 +1327,7 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
                 const std::string digits = std::to_string(count);
                 const int32_t digits_width = text_width(*canvas.fonts, FontRole::small, digits);
                 const Rect digits_box{
-                    tab.x + kMetrics.tab_padding + caption_columns + kMetrics.tab_count_gap,
+                    tab.x + side + caption_columns + kMetrics.tab_count_gap,
                     tab.y,
                     digits_width,
                     above_rule,
@@ -1320,7 +1341,7 @@ void draw_tabs(const Canvas& canvas, const Rect& strip, const TabsLook& look) {
             }
         } else if (count > 0) {
             const Rect pill{
-                tab.x + kMetrics.tab_padding + caption_columns + kMetrics.tab_count_gap,
+                tab.x + side + caption_columns + kMetrics.tab_count_gap,
                 tab.y + (above_rule - kMetrics.tab_count_height) / 2,
                 count_width(canvas.fonts, count),
                 kMetrics.tab_count_height,

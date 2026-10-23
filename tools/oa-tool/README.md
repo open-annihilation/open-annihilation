@@ -54,6 +54,7 @@ same. `--` ends options. A command takes its options through
 | `mutator import INPUT... --out DIR [--id ID] [--version VERSION] [--tag TAG]... [--works-with CODE=ENTRY]... [--pack] [--force]` | Imports each `.tam` or zip into `DIR/<id>/`. A `.tam`'s companions are read from its own folder, so DIR is not that folder. A zip is read on its own, so DIR may be the folder that holds the zip. A zip's names are the names the archive recorded. `--id` and `--version` apply to one mutator. `--tag` replaces the `gameplay` tag. `--works-with` maps a compatibility code; `OTA` and `TACC` are already mapped. `--pack` also writes `DIR/<id>-<version>.oamut`. `--force` replaces an existing folder. One line per mutator, then its warnings. Exit 0 when every mutator was imported. A link is not followed. |
 | `mutator diff --game-dir DIR [--mod-dir DIR] [--map NAME] [--seed N] [--mutator SPEC]... [--versus SPEC]... [--allow FILE] [--dump FILE]` | Mounts DIR the way the game does, and `--mod-dir` as a mod folder over it. Each `--mutator` and `--versus` is a package folder, with options after the last colon. An id with no path is refused. The report's change lines are `unit dropped NAME hidden\|copyright\|version`, `unit added NAME`, `file added PATH` or `file added PATH SHA`, `file hidden PATH`, `file replaced PATH OLD NEW`, `field PATH SECTION KEY: OLD -> NEW` and `menu added\|removed BUILDER PAGE BUTTON UNIT`. A missing side is `(absent)`. A section whose name repeats among its siblings is `[name@N]` from its second occurrence on. A byte below 0x20, and 0x7F, is written `\xHH` in a path, a section, a key and a value, in the report and in `--dump`. A journal id is added after a tab as `by <id>[,<id>...]`, for the section the journal names: `[unitinfo]` on a unit, `[<record>]` and `[<block>]` on a weapon or a feature, and `[globalheader]` or `[globalheader][schema N]` on a map. A field with no entry of its own names the file's owner. The header lines are `# oa-tool mutator diff 1`, `# game:`, `# mod:`, `# loadout:`, `# seed:` and, when `--map` is set, `# map:` with the map's name as the game's map list spells it. A map the game does not have is a usage error. `--versus` prints the left header, `# versus:`, the `left only` and `right only` lines, each matched difference as `allowed <line>`, then `allowed difference matched nothing: <pattern>` for each unused pattern, then `mutator diff: <n> differences, <a> allowed, <u> unused allowances`. Download lines are dropped. A unit both sides drop loses its reason, its FBI lines, its menu lines and every field of a GUI gadget whose `[COMMON] name`, or `name`, is that unit. A field path ends at ` [`. A file path may contain spaces and ends before its hash. An allow file ignores a leading BOM and blank lines, treats a `#` line as a reason and every other line as a whole-line pattern (`*` any run, `?` one character). A blank line ends a block. Each pattern needs a reason above it in its own block. `--dump` writes `path`, a tab, the source, a tab and the SHA-256, then one indented field line. Exit 0 when the report was written, or a comparison has nothing left and no unused pattern. |
 | `brain pack FOLDER [--out FILE] [--force]` | Packs a folder whose top holds `oabrain.yaml`, the same way `pack` does. A folder without `oabrain.yaml` is a usage error. `oa-tool check` reports the brain's facts. |
+| `brain net MODEL.onnx --calibrate DATA [--out FILE] [--weights int8 or int16] [--max-difference X] [--force] [--json]` | Converts an ONNX model of opset 11 to 21 into a `.oann`, quantises it with DATA and reports the difference from the floating-point model. `--weights` is `int8` by default. `--json` prints one object. An existing file needs `--force`. |
 | `catalogue keygen --id ID --out FILE [--passphrase-file FILE]` | Makes a new Ed25519 key, seals its seed with a passphrase and writes FILE. The file is created only when that name is new, and on macOS and Linux its mode is 0600. The passphrase is read from the terminal with echo off, twice, and has to be at least 12 bytes. `--passphrase-file` reads the file's first line instead. Prints `key:`, `public: ed25519:` and `fingerprint:`. |
 | `catalogue public KEY_FILE` | Prints the same three lines. The passphrase is not used. |
 | `catalogue sign --key KEY_FILE CATALOGUE [--out SIG] [--passphrase-file FILE]` | Signs CATALOGUE's exact bytes and writes CATALOGUE.sig, or SIG. The line is the one a catalogue check reads: `ed25519`, the key id and the signature. A catalogue this build would refuse is refused before the key is opened. The written pair is checked before the command reports success. Prints `signed <file> with <id>`. |
@@ -61,6 +62,25 @@ same. `--` ends options. A command takes its options through
 | `registry init FOLDER --id ID --name NAME --base-url URL --key KEY_FILE [--passphrase-file FILE] [--homepage URL]` | Makes a direct registry in FOLDER: `registry.yaml`, an empty catalogue signed for 30 days, its signature, and `v1/p/` and `v1/i/`. FOLDER must be missing or empty. `--base-url` is the http address the registry is served at, with no trailing slash. Prints the descriptor's path and the key's fingerprint. |
 | `registry mirror URL FOLDER [--key ed25519:<base64>]` | Copies the registry at URL into FOLDER, laid out as on the host that served it. The signature is checked, a sequence lower than the one FOLDER holds stops the copy, and each package and picture is checked by SHA-256. A `.part` is resumed with a Range request. A tokens registry is copied through its download API. The catalogue and its signature are written last, byte for byte. |
 | `interface-words --json` | Prints a JSON array of every English text this build passes to the interface catalogue, sorted, with each text once. The texts are the lists the modules that look them up export. |
+
+## brain net
+
+`brain net` reads an ONNX file with its own protocol-buffer reader and writes a `.oann`. The default domain (`""` or `ai.onnx`) at opset 11 to 21 is accepted. Any other domain is refused. The first dimension of every model input is the batch, either 1 or a name, and it is removed. A tensor that is only the batch becomes `[1]`.
+
+The operators are `Gemm` (alpha 1, beta 1, transA 0, transB 0 or 1) and `MatMul`, optionally followed by an `Add` of a constant that is not also a graph output, which become dense; `Conv` (group 1, dilations 1, symmetric pads, kernel 1 to 15) becomes conv2d; `MaxPool` with no pads and no dilation becomes maxpool; `Relu`, `LeakyRelu`, `Tanh`, `Sigmoid` and `Softmax` (over the last axis, every other feature dimension 1) become those layers; `Add` of two computed tensors becomes add; `Concat` on an axis after the batch becomes concat; `Flatten` and `Reshape` to one feature dimension become flatten; `ArgMax` over the only non-unit feature axis becomes argmax; `Gather` on axis 0 of a constant table becomes embedding. `Identity` and `Dropout` are skipped. Anything else is refused, naming the node and the operator.
+
+Scales are chosen in this order:
+
+1. Read the calibration file. Each line is one JSON object, the line T03's `--brain-record` writes. A line whose `kind` is `sample` holds `features`, an object from a tensor name to `{"shape": [...], "values": [...]}`. The values are whole numbers in 65536ths. Every model input must be present on every sample line. Other kinds and other features are skipped, and a blank line is skipped. At least one sample is required. At most 100,000 samples are read; further sample lines are counted and skipped, and a warning names both counts.
+2. Run the model in double on every sample and record each tensor's largest magnitude `M`. The pass uses the C library's `tanh` and `exp` for those layers.
+3. A computed int16 tensor's exponent is the smallest whole `e` with `M <= 32767 × 2^e`, or `-15` when `M` is 0, held to -48..16. relu, leaky_relu, maxpool and flatten copy the input's exponent. tanh, sigmoid and softmax use -15. argmax uses 0. An embedding uses the table's exponent. An input uses the same rule, except an int64 input and a Gather's indices, which use 0.
+4. A weight's exponent is the smallest `e` with `max|w| <= 127 × 2^e` for int8, the default, or `32767 × 2^e` for `--weights int16`. Each weight is `round(w / 2^e)`, half away from zero, held to the type's range. A bias uses `e(input) + e(weight)`. A bias that does not fit int32 at that exponent is refused, naming the layer. A dense or conv2d output whose magnitude would put it below `e(input) + e(weight)` is raised to that exponent, so the scale shift is 0. It is also held so the shift is at most 62.
+5. `oann::write` checks the model and produces the bytes. A tensor name is the ONNX name in lower case, with every other byte replaced by `_`, cut to 31 bytes, and made unique with `_2`, `_3`.
+6. `neural::Network::build` builds the integer network. Each sample's inputs are moved from 65536ths onto the input exponent with `neural::rescale`, the network is run, and each int16 output is turned back by `q × 2^e`. A difference is the largest absolute gap from the floating-point value. An argmax reports the share of samples on which the two agree.
+
+The report is `model`, `written`, `sha256`, one `inputs` line and one `outputs` line per port (name, shape, exponent), then `layers`, `weights` (weight elements, not biases), `bytes`, `operations`, `charge`, `samples`, and one `difference` or `agreement` line per output. `--json` prints those facts as one object. Exit 0 when the file was written and every difference is within `--max-difference` (no limit when it is omitted). Exit 1 when the model cannot be converted or a difference passes the limit, and then nothing is written. Exit 2 is a usage error. `--out` defaults to the model's path with `.oann`. An existing file needs `--force`.
+
+On one machine the same model and the same calibration file give the same bytes.
 
 ## Entry points
 
@@ -176,6 +196,15 @@ the entry order, the methods and the JSON facts, and checks the refusals
 from `pack` and from `check`. `brain pack` is the same command limited to a
 brain.
 
+`tools-oa-tool-brain-net` (`oa-tool-brain-net-test`) writes its own ONNX
+bytes and calibration lines. It converts a dense model and checks the
+weights against a hand-quantised copy, converts a grid and a Gather plus
+Concat, checks that int16 is closer than int8, checks that two runs write
+the same bytes, and checks the refusals: an unsupported operator, external
+data, opset 10, a file cut at every length, a varint of 11 bytes, a message
+17 deep, a missing feature, an empty calibration file, a difference past
+`--max-difference`, an existing file without `--force`, and an unknown option.
+
 `tools-oa-tool-mutator-import` (`oa-tool-mutator-import-test`) imports
 made-up `.tam` files and a zip into mutator folders, packs one and checks
 it, replaces a folder with `--force`, and checks the usage errors. One
@@ -223,6 +252,8 @@ Italian each cover that same list, that a German lookup returns German,
 and that placeholders, numbers and product names are kept.
 
 ## Limitations
+
+`brain net` uses the C library's `tanh` and `exp`. Those can differ in the last bit between machines, and that can move a scale only when a magnitude sits exactly on a power of two. The same model and calibration file give the same bytes on one machine. At most 100,000 calibration samples are read.
 
 The archive commands take no options. `pack` takes `--out`, `--force` and,
 for a map pack, `--game-dir`. `check` takes `--game-dir`, `--mod`,

@@ -316,8 +316,11 @@ void test_state_matrix() {
     inputs.updates.push_back(update(core, Kind::mod, "get-mod"));
     const lib::Library library = built(std::move(inputs));
 
-    // The packages, the base game, and the built-in languages refresh adds.
-    OA_CHECK(library.entries.size() == 9 + built_in_language_rows().size());
+    // Eight packages, the base game, the built-in computer player, and the
+    // built-in languages refresh adds.
+    OA_CHECK(library.entries.size() == 8 + 1 + 1 + built_in_language_rows().size());
+    const lib::Entry* built_in_player = lib::find_entry(library, lib::built_in_brain_id());
+    OA_CHECK(built_in_player != nullptr && lib::is_built_in_brain(built_in_player->id));
     const lib::Entry* get = at(library, core, Kind::mod, "get-mod");
     OA_CHECK(get != nullptr && get->state == State::get && get->listing != nullptr);
     OA_CHECK(get != nullptr && get->installed == nullptr && get->update == nullptr && get->can_act);
@@ -2300,6 +2303,7 @@ void test_tab_counts() {
     OA_CHECK(lib::tab_count(library, lib::Tab::mods) == 2);
     OA_CHECK(lib::tab_count(library, lib::Tab::maps) == 1);
     OA_CHECK(lib::tab_count(library, lib::Tab::mutators) == 0);
+    OA_CHECK(lib::tab_count(library, lib::Tab::brains) == 0);
     OA_CHECK(lib::tab_count(library, lib::Tab::languages) == 1);
     OA_CHECK(lib::tab_count(library, lib::Tab::updates) == lib::update_count(library));
     OA_CHECK(lib::tab_count(library, lib::Tab::registries) == 2);
@@ -2348,6 +2352,10 @@ void test_added_package_count() {
     OA_CHECK(lib::added_package_count(listed) == 5);
     listed.installed.push_back(
         installed(core, Kind::mutator, "counted-mutator", "Counted Mutator")
+    );
+    OA_CHECK(lib::added_package_count(listed) == 6);
+    listed.installed.push_back(
+        installed(core, Kind::brain, "steady-commander", "Steady Commander")
     );
     OA_CHECK(lib::added_package_count(listed) == 6);
 }
@@ -4276,14 +4284,16 @@ void test_command_line_lock() {
 }
 
 void test_mutators() {
-    // Mutators sits between Maps and Languages. Updates still opens on
-    // Updates; Mutators opens on All. The tab keeps its full word.
-    OA_CHECK(lib::tab_total == 7);
+    // Mutators sits between Maps and Brains, and Brains between Mutators and
+    // Languages. Updates still opens on Updates; Mutators and Brains open on
+    // All. Each of those tabs keeps its full word.
+    OA_CHECK(lib::tab_total == 8);
     const lib::Tab order[] = {
         lib::Tab::active,
         lib::Tab::mods,
         lib::Tab::maps,
         lib::Tab::mutators,
+        lib::Tab::brains,
         lib::Tab::languages,
         lib::Tab::updates,
         lib::Tab::registries,
@@ -4294,11 +4304,14 @@ void test_mutators() {
     const lib::Library fresh;
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::mods)] == lib::Filter::all);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::mutators)] == lib::Filter::all);
+    OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::brains)] == lib::Filter::all);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::languages)] == lib::Filter::all);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::updates)] == lib::Filter::updates);
     OA_CHECK(fresh.filters[static_cast<std::size_t>(lib::Tab::registries)] == lib::Filter::all);
     OA_CHECK_TEXT(lib::tab_text(lib::Tab::mutators, false), "Mutators");
     OA_CHECK_TEXT(lib::tab_text(lib::Tab::mutators, true), "Mutators");
+    OA_CHECK_TEXT(lib::tab_text(lib::Tab::brains, false), "Brains");
+    OA_CHECK_TEXT(lib::tab_text(lib::Tab::brains, true), "Brains");
 
     lib::Inputs inputs = base_inputs();
     lib::Listing fast = listing(core, Kind::mutator, "fast-builders", "Fast Builders");
@@ -4555,6 +4568,221 @@ void test_mutators() {
     capital_inputs.listings.push_back(capital);
     const lib::Library capital_library = built(std::move(capital_inputs));
     OA_CHECK(lib::tags_in_tab(capital_library) == Counts({{"Economy", 1}}));
+}
+
+/// Translates Rush and Economy, and leaves every other word as written.
+///
+/// @param english the pattern
+/// @return its translation, or the pattern
+std::string_view brain_tags_in_german(void*, std::string_view english) {
+    if (english == lib::words::tag_rush)
+        return "Ansturm";
+    if (english == lib::words::tag_economy)
+        return "Wirtschaft";
+    return english;
+}
+
+/// The Brains tab: the built-in player first, the package states, fit as
+/// information, and the nine tags' labels.
+void test_brains() {
+    lib::Inputs inputs = base_inputs();
+
+    lib::Listing ridge = listing(core, Kind::brain, "ridge-raider", "Ridge Raider");
+    ridge.published = "2026-02-01";
+    lib::BrainFacts ridge_facts;
+    ridge_facts.tags = {"rush"};
+    ridge_facts.works_with.push_back({"ridge", "", "Ridge"});
+    ridge.brain = ridge_facts;
+    inputs.listings.push_back(ridge);
+
+    lib::Installed steady = installed({}, Kind::brain, "steady-commander", "Steady Commander");
+    lib::BrainFacts steady_facts;
+    steady_facts.tags = {"classic"};
+    steady_facts.works_with.push_back({"*", "", ""});
+    steady.brain = steady_facts;
+    inputs.installed.push_back(steady);
+
+    lib::Listing tide = listing(core, Kind::brain, "tide-keeper", "Tide Keeper");
+    lib::BrainFacts tide_facts;
+    tide_facts.tags = {"turtle", "zebra"};
+    tide_facts.requires_expansions = {"core-contingency"};
+    tide.brain = tide_facts;
+    inputs.listings.push_back(tide);
+    lib::Installed tide_held = installed(core, Kind::brain, "tide-keeper", "Tide Keeper");
+    tide_held.brain = tide_facts;
+    inputs.installed.push_back(tide_held);
+    inputs.updates.push_back(update(core, Kind::brain, "tide-keeper"));
+
+    lib::Listing wide = listing(core, Kind::brain, "wide-watch", "Wide Watch");
+    lib::BrainFacts wide_facts;
+    wide_facts.tags = {"economy"};
+    wide_facts.full_awareness = true;
+    wide_facts.works_with.push_back({"*", "", ""});
+    wide.brain = wide_facts;
+    inputs.listings.push_back(wide);
+    lib::Installed wide_held = installed(core, Kind::brain, "wide-watch", "Wide Watch");
+    wide_held.brain = wide_facts;
+    inputs.installed.push_back(wide_held);
+
+    lib::Listing lantern = listing(core, Kind::brain, "lantern-scout", "Lantern Scout");
+    lantern.published = "2026-04-01";
+    lantern.requires_engine = ">= 9.0.0";
+    lib::BrainFacts lantern_facts;
+    lantern_facts.tags = {"experimental"};
+    lantern_facts.requires_engine = ">= 9.0.0";
+    lantern.brain = lantern_facts;
+    inputs.listings.push_back(lantern);
+
+    lib::Listing ridge_mod = listing(core, Kind::mod, "ridge", "Ridge");
+    inputs.listings.push_back(ridge_mod);
+    inputs.installed.push_back(installed(core, Kind::mod, "ridge", "Ridge"));
+    inputs.updates.push_back(update(core, Kind::mod, "ridge"));
+
+    lib::Library library = built(inputs);
+    lib::set_tab(library, lib::Tab::brains);
+    OA_CHECK(lib::shown_filter(library) == lib::Filter::all);
+
+    const lib::Entry* built_in = lib::find_entry(library, lib::built_in_brain_id());
+    OA_CHECK(built_in != nullptr);
+    OA_CHECK(visible_keys(library).front() == "@built-in@");
+    if (built_in != nullptr) {
+        OA_CHECK(built_in->state == State::installed);
+        OA_CHECK(built_in->is_default);
+        OA_CHECK(built_in->listing == nullptr && built_in->installed == nullptr);
+        OA_CHECK(built_in->can_act && built_in->blocked.empty() && !built_in->not_compatible);
+        OA_CHECK(actions_of(library, *built_in).empty());
+        OA_CHECK_TEXT(lib::entry_name(*built_in), "Built-in computer player");
+        OA_CHECK_TEXT(
+            lib::entry_summary(*built_in),
+            "Open Annihilation's own computer player. It plays as Total Annihilation's does."
+        );
+    }
+
+    const auto brain_at = [&](std::string_view registry, std::string_view key) {
+        return at(library, registry, Kind::brain, key);
+    };
+    const lib::Entry* ridge_row = brain_at(core, "ridge-raider");
+    const lib::Entry* steady_row = brain_at("", "steady-commander");
+    const lib::Entry* tide_row = brain_at(core, "tide-keeper");
+    const lib::Entry* wide_row = brain_at(core, "wide-watch");
+    const lib::Entry* lantern_row = brain_at(core, "lantern-scout");
+    OA_CHECK(ridge_row != nullptr && ridge_row->state == State::get && ridge_row->not_compatible);
+    OA_CHECK(ridge_row != nullptr && ridge_row->can_act && ridge_row->blocked.empty());
+    OA_CHECK(
+        steady_row != nullptr && steady_row->state == State::installed && !steady_row->is_default
+    );
+    OA_CHECK(tide_row != nullptr && tide_row->state == State::update && tide_row->not_compatible);
+    OA_CHECK(tide_row != nullptr && tide_row->can_act && tide_row->blocked.empty());
+    OA_CHECK(
+        wide_row != nullptr && wide_row->state == State::installed && !wide_row->not_compatible
+    );
+    OA_CHECK(
+        lantern_row != nullptr && lantern_row->state == State::get && lantern_row->not_compatible
+    );
+    OA_CHECK(lantern_row != nullptr && lantern_row->can_act && lantern_row->blocked.empty());
+    if (ridge_row != nullptr)
+        OA_CHECK(actions_of(library, *ridge_row).front() == std::make_pair(Action::get, true));
+    if (lantern_row != nullptr)
+        OA_CHECK(actions_of(library, *lantern_row).front() == std::make_pair(Action::get, true));
+    if (tide_row != nullptr)
+        OA_CHECK(actions_of(library, *tide_row).front() == std::make_pair(Action::update, true));
+
+    using Keys = std::vector<std::string>;
+    OA_CHECK(
+        visible_keys(library) == Keys({
+                                     "@built-in@",
+                                     "tide-keeper@fixture-core",
+                                     "steady-commander@",
+                                     "wide-watch@fixture-core",
+                                     "lantern-scout@fixture-core",
+                                     "ridge-raider@fixture-core",
+                                 })
+    );
+    OA_CHECK(lib::tab_count(library, lib::Tab::brains) == 5);
+    OA_CHECK(lib::filter_count(library, lib::Filter::all) == 5);
+    OA_CHECK(lib::filter_count(library, lib::Filter::installed) == 3);
+    OA_CHECK(lib::filter_count(library, lib::Filter::updates) == 1);
+    OA_CHECK(lib::filter_count(library, lib::Filter::newest) == 2);
+    lib::set_filter(library, lib::Filter::newest);
+    OA_CHECK(
+        visible_keys(library) == Keys({"lantern-scout@fixture-core", "ridge-raider@fixture-core"})
+    );
+    lib::set_filter(library, lib::Filter::installed);
+    OA_CHECK(visible_keys(library).front() == "@built-in@");
+    OA_CHECK(!shows_key(library, "ridge-raider@fixture-core"));
+    OA_CHECK(!shows_key(library, "lantern-scout@fixture-core"));
+    lib::set_filter(library, lib::Filter::updates);
+    OA_CHECK(visible_keys(library) == Keys({"tide-keeper@fixture-core"}));
+    lib::set_filter(library, lib::Filter::all);
+
+    lib::set_tab(library, lib::Tab::mods);
+    OA_CHECK(!shows_key(library, "@built-in@"));
+    OA_CHECK(!shows_key(library, "steady-commander@"));
+    lib::set_tab(library, lib::Tab::updates);
+    OA_CHECK(visible_keys(library) == Keys({"ridge@fixture-core", "tide-keeper@fixture-core"}));
+    OA_CHECK(!shows_key(library, "@built-in@"));
+    lib::set_tab(library, lib::Tab::brains);
+
+    using Counts = std::vector<std::pair<std::string, std::size_t>>;
+    OA_CHECK(
+        lib::tags_in_tab(library) == Counts({
+                                         {"classic", 1},
+                                         {"economy", 1},
+                                         {"rush", 1},
+                                         {"turtle", 1},
+                                         {"experimental", 1},
+                                         {"zebra", 1},
+                                     })
+    );
+
+    inputs.default_brain = "steady-commander";
+    lib::refresh(library, inputs);
+    lib::set_tab(library, lib::Tab::brains);
+    const lib::Entry* named_default = at(library, "", Kind::brain, "steady-commander");
+    const lib::Entry* named_built_in = lib::find_entry(library, lib::built_in_brain_id());
+    OA_CHECK(named_default != nullptr && named_default->is_default);
+    OA_CHECK(named_built_in != nullptr && !named_built_in->is_default);
+    OA_CHECK(lib::filter_count(library, lib::Filter::all) == 5);
+    inputs.default_brain = "missing-brain";
+    lib::refresh(library, inputs);
+    lib::set_tab(library, lib::Tab::brains);
+    const lib::Entry* missing_default = lib::find_entry(library, lib::built_in_brain_id());
+    OA_CHECK(missing_default != nullptr && missing_default->is_default);
+
+    lib::Inputs plain = base_inputs();
+    OA_CHECK(lib::brain_unfit_reason(plain, lib::BrainFacts{}).empty());
+    lib::BrainFacts any;
+    any.works_with.push_back({"*", "", ""});
+    OA_CHECK(lib::brain_unfit_reason(plain, any).empty());
+    OA_CHECK_TEXT(lib::brain_unfit_reason(plain, ridge_facts), "Made for Ridge");
+    plain.played = {"ridge", "28", "Ridge"};
+    OA_CHECK(lib::brain_unfit_reason(plain, ridge_facts).empty());
+    plain.played = {};
+    OA_CHECK_TEXT(lib::brain_unfit_reason(plain, tide_facts), "Needs Core Contingency");
+    plain.content.enabled = {"core-contingency"};
+    OA_CHECK(lib::brain_unfit_reason(plain, tide_facts).empty());
+    plain.content.enabled.clear();
+    OA_CHECK_TEXT(
+        lib::brain_unfit_reason(plain, lantern_facts), "Needs Open Annihilation 9.0.0 or later"
+    );
+    OA_CHECK(lib::brain_unfit_reason(plain, wide_facts).empty());
+
+    OA_CHECK(lib::brain_tag_label("classic") == lib::words::tag_classic);
+    OA_CHECK(lib::brain_tag_label("economy") == lib::words::tag_economy);
+    OA_CHECK(lib::brain_tag_label("rush") == lib::words::tag_rush);
+    OA_CHECK(lib::brain_tag_label("turtle") == lib::words::tag_turtle);
+    OA_CHECK(lib::brain_tag_label("air") == lib::words::tag_air);
+    OA_CHECK(lib::brain_tag_label("naval") == lib::words::tag_naval);
+    OA_CHECK(lib::brain_tag_label("learned") == lib::words::tag_learned);
+    OA_CHECK(lib::brain_tag_label("teaching") == lib::words::tag_teaching);
+    OA_CHECK(lib::brain_tag_label("experimental") == lib::words::tag_experimental);
+    OA_CHECK(lib::brain_tag_label("zebra") == "zebra");
+    OA_CHECK(lib::brain_tag_label("Rush") == "Rush");
+    lib::TextHooks hooks;
+    hooks.shown = brain_tags_in_german;
+    OA_CHECK(lib::brain_tag_label("rush", hooks) == "Ansturm");
+    OA_CHECK(lib::brain_tag_label("economy", hooks) == "Wirtschaft");
+    OA_CHECK(lib::brain_tag_label("Rush", hooks) == "Rush");
 }
 
 void test_lookup() {
@@ -5130,6 +5358,7 @@ int main() {
     test_registry_texts();
     test_package_needs();
     test_mutators();
+    test_brains();
     test_checked_words();
     test_mutator_details();
     test_lookup();

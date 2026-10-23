@@ -31,6 +31,7 @@
 #include "oa/data/defs/unit_catalog.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/language_pack.hpp"
+#include "oa/data/brain_facts.hpp"
 #include "oa/data/limits.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
@@ -4476,6 +4477,16 @@ class Runtime final : public menu::Host,
     /// A package change before the first read leaves the listing unmade.
     void reload_installed_brains() const;
 
+    /// Returns the default brain's id.
+    ///
+    /// The value of open-annihilation.brain.default when a brain of that id
+    /// is installed, and empty when the key is absent, empty, or names a
+    /// brain that is not installed. While the Library is open this reads the
+    /// worker's listing and does not open the Brains folder.
+    ///
+    /// @return the id, or empty for the built-in computer player
+    [[nodiscard]] std::string default_brain() const;
+
   public:
 
     /// Replaces the mutators the next matches apply.
@@ -4962,6 +4973,20 @@ class Runtime final : public menu::Host,
     /// as the built-in computer player. Nothing is seated when no match is
     /// running.
     void seat_chosen_brains();
+
+    /// Returns the facts a brain reads as `game`.
+    ///
+    /// The base game and the expansions are the mounted content choice, or
+    /// `totala` with no expansion when the managed copy is not mounted. The
+    /// engine is this build's. The mode is campaign during a campaign
+    /// mission, network during a multiplayer session, and skirmish otherwise.
+    /// The difficulty is the match's when a match is running, otherwise the
+    /// preferences'. The mod is the profile the match plays, or the base
+    /// game's name when the game plays 3.1c, with this match's sides. The
+    /// mutators are the running match's loadout in apply order, or none.
+    ///
+    /// @return the facts, owned outright
+    [[nodiscard]] oa::data::brain_facts::GameFacts brain_game_facts() const;
 
     /// Fills the pipeline's hack check from this run's profile.
     ///
@@ -6888,6 +6913,7 @@ class Runtime final : public menu::Host,
     /// Configures the computer players before the mission's units exist, as mission state set-up
     /// does.
     ///
+    /// The facts a brain reads are stored first, before any brain is seated.
     /// They take the profile and the side build lists read from
     /// gamedata/sidedata.tdf; the match applies both before its first tick's
     /// orders run. Throws std::runtime_error when either cannot be loaded or
