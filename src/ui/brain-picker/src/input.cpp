@@ -1374,9 +1374,11 @@ ScreenResult picker_pointer(
             end_hold(state);
             return redrawn();
         }
-        const bool finger = finger_reach > 0;
+        // A tap still has to activate. end_hold would clear the press, and
+        // pointer_up would then see nothing held.
         if (state.hold.kind == Hold::Kind::finger)
-            end_hold(state);
+            state.hold = {};
+        const bool finger = finger_reach > 0;
         const kit::PointerOutcome released = kit::pointer_up(interaction, list, at);
         if (released.result == kit::PointerResult::activated)
             return activate(picker, state, list, released.control, released.at);
