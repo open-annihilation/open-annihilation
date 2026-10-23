@@ -26,6 +26,14 @@ inline constexpr uint32_t sonar_contact = OA_UNIT_FLAG_VIEWPOINT_OWNED;
 inline constexpr uint32_t jammed = OA_UNIT_FLAG_JAMMED;
 inline constexpr uint32_t contact_bits = radar_contact | sonar_contact | jammed;
 
+/// Bits of one unit slot in a player's radar picture.
+///
+/// They are not `Unit.flags` values. `picture_radar` matches a radar contact,
+/// `picture_sonar` a sonar contact and `picture_jammed` a jammed unit.
+inline constexpr uint8_t picture_radar = 1;
+inline constexpr uint8_t picture_sonar = 2;
+inline constexpr uint8_t picture_jammed = 4;
+
 // Player-info role bit an owner sets to share its radar with allies.
 inline constexpr uint8_t share_radar_role = 0x40;
 
@@ -110,6 +118,57 @@ void jam_radar(Unit& unit) noexcept;
 ///
 /// @param[in,out] unit unit walked over
 void jam_sonar(Unit& unit) noexcept;
+
+/// Stamps one unit inside a scanner's walk into a picture byte.
+///
+/// The tests are stamp_contact's, with `viewer` in place of the viewpoint:
+/// a non-stealth unit of another player is a sonar contact at or below sea
+/// level inside the sonar reach, and a radar contact when its top is at or
+/// above sea level inside the radar reach. The unit's flags are not written.
+///
+/// @param scan scanning unit's reach and position
+/// @param viewer player whose picture is being built
+/// @param unit unit walked over
+/// @param world sea level and unit types
+/// @param[in,out] bits the unit's picture byte
+void stamp_picture(
+    const ScanRecord& scan, uint8_t viewer, const Unit& unit, const World& world, uint8_t& bits
+) noexcept;
+
+/// Marks a picture byte inside a radar jammer's walk: it leaves radar and is marked jammed.
+///
+/// @param[in,out] bits the unit's picture byte
+void jam_picture_radar(uint8_t& bits) noexcept;
+
+/// Marks a picture byte inside a sonar jammer's walk: it leaves sonar and is marked jammed.
+///
+/// @param[in,out] bits the unit's picture byte
+void jam_picture_sonar(uint8_t& bits) noexcept;
+
+/// Tells whether a jammer jams the viewing player's picture.
+///
+/// With allied jammers ignored, the viewer's own jammer and a jammer whose
+/// owner the viewer's alliance row names do not jam. Otherwise every jammer
+/// does. The row is read one way. A watcher and a slotless viewer are not
+/// special here.
+///
+/// @param allied_jammers_ignored intel.allied-jammers-ignored is on
+/// @param viewer the viewing player of this pass
+/// @param jammer the jamming unit
+/// @return true when it jams
+bool seat_jammer_jams(
+    bool allied_jammers_ignored, const Player& viewer, const Unit& jammer
+) noexcept;
+
+/// Returns the picture bits a new unit starts with.
+///
+/// Sonar when the unit's owner is the viewer, and neither radar nor jammed.
+/// That is how a new unit's flags start, with the viewpoint as the viewer.
+///
+/// @param unit the new unit
+/// @param viewer player whose picture is being built
+/// @return the unit's starting picture byte
+uint8_t created_picture_bits(const Unit& unit, uint8_t viewer) noexcept;
 
 /// Tests whether a player's sightings are due for a rebuild.
 ///

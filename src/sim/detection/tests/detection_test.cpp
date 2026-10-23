@@ -380,6 +380,128 @@ void test_finished_unit() {
     CHECK(finished_unit(unit));
 }
 
+uint8_t picture_of(uint32_t flags) {
+    uint8_t bits = 0;
+    if ((flags & radar_contact) != 0)
+        bits = static_cast<uint8_t>(bits | picture_radar);
+    if ((flags & sonar_contact) != 0)
+        bits = static_cast<uint8_t>(bits | picture_sonar);
+    if ((flags & jammed) != 0)
+        bits = static_cast<uint8_t>(bits | picture_jammed);
+    return bits;
+}
+
+// Heights above, at and below the sea; distances inside and outside sonar,
+// plain radar and a lifted radar reach; stealth, plain and typeless; owned
+// by the picture's viewer, the viewpoint and a third player.
+void test_stamp_picture_grid() {
+    World* w = make_world();
+    const int32_t heights[] = {sea_level + 8, sea_level, sea_level - 20};
+    const int32_t distances[] = {0, 30, 49, 50, 80, 100, 120, 150, 160};
+    const int32_t radar_reaches[] = {100 * 100, 150 * 150};
+    const uint8_t owners[] = {viewer, enemy, ally};
+    const uint16_t types[] = {plain, stealthy, 0};
+    const uint32_t seeds[] = {0u, jammed};
+    int viewpoint_units_stamped = 0;
+    for (const int32_t height : heights)
+        for (const int32_t distance : distances)
+            for (const int32_t radar_reach : radar_reaches)
+                for (const uint8_t owner : owners)
+                    for (const uint16_t type : types)
+                        for (const uint32_t seed : seeds) {
+                            auto& unit = place(
+                                *w, enemy_first, type == 0 ? plain : type, distance, height, 0
+                            );
+                            unit.owner_index = owner;
+                            unit.owner = oa_ref_from_index(owner);
+                            if (type == 0)
+                                unit.type_index = 0;
+                            unit.flags = OA_UNIT_FLAG_LIVE | seed;
+                            const uint32_t flags_before = unit.flags;
+                            ScanRecord scan = scanner_at_origin();
+                            scan.radar_range_squared = radar_reach;
+                            uint8_t bits = picture_of(seed);
+                            stamp_picture(scan, viewer, unit, *w, bits);
+                            Unit copy = unit;
+                            stamp_contact(scan, copy, *w);
+                            CHECK(bits == picture_of(copy.flags));
+                            CHECK(unit.flags == flags_before);
+                            // A viewer who is not the viewpoint still stamps the
+                            // viewpoint's units, and never its own.
+                            uint8_t other = picture_of(seed);
+                            stamp_picture(scan, enemy, unit, *w, other);
+                            CHECK(unit.flags == flags_before);
+                            if (owner == enemy) {
+                                CHECK(other == picture_of(seed));
+                            } else {
+                                copy = unit;
+                                copy.owner_index = ally;
+                                stamp_contact(scan, copy, *w);
+                                CHECK(other == picture_of(copy.flags));
+                                if (owner == viewer && (other & picture_radar) != 0)
+                                    ++viewpoint_units_stamped;
+                            }
+                        }
+    CHECK(viewpoint_units_stamped > 0);
+    auto& bare = place(*w, enemy_first, plain, 0, sea_level, 10);
+    bare.owner_index = enemy;
+    bare.def = 0;
+    bare.flags = OA_UNIT_FLAG_LIVE | radar_contact;
+    uint8_t bare_bits = picture_radar;
+    stamp_picture(scanner_at_origin(), viewer, bare, *w, bare_bits);
+    CHECK(bare_bits == picture_radar);
+    CHECK(bare.flags == (OA_UNIT_FLAG_LIVE | radar_contact));
+    world_destroy(w);
+}
+
+void test_jam_picture_and_seat_rule() {
+    uint8_t radar_bits = static_cast<uint8_t>(picture_radar | picture_sonar);
+    uint8_t sonar_bits = radar_bits;
+    jam_picture_radar(radar_bits);
+    jam_picture_sonar(sonar_bits);
+    CHECK(radar_bits == static_cast<uint8_t>(picture_sonar | picture_jammed));
+    CHECK(sonar_bits == static_cast<uint8_t>(picture_radar | picture_jammed));
+    Unit untouched{};
+    untouched.flags = OA_UNIT_FLAG_LIVE | radar_contact | sonar_contact;
+    CHECK(untouched.flags == (OA_UNIT_FLAG_LIVE | radar_contact | sonar_contact));
+
+    World* w = make_world();
+    auto& jammer = place(*w, enemy_first, plain, 0, sea_level, 0);
+    const auto& watcher = w->game.players[viewer];
+    jammer.owner_index = viewer;
+    CHECK(seat_jammer_jams(false, watcher, jammer));
+    CHECK(!seat_jammer_jams(true, watcher, jammer));
+    jammer.owner_index = enemy;
+    CHECK(seat_jammer_jams(false, watcher, jammer));
+    CHECK(seat_jammer_jams(true, watcher, jammer));
+    jammer.owner_index = ally;
+    // The viewer's row names the owner. The owner's row does not name the viewer.
+    w->game.players[viewer].alliance[ally] = 1;
+    CHECK(seat_jammer_jams(false, watcher, jammer));
+    CHECK(!seat_jammer_jams(true, watcher, jammer));
+    // The other way: the owner's row names the viewer, and the viewer's does not.
+    w->game.players[viewer].alliance[ally] = 0;
+    w->game.players[ally].alliance[viewer] = 1;
+    CHECK(seat_jammer_jams(false, watcher, jammer));
+    CHECK(seat_jammer_jams(true, watcher, jammer));
+    jammer.owner_index = OA_PLAYER_RECORD_COUNT;
+    CHECK(seat_jammer_jams(false, watcher, jammer));
+    CHECK(seat_jammer_jams(true, watcher, jammer));
+    world_destroy(w);
+}
+
+void test_created_picture_bits() {
+    Unit unit{};
+    unit.owner_index = viewer;
+    CHECK(created_picture_bits(unit, viewer) == picture_sonar);
+    CHECK(created_picture_bits(unit, enemy) == 0);
+    unit.owner_index = enemy;
+    CHECK(created_picture_bits(unit, viewer) == 0);
+    CHECK(created_picture_bits(unit, enemy) == picture_sonar);
+    unit.flags = radar_contact | sonar_contact | jammed;
+    CHECK(created_picture_bits(unit, enemy) == picture_sonar);
+}
+
 void test_expose_cloaker() {
     Unit unit{};
     unit.flags = OA_UNIT_FLAG_LIVE | cloak_ordered;
@@ -397,6 +519,9 @@ int main() {
     test_reach_is_exclusive();
     test_own_and_empty_units_are_skipped();
     test_jammers();
+    test_stamp_picture_grid();
+    test_jam_picture_and_seat_rule();
+    test_created_picture_bits();
     test_shared_radar();
     test_sightings_cadence();
     test_sightings_lists();
