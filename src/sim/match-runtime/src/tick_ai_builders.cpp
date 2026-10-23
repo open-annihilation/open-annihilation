@@ -10,6 +10,10 @@ const data::unit_definitions::UnitDefinition* Match::unit_definition(uint16_t ty
     return type < input_.fields.size() ? input_.fields[type].definition : nullptr;
 }
 
+const sim::combat_state::WeaponDefinition* Match::weapon_definition(uint8_t id) const noexcept {
+    return &input_.weapons.definition(id);
+}
+
 std::span<const uint16_t> Match::squad_members(uint8_t player, uint32_t squad) const {
     if (player >= groups_.size())
         return {};

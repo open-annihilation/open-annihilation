@@ -20,10 +20,11 @@ brain plays as the built-in computer player.
   a later change adds a library: one call, after the ones already there.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
-  tables. `game` is then filled from the seat's facts, and unit handles and
-  the read-only `me` surface are installed. It has to work when the seat has
-  no match: `game.in_match` is false, and `me` still carries the player,
-  level, difficulty and options copied from the spec.
+  tables. `game` is then filled from the seat's facts, and unit handles,
+  the read-only `me` surface, and the definition collections are installed.
+  It has to work when the seat has no match: `game.in_match` is false, `me`
+  still carries the player, level, difficulty and options copied from the
+  spec, and `units`, `weapons` and `features` exist and are empty.
 
 ## State
 
@@ -202,4 +203,57 @@ tick's unit sweep.
 Radar contacts wait on per-player radar (A05). Chat waits on A08. Timers
 run inside this call later (B03). Handing a stopped seat back to the
 built-in player, with the notice and the log, is B04. Shots are not
-delivered.
+delivered. Placed map features are not listed; `features` is the
+feature-type table.
+
+## Definitions
+
+`units`, `weapons` and `features` are the match's loaded records, after the
+mod and the mutators. They are read-only. Assigning a field raises
+`a collection cannot be assigned` or `a record cannot be assigned`. Replacing
+the global `units` itself is ordinary Lua.
+
+A record answers `rec.key` and `rec:get(key)`. `rec:fixed(key)` is that value
+as a fixed count: a stored 16.16 count, an integer or a tick count times
+65536, or a float times 65536 truncated toward zero. A list or a text is nil.
+`rec:keys()` is the kept fields in schema order. `rec:index()` is the type
+index, the weapon id, or the feature's index from 0.
+
+`units[i]` is type index `i`, from 1. Index 0 is the reserved empty type and
+is not a record. `#units` is that count. `weapons[id]` is the weapon id from
+0 to 255, or nil when that slot was not loaded. `#weapons` is how many slots
+are loaded, so it matches `each` and `pairs`; the id is still the key, and a
+gap stays a gap. `features[i]` is the feature type at index `i - 1`.
+
+Names are matched without regard to ASCII case. The first record in that
+order wins when two share a name. `each` is the collection's method, so a
+record named `each` is reached by index, not by that name. `pairs` and `each`
+walk the same order: type index, then weapon id, then feature index.
+
+An integer is a Lua integer. A 16.16 count is a `fixed` value, and a stored
+float is an `f32`, so the bits the record holds are the bits the script sees.
+A flag is the record's bit, read when the field is read. A tick field is the
+stored tick count, thirty to a second. `category` is the type's categories in
+registry order.
+
+These unit keys are not on the record, so they read nil: `copyright`,
+`version`, `yardmap`, `corpse`, `badslope`, `badwaterslope`,
+`wpri_badtargetcategory`, `wsec_badtargetcategory`, `wspe_badtargetcategory`
+and `nochasecategory`. A weapon's sound names, explosion art and model name
+are not on the weapon record either.
+
+`weapon:damage()` is the weapon's default damage. `weapon:damage(unit)` uses
+a unit record, a unit name or a type index, and reads that unit's entry.
+`resolve_unit_type` is the one way a later change turns those three into a
+type index.
+
+A unit handle's `type` is that unit's record. It is a seen field: another
+player's unit reads nil while the seat may not see it.
+
+With no match the three collections are empty, `#units` is 0, and every
+lookup is nil.
+
+`sim-brains-defs` seats the made-up brain `definition-reader` on the
+computer-build fixture and also runs that brain with no match.
+`sim-brains-defs-data` compares every installed unit's kept fields with the
+value the match loaded.
