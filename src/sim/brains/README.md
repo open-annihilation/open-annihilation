@@ -21,9 +21,10 @@ brain plays as the built-in computer player.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
   tables. `game` is then filled from the seat's facts, and unit handles and
-  the read-only `me` surface are installed. It has to work when the seat has
-  no match: `game.in_match` is false, and `me` still carries the player,
-  level, difficulty and options copied from the spec.
+  the read-only `me` surface are installed, then `brain.say`. It has to work
+  when the seat has no match: `game.in_match` is false, `me` still carries
+  the player, level, difficulty and options copied from the spec, and
+  `brain.say` answers that chat is not connected.
 
 ## State
 
@@ -103,6 +104,13 @@ gift, a cancelled frame, carry, sight, a blocked path and a completed move,
 alliance and defeat, a missing hook, the bank, a full queue, and that two
 seated brains and two matches with no brain keep the same random stream and
 state hash.
+
+`sim-brains-chat` (`tests/chat_test.cpp`) seats the made-up brain
+`chat-listener` on the same fixture. Lines queued with `hear_chat` reach
+`onChat` at the next turn, in order, after the events and before `onTick`.
+`brain.say` passes each audience to the test's say hook and returns each
+answer. Two matches with no brain, and two matches whose brain says a line
+every tick, keep the same random stream and state hash.
 
 ## Handles and my side
 
@@ -191,15 +199,38 @@ missing `onTick` is fine.
 
 One turn is one banked call. It delivers the queued events in the order they
 fired, then alliance changes for the other players in index order, then a
-defeat for each player who was participating and no longer is, then
-`onTick`. The first turn stores the alliances and who is participating and
+defeat for each player who was participating and no longer is, then chat,
+then `onTick`. The first turn stores the alliances and who is participating and
 reports none of those changes. A failed call marks the seat stopped; later
 turns return without a call. Orders a hook gives take effect in the next
 tick's unit sweep.
 
+## Chat
+
+`onChat(from, text, to)` runs once per line that reached the seat since its
+last turn, in arrival order. `from` is the sender's player index. `text` is
+the words, with no name head. `to` is `all`, `allies`, `enemies` or `me`
+(a line addressed to this seat). A missing `onChat` is skipped, and the line
+is still consumed. A line heard while the hooks run waits for the next turn.
+At most 32 lines wait for one turn; a further line is dropped and counted by
+`dropped_chat_lines`. Words longer than 256 bytes are cut between whole
+characters. A long line that arrived as several parts is several calls.
+
+`brain.say(text [, to])` hands one line to the match at once. `to` is
+`all` (the default), `allies`, `enemies` or a player index from 0 to 9.
+Anything else raises. It returns true when the line was queued, and otherwise
+false plus `not_a_seat`, `empty`, `command`, `too_soon`, `no_target` or
+`no_chat`. It does not pace, post to the log or send a command itself: the
+match does that. With no say hook, or outside a match, the answer is
+`no_chat`.
+
+The app sets that hook, and the listener that queues heard lines, only once
+a brain is seated. A match with no brain keeps the chat listener it already
+had. The simulation reaches the app only through this hook.
+
 ## Limitations
 
-Radar contacts wait on per-player radar (A05). Chat waits on A08. Timers
-run inside this call later (B03). Handing a stopped seat back to the
-built-in player, with the notice and the log, is B04. Shots are not
+Radar contacts wait on per-player radar (A05). Timers run inside this call
+later (B03), after chat and before `onTick`. Handing a stopped seat back to
+the built-in player, with the notice and the log, is B04. Shots are not
 delivered.
