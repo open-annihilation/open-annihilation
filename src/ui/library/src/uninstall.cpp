@@ -121,7 +121,16 @@ oa::ui::kit::Question uninstall_question(
     const Library& library, const Entry& entry, std::string_view folder, const TextHooks& text
 ) {
     oa::ui::kit::Question question = uninstall_question(entry, folder, text);
-    if (entry.id.kind != Kind::mutator || question.paragraphs.empty())
+    if (question.paragraphs.empty())
+        return question;
+    if (entry.id.kind == Kind::brain && entry.is_default) {
+        question.paragraphs.insert(
+            question.paragraphs.end() - 1,
+            {std::string(shown(text, words::uninstall_default_brain)), false}
+        );
+        return question;
+    }
+    if (entry.id.kind != Kind::mutator)
         return question;
     std::vector<std::string> among;
     for (const Installed& item : library.inputs.installed) {

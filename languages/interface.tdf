@@ -1402,6 +1402,14 @@
 	it=Integrato;
 	}
 
+[Built in · Default]
+	{
+	de=Integriert · Standard;
+	fr=Intégré · Par défaut;
+	es=Integrado · Predeterminado;
+	it=Integrato · Predefinito;
+	}
+
 [Built-in computer player]
 	{
 	de=Eingebauter Computerspieler;
@@ -4530,6 +4538,14 @@
 	it={name} installato;
 	}
 
+[Installed · Default]
+	{
+	de=Installiert · Standard;
+	fr=Installé · Par défaut;
+	es=Instalado · Predeterminado;
+	it=Installato · Predefinito;
+	}
+
 [Installing]
 	{
 	de=Wird installiert;
@@ -4792,6 +4808,14 @@
 	fr=Il reste copié, pour que tu puisses le réparer dans ton gestionnaire de fichiers. L'onglet mods de la Bibliothèque ne lance que les mods qui marchent.;
 	es=Sigue copiado, para que puedas repararlo en tu gestor de archivos. La pestaña mods de la Biblioteca solo juega mods que funcionan.;
 	it=Resta copiato, così puoi ripararlo nel gestore di file. La scheda mod della Biblioteca avvia solo i mod che funzionano.;
+	}
+
+[It is your default computer player: new computer seats go back to the built-in player.]
+	{
+	de=Das ist dein Standard-Computergegner: neue Computerplätze nehmen wieder den integrierten Spieler.;
+	fr=C'est ton joueur ordinateur par défaut : les nouvelles places ordinateur reviennent au joueur intégré.;
+	es=Es tu jugador de ordenador predeterminado: las plazas de ordenador nuevas vuelven al jugador integrado.;
+	it=È il tuo giocatore computer predefinito: i nuovi posti computer tornano al giocatore integrato.;
 	}
 
 [It lists a font it does not hold: {name}.]
@@ -5496,6 +5520,14 @@
 	fr=Disposition pour gaucher;
 	es=Disposición zurda;
 	it=Disposizione per mancini;
+	}
+
+[Levels]
+	{
+	de=Stufen;
+	fr=Niveaux;
+	es=Niveles;
+	it=Livelli;
 	}
 
 [Library]
@@ -8658,6 +8690,14 @@
 	it=Cerca aggiornamenti;
 	}
 
+[Sees every unit on the map, as Total Annihilation's own computer player does]
+	{
+	de=Sieht jede Einheit auf der Karte, so wie der Computerspieler von Total Annihilation.;
+	fr=Voit chaque unité sur la carte, comme le joueur ordinateur de Total Annihilation.;
+	es=Ve todas las unidades del mapa, como el jugador de ordenador de Total Annihilation.;
+	it=Vede ogni unità sulla mappa, come il giocatore computer di Total Annihilation.;
+	}
+
 [Select]
 	{
 	de=Auswählen;
@@ -10882,6 +10922,14 @@
 	it=AGGIORNA MUTATORE;
 	}
 
+[USE BY DEFAULT]
+	{
+	de=ALS STANDARD NUTZEN;
+	fr=UTILISER PAR DÉFAUT;
+	es=USAR POR DEFECTO;
+	it=USA COME PREDEFINITO;
+	}
+
 [USE IT]
 	{
 	de=NUTZEN;
@@ -11208,6 +11256,14 @@
 	fr=Interface utilisateur;
 	es=Interfaz de usuario;
 	it=Interfaccia utente;
+	}
+
+[Uses a learned network ({size})]
+	{
+	de=Nutzt ein gelerntes Netz ({size});
+	fr=Utilise un réseau appris ({size});
+	es=Usa una red aprendida ({size});
+	it=Usa una rete appresa ({size});
 	}
 
 [Uses {size} on this {device} · {free} free.]
@@ -12464,6 +12520,14 @@
 	fr=intro et fins · facultatif;
 	es=introducción y finales · opcional;
 	it=intro e finali · facoltativo;
+	}
+
+[it fits this game]
+	{
+	de=es passt zu diesem Spiel;
+	fr=il convient à cette partie;
+	es=encaja en esta partida;
+	it=va bene per questa partita;
 	}
 
 [it works with {names}]

@@ -96,8 +96,9 @@ translator finds them together. Every word passes through `Library::text`
     under All and Installed only, including when a search matches its name
     or "default", and on no other tab or filter, and it is left out of
     every count. It is marked Default unless `Inputs::default_brain` names
-    an installed brain. It reads Built in where a package reads its version,
-    and it offers none of a package's actions;
+    an installed brain. It reads Built in where a package reads its version.
+    While it is not the default it offers USE BY DEFAULT, and while it is
+    the default it offers nothing;
   - Mods, Maps, Mutators, Brains and Languages show their kind and Updates every kind, under
     the tab's own filter (`Library::filters`, `shown_filter`) and, when that
     filter offers it, the tag. A tag left from another tab or filter is kept
@@ -188,7 +189,15 @@ translator finds them together. Every word passes through `Library::text`
     when an installed copy's verdict is set (off during a game and while a
     check runs), then UNINSTALL, OPEN FOLDER and HOMEPAGE. It never offers
     ROLL BACK, PLAY NOW, SWITCH OFF, USE NOW or TURN ON, and an incompatible
-    verdict does not turn GET or UPDATE off;
+    verdict does not turn GET or UPDATE off. A brain offers GET or UPDATE
+    (CANCEL while queued, RETRY after a failure that can be retried; each
+    stays on when the brain does not fit), then USE BY DEFAULT when an
+    installed copy is not the default, then CHECK WITH THIS MOD when an
+    installed copy's verdict is set (off during a game and while a check
+    runs), then UNINSTALL, OPEN FOLDER and HOMEPAGE. The host's check loads
+    the brain on the Library's worker and runs fits against the game being
+    played. It does not seat the brain. USE BY DEFAULT writes
+    `open-annihilation.brain.default`, or erases it for the built-in player;
   - the facts Installed, Latest, Author, Size, Base, Games, Needs, Hacks, Rules,
     Maps, Coverage and From, in a long and a short form. Installed and
     Latest are the installed copy's and the listing's version and revision
@@ -212,7 +221,18 @@ translator finds them together. Every word passes through `Library::text`
     and then the engine's Needs,
     Options, Changes, Rules ("Changes the game: unranked on Core Prime",
     shown whole) and From. `verdict_of_record` maps a dry-run record; a
-    compatible summary counts the collections ("changes 2 units");
+    compatible summary counts the collections ("changes 2 units"). A brain
+    leaves out Base, Games, Hacks, Maps, Coverage, Options, Changes and
+    Rules. After Author it lists Levels (the level names joined as "Easy,
+    Medium and Hard"), Works with ("Any mod", or the names joined with "or",
+    marked when the brain does not fit), Needs (the engine's, then one per
+    required expansion: good when that expansion is on, a warning when it is
+    off), Full awareness only when the brain sees every unit (a warning),
+    Network only when it carries a learned network, and Checked when an
+    installed copy's verdict is set (the same words as a mutator's, a
+    compatible one reading "it fits this game"), then Size and From. The
+    built-in entry lists only Levels ("Easy, Medium and Hard") and Works
+    with ("Any mod");
   - the byline names the author, or the publisher when there is no author.
     A listing that names neither shows nothing more. The byline does not
     change an entry's state, order or search rank;
@@ -222,8 +242,11 @@ translator finds them together. Every word passes through `Library::text`
   - the status line says "No oamod.yaml present" for a mod folder without
     one (`Installed::without_manifest`), installed or played. A mutator that
     is not installed names its version, including a revision of 1
-    ("Not installed · 2.0 · rev 1"). Installed, update and queue lines stay
-    as they are for every kind.
+    ("Not installed · 2.0 · rev 1"). A brain to GET names its version the
+    same way. An installed brain reads Installed, and Installed · Default
+    while it is the default. The built-in entry reads Built in, and Built
+    in · Default while it is the default. An update's line and a queue's
+    line stay those lines while a brain is the default.
 - `entry_summary` gives the words under the details' status line: the
   listing's summary, else the installed manifest's description
   (`Installed::description`), as for a mod of the player's own.
@@ -336,8 +359,12 @@ app removes the folder (`Runtime::library_uninstall`,
   `oa.prompt.uninstall`. `uninstall_question(library, entry, folder)` is
   the same question, and for a mutator other installed mutators need it
   adds, before that last paragraph, that they stay installed and cannot
-  be switched on until it is back. The host uses this form. The answer
-  and the removal are unchanged.
+  be switched on until it is back. For the default brain it adds, before
+  that last paragraph, "It is your default computer player: new computer
+  seats go back to the built-in player." The host uses this form. After
+  the folder is removed, uninstalling the default erases
+  `open-annihilation.brain.default`. The answer and the removal are
+  unchanged.
 - `uninstall_notice(entry, step)` makes the notice for a package in use,
   and `uninstall_failed_notice(name, problem)` the one for an uninstall
   that removed nothing (busy, changed, a link, outside the player's
