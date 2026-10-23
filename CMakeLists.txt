@@ -384,6 +384,12 @@ add_library(oa-app-mutators-memory src/app/mutators_memory.cpp)
 add_library(oa::app::mutators_memory ALIAS oa-app-mutators-memory)
 target_link_libraries(oa-app-mutators-memory PUBLIC oa-app-headers oa-platform-preferences
   oa-data-mutators PRIVATE oa-options)
+# A headless match between two brains: the seats the command names, when the
+# match ends, and the lines it prints (brain_match.hpp).
+add_library(oa-app-brain-match src/app/brain_match.cpp)
+add_library(oa::app::brain_match ALIAS oa-app-brain-match)
+target_link_libraries(oa-app-brain-match PUBLIC oa-app-headers
+  PRIVATE oa-formats-oabrain oa-options)
 # Brains seated on this machine's computer players (brain_seats.hpp).
 add_library(oa-app-brain-seats src/app/brain_seats.cpp)
 add_library(oa::app::brain_seats ALIAS oa-app-brain-seats)
@@ -867,6 +873,12 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-options)
   add_test(NAME app-brain-seats COMMAND oa-app-brain-seats-test)
   set_tests_properties(app-brain-seats PROPERTIES TIMEOUT 60)
+  # Two seats, the tick a brain match ends on, and the report's lines.
+  add_executable(oa-app-brain-match-test src/app/brain_match_test.cpp)
+  target_link_libraries(oa-app-brain-match-test PRIVATE oa-app-brain-match oa-test-support
+    oa-options)
+  add_test(NAME app-brain-match COMMAND oa-app-brain-match-test)
+  set_tests_properties(app-brain-match PROPERTIES TIMEOUT 30)
   # Chat a computer seat reads and sends: what it may say, who hears it, and
   # the pace of one line per 30 ticks.
   add_executable(oa-app-seat-chat-test src/app/seat_chat_test.cpp)
