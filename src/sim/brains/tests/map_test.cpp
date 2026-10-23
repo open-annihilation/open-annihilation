@@ -703,7 +703,7 @@ void park_unit(Fixture& fixture, host::Sandbox& sandbox, brains::Seat& seat) {
 }
 
 void sight_wall(const std::string& script) {
-    Fixture fixture(0, true, {}, 1, 3);
+    Fixture fixture(0, true, {}, 1, 1, {}, 3);
     name_class(fixture);
     shape_land(fixture);
     host::Sandbox& sandbox = seat_reader(fixture, script, false);
@@ -916,7 +916,7 @@ int main() {
         outside_a_match(script);
         cache_keeps_four();
 
-        Fixture fixture(0, true, {}, 1, 3);
+        Fixture fixture(0, true, {}, 1, 1, {}, 3);
         name_class(fixture);
         shape_land(fixture);
         CHECK(fixture.match->movement_map(1) != nullptr);

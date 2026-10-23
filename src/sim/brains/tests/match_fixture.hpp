@@ -4,6 +4,7 @@
 // The computer-build fixture, copied for a brain seated on its computer player.
 #pragma once
 
+#include "oa/data/limits.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
 
@@ -97,6 +98,9 @@ struct Fixture {
     ///     Non-zero raises the map onto dry land and gives the buildings a
     ///     blocking yard, so a ground move can be searched. Zero leaves the
     ///     match the seat, game and side tests build.
+    /// @param random_seed the match seed. The shared stream starts from it,
+    ///     and a seated brain mixes it into its own stream.
+    /// @param limits the match's capacity limits. The default is 3.1c's.
     /// @param visibility the match's visibility flags. The default is the
     ///     value every existing caller built. A map test passes 3.
     explicit Fixture(
@@ -104,6 +108,8 @@ struct Fixture {
         bool builder_income = true,
         const data::match_rules::MatchRules& rules = {},
         uint32_t movement_class = 0,
+        uint32_t random_seed = 1,
+        const data::limits::Limits& limits = {},
         uint16_t visibility = 2
     ) {
         map.attribute_width = map.attribute_height = map_cells;
@@ -212,11 +218,12 @@ struct Fixture {
             loaded[i].type = types[i];
 
         sim::match_runtime::OfflineInputs input{
-            map,        loaded, types, fields, weapons,   terrain_values,       masks, 32, 32, 40,
-            visibility, 0,      30,    1,      &scenario, [] { return 1000u; }, plots, {}, 0,  0,
+            map,        loaded, types, fields,      weapons,   terrain_values,       masks, 32, 32, 40,
+            visibility, 0,      30,    random_seed, &scenario, [] { return 1000u; }, plots, {}, 0,  0,
             0.0F,       {}
         };
         input.rules = rules;
+        input.limits = limits;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
         match->set_difficulty(OA_DIFFICULTY_MEDIUM);
         for (uint8_t p = 0; p < 2; ++p) {

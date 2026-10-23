@@ -975,15 +975,24 @@ void Runtime::place_mission_feature_draws() {
     }
 }
 
+Runtime::ComputerProfileFile Runtime::computer_profile_file() {
+    ComputerProfileFile file;
+    auto take = [&](const std::string& path) {
+        const std::optional<std::vector<uint8_t>> bytes = assets_.load_file_contents(path);
+        if (!bytes)
+            return false;
+        file.path = path;
+        file.text.assign(bytes->begin(), bytes->end());
+        return true;
+    };
+    if (const auto path = session_ai_profile_path(); !path.empty() && take(path))
+        return file;
+    take(oa::data::defs::data_path(oa::data::defs::DataDirectory::ai, kDefaultAiProfile));
+    return file;
+}
+
 std::string Runtime::read_computer_profile() {
-    std::optional<std::vector<uint8_t>> bytes;
-    if (const auto path = session_ai_profile_path(); !path.empty())
-        bytes = assets_.load_file_contents(path);
-    if (!bytes)
-        bytes = assets_.load_file_contents(
-            oa::data::defs::data_path(oa::data::defs::DataDirectory::ai, kDefaultAiProfile)
-        );
-    return bytes ? std::string(bytes->begin(), bytes->end()) : std::string();
+    return computer_profile_file().text;
 }
 
 void Runtime::configure_computer_players() {

@@ -45,8 +45,11 @@
 // removes the folder. The runtime's own verdict entries then dry-run made-up
 // packages on the Library's worker against the installed game: one that
 // changes every builder, one whose rule matches no unit, and one that
-// declares only the maps layer. About forty more packages with origin
-// records then take one listing on a rebuild. The fifth is
+// declares only the maps layer. Three made-up brains follow: GET installs
+// Steady Commander under Brains, USE BY DEFAULT writes the preference,
+// CHECK WITH THIS MOD runs each brain's fits on the Library's worker, and
+// UNINSTALL of the default clears the key. About forty more packages with
+// origin records then take one listing on a rebuild. The fifth is
 // a run nobody watches, on SDL's dummy
 // video driver without the prompts the other runs show: a built-in registry's
 // update waits in the inbox while the Library is closed, then installs with
@@ -68,10 +71,12 @@
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/package_install.hpp"
 #include "oa/app/package_install/inbox.hpp"
+#include "oa/app/package_install/oabrain.hpp"
 #include "oa/app/package_install/oamod.hpp"
 #include "oa/app/package_install/oamut.hpp"
 #include "oa/app/package_install/origin.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/platform/preferences.hpp"
 #include "oa/app/user_folder.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/data/mutators/verdicts.hpp"
@@ -153,6 +158,12 @@ constexpr std::string_view kQuiet = "ridge-check-quiet";
 constexpr std::string_view kGatehouse = "gatehouse";
 /// A made-up mutator that needs Gatehouse.
 constexpr std::string_view kGatehouseKeep = "gatehouse-keep";
+/// A made-up brain with no fits. GET installs it, and it becomes the default.
+constexpr std::string_view kSteady = "steady-commander";
+/// A made-up brain whose fits returns a reason.
+constexpr std::string_view kPicky = "picky-planner";
+/// A made-up brain whose fits raises an error.
+constexpr std::string_view kBroken = "broken-planner";
 /// The most frames a step of the check runs before it gives up.
 constexpr int kMostFrames = 400;
 /// The frames a step runs to show that something waits: nothing comes of it.
@@ -502,6 +513,54 @@ void write_checking_mutator(
     require(static_cast<bool>(out), "a mutator could not be written");
 }
 
+/// Writes a made-up brain package: its manifest and its entry.
+///
+/// @param file the package
+/// @param id its id
+/// @param name its name
+/// @param lua its entry
+void write_brain(
+    const fs::path& file, std::string_view id, std::string_view name, std::string_view lua
+) {
+    const std::string manifest = "oabrain: 1\n"
+                                 "id: " +
+                                 std::string(id) +
+                                 "\n"
+                                 "name: \"" +
+                                 std::string(name) +
+                                 "\"\n"
+                                 "version: \"1.0\"\n"
+                                 "author:\n"
+                                 "  name: \"Ridge Maker\"\n"
+                                 "description: \"A made-up brain.\"\n"
+                                 "tags: [\"classic\"]\n"
+                                 "works-with: [\"*\"]\n"
+                                 "levels:\n"
+                                 "  - id: steady\n"
+                                 "    name: \"Steady\"\n"
+                                 "    difficulty: easy\n"
+                                 "entry: \"brain.lua\"\n";
+    const std::vector<uint8_t> manifest_bytes(manifest.begin(), manifest.end());
+    const std::vector<uint8_t> script_bytes(lua.begin(), lua.end());
+    const std::string note = std::string(name) + "\n";
+    const std::vector<uint8_t> note_bytes(note.begin(), note.end());
+    const std::vector<oa::formats::zip::NewEntry> listed{
+        {"oabrain.yaml", manifest_bytes},
+        {"brain.lua", script_bytes},
+        {"README.md", note_bytes},
+    };
+    std::vector<uint8_t> archive;
+    oa::formats::zip::ZipError error{};
+    require(oa::formats::zip::write_archive(listed, archive, error), "a brain could not be made");
+    std::error_code made;
+    fs::create_directories(file.parent_path(), made);
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    out.write(
+        reinterpret_cast<const char*>(archive.data()), static_cast<std::streamsize>(archive.size())
+    );
+    require(static_cast<bool>(out), "a brain could not be written");
+}
+
 /// Copies requires.mutators from an installed mutator's manifest into its facts.
 ///
 /// A line that is not a flow list is left unread. Fast Builders' manifest
@@ -706,6 +765,39 @@ void Runtime::check_library_install() {
                 shown.description = held.description;
                 shown.mutator = library::MutatorFacts{};
                 read_mutator_needs(folder, *shown.mutator);
+                if (record && record->kind == install::OriginKind::catalogue) {
+                    shown.key = record->catalogue_id;
+                    shown.registry = record->registry;
+                    shown.release = record->release;
+                }
+                fixture.inputs.installed.push_back(std::move(shown));
+            }
+        }
+        error.clear();
+        const fs::path brains_root =
+            user_folder_ / std::string(install::oabrain::brains_folder_name);
+        if (fs::is_directory(brains_root, error)) {
+            error.clear();
+            for (fs::directory_iterator entry{brains_root, error}, end; !error && entry != end;
+                 entry.increment(error)) {
+                const fs::path folder = entry->path();
+                if (path_to_utf8(folder.filename()).starts_with('.'))
+                    continue;
+                const install::InstalledPackage held = install::oabrain::read_installed(folder);
+                if (held.kind != install::FolderKind::package)
+                    continue;
+                const std::optional<install::Origin> record = install::read_origin(folder);
+                library::Installed shown;
+                shown.kind = library::Kind::brain;
+                shown.key = held.id;
+                shown.folder = folder;
+                shown.name = held.name;
+                shown.version = held.version;
+                shown.revision = held.revision;
+                shown.author = held.author;
+                shown.description = held.description;
+                // Empty works-with is any mod. The check attaches the verdict.
+                shown.brain = library::BrainFacts{};
                 if (record && record->kind == install::OriginKind::catalogue) {
                     shown.key = record->catalogue_id;
                     shown.registry = record->registry;
@@ -2602,6 +2694,248 @@ void Runtime::check_library_install() {
             );
         }
         std::cout << "library install check: real verdict " << maps_fact << "\n";
+
+        // Steady Commander is got and installed, then made the default.
+        // Picky Planner and Broken Planner are written into Brains and
+        // checked with the runtime's own feed. OPEN FOLDER and HOMEPAGE
+        // run while Steady Commander is still installed. UNINSTALL then
+        // removes it and clears the default key.
+        const fs::path brains_folder =
+            user_folder_ / std::string(install::oabrain::brains_folder_name);
+        const auto list_brain =
+            [&](std::string_view key, std::string_view name, std::string_view homepage) {
+                library::Listing listed;
+                listed.registry = std::string(kBuiltIn);
+                listed.kind = library::Kind::brain;
+                listed.key = std::string(key);
+                listed.name = std::string(name);
+                listed.version = "1.0";
+                listed.release = 1;
+                listed.author = "Ridge Maker";
+                listed.summary = "A made-up brain.";
+                listed.homepage = std::string(homepage);
+                listed.size = 1024;
+                library::BrainFacts facts;
+                facts.works_with.push_back({"*", {}, {}});
+                facts.tags.push_back("classic");
+                listed.brain = std::move(facts);
+                fixture.inputs.listings.push_back(std::move(listed));
+                ++fixture.generation;
+            };
+        const auto brain_entry = [&](std::string_view key) -> const library::Entry* {
+            return library::find_entry(
+                host.model, {std::string(kBuiltIn), library::Kind::brain, std::string(key)}
+            );
+        };
+        const auto brain_checked = [&](std::string_view key) -> std::string {
+            const library::Entry* shown_entry = brain_entry(key);
+            if (shown_entry == nullptr)
+                return {};
+            for (const library::Fact& fact : library::facts(host.model, *shown_entry))
+                if (fact.long_label == library::words::fact_checked)
+                    return fact.long_value;
+            return {};
+        };
+        list_brain(kSteady, "Steady Commander", "https://example.test/steady-commander");
+        list_installed();
+        open_library(library::Tab::brains);
+        frames();
+        require(top_is(library_screen_name), "the Library did not open on Brains");
+        show_entry("oa.library.row.check-builtin.steady-commander");
+        const std::size_t brains_queued = fixture.queued.size();
+        press_action("get");
+        require(
+            fixture.queued.size() == brains_queued + 1 &&
+                fixture.queued.back().registry == kBuiltIn &&
+                fixture.queued.back().key == kSteady &&
+                fixture.queued.back().reason == content::DownloadReason::install,
+            "GET did not queue Steady Commander"
+        );
+        std::cout << "library install check: brain queued " << kSteady << "\n";
+        const fs::path steady_file = packages / "steady-commander.oabrain";
+        const fs::path steady_brain_folder = brains_folder / std::string(kSteady);
+        write_brain(steady_file, kSteady, "Steady Commander", "return {}\n");
+        post_catalogue(steady_file, kBuiltIn, kSteady, "Steady Commander", 1, library::Kind::brain);
+        installs_quietly("Steady Commander", kBuiltIn, kSteady);
+        {
+            const std::optional<install::Origin> record = install::read_origin(steady_brain_folder);
+            require(
+                fs::is_regular_file(steady_brain_folder / "oabrain.yaml") &&
+                    fs::is_regular_file(steady_brain_folder / "brain.lua") && record &&
+                    record->kind == install::OriginKind::catalogue &&
+                    record->registry == kBuiltIn && record->catalogue_id == kSteady &&
+                    record->release == 1,
+                "Steady Commander is not under Brains with its origin record"
+            );
+        }
+        std::cout << "library install check: brain installed\n";
+        show_entry("oa.library.row.check-builtin.steady-commander");
+        press_action("use-by-default");
+        {
+            const auto saved = oa::platform::preferences::load(preference_path_);
+            const auto stored = saved.find(std::string(settings::key::brain_default));
+            require(
+                stored != saved.end() && stored->second == kSteady,
+                "USE BY DEFAULT did not store the brain"
+            );
+            std::cout << "library install check: open-annihilation.brain.default: "
+                      << stored->second << "\n";
+        }
+        fixture.inputs.default_brain = std::string(kSteady);
+        ++fixture.generation;
+        frames();
+        {
+            const library::Entry* shown_entry = brain_entry(kSteady);
+            require(
+                shown_entry != nullptr && shown_entry->is_default &&
+                    library::status_line(host.model, *shown_entry) ==
+                        library::words::status_installed_default,
+                "the default brain does not read Default"
+            );
+        }
+        std::cout << "library install check: brain made default\n";
+
+        const auto install_brain =
+            [&](std::string_view key, std::string_view name, std::string_view lua) {
+                list_brain(key, name, {});
+                const fs::path file = packages / (std::string(key) + ".oabrain");
+                write_brain(file, key, name, lua);
+                post_catalogue(file, kBuiltIn, key, name, 1, library::Kind::brain);
+                installs_quietly(name, kBuiltIn, key);
+                require(
+                    fs::is_regular_file(brains_folder / std::string(key) / "brain.lua"),
+                    std::string(name) + " is not under Brains"
+                );
+            };
+        install_brain(
+            kPicky,
+            "Picky Planner",
+            "return { fits = function() return \"No build list for this mod's third side\" end }\n"
+        );
+        install_brain(
+            kBroken,
+            "Broken Planner",
+            "return { fits = function() error(\"broken on purpose\") end }\n"
+        );
+        host.feed.remembered_brain_verdict = [](void* context, std::string_view id) {
+            return LibraryHost::own_remembered_brain_verdict(
+                static_cast<InstallFeed*>(context)->runtime, id
+            );
+        };
+        host.feed.start_brain_check = [](void* context, std::string_view id) {
+            return LibraryHost::own_start_brain_check(
+                static_cast<InstallFeed*>(context)->runtime, id
+            );
+        };
+        host.feed.keep_brain_verdict =
+            [](void* context, std::string_view id, const library::Verdict& verdict) {
+                LibraryHost::own_keep_brain_verdict(
+                    static_cast<InstallFeed*>(context)->runtime, id, verdict
+                );
+            };
+        ++fixture.generation;
+        frames();
+        const auto until_brain = [&](std::string_view key, std::string_view what) {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(90);
+            while (std::chrono::steady_clock::now() < deadline) {
+                const std::string fact = brain_checked(key);
+                if (fact.find("With No Mod:") != std::string::npos)
+                    return;
+                frame();
+            }
+            require(false, std::string(what) + ": " + brain_checked(key));
+        };
+        const auto check_brain = [&](std::string_view key, std::string_view expect) {
+            show_entry("oa.library.row.check-builtin." + std::string(key));
+            press_action("check-with-mod");
+            require(
+                brain_checked(key).find("Checking with No Mod") != std::string::npos,
+                std::string(key) + " did not say it was running: " + brain_checked(key)
+            );
+            until_brain(key, std::string(key) + " was not checked");
+            const std::string fact = brain_checked(key);
+            require(fact.find(expect) != std::string::npos, std::string(key) + ": " + fact);
+            std::cout << "library install check: brain checked: " << fact << "\n";
+        };
+        check_brain(kSteady, "it fits this game");
+        check_brain(kPicky, "No build list for this mod's third side");
+        check_brain(kBroken, "broken on purpose");
+
+        show_entry("oa.library.row.check-builtin.steady-commander");
+        require(web_links_ != nullptr, "the run keeps no record of web links");
+        const std::size_t brain_opened = user_folder_state().opened.size();
+        press_action("open-folder");
+        require(
+            user_folder_state().opened.size() == brain_opened + 1 &&
+                kept_path(user_folder_state().opened.back()) == kept_path(steady_brain_folder),
+            "OPEN FOLDER did not show Steady Commander's folder"
+        );
+        const std::size_t brain_links = web_links_->requests.size();
+        press_action("homepage");
+        require(
+            web_links_->requests.size() == brain_links + 1 &&
+                web_links_->requests.back() == "https://example.test/steady-commander",
+            "HOMEPAGE did not record Steady Commander's homepage"
+        );
+        press_action("uninstall");
+        {
+            const auto* asked = dynamic_cast<const QuestionScreen*>(oa_layer().top());
+            require(
+                asked != nullptr && oa_layer().find(library_screen_name) != nullptr,
+                "UNINSTALL did not ask over the Library"
+            );
+            const settings::Prompt& shown = asked->question();
+            require(shown.title == "Uninstall Steady Commander", "the question's title is wrong");
+            require(
+                shown.paragraphs.size() == 3 &&
+                    shown.paragraphs[0].text ==
+                        "Uninstall Steady Commander? Its folder, Brains/steady-commander, is "
+                        "removed." &&
+                    shown.paragraphs[1].text ==
+                        "It is your default computer player: new computer seats go back to the "
+                        "built-in player." &&
+                    shown.paragraphs[2].text == "GET installs it again.",
+                "the question does not name the default brain"
+            );
+        }
+        frame();
+        require(
+            named("oa.prompt.uninstall").has_value(), "automation does not list oa.prompt.uninstall"
+        );
+        click_named("oa.prompt.uninstall");
+        for (int count = 0;
+             count < kMostFrames &&
+             (state.discarder.busy() || fs::exists(fs::symlink_status(steady_brain_folder)));
+             ++count)
+            frame();
+        require(
+            !fs::exists(fs::symlink_status(steady_brain_folder)),
+            "UNINSTALL did not remove Steady Commander's folder"
+        );
+        {
+            const auto saved = oa::platform::preferences::load(preference_path_);
+            const auto stored = preference_values_.find(std::string(settings::key::brain_default));
+            require(
+                saved.find(std::string(settings::key::brain_default)) == saved.end() &&
+                    stored == preference_values_.end(),
+                "uninstalling the default left the key"
+            );
+        }
+        std::cout << "library install check: brain uninstalled, default key gone\n";
+        host.feed.remembered_brain_verdict = nullptr;
+        host.feed.start_brain_check = nullptr;
+        host.feed.keep_brain_verdict = nullptr;
+        {
+            std::error_code brain_error;
+            fs::remove_all(brains_folder / std::string(kPicky), brain_error);
+            fs::remove_all(brains_folder / std::string(kBroken), brain_error);
+            require(!brain_error, "a brain folder could not be removed");
+        }
+        std::erase_if(fixture.inputs.listings, [](const library::Listing& listed) {
+            return listed.kind == library::Kind::brain;
+        });
+        fixture.inputs.default_brain.clear();
+        list_installed();
 
         // About forty more packages, each with an origin record, so one
         // rebuild resolves every shown list from one listing.

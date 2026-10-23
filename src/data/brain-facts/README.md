@@ -23,6 +23,13 @@ The simulation does not own the text.
 and one option. A toggle stores a boolean, a number stores a number, and a
 choice stores its text.
 
+`ProfileFile` is one AI profile: the path that was read and its bytes. An
+empty path means no file was read. `GameFacts.ai_profile` is the profile
+the match's computer players use. `ai_profile_report_path` is the path the
+weights report prints, empty when the map has no such slot, and it can
+differ from the path that was read. `ai_profiles` is every readable
+profile of the game, in the order listed, at most 256.
+
 ## State
 
 None. Callers pass a profile and get facts back. Nothing here is kept for
@@ -40,11 +47,12 @@ the rest of the process.
 
 `data-brain-facts` checks `mod_facts_of` for a null profile, a profile whose
 id is `base-game` with a different name and version, and a `ridge` profile
-at version `28`. It also checks a default `GameFacts`.
+at version `28`. It also checks a default `GameFacts`, including an empty
+AI profile.
 
 ## Limitations
 
-No AI profile, no map and no units. The app fills a `GameFacts` when a
-match is about to seat brains; this module does not decide the mode, the
-difficulty or which expansions are on. Loading a brain and asking `fits`
-lives with the simulation.
+No map and no units. The profile fields are empty until the app fills
+them. This module does not decide the mode, the difficulty or which
+expansions are on, and it does not read a profile file. Loading a brain
+and asking `fits` lives with the simulation.

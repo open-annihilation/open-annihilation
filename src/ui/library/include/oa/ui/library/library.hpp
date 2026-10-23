@@ -226,7 +226,8 @@ struct BrainFacts {
     bool full_awareness{};
     /// The networks' files, in bytes. 0 when it names none.
     uint64_t network_bytes{};
-    /// A later ticket's check. Left unset here.
+    /// The check against the game being played. Set on an installed copy
+    /// when the host can check brains, and left unset when it cannot.
     std::optional<Verdict> verdict{};
 };
 
@@ -998,6 +999,30 @@ inline constexpr std::string_view supported_base = "ta-3.1c";
 /// @return true when it works with the mod being played
 [[nodiscard]] bool works_with_played(const Inputs& inputs, const MutatorFacts& facts);
 
+/// How a brain's works-with list reads against the mod being played.
+struct BrainWorksWith {
+    /// The list is empty or names `*`: the fact says any mod.
+    bool any{};
+    /// One named mod is the one being played, or the list is `any`.
+    bool fits{true};
+    /// The mods it names, for the fact and for "Made for". Empty when `any`.
+    std::vector<std::string> names{};
+};
+
+/// Reads a brain's works-with list against the mod being played.
+///
+/// An empty list and `*` work with any mod. `ta-3.1c` works while no mod is
+/// played. A mod id works when the mutator manifest's matcher holds the
+/// played version. A range that does not parse does not match. The engine
+/// requirement and the expansions are not part of this reading.
+///
+/// @param inputs the Library's inputs; `played` is the mod being played
+/// @param facts the brain's facts; the installed list wins over the listing's
+/// @param text how texts are looked up; empty shows English
+/// @return whether it fits, and the names the fact joins
+[[nodiscard]] BrainWorksWith
+brain_works_with(const Inputs& inputs, const BrainFacts& facts, const TextHooks& text = {});
+
 /// Returns why a brain does not fit the game being played.
 ///
 /// The engine requirement is tried first, then works-with, then the
@@ -1567,10 +1592,16 @@ enum class Action : uint8_t {
     /// turns on every one G04 accepts, on the pending draft. It applies
     /// when the Library closes.
     turn_on,
-    /// CHECK WITH THIS MOD on an installed mutator. The host checks it
-    /// against the mod being played, with the mutator's default options.
-    /// It never switches the mutator on.
+    /// CHECK WITH THIS MOD on an installed mutator or brain. The host checks
+    /// a mutator against the mod being played, with the mutator's default
+    /// options, and a brain by loading it and running fits. It never
+    /// switches a mutator on and never seats a brain.
     check_with_mod,
+    /// USE BY DEFAULT on an installed brain that is not the default, or on
+    /// the built-in computer player while it is not. The host writes that
+    /// brain as the one new computer seats start with. Empty, for the
+    /// built-in player, erases the preference.
+    use_by_default,
     /// GET WITH on a mutator whose plan holds more than itself. The host
     /// asks, then queues every step, prerequisites first. It takes GET's place.
     get_with,
@@ -1635,6 +1666,16 @@ struct ActionButton {
 /// it names the one missing prerequisite, or how many more there are, and
 /// it is off with the plan's reason. A queued step shows CANCEL on that
 /// step's own entry, as a queued GET does.
+///
+/// A brain offers none of TURN ON, PLAY NOW, SWITCH OFF, USE NOW, ROLL BACK
+/// or GET WITH. Its buttons are GET or UPDATE (CANCEL while queued, RETRY
+/// when a download failed and can be tried again; still on when the brain
+/// does not fit), then USE BY DEFAULT when it is installed and not the
+/// default, then CHECK WITH THIS MOD for an installed copy whose verdict is
+/// set (off during a game and while that check is running), then UNINSTALL
+/// and OPEN FOLDER when installed, then HOMEPAGE when the listing has one.
+/// The built-in computer player offers USE BY DEFAULT while it is not the
+/// default, and nothing while it is.
 ///
 /// @param library the Library
 /// @param entry one of its entries

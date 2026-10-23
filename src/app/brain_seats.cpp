@@ -8,6 +8,7 @@
 
 #include "oa/base/sha256.hpp"
 #include "oa/core/game_state.h"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/script_host/script_host.hpp"
 #include "oa/formats/oamod.hpp"
 
@@ -16,6 +17,8 @@
 #include <cstdint>
 #include <exception>
 #include <fstream>
+#include <iostream>
+#include <ostream>
 #include <string>
 #include <system_error>
 #include <utility>
@@ -426,6 +429,186 @@ oa::sim::brains::SeatSpec seat_spec(
         oa::data::script_host::default_call_time_limit
     };
     return spec;
+}
+
+namespace {
+
+constexpr std::size_t log_bytes = std::size_t{1} << 20;
+constexpr std::string_view log_full = "the log is full";
+
+std::string replace_token(std::string_view text, std::string_view token, std::string_view value) {
+    std::string out;
+    out.reserve(text.size() + value.size());
+    std::size_t start = 0;
+    while (start <= text.size()) {
+        const std::size_t at = text.find(token, start);
+        if (at == std::string_view::npos) {
+            out.append(text.substr(start));
+            break;
+        }
+        out.append(text.substr(start, at - start));
+        out.append(value);
+        start = at + token.size();
+    }
+    return out;
+}
+
+std::string_view cut_to_character(std::string_view text, std::size_t limit) {
+    if (text.size() <= limit)
+        return text;
+    std::size_t end = limit;
+    while (end > 0 && (static_cast<unsigned char>(text[end]) & 0xC0U) == 0x80U)
+        --end;
+    return text.substr(0, end);
+}
+
+} // namespace
+
+std::string brain_notice(std::string_view words, std::string_view brain, std::string_view reason) {
+    const std::string_view pattern = oa::data::languages::interface_text(words);
+    const std::string_view cut = cut_to_character(reason, 160);
+    return replace_token(replace_token(pattern, "{brain}", brain), "{reason}", cut);
+}
+
+void BrainLog::begin(
+    const std::filesystem::path& data_directory,
+    uint8_t player,
+    std::string_view name,
+    std::string_view version,
+    std::string_view id,
+    std::string_view level,
+    uint32_t seed
+) {
+    if (out_.is_open())
+        out_.close();
+    out_.clear();
+    path_.clear();
+    bytes_ = 0;
+    full_ = false;
+    failed_ = false;
+    reported_ = false;
+    player_ = player;
+    name_ = std::string(name);
+    try {
+        path_ = data_directory / "logs" / "brains" /
+                ("seat-" + std::to_string(static_cast<int>(player) + 1) + ".log");
+        std::filesystem::create_directories(path_.parent_path());
+        out_.open(path_, std::ios::binary | std::ios::trunc);
+        if (!out_) {
+            failed_ = true;
+            report_unwritable();
+            return;
+        }
+        std::string header;
+        header += name;
+        header += ' ';
+        header += version;
+        header += " (";
+        header += id;
+        header += "), level ";
+        header += level;
+        header += ", seat ";
+        header += std::to_string(static_cast<int>(player) + 1);
+        header += ", match seed ";
+        header += std::to_string(seed);
+        write_line(header);
+    } catch (const std::exception&) {
+        failed_ = true;
+        report_unwritable();
+    }
+}
+
+void BrainLog::line(uint32_t tick, std::string_view text) {
+    std::string row = "tick ";
+    row += std::to_string(tick);
+    row += ": ";
+    row += text;
+    write_line(row);
+}
+
+void BrainLog::stop(uint32_t tick, const oa::data::script_host::ScriptError& error) {
+    std::string row = "tick ";
+    row += std::to_string(tick);
+    row += ": stopped: ";
+    row += oa::data::script_host::describe(error);
+    write_line(row);
+    std::string_view rest = error.traceback;
+    while (!rest.empty()) {
+        const std::size_t at = rest.find('\n');
+        const std::string_view piece = at == std::string_view::npos ? rest : rest.substr(0, at);
+        if (!piece.empty())
+            write_line(piece);
+        if (at == std::string_view::npos)
+            break;
+        rest.remove_prefix(at + 1);
+    }
+}
+
+void BrainLog::stop_text(uint32_t tick, std::string_view reason) {
+    std::string row = "tick ";
+    row += std::to_string(tick);
+    row += ": stopped: ";
+    row += reason;
+    write_line(row);
+}
+
+void BrainLog::fail(uint8_t player) {
+    player_ = player;
+    failed_ = true;
+    if (out_.is_open())
+        out_.close();
+    report_unwritable();
+}
+
+const std::filesystem::path& BrainLog::path() const noexcept {
+    return path_;
+}
+
+std::string_view BrainLog::name() const noexcept {
+    return name_;
+}
+
+bool BrainLog::open() const noexcept {
+    return out_.is_open() && !failed_ && !full_;
+}
+
+void BrainLog::write_line(std::string_view text) {
+    if (failed_ || full_ || !out_.is_open())
+        return;
+    const std::size_t closing = log_full.size() + 1;
+    if (bytes_ >= log_bytes || closing > log_bytes - bytes_) {
+        full_ = true;
+        return;
+    }
+    const std::size_t room = log_bytes - closing - bytes_;
+    const std::size_t need = text.size() + 1;
+    if (need > room) {
+        out_.write(log_full.data(), static_cast<std::streamsize>(log_full.size()));
+        out_.put('\n');
+        bytes_ += closing;
+        full_ = true;
+        out_.flush();
+        if (!out_)
+            report_unwritable();
+        return;
+    }
+    out_.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out_.put('\n');
+    bytes_ += need;
+    if (!out_) {
+        report_unwritable();
+        return;
+    }
+    out_.flush();
+}
+
+void BrainLog::report_unwritable() {
+    if (reported_)
+        return;
+    reported_ = true;
+    failed_ = true;
+    std::cerr << "open-annihilation: brains: seat " << static_cast<int>(player_)
+              << ": the log could not be written\n";
 }
 
 } // namespace oa::app

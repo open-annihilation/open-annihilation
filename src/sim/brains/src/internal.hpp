@@ -4,6 +4,7 @@
 // The seat a match keeps behind seat_state. Not part of the public header.
 #pragma once
 
+#include "oa/sim/brains/chat.hpp"
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
 
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 struct lua_State;
 
@@ -35,6 +37,24 @@ inline constexpr std::size_t option_text_bytes = 64;
 inline constexpr std::size_t most_options = 16;
 /// Most bytes stored of a refusal or a fits reason, not counting the NUL.
 inline constexpr std::size_t reason_limit = 255;
+/// Most timers one brain may have waiting.
+inline constexpr uint16_t max_timers = 1024;
+/// Registry reference that means a timer holds no function. Equal to LUA_NOREF.
+inline constexpr int timer_ref_empty = -2;
+
+/// One function waiting to run on a later turn.
+struct WaitingTimer {
+    /// Registry reference of the function, or `timer_ref_empty`.
+    int function_ref{timer_ref_empty};
+    /// The tick this timer next runs.
+    int64_t due{};
+    /// Ticks between runs. Zero means the timer runs once.
+    int32_t period{};
+    /// The id `brain.cancel` takes. It only grows.
+    uint32_t sequence{};
+    /// True while the timer is waiting.
+    bool waiting{};
+};
 
 /// One seat's plain event buffer. The seat owns `items`.
 struct EventBuffer {
@@ -44,6 +64,25 @@ struct EventBuffer {
     uint32_t count{};
     /// How many records `items` can hold.
     uint32_t capacity{};
+};
+
+/// Most chat lines waiting for one turn.
+inline constexpr uint8_t max_chat_lines = 32;
+/// Most bytes stored of one chat line.
+inline constexpr std::size_t chat_line_bytes = 256;
+
+/// One chat line waiting for a seat's turn. The words are not terminated.
+struct ChatLine {
+    uint8_t from{};
+    uint8_t mode{};
+    uint16_t length{};
+    std::array<char, chat_line_bytes> words{};
+};
+
+/// Lines waiting for one turn. `count` is how many `lines` are filled.
+struct ChatQueue {
+    std::array<ChatLine, max_chat_lines> lines{};
+    uint8_t count{};
 };
 
 /// One option copied into the seat, so the script can read it after the call.
@@ -88,7 +127,14 @@ struct Seat {
     EventBuffer delivering{};
     /// Events dropped because the incoming buffer was full or could not grow.
     uint32_t dropped{};
-    /// True after a banked call failed. Later turns do nothing.
+    /// Chat lines heard since the last turn. A line heard during the turn
+    /// lands here and waits until the next turn.
+    ChatQueue chat_incoming{};
+    /// Chat lines the turn in progress is delivering.
+    ChatQueue chat_delivering{};
+    /// Chat lines dropped because the incoming queue already held 32.
+    uint32_t dropped_chat{};
+    /// True after a failed turn was handed back. `stopped` has been called.
     bool stopped{};
     /// True once a turn has stored alliance and participation.
     bool diplomacy_known{};
@@ -96,6 +142,12 @@ struct Seat {
     bool allied_with[OA_PLAYER_COUNT]{};
     /// Last delivered participation, one entry per player.
     bool participating[OA_PLAYER_COUNT]{};
+    /// True when this seat's files match the Classic fingerprint.
+    bool classic{};
+    /// Timers waiting to run on a later turn.
+    WaitingTimer timers[max_timers]{};
+    /// The next timer id. It starts at 1 and only grows.
+    uint32_t next_timer_sequence{1};
     /// Movement regions built when a script asks whether two points meet.
     /// One class is labelled at most once a tick.
     RegionCache regions{};
@@ -118,6 +170,10 @@ struct Brains {
     uint32_t listener_id{};
     /// True once registration has been attempted. It is not tried again.
     bool listener_tried{};
+    /// Hooks the app set. Empty until `set_report_hooks`.
+    ReportHooks reports{};
+    /// How a seated brain says a line. A null `say` means chat is not connected.
+    ChatHooks chat{};
 };
 
 /// Writes a refusal or a fits reason, cut to 255 bytes.
@@ -143,8 +199,8 @@ bool copy_spec_into(Seat& seat, const SeatSpec& spec);
 /// Opens the sandbox, loads the entry and runs fits.
 ///
 /// On success the sandbox stays open and start has not been called. On
-/// failure `outcome` is set and the sandbox is closed. The seat's match is
-/// not read.
+/// failure `outcome` is set and the sandbox is closed. A null match seeds
+/// the brain's stream from match seed 0.
 ///
 /// @param seat the seat, with its facts already set
 /// @param spec the package
@@ -154,14 +210,18 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome);
 
 /// Opens the libraries a brain may call, in a fixed order.
 ///
-/// Later tickets add one call here and nowhere else. Every installer has to
-/// work when the seat has no match: this one reads only the texts copied
-/// onto the seat.
+/// Later changes add one call here and nowhere else. Every installer has to
+/// work when the seat has no match.
 ///
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_libraries(lua_State* state, Seat& seat);
 
+/// Adds `brain.say`. Works when the seat's match is null.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_chat(lua_State* state, Seat& seat);
 /// Installs `game.map`. With no match the field is nil.
 ///
 /// @param state the sandbox state
@@ -186,12 +246,82 @@ void ensure_listener(Brains& brains, match_runtime::Match& match);
 /// Delivers one seated turn and returns true.
 ///
 /// Returns false when the seat has no running brain, so the built-in computer
-/// player takes the turn. A stopped seat returns true and makes no call.
+/// player takes the turn. A failed turn hands the seat back and still returns
+/// true, so the built-in player starts on the following tick.
 ///
 /// @param context the seat
 /// @param match the match
 /// @param player the seat's player
 /// @return false when the built-in player should take the turn
 bool deliver_turn(void* context, match_runtime::Match& match, uint8_t player);
+
+/// Drains the sandbox's print lines into the match's report hooks.
+///
+/// A seat with no sandbox, or a match with no printed hook, forgets the
+/// lines. The view passed to the hook lasts for that call.
+///
+/// @param seat the seat
+void note_prints(Seat& seat);
+
+/// Closes a failed seat and lets the built-in player take the next tick.
+///
+/// The first call drains printed lines, calls `stopped` once, clears the
+/// seat's hooks and closes the sandbox. A later call only clears the hooks
+/// and closes the sandbox. The failing turn's play still returns true.
+///
+/// @param seat the seat
+/// @param error the script error; it must stay alive for this call
+void hand_back(Seat& seat, const script_host::ScriptError& error);
+/// The seed of one brain's own xoshiro256** stream.
+///
+/// The first eight bytes, little-endian, of the SHA-256 of the match seed as
+/// eight little-endian bytes, then the player index, the id, a zero byte and
+/// the version. A missing match uses seed 0.
+///
+/// @param match_seed the match's seed, or 0 when there is no match
+/// @param player the seat's player
+/// @param id the brain's id
+/// @param version the brain's version
+/// @return the seed passed to the sandbox
+[[nodiscard]] uint64_t brain_random_seed(
+    uint32_t match_seed, uint8_t player, std::string_view id, std::string_view version
+) noexcept;
+
+/// Copies `math.random` onto `brain.random`, so both share one stream.
+///
+/// @param state the sandbox state
+void install_random(lua_State* state);
+
+/// Installs `brain.after`, `brain.every` and `brain.cancel`.
+///
+/// Works when the seat has no match: the timers are stored and nothing runs
+/// them.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_timers(lua_State* state, Seat& seat);
+
+/// Runs the timers whose due tick has come, in due-tick then sequence order.
+///
+/// A null match runs nothing. Each run charges one element of work.
+///
+/// @param state the sandbox state
+/// @param seat the seat whose turn is in progress
+void run_due_timers(lua_State* state, Seat& seat);
+
+/// Sets the seat's Classic flag from its files and the baked-in fingerprint.
+///
+/// A non-empty `classic_fingerprint_for_tests` replaces the baked-in value.
+/// An empty fingerprint matches nothing.
+///
+/// @param seat the seat being opened
+/// @param spec the package
+void note_classic(Seat& seat, const SeatSpec& spec) noexcept;
+
+/// Installs `brain.shared_random` when the seat is Classic and has a match.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_shared_random(lua_State* state, Seat& seat);
 
 } // namespace oa::sim::brains

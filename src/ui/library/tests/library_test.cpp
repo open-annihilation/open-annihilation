@@ -4742,6 +4742,16 @@ void test_brains() {
     const lib::Entry* named_built_in = lib::find_entry(library, lib::built_in_brain_id());
     OA_CHECK(named_default != nullptr && named_default->is_default);
     OA_CHECK(named_built_in != nullptr && !named_built_in->is_default);
+    if (named_built_in != nullptr) {
+        const std::vector<std::pair<Action, bool>> use_default{{Action::use_by_default, true}};
+        OA_CHECK(actions_of(library, *named_built_in) == use_default);
+    }
+    if (named_default != nullptr) {
+        for (const auto& [action, enabled] : actions_of(library, *named_default)) {
+            static_cast<void>(enabled);
+            OA_CHECK(action != Action::use_by_default);
+        }
+    }
     OA_CHECK(lib::filter_count(library, lib::Filter::all) == 5);
     inputs.default_brain = "missing-brain";
     lib::refresh(library, inputs);
@@ -5315,6 +5325,440 @@ void test_mutator_details() {
     }
 }
 
+/// A brain's facts, both forms, in order, and the actions and status lines
+/// around Default. A verdict is put on by hand. Ridge Raider's GET stays on
+/// while no mod is played.
+void test_brain_details() {
+    using Buttons = std::vector<std::pair<Action, bool>>;
+    const auto same_forms = [](const lib::Fact& item) {
+        OA_CHECK(item.short_label == item.long_label);
+        OA_CHECK(item.short_value == item.long_value);
+    };
+
+    lib::Inputs rich_inputs = base_inputs();
+    lib::Listing wide = listing(core, Kind::brain, "wide-watch", "Wide Watch");
+    wide.homepage = "https://example.test/wide";
+    lib::BrainFacts wide_facts;
+    wide_facts.levels.push_back({"hold", "Hold", lib::BrainDifficulty::easy});
+    wide_facts.levels.push_back({"push", "Push", lib::BrainDifficulty::medium});
+    wide_facts.levels.push_back({"crush", "Crush", lib::BrainDifficulty::hard});
+    wide_facts.works_with.push_back({"ridge", "", "Ridge"});
+    wide_facts.works_with.push_back({"cinder", "", "Cinder"});
+    wide_facts.requires_engine = ">= 0.8.0";
+    wide_facts.requires_expansions = {"core-contingency"};
+    wide_facts.full_awareness = true;
+    wide_facts.network_bytes = 2 * mib;
+    wide.brain = wide_facts;
+    lib::Installed wide_held = installed(core, Kind::brain, "wide-watch", "Wide Watch");
+    wide_held.brain = wide_facts;
+    rich_inputs.listings.push_back(std::move(wide));
+    rich_inputs.installed.push_back(std::move(wide_held));
+    const lib::Library rich = built(std::move(rich_inputs));
+    const lib::Entry* wide_row = at(rich, core, Kind::brain, "wide-watch");
+    OA_CHECK(wide_row != nullptr);
+    if (wide_row != nullptr) {
+        const std::vector<lib::Fact> facts = lib::facts(rich, *wide_row);
+        OA_CHECK(
+            fact_labels(rich, *wide_row) == std::vector<std::string>(
+                                                {"Installed",
+                                                 "Latest",
+                                                 "Author",
+                                                 "Levels",
+                                                 "Works with",
+                                                 "Needs",
+                                                 "Needs",
+                                                 "Full awareness",
+                                                 "Network",
+                                                 "Size",
+                                                 "From"}
+                                            )
+        );
+        OA_CHECK(facts.size() == 11);
+        if (facts.size() == 11) {
+            OA_CHECK(facts[0].long_value == "1.0 (rev 1)");
+            same_forms(facts[0]);
+            OA_CHECK(facts[1].long_value == "1.0 (rev 1)");
+            same_forms(facts[1]);
+            OA_CHECK(facts[2].long_value == "Fixture Author");
+            same_forms(facts[2]);
+            OA_CHECK(facts[3].long_value == "Hold, Push and Crush");
+            same_forms(facts[3]);
+            OA_CHECK(facts[3].mark == Mark::none);
+            OA_CHECK(facts[4].long_value == "Ridge or Cinder" && facts[4].mark == Mark::warn);
+            same_forms(facts[4]);
+            OA_CHECK(facts[5].long_value == "Open Annihilation 0.8.0 or later");
+            OA_CHECK(facts[5].short_value == "OA 0.8.0+");
+            OA_CHECK(facts[5].mark == Mark::good);
+            OA_CHECK(facts[6].long_value == "Core Contingency" && facts[6].mark == Mark::warn);
+            same_forms(facts[6]);
+            OA_CHECK(facts[7].long_value == lib::words::full_awareness_sees);
+            OA_CHECK(facts[7].mark == Mark::warn);
+            same_forms(facts[7]);
+            OA_CHECK(
+                facts[8].long_value == "Uses a learned network (" + lib::size_text(2 * mib) + ")"
+            );
+            OA_CHECK(facts[8].mark == Mark::none);
+            same_forms(facts[8]);
+            OA_CHECK(facts[9].long_value == lib::size_text(64 * mib));
+            same_forms(facts[9]);
+            OA_CHECK(facts[10].long_value == "Fixture Core");
+            same_forms(facts[10]);
+        }
+        for (const std::string& label : fact_labels(rich, *wide_row))
+            OA_CHECK(
+                label != "Base" && label != "Games" && label != "Hacks" && label != "Maps" &&
+                label != "Coverage" && label != "Options" && label != "Changes" && label != "Rules"
+            );
+        OA_CHECK(fact(facts, "Checked") == nullptr);
+        OA_CHECK_TEXT(lib::status_line(rich, *wide_row), "Installed");
+    }
+
+    lib::Inputs sparse_inputs = base_inputs();
+    lib::Listing lantern = listing(core, Kind::brain, "lantern-scout", "Lantern Scout");
+    lantern.homepage = "https://example.test/lantern";
+    lantern.brain = lib::BrainFacts{};
+    sparse_inputs.listings.push_back(std::move(lantern));
+    const lib::Library sparse = built(std::move(sparse_inputs));
+    const lib::Entry* lantern_row = at(sparse, core, Kind::brain, "lantern-scout");
+    OA_CHECK(lantern_row != nullptr);
+    if (lantern_row != nullptr) {
+        const std::vector<lib::Fact> facts = lib::facts(sparse, *lantern_row);
+        OA_CHECK(
+            fact_labels(sparse, *lantern_row) ==
+            std::vector<std::string>({"Latest", "Author", "Works with", "Size", "From"})
+        );
+        OA_CHECK(fact(facts, "Installed") == nullptr);
+        OA_CHECK(fact(facts, "Levels") == nullptr);
+        OA_CHECK(fact(facts, "Needs") == nullptr);
+        OA_CHECK(fact(facts, "Full awareness") == nullptr);
+        OA_CHECK(fact(facts, "Network") == nullptr);
+        OA_CHECK(fact(facts, "Checked") == nullptr);
+        const lib::Fact* works = fact(facts, "Works with");
+        OA_CHECK(works != nullptr && works->long_value == "Any mod" && works->mark == Mark::none);
+        OA_CHECK(works != nullptr && works->short_value == works->long_value);
+        OA_CHECK_TEXT(lib::status_line(sparse, *lantern_row), "Not installed · 1.0 · rev 1");
+        OA_CHECK(
+            actions_of(sparse, *lantern_row) ==
+            Buttons({{Action::get, true}, {Action::homepage, true}})
+        );
+    }
+
+    lib::Inputs plain = base_inputs();
+    const lib::Library built_in_library = built(std::move(plain));
+    const lib::Entry* built_in = lib::find_entry(built_in_library, lib::built_in_brain_id());
+    OA_CHECK(built_in != nullptr && built_in->is_default);
+    if (built_in != nullptr) {
+        const std::vector<lib::Fact> facts = lib::facts(built_in_library, *built_in);
+        OA_CHECK(
+            fact_labels(built_in_library, *built_in) ==
+            std::vector<std::string>({"Levels", "Works with"})
+        );
+        OA_CHECK(facts.size() == 2);
+        if (facts.size() == 2) {
+            OA_CHECK(facts[0].long_value == "Easy, Medium and Hard");
+            same_forms(facts[0]);
+            OA_CHECK(facts[1].long_value == "Any mod" && facts[1].mark == Mark::none);
+            same_forms(facts[1]);
+        }
+        OA_CHECK(actions_of(built_in_library, *built_in).empty());
+        OA_CHECK_TEXT(lib::status_line(built_in_library, *built_in), "Built in · Default");
+    }
+
+    const auto brain_with = [](std::optional<lib::Verdict> verdict,
+                               bool is_default,
+                               bool in_match) {
+        lib::Inputs inputs = base_inputs();
+        inputs.in_match = in_match;
+        if (is_default)
+            inputs.default_brain = "steady-commander";
+        lib::Listing listed = listing(core, Kind::brain, "steady-commander", "Steady Commander");
+        listed.homepage = "https://example.test/steady";
+        lib::BrainFacts facts;
+        facts.works_with.push_back({"*", "", ""});
+        listed.brain = facts;
+        lib::Installed held = installed(core, Kind::brain, "steady-commander", "Steady Commander");
+        held.brain = facts;
+        if (verdict)
+            held.brain->verdict = std::move(*verdict);
+        inputs.listings.push_back(std::move(listed));
+        inputs.installed.push_back(std::move(held));
+        return built(std::move(inputs));
+    };
+    const auto steady_of = [](const lib::Library& library) {
+        return at(library, core, Kind::brain, "steady-commander");
+    };
+    const auto checked_of = [&](const lib::Verdict& verdict) {
+        const lib::Library library = brain_with(verdict, false, false);
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr);
+        if (entry == nullptr)
+            return lib::Fact{};
+        const std::vector<lib::Fact> facts = lib::facts(library, *entry);
+        const lib::Fact* checked = fact(facts, "Checked");
+        OA_CHECK(checked != nullptr);
+        if (checked == nullptr)
+            return lib::Fact{};
+        OA_CHECK(checked->short_value == checked->long_value);
+        OA_CHECK(checked->short_label == checked->long_label);
+        return *checked;
+    };
+
+    lib::Verdict compatible;
+    compatible.state = lib::Verdict::State::compatible;
+    compatible.summary = "it fits this game";
+    const lib::Fact good = checked_of(compatible);
+    OA_CHECK(good.long_value == "With No Mod: it fits this game" && good.mark == Mark::good);
+
+    lib::Verdict quiet;
+    quiet.state = lib::Verdict::State::no_effect;
+    const lib::Fact no_effect = checked_of(quiet);
+    OA_CHECK(no_effect.long_value == "With No Mod: no effect" && no_effect.mark == Mark::warn);
+
+    lib::Verdict blocked;
+    blocked.state = lib::Verdict::State::incompatible;
+    blocked.reason = "No build list for this mod's third side";
+    const lib::Fact unfit = checked_of(blocked);
+    OA_CHECK(
+        unfit.long_value == "With No Mod: No build list for this mod's third side" &&
+        unfit.mark == Mark::bad
+    );
+    {
+        const lib::Library library = brain_with(blocked, false, false);
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr && entry->not_compatible && entry->can_act);
+    }
+
+    lib::Verdict stopped;
+    stopped.state = lib::Verdict::State::failed;
+    stopped.reason = "broken on purpose";
+    const lib::Fact failed = checked_of(stopped);
+    OA_CHECK(
+        failed.long_value == "With No Mod: it stopped: broken on purpose" &&
+        failed.mark == Mark::bad
+    );
+
+    lib::Verdict running;
+    running.state = lib::Verdict::State::checking;
+    const lib::Fact checking = checked_of(running);
+    OA_CHECK(checking.long_value == "Checking with No Mod…" && checking.mark == Mark::none);
+
+    lib::Verdict not_yet;
+    not_yet.state = lib::Verdict::State::unchecked;
+    const lib::Fact waiting = checked_of(not_yet);
+    OA_CHECK(waiting.long_value == "Not checked with No Mod" && waiting.mark == Mark::none);
+
+    {
+        lib::Inputs named = base_inputs();
+        named.played = {"ridge", "28", "Ridge"};
+        lib::Listing listed = listing(core, Kind::brain, "steady-commander", "Steady Commander");
+        lib::BrainFacts facts;
+        facts.works_with.push_back({"*", "", ""});
+        facts.verdict = compatible;
+        lib::Installed held = installed(core, Kind::brain, "steady-commander", "Steady Commander");
+        held.brain = facts;
+        listed.brain = facts;
+        named.listings.push_back(std::move(listed));
+        named.installed.push_back(std::move(held));
+        const lib::Library library = built(std::move(named));
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr);
+        if (entry != nullptr) {
+            const std::vector<lib::Fact> checked_facts = lib::facts(library, *entry);
+            const lib::Fact* checked = fact(checked_facts, "Checked");
+            OA_CHECK(
+                checked != nullptr && checked->long_value == "With Ridge: it fits this game" &&
+                checked->mark == Mark::good
+            );
+        }
+    }
+
+    {
+        const lib::Library library = brain_with(std::nullopt, false, false);
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr);
+        if (entry != nullptr) {
+            OA_CHECK(fact(lib::facts(library, *entry), "Checked") == nullptr);
+            OA_CHECK(
+                actions_of(library, *entry) == Buttons(
+                                                   {{Action::use_by_default, true},
+                                                    {Action::uninstall, true},
+                                                    {Action::open_folder, true},
+                                                    {Action::homepage, true}}
+                                               )
+            );
+            OA_CHECK_TEXT(lib::status_line(library, *entry), "Installed");
+            const lib::Entry* player = lib::find_entry(library, lib::built_in_brain_id());
+            OA_CHECK(player != nullptr && player->is_default);
+            if (player != nullptr)
+                OA_CHECK_TEXT(lib::status_line(library, *player), "Built in · Default");
+        }
+    }
+    {
+        const lib::Library library = brain_with(compatible, false, false);
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr && !entry->is_default);
+        if (entry != nullptr)
+            OA_CHECK(
+                actions_of(library, *entry) == Buttons(
+                                                   {{Action::use_by_default, true},
+                                                    {Action::check_with_mod, true},
+                                                    {Action::uninstall, true},
+                                                    {Action::open_folder, true},
+                                                    {Action::homepage, true}}
+                                               )
+            );
+    }
+    {
+        const lib::Library library = brain_with(compatible, true, false);
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr && entry->is_default);
+        if (entry != nullptr) {
+            OA_CHECK(
+                actions_of(library, *entry) == Buttons(
+                                                   {{Action::check_with_mod, true},
+                                                    {Action::uninstall, true},
+                                                    {Action::open_folder, true},
+                                                    {Action::homepage, true}}
+                                               )
+            );
+            OA_CHECK_TEXT(lib::status_line(library, *entry), "Installed · Default");
+        }
+        const lib::Entry* player = lib::find_entry(library, lib::built_in_brain_id());
+        OA_CHECK(player != nullptr && !player->is_default);
+        if (player != nullptr) {
+            OA_CHECK(actions_of(library, *player) == Buttons({{Action::use_by_default, true}}));
+            OA_CHECK_TEXT(lib::status_line(library, *player), "Built in");
+        }
+    }
+    {
+        const lib::Library library = brain_with(compatible, false, true);
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr);
+        if (entry != nullptr) {
+            bool saw = false;
+            for (const auto& [action, enabled] : actions_of(library, *entry)) {
+                if (action == Action::check_with_mod) {
+                    saw = true;
+                    OA_CHECK(!enabled);
+                }
+            }
+            OA_CHECK(saw);
+        }
+    }
+    {
+        const lib::Library library = brain_with(running, false, false);
+        const lib::Entry* entry = steady_of(library);
+        OA_CHECK(entry != nullptr);
+        if (entry != nullptr) {
+            bool saw = false;
+            for (const auto& [action, enabled] : actions_of(library, *entry)) {
+                if (action == Action::check_with_mod) {
+                    saw = true;
+                    OA_CHECK(!enabled);
+                }
+            }
+            OA_CHECK(saw);
+        }
+    }
+
+    {
+        lib::Inputs inputs = base_inputs();
+        lib::Listing listed = listing(core, Kind::brain, "tide-keeper", "Tide Keeper");
+        listed.homepage = "https://example.test/tide";
+        lib::BrainFacts facts;
+        facts.works_with.push_back({"*", "", ""});
+        facts.verdict = compatible;
+        listed.brain = facts;
+        lib::Installed held = installed(core, Kind::brain, "tide-keeper", "Tide Keeper");
+        held.brain = facts;
+        inputs.listings.push_back(std::move(listed));
+        inputs.installed.push_back(std::move(held));
+        inputs.updates.push_back(update(core, Kind::brain, "tide-keeper"));
+        inputs.default_brain = "tide-keeper";
+        const lib::Library library = built(std::move(inputs));
+        const lib::Entry* entry = at(library, core, Kind::brain, "tide-keeper");
+        OA_CHECK(entry != nullptr && entry->state == State::update && entry->is_default);
+        if (entry != nullptr) {
+            OA_CHECK(
+                actions_of(library, *entry) == Buttons(
+                                                   {{Action::update, true},
+                                                    {Action::check_with_mod, true},
+                                                    {Action::uninstall, true},
+                                                    {Action::open_folder, true},
+                                                    {Action::homepage, true}}
+                                               )
+            );
+            OA_CHECK_TEXT(
+                lib::status_line(library, *entry),
+                "Version 4.8 available · " + lib::size_text(3355443) + " to download"
+            );
+            const std::vector<lib::Fact> update_facts = lib::facts(library, *entry);
+            const lib::Fact* size = fact(update_facts, "Size");
+            OA_CHECK(size != nullptr);
+            if (size != nullptr) {
+                OA_CHECK(
+                    size->long_value ==
+                    lib::size_text(64 * mib) + " · " + lib::size_text(3355443) + " to download"
+                );
+                OA_CHECK(size->short_value == lib::size_text(3355443) + " to download");
+            }
+        }
+    }
+    {
+        lib::Inputs inputs = base_inputs();
+        lib::Listing listed = listing(core, Kind::brain, "ridge-raider", "Ridge Raider");
+        listed.homepage = "https://example.test/ridge";
+        lib::BrainFacts facts;
+        facts.works_with.push_back({"ridge", "", "Ridge"});
+        listed.brain = facts;
+        inputs.listings.push_back(std::move(listed));
+        lib::QueueItem waiting_item;
+        waiting_item.registry = std::string(core);
+        waiting_item.kind = Kind::brain;
+        waiting_item.key = "ridge-raider";
+        waiting_item.name = "Ridge Raider";
+        waiting_item.phase = Phase::downloading;
+        inputs.queue.push_back(waiting_item);
+        const lib::Library queued_library = built(inputs);
+        const lib::Entry* queued_row = at(queued_library, core, Kind::brain, "ridge-raider");
+        OA_CHECK(queued_row != nullptr && queued_row->not_compatible && queued_row->can_act);
+        if (queued_row != nullptr)
+            OA_CHECK(
+                actions_of(queued_library, *queued_row) ==
+                Buttons({{Action::cancel, true}, {Action::homepage, true}})
+            );
+        inputs.queue.clear();
+        lib::QueueItem failed_item = waiting_item;
+        failed_item.phase = Phase::failed;
+        failed_item.retryable = true;
+        inputs.queue.push_back(failed_item);
+        const lib::Library failed_library = built(std::move(inputs));
+        const lib::Entry* failed_row = at(failed_library, core, Kind::brain, "ridge-raider");
+        OA_CHECK(failed_row != nullptr && failed_row->can_act && failed_row->blocked.empty());
+        if (failed_row != nullptr) {
+            OA_CHECK(
+                actions_of(failed_library, *failed_row) ==
+                Buttons({{Action::retry, true}, {Action::homepage, true}})
+            );
+            OA_CHECK(actions_of(failed_library, *failed_row).front().second);
+        }
+    }
+    {
+        lib::Inputs inputs = base_inputs();
+        lib::Listing listed = listing(core, Kind::brain, "ridge-raider", "Ridge Raider");
+        lib::BrainFacts facts;
+        facts.works_with.push_back({"ridge", "", "Ridge"});
+        listed.brain = facts;
+        inputs.listings.push_back(std::move(listed));
+        const lib::Library library = built(std::move(inputs));
+        const lib::Entry* row = at(library, core, Kind::brain, "ridge-raider");
+        OA_CHECK(row != nullptr && row->state == State::get && row->not_compatible);
+        OA_CHECK(row != nullptr && row->can_act && row->blocked.empty());
+        if (row != nullptr)
+            OA_CHECK(actions_of(library, *row).front() == std::make_pair(Action::get, true));
+    }
+}
+
 } // namespace
 
 int main() {
@@ -5359,6 +5803,7 @@ int main() {
     test_package_needs();
     test_mutators();
     test_brains();
+    test_brain_details();
     test_checked_words();
     test_mutator_details();
     test_lookup();

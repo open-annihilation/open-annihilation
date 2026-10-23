@@ -4,11 +4,37 @@
 # A computer seat played by a sandboxed Lua brain: the package is loaded,
 # fits and start run, and the match calls the seat's hooks instead of the
 # built-in order tick.
+
+# The Classic fingerprint is computed at build time. A missing or empty
+# brains/classic folder writes an empty value, and then no package is Classic.
+set(oa_brains_generated "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(oa_classic_fingerprint_header "${oa_brains_generated}/classic_fingerprint.hpp")
+set(oa_classic_sample_header "${oa_brains_generated}/classic_sample_fingerprint.hpp")
+file(GLOB_RECURSE oa_classic_tree CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/brains/classic/*")
+file(GLOB_RECURSE oa_classic_sample_tree CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/tests/classic-sample/*")
+add_custom_command(
+  OUTPUT "${oa_classic_fingerprint_header}"
+  COMMAND "${CMAKE_COMMAND}" -D "SOURCE_DIR=${PROJECT_SOURCE_DIR}/brains/classic"
+          -D "OUTPUT=${oa_classic_fingerprint_header}" -D CONSTANT=classic_fingerprint_builtin
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/classic_fingerprint.cmake"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/classic_fingerprint.cmake" ${oa_classic_tree}
+  VERBATIM)
+add_custom_command(
+  OUTPUT "${oa_classic_sample_header}"
+  COMMAND "${CMAKE_COMMAND}" -D "SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}/tests/classic-sample"
+          -D "OUTPUT=${oa_classic_sample_header}" -D CONSTANT=classic_sample_fingerprint
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/classic_fingerprint.cmake"
+  DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/classic_fingerprint.cmake" ${oa_classic_sample_tree}
+  VERBATIM)
+
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
-  src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp
-  src/definitions.cpp src/lua_defs.cpp src/lua_map.cpp src/reach.cpp)
+  src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp src/classic.cpp
+  src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
+  src/failure.cpp src/lua_profile.cpp src/lua_map.cpp src/reach.cpp
+  "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
-target_include_directories(oa-sim-brains PUBLIC include)
+target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
 target_link_libraries(oa-sim-brains PUBLIC oa-sim-match-runtime oa-data-script-host
   oa-data-brain-facts)
@@ -62,6 +88,52 @@ if(BUILD_TESTING)
   add_test(NAME sim-brains-defs COMMAND oa-sim-brains-defs-test)
   set_tests_properties(sim-brains-defs PROPERTIES TIMEOUT 120)
   oa_add_game_data_test(sim-brains-defs-data oa-sim-brains-defs-test --data)
+
+  add_executable(oa-sim-brains-random-test tests/random_test.cpp "${oa_classic_fingerprint_header}"
+    "${oa_classic_sample_header}")
+  target_include_directories(oa-sim-brains-random-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${oa_brains_generated}")
+  target_compile_definitions(oa-sim-brains-random-test PRIVATE
+    "OA_CLASSIC_SAMPLE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/classic-sample\"")
+  target_link_libraries(oa-sim-brains-random-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  add_test(NAME sim-brains-random COMMAND oa-sim-brains-random-test)
+  set_tests_properties(sim-brains-random PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-sim-brains-timers-test tests/timers_test.cpp)
+  target_link_libraries(oa-sim-brains-timers-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  add_test(NAME sim-brains-timers COMMAND oa-sim-brains-timers-test)
+  set_tests_properties(sim-brains-timers PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-sim-brains-chat-test tests/chat_test.cpp)
+  target_compile_definitions(
+    oa-sim-brains-chat-test PRIVATE
+    "OA_CHAT_LISTENER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/chat-listener\"")
+  target_link_libraries(oa-sim-brains-chat-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
+  add_test(NAME sim-brains-chat COMMAND oa-sim-brains-chat-test)
+  set_tests_properties(sim-brains-chat PROPERTIES TIMEOUT 120)
+
+  # A failed turn hands the seat back. The made-up brain is steady-commander.
+  add_executable(oa-sim-brains-failure-test tests/failure_test.cpp)
+  target_link_libraries(oa-sim-brains-failure-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  add_test(NAME sim-brains-failure COMMAND oa-sim-brains-failure-test)
+  set_tests_properties(sim-brains-failure PROPERTIES TIMEOUT 120)
+
+  # AI profile lines, build lists and strategic strengths. The made-up brain
+  # is profile-reader. --data checks every installed ai/*.txt profile.
+  add_executable(oa-sim-brains-profile-test tests/profile_test.cpp)
+  target_include_directories(oa-sim-brains-profile-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-profile-test PRIVATE
+    "OA_PROFILE_READER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/profile-reader\"")
+  target_link_libraries(oa-sim-brains-profile-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-data-defs oa-formats-hpi oa-test-game-data)
+  add_test(NAME sim-brains-profile COMMAND oa-sim-brains-profile-test)
+  set_tests_properties(sim-brains-profile PROPERTIES TIMEOUT 120)
+  oa_add_game_data_test(sim-brains-profile-data oa-sim-brains-profile-test --data)
 
   # The match map and movement regions. The made-up brain is map-reader.
   # No installed-map fixture exists, so there is no --data twin.

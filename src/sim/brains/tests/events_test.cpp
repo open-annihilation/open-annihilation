@@ -797,6 +797,21 @@ return hooks
     CHECK(brains::brain_seated(*fixture.match, computer));
 }
 
+struct DamageStop {
+    int stops{};
+    uint8_t player{};
+    uint32_t tick{};
+    host::ErrorKind kind{host::ErrorKind::none};
+};
+
+void remember_stop(void* context, uint8_t player, uint32_t tick, const host::ScriptError& error) {
+    auto* note = static_cast<DamageStop*>(context);
+    note->stops += 1;
+    note->player = player;
+    note->tick = tick;
+    note->kind = error.kind;
+}
+
 void looping_damage_hook_stops_the_seat() {
     const char* script = R"(local hooks = {}
 function hooks.fits()
@@ -812,21 +827,40 @@ end
 return hooks
 )";
     Fixture fixture;
+    fixture.spawn(0, vehicle, 8, 8);
+    fixture.spawn(computer, vehicle, 40, 40);
+    CHECK(sim::ai::configure_match_computer_players(*fixture.match, profile, build_lists, false));
     Package package = package_with(script);
     package.bank.call_time_limit = std::chrono::milliseconds{30'000};
-    host::Sandbox* sandbox = seat_ready(fixture, package);
+    DamageStop note;
+    brains::ReportHooks hooks;
+    hooks.context = &note;
+    hooks.stopped = &remember_stop;
+    brains::set_report_hooks(*fixture.match, hooks);
+    (void)seat_ready(fixture, package);
     auto& own = fixture.spawn(computer, collector, 8, 8);
     fixture.match->apply_damage_event(own, nullptr, static_cast<int16_t>(1), 11, 0);
     advance(fixture);
-    CHECK(sandbox->failed());
-    CHECK(sandbox->failure().kind == host::ErrorKind::instruction_budget);
-    CHECK(brains::brain_seated(*fixture.match, computer));
+    CHECK(note.stops == 1);
+    CHECK(note.player == computer);
+    CHECK(note.tick == fixture.match->state().game.tick);
+    CHECK(note.kind == host::ErrorKind::instruction_budget);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
+    CHECK(brains::seat_sandbox(*fixture.match, computer) == nullptr);
+    CHECK(fixture.match->seat_hooks(computer).play == nullptr);
+    auto* players = sim::ai::match_computer_players(*fixture.match);
+    CHECK(players != nullptr);
+    CHECK(
+        players->players[computer].sort_countdown ==
+        static_cast<int32_t>(sim::ai::sort_interval_ticks)
+    );
     advance(fixture);
-    CHECK(sandbox->failed());
-    CHECK(sandbox->failure().kind == host::ErrorKind::instruction_budget);
-    CHECK(brains::brain_seated(*fixture.match, computer));
-    host::ScriptError error;
-    CHECK(!sandbox->run_host("read", nullptr, nullptr, error));
+    CHECK(
+        players->players[computer].sort_countdown ==
+        static_cast<int32_t>(sim::ai::sort_interval_ticks) - 1
+    );
+    CHECK(note.stops == 1);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
 }
 
 struct CounterRead {

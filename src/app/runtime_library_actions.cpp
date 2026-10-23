@@ -393,6 +393,15 @@ void Runtime::library_uninstall(const library::EntryId& entry) {
             return;
         }
         library_log("UNINSTALL: removed " + title + " from " + path_to_utf8(at));
+        // Uninstalling the default computer player clears the preference, so
+        // it does not keep naming a brain that is gone. The built-in player
+        // is the default again.
+        if (entry.kind == library::Kind::brain) {
+            const auto stored =
+                preference_values_.find(std::string(oa::ui::engine_settings::key::brain_default));
+            if (stored != preference_values_.end() && stored->second == entry.key)
+                set_default_brain({});
+        }
         // What reads the kind's folder reads it again, and the Library's
         // feed lists what is installed again.
         package_changed(*kind, at);
