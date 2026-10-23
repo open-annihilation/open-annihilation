@@ -5,7 +5,7 @@
 # the Windows DLL copy and the packaged notices attach to it.
 add_library(oa-tool-commands STATIC commands.cpp arguments.cpp files.cpp archive_commands.cpp
   pack.cpp pack_map.cpp check.cpp check_map.cpp check_brain.cpp check_mutator.cpp brain.cpp
-  onnx.cpp
+  brain_net.cpp onnx.cpp
   mutator.cpp mutator_diff.cpp
   mutator_report.cpp catalogue.cpp passphrase.cpp registry.cpp expansion.cpp interface_words.cpp)
 add_library(oa::tool::commands ALIAS oa-tool-commands)
@@ -33,7 +33,8 @@ target_link_libraries(oa-tool-commands
   PRIVATE oa-options oa-app-package-install oa-app-game-directory oa-data-content-bundles oa-data-languages
     oa-data-map-pack oa-data-map-fit oa-data-script-host oa-data-mutator-import
     oa-data-mutators oa-data-defs oa-data-defs-assets oa-formats-tdf
-    oa-formats-oamod oa-formats-oamut oa-formats-oabrain
+    oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-formats-oann
+    oa-data-neural
     oa-formats-soft-mutator oa-formats-json oa-formats-ota oa-formats-tnt
     oa-formats-zip oa-base-sha256 oa-base-text oa-platform-shims oa-base-signing oa-data-catalogue
     oa-data-registry oa-platform-random oa-app-content oa-netgame-http oa-formats-url
