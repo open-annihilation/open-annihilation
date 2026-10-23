@@ -5,6 +5,8 @@
 #pragma once
 
 #include "oa/sim/brains/chat.hpp"
+#include "sight.hpp"
+
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
 
@@ -142,6 +144,17 @@ struct Seat {
     bool allied_with[OA_PLAYER_COUNT]{};
     /// Last delivered participation, one entry per player.
     bool participating[OA_PLAYER_COUNT]{};
+    /// Radar contacts delivered last. The next picture is written into the work list.
+    std::unique_ptr<ContactEntry[]> delivered_contacts;
+    std::unique_ptr<ContactEntry[]> contact_work;
+    /// How many contacts `delivered_contacts` holds.
+    uint32_t delivered_contact_count{};
+    /// Slots both lists can hold. Zero until the first picture is read.
+    uint32_t contact_capacity{};
+    /// `player_contacts_tick` of the delivered picture.
+    uint32_t delivered_contacts_tick{};
+    /// False until the first picture has been compared, even when that tick is 0.
+    bool contacts_compared{};
     /// True when this seat's files match the Classic fingerprint.
     bool classic{};
     /// Timers waiting to run on a later turn.
