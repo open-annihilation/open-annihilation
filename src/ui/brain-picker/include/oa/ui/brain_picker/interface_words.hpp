@@ -32,6 +32,14 @@ inline constexpr std::string_view interface_words[] = {
     words::use_every_seat,
     words::sees_every_unit,
     words::left_out,
+    words::cancel,
+    words::use_this,
+    words::details,
+    words::back,
+    words::close_button,
+    words::switch_off,
+    words::switch_on,
+    words::empty_brains,
 };
 
 } // namespace oa::ui::brain_picker
