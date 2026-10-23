@@ -20,4 +20,13 @@ if(BUILD_TESTING)
   add_test(NAME sim-brains-seat COMMAND oa-sim-brains-seat-test)
   set_tests_properties(sim-brains-seat PROPERTIES TIMEOUT 120)
 
+  # The facts a brain reads, the read-only game table and a load check with
+  # no match. The made-up brain is fact-reader.
+  add_executable(oa-sim-brains-game-test tests/game_test.cpp)
+  target_link_libraries(oa-sim-brains-game-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  target_compile_definitions(oa-sim-brains-game-test PRIVATE
+    OA_FACT_READER_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/data/fact-reader")
+  add_test(NAME sim-brains-game COMMAND oa-sim-brains-game-test)
+  set_tests_properties(sim-brains-game PROPERTIES TIMEOUT 120)
 endif()
