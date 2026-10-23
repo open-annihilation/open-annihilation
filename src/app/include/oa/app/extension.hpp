@@ -220,8 +220,11 @@
 /// null. Version 16 adds run_mutators, which reads how many mutators the run
 /// plays, their ids in order, and the simulation hash the run would have
 /// without them. It is not a hook: the engine does not call it, and no
-/// extension fills it.
-#define OA_EXTENSION_API_VERSION 16
+/// extension fills it. Version 17 adds hear_remote_seat_chat, which hands a
+/// chat line from another machine to the computer seats on this machine
+/// that the line reached. It is not a hook: the engine does not call it,
+/// and no extension fills it.
+#define OA_EXTENSION_API_VERSION 17
 
 namespace oa {
 struct Game;
@@ -1627,5 +1630,22 @@ struct RunMutators {
 /// @param runtime the running app
 /// @return the mutators and the hash without them
 [[nodiscard]] RunMutators run_mutators(const Runtime& runtime);
+
+/// Hands a chat line from another machine to the computer seats it reached.
+///
+/// A null line is ignored. With no match running, nothing is handed on.
+/// The line is the one this machine shows, without a further change.
+///
+/// It is not a hook: the engine does not call it, and no extension fills it.
+/// A call may come from any hook.
+///
+/// @param runtime the running app
+/// @param from slot of the sender
+/// @param addressee slot the record was addressed to
+/// @param broadcast the record went to every player
+/// @param line the line as this machine shows it; null is ignored
+void hear_remote_seat_chat(
+    Runtime& runtime, uint8_t from, uint8_t addressee, bool broadcast, const char* line
+);
 
 } // namespace oa::app

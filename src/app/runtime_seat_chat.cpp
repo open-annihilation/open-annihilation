@@ -34,4 +34,10 @@ void Runtime::hear_seat_chat_remote(
     seat_chat_.hear_remote(match_->state(), from, addressee, broadcast, text);
 }
 
+void hear_remote_seat_chat(
+    Runtime& runtime, uint8_t from, uint8_t addressee, bool broadcast, const char* line
+) {
+    runtime.hear_seat_chat_remote(from, addressee, broadcast, line);
+}
+
 } // namespace oa::app
