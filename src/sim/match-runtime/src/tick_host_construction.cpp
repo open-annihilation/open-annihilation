@@ -91,7 +91,7 @@ sim::simulation_state::Unit* TickHost::ConstructionAdapter::spawn_nanoframe() {
     request.finished = false;
     request.state = sim::unit_spawn::ground_occupancy_state;
     request.facing = facing();
-    auto* created = host.match.create(request);
+    auto* created = host.match.create(request, source.unit_index);
     if (!created)
         return nullptr;
     created->unit->flags |= OA_UNIT_FLAG_LIVE | OA_UNIT_FLAG_SELECTABLE;

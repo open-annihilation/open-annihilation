@@ -1060,6 +1060,88 @@ void built_factory_produces() {
     }));
 }
 
+// The factory's frame names the builder that placed it, and the tank names
+// the factory, each created-by report following that unit's created report.
+void new_units_name_their_builder() {
+    struct Note {
+        bool created_by{};
+        uint16_t unit{};
+        uint16_t type{};
+        uint16_t builder{};
+    };
+
+    struct Log {
+        std::vector<Note> notes;
+    } log;
+
+    Fixture f;
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &log;
+    hooks.unit_created = [](void* context, const oa::World& world, uint16_t unit) {
+        static_cast<Log*>(context)->notes.push_back({false, unit, world.units[unit].type_index, 0});
+    };
+    hooks.unit_created_by = [](void* context, const oa::World&, uint16_t unit, uint16_t builder) {
+        static_cast<Log*>(context)->notes.push_back({true, unit, 0, builder});
+    };
+    CHECK(f.match->add_event_listener(hooks) != 0);
+
+    auto& builder = f.spawn(0, builder_type, 100, 100);
+    std::array<uint8_t, 10> allies{};
+    allies[0] = 1;
+    f.match->configure_outcomes(0, allies, true);
+    uint32_t clock = f.tick();
+    const auto run_until = [&](uint32_t limit, auto done) {
+        for (uint32_t i = 0; i < limit && !done(); ++i) {
+            f.match->simulation().tick = clock++;
+            f.match->tick();
+        }
+        return done();
+    };
+    const auto find = [&](uint16_t type) -> sim::unit_spawn::Slot* {
+        for (auto& slot : f.match->world().slots)
+            if (slot.unit && slot.record.type_index == type)
+                return &slot;
+        return nullptr;
+    };
+    (void)f.match->issue_mobile_build(builder.unit_index, factory_type, point(150, 101), false);
+    CHECK(run_until(600, [&] {
+        const auto* factory = find(factory_type);
+        return factory && factory->record.build_remaining == 0.0F;
+    }));
+    auto& factory = *find(factory_type);
+    (void)run_until(30, [&] { return !factory.unit->primary; });
+    CHECK(!factory.unit->primary);
+    f.match->queue_factory_build(factory.unit_index, tank_type, 1);
+    CHECK(run_until(600, [&] {
+        const auto* tank = find(tank_type);
+        return tank && tank->record.build_remaining == 0.0F && !f.head(factory.unit_index);
+    }));
+
+    CHECK(log.notes.size() == 6);
+    int builders = 0;
+    int factories = 0;
+    int tanks = 0;
+    for (size_t i = 0; i < log.notes.size(); i += 2) {
+        const auto& created = log.notes[i];
+        const auto& by = log.notes[i + 1];
+        CHECK(!created.created_by && by.created_by && created.unit == by.unit);
+        if (created.type == builder_type) {
+            ++builders;
+            CHECK(by.builder == 0 && by.unit == builder.unit_index);
+        } else if (created.type == factory_type) {
+            ++factories;
+            CHECK(by.builder == builder.unit_index);
+        } else if (created.type == tank_type) {
+            ++tanks;
+            CHECK(by.builder == factory.unit_index);
+        } else {
+            CHECK(false);
+        }
+    }
+    CHECK(builders == 1 && factories == 1 && tanks == 1);
+    std::cout << "new units name their builder passed\n";
+}
+
 // A move given to a factory waits there as QMove; the unit the factory then
 // builds, once off the pad, has that move as its only order and the factory's
 // standing orders (GetBuilt; the builder link only detaches it), and walks
@@ -1531,6 +1613,7 @@ int main() {
         factory_queue_counts();
         queued_order_cancels_its_match();
         built_factory_produces();
+        new_units_name_their_builder();
         factory_move_hands_off();
         repair_orders();
         reclaim_and_capture();

@@ -186,6 +186,13 @@ through:
 
 - `unit_created` at the end of `create` and `start_player`; a building
   (bmcode 0) created finished is then reported finished by itself.
+- `unit_created_by` right after `unit_created` for that same unit, and before
+  `unit_finished` when a building created finished is reported finished. The
+  builder is the unit whose work started it: the mobile builder of a
+  nanoframe, the factory of a factory's frame, the resurrecting unit of a
+  raised one, or the aircraft of a building built from the air. It is 0 when
+  no unit made it: a commander, a mission's unit, a hand-over's copy, or a
+  copy of another machine's unit.
 - `unit_finished` from the builder link (`link_built_unit`), which build
   progress reaching the end, a factory's cancelled frame and `finish_unit`
   all take; from the resurrect order, by the unit that raised it; and for a
@@ -202,6 +209,16 @@ through:
   exploding unit included.
 - `unit_damaged` in `apply_damage_event` once the unit is known live and not
   dying, before the event changes it.
+- `unit_given` once from `transfer_unit` for a capture, a share-panel gift or
+  a structure gift, while the old unit is still live. When this machine makes
+  the copy, the copy is reported created and then created by builder 0, and
+  `unit_given` follows with the old unit and the copy, before this machine
+  kills the old unit. A unit another machine handed over is left alive here
+  for that machine to kill. When the receiver's machine makes the copy, the
+  report names no copy and this machine reports no creation, and the old
+  unit's `unit_died` follows once the sweep tears it down. A transfer that
+  changes nothing (the unit's own owner, a unit already dying, or a player
+  who is not present) is not reported.
 - `unit_died` as `teardown_dead_unit` starts on a live unit, before its
   type, owner and position are cleared: each death once, settled here or
   elsewhere.

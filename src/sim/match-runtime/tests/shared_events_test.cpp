@@ -808,7 +808,40 @@ void resurrection_is_shared() {
     // once the unit is raised, named by its origin plot.
     auto& order =
         f.match->insert_ground_order(id, resurrect_kind, cell_point(wreck_x + 1, wreck_z + 1));
+
+    // The raised unit is reported created by the resurrecting unit, right
+    // after its own creation.
+    struct Raised {
+        struct Note {
+            bool created_by{};
+            uint16_t unit{};
+            uint16_t type{};
+            uint16_t builder{};
+        };
+
+        std::vector<Note> notes;
+    } raised;
+
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &raised;
+    hooks.unit_created = [](void* context, const oa::World& world, uint16_t unit) {
+        static_cast<Raised*>(context)->notes.push_back(
+            {false, unit, world.units[unit].type_index, 0}
+        );
+    };
+    hooks.unit_created_by = [](void* context, const oa::World&, uint16_t unit, uint16_t builder) {
+        static_cast<Raised*>(context)->notes.push_back({true, unit, 0, builder});
+    };
+    CHECK(f.match->add_event_listener(hooks) != 0);
+
     raise_wreck(f, builder, order);
+    CHECK(raised.notes.size() == 2);
+    CHECK(!raised.notes[0].created_by && raised.notes[0].type == tank_type);
+    CHECK(raised.notes[0].unit != id);
+    CHECK(
+        raised.notes[1].created_by && raised.notes[1].unit == raised.notes[0].unit &&
+        raised.notes[1].builder == id
+    );
     auto shared = recorder.take("feature");
     CHECK(shared.size() == 1);
     CHECK(shared[0].first == static_cast<uint32_t>(FeatureChange::resurrected));
