@@ -153,8 +153,10 @@ void seat_chat_checks() {
     name_player(game.players[1], 1, "Steve");
     name_player(game.players[2], 2, "Bob");
     name_player(game.players[4], 4, "Ann");
+    // Slot 1 allies with 2. Slot 2 does not ally back. Allies and enemies follow
+    // the speaker's row, the same row the human chat path uses.
     game.players[1].alliance[2] = 1;
-    game.players[2].alliance[1] = 1;
+    game.players[2].alliance[1] = 0;
 
     CHECK(seat_hears(game, 1, 0, OA_CHAT_MODE_EVERYONE, nullptr));
     CHECK(seat_hears(game, 1, 2, OA_CHAT_MODE_EVERYONE, nullptr));
@@ -163,7 +165,6 @@ void seat_chat_checks() {
     CHECK(!seat_hears(game, 1, 0, OA_CHAT_MODE_ALLIES, nullptr));
     CHECK(!seat_hears(game, 1, 2, OA_CHAT_MODE_ENEMIES, nullptr));
     CHECK(seat_hears(game, 1, 0, OA_CHAT_MODE_ENEMIES, nullptr));
-    // Only the speaker's row counts: slot 2 allies with 1, and 1 does not ally back.
     CHECK(!seat_hears(game, 2, 1, OA_CHAT_MODE_ALLIES, nullptr));
     CHECK(seat_hears(game, 2, 1, OA_CHAT_MODE_ENEMIES, nullptr));
     uint8_t chosen[OA_PLAYER_COUNT]{};
