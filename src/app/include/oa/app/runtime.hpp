@@ -5098,6 +5098,10 @@ class Runtime final : public menu::Host,
     /// preferences'. The mod is the profile the match plays, or the base
     /// game's name when the game plays 3.1c, with this match's sides. The
     /// mutators are the running match's loadout in apply order, or none.
+    /// The AI profile is the file `computer_profile_file` reads, and the
+    /// report path is the map's profile slot, empty when that slot is null.
+    /// `ai_profiles` is every readable profile under the AI directory, at
+    /// most 256, in the order they are listed.
     ///
     /// @return the facts, owned outright
     [[nodiscard]] oa::data::brain_facts::GameFacts brain_game_facts() const;
@@ -7018,10 +7022,26 @@ class Runtime final : public menu::Host,
     ///     empty without a campaign mission or map
     std::string session_ai_profile_path();
 
+    /// The profile file the computer players read, and the path it came from.
+    struct ComputerProfileFile {
+        std::string path{}; ///< the path whose bytes were read, or empty
+        std::string text{}; ///< those bytes; empty when neither file exists
+    };
+
     /// Reads the computer players' profile: the session's, else ai/default.txt.
     ///
-    /// @return the profile text; empty when neither exists, and the computer
-    ///     players then take only their types' own directives
+    /// The path is the one whose bytes were kept. A session path that is
+    /// missing, empty or too large falls through to ai/default.txt, as
+    /// `read_computer_profile` always has.
+    ///
+    /// @return the path and the bytes; both empty when neither file exists
+    ComputerProfileFile computer_profile_file();
+
+    /// Reads the computer players' profile text.
+    ///
+    /// @return `computer_profile_file()`'s text; empty when neither file
+    ///     exists, and the computer players then take only their types' own
+    ///     directives
     std::string read_computer_profile();
 
     /// Configures the computer players before the mission's units exist, as mission state set-up
