@@ -103,7 +103,7 @@ void write_option_facts(
 void write_icon_facts(
     const oa::app::package_install::Package& package,
     std::string_view path,
-    std::uint64_t size_limit,
+    uint64_t size_limit,
     oa::formats::json::JsonWriter& writer
 );
 
