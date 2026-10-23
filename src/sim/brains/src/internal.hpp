@@ -4,6 +4,7 @@
 // The seat a match keeps behind seat_state. Not part of the public header.
 #pragma once
 
+#include "oa/sim/brains/chat.hpp"
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
 
@@ -63,6 +64,25 @@ struct EventBuffer {
     uint32_t capacity{};
 };
 
+/// Most chat lines waiting for one turn.
+inline constexpr uint8_t max_chat_lines = 32;
+/// Most bytes stored of one chat line.
+inline constexpr std::size_t chat_line_bytes = 256;
+
+/// One chat line waiting for a seat's turn. The words are not terminated.
+struct ChatLine {
+    uint8_t from{};
+    uint8_t mode{};
+    uint16_t length{};
+    std::array<char, chat_line_bytes> words{};
+};
+
+/// Lines waiting for one turn. `count` is how many `lines` are filled.
+struct ChatQueue {
+    std::array<ChatLine, max_chat_lines> lines{};
+    uint8_t count{};
+};
+
 /// One option copied into the seat, so the script can read it after the call.
 struct StoredOption {
     char id[option_id_bytes + 1]{};
@@ -105,6 +125,13 @@ struct Seat {
     EventBuffer delivering{};
     /// Events dropped because the incoming buffer was full or could not grow.
     uint32_t dropped{};
+    /// Chat lines heard since the last turn. A line heard during the turn
+    /// lands here and waits until the next turn.
+    ChatQueue chat_incoming{};
+    /// Chat lines the turn in progress is delivering.
+    ChatQueue chat_delivering{};
+    /// Chat lines dropped because the incoming queue already held 32.
+    uint32_t dropped_chat{};
     /// True after a banked call failed. Later turns do nothing.
     bool stopped{};
     /// True once a turn has stored alliance and participation.
@@ -138,6 +165,8 @@ struct Brains {
     uint32_t listener_id{};
     /// True once registration has been attempted. It is not tried again.
     bool listener_tried{};
+    /// How a seated brain says a line. A null `say` means chat is not connected.
+    ChatHooks chat{};
 };
 
 /// Writes a refusal or a fits reason, cut to 255 bytes.
@@ -180,6 +209,12 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome);
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_libraries(lua_State* state, Seat& seat);
+
+/// Adds `brain.say`. Works when the seat's match is null.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_chat(lua_State* state, Seat& seat);
 
 /// Returns the profile a brain runs under.
 ///

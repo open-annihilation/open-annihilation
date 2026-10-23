@@ -30,7 +30,7 @@ add_custom_command(
 
 add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua_game.cpp
   src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp src/classic.cpp
-  src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp
+  src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
   "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
@@ -104,4 +104,13 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options)
   add_test(NAME sim-brains-timers COMMAND oa-sim-brains-timers-test)
   set_tests_properties(sim-brains-timers PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-sim-brains-chat-test tests/chat_test.cpp)
+  target_compile_definitions(
+    oa-sim-brains-chat-test PRIVATE
+    "OA_CHAT_LISTENER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/chat-listener\"")
+  target_link_libraries(oa-sim-brains-chat-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
+  add_test(NAME sim-brains-chat COMMAND oa-sim-brains-chat-test)
+  set_tests_properties(sim-brains-chat PROPERTIES TIMEOUT 120)
 endif()
