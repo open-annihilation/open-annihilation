@@ -148,8 +148,12 @@ void Match::update_player_slots() {
 void Match::run_player_controller(uint8_t player) {
     const auto& record = match_player(*this, player);
     const bool computer = record.in_use != 0 && record.status == OA_PLAYER_STATUS_COMPUTER;
-    if (computer)
-        sim::ai::tick_match_computer_orders(*this, player);
+    if (computer) {
+        const SeatHooks hooks = seat_hooks_[player];
+        const bool played = hooks.play != nullptr && hooks.play(hooks.context, *this, player);
+        if (!played)
+            sim::ai::tick_match_computer_orders(*this, player);
+    }
     sweep_weapon_targets(player, computer);
 }
 
