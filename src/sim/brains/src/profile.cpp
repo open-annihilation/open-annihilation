@@ -6,6 +6,7 @@
 // name. It has to work when the seat has no match.
 
 #include "internal.hpp"
+#include "profile_lines.hpp"
 
 #include "definitions.hpp"
 #include "handles_internal.hpp"
@@ -144,6 +145,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_handles(state, seat);
     install_me(state, seat);
     install_definitions(state, seat);
+    install_profile(state, seat);
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {
