@@ -61,5 +61,12 @@ the signature, the sequence, expiry and key rotation.
 - A field that belongs to another kind is ignored. A mutator may name
   prerequisites, conflicts, what it works with, layers and options. One
   broken member leaves that entry out. An unknown layer name or option
-  type is skipped, and those members are ignored on every other kind.
+  type is skipped. Prerequisites, conflicts, layers and clashes are ignored
+  on every kind but a mutator. What a package works with, and its options,
+  are read on a mutator and on a brain.
+- A brain names a version of one to three parts and one to six levels, and
+  may name full awareness, the networks' size, what it works with and
+  options. A level whose difficulty this build does not know is skipped. An
+  entry left with no level is left out. Tags are not limited to the nine a
+  brain manifest allows.
 - A package's `size` may be 2^32.

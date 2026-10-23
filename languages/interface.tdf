@@ -11786,6 +11786,14 @@
 	it=prima di {version};
 	}
 
+[brains]
+	{
+	de=Gehirne;
+	fr=cerveaux;
+	es=cerebros;
+	it=cervelli;
+	}
+
 [built in]
 	{
 	de=integriert;

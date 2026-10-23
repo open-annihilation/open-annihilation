@@ -25,6 +25,7 @@ namespace {
 
 namespace bundles = oa::data::content_bundles;
 namespace json = formats::json;
+namespace oabrain = formats::oabrain;
 namespace oamod = formats::oamod;
 namespace oamut = formats::oamut;
 namespace sha = base::sha256;
@@ -109,6 +110,10 @@ bool parse_kind(std::string_view text, Kind& kind) noexcept {
     }
     if (text == "oamut") {
         kind = Kind::oamut;
+        return true;
+    }
+    if (text == "oabrain") {
+        kind = Kind::oabrain;
         return true;
     }
     return false;
@@ -731,9 +736,16 @@ bool read_options(const json::Json& object, Package& package, std::string& reaso
     return true;
 }
 
+/// Reads `works_with` and `options`, which a mutator and a brain both carry.
+bool read_works_with_and_options(const json::Json& object, Package& package, std::string& reason) {
+    if (!read_works_with(object, package, reason))
+        return false;
+    return read_options(object, package, reason);
+}
+
 /// Reads the mutator members other than `requires.mutators`, which `read_requires` reads.
 bool read_mutator_facts(const json::Json& object, Package& package, std::string& reason) {
-    if (!read_works_with(object, package, reason))
+    if (!read_works_with_and_options(object, package, reason))
         return false;
     if (!read_mutator_objects(
             object,
@@ -747,9 +759,95 @@ bool read_mutator_facts(const json::Json& object, Package& package, std::string&
         return false;
     if (!read_layers(object, package, reason))
         return false;
-    if (!read_clashes(object, package, reason))
+    return read_clashes(object, package, reason);
+}
+
+/// Reads `levels`, `full_awareness` and `network_bytes` on a brain.
+///
+/// A level whose difficulty this build does not know is skipped. An entry
+/// left with no level is refused. Any other broken member names itself.
+bool read_brain_facts(const json::Json& object, Package& package, std::string& reason) {
+    constexpr uint64_t most_bytes = 67108864;
+    static_assert(most_bytes == oabrain::most_network_bytes);
+    const json::Json* levels = object.find("levels");
+    if (levels == nullptr) {
+        reason = "levels is missing";
         return false;
-    return read_options(object, package, reason);
+    }
+    if (levels->type() != json::JsonType::array) {
+        reason = "levels is not a list";
+        return false;
+    }
+    if (levels->elements().empty()) {
+        reason = "levels lists none";
+        return false;
+    }
+    if (levels->elements().size() > oabrain::most_levels) {
+        reason = "levels lists more than " + std::to_string(oabrain::most_levels);
+        return false;
+    }
+    std::vector<std::string> seen_ids;
+    for (std::size_t slot = 0; slot < levels->elements().size(); ++slot) {
+        const std::string where = "levels[" + std::to_string(slot) + "]";
+        const json::Json& element = levels->elements()[slot];
+        if (element.type() != json::JsonType::object) {
+            reason = where + " is not an object";
+            return false;
+        }
+        const json::Json* id_value = element.find("id");
+        const std::string* id_text = id_value == nullptr ? nullptr : id_value->string();
+        if (id_text == nullptr || !oabrain::level_id(*id_text)) {
+            reason = where + ".id is not a level id";
+            return false;
+        }
+        for (const std::string& earlier : seen_ids) {
+            if (earlier == *id_text) {
+                reason = where + ".id is repeated";
+                return false;
+            }
+        }
+        seen_ids.push_back(*id_text);
+        const json::Json* name_value = element.find("name");
+        const std::string* name_text = name_value == nullptr ? nullptr : name_value->string();
+        if (name_text == nullptr || name_text->empty() ||
+            name_text->size() > oabrain::most_level_name_bytes) {
+            reason = where + ".name is not 1 to 64 bytes";
+            return false;
+        }
+        const json::Json* difficulty_value = element.find("difficulty");
+        const std::string* difficulty_text =
+            difficulty_value == nullptr ? nullptr : difficulty_value->string();
+        const std::optional<oabrain::Difficulty> difficulty =
+            difficulty_text == nullptr ? std::nullopt : oabrain::parse_difficulty(*difficulty_text);
+        if (!difficulty)
+            continue;
+        BrainLevel kept;
+        kept.id = *id_text;
+        kept.name = *name_text;
+        kept.difficulty = *difficulty;
+        package.levels.push_back(std::move(kept));
+    }
+    if (package.levels.empty()) {
+        reason = "levels names no level this build knows";
+        return false;
+    }
+    if (const json::Json* awareness = object.find("full_awareness")) {
+        const std::optional<bool> flag = awareness->boolean();
+        if (!flag) {
+            reason = "full_awareness is not true or false";
+            return false;
+        }
+        package.full_awareness = *flag;
+    }
+    if (const json::Json* size_value = object.find("network_bytes")) {
+        const std::optional<int64_t> number = size_value->integer();
+        if (!number || *number < 0 || static_cast<uint64_t>(*number) > most_bytes) {
+            reason = "network_bytes is not a whole number from 0 to " + std::to_string(most_bytes);
+            return false;
+        }
+        package.network_bytes = static_cast<uint64_t>(*number);
+    }
+    return true;
 }
 
 /// Reads `requires` when the package names it.
@@ -1271,13 +1369,14 @@ bool read_package(const json::Json& value, Package& package, std::string& reason
         return false;
     }
     package.file = *file_text;
-    if (kind == Kind::oamod || kind == Kind::expansion || kind == Kind::oamut) {
+    if (kind == Kind::oamod || kind == Kind::expansion || kind == Kind::oamut ||
+        kind == Kind::oabrain) {
         if (!require_text(value, "version", 1, 32, package.version, reason))
             return false;
     } else if (!optional_text(value, "version", 1, 32, package.version, reason)) {
         return false;
     }
-    if (kind == Kind::oamut && !oamut::parse_version(package.version)) {
+    if ((kind == Kind::oamut || kind == Kind::oabrain) && !oamut::parse_version(package.version)) {
         reason = "version is not a mutator version";
         return false;
     }
@@ -1356,6 +1455,9 @@ bool read_package(const json::Json& value, Package& package, std::string& reason
     if (kind == Kind::expansion && !read_expansion_lists(value, package, reason))
         return false;
     if (kind == Kind::oamut && !read_mutator_facts(value, package, reason))
+        return false;
+    if (kind == Kind::oabrain && (!read_works_with_and_options(value, package, reason) ||
+                                  !read_brain_facts(value, package, reason)))
         return false;
     return true;
 }
