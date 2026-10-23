@@ -1938,11 +1938,83 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
 
     ObserverHook observer{};
 
-    /// Read-only reports of units created, finished, damaged and dying and
-    /// of shots placed and detonating, for units simulated here and those a
-    /// recording or another machine settles alike; each null entry reports
-    /// nothing, and setting them changes nothing the match computes.
+    /// The primary event table, which one owner may replace or clear at any
+    /// time. Read-only reports of units created, finished, damaged and dying
+    /// and of shots placed and detonating, for units simulated here and those
+    /// a recording or another machine settles alike; each null entry reports
+    /// nothing, and setting the table changes nothing the match computes.
+    /// Listeners are kept apart (add_event_listener) and are not affected.
     EventHooks event_hooks{};
+
+    /// Appends a listener, heard after the primary table and after every
+    /// listener added before it.
+    ///
+    /// The table is copied. The caller keeps its own.
+    ///
+    /// @param hooks the listener's table
+    /// @return the new id, or 0 when the match already holds max_event_listeners
+    [[nodiscard]] EventListenerId add_event_listener(const EventHooks& hooks) noexcept;
+
+    /// Removes the listener with this id and closes the gap, keeping the
+    /// others in the order they were added.
+    ///
+    /// @param id the listener's id
+    /// @return false for 0 or an id that is not in the list
+    bool remove_event_listener(EventListenerId id) noexcept;
+
+    /// Returns how many listeners the match holds.
+    ///
+    /// @return the count, at most max_event_listeners
+    [[nodiscard]] std::size_t event_listener_count() const noexcept;
+
+  private:
+
+    /// One listener and the id it was given. Entries at and after
+    /// event_listener_count_ are empty.
+    struct EventListener {
+        EventListenerId id{}; ///< 0 in an empty entry
+        EventHooks hooks{};
+    };
+
+    std::array<EventListener, max_event_listeners> event_listeners_{};
+    std::size_t event_listener_count_{};        ///< listeners held, in added order
+    EventListenerId next_event_listener_id_{1}; ///< next id to hand out; 0 is never an id
+
+    /// Tells whether the primary table or any listener reports this event.
+    ///
+    /// @tparam Member the EventHooks function pointer to look at
+    /// @return true when that member is set
+    template <auto Member>
+    [[nodiscard]] bool event_wanted() const noexcept {
+        if (event_hooks.*Member != nullptr)
+            return true;
+        for (std::size_t listener_index = 0; listener_index < event_listener_count_;
+             ++listener_index)
+            if (event_listeners_[listener_index].hooks.*Member != nullptr)
+                return true;
+        return false;
+    }
+
+    /// Reports one event to the primary table, then to each listener in the
+    /// order it was added, skipping a null member. Each table is called with
+    /// its own context first.
+    ///
+    /// @tparam Member the EventHooks function pointer to call
+    /// @tparam Args argument types, after the context
+    /// @param args the event's arguments, after the context
+    template <auto Member, class... Args>
+    void emit_event(const Args&... args) const {
+        if (event_hooks.*Member != nullptr)
+            (event_hooks.*Member)(event_hooks.context, args...);
+        for (std::size_t listener_index = 0; listener_index < event_listener_count_;
+             ++listener_index) {
+            const EventHooks& table = event_listeners_[listener_index].hooks;
+            if (table.*Member != nullptr)
+                (table.*Member)(table.context, args...);
+        }
+    }
+
+  public:
 
     // The order panel closed back to its root page, even while a modal state
     // holds it, as a commander's death under the commander rule does before

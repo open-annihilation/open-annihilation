@@ -263,10 +263,10 @@ sim::unit_spawn::Slot* Match::projectile_source(const oa::Projectile& shot) {
 
 void Match::detonate(oa::Projectile& shot, sim::unit_spawn::Slot* direct) {
     auto& world = state();
-    if (event_hooks.shot_detonated != nullptr)
-        event_hooks.shot_detonated(
-            event_hooks.context, world, shot, direct != nullptr ? direct->unit_index : uint16_t{}
-        );
+    if (event_wanted<&EventHooks::shot_detonated>()) {
+        const auto struck = direct != nullptr ? direct->unit_index : uint16_t{};
+        emit_event<&EventHooks::shot_detonated>(world, shot, struck);
+    }
     const auto* definition = projectile_weapon(shot);
     const auto* weapon = oa::world_weapon_def(&world, shot.def);
     if (!definition || !weapon) {
@@ -561,10 +561,9 @@ void Match::update_projectiles() {
                 shot.velocity = {
                     burst.parent_velocity[0], burst.parent_velocity[1], burst.parent_velocity[2]
                 };
-                if (event_hooks.shot_placed != nullptr) {
+                if (event_wanted<&EventHooks::shot_placed>()) {
                     const auto aimed_unit = oa::oa_unit_slot_from_ref(child->target_unit);
-                    event_hooks.shot_placed(
-                        event_hooks.context,
+                    emit_event<&EventHooks::shot_placed>(
                         world,
                         *child,
                         ShotSource::burst,

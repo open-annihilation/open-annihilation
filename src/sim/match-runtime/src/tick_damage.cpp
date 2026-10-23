@@ -124,15 +124,11 @@ void Match::apply_damage_event(
     auto& unit = *target.unit;
     if (!(unit.flags & live_unit_flag) || (unit.flags & death_pending_flag))
         return;
-    if (event_hooks.unit_damaged != nullptr)
-        event_hooks.unit_damaged(
-            event_hooks.context,
-            state(),
-            target.unit_index,
-            source != nullptr && source->unit != nullptr ? source->unit_index : uint16_t{},
-            amount,
-            kind
-        );
+    if (event_wanted<&EventHooks::unit_damaged>()) {
+        const auto attacker =
+            source != nullptr && source->unit != nullptr ? source->unit_index : uint16_t{};
+        emit_event<&EventHooks::unit_damaged>(state(), target.unit_index, attacker, amount, kind);
+    }
     if (kind == healing_kind) {
         if (unit.type)
             unit.health =
@@ -490,10 +486,7 @@ void Match::teardown_dead_unit(
     auto& unit = *slot.unit;
     if (!(unit.flags & live_unit_flag))
         return;
-    if (event_hooks.unit_died != nullptr)
-        event_hooks.unit_died(
-            event_hooks.context, state(), slot.unit_index, outcome, settled_elsewhere
-        );
+    emit_event<&EventHooks::unit_died>(state(), slot.unit_index, outcome, settled_elsewhere);
     // The kill handler first leaves the viewer seeing where its own unit died.
     const auto* sight_def = oa::world_unit_def_of(&state(), &slot.record);
     const auto* sight_owner = oa::world_unit_owner(&state(), &slot.record);
