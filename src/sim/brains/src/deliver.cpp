@@ -482,7 +482,9 @@ bool deliver_turn(void* context, match_runtime::Match&, uint8_t) {
         return false;
     script_host::Sandbox& sandbox = *seat->sandbox;
     if (seat->stopped || sandbox.failed()) {
-        seat->stopped = true;
+        script_host::ScriptError none;
+        const script_host::ScriptError& error = sandbox.failed() ? sandbox.failure() : none;
+        hand_back(*seat, error);
         return true;
     }
     const EventBuffer held = seat->incoming;
@@ -496,8 +498,11 @@ bool deliver_turn(void* context, match_runtime::Match&, uint8_t) {
     script_host::CallHooks call;
     call.context = seat;
     call.push = push_tick;
-    if (!sandbox.call_banked("tick", call, error))
-        seat->stopped = true;
+    if (!sandbox.call_banked("tick", call, error)) {
+        hand_back(*seat, error);
+        return true;
+    }
+    note_prints(*seat);
     return true;
 }
 

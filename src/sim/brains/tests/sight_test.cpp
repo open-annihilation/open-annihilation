@@ -141,7 +141,7 @@ void lift(Fixture& fixture, sim::unit_spawn::Slot& slot, int32_t cell_x, int32_t
 }
 
 Fixture mapped_fixture() {
-    return Fixture(0, true, {}, 0, 1, mapping_and_line_of_sight);
+    return Fixture(0, true, {}, 0, 1, {}, mapping_and_line_of_sight);
 }
 
 brains::Seat* seat_for(Fixture& fixture, uint8_t which) {

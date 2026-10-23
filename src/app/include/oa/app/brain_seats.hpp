@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -144,5 +145,116 @@ struct ResolvedSeat {
     std::vector<oa::sim::brains::OptionValue>& options,
     std::vector<oa::sim::brains::NetworkFile>& networks
 );
+
+/// The notice when a seated brain's turn fails.
+inline constexpr std::string_view brain_stopped_words =
+    "{brain} stopped ({reason}); the engine plays this seat on";
+/// The notice when a brain is refused or fails to start.
+inline constexpr std::string_view brain_could_not_start_words =
+    "{brain} could not start ({reason}); the engine plays this seat";
+/// The notice when fits declines the game.
+inline constexpr std::string_view brain_does_not_fit_words =
+    "{brain} does not fit this game ({reason}); the engine plays this seat";
+
+/// Fills `{brain}` and `{reason}` in one interface sentence.
+///
+/// `reason` is cut to 160 bytes on a character boundary. The sentence is
+/// the player's language when a catalogue is loaded, and the English words
+/// otherwise.
+///
+/// @param words the English interface words
+/// @param brain the manifest's name
+/// @param reason why the brain stopped or could not play
+/// @return the sentence
+[[nodiscard]] std::string
+brain_notice(std::string_view words, std::string_view brain, std::string_view reason);
+
+/// One seat's log under the data directory's logs folder.
+///
+/// The file is `<data>/logs/brains/seat-<n>.log`, where n is the player
+/// index plus one. It is begun anew for each brain seated there. It stops
+/// growing at 1 MiB. A file that cannot be written is reported once.
+class BrainLog {
+  public:
+
+    /// Opens the seat's log and writes its first line.
+    ///
+    /// An earlier file at the same path is replaced. A failure leaves the
+    /// log closed and is reported once on standard error.
+    ///
+    /// @param data_directory the per-user data directory
+    /// @param player player index, 0 to 9
+    /// @param name the manifest's name
+    /// @param version the brain's version
+    /// @param id the brain's id
+    /// @param level the chosen level's id
+    /// @param seed the match seed
+    void begin(
+        const std::filesystem::path& data_directory,
+        uint8_t player,
+        std::string_view name,
+        std::string_view version,
+        std::string_view id,
+        std::string_view level,
+        uint32_t seed
+    );
+
+    /// Writes `tick <t>: <line>`.
+    ///
+    /// @param tick the match tick
+    /// @param text the printed line
+    void line(uint32_t tick, std::string_view text);
+
+    /// Writes the stop and each line of the traceback.
+    ///
+    /// @param tick the match tick
+    /// @param error the script error
+    void stop(uint32_t tick, const oa::data::script_host::ScriptError& error);
+
+    /// Writes a stop whose reason is already text.
+    ///
+    /// @param tick the match tick
+    /// @param reason the sentence
+    void stop_text(uint32_t tick, std::string_view reason);
+
+    /// Reports once that this seat's log could not be written.
+    ///
+    /// @param player player index, 0 to 9
+    void fail(uint8_t player);
+
+    /// The log path. Empty before begin.
+    ///
+    /// @return the path
+    [[nodiscard]] const std::filesystem::path& path() const noexcept;
+
+    /// The manifest name stored by begin.
+    ///
+    /// @return the name; empty before begin
+    [[nodiscard]] std::string_view name() const noexcept;
+
+    /// Whether the file is open for writing.
+    ///
+    /// @return true when lines can be written
+    [[nodiscard]] bool open() const noexcept;
+
+  private:
+
+    /// Writes one line, or the closing note when the file would pass 1 MiB.
+    ///
+    /// @param text the line, without its newline
+    void write_line(std::string_view text);
+
+    /// Reports once that this seat's log could not be written.
+    void report_unwritable();
+
+    std::ofstream out_{};
+    std::filesystem::path path_{};
+    std::string name_{};
+    std::size_t bytes_{};
+    uint8_t player_{};
+    bool full_{};
+    bool failed_{};
+    bool reported_{};
+};
 
 } // namespace oa::app

@@ -1068,6 +1068,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
             ? kFixedRandomSeed
             : static_cast<uint32_t>(counter) + static_cast<uint32_t>(counter >> 32U)
     );
+    brain_match_seed_ = static_cast<uint32_t>(random_seed);
     // A campaign plays under the rules block its mission loader wrote, a
     // skirmish under its own settings; the session flags apply either.
     int32_t session_record[4] = {
