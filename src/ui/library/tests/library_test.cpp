@@ -5493,7 +5493,8 @@ void test_brain_details() {
         OA_CHECK(entry != nullptr);
         if (entry == nullptr)
             return lib::Fact{};
-        const lib::Fact* checked = fact(lib::facts(library, *entry), "Checked");
+        const std::vector<lib::Fact> facts = lib::facts(library, *entry);
+        const lib::Fact* checked = fact(facts, "Checked");
         OA_CHECK(checked != nullptr);
         if (checked == nullptr)
             return lib::Fact{};
@@ -5562,7 +5563,8 @@ void test_brain_details() {
         const lib::Entry* entry = steady_of(library);
         OA_CHECK(entry != nullptr);
         if (entry != nullptr) {
-            const lib::Fact* checked = fact(lib::facts(library, *entry), "Checked");
+            const std::vector<lib::Fact> facts = lib::facts(library, *entry);
+            const lib::Fact* checked = fact(facts, "Checked");
             OA_CHECK(
                 checked != nullptr && checked->long_value == "With Ridge: it fits this game" &&
                 checked->mark == Mark::good
@@ -5690,7 +5692,8 @@ void test_brain_details() {
                 lib::status_line(library, *entry),
                 "Version 4.8 available · " + lib::size_text(3355443) + " to download"
             );
-            const lib::Fact* size = fact(lib::facts(library, *entry), "Size");
+            const std::vector<lib::Fact> facts = lib::facts(library, *entry);
+            const lib::Fact* size = fact(facts, "Size");
             OA_CHECK(size != nullptr);
             if (size != nullptr) {
                 OA_CHECK(

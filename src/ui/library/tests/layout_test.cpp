@@ -299,7 +299,7 @@ bool designed_name(const std::string& name) {
         "+|detail\\.tag\\.[a-z0-9-]+|"
         "list|row\\.[a-z0-9-]+(\\.[a-z0-9-]+)?(\\.(get|update))?|action|"
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
-        "check-with-mod|uninstall|open-folder|homepage)|"
+        "check-with-mod|use-by-default|uninstall|open-folder|homepage)|"
         "details|back|refresh|close-x|close|status|queue|note|from|rules|"
         "active\\.(mod|language|base|expansions|lock|unload|change|search|map\\.[1-9][0-9]*|"
         "from\\.[1-9][0-9]*|expansion\\.[a-z0-9-]+(\\.(get|cancel|retry))?)|"
@@ -394,6 +394,9 @@ std::string words_in(const kit::DisplayList& list, const kit::Rect& box) {
 
 /// Lists how the selected entry's Rules and From facts are not shown whole.
 ///
+/// A mod or a mutator shows Rules. A brain does not: the design's facts stop
+/// at From, so a Rules fact on a brain is the fault.
+///
 /// @param library the model, with an entry selected
 /// @param list the display list showing its details
 /// @param long_form the details show the long values
@@ -406,7 +409,10 @@ whole_fact_problems(const lib::Library& library, const kit::DisplayList& list, b
         return {"nothing is selected"};
     const std::optional<lib::Fact> rules = fact_of(library, *entry, "Rules");
     const kit::Control* rules_label = fixture::named(list, "library.rules");
-    if (!rules || rules_label == nullptr) {
+    if (entry->id.kind == lib::Kind::brain) {
+        if (rules || rules_label != nullptr)
+            problems.emplace_back("a brain shows a Rules fact");
+    } else if (!rules || rules_label == nullptr) {
         problems.emplace_back("the Rules fact is not shown");
     } else {
         const std::string& value = long_form ? rules->long_value : rules->short_value;
