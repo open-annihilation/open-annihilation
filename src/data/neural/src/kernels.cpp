@@ -1,0 +1,216 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// Integer kernels for the layers this build runs. A sum is int64, so an
+// allowed network cannot overflow it and a reordered sum is the same bits.
+
+#include "kernels.hpp"
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
+
+namespace oa::data::neural {
+namespace {
+
+constexpr int64_t k_wide_min = -9223372036854775807LL - 1;
+constexpr int64_t k_wide_max = 9223372036854775807LL;
+
+/// Adds two int64 values and holds the sum to int16.
+///
+/// A sum that does not fit in int64 is outside the int16 range, so it is held
+/// to the limit of its sign.
+///
+/// @param left the first value
+/// @param right the second value
+/// @return the sum, held to int16
+int16_t held_sum(int64_t left, int64_t right) noexcept {
+    const bool overflow =
+        (right > 0 && left > k_wide_max - right) || (right < 0 && left < k_wide_min - right);
+    if (overflow)
+        return right > 0 ? static_cast<int16_t>(32767) : static_cast<int16_t>(-32768);
+    return saturate_int16(left + right);
+}
+
+} // namespace
+
+template <typename Weight>
+void dense(
+    std::span<const int16_t> input,
+    std::span<const Weight> weights,
+    std::span<const int32_t> bias,
+    std::span<int16_t> output,
+    int32_t input_exponent,
+    int32_t weight_exponent,
+    int32_t output_exponent
+) noexcept {
+    const std::size_t columns = input.size();
+    const std::size_t rows = output.size();
+    const int32_t sum_exponent = input_exponent + weight_exponent;
+    for (std::size_t row = 0; row < rows; ++row) {
+        int64_t sum = bias.empty() ? int64_t{0} : static_cast<int64_t>(bias[row]);
+        const std::size_t row_start = row * columns;
+        for (std::size_t column = 0; column < columns; ++column) {
+            const int64_t sample = input[column];
+            const int64_t weight = weights[row_start + column];
+            sum += sample * weight;
+        }
+        output[row] = saturate_int16(rescale(sum, sum_exponent, output_exponent));
+    }
+}
+
+void relu(std::span<const int16_t> input, std::span<int16_t> output) noexcept {
+    const std::size_t count = input.size();
+    for (std::size_t element = 0; element < count; ++element)
+        output[element] = input[element] < 0 ? static_cast<int16_t>(0) : input[element];
+}
+
+void leaky_relu(std::span<const int16_t> input, std::span<int16_t> output, int32_t alpha) noexcept {
+    const std::size_t count = input.size();
+    for (std::size_t element = 0; element < count; ++element) {
+        const int64_t sample = input[element];
+        if (sample >= 0) {
+            output[element] = static_cast<int16_t>(sample);
+            continue;
+        }
+        const int64_t product = sample * static_cast<int64_t>(alpha);
+        output[element] = static_cast<int16_t>(product >> 15);
+    }
+}
+
+void add(
+    std::span<const int16_t> left,
+    int32_t left_exponent,
+    std::span<const int16_t> right,
+    int32_t right_exponent,
+    std::span<int16_t> output,
+    int32_t output_exponent
+) noexcept {
+    const std::size_t count = output.size();
+    for (std::size_t element = 0; element < count; ++element) {
+        const int64_t scaled_left = rescale(left[element], left_exponent, output_exponent);
+        const int64_t scaled_right = rescale(right[element], right_exponent, output_exponent);
+        output[element] = held_sum(scaled_left, scaled_right);
+    }
+}
+
+void concat(
+    std::span<const ConcatInput> inputs,
+    uint8_t rank,
+    uint8_t axis,
+    const std::array<uint32_t, 4>& output_dims,
+    int8_t output_exponent,
+    std::span<int16_t> output
+) noexcept {
+    uint64_t prefix = 1;
+    for (uint8_t dim = 0; dim < axis; ++dim)
+        prefix *= output_dims[dim];
+    uint64_t suffix = 1;
+    for (uint8_t dim = static_cast<uint8_t>(axis + 1); dim < rank; ++dim)
+        suffix *= output_dims[dim];
+    const uint64_t out_along = output_dims[axis];
+    uint64_t axis_base = 0;
+    for (const ConcatInput& part : inputs) {
+        std::size_t cursor = 0;
+        for (uint64_t outer = 0; outer < prefix; ++outer) {
+            for (uint32_t step = 0; step < part.along; ++step) {
+                const uint64_t at = (outer * out_along + axis_base + step) * suffix;
+                for (uint64_t inner = 0; inner < suffix; ++inner) {
+                    const int64_t scaled =
+                        rescale(part.values[cursor], part.exponent, output_exponent);
+                    output[static_cast<std::size_t>(at + inner)] = saturate_int16(scaled);
+                    ++cursor;
+                }
+            }
+        }
+        axis_base += part.along;
+    }
+}
+
+void flatten(std::span<const int16_t> input, std::span<int16_t> output) noexcept {
+    const std::size_t count = input.size();
+    for (std::size_t element = 0; element < count; ++element)
+        output[element] = input[element];
+}
+
+void argmax(std::span<const int16_t> input, int32_t& chosen) noexcept {
+    if (input.empty()) {
+        chosen = 0;
+        return;
+    }
+    uint32_t best = 0;
+    int16_t best_value = input[0];
+    const std::size_t count = input.size();
+    for (std::size_t element = 1; element < count; ++element) {
+        if (input[element] > best_value) {
+            best_value = input[element];
+            best = static_cast<uint32_t>(element);
+        }
+    }
+    chosen = static_cast<int32_t>(best);
+}
+
+template <typename Weight>
+bool embedding(
+    std::span<const int16_t> indexes,
+    std::span<const Weight> table,
+    uint32_t rows,
+    uint32_t width,
+    std::span<int16_t> output,
+    int32_t& bad_row
+) noexcept {
+    const std::size_t count = indexes.size();
+    for (std::size_t element = 0; element < count; ++element) {
+        const int32_t row = indexes[element];
+        if (row < 0 || static_cast<uint32_t>(row) >= rows) {
+            bad_row = row;
+            return false;
+        }
+        const std::size_t from = static_cast<std::size_t>(row) * width;
+        const std::size_t to = element * width;
+        for (uint32_t column = 0; column < width; ++column)
+            output[to + column] = static_cast<int16_t>(table[from + column]);
+    }
+    return true;
+}
+
+template void dense<int8_t>(
+    std::span<const int16_t>,
+    std::span<const int8_t>,
+    std::span<const int32_t>,
+    std::span<int16_t>,
+    int32_t,
+    int32_t,
+    int32_t
+) noexcept;
+
+template void dense<int16_t>(
+    std::span<const int16_t>,
+    std::span<const int16_t>,
+    std::span<const int32_t>,
+    std::span<int16_t>,
+    int32_t,
+    int32_t,
+    int32_t
+) noexcept;
+
+template bool embedding<int8_t>(
+    std::span<const int16_t>,
+    std::span<const int8_t>,
+    uint32_t,
+    uint32_t,
+    std::span<int16_t>,
+    int32_t&
+) noexcept;
+
+template bool embedding<int16_t>(
+    std::span<const int16_t>,
+    std::span<const int16_t>,
+    uint32_t,
+    uint32_t,
+    std::span<int16_t>,
+    int32_t&
+) noexcept;
+
+} // namespace oa::data::neural
