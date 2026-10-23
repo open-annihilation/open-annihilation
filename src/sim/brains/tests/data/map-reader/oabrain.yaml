@@ -1,0 +1,13 @@
+oabrain: 1
+id: map-reader
+name: "Map Reader"
+version: "1.0"
+author:
+  name: "Ridge Testers"
+description: "Reads the match map a brain is given."
+tags: ["teaching"]
+works-with: ["*"]
+levels:
+  - id: steady
+    name: "Steady"
+    difficulty: medium

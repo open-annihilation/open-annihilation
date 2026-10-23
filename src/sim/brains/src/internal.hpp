@@ -8,6 +8,8 @@
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
 
+#include "reach.hpp"
+
 #include "oa/core/player.h"
 #include "oa/data/brain_facts.hpp"
 #include "oa/data/script_host/memory_sources.hpp"
@@ -146,6 +148,9 @@ struct Seat {
     WaitingTimer timers[max_timers]{};
     /// The next timer id. It starts at 1 and only grows.
     uint32_t next_timer_sequence{1};
+    /// Movement regions built when a script asks whether two points meet.
+    /// One class is labelled at most once a tick.
+    RegionCache regions{};
 
     /// Releases the two event buffers.
     ~Seat() {
@@ -217,6 +222,11 @@ void install_libraries(lua_State* state, Seat& seat);
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_chat(lua_State* state, Seat& seat);
+/// Installs `game.map`. With no match the field is nil.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_map(lua_State* state, Seat& seat);
 
 /// Returns the profile a brain runs under.
 ///

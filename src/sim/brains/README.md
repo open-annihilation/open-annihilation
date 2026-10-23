@@ -24,14 +24,14 @@ brain plays as the built-in computer player.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
   tables. `game` is then filled from the seat's facts, and unit handles,
-  the read-only `me` surface, the definition collections and the AI profile
-  fields are installed, then `brain.say`, `brain.random`, `brain.after`,
-  `brain.every` and `brain.cancel`. `brain.shared_random` is installed only
-  when the seat is Classic and it has a match. It has to work when the seat
-  has no match: `game.in_match` is false, `me` still carries the player,
-  level, difficulty and options copied from the spec, `units`, `weapons` and
-  `features` exist and are empty, and `brain.say` answers that chat is not
-  connected.
+  the read-only `me` surface, the definition collections, the AI profile
+  fields and `game.map` are installed, then `brain.say`, `brain.random`,
+  `brain.after`, `brain.every` and `brain.cancel`. `brain.shared_random` is
+  installed only when the seat is Classic and it has a match. It has to
+  work when the seat has no match: `game.in_match` is false, `game.map` is
+  nil, `me` still carries the player, level, difficulty and options copied
+  from the spec, `units`, `weapons` and `features` exist and are empty, and
+  `brain.say` answers that chat is not connected.
 
 ## State
 
@@ -80,6 +80,63 @@ walks the hidden table in the host's fixed order.
 An installer in `install_libraries` must work when the seat's match is
 null. This ticket's own tables do: they read the facts pointer and the
 texts copied onto the seat, not the match.
+
+## The map
+
+`game.map` is the match map. Outside a match it is nil. Inside a match it
+is one read-only object for the life of the seat. Assigning a field raises
+`map is read-only`. An unknown name reads nil. `getmetatable` is false.
+
+`name` is the map's name and `path` is its mission path, such as
+`Maps/DryFlats.TNT`. `path` is nil when the facts have no path. `world` is
+always nil: the engine has no world type to report. `width` is the map in
+cells. `world_width` and `world_height` are the same edges in world units.
+`sea_level` is an integer. `tide` is an `f32`. `wind_min` and `wind_max`
+are the wind's strength range, and `map:wind()` returns the current speed
+and direction as two integers. `surface_metal` is the metal of the first
+cell that is not a metal deposit.
+
+The cell count and a corner height share the name `height`, and Lua keeps
+one value per name. `map.height` is a function. `map:height()` with no cell
+is the height in cells. `map:height(cx, cz)` is that cell's corner height,
+or nil off the map. `map:heights(cx, cz)` is the cell's low and high
+height, or nil off the map. `map:ground(x, z)` is the sampled ground height
+at a world position, including off the map, where the engine reports -1.
+`x` and `z` are fixed values or whole world units. `map:metal(cx, cz)` is
+that cell's metal, or 0 off the map. `map:metal_feature(cx, cz)` is whether
+the cell is a metal deposit, false off the map.
+
+`map:metal_spots()` and `map:geo_spots()` are the deposits in the engine's
+scan order, rows then columns. Each entry is `{cx, cz}`. Walking the map
+costs one charge per cell.
+
+`map:classes()` lists the movement classes the match's unit types use, in
+handle order. Each entry is `name`, `handle`, `footprint_x` and
+`footprint_z`. A class the match did not build a movement map for is left
+out. Walking the types costs one charge per type.
+
+`map:passable(class, cx, cz)` is that class's cell value: 0 blocked, 1 slow
+or not clear, 3 clear, and 0 off the map. It does not look at what the seat
+has seen. `map:anchor(class, position)` is the cell a unit of that class
+would stand on at that position.
+
+`map:reachable(a, b, class)` is true when the two positions can meet by
+moving through that class's open cells, including a diagonal step. The
+regions are the ones the movement map holds for the seat. They are built
+the first time that class is asked in a tick, and kept for later questions
+in the same tick. Four classes are kept. A fifth frees the oldest tick, and
+a tie frees the smaller handle. A question does not search for a path and
+does not change the movement map, its projection or its occupancy. Building
+the regions costs one charge per sixteen cells, rounded up. Each question
+costs 16 more. A question that fails its arguments costs nothing.
+
+A class is a class name, ignoring ASCII case, a unit type's record, a unit
+type's name, or an integer. An integer that is a class handle is that
+class. Any other integer in range is a unit type. A type with no movement
+class can reach any two positions, including off the map. `passable` and
+`anchor` refuse that type with `unknown movement class`. A unit handle is
+not a class. A position the seat may not read makes `reachable` return nil
+and still costs 16. It is not an error, and the class is not checked.
 
 ## Tests
 
@@ -404,6 +461,13 @@ lookup is nil.
 computer-build fixture and also runs that brain with no match.
 `sim-brains-defs-data` compares every installed unit's kept fields with the
 value the match loaded.
+
+`sim-brains-map` (`tests/map_test.cpp`) seats the made-up brain `map-reader`
+on the computer-build fixture. It reads the map, the cells, the deposits
+and one movement class, checks reachability around a wall once a gap is
+open, and checks that a question does not move the movement map. Outside a
+match, `check_brain` sees `game.map` nil. There is no installed-map run:
+nothing in the suite loads a map the game would install.
 
 ## AI profile data
 
