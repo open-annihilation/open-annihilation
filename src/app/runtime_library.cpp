@@ -146,6 +146,9 @@ library::Kind kind_of(data::catalogue::Kind kind) noexcept {
         return library::Kind::mod;
     case data::catalogue::Kind::oamut:
         return library::Kind::mutator;
+    case data::catalogue::Kind::oabrain:
+        // Not reached. The row loop takes a brain aside before it asks for a kind.
+        return library::Kind::mod;
     }
     return library::Kind::mod;
 }
@@ -1859,6 +1862,10 @@ library::Inputs Runtime::library_inputs() {
             if (entry.package == nullptr)
                 continue;
             const data::catalogue::Package& package = *entry.package;
+            // The Library lists brains on the Brains tab (U01) and never among
+            // mods, maps, languages or mutators.
+            if (package.kind == data::catalogue::Kind::oabrain)
+                continue;
             if (package.kind == data::catalogue::Kind::expansion) {
                 library::DownloadableExpansion offered;
                 offered.id = package.id;
