@@ -7,6 +7,7 @@
 
 #include "internal.hpp"
 
+#include "definitions.hpp"
 #include "handles_internal.hpp"
 #include "lua_game.hpp"
 
@@ -142,6 +143,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_game(state, seat);
     install_handles(state, seat);
     install_me(state, seat);
+    install_definitions(state, seat);
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {
