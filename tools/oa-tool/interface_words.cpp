@@ -19,6 +19,7 @@
 #include "oa/ui/library/interface_words.hpp"
 #include "oa/ui/map_browser/interface_words.hpp"
 #include "oa/ui/mutator_picker/interface_words.hpp"
+#include "oa/ui/brain_picker/interface_words.hpp"
 #include "oa/ui/touch_hud/interface_words.hpp"
 
 #include <algorithm>
@@ -43,6 +44,7 @@ std::vector<std::string_view> join_interface_words() {
     append(words, oa::ui::first_run::interface_words);
     append(words, oa::ui::map_browser::interface_words);
     append(words, oa::ui::mutator_picker::interface_words);
+    append(words, oa::ui::brain_picker::interface_words);
     append(words, oa::ui::frontend_dialogs::interface_words);
     append(words, oa::ui::frontend_multiplayer::interface_words);
     append(words, oa::app::package_install::interface_words);

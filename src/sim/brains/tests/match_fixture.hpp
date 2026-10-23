@@ -4,6 +4,7 @@
 // The computer-build fixture, copied for a brain seated on its computer player.
 #pragma once
 
+#include "oa/data/limits.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
 
@@ -99,12 +100,18 @@ struct Fixture {
     ///     match the seat, game and side tests build.
     /// @param random_seed the match seed. The shared stream starts from it,
     ///     and a seated brain mixes it into its own stream.
+    /// @param limits the match's capacity limits. The default is 3.1c's.
+    /// @param visibility the match's visibility flags. The default, 2, is
+    ///     line of sight without mapping; a map test passes 3, and the
+    ///     sight test passes mapping and line of sight.
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
         const data::match_rules::MatchRules& rules = {},
         uint32_t movement_class = 0,
-        uint32_t random_seed = 1
+        uint32_t random_seed = 1,
+        const data::limits::Limits& limits = {},
+        uint16_t visibility = 2
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -177,6 +184,14 @@ struct Fixture {
             for (auto& plot : plots)
                 plot.low_height = plot.high_height = 40;
             fields[vehicle].movement_class = movement_class;
+            // Copied into the movement classifier when the match is built.
+            // A slope above 20 is blocked, a slope above 10 is slow, and
+            // water more than 10 below sea level is blocked. Flat land at
+            // height 40 with sea level 20 stays clear.
+            metadata[vehicle].max_slope = 20;
+            metadata[vehicle].bad_slope = 10;
+            metadata[vehicle].max_water_depth = 10;
+            metadata[vehicle].min_water_depth = -100;
             fields[collector].yard_mask = blocking_yard;
             fields[relay].yard_mask = blocking_yard;
             fields[silo].yard_mask = blocking_yard;
@@ -204,11 +219,12 @@ struct Fixture {
             loaded[i].type = types[i];
 
         sim::match_runtime::OfflineInputs input{
-            map,  loaded, types, fields,      weapons,   terrain_values,       masks, 32, 32, 40,
-            2,    0,      30,    random_seed, &scenario, [] { return 1000u; }, plots, {}, 0,  0,
-            0.0F, {}
+            map,        loaded, types, fields,      weapons,   terrain_values,       masks, 32, 32, 40,
+            visibility, 0,      30,    random_seed, &scenario, [] { return 1000u; }, plots, {}, 0,  0,
+            0.0F,       {}
         };
         input.rules = rules;
+        input.limits = limits;
         match = std::make_unique<sim::match_runtime::Match>(input, services);
         match->set_difficulty(OA_DIFFICULTY_MEDIUM);
         for (uint8_t p = 0; p < 2; ++p) {

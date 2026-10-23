@@ -103,8 +103,8 @@ void add_me_method(lua_State* state, const char* name, lua_CFunction function);
 
 /// Whether the seat may read a seen field of a unit it does not own.
 ///
-/// The function this ticket installs returns false. A later ticket replaces
-/// the pointer.
+/// True when the seat has full awareness, or when it can see the unit now.
+/// An uninstalled seat still reads false. A throw from the match reads false.
 extern bool (*seat_may_see)(const Seat& seat, UnitRef ref);
 
 /// Remembers `seat` for the getters and methods of this state.

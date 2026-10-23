@@ -776,6 +776,34 @@ void adopt_handed_player(
 
 } // namespace
 
+void computer_profile_lines(
+    std::string_view text, void (*visit)(void* context, const ProfileLine& line), void* context
+) noexcept {
+    if (visit == nullptr || text.data() == nullptr || text.empty())
+        return;
+    const char* cursor = text.data();
+    const char* const end = text.data() + text.size();
+    uint32_t number = 1;
+    for (;;) {
+        const char* line_end = cursor;
+        while (line_end < end && *line_end != '\n')
+            ++line_end;
+        TokenLine tokens;
+        tokenize(tokens, cursor, line_end);
+        if (tokens.count > 0) {
+            ProfileLine line;
+            line.number = number;
+            line.count = tokens.count;
+            line.words = tokens.tokens;
+            visit(context, line);
+        }
+        if (line_end == end)
+            break;
+        cursor = line_end + 1;
+        ++number;
+    }
+}
+
 int32_t truncate_to_int32(double value) noexcept {
     if (!std::isfinite(value) || value >= 2147483648.0 || value < -2147483648.0)
         return static_cast<int32_t>(0x80000000u);

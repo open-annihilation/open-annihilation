@@ -67,6 +67,12 @@ struct ModFacts {
     std::optional<data::mod_profile::ModProfile> profile{};
 };
 
+/// One AI profile file. An empty path means no file was read.
+struct ProfileFile {
+    std::string path{}; ///< the path that was read, or empty
+    std::string text{}; ///< the file's bytes
+};
+
 /// The facts a brain reads as `game`. A default value is the base game with
 /// nothing switched on.
 struct GameFacts {
@@ -85,6 +91,18 @@ struct GameFacts {
     ModFacts mod{};
     /// The mutators in apply order. Empty when the match applied none.
     std::vector<MutatorFacts> mutators{};
+    /// The selected map's name. Empty when no map is selected.
+    std::string map_name{};
+    /// The mission path, such as `Maps/DryFlats.TNT`. Empty when there is none.
+    std::string map_path{};
+    /// The profile the match's computer players read. An empty path means
+    /// none was read.
+    ProfileFile ai_profile{};
+    /// The path the weights report prints. Empty when the map has no slot.
+    std::string ai_profile_report_path{};
+    /// Every `ai/*.txt` profile that could be read, in the listed order.
+    /// At most 256. The rest are left out.
+    std::vector<ProfileFile> ai_profiles{};
 };
 
 /// Names the mod a profile plays, and keeps a copy of that profile.

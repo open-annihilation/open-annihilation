@@ -24,14 +24,17 @@ brain plays as the built-in computer player.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
   tables. `game` is then filled from the seat's facts, and unit handles,
-  the read-only `me` surface, and the definition collections are installed,
-  then `brain.say`, `brain.random`, `brain.after`, `brain.every` and
+  the read-only `me` surface, the definition collections, the AI profile
+  fields, `game.map` and what the seat may see are installed, then
+  `brain.say`, `brain.random`, `brain.after`, `brain.every` and
   `brain.cancel`. `brain.shared_random` is installed only when the seat is
   Classic and it has a match. It has to work when the seat has no match:
-  `game.in_match` is false, `me` still carries the player, level,
-  difficulty and options copied from the spec, `units`, `weapons` and
-  `features` exist and are empty, and `brain.say` answers that chat is
-  not connected.
+  `game.in_match` is false, `game.map` is nil, `me` still carries the
+  player, level, difficulty and options copied from the spec, `units`,
+  `weapons` and `features` exist and are empty, and `brain.say` answers
+  that chat is not connected. With no match, `me.seen` and `me.radar` are
+  empty, `me:sees` and `me:sees_unit` are false, and `me.sight` and
+  `me.explored` are nil.
 
 ## State
 
@@ -81,6 +84,63 @@ An installer in `install_libraries` must work when the seat's match is
 null. This ticket's own tables do: they read the facts pointer and the
 texts copied onto the seat, not the match.
 
+## The map
+
+`game.map` is the match map. Outside a match it is nil. Inside a match it
+is one read-only object for the life of the seat. Assigning a field raises
+`map is read-only`. An unknown name reads nil. `getmetatable` is false.
+
+`name` is the map's name and `path` is its mission path, such as
+`Maps/DryFlats.TNT`. `path` is nil when the facts have no path. `world` is
+always nil: the engine has no world type to report. `width` is the map in
+cells. `world_width` and `world_height` are the same edges in world units.
+`sea_level` is an integer. `tide` is an `f32`. `wind_min` and `wind_max`
+are the wind's strength range, and `map:wind()` returns the current speed
+and direction as two integers. `surface_metal` is the metal of the first
+cell that is not a metal deposit.
+
+The cell count and a corner height share the name `height`, and Lua keeps
+one value per name. `map.height` is a function. `map:height()` with no cell
+is the height in cells. `map:height(cx, cz)` is that cell's corner height,
+or nil off the map. `map:heights(cx, cz)` is the cell's low and high
+height, or nil off the map. `map:ground(x, z)` is the sampled ground height
+at a world position, including off the map, where the engine reports -1.
+`x` and `z` are fixed values or whole world units. `map:metal(cx, cz)` is
+that cell's metal, or 0 off the map. `map:metal_feature(cx, cz)` is whether
+the cell is a metal deposit, false off the map.
+
+`map:metal_spots()` and `map:geo_spots()` are the deposits in the engine's
+scan order, rows then columns. Each entry is `{cx, cz}`. Walking the map
+costs one charge per cell.
+
+`map:classes()` lists the movement classes the match's unit types use, in
+handle order. Each entry is `name`, `handle`, `footprint_x` and
+`footprint_z`. A class the match did not build a movement map for is left
+out. Walking the types costs one charge per type.
+
+`map:passable(class, cx, cz)` is that class's cell value: 0 blocked, 1 slow
+or not clear, 3 clear, and 0 off the map. It does not look at what the seat
+has seen. `map:anchor(class, position)` is the cell a unit of that class
+would stand on at that position.
+
+`map:reachable(a, b, class)` is true when the two positions can meet by
+moving through that class's open cells, including a diagonal step. The
+regions are the ones the movement map holds for the seat. They are built
+the first time that class is asked in a tick, and kept for later questions
+in the same tick. Four classes are kept. A fifth frees the oldest tick, and
+a tie frees the smaller handle. A question does not search for a path and
+does not change the movement map, its projection or its occupancy. Building
+the regions costs one charge per sixteen cells, rounded up. Each question
+costs 16 more. A question that fails its arguments costs nothing.
+
+A class is a class name, ignoring ASCII case, a unit type's record, a unit
+type's name, or an integer. An integer that is a class handle is that
+class. Any other integer in range is a unit type. A type with no movement
+class can reach any two positions, including off the map. `passable` and
+`anchor` refuse that type with `unknown movement class`. A unit handle is
+not a class. A position the seat may not read makes `reachable` return nil
+and still costs 16. It is not an error, and the class is not checked.
+
 ## Tests
 
 `sim-brains-seat` (`tests/seat_test.cpp`) seats the made-up brain
@@ -112,6 +172,12 @@ alliance and defeat, a missing hook, a hook that spends the bank and hands
 the seat back, a full queue, and that two
 seated brains and two matches with no brain keep the same random stream and
 state hash.
+
+`sim-brains-sight` (`tests/sight_test.cpp`) seats `fog-reader` and
+`full-sight` on that fixture with mapping and line of sight on. It checks
+what a handle reads in and out of sight, the seen list, the sight and
+explored grids, radar contacts and their events, and the full-awareness
+search.
 
 `sim-brains-failure` (`tests/failure_test.cpp`) seats `steady-commander` on
 the same fixture. A turn that raises, spends the bank, hits the real-time
@@ -151,11 +217,11 @@ false when the slot is one of the seat's. Every other field of that handle is
 nil.
 
 `id` and `slot` read on any handle. A seen field reads the seat's own live
-unit. Another player's unit reads nil for those fields until A05 replaces
-`seat_may_see`, which this seat leaves false. An own field or method reads
-only the seat's own live unit. A05 adds seen fields through
-`add_unit_getter`. A07 adds own methods, including orders, through
-`add_unit_method`.
+unit, and another player's live unit while the seat can see it now or the
+brain has full awareness. `health` and `health_percent` stay nil when the
+type hides damage, unless the seat owns the unit or the brain has full
+awareness. An own field or method reads only the seat's own live unit.
+A07 adds own methods, including orders, through `add_unit_method`.
 
 `me` stays the table B01 created. `player`, `level`, `difficulty` and
 `options` move into a hidden table, and assigning `me` raises `me is
@@ -226,12 +292,13 @@ The hooks are `onUnitCreated(unit, builder)`, `onUnitFinished(unit, builder)`
 missing `onTick` is fine.
 
 One turn is one banked call. It delivers the queued events in the order they
-fired, then alliance changes for the other players in index order, then a
-defeat for each player who was participating and no longer is, then chat,
-then the timers whose due tick has come, then `onTick`. The timers run even
-when the hooks table is missing. The first turn stores the alliances and who
-is participating and reports none of those changes. A failed call closes
-the sandbox, clears the seat's hooks and reports the stop once. The failing
+fired, then the changes in the seat's radar and sonar contacts, then
+alliance changes for the other players in index order, then a defeat for
+each player who was participating and no longer is, then chat, then the
+timers whose due tick has come, then `onTick`. The timers run even when the
+hooks table is missing. The first turn stores the alliances and who is
+participating and reports none of those changes. A failed call closes the
+sandbox, clears the seat's hooks and reports the stop once. The failing
 turn still counts as played. The next turn has no hooks, so the built-in
 computer player takes it. Orders a hook gives take effect in the next
 tick's unit sweep.
@@ -346,12 +413,71 @@ their printed lines and do not report a stop. The app posts the seating
 notice from the outcome. A defeated player is simply no longer called. The
 sandbox closes with the match.
 
+## What a seat may see
+
+A brain without full awareness may know only what its seat could see, what
+its own radar and sonar picture holds, and what it has explored. A seen
+field of another player's unit (`type`, `owner`, position, `heading`,
+`build_remaining`, `finished`, `building`, and health) reads while
+`unit_visible` is true for that slot now. Health still reads nil when the
+type hides damage, unless the seat owns the unit. A dead handle reads nil
+for those fields. `id` and `slot` always read.
+
+`me.full_awareness` is the flag the seat was given. `me.seen` is the seat's
+seen list, in that list's order, as of its last refresh, and `me.seen_tick`
+is the refresh tick. Each entry is a unit handle. `me:sees(x, z [, y])`
+asks `point_visible` for that point (`y` is 0 when it is left out). `x`,
+`z` and `y` are fixed values or whole world units. `me:sees_unit(u)` asks
+`unit_visible` for a live handle and is false for a dead one. Neither
+question treats full awareness as a yes: they answer what the engine
+answers.
+
+`me.sight` and `me.explored` are grids of 32-unit cells (`width`, `height`,
+`cell_size`, `at(cx, cz)`, `cell_of(x, z)`). A sight cell is in sight when
+the simulation's reading of the seat's coverage is not zero. An explored
+cell is one whose bit is set for the seat. `at` is false off the grid.
+`cell_of` is the cell of a position with `y` held at 0, or nil off the
+grid. Both grids are nil when the match keeps no sight grid. With the line
+of sight rule off, `me:sees` follows the engine and reads the viewpoint's
+mapped bit, not the queried seat's.
+
+`me.radar` lists the live enemy contacts in the seat's own picture, in slot
+order, and `me.radar_tick` is the tick of that picture. A contact gives
+`x`, `y`, `z` and `position` while it is still a contact of the latest
+picture with the same generation, and nil after that. `sonar` and `radar`
+stay as they were when that contact was published. `current` is whether it
+is still a contact. A contact has no type, no owner and no unit handle.
+`onRadarContact(contact)` and `onRadarLost(contact)` fire, right after the
+queued events, for each contact the picture gained or lost since the list
+the seat delivered last. The first picture is compared with an empty list.
+An allied unit is never a contact. The picture's bytes are the seat's own;
+the viewpoint's radar marks are not read.
+
+A full-awareness brain also has `game.units`, `me:nearest_enemy(x, z [, filter])`
+and `me:seen_raw()`. Without that flag those names are nil. `game.units:list([player])`
+is every occupied slot, in slot order, optionally one player's.
+`game.units:each(fn)` walks that same order from a list taken before the
+first call. `me:nearest_enemy` is the built-in player's search over every
+unit: the seat's alliance row, with the extra relation entry set, and a
+filter table whose `widened` and `skip_submerged` booleans are off when
+the key is missing. `me:seen_raw()` reads each seen slot's current record
+(`slot`, `type_index`, `x`, `y`, `z`), so a unit that died after the
+refresh reads type 0 and the position it still holds.
+
+With no match the seen list, the radar list and `me:seen_raw()` are empty,
+`me:sees` and `me:sees_unit` are false, the grids are nil, `game.units:list()`
+is empty and `me:nearest_enemy` is nil. The picture is kept for the rest of
+the match once the seat is made.
+
+`sim-brains-sight` seats the made-up brains `fog-reader` (no full
+awareness) and `full-sight` (`fullAwareness`) on the computer-build fixture
+with mapping and line of sight on.
+
 ## Limitations
 
-Radar contacts wait on per-player radar (A05). Shots are not delivered. A
-saved game does not keep timers or the brain's stream: the brain starts
-again from `start`. Placed map features are not listed; `features` is the
-feature-type table.
+Shots are not delivered. A saved game does not keep timers or the brain's
+stream: the brain starts again from `start`. Placed map features are not
+listed; `features` is the feature-type table.
 
 ## Definitions
 
@@ -404,3 +530,82 @@ lookup is nil.
 computer-build fixture and also runs that brain with no match.
 `sim-brains-defs-data` compares every installed unit's kept fields with the
 value the match loaded.
+
+`sim-brains-map` (`tests/map_test.cpp`) seats the made-up brain `map-reader`
+on the computer-build fixture. It reads the map, the cells, the deposits
+and one movement class, checks reachability around a wall once a gap is
+open, and checks that a question does not move the movement map. Outside a
+match, `check_brain` sees `game.map` nil. There is no installed-map run:
+nothing in the suite loads a map the game would install.
+
+## AI profile data
+
+`game.ai_profile` is the profile the match's computer players read. It has
+`path`, `name` (the file name without its folder or a trailing `.txt`, as
+written), `text`, `too_large`, `lines` and `report_path`. `text` is nil and
+`too_large` is true when the text passes the host's string limit, 64 KiB;
+the lines are still parsed. `report_path` is the map's profile slot, nil
+when that slot is empty, and it can differ from `path`. An empty path makes
+`game.ai_profile` nil.
+
+`game.ai_profiles()` returns every profile in the facts, in the listed
+order. `game.parse_profile(text)` parses any text, such as a type's
+`ai_weight`, and leaves `path` and `name` unset. Each call builds a new
+read-only table. Assigning a field raises `a profile is read-only`. The
+charge is the text's bytes plus one unit per word.
+
+`lines` is one table per line `computer_profile_lines` reports. A line has
+`number`, `words`, `command` (the first word in lower case) and, by command:
+
+- `plan`: `any`, `easy`, `medium`, `hard`. `any` is true only when at least
+  one word follows `plan` and the first of them is `any`. Each keyword is
+  true when some word after `plan` equals it. ASCII case is ignored.
+- `weight`: `name` (the second word, or `""`), `factor` (an `f32`,
+  `static_cast<float>(std::strtod)` of the third word, or 0 when it is
+  missing) and `unit`.
+- `limit`: `name`, `count` (`static_cast<int32_t>(std::strtol)` base 10 of
+  the third word; `-1` stays `-1`) and `unit`.
+
+`unit` is true when `name` equals some type's unit name, ignoring ASCII
+case. An empty name is not a unit. Outside a match `unit` is nil.
+
+The grammar is the built-in player's. A line ends at `\n`, and a file with
+no final newline still has that last line. Words are separated by space,
+tab, `\r`, `\n`, `\v` or `\f`. `#` ends the line, even inside a word. A
+line keeps at most 20 words, and those words share 126 bytes, so a long
+word is cut. Anything that is not `plan`, `weight` or `limit`, including
+`//`, is still a line.
+
+`profile:select(keyword)` is one pass for `"easy"`, `"medium"` or `"hard"`.
+Any other keyword raises `select expects easy, medium or hard`. The plan
+flag starts matched, so lines before the first plan apply. A plan line
+sets the flag from that line's `any` or its keyword, and the flag is not
+kept after the call. The result is `{weights = {…}, limits = {…}}`, the
+line tables that apply. The built-in player keeps the flag from one pass
+to the next and applies a downloadable type's own lines twice. This pass
+does neither.
+
+In a match, `game.build_list(type)` is a new sequence of `units` records.
+`type` is a unit record, a unit name or a type index, resolved by
+`resolve_unit_type`. The list is computed from the runs
+`match_computer_players` holds, by the built-in player's rules: from type
+0, a count then that many ids; a type gets a list only when it is not 0
+and it is a builder; an id that is 0 or not below the type count is
+skipped; at most `build_list_kept(Match::limits().build_lists) + 1` ids
+are kept. A non-builder, or a type the runs do not reach, is an empty
+sequence. `game.build_list_cap` is that limit. `game.downloadables_allowed`
+is false when the computer players were configured for a campaign.
+
+`brain.strengths(type)` returns the seat's three strategic bytes, each read
+as `int8_t`: build priority, metal, energy. The charge is 2. It returns
+nil when the seat's table does not reach the type. The table is empty
+until the match prepares its computer players, which is before the brain's
+first `onTick`, and it is replaced when the match refreshes that player.
+
+Outside a match the profile fields still work and `unit` is nil.
+`build_list`, `build_list_cap`, `downloadables_allowed` and
+`brain.strengths` are nil.
+
+`sim-brains-profile` seats the made-up brain `profile-reader` on the
+computer-build fixture. `sim-brains-profile-data` parses every installed
+`ai/*.txt` profile.

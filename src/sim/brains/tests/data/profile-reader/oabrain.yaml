@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: profile-reader
+name: "Profile Reader"
+version: "1.0"
+author:
+  name: "Ridge Testers"
+description: "Reads the AI profile, build lists and strategic strengths a brain is given."
+tags: ["teaching"]
+works-with: ["*"]
+levels:
+  - id: steady
+    name: "Steady"
+    difficulty: medium

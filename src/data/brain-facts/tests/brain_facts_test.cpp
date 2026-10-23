@@ -66,6 +66,10 @@ void test_default_game_is_the_base_game() {
     OA_CHECK(!facts.mod.profile.has_value());
     OA_CHECK(facts.mod.sides.empty());
     OA_CHECK(facts.mutators.empty());
+    OA_CHECK(facts.ai_profile.path.empty());
+    OA_CHECK(facts.ai_profile.text.empty());
+    OA_CHECK(facts.ai_profile_report_path.empty());
+    OA_CHECK(facts.ai_profiles.empty());
 }
 
 } // namespace

@@ -5,8 +5,12 @@
 #pragma once
 
 #include "oa/sim/brains/chat.hpp"
+#include "sight.hpp"
+
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
+
+#include "reach.hpp"
 
 #include "oa/core/player.h"
 #include "oa/data/brain_facts.hpp"
@@ -140,12 +144,26 @@ struct Seat {
     bool allied_with[OA_PLAYER_COUNT]{};
     /// Last delivered participation, one entry per player.
     bool participating[OA_PLAYER_COUNT]{};
+    /// Radar contacts delivered last. The next picture is written into the work list.
+    std::unique_ptr<ContactEntry[]> delivered_contacts;
+    std::unique_ptr<ContactEntry[]> contact_work;
+    /// How many contacts `delivered_contacts` holds.
+    uint32_t delivered_contact_count{};
+    /// Slots both lists can hold. Zero until the first picture is read.
+    uint32_t contact_capacity{};
+    /// `player_contacts_tick` of the delivered picture.
+    uint32_t delivered_contacts_tick{};
+    /// False until the first picture has been compared, even when that tick is 0.
+    bool contacts_compared{};
     /// True when this seat's files match the Classic fingerprint.
     bool classic{};
     /// Timers waiting to run on a later turn.
     WaitingTimer timers[max_timers]{};
     /// The next timer id. It starts at 1 and only grows.
     uint32_t next_timer_sequence{1};
+    /// Movement regions built when a script asks whether two points meet.
+    /// One class is labelled at most once a tick.
+    RegionCache regions{};
 
     /// Releases the two event buffers.
     ~Seat() {
@@ -220,6 +238,11 @@ void install_libraries(lua_State* state, Seat& seat);
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_chat(lua_State* state, Seat& seat);
+/// Installs `game.map`. With no match the field is nil.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_map(lua_State* state, Seat& seat);
 
 /// Returns the profile a brain runs under.
 ///
