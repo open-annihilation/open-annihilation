@@ -8,8 +8,8 @@ brain plays as the built-in computer player.
 ## Entry points
 
 - `seat_brain` loads one brain for one computer seat. On success the seat's
-  hooks are installed and its play skips the built-in order tick. On any
-  failure the sandbox is closed and no hooks are installed.
+  hooks are installed and its play delivers that turn and skips the built-in
+  order tick. On any failure the sandbox is closed and no hooks are installed.
 - `brain_seated` tells whether that seat's hooks are a seated brain's.
 - `seat_sandbox` returns the sandbox, for tests and tools.
 - `set_match_game_facts` stores the facts every brain seated afterwards
@@ -96,6 +96,14 @@ libraries a check can call when no match is open.
 on the same fixture and reads that seat's units, squads, economy and
 knowledge.
 
+`sim-brains-events` (`tests/events_test.cpp`) seats the made-up brain
+`steady-commander` on the same fixture. Its hooks record every call. The
+test checks creation, damage, death and a wreck, the order of one turn, a
+gift, a cancelled frame, carry, sight, a blocked path and a completed move,
+alliance and defeat, a missing hook, the bank, a full queue, and that two
+seated brains and two matches with no brain keep the same random stream and
+state hash.
+
 ## Handles and my side
 
 A unit handle is one Lua object for one slot and one generation. The
@@ -140,10 +148,58 @@ the other getters are nil. `me:units` and `me:squad` are empty,
 `me:unit_count` and `me:squad_size` are 0, and `me:assign` returns false.
 `brain.distance` and `brain.direction` still work on positions.
 
+## Events
+
+The first seated brain registers one listener on the match's event fan-out.
+The listener is not removed; it and the brains end with the match. When the
+match cannot take another listener, the seat still runs `onTick`.
+
+Each seat keeps two plain buffers of event records, grown by doubling up to
+65,536 records for one turn. Past that, or when a buffer cannot be grown,
+the event is dropped and `dropped_events` counts it. At the start of the
+turn the incoming buffer becomes the one being delivered, so an event that
+fires while the hooks run waits for the next turn.
+
+An event about the seat's own unit is queued for that seat. A death and a
+wreck are queued for every seated brain. A gift is queued for the old owner
+and the new owner. A carry is queued for the owner of the unit and the owner
+of the carrier. Sight gained and lost is queued for that player. A path
+failure is queued for the unit's owner. The unit's generation is the one it
+had when the event fired.
+
+At delivery an enemy death is passed on only when that slot is on the seat's
+seen list, or the seat has full awareness. An ally's death and the seat's
+own are always passed on. A death of kind captured is not `onUnitDestroyed`.
+A finished event is dropped when a cancelled death of the same unit follows
+it in the queue. A wreck in the queue becomes that death's third argument,
+`{name, x, z}`, with `x` and `z` fixed numbers; a death with no wreck passes
+nil. An attacker or killer is passed only when it is the seat's own unit, an
+ally's, on the seen list, or the seat has full awareness, and is nil
+otherwise.
+
+The hooks are `onUnitCreated(unit, builder)`, `onUnitFinished(unit, builder)`
+(builder nil when there is none or it is the unit),
+`onUnitDamaged(unit, attacker, amount, kind)` with kind `weapon`,
+`paralyze`, `heal` or `environment`, `onUnitDestroyed(unit, killer, wreck)`,
+`onUnitGiven(old, new, from, to)`, `onUnitIdle(unit)`,
+`onCommandDone(unit, order, result)` with result `done` or `failed`,
+`onUnitLoaded(unit, carrier)`, `onUnitUnloaded(unit, carrier)`,
+`onUnitSeen(unit)`, `onUnitLost(unit)`, `onPathFailed(unit)`,
+`onAllianceChanged(player, allied)`, `onPlayerDefeated(player)` and
+`onTick(tick)`. `onTick` receives `Game.tick`. A missing hook is skipped. A
+missing `onTick` is fine.
+
+One turn is one banked call. It delivers the queued events in the order they
+fired, then alliance changes for the other players in index order, then a
+defeat for each player who was participating and no longer is, then
+`onTick`. The first turn stores the alliances and who is participating and
+reports none of those changes. A failed call marks the seat stopped; later
+turns return without a call. Orders a hook gives take effect in the next
+tick's unit sweep.
+
 ## Limitations
 
-No events and no `onTick` yet (B02): the seat's play returns without calling
-  tables. `game` is then filled from the seat's facts, and unit handles and
-  the read-only `me` surface are installed. It has to work when the seat has
-  no match: `game.in_match` is false, and `me` still carries the player,
-  level, difficulty and options copied from the spec.
+Radar contacts wait on per-player radar (A05). Chat waits on A08. Timers
+run inside this call later (B03). Handing a stopped seat back to the
+built-in player, with the notice and the log, is B04. Shots are not
+delivered.
