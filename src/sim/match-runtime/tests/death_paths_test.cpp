@@ -639,13 +639,15 @@ void carry_links_are_reported() {
         log.entries[2].carrier == other.unit_index
     );
 
+    // The direct transfer left the cargo on `other`, so the recorded unload
+    // names that carrier, then the same load and straight transfer follow.
     log.entries.clear();
     f.match->apply_carry_link(cargo.unit_index, 0, -1, 1);
     f.match->apply_carry_link(cargo.unit_index, carrier.unit_index, -1, 1);
     f.match->apply_carry_link(cargo.unit_index, other.unit_index, 1, 0);
     CHECK(log.entries.size() == 4);
     CHECK(
-        !log.entries[0].loaded && log.entries[0].carrier == carrier.unit_index &&
+        !log.entries[0].loaded && log.entries[0].carrier == other.unit_index &&
         log.entries[1].loaded && log.entries[1].carrier == carrier.unit_index &&
         !log.entries[2].loaded && log.entries[2].carrier == carrier.unit_index &&
         log.entries[3].loaded && log.entries[3].carrier == other.unit_index
@@ -661,8 +663,8 @@ void carry_links_are_reported() {
     f.match->set_carry_link(cargo.unit_index, cargo.unit_index, -1, 1);
     f.match->apply_carry_link(cargo.unit_index, cargo.unit_index, -1, 1);
     CHECK(log.entries.empty());
-    CHECK(cargo.record.attach_parent == other.unit_index);
-    CHECK(other.record.attach_parent == 0);
+    CHECK(sim::match_runtime::link_parent(cargo.record) == other.unit_index);
+    CHECK(sim::match_runtime::link_parent(other.record) == 0);
 
     log.entries.clear();
     kill(f, other, killer);
