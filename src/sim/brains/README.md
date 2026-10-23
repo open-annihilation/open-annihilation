@@ -25,13 +25,16 @@ brain plays as the built-in computer player.
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
   tables. `game` is then filled from the seat's facts, and unit handles,
   the read-only `me` surface, the definition collections, the AI profile
-  fields and `game.map` are installed, then `brain.say`, `brain.random`,
-  `brain.after`, `brain.every` and `brain.cancel`. `brain.shared_random` is
-  installed only when the seat is Classic and it has a match. It has to
-  work when the seat has no match: `game.in_match` is false, `game.map` is
-  nil, `me` still carries the player, level, difficulty and options copied
-  from the spec, `units`, `weapons` and `features` exist and are empty, and
-  `brain.say` answers that chat is not connected.
+  fields, `game.map` and what the seat may see are installed, then
+  `brain.say`, `brain.random`, `brain.after`, `brain.every` and
+  `brain.cancel`. `brain.shared_random` is installed only when the seat is
+  Classic and it has a match. It has to work when the seat has no match:
+  `game.in_match` is false, `game.map` is nil, `me` still carries the
+  player, level, difficulty and options copied from the spec, `units`,
+  `weapons` and `features` exist and are empty, and `brain.say` answers
+  that chat is not connected. With no match, `me.seen` and `me.radar` are
+  empty, `me:sees` and `me:sees_unit` are false, and `me.sight` and
+  `me.explored` are nil.
 
 ## State
 
@@ -170,6 +173,12 @@ the seat back, a full queue, and that two
 seated brains and two matches with no brain keep the same random stream and
 state hash.
 
+`sim-brains-sight` (`tests/sight_test.cpp`) seats `fog-reader` and
+`full-sight` on that fixture with mapping and line of sight on. It checks
+what a handle reads in and out of sight, the seen list, the sight and
+explored grids, radar contacts and their events, and the full-awareness
+search.
+
 `sim-brains-failure` (`tests/failure_test.cpp`) seats `steady-commander` on
 the same fixture. A turn that raises, spends the bank, hits the real-time
 limit, fills memory, or builds a string past the limit closes the sandbox
@@ -208,11 +217,11 @@ false when the slot is one of the seat's. Every other field of that handle is
 nil.
 
 `id` and `slot` read on any handle. A seen field reads the seat's own live
-unit. Another player's unit reads nil for those fields until A05 replaces
-`seat_may_see`, which this seat leaves false. An own field or method reads
-only the seat's own live unit. A05 adds seen fields through
-`add_unit_getter`. A07 adds own methods, including orders, through
-`add_unit_method`.
+unit, and another player's live unit while the seat can see it now or the
+brain has full awareness. `health` and `health_percent` stay nil when the
+type hides damage, unless the seat owns the unit or the brain has full
+awareness. An own field or method reads only the seat's own live unit.
+A07 adds own methods, including orders, through `add_unit_method`.
 
 `me` stays the table B01 created. `player`, `level`, `difficulty` and
 `options` move into a hidden table, and assigning `me` raises `me is
@@ -283,12 +292,13 @@ The hooks are `onUnitCreated(unit, builder)`, `onUnitFinished(unit, builder)`
 missing `onTick` is fine.
 
 One turn is one banked call. It delivers the queued events in the order they
-fired, then alliance changes for the other players in index order, then a
-defeat for each player who was participating and no longer is, then chat,
-then the timers whose due tick has come, then `onTick`. The timers run even
-when the hooks table is missing. The first turn stores the alliances and who
-is participating and reports none of those changes. A failed call closes
-the sandbox, clears the seat's hooks and reports the stop once. The failing
+fired, then the changes in the seat's radar and sonar contacts, then
+alliance changes for the other players in index order, then a defeat for
+each player who was participating and no longer is, then chat, then the
+timers whose due tick has come, then `onTick`. The timers run even when the
+hooks table is missing. The first turn stores the alliances and who is
+participating and reports none of those changes. A failed call closes the
+sandbox, clears the seat's hooks and reports the stop once. The failing
 turn still counts as played. The next turn has no hooks, so the built-in
 computer player takes it. Orders a hook gives take effect in the next
 tick's unit sweep.
@@ -403,12 +413,71 @@ their printed lines and do not report a stop. The app posts the seating
 notice from the outcome. A defeated player is simply no longer called. The
 sandbox closes with the match.
 
+## What a seat may see
+
+A brain without full awareness may know only what its seat could see, what
+its own radar and sonar picture holds, and what it has explored. A seen
+field of another player's unit (`type`, `owner`, position, `heading`,
+`build_remaining`, `finished`, `building`, and health) reads while
+`unit_visible` is true for that slot now. Health still reads nil when the
+type hides damage, unless the seat owns the unit. A dead handle reads nil
+for those fields. `id` and `slot` always read.
+
+`me.full_awareness` is the flag the seat was given. `me.seen` is the seat's
+seen list, in that list's order, as of its last refresh, and `me.seen_tick`
+is the refresh tick. Each entry is a unit handle. `me:sees(x, z [, y])`
+asks `point_visible` for that point (`y` is 0 when it is left out). `x`,
+`z` and `y` are fixed values or whole world units. `me:sees_unit(u)` asks
+`unit_visible` for a live handle and is false for a dead one. Neither
+question treats full awareness as a yes: they answer what the engine
+answers.
+
+`me.sight` and `me.explored` are grids of 32-unit cells (`width`, `height`,
+`cell_size`, `at(cx, cz)`, `cell_of(x, z)`). A sight cell is in sight when
+the simulation's reading of the seat's coverage is not zero. An explored
+cell is one whose bit is set for the seat. `at` is false off the grid.
+`cell_of` is the cell of a position with `y` held at 0, or nil off the
+grid. Both grids are nil when the match keeps no sight grid. With the line
+of sight rule off, `me:sees` follows the engine and reads the viewpoint's
+mapped bit, not the queried seat's.
+
+`me.radar` lists the live enemy contacts in the seat's own picture, in slot
+order, and `me.radar_tick` is the tick of that picture. A contact gives
+`x`, `y`, `z` and `position` while it is still a contact of the latest
+picture with the same generation, and nil after that. `sonar` and `radar`
+stay as they were when that contact was published. `current` is whether it
+is still a contact. A contact has no type, no owner and no unit handle.
+`onRadarContact(contact)` and `onRadarLost(contact)` fire, right after the
+queued events, for each contact the picture gained or lost since the list
+the seat delivered last. The first picture is compared with an empty list.
+An allied unit is never a contact. The picture's bytes are the seat's own;
+the viewpoint's radar marks are not read.
+
+A full-awareness brain also has `game.units`, `me:nearest_enemy(x, z [, filter])`
+and `me:seen_raw()`. Without that flag those names are nil. `game.units:list([player])`
+is every occupied slot, in slot order, optionally one player's.
+`game.units:each(fn)` walks that same order from a list taken before the
+first call. `me:nearest_enemy` is the built-in player's search over every
+unit: the seat's alliance row, with the extra relation entry set, and a
+filter table whose `widened` and `skip_submerged` booleans are off when
+the key is missing. `me:seen_raw()` reads each seen slot's current record
+(`slot`, `type_index`, `x`, `y`, `z`), so a unit that died after the
+refresh reads type 0 and the position it still holds.
+
+With no match the seen list, the radar list and `me:seen_raw()` are empty,
+`me:sees` and `me:sees_unit` are false, the grids are nil, `game.units:list()`
+is empty and `me:nearest_enemy` is nil. The picture is kept for the rest of
+the match once the seat is made.
+
+`sim-brains-sight` seats the made-up brains `fog-reader` (no full
+awareness) and `full-sight` (`fullAwareness`) on the computer-build fixture
+with mapping and line of sight on.
+
 ## Limitations
 
-Radar contacts wait on per-player radar (A05). Shots are not delivered. A
-saved game does not keep timers or the brain's stream: the brain starts
-again from `start`. Placed map features are not listed; `features` is the
-feature-type table.
+Shots are not delivered. A saved game does not keep timers or the brain's
+stream: the brain starts again from `start`. Placed map features are not
+listed; `features` is the feature-type table.
 
 ## Definitions
 
