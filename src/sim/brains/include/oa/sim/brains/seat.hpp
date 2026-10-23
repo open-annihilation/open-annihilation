@@ -7,6 +7,7 @@
 #pragma once
 
 #include "oa/base/sha256.hpp"
+#include "oa/data/brain_facts.hpp"
 #include "oa/data/script_host/script_host.hpp"
 
 #include <array>
@@ -158,5 +159,16 @@ struct SeatOutcome {
 /// @return the sandbox, or null without a seated brain
 [[nodiscard]] oa::data::script_host::Sandbox*
 seat_sandbox(match_runtime::Match& match, uint8_t player) noexcept;
+
+/// Stores the facts every brain seated afterwards reads as `game`.
+///
+/// A seat made before any facts were stored reads a default game: base
+/// `totala`, the base mod and no mutator. The facts are copied into the
+/// match's brains state, so later seats keep a stable address. Taken by
+/// value. A failure to store the state leaves the match unchanged.
+///
+/// @param match the match
+/// @param facts the facts, owned by the caller until this returns
+void set_match_game_facts(match_runtime::Match& match, oa::data::brain_facts::GameFacts facts);
 
 } // namespace oa::sim::brains
