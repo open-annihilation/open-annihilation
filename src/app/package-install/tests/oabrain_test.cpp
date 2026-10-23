@@ -810,12 +810,14 @@ void test_refusals(const Scratch& scratch) {
         }
     }
 
+    // Capitals that share no folded name with another file. lua/Tasks would
+    // collide with lua/tasks and be refused as a case clash first.
     auto capitals = pieces_of(good, icon, network);
-    capitals.push_back({"lua/Tasks/x.lua", bytes_of("return {}\n")});
+    capitals.push_back({"lua/Capital.lua", bytes_of("return {}\n")});
     expect_refused(
         scratch,
         capitals,
-        "The package holds lua/Tasks/x.lua, outside the files a brain may hold.",
+        "The package holds lua/Capital.lua, outside the files a brain may hold.",
         install::Refusal::outside_layout
     );
 
