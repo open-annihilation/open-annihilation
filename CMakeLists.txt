@@ -1150,6 +1150,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_brain_library.cpp
   src/app/runtime_mutators.cpp
   src/app/runtime_brains.cpp
+  src/app/runtime_brain_match.cpp
   src/app/runtime_brain_facts.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp
@@ -1298,6 +1299,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
+  oa-app-brain-match
   oa-app-brain-seats
   oa-app-seat-chat
   oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
@@ -3500,6 +3502,13 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --brain-match plays two computer seats, reports the same lines twice,
+        # and refuses a map or a brain it cannot seat.
+        add_test(NAME native-brain-match COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_match.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-brain-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A stage's lines timed for later ticks place units, move a group,
         # send one on patrol and set one on another's nearest units, and stop
         # at a line that does not read; a director script that names the

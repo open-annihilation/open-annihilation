@@ -1844,6 +1844,17 @@ class Runtime final : public menu::Host,
     /// @param ticks ticks to run
     void run_headless_match(std::size_t ticks);
 
+    /// Plays a two-seat headless skirmish between the brains `--brain-match` names.
+    ///
+    /// The match stops when one seat or neither has units left, or after
+    /// `ticks` ticks, and prints the brain match report. It returns 0 when
+    /// the match played to that end, and 1 when the map cannot be played or
+    /// a seat's brain could not be seated.
+    ///
+    /// @param ticks ticks to run at most
+    /// @return 0 when the match played, 1 when it did not
+    int run_headless_brain_match(std::size_t ticks);
+
     /// Runs the --campaign mission headless with the computer player active.
     ///
     /// Every distinct tick error is logged with the run's tick it first
@@ -18599,6 +18610,20 @@ class Runtime final : public menu::Host,
     uint32_t brain_match_seed_{};
     /// One log per seat for the latest brain seated there.
     std::array<BrainLog, OA_PLAYER_COUNT> brain_logs_{};
+    /// The id a seat's brain was not seated under. Empty when it was seated
+    /// or the seat was not given a brain. A folder is named by its id.
+    std::array<std::string, OA_PLAYER_COUNT> brain_unseated_id_{};
+    /// Why that brain was not seated. Empty when the seat was seated.
+    std::array<std::string, OA_PLAYER_COUNT> brain_unseated_reason_{};
+    /// The id, version and level of the brain last prepared for the seat.
+    std::array<std::string, OA_PLAYER_COUNT> brain_seat_id_{};
+    std::array<std::string, OA_PLAYER_COUNT> brain_seat_version_{};
+    std::array<std::string, OA_PLAYER_COUNT> brain_seat_level_{};
+    /// True after that seat's brain stopped. The match plays on.
+    std::array<bool, OA_PLAYER_COUNT> brain_seat_stopped_{};
+    /// The tick the stop was reported, and the sentence that names it.
+    std::array<uint32_t, OA_PLAYER_COUNT> brain_stop_tick_{};
+    std::array<std::string, OA_PLAYER_COUNT> brain_stop_text_{};
     // The mounted pack map, the game's names, the fits and the refusals;
     // null until a pack map is first named.
     std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{
