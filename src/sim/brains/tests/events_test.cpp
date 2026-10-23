@@ -612,7 +612,8 @@ void carry_reports_loaded_and_unloaded() {
     advance(fixture);
     const std::vector<std::string> lines = read_lines(*sandbox);
     const int loaded_at = line_at(lines, "loaded " + child_text + " " + parent_text);
-    const int unloaded_at = line_at(lines, "unloaded " + child_text + " nil");
+    // onUnitUnloaded names the carrier the unit left (design: unit, carrier).
+    const int unloaded_at = line_at(lines, "unloaded " + child_text + " " + parent_text);
     CHECK(loaded_at >= 0 && unloaded_at > loaded_at);
 }
 
