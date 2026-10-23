@@ -316,8 +316,11 @@ void test_state_matrix() {
     inputs.updates.push_back(update(core, Kind::mod, "get-mod"));
     const lib::Library library = built(std::move(inputs));
 
-    // The packages, the base game, and the built-in languages refresh adds.
-    OA_CHECK(library.entries.size() == 9 + built_in_language_rows().size());
+    // Eight packages, the base game, the built-in computer player, and the
+    // built-in languages refresh adds.
+    OA_CHECK(library.entries.size() == 8 + 1 + 1 + built_in_language_rows().size());
+    const lib::Entry* built_in_player = lib::find_entry(library, lib::built_in_brain_id());
+    OA_CHECK(built_in_player != nullptr && lib::is_built_in_brain(built_in_player->id));
     const lib::Entry* get = at(library, core, Kind::mod, "get-mod");
     OA_CHECK(get != nullptr && get->state == State::get && get->listing != nullptr);
     OA_CHECK(get != nullptr && get->installed == nullptr && get->update == nullptr && get->can_act);

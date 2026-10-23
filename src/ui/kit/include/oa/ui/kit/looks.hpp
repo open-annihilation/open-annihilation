@@ -357,6 +357,10 @@ struct TabsLook {
     int32_t view_width{};
     bool left_arrow_hovered{};  ///< the pointer is over the arrow at the left
     bool right_arrow_hovered{}; ///< the pointer is over the arrow at the right
+    /// The points either side of a caption. Negative uses the theme's tab_padding.
+    int32_t side_padding{-1};
+    /// The points between a caption's characters. Negative uses the theme's tab_tracking.
+    int32_t tracking{-1};
 };
 
 /// A card of a grid: a square preview, its chips, a title and a subtitle.

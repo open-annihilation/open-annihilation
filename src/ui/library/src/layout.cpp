@@ -1300,9 +1300,10 @@ void add_library_header(
 ///
 /// @param library the model
 /// @param tab the tab
+/// @param compact true uses Compact's short name, where the tab has one
 /// @return the title, such as "Mods (13)" or "Active"
-std::string tab_caption(const Library& library, Tab tab) {
-    const std::string title(tab_text(tab, false, library.text));
+std::string tab_caption(const Library& library, Tab tab, bool compact) {
+    const std::string title(tab_text(tab, compact, library.text));
     if (tab == Tab::active)
         return title;
     return filled(
@@ -1327,7 +1328,7 @@ kit::TabsLook tabs_look(const Building& building) {
     look.right_arrow_hovered = hovered(building, controls::tab_scroll_right);
     for (std::size_t index = 0; index < tab_order.size(); ++index) {
         const Tab tab = tab_order[index];
-        const std::string caption = tab_caption(library, tab);
+        const std::string caption = tab_caption(library, tab, false);
         look.captions.push_back(caption);
         look.counts.push_back(-1);
         look.count_amber.push_back(0);
@@ -1353,16 +1354,98 @@ bool tabs_fit(const Building& building, int32_t width) {
     return !kit::place_tabs(*building.fonts, strip, tabs_look(building)).overflows;
 }
 
+/// Returns the place of the Updates tab in the strip.
+///
+/// @return its index
+std::size_t updates_tab_index() {
+    for (std::size_t index = 0; index < tab_order.size(); ++index)
+        if (tab_order[index] == Tab::updates)
+            return index;
+    return tab_order.size();
+}
+
+/// Tells whether Updates lies wholly in the strip when the scroll is at the
+/// start, which is where the Library opens on Active.
+///
+/// @param building the layout
+/// @param strip the strip
+/// @param look the captions and the gaps
+/// @return true when Updates is wholly shown
+bool updates_wholly_shown(
+    const Building& building, const kit::Rect& strip, const kit::TabsLook& look
+) {
+    kit::TabsLook opening = look;
+    opening.scroll = 0;
+    opening.selected = 0;
+    const kit::TabStrip placed = kit::place_tabs(*building.fonts, strip, opening);
+    const std::size_t updates = updates_tab_index();
+    return updates < placed.tabs.size() && kit::wholly_in(placed.tabs[updates], placed.view);
+}
+
+/// Writes Compact's short names into a strip that already holds the full ones.
+///
+/// @param library the model
+/// @param[in,out] look the captions and their readings
+void use_compact_tab_names(const Library& library, kit::TabsLook& look) {
+    for (std::size_t index = 0; index < tab_order.size() && index < look.captions.size(); ++index) {
+        const std::string caption = tab_caption(library, tab_order[index], true);
+        look.captions[index] = caption;
+        if (index >= look.readings.size())
+            continue;
+        if (tab_order[index] == Tab::active)
+            look.readings[index].clear();
+        else
+            look.readings[index] = caption;
+    }
+}
+
+/// Closes the gaps around the names until Updates lies wholly in the opening
+/// view. The largest padding that does it is kept, and the theme's tracking
+/// while any padding can keep it. Compact's short names stand in only when
+/// the full names cannot, however far the gaps close.
+///
+/// @param building the layout
+/// @param strip the strip
+/// @param[in,out] look the captions, the open tab and the gaps
+void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsLook& look) {
+    if (updates_wholly_shown(building, strip, look))
+        return;
+    const int32_t theme_pad = building.metrics->tab_padding;
+    const int32_t theme_track = building.metrics->tab_tracking;
+    const auto tighten = [&](int32_t letter_gap) {
+        for (int32_t side = theme_pad; side >= 0; --side) {
+            look.side_padding = side;
+            look.tracking = letter_gap;
+            if (updates_wholly_shown(building, strip, look))
+                return true;
+        }
+        return false;
+    };
+    if (tighten(theme_track))
+        return;
+    if (theme_track != 0 && tighten(0))
+        return;
+    use_compact_tab_names(*building.library, look);
+    if (tighten(theme_track))
+        return;
+    if (theme_track != 0 && tighten(0))
+        return;
+    look.side_padding = 0;
+    look.tracking = 0;
+}
+
 /// Appends the strip of tabs. Each tab after Active shows its count in
 /// brackets after its title, in that title's font and colour. Active has
-/// no count. The names are always the full ones. When they do not fit, the
-/// strip scrolls sideways and an arrow at an end moves it by one tab. The
-/// scroll is written back so the open tab stays wholly in view.
+/// no count. The names are the full ones while those keep Updates wholly in
+/// the view the strip opens on. When they do not fit, the strip scrolls
+/// sideways and an arrow at an end moves it by one tab. The scroll is
+/// written back so the open tab stays wholly in view.
 ///
 /// @param[in,out] building the layout
 /// @param strip the strip
 void add_tabs(Building& building, const kit::Rect& strip) {
-    const kit::TabsLook look = tabs_look(building);
+    kit::TabsLook look = tabs_look(building);
+    keep_updates_in_view(building, strip, look);
     std::array<kit::ControlId, tab_order.size()> ids{};
     std::array<std::string, tab_order.size()> names{};
     for (std::size_t index = 0; index < tab_order.size(); ++index) {
