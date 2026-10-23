@@ -263,8 +263,8 @@ option: the desktop installs none.
 icon, the distribution keys (see [For distribution](#for-distribution)), shows the Documents
 folder in the Files app and the Finder, reads a mouse or trackpad as a pointer, and declares the
 type of the game's archives (`net.coreprime.open-annihilation.game-archive`: `.hpi`, `.ufo`,
-`.ccx` and `.gp3`), which the picker offers when the player adds archives, and the six file
-types (`.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oareg` and `.oalaunch`), which the app exports
+`.ccx` and `.gp3`), which the picker offers when the player adds archives, and the seven file
+types (`.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oareg` and `.oalaunch`), which the app exports
 and opens as their owner, so that the Files app and the share sheet offer Open Annihilation for each, with the app's
 icon. `app-bundle-file-types` checks both bundles' declarations.
 [LaunchScreen.storyboard](LaunchScreen.storyboard) is the black launch screen with the title.
