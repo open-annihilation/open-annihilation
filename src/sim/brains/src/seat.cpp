@@ -395,10 +395,12 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         outcome.load_ran = true;
         if (!seat.sandbox->run_file(spec.entry, "load", &load_hooks, error)) {
             outcome.load_instructions = seat.sandbox->instructions_used();
+            note_call_instructions(seat);
             fail_sandbox_host(outcome, seat, error);
             return false;
         }
         outcome.load_instructions = seat.sandbox->instructions_used();
+        note_call_instructions(seat);
         note_prints(seat);
         if (loaded.status == 1) {
             std::array<char, 256> message{};
@@ -427,10 +429,12 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
             outcome.fits_ran = true;
             if (!seat.sandbox->call("fits", fit_hooks, error)) {
                 outcome.fits_instructions = seat.sandbox->instructions_used();
+                note_call_instructions(seat);
                 fail_sandbox_host(outcome, seat, error);
                 return false;
             }
             outcome.fits_instructions = seat.sandbox->instructions_used();
+            note_call_instructions(seat);
             if (fits.status == 1) {
                 note_prints(seat);
                 outcome.result = SeatResult::does_not_fit;
@@ -460,6 +464,31 @@ bool brain_seated(const match_runtime::Match& match, uint8_t player) noexcept {
     if (player >= OA_PLAYER_COUNT)
         return false;
     return match.seat_hooks(player).play == play_turn;
+}
+
+uint64_t seat_instructions(const match_runtime::Match& match, uint8_t player) noexcept {
+    if (player >= OA_PLAYER_COUNT)
+        return 0;
+    const auto& state = match.seat_state();
+    if (!state)
+        return 0;
+    const auto* brains = static_cast<const Brains*>(state.get());
+    return brains->instructions[player];
+}
+
+void note_call_instructions(Seat& seat) noexcept {
+    if (seat.match == nullptr || !seat.sandbox.has_value() || seat.player >= OA_PLAYER_COUNT)
+        return;
+    const auto& state = seat.match->seat_state();
+    if (!state)
+        return;
+    auto* brains = static_cast<Brains*>(state.get());
+    const uint64_t used = seat.sandbox->instructions_used();
+    uint64_t& total = brains->instructions[seat.player];
+    if (used > UINT64_MAX - total)
+        total = UINT64_MAX;
+    else
+        total += used;
 }
 
 script_host::Sandbox* seat_sandbox(match_runtime::Match& match, uint8_t player) noexcept {
@@ -525,10 +554,12 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
             outcome.start_ran = true;
             if (!seat.sandbox->call("start", start_hooks, error)) {
                 outcome.start_instructions = seat.sandbox->instructions_used();
+                note_call_instructions(seat);
                 fail_host(outcome, *brains, player, error);
                 return outcome;
             }
             outcome.start_instructions = seat.sandbox->instructions_used();
+            note_call_instructions(seat);
             note_prints(seat);
         }
 
