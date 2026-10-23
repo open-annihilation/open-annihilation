@@ -16,8 +16,8 @@ constexpr std::size_t key_room = 64;
 constexpr uint16_t no_feature = 0xffff;
 
 struct Omitted {
-    const char* key;
-    const char* reason;
+    const char* key{};
+    const char* reason{};
 };
 
 // Schema keys the loaded record does not keep. The reason is what a reviewer

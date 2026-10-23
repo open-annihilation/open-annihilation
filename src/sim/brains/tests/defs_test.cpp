@@ -392,6 +392,25 @@ std::string_view chars_view(const char* text, std::size_t room) {
     return std::string_view(text == nullptr ? "" : text, length);
 }
 
+// Weapon 0 stands in for a name the weapon table does not hold. The typed
+// definition keeps that stand-in as an empty name, the same way the unit
+// definition does.
+std::string weapon_kept(const defs::WeaponTable& weapons, oa_ref32 ref) {
+    if (ref <= 1 || ref > OA_WEAPON_DEF_COUNT)
+        return {};
+    const char* key = weapons.defs[ref - 1].key;
+    return std::string(chars_view(key, sizeof weapons.defs[ref - 1].key));
+}
+
+// A sound name that matches no category is stored as the number in the text,
+// which is 0 when the text has no digits. The record then keeps that category's name.
+std::string sound_kept(const defs::SoundCategoryTable& sounds, int16_t index) {
+    if (index < 0 || static_cast<uint32_t>(index) >= sounds.count)
+        return {};
+    const char* name = sounds.categories[index].name;
+    return std::string(chars_view(name, sizeof sounds.categories[index].name));
+}
+
 bool movement_key(std::string_view key) {
     return key == "footprintx" || key == "footprintz" || key == "minwaterdepth" ||
            key == "maxwaterdepth" || key == "maxslope" || key == "maxwaterslope";
@@ -460,6 +479,8 @@ void compare_unit(
     const oa::UnitDef& record,
     const oa::data::unit_definitions::UnitDefinition& definition,
     const defs::MoveClassTable& classes,
+    const defs::WeaponTable& weapons,
+    const defs::SoundCategoryTable& sounds,
     const oa::formats::tdf::Block* block
 ) {
     const std::string unit(record.unit_name);
@@ -546,11 +567,26 @@ void compare_unit(
                 expected = std::string(chars_view(record.unit_name, sizeof record.unit_name));
             // objectname is a name reference in the schema and a truncated
             // buffer on the record. The other name references are the resolved
-            // names, compared in full.
+            // names, compared in full. explodeas, selfdestructas and
+            // soundcategory keep a table entry, not the file token, when that
+            // token names nothing the loader resolved.
             const bool truncated = spec.key == "objectname" || spec.type == schema::FieldType::text;
+            if (!truncated && spec.key == "explodeas" &&
+                !same_ci(weapon_kept(weapons, record.explode_as), expected))
+                expected = weapon_kept(weapons, record.explode_as);
+            if (!truncated && spec.key == "selfdestructas" &&
+                !same_ci(weapon_kept(weapons, record.self_destruct_as), expected))
+                expected = weapon_kept(weapons, record.self_destruct_as);
+            if (!truncated && spec.key == "soundcategory" &&
+                !same_ci(sound_kept(sounds, record.sound_category), expected))
+                expected = sound_kept(sounds, record.sound_category);
             const bool matched = truncated ? text_matches(value.text, expected, text_room(spec.key))
                                            : same_ci(value.text, expected);
-            check(value.kind == brains::FieldValue::Kind::text && matched, unit + ": " + key);
+            check(
+                value.kind == brains::FieldValue::Kind::text && matched,
+                unit + ": " + key + " read '" + std::string(value.text) + "' expected '" +
+                    expected + "'"
+            );
             continue;
         }
         if (spec.storage == schema::Storage::fixed32) {
@@ -694,7 +730,9 @@ void check_installed(const oa::AssetStore& assets) {
             fail(std::string(record.unit_name) + ": no unit block");
             continue;
         }
-        compare_unit(record, definitions[type], tables.classes, block);
+        compare_unit(
+            record, definitions[type], tables.classes, *tables.weapons, tables.sounds, block
+        );
         oa::formats::tdf::document_free(&document);
         if (oa::formats::tdf::compare_nocase(record.unit_name, "ARMCOM") == 0) {
             saw_commander = true;
