@@ -1290,6 +1290,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
+  oa-ui-brain-picker
   oa-ui-first-run
   oa-data-saves)
 # The table that combines the extensions' tables of oa-game
@@ -4029,6 +4030,8 @@ add_subdirectory(src/ui/map-previews)
 add_subdirectory(src/ui/map-browser)
 # The mutator picker. This module is its model: order, prerequisites and options.
 add_subdirectory(src/ui/mutator-picker)
+# The brain seat picker. This module is its model: the choice, the rows and the seat's words.
+add_subdirectory(src/ui/brain-picker)
 add_subdirectory(src/netgame)
 # Catalogues are fetched with the HTTP client src/netgame adds, so this
 # library follows that directory. oa-game is linked earlier in this file,
