@@ -30,50 +30,9 @@ using formats::oann::Tensor;
 using formats::oann::check;
 using formats::oann::element_bytes;
 using formats::oann::element_count;
-using formats::oann::header_bytes;
-using formats::oann::kind_name;
-using formats::oann::layer_entry_bytes;
 using formats::oann::no_tensor;
-using formats::oann::tensor_entry_bytes;
 
 namespace {
-
-/// Returns true when this build has a kernel for the kind.
-///
-/// @param kind the layer kind
-/// @return true for the eight kinds this build runs
-bool supported(LayerKind kind) noexcept {
-    switch (kind) {
-    case LayerKind::dense:
-    case LayerKind::relu:
-    case LayerKind::leaky_relu:
-    case LayerKind::add:
-    case LayerKind::concat:
-    case LayerKind::flatten:
-    case LayerKind::argmax:
-    case LayerKind::embedding:
-        return true;
-    case LayerKind::conv2d:
-    case LayerKind::maxpool:
-    case LayerKind::tanh:
-    case LayerKind::sigmoid:
-    case LayerKind::softmax:
-        return false;
-    }
-    return false;
-}
-
-/// Returns the file offset of a layer's kind byte.
-///
-/// @param model the network
-/// @param layer_index the layer
-/// @return the offset of the kind field
-uint32_t kind_offset(const Model& model, std::size_t layer_index) noexcept {
-    const uint64_t offset = uint64_t{header_bytes} +
-                            uint64_t{model.tensors.size()} * tensor_entry_bytes +
-                            uint64_t{layer_index} * layer_entry_bytes;
-    return static_cast<uint32_t>(offset);
-}
 
 /// Multiplies, or returns the largest uint64 when the product does not fit.
 ///
@@ -99,8 +58,7 @@ uint64_t saturating_add(uint64_t left, uint64_t right) noexcept {
 
 /// Counts the operations one layer performs.
 ///
-/// The thirteen kinds are all counted here. This build refuses to run five of
-/// them, and the kernels for those five are not in this file.
+/// The thirteen kinds are all counted here, and each one has a kernel.
 ///
 /// @param model the network
 /// @param layer the layer
@@ -218,12 +176,6 @@ std::optional<Network> Network::build(const Model& model, Problem& problem) {
     uint64_t operations = 0;
     for (std::size_t layer_index = 0; layer_index < model.layers.size(); ++layer_index) {
         const Layer& layer = model.layers[layer_index];
-        if (!supported(layer.kind)) {
-            problem.message = "layer " + std::to_string(layer_index) + " (" +
-                              std::string(kind_name(layer.kind)) + ") is not run by this build";
-            problem.offset = kind_offset(model, layer_index);
-            return std::nullopt;
-        }
         operations = saturating_add(operations, operations_for(model, layer));
     }
     if (operations > max_operations_per_run) {
@@ -348,6 +300,12 @@ void Network::lay_out(const Model& model) {
         step.layer = static_cast<uint16_t>(layer_index);
         step.alpha = layer.alpha;
         step.axis = layer.axis;
+        step.kernel_h = layer.kernel_h;
+        step.kernel_w = layer.kernel_w;
+        step.stride_h = layer.stride_h;
+        step.stride_w = layer.stride_w;
+        step.pad_h = layer.pad_h;
+        step.pad_w = layer.pad_w;
         step.input_count = layer.input_count;
         step.inputs = layer.inputs;
         step.output = layer.output;
@@ -504,12 +462,106 @@ RunError Network::run() noexcept {
                 return RunError{true, step.layer, bad_row};
             break;
         }
-        case LayerKind::conv2d:
-        case LayerKind::maxpool:
-        case LayerKind::tanh:
-        case LayerKind::sigmoid:
-        case LayerKind::softmax:
-            return RunError{true, step.layer, 0};
+        case LayerKind::conv2d: {
+            const Slot& taken = slots_[step.inputs[0]];
+            const Slot& made = slots_[step.output];
+            const Slot& weight_slot = slots_[step.weights];
+            std::span<const int32_t> bias;
+            if (step.has_bias) {
+                const Slot& bias_slot = slots_[step.bias];
+                bias =
+                    std::span<const int32_t>(biases_.data() + bias_slot.offset, bias_slot.elements);
+            }
+            const std::span<const int16_t> samples(values_.data() + taken.offset, taken.elements);
+            const std::span<int16_t> written(values_.data() + made.offset, made.elements);
+            if (weight_slot.store == Slot::Store::weights8) {
+                conv2d<int8_t>(
+                    samples,
+                    taken.dims,
+                    std::span<const int8_t>(
+                        weights8_.data() + weight_slot.offset, weight_slot.elements
+                    ),
+                    bias,
+                    written,
+                    made.dims,
+                    step.kernel_h,
+                    step.kernel_w,
+                    step.stride_h,
+                    step.stride_w,
+                    step.pad_h,
+                    step.pad_w,
+                    taken.exponent,
+                    weight_slot.exponent,
+                    made.exponent
+                );
+            } else {
+                conv2d<int16_t>(
+                    samples,
+                    taken.dims,
+                    std::span<const int16_t>(
+                        weights16_.data() + weight_slot.offset, weight_slot.elements
+                    ),
+                    bias,
+                    written,
+                    made.dims,
+                    step.kernel_h,
+                    step.kernel_w,
+                    step.stride_h,
+                    step.stride_w,
+                    step.pad_h,
+                    step.pad_w,
+                    taken.exponent,
+                    weight_slot.exponent,
+                    made.exponent
+                );
+            }
+            break;
+        }
+        case LayerKind::maxpool: {
+            const Slot& taken = slots_[step.inputs[0]];
+            const Slot& made = slots_[step.output];
+            maxpool(
+                std::span<const int16_t>(values_.data() + taken.offset, taken.elements),
+                taken.dims,
+                std::span<int16_t>(values_.data() + made.offset, made.elements),
+                made.dims,
+                step.kernel_h,
+                step.kernel_w,
+                step.stride_h,
+                step.stride_w
+            );
+            break;
+        }
+        case LayerKind::tanh: {
+            const Slot& taken = slots_[step.inputs[0]];
+            const Slot& made = slots_[step.output];
+            tanh(
+                std::span<const int16_t>(values_.data() + taken.offset, taken.elements),
+                std::span<int16_t>(values_.data() + made.offset, made.elements),
+                taken.exponent
+            );
+            break;
+        }
+        case LayerKind::sigmoid: {
+            const Slot& taken = slots_[step.inputs[0]];
+            const Slot& made = slots_[step.output];
+            sigmoid(
+                std::span<const int16_t>(values_.data() + taken.offset, taken.elements),
+                std::span<int16_t>(values_.data() + made.offset, made.elements),
+                taken.exponent
+            );
+            break;
+        }
+        case LayerKind::softmax: {
+            const Slot& taken = slots_[step.inputs[0]];
+            const Slot& made = slots_[step.output];
+            softmax(
+                std::span<const int16_t>(values_.data() + taken.offset, taken.elements),
+                std::span<int16_t>(values_.data() + made.offset, made.elements),
+                taken.exponent
+            );
+            break;
+        }
         }
     }
     return {};

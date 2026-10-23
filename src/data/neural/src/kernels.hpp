@@ -139,4 +139,106 @@ template <typename Weight>
     int32_t& bad_row
 ) noexcept;
 
+/// Runs a convolution. A position outside the input reads 0.
+///
+/// The sum is the bias, or 0, plus each in-window sample times its weight,
+/// in int64. The sum moves from the product's exponent to the output's and
+/// is held to int16. `Weight` is int8_t or int16_t. There is no read past
+/// the input: a coordinate outside it contributes nothing.
+///
+/// @param input rank 3, `[channels, height, width]`, row-major
+/// @param input_dims the input shape; the first three entries are used
+/// @param weights `[kernels, channels, kernel_h, kernel_w]`, row-major
+/// @param bias one bias per kernel, or an empty span when the layer has none
+/// @param output `[kernels, out_height, out_width]`
+/// @param output_dims the output shape; the first three entries are used
+/// @param kernel_h the window height, 1 to 15
+/// @param kernel_w the window width, 1 to 15
+/// @param stride_h the vertical step, 1 to 15
+/// @param stride_w the horizontal step, 1 to 15
+/// @param pad_h how many rows of zeros sit above the input
+/// @param pad_w how many columns of zeros sit to the left of the input
+/// @param input_exponent the input's exponent
+/// @param weight_exponent the weights' exponent
+/// @param output_exponent the output's exponent
+template <typename Weight>
+void conv2d(
+    std::span<const int16_t> input,
+    const std::array<uint32_t, 4>& input_dims,
+    std::span<const Weight> weights,
+    std::span<const int32_t> bias,
+    std::span<int16_t> output,
+    const std::array<uint32_t, 4>& output_dims,
+    uint8_t kernel_h,
+    uint8_t kernel_w,
+    uint8_t stride_h,
+    uint8_t stride_w,
+    uint8_t pad_h,
+    uint8_t pad_w,
+    int32_t input_exponent,
+    int32_t weight_exponent,
+    int32_t output_exponent
+) noexcept;
+
+/// Writes the largest value in each window.
+///
+/// The window stays inside the input. Nothing is read from outside it.
+///
+/// @param input rank 3, `[channels, height, width]`
+/// @param input_dims the input shape; the first three entries are used
+/// @param output one element per window
+/// @param output_dims the output shape; the first three entries are used
+/// @param kernel_h the window height, 1 to 15
+/// @param kernel_w the window width, 1 to 15
+/// @param stride_h the vertical step, 1 to 15
+/// @param stride_w the horizontal step, 1 to 15
+void maxpool(
+    std::span<const int16_t> input,
+    const std::array<uint32_t, 4>& input_dims,
+    std::span<int16_t> output,
+    const std::array<uint32_t, 4>& output_dims,
+    uint8_t kernel_h,
+    uint8_t kernel_w,
+    uint8_t stride_h,
+    uint8_t stride_w
+) noexcept;
+
+/// Looks each input up in the tanh table.
+///
+/// The index is clamp(R(x, input_exponent, -8) + 2048, 0, 4095). The table
+/// holds the rounded tanh of that argument, already on the output's scale.
+///
+/// @param input the layer's input
+/// @param output one table value per input
+/// @param input_exponent the input's exponent
+void tanh(
+    std::span<const int16_t> input, std::span<int16_t> output, int32_t input_exponent
+) noexcept;
+
+/// Looks each input up in the sigmoid table.
+///
+/// The index is the same one tanh uses. The table holds the rounded sigmoid
+/// of that argument, already on the output's scale.
+///
+/// @param input the layer's input
+/// @param output one table value per input
+/// @param input_exponent the input's exponent
+void sigmoid(
+    std::span<const int16_t> input, std::span<int16_t> output, int32_t input_exponent
+) noexcept;
+
+/// Writes a softmax over the whole input.
+///
+/// The distance of each element from the largest is moved to exponent -8.
+/// A distance above 4095 contributes 0; every other distance reads the
+/// exponent table. The outputs share one 64-bit sum and a whole-number
+/// division, `(q * 32767 + sum / 2) / sum`.
+///
+/// @param input the layer's input
+/// @param output one share per input, on the output's scale
+/// @param input_exponent the input's exponent
+void softmax(
+    std::span<const int16_t> input, std::span<int16_t> output, int32_t input_exponent
+) noexcept;
+
 } // namespace oa::data::neural
