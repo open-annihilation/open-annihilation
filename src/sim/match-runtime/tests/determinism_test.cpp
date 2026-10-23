@@ -94,9 +94,14 @@ uint64_t state_digest(sim::match_runtime::Match& match) {
 /// player 0's side; each player's third unit patrols across the map.
 ///
 /// @param options the rules the match plays by; 3.1c's by default
+/// @param keep_contacts keep players 0 and 1's radar pictures from the start
 /// @return each tick's total digest and the values pinned above
-Run play(const Options& options = {}) {
+Run play(const Options& options = {}, bool keep_contacts = false) {
     Fixture f(options);
+    if (keep_contacts) {
+        f.match->keep_player_contacts(0, true);
+        f.match->keep_player_contacts(1, true);
+    }
     auto& gunner = f.spawn(0, 48, 48);
     auto& second = f.spawn(0, 48, 112);
     auto& scout = f.spawn(0, 64, 208);
@@ -156,9 +161,10 @@ bool matches_pinned(const char* what, uint64_t found, uint64_t expected) {
 /// Plays the skirmish twice; the runs must agree with each other and with the pinned values.
 ///
 /// @param options the rules the match plays by
-void runs_repeat_and_match_pins(const Options& options = {}) {
-    const Run first = play(options);
-    const Run second = play(options);
+/// @param keep_contacts keep players 0 and 1's radar pictures from the start
+void runs_repeat_and_match_pins(const Options& options = {}, bool keep_contacts = false) {
+    const Run first = play(options, keep_contacts);
+    const Run second = play(options, keep_contacts);
     CHECK(first.totals.size() == match_ticks);
     CHECK(first.duellists_destroyed);
     CHECK(first.totals == second.totals);
@@ -214,12 +220,19 @@ void baseline_profile_matches_pins() {
     runs_repeat_and_match_pins(options);
 }
 
+/// Plays the skirmish with players 0 and 1's radar pictures kept from the start.
+/// The pinned digests must still hold: a picture is not part of the simulation.
+void kept_contacts_match_pins() {
+    runs_repeat_and_match_pins({}, true);
+}
+
 } // namespace
 
 int main() {
     try {
         runs_repeat_and_match_pins();
         baseline_profile_matches_pins();
+        kept_contacts_match_pins();
         std::cout << "match determinism passed\n";
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';
