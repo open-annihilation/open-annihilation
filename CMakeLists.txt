@@ -389,6 +389,15 @@ add_library(oa-app-brain-seats src/app/brain_seats.cpp)
 add_library(oa::app::brain_seats ALIAS oa-app-brain-seats)
 target_link_libraries(oa-app-brain-seats PUBLIC oa-app-headers oa-sim-brains oa-formats-oabrain
   oa-data-brain-library PRIVATE oa-base-sha256 oa-options)
+# A check match that seats one brain and does not tick (brain_check.hpp).
+add_library(oa-app-brain-check src/app/brain_check.cpp)
+add_library(oa::app::brain_check ALIAS oa-app-brain-check)
+target_link_libraries(oa-app-brain-check PUBLIC oa-app-headers oa-app-brain-seats
+  oa-app-game-directory oa-sim-brains oa-sim-match-runtime oa-sim-ai oa-sim-combat-state
+  oa-sim-map-runtime oa-sim-unit-spawn-runtime oa-data-defs oa-data-defs-assets
+  oa-data-unit-definitions oa-data-brain-facts oa-formats-hpi oa-formats-oamut oa-formats-tnt
+  PRIVATE oa-options)
+target_compile_definitions(oa-app-brain-check PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 # Chat a computer seat on this machine reads and sends (seat_chat.hpp).
 add_library(oa-app-seat-chat src/app/seat_chat.cpp)
 add_library(oa::app::seat_chat ALIAS oa-app-seat-chat)
@@ -867,6 +876,13 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-options)
   add_test(NAME app-brain-seats COMMAND oa-app-brain-seats-test)
   set_tests_properties(app-brain-seats PROPERTIES TIMEOUT 60)
+  # The check match: the game's unit types, the commander at the centre, and
+  # what the brain reads. It needs the installed game.
+  add_executable(oa-app-brain-check-test src/app/brain_check_test.cpp)
+  target_link_libraries(oa-app-brain-check-test PRIVATE oa-app-brain-check oa-app-brain-seats
+    oa-formats-hpi oa-data-defs oa-test-game-data oa-test-support oa-options)
+  oa_add_game_data_test(app-brain-check-data oa-app-brain-check-test --data)
+  set_tests_properties(app-brain-check-data PROPERTIES TIMEOUT 120)
   # Chat a computer seat reads and sends: what it may say, who hears it, and
   # the pace of one line per 30 ticks.
   add_executable(oa-app-seat-chat-test src/app/seat_chat_test.cpp)
