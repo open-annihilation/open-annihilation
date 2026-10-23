@@ -19,3 +19,7 @@
 # The pseudo language pack's files are read back byte for byte by the pack
 # tests, its warm-up text included.
 /src/data/languages/tests/pseudo-pack/** -text
+
+# Classic's files are hashed byte for byte, so every checkout keeps them
+# exactly as committed, line endings included.
+/brains/classic/** -text
