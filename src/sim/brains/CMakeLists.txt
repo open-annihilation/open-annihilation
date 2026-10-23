@@ -4,7 +4,7 @@
 # A computer seat played by a sandboxed Lua brain: the package is loaded,
 # fits and start run, and the match calls the seat's hooks instead of the
 # built-in order tick.
-add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/handles.cpp)
+add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/handles.cpp src/lua_me.cpp)
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include)
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
