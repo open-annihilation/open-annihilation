@@ -76,9 +76,12 @@ inline constexpr std::string_view action_switch_off = "SWITCH OFF";
 inline constexpr std::string_view action_unload_mod = "UNLOAD MOD";
 inline constexpr std::string_view action_open_folder = "OPEN FOLDER";
 inline constexpr std::string_view action_homepage = "HOMEPAGE";
-/// On an installed mutator whose verdict is set. It checks that copy, with
-/// its default options, against the mod being played.
+/// On an installed mutator whose verdict is set, or an installed brain whose
+/// verdict is set. It checks that copy against the mod being played.
 inline constexpr std::string_view action_check_with_mod = "CHECK WITH THIS MOD";
+/// On an installed brain that is not the default, and on the built-in
+/// computer player while it is not. It makes that player the default.
+inline constexpr std::string_view action_use_by_default = "USE BY DEFAULT";
 /// GET's place when one prerequisite is missing. `{name}` is that prerequisite.
 inline constexpr std::string_view action_get_with = "GET WITH {name}";
 /// GET's place when more than one package besides the mutator will download.
@@ -327,11 +330,25 @@ inline constexpr std::string_view fact_maps = "Maps";
 inline constexpr std::string_view fact_coverage = "Coverage";
 inline constexpr std::string_view fact_from = "From";
 inline constexpr std::string_view fact_works_with = "Works with";
+inline constexpr std::string_view fact_levels = "Levels";
+/// The built-in computer player's three levels, joined with names_and.
+inline constexpr std::string_view level_easy = "Easy";
+inline constexpr std::string_view level_medium = "Medium";
+inline constexpr std::string_view level_hard = "Hard";
 inline constexpr std::string_view fact_checked = "Checked";
 inline constexpr std::string_view fact_options = "Options";
 inline constexpr std::string_view fact_changes = "Changes";
-/// Works with, when the mutator names no mod or names any mod.
+/// Works with, when the package names no mod or names any mod.
 inline constexpr std::string_view works_with_any = "Any mod";
+/// Full awareness, in a brain's facts. The chip uses chip_full_awareness.
+inline constexpr std::string_view full_awareness_sees =
+    "Sees every unit on the map, as Total Annihilation's own computer player does";
+/// A brain's Network fact.
+inline constexpr std::string_view fact_network = "Network";
+/// A brain that carries a learned network. `{size}` is size_text.
+inline constexpr std::string_view network_learned = "Uses a learned network ({size})";
+/// The summary a brain's compatible check keeps. The Checked fact fills it in.
+inline constexpr std::string_view fits_this_game = "it fits this game";
 inline constexpr std::string_view size_with_download = "{size} · {download} to download";
 inline constexpr std::string_view size_download_short = "{download} to download";
 inline constexpr std::string_view base_supported = "Total Annihilation 3.1c";
@@ -404,6 +421,11 @@ inline constexpr std::string_view status_version_available =
 /// An update that keeps the version and names no revision above 0.
 inline constexpr std::string_view status_update_available = "Update available · {size} to download";
 inline constexpr std::string_view status_installed = "Installed";
+/// An installed brain that is the default computer player.
+inline constexpr std::string_view status_installed_default = "Installed · Default";
+/// The built-in computer player while it is the default. While it is not,
+/// the status is registry_built_in.
+inline constexpr std::string_view status_built_in_default = "Built in · Default";
 inline constexpr std::string_view status_playing = "Playing";
 /// The status of a mod folder with no oamod.yaml, installed or played.
 inline constexpr std::string_view status_without_manifest = "No oamod.yaml present";
@@ -449,6 +471,9 @@ inline constexpr std::string_view chip_full_awareness = "Full awareness";
 /// Why a brain does not work with the game being played. `{names}` is the
 /// mods it works with, joined with names_or.
 inline constexpr std::string_view made_for = "Made for {names}";
+/// UNINSTALL of the default brain, before the question's last paragraph.
+inline constexpr std::string_view uninstall_default_brain =
+    "It is your default computer player: new computer seats go back to the built-in player.";
 
 // The download queue in the footer.
 inline constexpr std::string_view queue_package = "{name} {version}";
@@ -844,6 +869,24 @@ join_names(const TextHooks& text, const std::vector<std::string>& names) {
         joined = filled(text, words::names_comma, {{"left", joined}, {"right", names[index]}});
     }
     return filled(text, words::names_and, {{"left", joined}, {"right", names.back()}});
+}
+
+/// Joins names with "or", through names_comma and names_or.
+///
+/// @param text how texts are looked up
+/// @param names the names, in order
+/// @return the list; empty when `names` is empty
+[[nodiscard]] inline std::string
+join_or(const TextHooks& text, const std::vector<std::string>& names) {
+    if (names.empty())
+        return {};
+    if (names.size() == 1)
+        return names.front();
+    std::string joined = names.front();
+    for (std::size_t index = 1; index + 1 < names.size(); ++index) {
+        joined = filled(text, words::names_comma, {{"left", joined}, {"right", names[index]}});
+    }
+    return filled(text, words::names_or, {{"left", joined}, {"right", names.back()}});
 }
 
 /// Writes a size in binary units.

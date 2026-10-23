@@ -103,6 +103,9 @@ struct SeatSpec {
     std::span<const PackageFile> files{};
     /// The networks the manifest names.
     std::span<const NetworkFile> networks{};
+    /// Replaces the Classic fingerprint baked into this build, for this load.
+    /// Tests set it. The app never sets it. Empty uses the baked-in value.
+    std::string_view classic_fingerprint_for_tests{};
     /// Per-tick bank. The default is the brain profile's bank.
     oa::data::script_host::Bank bank{
         oa::data::script_host::default_tick_allowance,
@@ -170,5 +173,32 @@ seat_sandbox(match_runtime::Match& match, uint8_t player) noexcept;
 /// @param match the match
 /// @param facts the facts, owned by the caller until this returns
 void set_match_game_facts(match_runtime::Match& match, oa::data::brain_facts::GameFacts facts);
+
+/// Where a seat reports printed lines and a stop.
+///
+/// The simulation calls these during a turn. It writes no file and posts no
+/// message. `printed` and `stopped` must not throw. A null function is skipped.
+struct ReportHooks {
+    /// Pointer passed to both functions. May be null.
+    void* context{};
+    /// One printed line, oldest first. The view lasts for the call.
+    void (*printed)(void* context, uint8_t player, uint32_t tick, std::string_view line){};
+    /// Called once when a seated turn fails. The error lasts for the call.
+    void (*stopped)(
+        void* context,
+        uint8_t player,
+        uint32_t tick,
+        const oa::data::script_host::ScriptError& error
+    ){};
+};
+
+/// Stores the hooks later seats report through.
+///
+/// The hooks are kept on the match, including before any brain is seated.
+/// A failure to store the state leaves the match unchanged.
+///
+/// @param match the match
+/// @param hooks the hooks; empty functions report nothing
+void set_report_hooks(match_runtime::Match& match, ReportHooks hooks) noexcept;
 
 } // namespace oa::sim::brains

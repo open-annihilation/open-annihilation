@@ -406,7 +406,7 @@ void play(
     const char* downloads,
     uint32_t vehicle_kept
 ) {
-    Fixture fixture(0, true, {}, 0, limits);
+    Fixture fixture(0, true, {}, 0, 1, limits);
     fixture.spawn(computer, vehicle, 40, 40);
     std::snprintf(
         fixture.match->state().unit_defs[collector].ai_weight,
