@@ -198,7 +198,7 @@ centre would land on the line between Off and On.
 | A row's own button (MANAGE…) | `oa.settings.<row>.<button>`, as `oa.settings.game-files-summary.manage` | button |
 | Game Content's buttons | `oa.settings.content-check.check-again`, `oa.settings.content-copy.copy-again`, `oa.settings.content-open.open-folder` | button. The section's entry is `oa.settings.nav.game-content`. While a bundle is being copied, that bundle's row offers Cancel as `oa.settings.<id>.cancel-copy` |
 | Your files' buttons, on System | `oa.settings.user-folder.saves`, `.screenshots`, `.mods` | button |
-| File Type Registration, on System on Windows, Linux and macOS | `oa.settings.file-type-registration` (the heading); `oa.settings.file-type-oamod`, `oa.settings.file-type-oamap`, `oa.settings.file-type-oalang`, `oa.settings.file-type-oareg`, `oa.settings.file-type-oamut`, `oa.settings.file-type-oalaunch` | the heading a label; each switch as a switch |
+| File Type Registration, on System on Windows, Linux and macOS | `oa.settings.file-type-registration` (the heading); `oa.settings.file-type-oamod`, `oa.settings.file-type-oamap`, `oa.settings.file-type-oalang`, `oa.settings.file-type-oareg`, `oa.settings.file-type-oamut`, `oa.settings.file-type-oabrain`, `oa.settings.file-type-oalaunch` | the heading a label; each switch as a switch |
 | File types, on System on iOS | `oa.settings.file-types` | label |
 | Language's MORE IN THE LIBRARY… (main menu only) | `oa.settings.more-in-library` | button |
 | Downloads' REGISTRIES IN THE LIBRARY… (main menu only) | `oa.settings.registries-in-library` | button; opens the Library on its Registries tab |

@@ -92,7 +92,7 @@ Open Annihilation's own settings open with **Cmd+,**, or from
 bottom right of the main menu opens. See [Settings](../settings.md), and
 [the Library](../library.md) for mods, maps and languages to download.
 
-The app declares `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oareg` and
+The app declares `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oareg` and
 `.oalaunch` files.
 Double-click a `.oamod` file to install the mod it holds in Open
 Annihilation ([mods](../mods/README.md#installing-a-oamod-file)) while
@@ -102,7 +102,7 @@ Open Annihilation is the program Finder uses for that type, and a
 [Settings › System](../settings.md#system) lists a switch for each type
 under **File Type Registration**. On makes this copy the program Finder
 opens that type with. Off hands it back to the program that opens a zip
-archive (the three packages, usually Archive Utility) or plain text (a
+archive (the five packages, usually Archive Utility) or plain text (a
 registry file or a launch file). The type and its icon stay declared by the app; only the
 program that opens the file changes. The switch shows the choice Finder
 has now. It changes when you move it and press **OK**, and not before. A
