@@ -873,6 +873,7 @@ void install_orders(lua_State* state, Seat& seat) {
     lua_pushcfunction(state, brain_order_counts);
     lua_setfield(state, -2, "order_counts");
     lua_setglobal(state, "brain");
+    install_site_functions(state, seat);
 }
 
 } // namespace oa::sim::brains
