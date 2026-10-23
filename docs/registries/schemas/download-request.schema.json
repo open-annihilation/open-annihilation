@@ -12,7 +12,7 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
     },
     "package": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$", "minLength": 1, "maxLength": 64 },
-    "kind": { "enum": ["oamod", "oamap", "oalang", "expansion"] },
+    "kind": { "enum": ["oamod", "oamap", "oalang", "expansion", "oamut", "oabrain"] },
     "release": { "type": "integer", "minimum": 1, "maximum": 2147483647 },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "engine": { "type": "string", "pattern": "^[0-9A-Za-z.+-]+$", "minLength": 1, "maxLength": 32 },

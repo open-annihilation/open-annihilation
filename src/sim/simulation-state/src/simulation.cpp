@@ -206,6 +206,14 @@ StepFault clear_orders(OrderQueue& q, oa::Unit& u, bool all, Host& h) {
     return StepFault::none;
 }
 
+namespace {
+/// Reports an order its handler ended, when the host asks to hear it.
+void report_ended(Host& host, const oa::Unit& unit, const Order& order, bool done) {
+    if (host.order_ends.ended != nullptr)
+        host.order_ends.ended(host.order_ends.context, unit, order, done);
+}
+} // namespace
+
 StepFault primary_orders(oa::World& w, OrderQueue& q, oa::Unit& u, Host& h, std::size_t budget) {
     for (;;) {
         if (!spend(budget))
@@ -250,6 +258,7 @@ StepFault primary_orders(oa::World& w, OrderQueue& q, oa::Unit& u, Host& h, std:
             break;
         case 5:
         case 8:
+            report_ended(h, u, *o, result == 5);
             if (const auto fault = remove_order(q, u, *o, h); fault != StepFault::none)
                 return fault;
             break;
@@ -260,6 +269,7 @@ StepFault primary_orders(oa::World& w, OrderQueue& q, oa::Unit& u, Host& h, std:
         case 9:
             o->flags |= retry_flag;
             if (o->next) {
+                report_ended(h, u, *o, false);
                 if (const auto fault = remove_order(q, u, *o, h); fault != StepFault::none)
                     return fault;
             } else {
@@ -268,6 +278,7 @@ StepFault primary_orders(oa::World& w, OrderQueue& q, oa::Unit& u, Host& h, std:
             }
             break;
         default:
+            report_ended(h, u, *o, false);
             return clear_orders(q, u, true, h);
         }
     }

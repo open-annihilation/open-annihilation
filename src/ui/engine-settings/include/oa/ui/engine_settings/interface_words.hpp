@@ -554,6 +554,7 @@ inline constexpr std::string_view interface_words[] = {
     "Zoom",
     "Zoomed out units",
     "and",
+    "brains",
     "cells",
     "checked {age}",
     "community",

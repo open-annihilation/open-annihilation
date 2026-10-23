@@ -4,11 +4,14 @@
 #include "oa/formats/oamut/manifest.hpp"
 
 #include "oa/formats/oamod.hpp"
+#include "oa/formats/oamut/shared.hpp"
 
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -641,6 +644,43 @@ int32_t lowest_exponent(
     return floor;
 }
 
+/// Tells whether a key is one of a span of names.
+///
+/// @param key the key
+/// @param allowed the keys that may appear
+/// @return true when `key` is one of them
+bool listed_span(std::string_view key, std::span<const std::string_view> allowed) {
+    for (const std::string_view known : allowed)
+        if (known == key)
+            return true;
+    return false;
+}
+
+/// Reports every key of a mapping that is not one of a span of names.
+///
+/// @param node the mapping
+/// @param allowed the keys that may appear
+/// @param block the path of the mapping
+/// @param[in,out] problems the problems
+void refuse_unknown_span(
+    const oamod::Node& node,
+    std::span<const std::string_view> allowed,
+    std::string_view block,
+    std::vector<Problem>& problems
+) {
+    for (const oamod::Node& entry : node.children) {
+        if (entry.key.kind == oamod::KeyKind::string && listed_span(entry.key.text, allowed))
+            continue;
+        const std::string path = child_path(block, entry.key.text);
+        add_problem(
+            problems,
+            entry.position,
+            path,
+            entry.key.text + " is not a key of " + std::string{block}
+        );
+    }
+}
+
 /// Reports every key of a mapping that is not one of a list.
 ///
 /// @param node the mapping
@@ -654,17 +694,9 @@ void refuse_unknown_keys(
     std::string_view block,
     std::vector<Problem>& problems
 ) {
-    for (const oamod::Node& entry : node.children) {
-        if (entry.key.kind == oamod::KeyKind::string && listed(entry.key.text, allowed))
-            continue;
-        const std::string path = child_path(block, entry.key.text);
-        add_problem(
-            problems,
-            entry.position,
-            path,
-            entry.key.text + " is not a key of " + std::string{block}
-        );
-    }
+    refuse_unknown_span(
+        node, std::span<const std::string_view>{allowed.data(), allowed.size()}, block, problems
+    );
 }
 
 /// Reads the author block.
@@ -1270,12 +1302,14 @@ void read_translated_labels(
 ///
 /// @param entry the language entry
 /// @param options the mutator's options
+/// @param own_keys keys of the language block the caller reads itself
 /// @param[out] translation the translation
 /// @param[in,out] problems the problems
 /// @return true when the key was a language tag
 bool read_translation(
     const oamod::Node& entry,
     const std::vector<Option>& options,
+    std::span<const std::string_view> own_keys,
     Translation& translation,
     std::vector<Problem>& problems
 ) {
@@ -1295,7 +1329,13 @@ bool read_translation(
         add_problem(problems, entry.position, block, block + " must be an object");
         return true;
     }
-    refuse_unknown_keys(entry, translation_keys, block, problems);
+    std::vector<std::string_view> allowed;
+    allowed.reserve(translation_keys.size() + own_keys.size());
+    for (const std::string_view key : translation_keys)
+        allowed.push_back(key);
+    for (const std::string_view key : own_keys)
+        allowed.push_back(key);
+    refuse_unknown_span(entry, allowed, block, problems);
     if (const oamod::Node* name = oamod::find_entry(entry, "name")) {
         std::string label;
         if (read_label(*name, block + ".name", label, problems))
@@ -1470,6 +1510,91 @@ void read_legacy(
         if (!files_ok)
             legacy.files.clear();
     }
+}
+
+/// Reads an options block into a list.
+///
+/// @param options the options value
+/// @param[out] out the options that were read
+/// @param[in,out] problems the problems
+void read_options_block(
+    const oamod::Node& options, std::vector<Option>& out, std::vector<Problem>& problems
+) {
+    if (options.kind != oamod::NodeKind::mapping) {
+        add_problem(problems, options.position, "options", "options must be an object");
+        return;
+    }
+    if (options.children.size() > most_options) {
+        add_problem(
+            problems,
+            options.position,
+            "options",
+            "options lists " + std::to_string(options.children.size()) + " options; at most " +
+                std::to_string(most_options)
+        );
+    }
+    for (const oamod::Node& entry : options.children) {
+        Option option;
+        if (!read_option(entry, option, problems))
+            continue;
+        out.push_back(std::move(option));
+    }
+}
+
+/// Reads a strings block into a list.
+///
+/// @param strings the strings value
+/// @param options the options the translations may name
+/// @param own_keys keys of a language block the caller reads itself
+/// @param[out] out the translations that were read
+/// @param[in,out] problems the problems
+void read_strings_block(
+    const oamod::Node& strings,
+    const std::vector<Option>& options,
+    std::span<const std::string_view> own_keys,
+    std::vector<Translation>& out,
+    std::vector<Problem>& problems
+) {
+    if (strings.kind != oamod::NodeKind::mapping) {
+        add_problem(problems, strings.position, "strings", "strings must be an object");
+        return;
+    }
+    if (strings.children.size() > most_languages) {
+        add_problem(
+            problems,
+            strings.position,
+            "strings",
+            "strings lists " + std::to_string(strings.children.size()) + " languages; at most " +
+                std::to_string(most_languages)
+        );
+    }
+    for (const oamod::Node& entry : strings.children) {
+        Translation translation;
+        if (!read_translation(entry, options, own_keys, translation, problems))
+            continue;
+        out.push_back(std::move(translation));
+    }
+}
+
+/// Reads a works-with list.
+///
+/// @param list the works-with value
+/// @param[out] conditions the entries that passed
+/// @param[in,out] problems the problems
+void read_works_with_list(
+    const oamod::Node& list, std::vector<Condition>& conditions, std::vector<Problem>& problems
+) {
+    read_conditions(
+        list,
+        "works-with",
+        most_works_with,
+        ConditionList::works_with,
+        {},
+        false,
+        nullptr,
+        conditions,
+        problems
+    );
 }
 
 /// Reads the header and every block.
@@ -1760,49 +1885,11 @@ void read_document_manifest(
         }
     }
 
-    if (const oamod::Node* options = oamod::find_entry(root, "options")) {
-        if (options->kind != oamod::NodeKind::mapping) {
-            add_problem(problems, options->position, "options", "options must be an object");
-        } else {
-            if (options->children.size() > most_options) {
-                add_problem(
-                    problems,
-                    options->position,
-                    "options",
-                    "options lists " + std::to_string(options->children.size()) +
-                        " options; at most " + std::to_string(most_options)
-                );
-            }
-            for (const oamod::Node& entry : options->children) {
-                Option option;
-                if (!read_option(entry, option, problems))
-                    continue;
-                manifest.options.push_back(std::move(option));
-            }
-        }
-    }
+    if (const oamod::Node* options = oamod::find_entry(root, "options"))
+        read_options_block(*options, manifest.options, problems);
 
-    if (const oamod::Node* strings = oamod::find_entry(root, "strings")) {
-        if (strings->kind != oamod::NodeKind::mapping) {
-            add_problem(problems, strings->position, "strings", "strings must be an object");
-        } else {
-            if (strings->children.size() > most_languages) {
-                add_problem(
-                    problems,
-                    strings->position,
-                    "strings",
-                    "strings lists " + std::to_string(strings->children.size()) +
-                        " languages; at most " + std::to_string(most_languages)
-                );
-            }
-            for (const oamod::Node& entry : strings->children) {
-                Translation translation;
-                if (!read_translation(entry, manifest.options, translation, problems))
-                    continue;
-                manifest.strings.push_back(std::move(translation));
-            }
-        }
-    }
+    if (const oamod::Node* strings = oamod::find_entry(root, "strings"))
+        read_strings_block(*strings, manifest.options, {}, manifest.strings, problems);
 
     manifest.entry = std::string{default_entry};
     if (const oamod::Node* entry = oamod::find_entry(root, "entry")) {
@@ -1865,7 +1952,92 @@ std::string cut_summary(std::string_view description) {
     return std::string{description.substr(0, cut)};
 }
 
+void relay_add_problem(
+    std::vector<Problem>& problems,
+    oamod::TextPosition position,
+    std::string key,
+    std::string message
+) {
+    add_problem(problems, position, std::move(key), std::move(message));
+}
+
+bool relay_package_path(std::string_view path) {
+    return package_path(path);
+}
+
+bool relay_has_control(std::string_view text, bool allow_line_feed) {
+    return has_control(text, allow_line_feed);
+}
+
+bool relay_language_tag(std::string_view text) noexcept {
+    return language_tag(text);
+}
+
+void relay_read_author(const oamod::Node& node, Author& author, std::vector<Problem>& problems) {
+    read_author(node, author, problems);
+}
+
 } // namespace
+
+namespace shared {
+
+void add_problem(
+    std::vector<Problem>& problems,
+    oamod::TextPosition position,
+    std::string key,
+    std::string message
+) {
+    relay_add_problem(problems, position, std::move(key), std::move(message));
+}
+
+void refuse_unknown_keys(
+    const oamod::Node& node,
+    std::span<const std::string_view> allowed,
+    std::string_view block,
+    std::vector<Problem>& problems
+) {
+    refuse_unknown_span(node, allowed, block, problems);
+}
+
+bool package_path(std::string_view path) {
+    return relay_package_path(path);
+}
+
+bool has_control(std::string_view text, bool allow_line_feed) {
+    return relay_has_control(text, allow_line_feed);
+}
+
+bool language_tag(std::string_view text) noexcept {
+    return relay_language_tag(text);
+}
+
+void read_author(const oamod::Node& node, Author& author, std::vector<Problem>& problems) {
+    relay_read_author(node, author, problems);
+}
+
+void read_works_with(
+    const oamod::Node& list, std::vector<Condition>& conditions, std::vector<Problem>& problems
+) {
+    read_works_with_list(list, conditions, problems);
+}
+
+void read_options(
+    const oamod::Node& mapping, std::vector<Option>& options, std::vector<Problem>& problems
+) {
+    read_options_block(mapping, options, problems);
+}
+
+void read_strings(
+    const oamod::Node& mapping,
+    const std::vector<Option>& options,
+    std::span<const std::string_view> own_keys,
+    std::vector<Translation>& strings,
+    std::vector<Problem>& problems
+) {
+    read_strings_block(mapping, options, own_keys, strings, problems);
+}
+
+} // namespace shared
 
 bool lua_reserved_word(std::string_view text) noexcept {
     // Lua 5.4's 22 reserved words, in order, matched byte for byte.

@@ -147,6 +147,52 @@
           "default": 1
         }
       ]
+    },
+    {
+      "kind": "oabrain",
+      "id": "steady-commander",
+      "name": "Steady Commander",
+      "version": "1.2",
+      "release": 1,
+      "size": 1800,
+      "sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+      "file": "/v1/p/9999999999999999999999999999999999999999999999999999999999999999.oabrain",
+      "author": "OA team",
+      "summary": "A made-up brain used by the specification.",
+      "tags": [
+        "economy",
+        "teaching"
+      ],
+      "badge": "/v1/i/8888888888888888888888888888888888888888888888888888888888888888.png",
+      "full_awareness": false,
+      "network_bytes": 2100000,
+      "requiredExpansions": [
+        "core-contingency"
+      ],
+      "works_with": [
+        "ta-3.1c",
+        "ridge >= 28"
+      ],
+      "levels": [
+        {
+          "id": "careful",
+          "name": "Careful",
+          "difficulty": "easy"
+        },
+        {
+          "id": "steady",
+          "name": "Steady",
+          "difficulty": "medium"
+        }
+      ],
+      "options": [
+        {
+          "id": "teach",
+          "label": "Teaching",
+          "type": "toggle",
+          "default": true
+        }
+      ]
     }
   ]
 }

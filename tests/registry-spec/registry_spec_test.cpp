@@ -180,8 +180,8 @@ void check_catalogue(const std::filesystem::path& examples) {
     OA_CHECK(
         loaded.icon == "/v1/i/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png"
     );
-    OA_CHECK(loaded.packages.size() == 4);
-    if (loaded.packages.size() == 4) {
+    OA_CHECK(loaded.packages.size() == 5);
+    if (loaded.packages.size() == 5) {
         OA_CHECK(loaded.packages[0].kind == catalogue::Kind::oamod);
         OA_CHECK(loaded.packages[0].id == "example-mod");
         OA_CHECK(loaded.packages[1].kind == catalogue::Kind::oamap);
@@ -220,6 +220,35 @@ void check_catalogue(const std::filesystem::path& examples) {
             "/v1/i/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff.png"
         );
         OA_CHECK(mutator.tags == std::vector<std::string>({"aim"}));
+        const catalogue::Package& brain = loaded.packages[4];
+        OA_CHECK(brain.kind == catalogue::Kind::oabrain);
+        OA_CHECK(brain.id == "steady-commander");
+        OA_CHECK(brain.version == "1.2");
+        OA_CHECK(!brain.full_awareness);
+        OA_CHECK(brain.network_bytes == 2100000);
+        OA_CHECK(brain.works_with == std::vector<std::string>({"ta-3.1c", "ridge >= 28"}));
+        OA_CHECK(brain.required_expansions == std::vector<std::string>({"core-contingency"}));
+        OA_CHECK(brain.levels.size() == 2);
+        if (brain.levels.size() == 2) {
+            OA_CHECK(brain.levels[0].id == "careful");
+            OA_CHECK(brain.levels[0].name == "Careful");
+            OA_CHECK(brain.levels[0].difficulty == oa::formats::oabrain::Difficulty::easy);
+            OA_CHECK(brain.levels[1].id == "steady");
+            OA_CHECK(brain.levels[1].name == "Steady");
+            OA_CHECK(brain.levels[1].difficulty == oa::formats::oabrain::Difficulty::medium);
+        }
+        OA_CHECK(brain.options.size() == 1);
+        if (!brain.options.empty()) {
+            OA_CHECK(brain.options[0].id == "teach");
+            OA_CHECK(brain.options[0].label == "Teaching");
+            OA_CHECK(brain.options[0].type == oa::formats::oamut::OptionType::toggle);
+            OA_CHECK(brain.options[0].default_text == "true");
+        }
+        OA_CHECK(brain.tags == std::vector<std::string>({"economy", "teaching"}));
+        OA_CHECK(
+            brain.badge ==
+            "/v1/i/8888888888888888888888888888888888888888888888888888888888888888.png"
+        );
     }
 
     // RFC 8032 section 7.1 TEST 1. The seed is the published test vector.

@@ -253,11 +253,32 @@ struct CandidateFilter {
     return viewpoint_sees_point(width, height, sight_words, viewpoint_bit, position);
 }
 
+/// Where the scheduler reports an order its handler ended, just before the
+/// order is removed. A null `ended` reports nothing.
+struct OrderEnds {
+    void* context{}; ///< passed to ended
+    /// Called before the ended order is removed; null reports nothing.
+    ///
+    /// @param context OrderEnds::context
+    /// @param unit unit carrying the order
+    /// @param order order about to be removed
+    /// @param done true when the handler finished the order, false when it failed
+    void (*ended)(void* context, const oa::Unit& unit, const Order& order, bool done){};
+};
+
 // Operations owned by other systems; all are mandatory, never default no-ops.
 struct Host {
     virtual ~Host() = default;
     /// The rules the match plays by (Match::rules_view); unset, 3.1c's.
     data::match_rules::MatchRulesView rules{};
+    /// Reports an order `primary_orders` is about to remove because its handler
+    /// ended it. Null reports nothing.
+    ///
+    /// `primary_orders` calls it, before removing an order whose handler ended
+    /// it, with `done` true for result 5, and false for 8, for a 9 that gives
+    /// way to the next order, and for the head order of a result that clears
+    /// the queue. It must not change the unit, the order or the queue.
+    OrderEnds order_ends{};
     /// Runs one step of an order's mission handler.
     ///
     /// @param world world the unit lives in

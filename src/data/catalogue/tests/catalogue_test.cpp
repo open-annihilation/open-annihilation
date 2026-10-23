@@ -1435,6 +1435,280 @@ void test_mutator() {
     }
 }
 
+/// One brain entry. `members` is the JSON members after `file`, without a leading comma.
+std::string brain_entry(std::string_view id, std::string_view members) {
+    const std::string hash = hex_of(std::string("brain/") + std::string(id) + std::string(members));
+    std::string json = "{\"kind\":\"oabrain\",\"id\":\"";
+    json += id;
+    json += "\",\"name\":\"Steady Commander\",\"release\":1,\"size\":4,\"sha256\":\"";
+    json += hash;
+    json += "\",\"file\":\"/v1/p/";
+    json += hash;
+    json += ".oabrain\"";
+    if (!members.empty()) {
+        json += ',';
+        json += members;
+    }
+    json += '}';
+    return json;
+}
+
+void test_brain() {
+    namespace brain = oa::formats::oabrain;
+    namespace mut = oa::formats::oamut;
+    OA_CHECK(std::string(catalogue::kind_name(catalogue::Kind::oabrain)) == "oabrain");
+    OA_CHECK(std::string(catalogue::package_extension(catalogue::Kind::oabrain)) == "oabrain");
+    OA_CHECK(catalogue::valid_package_key(catalogue::Kind::oabrain, "steady-commander"));
+    OA_CHECK(!catalogue::valid_package_key(catalogue::Kind::oabrain, "Steady"));
+    OA_CHECK(!catalogue::valid_package_key(catalogue::Kind::oabrain, "steady-commander@1"));
+
+    const std::string facts =
+        "\"version\":\"1.2\",\"publisher\":\"OA team\",\"author\":\"OA team\","
+        "\"summary\":\"A made-up brain\",\"notes\":\"Teaches the opening\","
+        "\"homepage\":\"https://example.com/steady-commander\","
+        "\"badge\":\"/v1/i/badge.png\",\"published\":\"2026-10-12\","
+        "\"tags\":[\"economy\",\"teaching\",\"custom\"],"
+        "\"requires\":{\"engine\":\">= 0.8.0\",\"base\":\"ta-3.1c\","
+        "\"mutators\":\"gatehouse\",\"later\":true},"
+        "\"supportedGames\":[\"totala\"],\"requiredExpansions\":[\"core-contingency\"],"
+        "\"works_with\":[\"ta-3.1c\",\"ridge >= 28\"],"
+        "\"conflicts_with\":1,\"layers\":\"units\",\"clashes\":\"merge\","
+        "\"full_awareness\":false,\"network_bytes\":2100000,"
+        "\"levels\":["
+        "{\"id\":\"careful\",\"name\":\"Careful\",\"difficulty\":\"easy\",\"note\":\"kept out\"},"
+        "{\"id\":\"steady\",\"name\":\"Steady\",\"difficulty\":\"medium\"}"
+        "],"
+        "\"options\":["
+        "{\"id\":\"teach\",\"label\":\"Teaching\",\"type\":\"toggle\",\"default\":true},"
+        "{\"id\":\"future\",\"label\":\"Future\",\"type\":\"slider\"}"
+        "]";
+    const auto out = read_ok(
+        catalogue_of(brain_entry("steady-commander", facts) + "," + bare("oamod", "keeper"))
+    );
+    OA_CHECK(out.problems.empty());
+    OA_CHECK(out.packages.size() == 2);
+    if (out.packages.size() == 2) {
+        const catalogue::Package& package = out.packages[0];
+        OA_CHECK(package.kind == catalogue::Kind::oabrain);
+        OA_CHECK(package.id == "steady-commander");
+        OA_CHECK(package.name == "Steady Commander");
+        OA_CHECK(package.version == "1.2");
+        OA_CHECK(package.revision == 0);
+        OA_CHECK(package.publisher == "OA team");
+        OA_CHECK(package.author == "OA team");
+        OA_CHECK(package.summary == "A made-up brain");
+        OA_CHECK(package.notes == "Teaches the opening");
+        OA_CHECK(package.homepage == "https://example.com/steady-commander");
+        OA_CHECK(package.badge == "/v1/i/badge.png");
+        OA_CHECK(package.published == "2026-10-12");
+        OA_CHECK(package.tags == std::vector<std::string>({"economy", "teaching", "custom"}));
+        OA_CHECK(package.requires_engine_text == ">= 0.8.0");
+        OA_CHECK(package.requires_engine.has_value());
+        OA_CHECK(package.requires_base == "ta-3.1c");
+        OA_CHECK(package.requires_mutators.empty());
+        OA_CHECK(package.supported_games == std::vector<std::string>({"totala"}));
+        OA_CHECK(package.required_expansions == std::vector<std::string>({"core-contingency"}));
+        OA_CHECK(package.works_with == std::vector<std::string>({"ta-3.1c", "ridge >= 28"}));
+        OA_CHECK(package.conflicts_with.empty());
+        OA_CHECK(package.layers.empty());
+        OA_CHECK(!package.clashes.has_value());
+        OA_CHECK(!package.full_awareness);
+        OA_CHECK(package.network_bytes == 2100000);
+        OA_CHECK(package.levels.size() == 2);
+        if (package.levels.size() == 2) {
+            OA_CHECK(package.levels[0].id == "careful");
+            OA_CHECK(package.levels[0].name == "Careful");
+            OA_CHECK(package.levels[0].difficulty == brain::Difficulty::easy);
+            OA_CHECK(package.levels[1].id == "steady");
+            OA_CHECK(package.levels[1].name == "Steady");
+            OA_CHECK(package.levels[1].difficulty == brain::Difficulty::medium);
+        }
+        OA_CHECK(package.options.size() == 1);
+        if (!package.options.empty()) {
+            OA_CHECK(package.options[0].id == "teach");
+            OA_CHECK(package.options[0].label == "Teaching");
+            OA_CHECK(package.options[0].type == mut::OptionType::toggle);
+            OA_CHECK(package.options[0].default_text == "true");
+        }
+        OA_CHECK(
+            package.file.size() >= 8 &&
+            package.file.compare(package.file.size() - 8, 8, ".oabrain") == 0
+        );
+        const catalogue::Package& keeper = out.packages[1];
+        OA_CHECK(keeper.id == "keeper");
+        OA_CHECK(keeper.levels.empty());
+        OA_CHECK(!keeper.full_awareness);
+        OA_CHECK(keeper.network_bytes == 0);
+        OA_CHECK(keeper.works_with.empty());
+        OA_CHECK(keeper.options.empty());
+    }
+
+    const std::string levels_only =
+        "\"levels\":[{\"id\":\"careful\",\"name\":\"Careful\",\"difficulty\":\"easy\"}]";
+    const std::string one_level = "\"version\":\"1\"," + levels_only;
+    const auto defaults = read_ok(catalogue_of(brain_entry("steady-commander", one_level)));
+    OA_CHECK(defaults.packages.size() == 1);
+    if (!defaults.packages.empty()) {
+        OA_CHECK(!defaults.packages[0].full_awareness);
+        OA_CHECK(defaults.packages[0].network_bytes == 0);
+        OA_CHECK(defaults.packages[0].levels.size() == 1);
+    }
+
+    const auto skipped = read_ok(catalogue_of(brain_entry(
+        "steady-commander",
+        "\"version\":\"1\",\"levels\":["
+        "{\"id\":\"careful\",\"name\":\"Careful\",\"difficulty\":\"easy\"},"
+        "{\"id\":\"brutal\",\"name\":\"Brutal\",\"difficulty\":\"brutal\"}"
+        "]"
+    )));
+    OA_CHECK(skipped.problems.empty());
+    OA_CHECK(skipped.packages.size() == 1);
+    if (!skipped.packages.empty()) {
+        OA_CHECK(skipped.packages[0].levels.size() == 1);
+        if (!skipped.packages[0].levels.empty())
+            OA_CHECK(skipped.packages[0].levels[0].id == "careful");
+    }
+    skips_one(
+        brain_entry(
+            "steady-commander",
+            "\"version\":\"1\",\"levels\":["
+            "{\"id\":\"brutal\",\"name\":\"Brutal\",\"difficulty\":\"brutal\"}]"
+        ),
+        "levels names no level this build knows"
+    );
+
+    skips_one(brain_entry("steady-commander", levels_only), "version is missing");
+    skips_one(
+        brain_entry("steady-commander", "\"version\":\"1.2.3.4\"," + levels_only),
+        "version is not a mutator version"
+    );
+    const std::string long_version(33, '1');
+    skips_one(
+        brain_entry("steady-commander", "\"version\":\"" + long_version + "\"," + levels_only),
+        "version is not 1 to 32 bytes"
+    );
+    skips_one(brain_entry("steady-commander", "\"version\":\"1\""), "levels is missing");
+    skips_one(
+        brain_entry("steady-commander", "\"version\":\"1\",\"levels\":\"easy\""),
+        "levels is not a list"
+    );
+    skips_one(
+        brain_entry("steady-commander", "\"version\":\"1\",\"levels\":[]"), "levels lists none"
+    );
+    std::string many_levels = "\"version\":\"1\",\"levels\":[";
+    for (int index = 0; index < 7; ++index) {
+        if (index != 0)
+            many_levels += ',';
+        many_levels += "{\"id\":\"level-";
+        many_levels += std::to_string(index);
+        many_levels += "\",\"name\":\"Level\",\"difficulty\":\"easy\"}";
+    }
+    many_levels += ']';
+    skips_one(brain_entry("steady-commander", many_levels), "levels lists more than 6");
+    skips_one(
+        brain_entry("steady-commander", "\"version\":\"1\",\"levels\":[1]"),
+        "levels[0] is not an object"
+    );
+    skips_one(
+        brain_entry(
+            "steady-commander",
+            "\"version\":\"1\",\"levels\":[{\"id\":\"Careful\",\"name\":\"Careful\","
+            "\"difficulty\":\"easy\"}]"
+        ),
+        "levels[0].id is not a level id"
+    );
+    skips_one(
+        brain_entry(
+            "steady-commander",
+            "\"version\":\"1\",\"levels\":["
+            "{\"id\":\"careful\",\"name\":\"Careful\",\"difficulty\":\"easy\"},"
+            "{\"id\":\"careful\",\"name\":\"Again\",\"difficulty\":\"hard\"}]"
+        ),
+        "levels[1].id is repeated"
+    );
+    const std::string long_name(65, 'n');
+    skips_one(
+        brain_entry(
+            "steady-commander",
+            "\"version\":\"1\",\"levels\":["
+            "{\"id\":\"careful\",\"name\":\"Careful\",\"difficulty\":\"easy\"},"
+            "{\"id\":\"steady\",\"name\":\"" +
+                long_name + "\",\"difficulty\":\"medium\"}]"
+        ),
+        "levels[1].name is not 1 to 64 bytes"
+    );
+    skips_one(
+        brain_entry("steady-commander", one_level + ",\"full_awareness\":\"yes\""),
+        "full_awareness is not true or false"
+    );
+    skips_one(
+        brain_entry("steady-commander", one_level + ",\"network_bytes\":67108865"),
+        "network_bytes is not a whole number from 0 to 67108864"
+    );
+    skips_one(
+        brain_entry("steady-commander", one_level + ",\"works_with\":\"*\""),
+        "works_with is not a list"
+    );
+    skips_one(
+        brain_entry(
+            "steady-commander",
+            one_level + ",\"options\":[{\"id\":\"teach\",\"label\":\"Teaching\","
+                        "\"type\":\"toggle\",\"default\":\"yes\"}]"
+        ),
+        "options[0].default is not true or false"
+    );
+
+    const auto untouched = read_ok(catalogue_of(
+        bare(
+            "oamod",
+            "ridge",
+            "\"levels\":\"nope\",\"full_awareness\":\"yes\",\"network_bytes\":-1,"
+            "\"works_with\":[\"*\"],\"options\":[1]"
+        ) +
+        "," +
+        bare(
+            "oamut",
+            "steady-hands",
+            "\"levels\":1,\"full_awareness\":\"yes\",\"network_bytes\":\"lots\""
+        )
+    ));
+    OA_CHECK(untouched.problems.empty());
+    OA_CHECK(untouched.packages.size() == 2);
+    if (untouched.packages.size() == 2) {
+        OA_CHECK(untouched.packages[0].kind == catalogue::Kind::oamod);
+        OA_CHECK(untouched.packages[0].levels.empty());
+        OA_CHECK(!untouched.packages[0].full_awareness);
+        OA_CHECK(untouched.packages[0].network_bytes == 0);
+        OA_CHECK(untouched.packages[0].works_with.empty());
+        OA_CHECK(untouched.packages[1].kind == catalogue::Kind::oamut);
+        OA_CHECK(untouched.packages[1].levels.empty());
+        OA_CHECK(!untouched.packages[1].full_awareness);
+        OA_CHECK(untouched.packages[1].network_bytes == 0);
+    }
+
+    std::string wrong_file = brain_entry("steady-commander", one_level);
+    const auto suffix = wrong_file.rfind(".oabrain");
+    OA_CHECK(suffix != std::string::npos);
+    if (suffix != std::string::npos)
+        wrong_file.replace(suffix, 8, ".oamod");
+    skips_one(wrong_file, "file not named");
+    skips_one("{\"kind\":\"oafuture\",\"id\":\"steady-commander\"}", "unknown kind");
+
+    const auto duplicate = read_ok(catalogue_of(
+        brain_entry("ridge", one_level) + "," + bare("oamod", "ridge") + "," +
+        bare("oamod", "keeper")
+    ));
+    OA_CHECK(duplicate.packages.size() == 1);
+    if (!duplicate.packages.empty())
+        OA_CHECK(duplicate.packages[0].id == "keeper");
+    OA_CHECK(duplicate.problems.size() == 2);
+    if (duplicate.problems.size() == 2) {
+        OA_CHECK(duplicate.problems[0].find("same key") != std::string::npos);
+        OA_CHECK(duplicate.problems[0].find("ridge") != std::string::npos);
+        OA_CHECK(duplicate.problems[1].find("same key") != std::string::npos);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1449,5 +1723,6 @@ int main() {
     test_content_needs();
     test_expansion();
     test_mutator();
+    test_brain();
     return oa::test::check_exit_status();
 }

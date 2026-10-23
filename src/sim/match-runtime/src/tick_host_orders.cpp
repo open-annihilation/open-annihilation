@@ -59,6 +59,19 @@ void TickHost::queue_default_mission(oa::World&, oa::Unit& record) {
         return;
     auto& order = match.insert_ground_order(slot(u).unit_index, kind);
     owned(order).extra.command_flags |= command_overlay;
+    // A frame waiting for its builder is not idle, and GetBuilt is that wait.
+    if (record.build_remaining == 0.0F && kind != get_built_kind) {
+        const auto unit_slot = static_cast<uint16_t>(oa::world_unit_slot(&match.state(), &record));
+        match.emit_event<&EventHooks::unit_idle>(match.state(), unit_slot);
+    }
+}
+
+void Match::report_order_end(
+    void* match, const oa::Unit& unit, const sim::simulation_state::Order& order, bool done
+) {
+    auto& self = *static_cast<Match*>(match);
+    const auto unit_slot = static_cast<uint16_t>(oa::world_unit_slot(&self.state(), &unit));
+    self.emit_event<&EventHooks::order_ended>(self.state(), unit_slot, order.kind, done);
 }
 
 uint32_t TickHost::dispatch_mission(

@@ -195,6 +195,8 @@ void Match::transfer_unit(uint16_t unit, uint8_t new_owner, const TransferredUni
     auto& original = slots_.at(unit);
     if (!original.unit || new_owner >= simulation_.players.size())
         return;
+    // Read before the captured event or the copy can change the record.
+    const uint8_t from = original.record.owner_index;
     auto& receiver = simulation_.players[new_owner];
     if (original.unit->owner == &receiver)
         return;
@@ -214,6 +216,7 @@ void Match::transfer_unit(uint16_t unit, uint8_t new_owner, const TransferredUni
         original.unit->capture_cooldown = handed_over_cooldown;
         if (multiplayer.unit_transferred != nullptr)
             multiplayer.unit_transferred(multiplayer.context, unit, new_owner);
+        emit_event<&EventHooks::unit_given>(state(), unit, uint16_t{0}, from, new_owner);
         TickHost(*this).scaled_damage(nullptr, original, lethal_damage, captured);
         return;
     }
@@ -234,6 +237,7 @@ void Match::transfer_unit(uint16_t unit, uint8_t new_owner, const TransferredUni
         return;
     // The copy drops the standing move and fire orders it was created with.
     copy->unit->flags &= ~(OA_UNIT_FLAG_MOVE_ORDER_MASK | OA_UNIT_FLAG_FIRE_ORDER_MASK);
+    emit_event<&EventHooks::unit_given>(state(), unit, copy->unit_index, from, new_owner);
     if (carried != nullptr) {
         // The unit's own machine kills the old unit and shares its death.
         copy->unit->health = carried->health;
