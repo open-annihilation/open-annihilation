@@ -8,7 +8,9 @@
 // while the dying unit still names its owner. A shot launched from another
 // machine's report is reported with the reported aim, which its record does
 // not keep; burst shots and meteors, creations and completions are reported
-// where they happen. Listeners hear each event after the primary table, in
+// where they happen. Each new unit is reported created by the unit that
+// started it, or by none, right after it is created. Listeners hear each
+// event after the primary table, in
 // the order they were added, and the same skirmish reaches the pins with
 // them set.
 #include "combat_fixture.hpp"
@@ -91,14 +93,35 @@ struct DeathReport {
     bool settled_elsewhere{};
 };
 
+struct CreatedByReport {
+    uint16_t unit{};
+    uint16_t builder{};
+};
+
+struct GivenReport {
+    uint16_t unit{};
+    uint16_t copy{};
+    uint8_t from{};
+    uint8_t to{};
+    bool live_at_call{};
+};
+
+// Order of creation, created-by and finished reports. A created-by report
+// sits immediately after its unit's created report, and a building created
+// finished is reported finished after that.
+enum class BirthStep : uint8_t { created, created_by, finished };
+
 // Keeps what every hook reported.
 struct Recorder {
     std::vector<CreatedReport> created;
+    std::vector<CreatedByReport> created_by;
     std::vector<FinishedReport> finished;
     std::vector<ShotReport> shots;
     std::vector<DetonationReport> detonations;
     std::vector<DamageReport> damage;
     std::vector<DeathReport> deaths;
+    std::vector<GivenReport> given;
+    std::vector<BirthStep> births;
 
     /// Returns hooks that report into this recorder.
     ///
@@ -107,17 +130,34 @@ struct Recorder {
         EventHooks hooks;
         hooks.context = this;
         hooks.unit_created = [](void* context, const World& world, uint16_t unit) {
+            auto* recorder = static_cast<Recorder*>(context);
             const auto& record = world.units[unit];
-            static_cast<Recorder*>(context)->created.push_back(
-                {unit, record.type_index, record.owner_index}
-            );
+            recorder->created.push_back({unit, record.type_index, record.owner_index});
+            recorder->births.push_back(BirthStep::created);
+        };
+        hooks.unit_created_by = [](void* context, const World&, uint16_t unit, uint16_t builder) {
+            auto* recorder = static_cast<Recorder*>(context);
+            recorder->created_by.push_back({unit, builder});
+            recorder->births.push_back(BirthStep::created_by);
         };
         hooks.unit_finished =
             [](void* context, const World& world, uint16_t unit, uint16_t builder) {
-                static_cast<Recorder*>(context)->finished.push_back(
+                auto* recorder = static_cast<Recorder*>(context);
+                recorder->finished.push_back(
                     {unit, builder, world.units[unit].build_remaining == 0.0F}
                 );
+                recorder->births.push_back(BirthStep::finished);
             };
+        hooks.unit_given = [](void* context,
+                              const World& world,
+                              uint16_t unit,
+                              uint16_t copy,
+                              uint8_t from,
+                              uint8_t to) {
+            static_cast<Recorder*>(context)->given.push_back(
+                {unit, copy, from, to, (world.units[unit].flags & OA_UNIT_FLAG_LIVE) != 0}
+            );
+        };
         hooks.shot_placed = [](void* context,
                                const World&,
                                const Projectile& shot,
@@ -205,6 +245,25 @@ bool operator==(const CreatedReport& left, const CreatedReport& right) {
            left.owner == right.owner;
 }
 
+/// Tells whether two created-by reports name the same unit and builder.
+///
+/// @param left first report
+/// @param right second report
+/// @return true when every field is equal
+bool operator==(const CreatedByReport& left, const CreatedByReport& right) {
+    return left.unit == right.unit && left.builder == right.builder;
+}
+
+/// Tells whether two hand-over reports name the same gift.
+///
+/// @param left first report
+/// @param right second report
+/// @return true when every field is equal
+bool operator==(const GivenReport& left, const GivenReport& right) {
+    return left.unit == right.unit && left.copy == right.copy && left.from == right.from &&
+           left.to == right.to && left.live_at_call == right.live_at_call;
+}
+
 /// Tells whether two finished reports name the same completion.
 ///
 /// @param left first report
@@ -264,9 +323,10 @@ bool operator==(const DeathReport& left, const DeathReport& right) {
 /// @param right second recorder
 /// @return true when every list matches
 bool same_records(const Recorder& left, const Recorder& right) {
-    return left.created == right.created && left.finished == right.finished &&
-           left.shots == right.shots && left.detonations == right.detonations &&
-           left.damage == right.damage && left.deaths == right.deaths;
+    return left.created == right.created && left.created_by == right.created_by &&
+           left.finished == right.finished && left.shots == right.shots &&
+           left.detonations == right.detonations && left.damage == right.damage &&
+           left.deaths == right.deaths && left.given == right.given && left.births == right.births;
 }
 
 /// The skirmish with every hook set plays exactly as without, to
@@ -301,11 +361,19 @@ void skirmish_reports_every_kind() {
     // Each spawned unit once, in order, with its type and owner filled; the
     // fixture's type is mobile, so none is finished at creation.
     CHECK(recorder.created.size() == run.units.size());
-    for (std::size_t i = 0; i < run.units.size(); ++i)
+    CHECK(recorder.created_by.size() == recorder.created.size());
+    CHECK(recorder.births.size() == recorder.created.size() * 2);
+    CHECK(recorder.given.empty());
+    for (std::size_t i = 0; i < run.units.size(); ++i) {
         CHECK(
             recorder.created[i].unit == run.units[i] && recorder.created[i].type_index == 1 &&
             recorder.created[i].owner == run.owners[i]
         );
+        // Created by no unit, once, immediately after unit_created.
+        CHECK(recorder.births[i * 2] == BirthStep::created);
+        CHECK(recorder.births[i * 2 + 1] == BirthStep::created_by);
+        CHECK(recorder.created_by[i].unit == run.units[i] && recorder.created_by[i].builder == 0);
+    }
     CHECK(recorder.finished.empty());
 
     // The guns' shots, each from a spawned unit, aimed at a point and a unit.
@@ -500,6 +568,8 @@ void creations_and_completions_are_reported() {
     const auto commander = static_cast<uint16_t>(oa::world_unit_slot(&world, started.unit));
     CHECK(recorder.created.size() == 1 && recorder.created.front().unit == commander);
     CHECK(recorder.finished.empty());
+    CHECK(recorder.created_by.size() == 1 && recorder.created_by.front().unit == commander);
+    CHECK(recorder.created_by.front().builder == 0);
 
     // A frame, then its builder's link: finished once, by the builder.
     auto* frame = f.match->create({0, 1, {fx(48), fx(32), fx(48)}, false, 1, 0});
@@ -530,11 +600,21 @@ void creations_and_completions_are_reported() {
     world.unit_defs[1].bm_code = 1;
     CHECK(building != nullptr);
     CHECK(recorder.created.size() == 4 && recorder.created.back().unit == building->unit_index);
+    CHECK(
+        recorder.created_by.size() == 4 && recorder.created_by.back().unit == building->unit_index
+    );
+    CHECK(recorder.created_by.back().builder == 0);
     CHECK(recorder.finished.size() == 3);
     CHECK(
         recorder.finished.back().unit == building->unit_index &&
         recorder.finished.back().builder == building->unit_index
     );
+    // Created, then created by no unit, then finished by itself.
+    CHECK(recorder.births.size() >= 3);
+    const auto last = recorder.births.size();
+    CHECK(recorder.births[last - 3] == BirthStep::created);
+    CHECK(recorder.births[last - 2] == BirthStep::created_by);
+    CHECK(recorder.births[last - 1] == BirthStep::finished);
     f.match->finish_unit(building->unit_index, building->unit_index);
     CHECK(recorder.finished.size() == 3);
     std::cout << "creations and completions are reported passed\n";

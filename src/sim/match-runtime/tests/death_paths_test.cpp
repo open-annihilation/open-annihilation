@@ -598,6 +598,138 @@ void capture_kills_through_scaled_damage() {
     std::cout << "capture kills through scaled damage passed\n";
 }
 
+// A capture, a hand-over another machine started, and a transfer that changes
+// nothing: the listener hears the hand-over after the copy is created and
+// before the old unit dies, and hears nothing when no unit changes hands.
+void hand_overs_are_reported() {
+    enum class Kind : uint8_t { created, created_by, given, died };
+
+    struct Entry {
+        Kind kind{};
+        uint16_t unit{};
+        uint16_t other{};
+        uint8_t from{};
+        uint8_t to{};
+        bool live{};
+    };
+
+    struct Log {
+        std::vector<Entry> entries;
+    } log;
+
+    Fixture f;
+    auto& capturer = idle(f, 0, 64, 64);
+    auto& taken = idle(f, 1, 160, 64);
+    auto& lost = idle(f, 1, 160, 160);
+    auto& spare = idle(f, 1, 64, 160);
+    auto& carried_unit = idle(f, 1, 200, 200);
+    f.run(1);
+
+    sim::match_runtime::EventHooks hooks;
+    hooks.context = &log;
+    hooks.unit_created = [](void* context, const World& world, uint16_t unit) {
+        static_cast<Log*>(context)->entries.push_back(
+            {Kind::created, unit, 0, 0, 0, (world.units[unit].flags & OA_UNIT_FLAG_LIVE) != 0}
+        );
+    };
+    hooks.unit_created_by = [](void* context, const World&, uint16_t unit, uint16_t builder) {
+        static_cast<Log*>(context)->entries.push_back({Kind::created_by, unit, builder});
+    };
+    hooks.unit_given = [](void* context,
+                          const World& world,
+                          uint16_t unit,
+                          uint16_t copy,
+                          uint8_t from,
+                          uint8_t to) {
+        static_cast<Log*>(context)->entries.push_back(
+            {Kind::given, unit, copy, from, to, (world.units[unit].flags & OA_UNIT_FLAG_LIVE) != 0}
+        );
+    };
+    hooks.unit_died =
+        [](
+            void* context, const World&, uint16_t unit, const sim::match_runtime::KillOutcome&, bool
+        ) { static_cast<Log*>(context)->entries.push_back({Kind::died, unit}); };
+    CHECK(f.match->add_event_listener(hooks) != 0);
+
+    // A transfer that changes nothing reports none of the four events.
+    CHECK(!f.match->simulation().players[4].present);
+    f.match->transfer_unit(spare.unit_index, spare.record.owner_index);
+    spare.unit->flags |= OA_UNIT_FLAG_DEATH_PENDING;
+    f.match->transfer_unit(spare.unit_index, 0);
+    spare.unit->flags &= ~OA_UNIT_FLAG_DEATH_PENDING;
+    f.match->transfer_unit(spare.unit_index, 4);
+    CHECK(log.entries.empty());
+    CHECK(live(spare) && !dying(spare) && spare.record.owner_index == 1);
+
+    f.match->capture_unit(taken, capturer);
+    CHECK(log.entries.size() == 3);
+    CHECK(log.entries[0].kind == Kind::created);
+    CHECK(log.entries[1].kind == Kind::created_by && log.entries[1].unit == log.entries[0].unit);
+    CHECK(log.entries[1].other == 0);
+    CHECK(
+        log.entries[2].kind == Kind::given && log.entries[2].unit == taken.unit_index &&
+        log.entries[2].other == log.entries[0].unit && log.entries[2].from == 1 &&
+        log.entries[2].to == 0 && log.entries[2].live
+    );
+    const auto copy = log.entries[0].unit;
+    const auto& copied = f.match->state().units[copy];
+    CHECK((copied.flags & OA_UNIT_FLAG_LIVE) != 0 && copied.owner_index == 0);
+    CHECK(dying(taken));
+
+    f.run(1);
+    CHECK(!live(taken));
+    bool taken_died = false;
+    for (size_t index = 3; index < log.entries.size(); ++index) {
+        CHECK(log.entries[index].kind != Kind::created);
+        if (log.entries[index].kind == Kind::died && log.entries[index].unit == taken.unit_index)
+            taken_died = true;
+    }
+    CHECK(taken_died);
+    CHECK((f.match->state().units[copy].flags & OA_UNIT_FLAG_LIVE) != 0);
+    CHECK(f.match->state().units[copy].owner_index == 0);
+
+    log.entries.clear();
+    f.match->simulation().players[0].status = OA_PLAYER_STATUS_MIRRORED;
+    f.match->capture_unit(lost, capturer);
+    f.match->simulation().players[0].status = OA_PLAYER_STATUS_LOCAL;
+    CHECK(log.entries.size() == 1);
+    CHECK(
+        log.entries[0].kind == Kind::given && log.entries[0].unit == lost.unit_index &&
+        log.entries[0].other == 0 && log.entries[0].from == 1 && log.entries[0].to == 0 &&
+        log.entries[0].live
+    );
+    f.run(1);
+    CHECK(!live(lost));
+    bool lost_died = false;
+    for (const auto& entry : log.entries) {
+        CHECK(entry.kind != Kind::created && entry.kind != Kind::created_by);
+        if (entry.kind == Kind::died && entry.unit == lost.unit_index)
+            lost_died = true;
+    }
+    CHECK(lost_died);
+
+    log.entries.clear();
+    sim::match_runtime::TransferredUnit carried;
+    carried.health = 40;
+    f.match->transfer_unit(carried_unit.unit_index, 0, &carried);
+    CHECK(log.entries.size() == 3);
+    CHECK(log.entries[0].kind == Kind::created);
+    CHECK(log.entries[1].kind == Kind::created_by && log.entries[1].unit == log.entries[0].unit);
+    CHECK(log.entries[1].other == 0);
+    CHECK(
+        log.entries[2].kind == Kind::given && log.entries[2].unit == carried_unit.unit_index &&
+        log.entries[2].other == log.entries[0].unit && log.entries[2].from == 1 &&
+        log.entries[2].to == 0 && log.entries[2].live
+    );
+    CHECK(live(carried_unit) && !dying(carried_unit));
+    CHECK(f.match->state().units[log.entries[0].unit].owner_index == 0);
+    f.run(2);
+    CHECK(live(carried_unit) && !dying(carried_unit));
+    for (const auto& entry : log.entries)
+        CHECK(entry.kind != Kind::died || entry.unit != carried_unit.unit_index);
+    std::cout << "hand overs are reported passed\n";
+}
+
 // The hotkey self-destruct gives each unit a SelfDestruct order, which deals
 // 30000 of kind 3 from the unit itself through the damage path: on its
 // first step under a zero countdown, else after one count a second and a
@@ -852,6 +984,7 @@ int main() {
         weapon_start_sounds_at_the_muzzle();
         cargo_dies_through_scaled_damage();
         capture_kills_through_scaled_damage();
+        hand_overs_are_reported();
         hotkey_self_destruct_is_scaled();
         dismissed_corpse_does_not_smoke();
         unit_type_killed_counts_every_death();
