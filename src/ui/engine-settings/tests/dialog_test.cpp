@@ -682,7 +682,7 @@ void each_section_shows_its_rows() {
     const auto system_rows = settings::page_settings(Page::system);
     CHECK(system_rows[0] == Setting::user_folder);
     if (settings::file_types_switchable) {
-        CHECK(system_rows.size() == 9);
+        CHECK(system_rows.size() == 10);
         CHECK(system_rows[1] == Setting::welcome_setup);
         CHECK(system_rows[2] == Setting::file_type_registration);
         CHECK(system_rows[3] == Setting::file_type_oamod);
@@ -690,7 +690,8 @@ void each_section_shows_its_rows() {
         CHECK(system_rows[5] == Setting::file_type_oalang);
         CHECK(system_rows[6] == Setting::file_type_oareg);
         CHECK(system_rows[7] == Setting::file_type_oamut);
-        CHECK(system_rows[8] == Setting::file_type_oalaunch);
+        CHECK(system_rows[8] == Setting::file_type_oabrain);
+        CHECK(system_rows[9] == Setting::file_type_oalaunch);
     } else {
         CHECK(system_rows.size() == 3);
         CHECK(system_rows[1] == Setting::welcome_setup);
@@ -700,7 +701,7 @@ void each_section_shows_its_rows() {
     settings::Dialog runtime = opened(Page::system);
     runtime.file_type_switches = true;
     const auto runtime_rows = geometry::open_rows(runtime).rows.rows;
-    CHECK(runtime_rows.size() == 9);
+    CHECK(runtime_rows.size() == 10);
     CHECK(runtime_rows[0].setting == Setting::user_folder);
     CHECK(runtime_rows[1].setting == Setting::welcome_setup);
     CHECK(runtime_rows[2].setting == Setting::file_type_registration);
@@ -709,7 +710,8 @@ void each_section_shows_its_rows() {
     CHECK(runtime_rows[5].setting == Setting::file_type_oalang);
     CHECK(runtime_rows[6].setting == Setting::file_type_oareg);
     CHECK(runtime_rows[7].setting == Setting::file_type_oamut);
-    CHECK(runtime_rows[8].setting == Setting::file_type_oalaunch);
+    CHECK(runtime_rows[8].setting == Setting::file_type_oabrain);
+    CHECK(runtime_rows[9].setting == Setting::file_type_oalaunch);
     settings::Dialog bundle = opened(Page::system);
     bundle.file_type_switches = false;
     const auto bundle_rows = geometry::open_rows(bundle).rows.rows;

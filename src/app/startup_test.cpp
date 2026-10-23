@@ -849,7 +849,7 @@ void version_line_stands_alone() {
 
 } // namespace
 
-// --open, --install-mod, bare files of the five types the game installs or
+// --open, --install-mod, bare files of the six types the game installs or
 // adds, macOS's process serial number and --check-mod-install.
 void mod_install_options() {
     namespace fs = std::filesystem;
@@ -864,19 +864,21 @@ void mod_install_options() {
          "e.oamod",
          "--open",
          "g.oamut",
+         "h.OABRAIN",
          "-psn_0_123",
          "german"}
     );
-    expect(opened.open_files.size() == 7, "--open, --install-mod and bare files are all opened");
+    expect(opened.open_files.size() == 8, "--open, --install-mod and bare files are all opened");
     expect(
-        opened.open_files.size() == 7 && opened.open_files[0].is_absolute() &&
+        opened.open_files.size() == 8 && opened.open_files[0].is_absolute() &&
             opened.open_files[0].filename() == "a.oalang" &&
             opened.open_files[1].filename() == "B.OAMAP" &&
             opened.open_files[2].filename() == "c.oareg" &&
             opened.open_files[3].filename() == "F.OAMUT" &&
             opened.open_files[4].filename() == "d.oamod" &&
             opened.open_files[5].filename() == "e.oamod" &&
-            opened.open_files[6].filename() == "g.oamut",
+            opened.open_files[6].filename() == "g.oamut" &&
+            opened.open_files[7].filename() == "h.OABRAIN",
         "the files are absolute, in the order given, and --install-mod still opens one"
     );
     expect(opened.skip_intro, "a file opened with the game skips the movies");
@@ -898,7 +900,8 @@ void mod_install_options() {
     expect(
         rejection({"x.oamod", "--headless-check"})
                 .find(
-                    "a file to open (.oamod, .oalang, .oamap, .oamut or .oareg), after --open or "
+                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain or .oareg), after "
+                    "--open or "
                     "on "
                     "its own,"
                 ) != std::string::npos,

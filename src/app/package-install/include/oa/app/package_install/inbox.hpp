@@ -86,8 +86,8 @@ void finish_package_file();
 /// @return true while one does
 [[nodiscard]] bool package_files_waiting();
 
-/// Tells whether a file is one of the five the game installs or adds: a .oamod, .oalang,
-/// .oamap, .oamut or .oareg file, by its extension, without case. A .oalaunch launch file, which the
+/// Tells whether a file is one of the six the game installs or adds: a .oamod, .oalang,
+/// .oamap, .oamut, .oabrain or .oareg file, by its extension, without case. A .oalaunch launch file, which the
 /// game also opens, is not one of them.
 ///
 /// @param file the file
