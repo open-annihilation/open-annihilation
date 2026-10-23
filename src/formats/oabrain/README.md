@@ -175,8 +175,8 @@ the document's start.
   Without that key the file is outside.
 - `README.md` at the package's top, compared without regard to ASCII case,
   is the readme. `LICENSE` at the top, the same way, is the licence.
-- Anything else is outside, including `licence`, `docs/README.md`, and
-  `brain.lua` when `entry` is some other file.
+- Anything else is outside, including `licence`, a readme in a subfolder,
+  and `brain.lua` when `entry` is some other file.
 
 ## Tests
 
