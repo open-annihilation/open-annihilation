@@ -5,6 +5,7 @@
 # the Windows DLL copy and the packaged notices attach to it.
 add_library(oa-tool-commands STATIC commands.cpp arguments.cpp files.cpp archive_commands.cpp
   pack.cpp pack_map.cpp check.cpp check_map.cpp check_brain.cpp check_mutator.cpp brain.cpp
+  onnx.cpp
   mutator.cpp mutator_diff.cpp
   mutator_report.cpp catalogue.cpp passphrase.cpp registry.cpp expansion.cpp interface_words.cpp)
 add_library(oa::tool::commands ALIAS oa-tool-commands)
