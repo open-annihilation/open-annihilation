@@ -446,6 +446,8 @@ std::string_view action_text(Action action, const TextHooks& text) {
         return shown(text, words::action_turn_on);
     case Action::check_with_mod:
         return shown(text, words::action_check_with_mod);
+    case Action::use_by_default:
+        return shown(text, words::action_use_by_default);
     case Action::get_with:
         return shown(text, words::action_get_with);
     }

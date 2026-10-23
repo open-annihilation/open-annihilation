@@ -469,6 +469,8 @@ std::string_view word_of(lib::Action action) {
         return "use-now";
     case lib::Action::check_with_mod:
         return "check-with-mod";
+    case lib::Action::use_by_default:
+        return "use-by-default";
     case lib::Action::get_with:
         return "get-with";
     default:
@@ -4855,6 +4857,18 @@ bool shows_danger(const kit::DisplayList& list, std::string_view reason) {
     return false;
 }
 
+/// Tells whether a layout draws these words in the lock colour.
+///
+/// @param list the display list
+/// @param piece the words
+/// @return true when a text in the lock colour contains them
+bool shows_lock(const kit::DisplayList& list, std::string_view piece) {
+    for (const kit::Item& item : list.items)
+        if (item.colour == kit::colour::lock && item.text.find(piece) != std::string::npos)
+            return true;
+    return false;
+}
+
 /// Every action of an updatable mutator is a control at each class. Compact
 /// shows them on the details page, the rest inside MORE ▾. The Rules fact is
 /// whole, and the incompatible verdict is drawn in the danger colour.
@@ -5002,6 +5016,135 @@ void get_with_is_a_control() {
         }
         if (compact)
             OA_CHECK(first_action != nullptr && first_action->name == "library.action.get-with");
+    }
+}
+
+/// An installed, updatable brain that is not the default, sees every unit,
+/// and has a verdict and a homepage.
+///
+/// @return the Library, on Brains, with Steady Commander selected
+lib::Library steady_commander_library() {
+    lib::Inputs inputs;
+    lib::Registry registry;
+    registry.id = std::string(fixture::core);
+    registry.name = "Fixture Core";
+    registry.built_in = true;
+    inputs.registries.push_back(std::move(registry));
+    inputs.engine = {0, 8, 0};
+    inputs.version_text = "v0.8.0";
+    lib::Listing made = fixture::listing(
+        fixture::core,
+        lib::Kind::brain,
+        "steady-commander",
+        "Steady Commander",
+        "2.0",
+        1024,
+        "Holds the line.",
+        {"classic"}
+    );
+    made.homepage = "https://example.test/steady-commander";
+    lib::BrainFacts facts;
+    facts.tags = {"classic"};
+    facts.full_awareness = true;
+    facts.works_with.push_back({"*", {}, {}});
+    facts.levels.push_back({"steady", "Steady", lib::BrainDifficulty::easy});
+    made.brain = facts;
+    lib::Installed copy = fixture::installed(made, "1.0", 1);
+    lib::Verdict verdict;
+    verdict.state = lib::Verdict::State::compatible;
+    verdict.summary = "it fits this game";
+    facts.verdict = std::move(verdict);
+    copy.brain = std::move(facts);
+    inputs.listings.push_back(std::move(made));
+    inputs.installed.push_back(std::move(copy));
+    lib::UpdateNote note;
+    note.registry = std::string(fixture::core);
+    note.kind = lib::Kind::brain;
+    note.key = "steady-commander";
+    note.to_release = 2;
+    note.to_version = "2.0";
+    note.to_revision = 1;
+    note.size = 1024;
+    inputs.updates.push_back(std::move(note));
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::brains);
+    lib::select(library, {std::string(fixture::core), lib::Kind::brain, "steady-commander"});
+    lib::open_details(library);
+    return library;
+}
+
+/// Every action of an updatable brain is a control at each class. Compact
+/// shows them on the details page, the rest inside MORE ▾. Full awareness
+/// is drawn in the lock colour.
+void brain_actions_and_full_awareness() {
+    const lib::Library library = steady_commander_library();
+    const lib::Entry* steady = lib::selected_entry(library);
+    OA_CHECK(steady != nullptr);
+    if (steady == nullptr)
+        return;
+    const std::vector<lib::ActionButton> actions = lib::entry_actions(library, *steady);
+    OA_CHECK(actions.size() == 6);
+    if (actions.size() != 6)
+        return;
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::Frame& frame = named.frame;
+        const bool compact = frame.size_class == kit::SizeClass::compact;
+        const kit::Point window = lib::window_size(frame);
+        if (!compact) {
+            lib::ScreenState state;
+            const kit::DisplayList list = laid_out(library, state, frame);
+            OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " brain actions");
+            OA_EXPECT_NONE(meeting_controls(list), named.name + " brain actions");
+            OA_EXPECT_NONE(name_problems(list), named.name + " brain actions");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(list, fonts()), named.name + " brain actions"
+            );
+            OA_EXPECT_NONE(whole_fact_problems(library, list, true), named.name + " brain actions");
+            for (const lib::ActionButton& action : actions)
+                OA_CHECK(
+                    fixture::named(list, "library.action." + std::string(word_of(action.action))) !=
+                    nullptr
+                );
+            OA_CHECK(shows_lock(list, "unit on the map"));
+        } else {
+            lib::ScreenState page_state;
+            page_state.details_page = true;
+            const kit::DisplayList page = laid_out(library, page_state, frame);
+            OA_EXPECT_NONE(
+                fixture::outside_window(page, window), named.name + " brain details page"
+            );
+            OA_EXPECT_NONE(meeting_controls(page), named.name + " brain details page");
+            OA_EXPECT_NONE(name_problems(page), named.name + " brain details page");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(page, fonts()), named.name + " brain details page"
+            );
+            OA_EXPECT_NONE(
+                whole_fact_problems(library, page, false), named.name + " brain details page"
+            );
+            OA_CHECK(shows_lock(page, "unit on the map"));
+            for (std::size_t index = 0; index < 3; ++index)
+                OA_CHECK(
+                    fixture::named(
+                        page, "library.action." + std::string(word_of(actions[index].action))
+                    ) != nullptr
+                );
+            OA_CHECK(fixture::named(page, "library.action") != nullptr);
+            page_state.menu = lib::MenuKind::more;
+            const kit::DisplayList more = laid_out(library, page_state, frame);
+            for (const lib::ActionButton& action : actions)
+                OA_CHECK(
+                    fixture::named(more, "library.action." + std::string(word_of(action.action))) !=
+                    nullptr
+                );
+            OA_EXPECT_NONE(
+                fixture::outside_window(more, window), named.name + " brain details, MORE open"
+            );
+            OA_EXPECT_NONE(name_problems(more), named.name + " brain details, MORE open");
+            OA_EXPECT_NONE(
+                fixture::texts_not_fitting(more, fonts()), named.name + " brain details, MORE open"
+            );
+        }
     }
 }
 
@@ -5222,6 +5365,7 @@ int main() {
     brains_tab_holds_its_invariants();
     mutator_rows_show_badges_chips_and_icons();
     mutator_actions_rules_and_danger();
+    brain_actions_and_full_awareness();
     get_with_is_a_control();
     wordy_tabs_take_the_row_over_the_search();
     larger_classes_show_more();
