@@ -1,10 +1,11 @@
 # Packages
 
-A registry serves five kinds of package. Each is a zip archive. OA installs
+A registry serves six kinds of package. Each is a zip archive. OA installs
 a mod into `Mods/<id>`, a map pack into `Maps/<id>`, a language pack into
-`Languages/<tag>`, an expansion into `Expansions/<game>/<id>`, and a mutator
-into `Mutators/<id>`, using the id or tag inside the manifest, whatever the
-file is called. `<game>` is the first base game the expansion extends.
+`Languages/<tag>`, an expansion into `Expansions/<game>/<id>`, a mutator
+into `Mutators/<id>`, and a brain into `Brains/<id>`, using the id or tag
+inside the manifest, whatever the file is called. `<game>` is the first
+base game the expansion extends.
 `Expansions` is the folder a managed copy uses. That folder is the
 expansion, not a mod.
 
@@ -15,6 +16,7 @@ expansion, not a mod.
 | `oalang` | `language.yaml`, at most 256 KiB | [Languages](../languages.md) |
 | `.oaexp` | `oaexp.yaml`, at most 256 KiB | [OAEXP standard](../expansions/oaexp-standard.md) |
 | `oamut` | `oamut.yaml`, at most 256 KiB | [oamut.yaml](../../src/formats/oamut/README.md) |
+| `oabrain` | `oabrain.yaml`, at most 256 KiB | [oabrain.yaml](../../src/formats/oabrain/README.md) |
 
 The catalogue entry for a package is [catalogue.md](catalogue.md). A mutator's
 entry may name `clashes` as `add` or `replace`; absent leaves the game's

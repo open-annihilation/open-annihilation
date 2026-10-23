@@ -66,7 +66,7 @@ string. A server MUST treat a missing `language` as empty.
 |---|---|
 | `install` | Present only when `install-id` is `required`. Lower-case hex, `8-4-4-4-12`. |
 | `package` | 1 to 64 characters of `[A-Za-z0-9][A-Za-z0-9._-]*`. This is wider than a catalogue key. |
-| `kind` | `oamod`, `oamap`, `oalang` or `expansion`. |
+| `kind` | `oamod`, `oamap`, `oalang`, `expansion`, `oamut` or `oabrain`. |
 | `release` | A whole number from 1 to 2147483647. |
 | `sha256` | 64 hex digits. A server accepts either case and compares them in lower case. The catalogue itself requires lower case. |
 | `engine` | 1 to 32 characters of `[0-9A-Za-z.+-]`. |
