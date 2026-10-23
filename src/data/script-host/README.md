@@ -316,6 +316,59 @@ A fixed value is a poor table key: two equal values are two keys, and
 `pairs` refuses a userdata key. Use `f:raw()` as the key. `getmetatable`
 does not hand back the metatable.
 
+## f32
+
+`f32` holds one IEEE binary32 value, the width of a player's resources and
+build progress. A profile opens it from `install` by calling
+`open_f32_library`. A sandbox whose profile does not call that has no `f32`.
+A mutator does not see it.
+
+Arithmetic follows C++ promotion, so a script can mix these values the way
+the built-in player mixes float and double. Two `f32` values, or an `f32`
+and an integer, use float arithmetic and the result is an `f32`. The integer
+is converted to float once, directly, and is not converted to a double
+first. An `f32` and a Lua float widen the `f32` exactly and use double
+arithmetic, and the result is a Lua float. Comparisons use the same rules.
+`//`, `%` and `^` have no metamethod, so Lua raises its own arithmetic error.
+
+An `f32` and a `fixed` value do not mix. The operation raises, names itself,
+and tells the script to convert with `f32(x)`.
+
+`f32(v)` takes an `f32`, an integer, a Lua float or a `fixed` value. Each
+conversion rounds once, nearest, ties to even. A fixed count is divided by
+65536, which is exact for every count in range, and that quotient is what
+converts to float. `v:tonumber()` widens exactly. `v:tofixed()` multiplies
+the widened value by 65536 and truncates toward zero, as `fixed(number)`
+does. A NaN, an infinity or a count outside the fixed range raises.
+`v:bits()` is the integer 0 to 4294967295, and `f32.from_bits` builds a
+value from those bits. A NaN produced by an operation, or by narrowing a
+double, is stored as the quiet NaN whose bits are 0x7fc00000, so every build
+agrees. `from_bits` keeps the bits it is given until an operation.
+
+`f32(1) == 1` is false. Lua calls that comparison only when both values are
+userdata. `getmetatable` does not hand back the metatable.
+
+`f32` follows the build exactly as the simulation's own floats do. Each
+operation is rounded as written. Under `OA_X86_FLOAT=fpu` the simulation's
+floats change too, and `f32` changes with them.
+
+## geometry
+
+`geometry` is a plain table. A profile opens it from `install` by calling
+`open_geometry_library`, and later code may add fields to the table. A
+sandbox whose profile does not call that has no `geometry`. A mutator does
+not see it.
+
+`geometry.direction(x, z)` is the engine's heading, an integer from 0 to
+65535. `geometry.planar_length(x, z)` is the engine's planar distance as a
+fixed value. `geometry.length(x, y, z)` is the engine's truncated length as
+a fixed value, and a length past 2^31 stays negative. `geometry.scale(x, y,
+z, factor)` is the engine's fixed-point scale and returns three fixed
+values. Each function calls the engine's own geometry. An argument is a
+fixed value or an integer. An integer is a whole number of world units,
+times 65536. A count that does not fit in a 32-bit coordinate raises, and a
+float is refused. Scaled sine and cosine are not in this table.
+
 ## Iteration
 
 `pairs` visits number keys in ascending order, then string keys in byte
@@ -411,8 +464,15 @@ library's argument rules. `tests/random_reference.py` prints the generator's
 draws. Both scripts are run with `python3 -I` and print the tables the test
 holds. `data-script-host-fixed` checks every count against
 `tests/fixed_reference.py` the same way, through the C++ functions and
-through a sandbox. `data-script-host-iteration` checks `pairs`, the refusal
-of unordered keys, and the name helpers.
+through a sandbox. `data-script-host-f32` checks every value against
+`tests/f32_reference.py` the same way, through the C++ conversions and
+through a sandbox whose profile opens `f32`. The reference is exact rational
+arithmetic, run with `python3 -I`, and prints the table the test holds. A
+sandbox on the mutator profile has no `f32`. `data-script-host-geometry`
+checks direction, planar length, truncated length and scale against the
+engine's own functions, including a length that wraps past 2^31, and a
+mutator sandbox has no `geometry`. `data-script-host-iteration` checks
+`pairs`, the refusal of unordered keys, and the name helpers.
 
 `data-script-host-patterns` runs each pattern case through the sandbox and
 through Lua's own string functions and compares every returned value, its

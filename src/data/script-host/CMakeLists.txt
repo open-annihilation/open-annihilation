@@ -54,6 +54,8 @@ add_library(oa-data-script-host
   src/require.cpp
   src/math_library.cpp
   src/fixed_library.cpp
+  src/f32_library.cpp
+  src/geometry_library.cpp
   src/sorted.cpp
   src/memory_sources.cpp)
 add_library(oa::data::script_host ALIAS oa-data-script-host)
@@ -155,4 +157,18 @@ if(BUILD_TESTING)
     oa-data-script-host oa-formats-tdf oa-test-support oa-options)
   add_test(NAME data-script-host-fixed COMMAND oa-data-script-host-fixed-test)
   set_tests_properties(data-script-host-fixed PROPERTIES TIMEOUT 60)
+
+  # Single-precision values against an independent table, through C++ and a sandbox.
+  add_executable(oa-data-script-host-f32-test tests/f32_test.cpp)
+  target_link_libraries(oa-data-script-host-f32-test PRIVATE
+    oa-data-script-host oa-test-support oa-options)
+  add_test(NAME data-script-host-f32 COMMAND oa-data-script-host-f32-test)
+  set_tests_properties(data-script-host-f32 PROPERTIES TIMEOUT 60)
+
+  # Heading and length against the engine's own geometry, through a sandbox.
+  add_executable(oa-data-script-host-geometry-test tests/geometry_test.cpp)
+  target_link_libraries(oa-data-script-host-geometry-test PRIVATE
+    oa-data-script-host oa-base-game-math oa-test-support oa-options)
+  add_test(NAME data-script-host-geometry COMMAND oa-data-script-host-geometry-test)
+  set_tests_properties(data-script-host-geometry PROPERTIES TIMEOUT 30)
 endif()
