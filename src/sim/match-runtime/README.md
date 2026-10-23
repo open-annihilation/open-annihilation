@@ -244,6 +244,22 @@ through:
   its position. The feature is the placed feature's type and the plot is
   its index into `World::plots`. A death that leaves no corpse is not
   reported.
+- `seen_changed` at the end of a player's knowledge refresh, every 30 ticks,
+  when the enemies on its seen list changed. The gained list is the enemies
+  that entered and the lost list is the enemies that left, each with the
+  unit's slot and the generation that tells that unit from the next one to
+  take the slot. The comparison is `detection::diff_sighted`: a slot a new
+  unit has taken is one lost entry and one gained entry, and the lost entry
+  comes first. A lost unit may have died, or its slot may hold another unit
+  now. The lists are valid only for the call. The player's own units and its
+  allies are not on the seen list, so they are not reported, and nothing is
+  reported when the list is unchanged. A player with no controller, a
+  mirrored player among them, is not refreshed. After a load the previous
+  lists are empty, so the first refresh reports every seen enemy as gained:
+  a brain that starts again from a save hears the enemies its seat can see.
+  The previous lists are kept up even when no one is listening, so a
+  listener added during a match hears only real changes at its first
+  refresh.
 
 The hooks receive the world as const and must not change match state, draw
 from its random streams or call back into it; the match computes nothing
