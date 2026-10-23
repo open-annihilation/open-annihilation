@@ -4502,8 +4502,9 @@ class Runtime final : public menu::Host,
     ///
     /// The value of open-annihilation.brain.default when a brain of that id
     /// is installed, and empty when the key is absent, empty, or names a
-    /// brain that is not installed. While the Library is open this reads the
-    /// worker's listing and does not open the Brains folder.
+    /// brain that is not installed. Once the Library's worker has searched,
+    /// this reads that listing and does not open the Brains folder. Before
+    /// that search, the folder is read.
     ///
     /// @return the id, or empty for the built-in computer player
     [[nodiscard]] std::string default_brain() const;

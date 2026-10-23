@@ -60,19 +60,27 @@ void test_round_trip() {
     OA_CHECK(text == kTwoSeats);
     const std::optional<lib::Seats> read = lib::parse_seats(text);
     OA_CHECK(read.has_value());
+    if (!read.has_value())
+        return;
     OA_CHECK(lib::seats_text(*read) == text);
+    // The writer lists seats by place, so the built-in seat is first.
     OA_CHECK(read->seats.size() == 2);
-    OA_CHECK(read->seats[0].place == 1);
-    OA_CHECK(read->seats[0].brain == "steady-commander");
-    OA_CHECK(read->seats[0].level == "firm");
-    OA_CHECK(read->seats[0].version == "1.2");
-    OA_CHECK(read->seats[0].package_sha256 == kSha);
-    OA_CHECK(read->seats[0].options.size() == 1);
-    OA_CHECK(read->seats[0].options[0].first == "aggression");
-    OA_CHECK(read->seats[0].options[0].second == "high");
-    OA_CHECK(read->seats[1].place == 0);
-    OA_CHECK(read->seats[1].brain.empty());
-    OA_CHECK(read->seats[1].level == "hard");
+    if (read->seats.size() < 2)
+        return;
+    OA_CHECK(read->seats[0].place == 0);
+    OA_CHECK(read->seats[0].brain.empty());
+    OA_CHECK(read->seats[0].level == "hard");
+    OA_CHECK(read->seats[0].options.empty());
+    OA_CHECK(read->seats[1].place == 1);
+    OA_CHECK(read->seats[1].brain == "steady-commander");
+    OA_CHECK(read->seats[1].level == "firm");
+    OA_CHECK(read->seats[1].version == "1.2");
+    OA_CHECK(read->seats[1].package_sha256 == kSha);
+    OA_CHECK(read->seats[1].options.size() == 1);
+    if (read->seats[1].options.empty())
+        return;
+    OA_CHECK(read->seats[1].options[0].first == "aggression");
+    OA_CHECK(read->seats[1].options[0].second == "high");
 
     const std::string example =
         R"({"seats":[{"brain":"steady-commander","level":"firm","options":{"aggression":"high"},"place":1}]})";
