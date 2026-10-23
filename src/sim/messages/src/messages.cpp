@@ -26,6 +26,55 @@ void chat_name(const Player& player, char out[player_chat_name_bytes + 1]) {
     out[player_chat_name_bytes] = '\0';
 }
 
+// The bytes a formatted chat line holds, its end included.
+size_t chat_line_limit(const Hooks& hooks) noexcept {
+    size_t line_bytes = formatted_bytes;
+    if (hooks.shared_chat_line_bytes != nullptr)
+        if (const size_t asked = hooks.shared_chat_line_bytes(hooks.context); asked != 0)
+            line_bytes = asked < most_chat_line_bytes ? asked : most_chat_line_bytes;
+    return line_bytes;
+}
+
+// Writes "<name->target> text", cut between whole UTF-8 characters.
+// line_bytes is the bytes of `line`, its end included, at least 1.
+void write_chat_line(
+    char* line, size_t line_bytes, const char* name, const char* target, const char* text
+) noexcept {
+    // line_bytes is at most most_chat_line_bytes, so the look-ahead fits.
+    if (line_bytes > most_chat_line_bytes)
+        line_bytes = most_chat_line_bytes;
+    char whole[most_chat_line_bytes + chat_lookahead_bytes];
+    std::snprintf(
+        whole,
+        line_bytes + chat_lookahead_bytes,
+        "<%s%s%s> %s",
+        name,
+        target != nullptr ? "->" : "",
+        target != nullptr ? target : "",
+        text != nullptr ? text : ""
+    );
+    const std::string_view formatted(whole);
+    oa::base::text::copy_terminated(
+        std::span<char>(line, line_bytes),
+        formatted.substr(0, oa::base::text::whole_characters(formatted, line_bytes - 1))
+    );
+}
+
+// ASCII case-insensitive equality of two words of the same length.
+bool same_ascii_word(std::string_view word, std::string_view known) noexcept {
+    if (word.size() != known.size())
+        return false;
+    for (size_t i = 0; i < word.size(); ++i) {
+        const auto lower = [](unsigned char c) {
+            return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c - 'A' + 'a') : c;
+        };
+        if (lower(static_cast<unsigned char>(word[i])) !=
+            lower(static_cast<unsigned char>(known[i])))
+            return false;
+    }
+    return true;
+}
+
 /// Tells whether a chat line's text is an alliance line: a space, the
 /// phrase, a space and the other player's name.
 ///
@@ -344,26 +393,9 @@ void post_chat(
     // The line keeps what fits, less a UTF-8 character the cut would split:
     // the bytes past the cut show whether one spans it. A line that may go
     // out as several records holds what they carry.
-    size_t line_bytes = formatted_bytes;
-    if (hooks.shared_chat_line_bytes != nullptr)
-        if (const size_t asked = hooks.shared_chat_line_bytes(hooks.context); asked != 0)
-            line_bytes = asked < most_chat_line_bytes ? asked : most_chat_line_bytes;
-    char whole[most_chat_line_bytes + chat_lookahead_bytes];
-    std::snprintf(
-        whole,
-        line_bytes + chat_lookahead_bytes,
-        "<%s%s%s> %s",
-        name,
-        target != nullptr ? "->" : "",
-        target != nullptr ? target : "",
-        text != nullptr ? text : ""
-    );
-    const std::string_view formatted(whole);
+    const size_t line_bytes = chat_line_limit(hooks);
     char line[most_chat_line_bytes];
-    oa::base::text::copy_terminated(
-        std::span<char>(line, line_bytes),
-        formatted.substr(0, oa::base::text::whole_characters(formatted, line_bytes - 1))
-    );
+    write_chat_line(line, line_bytes, name, target, text);
     const bool shared = world.game.chat_mode != chat_mode_local_only && hooks.share_chat != nullptr;
     if (shared)
         hooks.share_chat(hooks.context, line);
@@ -386,6 +418,113 @@ void post_chat(
         format_shown_chat_line(shown, sizeof shown, line, hooks.translate, hooks.context);
         post_message(world, shown, kind, 0, sender_none, hooks);
     }
+}
+
+ChatLineParts split_chat_line(std::string_view line) noexcept {
+    ChatLineParts parts{};
+    if (line.empty() || line.front() != '<') {
+        parts.words = line;
+        return parts;
+    }
+    const size_t close = line.find("> ");
+    if (close == line.npos) {
+        parts.words = line;
+        return parts;
+    }
+    const std::string_view head = line.substr(1, close - 1);
+    parts.words = line.substr(close + 2);
+    const size_t arrow = head.find("->");
+    if (arrow == head.npos) {
+        parts.speaker = head;
+        return parts;
+    }
+    parts.speaker = head.substr(0, arrow);
+    parts.target = head.substr(arrow + 2);
+    return parts;
+}
+
+uint8_t chat_mode_of_target(std::string_view target) noexcept {
+    if (target.empty())
+        return static_cast<uint8_t>(OA_CHAT_MODE_EVERYONE);
+    if (same_ascii_word(target, "Allies"))
+        return static_cast<uint8_t>(OA_CHAT_MODE_ALLIES);
+    if (same_ascii_word(target, "Enemies"))
+        return static_cast<uint8_t>(OA_CHAT_MODE_ENEMIES);
+    return static_cast<uint8_t>(OA_CHAT_MODE_CHOSEN);
+}
+
+bool chat_words_command(std::string_view words) noexcept {
+    size_t index = 0;
+    while (index < words.size() && words[index] == ' ')
+        ++index;
+    return index < words.size() && (words[index] == '+' || words[index] == '.');
+}
+
+bool seat_hears(
+    const Game& game, uint8_t speaker, uint8_t seat, uint8_t mode, const uint8_t* targets
+) noexcept {
+    if (speaker >= OA_PLAYER_COUNT || seat >= OA_PLAYER_COUNT || speaker == seat)
+        return false;
+    if (mode == OA_CHAT_MODE_EVERYONE)
+        return true;
+    if (mode == OA_CHAT_MODE_ALLIES)
+        return game.players[speaker].alliance[seat] != 0;
+    if (mode == OA_CHAT_MODE_ENEMIES)
+        return game.players[speaker].alliance[seat] == 0;
+    if (mode == OA_CHAT_MODE_CHOSEN)
+        return targets != nullptr && targets[seat] != 0;
+    return false;
+}
+
+void post_seat_chat(
+    World& world,
+    const Player& seat,
+    std::string_view words,
+    uint8_t mode,
+    const uint8_t* targets,
+    const Hooks& hooks
+) {
+    if (chat_words_command(words))
+        return;
+    // The words may not be terminated. Enough of them is copied that the
+    // formatted line's own cut, not this copy, is what shortens it.
+    char text[most_chat_line_bytes + chat_lookahead_bytes];
+    text[0] = '\0';
+    if (!words.empty()) {
+        const size_t count = words.size() < sizeof text - 1 ? words.size() : sizeof text - 1;
+        std::memcpy(text, words.data(), count);
+        text[count] = '\0';
+    }
+    char name[player_chat_name_bytes + 1];
+    chat_name(seat, name);
+    const char* target = nullptr;
+    char chosen_name[player_chat_name_bytes + 1]{};
+    if (mode == OA_CHAT_MODE_ALLIES) {
+        target = "Allies";
+    } else if (mode == OA_CHAT_MODE_ENEMIES) {
+        target = "Enemies";
+    } else if (mode == OA_CHAT_MODE_CHOSEN && targets != nullptr) {
+        for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+            if (targets[slot] == 0)
+                continue;
+            chat_name(world.game.players[slot], chosen_name);
+            target = chosen_name;
+            break;
+        }
+    }
+    const size_t line_bytes = chat_line_limit(hooks);
+    char line[most_chat_line_bytes];
+    write_chat_line(line, line_bytes, name, target, text);
+    if (mode != chat_mode_local_only && hooks.share_seat_chat != nullptr)
+        hooks.share_seat_chat(hooks.context, seat.index, line, mode, targets);
+    if (hooks.game_kind != nullptr && hooks.game_kind(hooks.context) == game_kind_multiplayer &&
+        mode == OA_CHAT_MODE_EVERYONE && hooks.record_chat != nullptr)
+        hooks.record_chat(hooks.context, line);
+    if (!seat_hears(world.game, seat.index, world.game.local_player_index, mode, targets))
+        return;
+    char shown[most_chat_line_bytes];
+    format_shown_chat_line(shown, sizeof shown, line, hooks.translate, hooks.context);
+    post_message(world, shown, kind_player_chat, 0, seat.index, hooks);
 }
 
 } // namespace oa::sim::messages
