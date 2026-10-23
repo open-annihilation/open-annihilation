@@ -20,11 +20,15 @@ brain plays as the built-in computer player.
   a later change adds a library: one call, after the ones already there.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and
   `geometry.cosine_scaled`, and creates the global `brain`, `game` and `me`
-  tables. `game` is then filled from the seat's facts, and unit handles and
-  the read-only `me` surface are installed, then `brain.say`. It has to work
-  when the seat has no match: `game.in_match` is false, `me` still carries
-  the player, level, difficulty and options copied from the spec, and
-  `brain.say` answers that chat is not connected.
+  tables. `game` is then filled from the seat's facts, and unit handles,
+  the read-only `me` surface, and the definition collections are installed,
+  then `brain.say`, `brain.random`, `brain.after`, `brain.every` and
+  `brain.cancel`. `brain.shared_random` is installed only when the seat is
+  Classic and it has a match. It has to work when the seat has no match:
+  `game.in_match` is false, `me` still carries the player, level,
+  difficulty and options copied from the spec, `units`, `weapons` and
+  `features` exist and are empty, and `brain.say` answers that chat is
+  not connected.
 
 ## State
 
@@ -111,6 +115,18 @@ state hash.
 `brain.say` passes each audience to the test's say hook and returns each
 answer. Two matches with no brain, and two matches whose brain says a line
 every tick, keep the same random stream and state hash.
+
+`sim-brains-random` (`tests/random_test.cpp`) checks the brain's own stream
+against `tests/random_reference.py`, that replacing `math.random` leaves
+`brain.random`, that those draws do not move the match's shared stream, and
+that Classic is the fingerprint of the files. The sample package is
+`tests/classic-sample`.
+
+`sim-brains-timers` (`tests/timers_test.cpp`) checks that `brain.after` and
+`brain.every` run after the queued events and before `onTick`, in due-tick
+then sequence order, including a cancel from an earlier timer of the same
+turn, the waiting limit and the argument errors, and that an error inside a
+timer stops the seat and names the timer's chunk and line.
 
 ## Handles and my side
 
@@ -200,10 +216,80 @@ missing `onTick` is fine.
 One turn is one banked call. It delivers the queued events in the order they
 fired, then alliance changes for the other players in index order, then a
 defeat for each player who was participating and no longer is, then chat,
-then `onTick`. The first turn stores the alliances and who is participating and
-reports none of those changes. A failed call marks the seat stopped; later
-turns return without a call. Orders a hook gives take effect in the next
-tick's unit sweep.
+then the timers whose due tick has come, then `onTick`. The timers run even when the
+hooks table is missing. The first turn stores the alliances and who is
+participating and reports none of those changes. A failed call marks the
+seat stopped; later turns return without a call. Orders a hook gives take
+effect in the next tick's unit sweep.
+
+## Timers
+
+`brain.after(ticks, fn)` runs `fn` once, that many turns after the turn that
+created it. `start` sees the seating tick, so a timer it creates is due that
+many turns later. `brain.every(ticks, fn)` runs then, and again every
+`ticks` turns after the due tick it just met. `ticks` is an integer from 1
+to 2147483647. Anything else raises `brain.after: ticks must be an integer
+from 1 to 2147483647`, or the same sentence for `brain.every`. Each call
+returns an id. Ids are sequence numbers, starting at 1, and they only grow.
+`brain.cancel(id)` returns true when it removed a waiting timer and false
+otherwise. A brain may keep 1024 timers waiting; one more raises
+`brain.after: a brain may keep at most 1024 timers waiting`, or the same
+sentence for `brain.every`.
+
+Due timers run in order of due tick, then sequence number. One cancelled by
+an earlier timer of the same turn does not run. One created during the turn
+is due on a later turn. An `every` timer's next due tick is the due tick it
+just met plus its period. Each run charges one element of work. An error
+inside a timer stops the seat the way a hook error does, and the failure
+names the timer's chunk and line.
+
+With no match the three functions still check their arguments, and
+`brain.after`, `brain.every` and `brain.cancel` can store and cancel timers.
+No turn runs them.
+
+## Random
+
+`brain.random` is the `math.random` function taken when the profile
+installs, so both draw from the brain's own xoshiro256** stream. A script
+that replaces `math.random` does not change `brain.random`. `brain.random(n)`
+returns an integer from 1 to n, as `math.random(n)` does.
+
+The stream is seeded from the first eight bytes, little-endian, of the
+SHA-256 of the match seed written as eight little-endian bytes (the 32-bit
+seed zero-extended), then the player index as one byte, then the brain's id,
+a zero byte, and the version. The same four values always give the same
+draws. A load check has no match seed, so it uses 0. Draws from this stream
+do not advance the match's shared stream.
+
+`brain.shared_random(bound)` draws from that shared stream, the one unit
+scripts and the simulation draw from. `bound` is an integer from 0 to
+4294967295; anything else raises `brain.shared_random: argument 1 must be an
+integer from 0 to 4294967295`. The result is the match's own bounded draw: a
+value below `bound`, or 0 without advancing the stream when `bound`, read as
+a signed 32-bit value, is below 2. For any other brain, and for every brain
+with no match, `brain.shared_random` is nil.
+
+## Classic
+
+A seat is Classic only when its files are the files of this build's
+`brains/classic/` folder: the same paths and the same bytes. The id, the
+name, the manifest and the install path prove nothing. The test compares
+fingerprints. One line per file, in byte order of the path, is the SHA-256
+of that file in lower-case hex, a space, the path and a newline. The
+installer's record `.oa-origin.yaml` is left out. The fingerprint is the
+SHA-256 of that text, written the same way. The build computes it from
+`brains/classic/` and writes a generated header. A missing folder, or one
+with no other file, has an empty fingerprint, and then no package is Classic.
+
+`seat_is_classic` is the one test for every Classic privilege. The
+privileges are the shared stream (`brain.shared_random`, and later a draw
+from a copy of it) and the direct write of the standing bits. Full awareness
+is the manifest's own flag, kept on the seat. `seat_is_classic` does not
+decide it.
+
+Tests may set `classic_fingerprint_for_tests` on the spec. When it is not
+empty it replaces the fingerprint baked into the build, for that load. The
+app never sets it.
 
 ## Chat
 
@@ -230,7 +316,60 @@ had. The simulation reaches the app only through this hook.
 
 ## Limitations
 
-Radar contacts wait on per-player radar (A05). Timers run inside this call
-later (B03), after chat and before `onTick`. Handing a stopped seat back to
-the built-in player, with the notice and the log, is B04. Shots are not
-delivered.
+Radar contacts wait on per-player radar (A05). Handing a
+stopped seat back to the built-in player, with the notice and the log, is
+B04. Shots are not delivered. A saved game does not keep timers or the
+brain's stream: the brain starts again from `start`. Placed map features are not listed; `features` is the
+feature-type table.
+
+## Definitions
+
+`units`, `weapons` and `features` are the match's loaded records, after the
+mod and the mutators. They are read-only. Assigning a field raises
+`a collection cannot be assigned` or `a record cannot be assigned`. Replacing
+the global `units` itself is ordinary Lua.
+
+A record answers `rec.key` and `rec:get(key)`. `rec:fixed(key)` is that value
+as a fixed count: a stored 16.16 count, an integer or a tick count times
+65536, or a float times 65536 truncated toward zero. A list or a text is nil.
+`rec:keys()` is the kept fields in schema order. `rec:index()` is the type
+index, the weapon id, or the feature's index from 0.
+
+`units[i]` is type index `i`, from 1. Index 0 is the reserved empty type and
+is not a record. `#units` is that count. `weapons[id]` is the weapon id from
+0 to 255, or nil when that slot was not loaded. `#weapons` is how many slots
+are loaded, so it matches `each` and `pairs`; the id is still the key, and a
+gap stays a gap. `features[i]` is the feature type at index `i - 1`.
+
+Names are matched without regard to ASCII case. The first record in that
+order wins when two share a name. `each` is the collection's method, so a
+record named `each` is reached by index, not by that name. `pairs` and `each`
+walk the same order: type index, then weapon id, then feature index.
+
+An integer is a Lua integer. A 16.16 count is a `fixed` value, and a stored
+float is an `f32`, so the bits the record holds are the bits the script sees.
+A flag is the record's bit, read when the field is read. A tick field is the
+stored tick count, thirty to a second. `category` is the type's categories in
+registry order.
+
+These unit keys are not on the record, so they read nil: `copyright`,
+`version`, `yardmap`, `corpse`, `badslope`, `badwaterslope`,
+`wpri_badtargetcategory`, `wsec_badtargetcategory`, `wspe_badtargetcategory`
+and `nochasecategory`. A weapon's sound names, explosion art and model name
+are not on the weapon record either.
+
+`weapon:damage()` is the weapon's default damage. `weapon:damage(unit)` uses
+a unit record, a unit name or a type index, and reads that unit's entry.
+`resolve_unit_type` is the one way a later change turns those three into a
+type index.
+
+A unit handle's `type` is that unit's record. It is a seen field: another
+player's unit reads nil while the seat may not see it.
+
+With no match the three collections are empty, `#units` is 0, and every
+lookup is nil.
+
+`sim-brains-defs` seats the made-up brain `definition-reader` on the
+computer-build fixture and also runs that brain with no match.
+`sim-brains-defs-data` compares every installed unit's kept fields with the
+value the match loaded.

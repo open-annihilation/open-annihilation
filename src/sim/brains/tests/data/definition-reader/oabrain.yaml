@@ -1,0 +1,13 @@
+oabrain: 1
+id: definition-reader
+name: "Definition Reader"
+version: "1.0"
+author:
+  name: "Ridge Testers"
+description: "Reads the unit, weapon and feature records a brain is given."
+tags: ["teaching"]
+works-with: ["*"]
+levels:
+  - id: steady
+    name: "Steady"
+    difficulty: medium

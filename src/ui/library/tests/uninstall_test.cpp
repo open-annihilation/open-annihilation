@@ -8,7 +8,8 @@
 // that says why; what pressing it leads to for the mod being played, the
 // language pack in use and every other package; the question's words, with
 // and without the copy ROLL BACK keeps, for a listed package and the
-// player's own, CANCEL marked and UNINSTALL primary; the notices' words and
+// player's own, CANCEL marked and UNINSTALL primary; the default brain's
+// extra paragraph, and none for another brain; the notices' words and
 // their one OK; and a lookup that translates.
 #include "oa/test/check.hpp"
 #include "oa/ui/kit/components_more.hpp"
@@ -513,6 +514,56 @@ void test_lookup() {
         OA_CHECK_TEXT(buttons[1].text, "DÉSINSTALLER");
 }
 
+/// The default brain's question adds its paragraph before the last. Another
+/// brain's question does not.
+void test_default_brain() {
+    lib::Inputs inputs = fixture_inputs();
+    lib::Listing steady = listing(Kind::brain, "steady-commander", "Steady Commander");
+    steady.brain = lib::BrainFacts{};
+    inputs.listings.push_back(steady);
+    lib::Installed steady_held =
+        installed(core, Kind::brain, "steady-commander", "Steady Commander", "steady-commander");
+    steady_held.brain = lib::BrainFacts{};
+    inputs.installed.push_back(std::move(steady_held));
+    lib::Listing picky = listing(Kind::brain, "picky-planner", "Picky Planner");
+    picky.brain = lib::BrainFacts{};
+    inputs.listings.push_back(std::move(picky));
+    lib::Installed picky_held =
+        installed(core, Kind::brain, "picky-planner", "Picky Planner", "picky-planner");
+    picky_held.brain = lib::BrainFacts{};
+    inputs.installed.push_back(std::move(picky_held));
+    inputs.default_brain = "steady-commander";
+    const lib::Library library = built(std::move(inputs));
+    const lib::Entry* steady_row = at(library, core, Kind::brain, "steady-commander");
+    OA_CHECK(steady_row != nullptr && steady_row->is_default);
+    if (steady_row != nullptr) {
+        const kit::Question asked =
+            lib::uninstall_question(library, *steady_row, "Brains/steady-commander");
+        OA_CHECK(asked.paragraphs.size() == 3);
+        if (asked.paragraphs.size() == 3) {
+            OA_CHECK_TEXT(
+                asked.paragraphs[0].text,
+                "Uninstall Steady Commander? Its folder, Brains/steady-commander, is removed."
+            );
+            OA_CHECK_TEXT(
+                asked.paragraphs[1].text,
+                "It is your default computer player: new computer seats go back to the built-in "
+                "player."
+            );
+            OA_CHECK_TEXT(asked.paragraphs[2].text, "GET installs it again.");
+        }
+    }
+    const lib::Entry* picky_row = at(library, core, Kind::brain, "picky-planner");
+    OA_CHECK(picky_row != nullptr && !picky_row->is_default);
+    if (picky_row != nullptr) {
+        const kit::Question asked =
+            lib::uninstall_question(library, *picky_row, "Brains/picky-planner");
+        OA_CHECK(asked.paragraphs.size() == 2);
+        for (const kit::Paragraph& paragraph : asked.paragraphs)
+            OA_CHECK(paragraph.text.find("default computer player") == std::string::npos);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -520,6 +571,7 @@ int main() {
     test_off();
     test_steps();
     test_question();
+    test_default_brain();
     test_notices();
     test_lookup();
     return oa::test::check_exit_status();

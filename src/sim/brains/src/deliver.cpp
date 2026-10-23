@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One banked call at the seat's controller point. It delivers the queued
-// events, then alliance and defeat changes, then chat, then onTick. Timers
-// join this call later, after chat and before onTick.
+// events, then alliance and defeat changes, then chat, then due timers,
+// then onTick.
 
 #include "internal.hpp"
 
@@ -420,6 +420,7 @@ static int deliver_hooks(lua_State* state) {
     walk_events(state, *seat, hooks, table, seen_bits);
     report_diplomacy(state, *seat, hooks, table);
     deliver_chat(state, *seat, hooks, table);
+    run_due_timers(state, *seat);
     if (table)
         call_tick(state, *seat, hooks);
     lua_pop(state, 1);

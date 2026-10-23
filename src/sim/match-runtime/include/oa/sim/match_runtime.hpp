@@ -650,6 +650,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @return A value below `bound`, or 0 for a bound below 2.
     uint32_t random_bounded(uint32_t bound) noexcept { return random_.bounded(bound); }
 
+    /// Returns the match seed the shared stream was started from.
+    ///
+    /// @return `OfflineInputs::random_seed`
+    [[nodiscard]] uint32_t random_seed() const noexcept { return input_.random_seed; }
+
     /// Returns the shared stream's state.
     uint32_t random_state() const noexcept { return random_.state(); }
 
@@ -2422,11 +2427,26 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @return the state, empty until a brain is seated
     std::shared_ptr<void>& seat_state() noexcept { return seat_state_; }
 
+    /// Returns the brains' state. Whoever seats a brain owns what it points at.
+    ///
+    /// The state ends with the match. It is not saved, hashed or shared.
+    ///
+    /// @return the state, empty until a brain is seated
+    [[nodiscard]] const std::shared_ptr<void>& seat_state() const noexcept { return seat_state_; }
+
     /// Returns a type's typed fields, taken from its loaded UnitDef.
     ///
     /// @param type Type index.
     /// @return The definition, or null past the table or without one.
     const data::unit_definitions::UnitDefinition* unit_definition(uint16_t type) const noexcept;
+    /// Returns a weapon's combat definition, including its damage table.
+    ///
+    /// The pointer addresses the registry the match was given. An unused slot
+    /// still has a definition; its damage is the slot's default.
+    ///
+    /// @param id Weapon id, the registry index.
+    /// @return The definition. Never null.
+    const sim::combat_state::WeaponDefinition* weapon_definition(uint8_t id) const noexcept;
     /// Returns the unit slots of a player's squad.
     ///
     /// @param player Player index 0..9.

@@ -133,7 +133,8 @@ setup has no set. Restore defaults does not erase them.
 `open-annihilation.brain.default` holds the id of the brain the player
 uses as the default computer player. Absent, empty, or an id that is not
 installed, the built-in computer player is the default. Restore defaults
-does not erase it. USE BY DEFAULT writes it.
+does not erase it. USE BY DEFAULT writes it. Uninstalling that brain
+erases the key, so it does not keep naming a brain that is gone.
 `open-annihilation.brains.skirmish`,
 `open-annihilation.brains.multiplayer` and
 `open-annihilation.brains.campaign` each hold the computer seats that

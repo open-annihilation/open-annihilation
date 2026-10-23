@@ -11,6 +11,8 @@
 // opened too; that painter keeps no record. SKIRMISH is painted with
 // Mutators reading "Mutators" and "Mutators (5)", and NEWGAME with the
 // button, in every language and both sizes; its words must read whole.
+// The Brains tab's details are painted too: one brain not installed and one
+// installed, at both sizes and at 960x540, Compact on its details page.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
@@ -467,6 +469,111 @@ void Runtime::check_text_fit() {
         }
     };
 
+    /// Made-up brains on the Brains tab. Ridge Raider is not installed.
+    /// Steady Commander is, and it sees every unit and carries a network,
+    /// so those long facts are fitted. The model is held: the feed's check
+    /// would replace a verdict the check set by hand.
+    const auto inject_brains = [&] {
+        LibraryHost& host = library_host();
+        for (const library::Listing& listed : host.model.inputs.listings) {
+            if (listed.kind == library::Kind::brain && listed.key == "steady-commander")
+                return;
+        }
+        library::Inputs inputs = host.model.inputs;
+        bool listed = false;
+        for (const library::Registry& registry : inputs.registries)
+            if (registry.id == "fit-core")
+                listed = true;
+        if (!listed) {
+            library::Registry registry;
+            registry.id = "fit-core";
+            registry.name = "Fit Core";
+            registry.built_in = true;
+            inputs.registries.push_back(std::move(registry));
+        }
+        library::Listing missing;
+        missing.registry = "fit-core";
+        missing.kind = library::Kind::brain;
+        missing.key = "ridge-raider";
+        missing.name = "Ridge Raider";
+        missing.version = "1.0";
+        missing.revision = 1;
+        missing.release = 1;
+        missing.author = "Ada";
+        missing.summary = "Raids the ridge.";
+        missing.homepage = "https://example.test/ridge-raider";
+        missing.size = 1024;
+        library::BrainFacts ridge_facts;
+        ridge_facts.works_with.push_back({"ridge", {}, "Ridge"});
+        ridge_facts.tags.push_back("rush");
+        missing.brain = std::move(ridge_facts);
+        inputs.listings.push_back(std::move(missing));
+
+        library::BrainFacts steady_facts;
+        steady_facts.works_with.push_back({"*", {}, {}});
+        steady_facts.tags.push_back("classic");
+        steady_facts.full_awareness = true;
+        steady_facts.network_bytes = uint64_t{2} << 20;
+        steady_facts.levels.push_back({"steady", "Steady", library::BrainDifficulty::easy});
+        library::Verdict verdict;
+        verdict.state = library::Verdict::State::unchecked;
+        steady_facts.verdict = std::move(verdict);
+        library::Listing steady_listing;
+        steady_listing.registry = "fit-core";
+        steady_listing.kind = library::Kind::brain;
+        steady_listing.key = "steady-commander";
+        steady_listing.name = "Steady Commander";
+        steady_listing.version = "1.0";
+        steady_listing.release = 1;
+        steady_listing.author = "Ada";
+        steady_listing.summary = "Holds the line.";
+        steady_listing.homepage = "https://example.test/steady-commander";
+        steady_listing.size = 1024;
+        steady_listing.brain = steady_facts;
+        library::Installed steady;
+        steady.kind = library::Kind::brain;
+        steady.key = "steady-commander";
+        steady.registry = "fit-core";
+        steady.release = 1;
+        steady.folder = "steady-commander";
+        steady.name = "Steady Commander";
+        steady.version = "1.0";
+        steady.author = "Ada";
+        steady.description = "Holds the line.";
+        steady.brain = std::move(steady_facts);
+        inputs.listings.push_back(std::move(steady_listing));
+        inputs.installed.push_back(std::move(steady));
+
+        library::refresh(host.model, std::move(inputs));
+        ++host.model_revision;
+        hold_library();
+    };
+
+    /// The details of one injected brain, scrolled, at the window's size.
+    /// Compact shows the details page. Regular and Large show the pane.
+    const auto show_brain = [&](std::string_view key) {
+        LibraryHost& host = library_host();
+        const library::EntryId id{"fit-core", library::Kind::brain, std::string(key)};
+        if (library::find_entry(host.model, id) == nullptr)
+            inject_brains();
+        host.state.details_page = width <= 640;
+        host.state.menu = library::MenuKind::none;
+        const std::string screen = std::string("library/brains/") + std::string(key);
+        for (const int32_t scroll : kScrolls) {
+            require(
+                library::find_entry(host.model, id) != nullptr,
+                screen + " has no " + std::string(key)
+            );
+            library::set_tab(host.model, library::Tab::brains);
+            library::select(host.model, id);
+            library::open_details(host.model);
+            host.state.details_scroll = scroll;
+            host.state.list_scroll = 0;
+            ++host.model_revision;
+            paint_held(screen);
+        }
+    };
+
     const auto close_covering = [&] {
         dialogs::reset_dialogs();
         if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
@@ -674,6 +781,9 @@ void Runtime::check_text_fit() {
             inject_mutators();
             show_mutator("fast-builders");
             show_mutator("steady");
+            inject_brains();
+            show_brain("ridge-raider");
+            show_brain("steady-commander");
             if (size_at == 0) {
                 const int32_t saved_width = width;
                 const int32_t saved_height = height;
@@ -686,6 +796,8 @@ void Runtime::check_text_fit() {
                 apply_output_mode();
                 show_mutator("fast-builders");
                 show_mutator("steady");
+                show_brain("ridge-raider");
+                show_brain("steady-commander");
                 width = saved_width;
                 height = saved_height;
                 require(

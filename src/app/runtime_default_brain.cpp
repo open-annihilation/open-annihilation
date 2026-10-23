@@ -14,8 +14,12 @@
 #include "oa/data/brain_library/library.hpp"
 #include "oa/ui/engine_settings.hpp"
 
+#include <exception>
+#include <iostream>
 #include <optional>
+#include <ostream>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace oa::app {
@@ -47,6 +51,31 @@ std::string Runtime::default_brain() const {
     if (oa::data::brain_library::find(installed_brains(), id) == nullptr)
         return {};
     return id;
+}
+
+void Runtime::set_default_brain(std::string_view id) {
+    const std::string key{settings::key::brain_default};
+    if (id.empty()) {
+        if (preference_values_.erase(key) == 0)
+            return;
+    } else {
+        preference_values_[key] = std::string(id);
+    }
+    try {
+        preferences_dirty_ = true;
+        save_preferences();
+    } catch (const std::exception& error) {
+        if (brain_default_failure_logged_)
+            return;
+        brain_default_failure_logged_ = true;
+        std::cerr << "open-annihilation: brains: the default could not be stored: " << error.what()
+                  << '\n';
+    } catch (...) {
+        if (brain_default_failure_logged_)
+            return;
+        brain_default_failure_logged_ = true;
+        std::cerr << "open-annihilation: brains: the default could not be stored\n";
+    }
 }
 
 } // namespace oa::app

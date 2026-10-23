@@ -4520,6 +4520,15 @@ class Runtime final : public menu::Host,
     /// @return the id, or empty for the built-in computer player
     [[nodiscard]] std::string default_brain() const;
 
+    /// Stores the default computer player.
+    ///
+    /// An installed brain's id writes open-annihilation.brain.default. An
+    /// empty id erases the key, so the built-in player is the default. A
+    /// failure to store it is logged once.
+    ///
+    /// @param id the brain's id, or empty for the built-in player
+    void set_default_brain(std::string_view id);
+
   public:
 
     /// Replaces the mutators the next matches apply.
@@ -18521,6 +18530,8 @@ class Runtime final : public menu::Host,
     bool mutator_refusal_logged_{};
     /// A failure to store or erase a remembered set has already been logged.
     bool mutator_sets_failure_logged_{};
+    /// A failure to store or erase the default brain has already been logged.
+    bool brain_default_failure_logged_{};
     /// The seats skirmish, the battle room and campaign keep for this run.
     /// Empty until that setup is entered. The battle room's stays empty
     /// until a later ticket fills it.
