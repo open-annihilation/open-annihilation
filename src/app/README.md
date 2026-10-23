@@ -3076,6 +3076,26 @@ network game and a recording do not seat a brain. The package is read by
 `oa-app-brain-seats` (`brain_seats.hpp`); the seat itself lives in the
 simulation.
 
+A skirmish and a campaign also remember which brain sits on each computer
+seat. Opening the skirmish setup, other than from the map picker or from a
+start that returned to it, reads `open-annihilation.brains.skirmish`.
+Opening a new campaign or Any Mission from Single Player or the main menu
+reads `open-annihilation.brains.campaign`. START seats those brains before
+the first tick. A computer seat with nothing remembered takes the default
+brain, at the level that brain offers for the setup's difficulty. A seat
+left on the built-in player stays on the built-in player. A brain that is
+not installed, or that does not fit the game being played, leaves the
+built-in player in the seat, and the log says why. Each brain that plays
+is one line: `brains: player N plays <id> <version> at <level>`. With no
+brain seated and no default, START changes nothing about brains and writes
+no seats key. Restore defaults does not erase a key that is there.
+
+`tools/check_native_brain_seats.py` (`native-brain-seats`) plays a headless
+skirmish from a scratch folder that holds Steady Commander and Ridge
+Raider. It checks a start with no brain, Steady Commander remembered at
+Firm, the default brain, Ridge Raider with no mod played, and a brain that
+is not installed.
+
 ## Chat a computer seat reads and sends
 
 A computer seat on this machine can read chat and say a line of its own.

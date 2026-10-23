@@ -268,6 +268,10 @@ void Runtime::teardown_match() {
     offline_services_.set_on_screen_test(nullptr, nullptr);
     effect_boundary_.clock = nullptr;
     match_.reset();
+    // The brains this match seated go with it. A list held for the next
+    // start stays: a new start tears the previous match down before it
+    // configures the players that list is for.
+    seated_brains_.clear();
     release_match_mutators();
     // A replay or a saved game puts the player's mutators back once its match
     // ends. A teardown before that match starts leaves the held list as it is.

@@ -1142,6 +1142,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mutators_hacks.cpp
   src/app/runtime_mutators_maps.cpp
   src/app/runtime_mutators_memory.cpp
+  src/app/runtime_brain_seats.cpp
   src/app/runtime_default_brain.cpp
   src/app/runtime_pack_maps.cpp
   src/app/pack_map_source.cpp
@@ -3354,6 +3355,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-saveload PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A headless skirmish seats a remembered brain, the default brain, or
+        # the built-in player, and writes no seats key when none was named
+        # (tools/check_native_brain_seats.py).
+        add_test(NAME native-brain-seats COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_seats.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-brain-seats PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} SKIP_RETURN_CODE ${OA_GAME_DATA_SKIP_CODE})
         # A skirmish saved with mutators loads with those mutators, refuses a
         # missing one by name, and a save without them loads with none
         # (tools/check_native_saveload_mutators.py).
