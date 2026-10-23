@@ -13,7 +13,7 @@ add_library(oa-app-package-install src/package.cpp src/names.cpp src/plan_oamod.
   src/plan_oalang.cpp src/change.cpp src/unpack.cpp src/files.cpp src/inbox.cpp src/prompts.cpp
   src/handoff.cpp src/kinds.cpp src/prompts_oamod.cpp src/prompts_oamap.cpp src/prompts_oalang.cpp
   src/prompts_oaexp.cpp src/plan_oaexp.cpp src/plan_oamut.cpp src/prompts_oamut.cpp
-  src/plan_oabrain.cpp src/origin.cpp)
+  src/plan_oabrain.cpp src/prompts_oabrain.cpp src/origin.cpp)
 add_library(oa::app::package_install ALIAS oa-app-package-install)
 target_include_directories(oa-app-package-install PUBLIC include)
 target_compile_features(oa-app-package-install PUBLIC cxx_std_20)
