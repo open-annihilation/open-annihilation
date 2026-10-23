@@ -8,6 +8,7 @@
 
 #include "oa/data/content_bundles.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
+#include "oa/formats/oamut/manifest.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/library/text.hpp"
 #include "screen_controls.hpp"
@@ -708,6 +709,72 @@ bool locked_by_command_line(
 }
 
 } // namespace
+
+std::string
+brain_unfit_reason(const Inputs& inputs, const BrainFacts& facts, const TextHooks& text) {
+    if (const std::optional<formats::oamod::EngineRange> range =
+            formats::oamod::parse_engine_range(facts.requires_engine)) {
+        if (!formats::oamod::engine_range_met(*range, inputs.engine))
+            return filled(text, words::blocked_engine, {{"range", engine_text(*range, text)}});
+    }
+    if (!facts.works_with.empty()) {
+        bool fits = false;
+        std::vector<std::string> names;
+        for (const WorksWith& item : facts.works_with) {
+            if (item.id == "*") {
+                fits = true;
+                break;
+            }
+            std::string label;
+            if (item.id == supported_base) {
+                label = std::string(shown(text, words::base_supported));
+                if (inputs.played.id.empty())
+                    fits = true;
+            } else {
+                label = item.name.empty() ? item.id : item.name;
+                formats::oamut::Condition condition;
+                condition.id = item.id;
+                condition.range_text = item.range;
+                if (!item.range.empty()) {
+                    const std::optional<formats::oamut::VersionRange> parsed =
+                        formats::oamut::parse_version_range(item.range);
+                    if (!parsed) {
+                        names.push_back(std::move(label));
+                        continue;
+                    }
+                    condition.range = *parsed;
+                }
+                if (formats::oamut::condition_met(
+                        condition, inputs.played.id, inputs.played.version
+                    ))
+                    fits = true;
+            }
+            names.push_back(std::move(label));
+        }
+        if (!fits) {
+            const auto join_or = [&](const std::vector<std::string>& parts) {
+                if (parts.empty())
+                    return std::string{};
+                if (parts.size() == 1)
+                    return parts.front();
+                std::string joined = parts.front();
+                for (std::size_t index = 1; index + 1 < parts.size(); ++index)
+                    joined = filled(
+                        text, words::names_comma, {{"left", joined}, {"right", parts[index]}}
+                    );
+                return filled(text, words::names_or, {{"left", joined}, {"right", parts.back()}});
+            };
+            return filled(text, words::made_for, {{"names", join_or(names)}});
+        }
+    }
+    for (const std::string& expansion : facts.requires_expansions) {
+        if (std::find(inputs.content.enabled.begin(), inputs.content.enabled.end(), expansion) !=
+            inputs.content.enabled.end())
+            continue;
+        return filled(text, words::chip_needs, {{"name", bundle_name(text, expansion)}});
+    }
+    return {};
+}
 
 void note_content(Library& library) {
     const std::string base = resolved_base(library.inputs.content.base_id);

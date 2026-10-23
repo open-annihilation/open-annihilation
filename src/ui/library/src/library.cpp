@@ -8,6 +8,7 @@
 
 #include "oa/data/languages.hpp"
 #include "oa/data/mod_profile/registry.hpp"
+#include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/ui/kit/tag_icon.hpp"
 #include "oa/ui/library/prerequisites.hpp"
@@ -219,6 +220,10 @@ std::string blocked_reason(const Library& library, const Entry& entry) {
             return registry->downloads_off_reason;
         return filled(text, words::blocked_downloads_off, {{"registry", entry.registry_name}});
     }
+    // A brain that does not fit the game being played says so on the row.
+    // That is information: it does not block GET or UPDATE.
+    if (entry.id.kind == Kind::brain)
+        return {};
     if (entry.state == State::update) {
         const UpdateNote& update = *entry.update;
         switch (update.blocked) {
@@ -314,6 +319,10 @@ void settle_entry(const Library& library, Entry& entry) {
                 entry.not_compatible = true;
             entry.needs_missing = first_unmet_need(library.inputs, *facts);
         }
+    } else if (entry.id.kind == Kind::brain) {
+        if (const BrainFacts* facts = brain_facts(entry))
+            entry.not_compatible =
+                !brain_unfit_reason(library.inputs, *facts, library.text).empty();
     }
     entry.blocked = blocked_reason(library, entry);
     entry.can_act = entry.blocked.empty();
@@ -458,6 +467,67 @@ void ensure_built_in_languages(Library& library) {
         }
         settle_built_in_language(library, *language, library.entries[*place]);
     }
+}
+
+/// Sets the built-in computer player: installed, with its name and summary,
+/// and with no package behind it.
+///
+/// @param library the Library
+/// @param[in,out] entry the built-in entry
+void settle_built_in_brain(const Library& library, Entry& entry) {
+    entry.listing = nullptr;
+    entry.installed = nullptr;
+    entry.update = nullptr;
+    entry.queued = nullptr;
+    entry.replaces_registry_name.clear();
+    entry.built_in = false;
+    entry.not_reviewed = false;
+    entry.registry_name.clear();
+    entry.blocked.clear();
+    entry.can_act = true;
+    entry.not_compatible = false;
+    entry.needs_missing.clear();
+    entry.is_default = false;
+    entry.badge = nullptr;
+    entry.shown_name = std::string(shown(library.text, words::built_in_brain_name));
+    entry.shown_summary = std::string(shown(library.text, words::built_in_brain_summary));
+    entry.state = State::installed;
+}
+
+/// Makes sure the built-in computer player is present, and settles it.
+///
+/// An entry a package already took under the same id is kept as the built-in
+/// player: a package key cannot be built_in_brain_key, and the entry offers
+/// none of a package's actions. The default is the installed brain whose key
+/// is Inputs::default_brain, or this entry when that names none.
+///
+/// @param[in,out] library the Library, its other entries already settled
+void ensure_built_in_brain(Library& library) {
+    const EntryId id = built_in_brain_id();
+    std::optional<std::size_t> place;
+    for (std::size_t index = 0; index < library.entries.size(); ++index)
+        if (library.entries[index].id == id)
+            place = index;
+    if (!place) {
+        Entry added;
+        added.id = id;
+        library.entries.push_back(std::move(added));
+        place = library.entries.size() - 1;
+    }
+    settle_built_in_brain(library, library.entries[*place]);
+    const std::string& wanted = library.inputs.default_brain;
+    bool named = false;
+    for (Entry& entry : library.entries) {
+        entry.is_default = false;
+        if (wanted.empty() || entry.id.kind != Kind::brain || entry.installed == nullptr)
+            continue;
+        if (entry.id.key != wanted)
+            continue;
+        entry.is_default = true;
+        named = true;
+    }
+    if (!named)
+        library.entries[*place].is_default = true;
 }
 
 /// Makes the selection one of the visible entries.
@@ -1036,6 +1106,7 @@ void refresh(Library& library, Inputs inputs) {
         library.expansion_note = true;
     ensure_base_game(library);
     ensure_built_in_languages(library);
+    ensure_built_in_brain(library);
     recompute(library);
 }
 
@@ -1119,7 +1190,7 @@ const Entry* selected_entry(const Library& library) {
 }
 
 std::string_view entry_name(const Entry& entry) {
-    if (is_built_in_language(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id))
         return entry.shown_name;
     if (is_base_game(entry.id))
         return entry.shown_name.empty() ? words::no_mod : std::string_view(entry.shown_name);
@@ -1158,7 +1229,7 @@ bool works_with_played(const Inputs& inputs, const MutatorFacts& facts) {
 }
 
 std::string_view entry_summary(const Entry& entry) {
-    if (is_built_in_language(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_language(entry.id))
         return entry.shown_summary;
     if (is_base_game(entry.id))
         return entry.shown_summary;
@@ -1182,6 +1253,11 @@ namespace {
 const std::vector<std::string>* tags_of(const Entry& entry) {
     if (entry.id.kind == Kind::mutator)
         return mutator_tag_list(entry);
+    if (entry.id.kind == Kind::brain) {
+        if (const BrainFacts* facts = brain_facts(entry))
+            return &facts->tags;
+        return nullptr;
+    }
     if (entry.listing != nullptr)
         return &entry.listing->tags;
     return nullptr;
@@ -1201,9 +1277,21 @@ std::vector<std::pair<std::string, std::size_t>> tags_in_tab(const Library& libr
         for (const std::string& tag : *tags)
             ++counts[tag];
     }
-    if (library.tab != Tab::mutators)
+    if (library.tab != Tab::mutators && library.tab != Tab::brains)
         return {counts.begin(), counts.end()};
     std::vector<std::pair<std::string, std::size_t>> ordered;
+    if (library.tab == Tab::brains) {
+        for (const std::string_view id : formats::oabrain::brain_tags) {
+            const auto found = counts.find(std::string(id));
+            if (found == counts.end())
+                continue;
+            ordered.push_back(*found);
+            counts.erase(found);
+        }
+        for (const auto& counted : counts)
+            ordered.push_back(counted);
+        return ordered;
+    }
     for (const std::string_view id : kit::tag_ids) {
         const auto found = counts.find(std::string(id));
         if (found == counts.end())
@@ -1221,7 +1309,8 @@ std::size_t filter_count(const Library& library, Filter filter) {
     std::size_t packages = 0;
     for (std::size_t index = 0; index < kept.size(); ++index)
         if (kept[index] && !is_base_game(library.entries[index].id) &&
-            !is_built_in_language(library.entries[index].id))
+            !is_built_in_language(library.entries[index].id) &&
+            !is_built_in_brain(library.entries[index].id))
             ++packages;
     return packages;
 }
@@ -1424,6 +1513,10 @@ std::vector<ActionButton> entry_actions(const Library& library, const Entry& ent
             add(Action::use_now, true);
         return buttons;
     }
+    // The built-in computer player is not a package. It is not got, updated
+    // or uninstalled.
+    if (is_built_in_brain(entry.id))
+        return buttons;
     // A mutator is got, checked, uninstalled and opened. Nothing switches it on.
     // GET WITH takes GET's place when the plan brings a prerequisite, or is
     // blocked before the mutator itself can be the only download.
@@ -1528,7 +1621,7 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
     const Installed* installed = entry.installed;
     std::vector<Fact> list;
     // The base game is not a package: its details are its summary alone.
-    if (is_base_game(entry.id) || is_built_in_language(entry.id))
+    if (is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id))
         return list;
 
     const ContentLines lines = content_lines(library, entry);

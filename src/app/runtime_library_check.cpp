@@ -6,9 +6,10 @@
 // of the fixture's added packages (two mods, one map pack and two mutators)
 // and opens the Library on Active, which reads the mod played, the language
 // in use and the installed maps, and whose CLOSE goes back; with three it
-// wears its dot, says "Library · 5 packages · 3 updates" to automation and
+// wears its dot, says "Library · 5 packages · 4 updates" to automation and
 // opens the Library on Active again, whose Mutators tab reads "Mutators (5)"
-// and whose Updates tab opens on its Updates filter with UPDATE ALL over the list.
+// and whose Brains tab reads "Brains (4)" with the built-in row first.
+// Its Updates tab opens on its Updates filter with UPDATE ALL over the list.
 // GET and CANCEL reach the feed, OPEN FOLDER and HOMEPAGE the recorded
 // openers, ROLL BACK asks the Roll Back Mod question over the Library and
 // PLAY NOW asks for a soft restart. The settings shortcut opens Settings over the Library, Settings ›
@@ -284,15 +285,43 @@ library::Listing mutator_listing(
     return listing;
 }
 
+/// Returns a made-up brain's listing, with no badge.
+///
+/// @param key its key
+/// @param name its name
+/// @param version its version
+/// @param facts its tags, works-with list and what it requires
+/// @return the listing
+library::Listing brain_listing(
+    std::string_view key, std::string_view name, std::string_view version, library::BrainFacts facts
+) {
+    library::Listing listing;
+    listing.registry = std::string(kBuiltIn);
+    listing.kind = library::Kind::brain;
+    listing.key = std::string(key);
+    listing.name = std::string(name);
+    listing.version = std::string(version);
+    listing.revision = 1;
+    listing.release = 1;
+    listing.author = "the " + std::string(name) + " team";
+    listing.summary = "A made-up brain of the Library check.";
+    listing.size = 1024U * 1024U;
+    listing.brain = std::move(facts);
+    return listing;
+}
+
 /// Returns the fixture's inputs: two registries, Ridge and Lattice installed
 /// from the built-in one, Cinder to get from it and Dunes from the added one,
 /// queued; with or without an update of each installed mod. Five made-up
 /// mutators from the built-in registry: Fast Builders and Gatehouse installed,
 /// and Fast Builders' update when updates wait; Gatehouse Keep, Ridge Walls
-/// and Grounded to get. For the Active tab, Basalt is played from a folder
+/// and Grounded to get. Four made-up brains: Steady Commander and Lantern
+/// Scout installed, Tide Keeper installed with an update when updates wait,
+/// and Ridge Raider to get. For the Active tab, Basalt is played from a folder
 /// outside the Mods folder, a German pack shows the game's words and one map
 /// pack is installed. The played mod's id stays empty, so Ridge Walls does
-/// not work with the base game and is still listed.
+/// not work with the base game and Ridge Raider is made for Ridge, and both
+/// are still listed. An installed brain is not one of the added packages.
 ///
 /// @param mods the player's Mods folder
 /// @param updates the two updates wait
@@ -379,6 +408,41 @@ library::Inputs fixture_inputs_of(const fs::path& mods, bool updates) {
         mutator_listing("grounded", "Grounded", "1.0", std::move(grounded_facts))
     );
 
+    const auto install_brain =
+        [&](std::string_view key, std::string_view name, const library::BrainFacts& facts) {
+            library::Installed installed;
+            installed.kind = library::Kind::brain;
+            installed.key = std::string(key);
+            installed.folder = std::string(key);
+            installed.name = std::string(name);
+            installed.version = "1.0";
+            installed.revision = 1;
+            installed.registry = std::string(kBuiltIn);
+            installed.release = 1;
+            installed.brain = facts;
+            inputs.installed.push_back(std::move(installed));
+        };
+    library::BrainFacts steady_facts;
+    steady_facts.tags = {"classic"};
+    steady_facts.works_with.push_back({"*", {}, {}});
+    inputs.listings.push_back(
+        brain_listing("steady-commander", "Steady Commander", "1.0", steady_facts)
+    );
+    install_brain("steady-commander", "Steady Commander", steady_facts);
+    library::BrainFacts lantern_facts;
+    lantern_facts.tags = {"economy"};
+    lantern_facts.full_awareness = true;
+    install_brain("lantern-scout", "Lantern Scout", lantern_facts);
+    library::BrainFacts tide_facts;
+    tide_facts.tags = {"turtle"};
+    tide_facts.works_with.push_back({"*", {}, {}});
+    inputs.listings.push_back(brain_listing("tide-keeper", "Tide Keeper", "1.0", tide_facts));
+    install_brain("tide-keeper", "Tide Keeper", tide_facts);
+    library::BrainFacts raider_facts;
+    raider_facts.tags = {"rush"};
+    raider_facts.works_with.push_back({"ridge", {}, "Ridge"});
+    inputs.listings.push_back(brain_listing("ridge-raider", "Ridge Raider", "1.0", raider_facts));
+
     if (updates) {
         for (const std::string_view key :
              {std::string_view("ridge"), std::string_view("lattice")}) {
@@ -401,6 +465,15 @@ library::Inputs fixture_inputs_of(const fs::path& mods, bool updates) {
         fast_update.to_revision = 2;
         fast_update.size = 1024U * 1024U;
         inputs.updates.push_back(std::move(fast_update));
+        library::UpdateNote tide_update;
+        tide_update.registry = std::string(kBuiltIn);
+        tide_update.kind = library::Kind::brain;
+        tide_update.key = "tide-keeper";
+        tide_update.to_release = 2;
+        tide_update.to_version = "1.1";
+        tide_update.to_revision = 2;
+        tide_update.size = 1024U * 1024U;
+        inputs.updates.push_back(std::move(tide_update));
     }
 
     library::QueueItem dunes;
@@ -1164,11 +1237,11 @@ void Runtime::check_library() {
             "CLOSE did not go back to the main menu" + on
         );
 
-        // 4. With three updates the button wears its dot, says so, and opens
+        // 4. With four updates the button wears its dot, says so, and opens
         // the Library on Active; its Updates tab opens on Updates, with
         // UPDATE ALL over the list and the filters of the other tabs.
         feed_changes(true);
-        require(library_update_count() == 3, "the three updates are not counted" + on);
+        require(library_update_count() == 4, "the four updates are not counted" + on);
         {
             const auto [shown, plain] = button_frames();
             const auto square = EngineSettingsMenuHost::button_rect(*this);
@@ -1183,7 +1256,7 @@ void Runtime::check_library() {
             );
             require(
                 differing > 0 && outside == 0,
-                "with three updates the OA button does not differ only in its dot" + on
+                "with four updates the OA button does not differ only in its dot" + on
             );
         }
         snapshot("menu-dot-" + size);
@@ -1198,8 +1271,8 @@ void Runtime::check_library() {
         }
         const std::optional<AutomationControl> button = named("oa.button");
         require(
-            button.has_value() && button->text == "Library · 5 packages · 3 updates",
-            "automation does not list oa.button as \"Library · 5 packages · 3 updates\"" + on
+            button.has_value() && button->text == "Library · 5 packages · 4 updates",
+            "automation does not list oa.button as \"Library · 5 packages · 4 updates\"" + on
         );
         press_button();
         require(
@@ -1246,13 +1319,61 @@ void Runtime::check_library() {
             );
             std::cout << "library check: the Mutators tab reads Mutators (5)" << on << '\n';
         }
+        show_tab("oa.library.tab.brains");
+        click_named("oa.library.tab.brains");
+        run_frame(running);
+        require(running, "a frame ended the run");
+        {
+            const std::optional<AutomationControl> brains = named("oa.library.tab.brains");
+            const library::Entry* first = host.model.visible.empty()
+                                              ? nullptr
+                                              : &host.model.entries[host.model.visible.front()];
+            require(
+                host.model.tab == library::Tab::brains && brains.has_value() &&
+                    brains->text == "Brains (4)" && first != nullptr &&
+                    library::is_built_in_brain(first->id),
+                "the Brains tab does not read Brains (4) with the built-in row first" + on
+            );
+            const std::optional<AutomationControl> built_in_row = named("oa.library.row.built-in");
+            require(
+                built_in_row.has_value() &&
+                    built_in_row->text.find("Built-in") != std::string::npos,
+                "the built-in row is not first on the Brains tab" + on
+            );
+            for (int step = 0; step < 8 && !named("oa.library.row.fixture-core.ridge-raider");
+                 ++step) {
+                tap(SDLK_PAGEDOWN);
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const std::optional<AutomationControl> raider =
+                named("oa.library.row.fixture-core.ridge-raider");
+            const std::optional<AutomationControl> raider_get =
+                named("oa.library.row.fixture-core.ridge-raider.get");
+            const library::Entry* raider_entry = library::find_entry(
+                host.model, {std::string(kBuiltIn), library::Kind::brain, "ridge-raider"}
+            );
+            const library::BrainFacts* raider_facts =
+                raider_entry != nullptr ? library::brain_facts(*raider_entry) : nullptr;
+            const std::string reason =
+                raider_facts != nullptr
+                    ? library::brain_unfit_reason(host.model.inputs, *raider_facts, host.model.text)
+                    : std::string{};
+            require(
+                raider.has_value() && raider->enabled && raider_get.has_value() &&
+                    raider_get->enabled && reason == "Made for Ridge",
+                "Ridge Raider is not listed with Made for Ridge and GET on" + on
+            );
+            std::cout << "library check: the Brains tab reads Brains (4) and the built-in row first"
+                      << on << '\n';
+        }
         show_tab("oa.library.tab.updates");
         click_named("oa.library.tab.updates");
         require(
             host.model.tab == library::Tab::updates &&
                 library::shown_filter(host.model) == library::Filter::updates &&
-                host.model.visible.size() == 3,
-            "the Updates tab did not open on its three updates" + on
+                host.model.visible.size() == 4,
+            "the Updates tab did not open on its four updates" + on
         );
         run_frame(running);
         require(

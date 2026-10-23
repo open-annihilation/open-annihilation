@@ -33,6 +33,7 @@ inline constexpr std::string_view tab_active = "Active";
 inline constexpr std::string_view tab_mods = "Mods";
 inline constexpr std::string_view tab_maps = "Maps";
 inline constexpr std::string_view tab_mutators = "Mutators";
+inline constexpr std::string_view tab_brains = "Brains";
 inline constexpr std::string_view tab_languages = "Languages";
 inline constexpr std::string_view tab_languages_short = "Lang";
 inline constexpr std::string_view tab_updates = "Updates";
@@ -140,6 +141,10 @@ inline constexpr std::string_view action_uninstall = "UNINSTALL";
 
 // The Registries tab. The words are the ones Downloads' Registries part used.
 inline constexpr std::string_view registry_built_in = "Built in";
+/// The built-in computer player's name and the summary under it.
+inline constexpr std::string_view built_in_brain_name = "Built-in computer player";
+inline constexpr std::string_view built_in_brain_summary =
+    "Open Annihilation's own computer player. It plays as Total Annihilation's does.";
 inline constexpr std::string_view registry_add = "ADD REGISTRY…";
 inline constexpr std::string_view registry_add_mirror = "ADD MIRROR…";
 inline constexpr std::string_view registry_remove = "REMOVE";
@@ -434,6 +439,16 @@ inline constexpr std::string_view chip_not_compatible = "Not compatible with thi
 inline constexpr std::string_view row_needs = "· needs {name}";
 /// After a Compact row's title when a mutator does not work with this mod.
 inline constexpr std::string_view row_not_compatible = "· not compatible with this mod";
+/// After a Compact row's title when a brain does not fit the game being
+/// played. `{reason}` is brain_unfit_reason. Information only.
+inline constexpr std::string_view row_brain_unfit = "· {reason}";
+/// The chip on the default computer player.
+inline constexpr std::string_view chip_default = "Default";
+/// The chip on a brain that sees every unit.
+inline constexpr std::string_view chip_full_awareness = "Full awareness";
+/// Why a brain does not work with the game being played. `{names}` is the
+/// mods it works with, joined with names_or.
+inline constexpr std::string_view made_for = "Made for {names}";
 
 // The download queue in the footer.
 inline constexpr std::string_view queue_package = "{name} {version}";
@@ -475,6 +490,7 @@ inline constexpr std::string_view offline_mark = "offline";
 // The search and the filters.
 inline constexpr std::string_view search_mods = "Search mods, authors, tags";
 inline constexpr std::string_view search_mutators = "Search mutators, authors, tags";
+inline constexpr std::string_view search_brains = "Search brains, authors, tags";
 inline constexpr std::string_view search_maps = "Search maps, authors, tags";
 inline constexpr std::string_view search_languages = "Search languages";
 /// The Active tab's maps field, above the maps pane.
@@ -494,13 +510,24 @@ inline constexpr std::string_view tag_new_units = "New Units";
 inline constexpr std::string_view tag_disable = "Disable";
 inline constexpr std::string_view tag_gameplay = "Gameplay";
 inline constexpr std::string_view tag_ai = "AI";
+/// The nine brain tag ids, as a player reads them. Economy reuses tag_economy.
+/// Any other id is shown as written.
+inline constexpr std::string_view tag_classic = "Classic";
+inline constexpr std::string_view tag_rush = "Rush";
+inline constexpr std::string_view tag_turtle = "Turtle";
+inline constexpr std::string_view tag_air = "Air";
+inline constexpr std::string_view tag_naval = "Naval";
+inline constexpr std::string_view tag_learned = "Learned";
+inline constexpr std::string_view tag_teaching = "Teaching";
+inline constexpr std::string_view tag_experimental = "Experimental";
 /// The Compact details page's drop-down holding the actions after the first three.
 inline constexpr std::string_view more_menu = "MORE";
 /// How many updates the Updates tab shows.
 inline constexpr std::string_view update_count_one = "{count} update";
 inline constexpr std::string_view update_count_many = "{count} updates";
 /// How many packages the player has added, as the main menu's Library button says.
-/// A package is a mod, a map pack, a language pack, a mutator or a downloaded expansion.
+/// A package is a mod, a map pack, a language pack, a mutator or a downloaded
+/// expansion. An installed brain is not counted.
 inline constexpr std::string_view package_count_one = "{count} package";
 inline constexpr std::string_view package_count_many = "{count} packages";
 
@@ -755,6 +782,39 @@ using Place = std::pair<std::string_view, std::string_view>;
     else
         return tag;
     return shown(text, english);
+}
+
+/// Returns the label a brain's tag id shows.
+///
+/// The nine ids give their words, looked up. Any other id, including a
+/// different case of one of those, is returned as written. Economy uses the
+/// mutators' word. The Brains tab's chips, pills, pane and menu use this.
+/// A brain's tag is not given a mutator's icon.
+///
+/// @param tag the catalogue id
+/// @param text how texts are looked up; empty shows the English label
+/// @return the label; a view of `tag` when the id is not one of the nine
+[[nodiscard]] inline std::string_view
+brain_tag_label(std::string_view tag, const TextHooks& text = {}) {
+    if (tag == "classic")
+        return shown(text, words::tag_classic);
+    if (tag == "economy")
+        return shown(text, words::tag_economy);
+    if (tag == "rush")
+        return shown(text, words::tag_rush);
+    if (tag == "turtle")
+        return shown(text, words::tag_turtle);
+    if (tag == "air")
+        return shown(text, words::tag_air);
+    if (tag == "naval")
+        return shown(text, words::tag_naval);
+    if (tag == "learned")
+        return shown(text, words::tag_learned);
+    if (tag == "teaching")
+        return shown(text, words::tag_teaching);
+    if (tag == "experimental")
+        return shown(text, words::tag_experimental);
+    return tag;
 }
 
 /// Looks a pattern up whole and fills its places.

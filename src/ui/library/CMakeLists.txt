@@ -23,11 +23,11 @@ target_compile_features(oa-ui-library PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-library PUBLIC oa-formats-oamod oa-base-sha256 oa-ui-kit
   oa-data-mutators PRIVATE
   oa-base-text oa-data-mod-profile oa-data-content-bundles oa-data-languages oa-formats-oamut
-  oa-options)
+  oa-formats-oabrain oa-options)
 
 if(BUILD_TESTING)
   # Entries and their states, blocking, registries, tabs, each tab's filter,
-  # New, the filters' counts, tags, the Active tab, the order, selection,
+  # New, the filters' counts, tags, brains, the Active tab, the order, selection,
   # buttons, facts, status lines, notes, queue lines and every text.
   add_executable(oa-ui-library-test tests/library_test.cpp)
   target_link_libraries(oa-ui-library-test PRIVATE oa-ui-library oa-data-languages

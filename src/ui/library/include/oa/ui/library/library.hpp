@@ -31,6 +31,7 @@ enum class Kind : uint8_t {
     map_pack, ///< an .oamap
     language, ///< an .oalang
     mutator,  ///< an .oamut
+    brain,    ///< an .oabrain
 };
 
 /// One signing key a registry's catalogue is checked against.
@@ -187,6 +188,48 @@ struct MutatorFacts {
     std::optional<Verdict> verdict{};
 };
 
+/// How hard one of a brain's levels is, in the manifest's order.
+enum class BrainDifficulty : uint8_t {
+    easy,
+    medium,
+    hard,
+};
+
+/// One level a brain offers.
+struct BrainLevel {
+    /// The level's id.
+    std::string id{};
+    /// The name a player reads.
+    std::string name{};
+    /// How hard it is.
+    BrainDifficulty difficulty{BrainDifficulty::easy};
+};
+
+/// What a brain's manifest or catalogue entry says about it.
+///
+/// `tags` is not on the design's fact list. An installed brain that no
+/// registry lists has no catalogue tag list, and the chips and the search
+/// read the tags from here, the installed manifest winning as the other
+/// facts do.
+struct BrainFacts {
+    /// The tag ids, in the order written.
+    std::vector<std::string> tags{};
+    /// The levels, in the order written.
+    std::vector<BrainLevel> levels{};
+    /// The mods it works with. Empty means any mod.
+    std::vector<WorksWith> works_with{};
+    /// The engine requirement as written, such as ">= 0.8.0"; empty for none.
+    std::string requires_engine{};
+    /// Expansions that must be on. Empty when it names none.
+    std::vector<std::string> requires_expansions{};
+    /// The brain sees every unit, not only what its seat can.
+    bool full_awareness{};
+    /// The networks' files, in bytes. 0 when it names none.
+    uint64_t network_bytes{};
+    /// A later ticket's check. Left unset here.
+    std::optional<Verdict> verdict{};
+};
+
 /// One package a registry's catalogue lists.
 struct Listing {
     std::string registry{}; ///< the registry's id
@@ -224,6 +267,9 @@ struct Listing {
     /// A mutator's facts, when the kind is a mutator. Names may be empty
     /// until the host resolves them.
     std::optional<MutatorFacts> mutator{};
+    /// A brain's facts, when the kind is a brain. Names may be empty until
+    /// the host resolves them.
+    std::optional<BrainFacts> brain{};
 };
 
 /// The version a package keeps from before its last update.
@@ -264,6 +310,9 @@ struct Installed {
     /// until the host resolves them. When set, these win over the listing's
     /// for works-with, prerequisites, conflicts, layers and options.
     std::optional<MutatorFacts> mutator{};
+    /// A brain's facts, from the installed manifest. When set, these win
+    /// over the listing's.
+    std::optional<BrainFacts> brain{};
 };
 
 /// A newer release of an installed package, in the same registry.
@@ -475,8 +524,11 @@ struct Inputs {
     /// mod marked playing is shown in its place.
     std::optional<PlayingMod> playing_mod{};
     /// The mod being played, by its manifest id, for a mutator's works-with
-    /// check. An empty id is the base game.
+    /// check and a brain's. An empty id is the base game.
     PlayedMod played{};
+    /// The default brain's id. Empty means the built-in computer player,
+    /// and so does an id no installed brain has.
+    std::string default_brain{};
     LanguageInUse language{};               ///< the language the game shows its words in
     std::vector<InstalledMaps> map_packs{}; ///< every installed map pack, with its maps
     /// Why the last change of a registry was refused, in the player's words.
@@ -500,13 +552,14 @@ enum class Tab : uint8_t {
     mods,
     maps,
     mutators, ///< every mutator the player has or a registry lists
+    brains,   ///< every brain the player has or a registry lists
     languages,
     updates,    ///< every kind, opening on the entries with an update
     registries, ///< every registry, with its switch; no list of packages
 };
 
 /// How many tabs there are.
-inline constexpr std::size_t tab_total = 7;
+inline constexpr std::size_t tab_total = 8;
 
 /// Which entries a tab shows, apart from its kind, in the order the filters are shown.
 enum class Filter : uint8_t {
@@ -597,6 +650,28 @@ inline constexpr std::string_view built_in_language_prefix = "@language:";
     return std::string_view(id.key).substr(built_in_language_prefix.size());
 }
 
+/// The built-in computer player's key.
+///
+/// A package key is lower-case kebab-case, so it cannot hold `@`. No
+/// package's id is this one.
+inline constexpr std::string_view built_in_brain_key = "@built-in";
+
+/// Returns the built-in computer player's id: a brain, no registry, and
+/// built_in_brain_key.
+///
+/// @return the id
+[[nodiscard]] inline EntryId built_in_brain_id() {
+    return {{}, Kind::brain, std::string(built_in_brain_key)};
+}
+
+/// Tells whether an id is the built-in computer player's.
+///
+/// @param id the id
+/// @return true for a brain, an empty registry and built_in_brain_key
+[[nodiscard]] inline bool is_built_in_brain(const EntryId& id) {
+    return id.kind == Kind::brain && id.registry.empty() && id.key == built_in_brain_key;
+}
+
 /// One row of the Library.
 ///
 /// The pointers point into the owning Library's `inputs` and stay valid until
@@ -631,12 +706,15 @@ struct Entry {
     /// in English when that differs from its name in itself. Empty for a
     /// package, and for English, whose two names are the same.
     std::string shown_summary{};
-    /// Information only: this mutator does not work with the mod being
+    /// Information only: this mutator or brain does not fit the game being
     /// played. GET and UPDATE stay on, and the row is not dimmed.
     bool not_compatible{};
     /// The first prerequisite, by name, that no installed mutator of that id
     /// satisfies. Empty when every prerequisite is met, and for every other kind.
     std::string needs_missing{};
+    /// This entry is the default computer player: the installed brain named
+    /// by Inputs::default_brain, or the built-in player when that names none.
+    bool is_default{};
 };
 
 /// Returns the facts that decide works-with, prerequisites, conflicts, layers
@@ -671,6 +749,24 @@ struct Entry {
         return &entry.listing->mutator->tags;
     if (entry.installed != nullptr && entry.installed->mutator)
         return &entry.installed->mutator->tags;
+    return nullptr;
+}
+
+/// Returns the facts that decide a brain's levels, works-with, engine
+/// requirement, expansions, full awareness and tags.
+///
+/// The installed manifest wins when it is set. Otherwise the listing's
+/// facts are used.
+///
+/// @param entry the entry
+/// @return the facts, or null when the entry is not a brain or names none
+[[nodiscard]] inline const BrainFacts* brain_facts(const Entry& entry) {
+    if (entry.id.kind != Kind::brain)
+        return nullptr;
+    if (entry.installed != nullptr && entry.installed->brain)
+        return &*entry.installed->brain;
+    if (entry.listing != nullptr && entry.listing->brain)
+        return &*entry.listing->brain;
     return nullptr;
 }
 
@@ -854,6 +950,7 @@ struct Library {
         Filter::all,
         Filter::all,
         Filter::all,
+        Filter::all,
         Filter::updates,
         Filter::all
     };
@@ -900,6 +997,20 @@ inline constexpr std::string_view supported_base = "ta-3.1c";
 /// @param facts the mutator's facts; the installed list wins over the listing's
 /// @return true when it works with the mod being played
 [[nodiscard]] bool works_with_played(const Inputs& inputs, const MutatorFacts& facts);
+
+/// Returns why a brain does not fit the game being played.
+///
+/// The engine requirement is tried first, then works-with, then the
+/// expansions. Empty when it fits. An empty works-with list fits. The words
+/// are information: they do not block GET or UPDATE and they do not dim the row.
+///
+/// @param inputs the Library's inputs; `played` is the mod, `engine` this
+///     build and `content.enabled` the expansions that are on
+/// @param facts the brain's facts; the installed list wins over the listing's
+/// @param text how texts are looked up; empty shows English
+/// @return the words; empty when the brain fits
+[[nodiscard]] std::string
+brain_unfit_reason(const Inputs& inputs, const BrainFacts& facts, const TextHooks& text = {});
 
 /// Rebuilds the entries from new inputs.
 ///
@@ -1008,8 +1119,8 @@ void close_details(Library& library);
 [[nodiscard]] const Entry* selected_entry(const Library& library);
 
 /// Returns the name a player sees for an entry: its listing's, else its
-/// installed package's. The base game and a built-in language use the name
-/// refresh stored for them.
+/// installed package's. The base game, a built-in language and the built-in
+/// computer player use the name refresh stored for them.
 ///
 /// @param entry the entry
 /// @return the name
@@ -1018,7 +1129,8 @@ void close_details(Library& library);
 /// Returns the words the details show under an entry's name: its listing's
 /// summary, else, as for a mod of the player's own, its installed
 /// manifest's description. A built-in language's is its name in English
-/// when that differs from the name in itself.
+/// when that differs from the name in itself. The built-in computer
+/// player's is the summary refresh stored for it.
 ///
 /// @param entry the entry
 /// @return the words; empty when neither gives any
@@ -1027,9 +1139,12 @@ void close_details(Library& library);
 /// Lists the tags of the entries a tab shows under its filter, with how many have each.
 ///
 /// The tag and the search are not applied. A mutator's tags are its listing's
-/// facts, else its installed manifest's. On the Mutators tab the eight known
-/// ids come first, in the kit's order, and any other id follows, each only
-/// when at least one entry has it. Other tabs list every tag by id.
+/// facts, else its installed manifest's. A brain's are its installed
+/// manifest's, else its listing's. On the Mutators tab the eight known ids
+/// come first, in the kit's order, and any other id follows. On the Brains
+/// tab the nine brain ids come first, in that order, and any other id
+/// follows. Each id is listed only when at least one entry has it. Other
+/// tabs list every tag by id.
 ///
 /// @param library the Library
 /// @return each tag and its count
@@ -1037,11 +1152,12 @@ void close_details(Library& library);
 
 /// Counts the entries a filter keeps on the tab shown, before the tag and the search.
 ///
-/// Mods, Maps, Mutators and Languages hold their kind and Updates every
-/// kind; All keeps them all, New the newest_count listings with the latest
-/// published day, Installed those installed, playing or with an update, and
-/// Updates those with an update. The Active tab holds none. The base game
-/// entry and the built-in languages are never counted, on any tab or filter.
+/// Mods, Maps, Mutators, Brains and Languages hold their kind and Updates
+/// every kind; All keeps them all, New the newest_count listings with the
+/// latest published day, Installed those installed, playing or with an
+/// update, and Updates those with an update. The Active tab holds none. The
+/// base game entry, the built-in languages and the built-in computer player
+/// are never counted, on any tab or filter.
 ///
 /// @param library the Library
 /// @param filter the filter
@@ -1050,10 +1166,11 @@ void close_details(Library& library);
 
 /// Counts what a tab lists under All, before the tag and the search, whichever tab is open.
 ///
-/// Mods, Maps, Mutators and Languages count their kind. Updates counts the
-/// updates that can be installed (update_count). Active counts none.
-/// Registries counts the registries listed, not the packages. The base game
-/// and the built-in languages are left out, as they are from the filters' counts.
+/// Mods, Maps, Mutators, Brains and Languages count their kind. Updates
+/// counts the updates that can be installed (update_count). Active counts
+/// none. Registries counts the registries listed, not the packages. The
+/// base game, the built-in languages and the built-in computer player are
+/// left out, as they are from the filters' counts.
 ///
 /// @param library the Library
 /// @param tab the tab
@@ -1062,8 +1179,9 @@ void close_details(Library& library);
 
 /// Counts the packages the player has added.
 ///
-/// Installed mods, map packs, language packs and mutators, each once. The
-/// base game and the languages built into the game are left out. A map pack
+/// Installed mods, map packs, language packs and mutators, each once. An
+/// installed brain is not counted. The base game and the languages built
+/// into the game are left out. A map pack
 /// the Active tab lists and that is not already one of those installed
 /// packages counts too, once for the pack. A copied expansion counts. A
 /// copied base game does not, and neither does a mod only the catalogue
