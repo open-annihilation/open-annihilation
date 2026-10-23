@@ -51,10 +51,10 @@ class Network {
 
     /// Builds a runnable network from a model.
     ///
-    /// The model must pass `formats::oann::check`. A layer kind this build does
-    /// not run is refused, and so is a network of more than
-    /// `max_operations_per_run` operations. `problem` is set only when nothing
-    /// is returned. The charge and the memory are fixed here, from the file.
+    /// The model must pass `formats::oann::check`. Every format-1 kind runs.
+    /// A network of more than `max_operations_per_run` operations is refused.
+    /// `problem` is set only when nothing is returned. The charge and the
+    /// memory are fixed here, from the file.
     ///
     /// @param model the network
     /// @param[out] problem the broken rule, when the network is refused
@@ -161,6 +161,12 @@ class Network {
         uint16_t layer{};                 ///< the layer's place in the table
         int16_t alpha{};                  ///< leaky_relu slope in 32768ths
         uint8_t axis{};                   ///< concat axis
+        uint8_t kernel_h{};               ///< conv2d and maxpool window height
+        uint8_t kernel_w{};               ///< conv2d and maxpool window width
+        uint8_t stride_h{};               ///< conv2d and maxpool vertical step
+        uint8_t stride_w{};               ///< conv2d and maxpool horizontal step
+        uint8_t pad_h{};                  ///< conv2d rows of zeros above the input
+        uint8_t pad_w{};                  ///< conv2d columns of zeros left of the input
         uint8_t input_count{};            ///< how many of `inputs` are used
         std::array<uint16_t, 4> inputs{}; ///< tensor indexes
         uint16_t output{};                ///< tensor this layer writes
