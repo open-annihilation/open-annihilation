@@ -374,6 +374,33 @@ sees no jamming at all, unless the view-switch branch applies: then, while
 the viewing player is not the local one in a game with mapping or line of
 sight, only the alliance counts.
 
+## Each player's radar picture
+
+`keep_player_contacts` starts or stops one player's picture. The picture is
+a byte per unit slot: radar, sonar and jammed, the same three facts the
+viewpoint's flags carry, so a seat can be shown the contacts it would have.
+The first keep allocates the table. Keeping that player again resets the
+bytes to the bits a new unit starts with and sets the scan tick back to 0,
+without allocating. Stopping zeroes that player's bytes. A player outside
+the ten is noted as a fault and changes nothing.
+
+The picture is scanned at that player's own deadline, every 30 ticks, in
+`update_player_slots` just after the viewpoint's scan. `scan_player_contacts`
+runs one scan immediately; tests call it. With one participant, or while the
+picture is not kept, the scan does nothing and leaves the tick alone.
+
+One rescan costs what the viewpoint's scan costs: two passes over the unit
+slots (the first pass and line of sight), one bucket walk per active radar
+or sonar unit of that player (and of each player who allies it, under allied
+vision), and one pass over the slots plus a bucket walk per active jammer.
+Nothing is allocated after the first keep. Nothing runs for a player nobody
+keeps, so a match that keeps no picture does no new work.
+
+Sightings, target searches and `unit_in_sight` keep reading the viewpoint's
+flag bits, as they do in 3.1c. A picture is not saved, recorded or mixed
+into a state digest. After a load it is rebuilt from the bits a new unit
+starts with. `player_contact_bits` is what a later brain reads for that seat.
+
 ## Economy and repair
 
 Natural repair runs on the eight-tick cadence of 3.1c. It uses the unit's

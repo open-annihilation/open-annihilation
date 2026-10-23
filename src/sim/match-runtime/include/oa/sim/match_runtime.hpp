@@ -1158,6 +1158,42 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// sees lose the cloak, and units in its line of sight are radar
     /// contacts. Nothing happens with a single participant.
     void scan_contacts();
+    /// Starts or stops keeping one player's radar and sonar picture.
+    ///
+    /// Starting allocates the pictures on first use, one byte per unit slot
+    /// per player, sets each live unit's byte to the bits a new unit of that
+    /// player starts with, and sets the scan tick to 0. Keeping again resets
+    /// that player's bytes and tick without allocating. Stopping zeroes them.
+    /// A player outside 0..9 is noted as a fault and changes nothing.
+    ///
+    /// @param player Player index 0..9.
+    /// @param keep True to keep the picture, false to drop it.
+    void keep_player_contacts(uint8_t player, bool keep);
+    /// Tells whether a player's radar picture is kept.
+    ///
+    /// @param player Player index 0..9; another is not kept.
+    /// @return True while the picture is kept.
+    [[nodiscard]] bool player_contacts_kept(uint8_t player) const noexcept;
+    /// Returns a player's radar picture, one byte per unit slot.
+    ///
+    /// @param player Player index 0..9.
+    /// @return The picture, or empty when it is not kept or the index is
+    ///     outside 0..9.
+    [[nodiscard]] std::span<const uint8_t> player_contact_bits(uint8_t player) const noexcept;
+    /// Returns the tick of a player's last picture scan.
+    ///
+    /// @param player Player index 0..9.
+    /// @return That tick, or 0 before the first scan and for an index outside
+    ///     0..9.
+    [[nodiscard]] uint32_t player_contacts_tick(uint8_t player) const noexcept;
+    /// Runs one scan of a kept player's radar picture now.
+    ///
+    /// The player update calls it when that player's deadline comes due.
+    /// Nothing happens when the picture is not kept, or with a single
+    /// participant, and the scan tick stays where it was.
+    ///
+    /// @param player Player index 0..9.
+    void scan_player_contacts(uint8_t player);
     /// Rebuilds a player's knowledge once a period has passed since the
     /// last: its sightings and repair pads and, for a computer player, its
     /// own-unit counts and base position; then it rolls one in 30 for its
@@ -3003,6 +3039,14 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param viewer the viewing player
     /// @param scan_own_units whether its own radar and sonar units stamp
     void scan_contacts_for(const oa::Player& viewer, bool scan_own_units);
+    /// Runs one viewing player's pass over a kept picture: its radar and
+    /// sonar units stamp, other players' jammers clear bits, and units in
+    /// its line of sight become radar contacts. A picture has no cloaker step.
+    ///
+    /// @param picture Player index whose picture is written.
+    /// @param viewer The viewing player of this pass.
+    /// @param scan_own_units Whether its own radar and sonar units stamp.
+    void scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool scan_own_units);
     /// Tells whether the contact scan lets a jammer jam the viewing player's
     /// radar picture: always in 3.1c; under intel.allied-jammers-ignored not
     /// when the viewer allies the jammer's owner, nor for a local watcher or
@@ -3476,6 +3520,14 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     // reuse_ticks); none without a delay.
     std::unique_ptr<int32_t[]> slot_reuse_ticks_;
     size_t slot_reuse_tick_count_{};
+    // Radar, sonar and jammed bits per unit slot per player. Empty until the
+    // first keep_player_contacts; nothing is allocated for a player no one
+    // keeps after that, and the bytes are not saved or mixed into a digest.
+    std::unique_ptr<uint8_t[]> player_contacts_;
+    // 1 while that player's picture is kept.
+    std::array<uint8_t, OA_PLAYER_COUNT> player_contacts_kept_{};
+    // The tick of each picture's last scan; 0 before the first.
+    std::array<uint32_t, OA_PLAYER_COUNT> player_contacts_tick_{};
     // Where each unit type's yards turned to east, north and west start in
     // turned_yard_cells_, plus one, by type index; 0 for a type that faces
     // only south. None without units.build-rotation.

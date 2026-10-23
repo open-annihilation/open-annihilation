@@ -81,12 +81,53 @@ void stamp_contact(const ScanRecord& scan, Unit& unit, const World& world) noexc
         unit.flags |= radar_contact;
 }
 
+void stamp_picture(
+    const ScanRecord& scan, uint8_t viewer, const Unit& unit, const World& world, uint8_t& bits
+) noexcept {
+    if (unit.type_index == 0 || unit.owner_index == viewer)
+        return;
+    const auto* def = world_unit_def_of(&world, &unit);
+    if (def == nullptr || (def->flags & OA_UNIT_DEF_FLAG_STEALTH) != 0)
+        return;
+    const auto distance = squared_distance_high(unit.position, scan.position);
+    const auto sea = sea_fixed(world);
+    if (unit.position.y <= sea && distance < scan.sonar_range_squared)
+        bits = static_cast<uint8_t>(bits | picture_sonar);
+    if (sea <= wrap_add(def->model_height, unit.position.y) && distance < scan.radar_range_squared)
+        bits = static_cast<uint8_t>(bits | picture_radar);
+}
+
 void jam_radar(Unit& unit) noexcept {
     unit.flags = (unit.flags & ~radar_contact) | jammed;
 }
 
 void jam_sonar(Unit& unit) noexcept {
     unit.flags = (unit.flags & ~sonar_contact) | jammed;
+}
+
+void jam_picture_radar(uint8_t& bits) noexcept {
+    bits = static_cast<uint8_t>((bits & ~picture_radar) | picture_jammed);
+}
+
+void jam_picture_sonar(uint8_t& bits) noexcept {
+    bits = static_cast<uint8_t>((bits & ~picture_sonar) | picture_jammed);
+}
+
+bool seat_jammer_jams(
+    bool allied_jammers_ignored, const Player& viewer, const Unit& jammer
+) noexcept {
+    if (!allied_jammers_ignored)
+        return true;
+    const bool own_or_allied =
+        jammer.owner_index == viewer.index ||
+        (jammer.owner_index < OA_PLAYER_RECORD_COUNT && viewer.alliance[jammer.owner_index] != 0);
+    return !own_or_allied;
+}
+
+uint8_t created_picture_bits(const Unit& unit, uint8_t viewer) noexcept {
+    if (unit.owner_index == viewer)
+        return picture_sonar;
+    return static_cast<uint8_t>(0);
 }
 
 bool sightings_due(const Sightings& sightings, uint32_t tick) noexcept {
