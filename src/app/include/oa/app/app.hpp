@@ -725,6 +725,10 @@ struct Options {
     // a feed of made-up brains, and requires the rows, the level, the
     // handed choice and the runtime's own feed.
     bool check_brain_picker = false;
+    // On SKIRMISH at 640x480 and 1280x720, requires each computer row's
+    // brain button, the focus hand-over, the picker, the hover card and
+    // the brains a start seats. A scratch preferences file holds the seat.
+    bool check_brain_seat_buttons = false;
     // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
     // question after a crash, and Get mutators over the picker.
     bool check_mutator_prompts = false;

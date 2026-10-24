@@ -1198,6 +1198,47 @@ screen underneath goes or a match starts.
   FIXTURES_SETUP test (`brain-picker-clean`) clears its folders before
   each run.
 
+## Computer seat buttons
+
+While at least one brain is installed, each computer row of the skirmish
+setup has a button to the right of its Energy button. The button reads
+that seat's brain and level, cut with … when the room between Energy and
+the next control is too narrow, and opens that seat's picker. With no
+brain installed the setup is unchanged: no button, no card and no extra
+stop for the keyboard.
+
+- **Placement.** The button is placed from its row's Energy button, 4
+  points to the right, centred on that button, as wide as 160 points and
+  no narrower than 48. It stops short of the first control to its right
+  that shares any of its rows. A row with no such room draws no button.
+- **The label.** A named brain reads its name and level. The built-in
+  player reads "Built-in" and the word the Difficulty button is showing.
+  The automation name is `oa.brain-seat.<slot>` and its text is the whole
+  label; the drawn words are the label cut to the button.
+- **Focus.** Tab and Shift+Tab, the arrows, and a controller's L1, R1 and
+  A reach the button. While it has the focus the setup's own focus is
+  none, and the button draws the kit's focus ring. A press elsewhere, or
+  leaving the setup, clears it. Y still opens Mutators.
+- **The card.** Resting the pointer on the button, or F1 or View while it
+  has the focus, shows the seat's card: the brain, its version, its level,
+  and Full awareness when the brain sees every unit. Escape closes the card.
+- **The choice.** USE THIS writes that seat. With every computer seat on,
+  it writes every computer row and leaves a human or an open slot as it
+  is. The choice stays in memory until START, which remembers it.
+- **The check.** `native-brain-seat-buttons`
+  (`--check-brain-seat-buttons`, `runtime_brain_seats_check.cpp`) turns
+  every built-in registry off and, at 640x480 and 1280x720, keeps a frame
+  of the setup before any brain is written. It then requires Steady
+  Commander at Firm, a second computer row reading the built-in player and
+  the Difficulty button's word, Tab from that row's Energy, the picker,
+  Lantern Scout on every computer seat, the hover card, and the two
+  `plays lantern-scout` lines a start logs. With the brains removed the
+  frame matches the one it kept, and no seat button remains. It writes
+  `brain-seats-skirmish-<w>x<h>.png`. `--check-text-fit` paints the
+  buttons with three computer rows, one of them a long name, in every
+  language and both sizes. A FIXTURES_SETUP test (`brain-seats-clean`)
+  clears its folders before each run.
+
 ## The mutator questions
 
 Four questions live in the picker module (`prompts.hpp`) and the app raises

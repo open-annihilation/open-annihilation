@@ -150,6 +150,35 @@ next_below(const PlaceRect& anchor, std::span<const PlaceRect> others) noexcept;
     const PlaceRect& anchor, std::span<const PlaceRect> others, const PlaceRect& room, int32_t gap
 );
 
+/// Places a button to the right of an anchor, centred on it.
+///
+/// The button's left edge is `gap` past the anchor's right edge. It is
+/// `height` high and centred down the anchor, so a shorter button sits
+/// inside the anchor's rows and a taller one sticks out evenly. It is as
+/// wide as `most_width`, and shorter when a rectangle to its right shares
+/// any of its rows: it then ends `gap` before the first such rectangle.
+/// A rectangle with no area is skipped. Nothing is returned when the width
+/// left is under `least_width`, or the button would leave the room, or it
+/// would meet a rectangle.
+///
+/// @param anchor the gadget the button stands beside
+/// @param others every other rectangle the button must miss
+/// @param room the frame the button must stay inside
+/// @param gap the gap after the anchor, and before a rectangle that limits it
+/// @param height the button's height
+/// @param least_width a button narrower than this is left out
+/// @param most_width the button's width when nothing limits it
+/// @return the button, or nothing when it does not fit
+[[nodiscard]] std::optional<PlaceRect> place_beside(
+    const PlaceRect& anchor,
+    std::span<const PlaceRect> others,
+    const PlaceRect& room,
+    int32_t gap,
+    int32_t height,
+    int32_t least_width,
+    int32_t most_width
+);
+
 /// Returns the button's place in Tab's order.
 ///
 /// Records are ordered by y * 5000 + x of the top left, as the gadget

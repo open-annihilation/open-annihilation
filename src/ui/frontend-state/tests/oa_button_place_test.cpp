@@ -430,6 +430,143 @@ void focus_test() {
     );
 }
 
+/// One skirmish row's gadgets, plus the options column, at 640 by 480.
+///
+/// The rows are the setup's own: Player, Side, Color, Allies, Metal and
+/// Energy, spread the way the setup spreads them. The options column is
+/// Commander Death, Start Location, Mapping, Line of Sight, Difficulty,
+/// their labels, and Previous Menu.
+std::vector<place::PlaceRect> skirmish_rows(int32_t slots) {
+    std::vector<place::PlaceRect> gadgets{
+        rect(476, 76, 120, 12),
+        rect(476, 96, 120, 20),
+        rect(476, 132, 120, 12),
+        rect(476, 153, 120, 20),
+        rect(476, 189, 120, 12),
+        rect(476, 210, 120, 20),
+        rect(476, 246, 120, 12),
+        rect(476, 267, 120, 20),
+        rect(476, 303, 120, 12),
+        rect(476, 324, 120, 20),
+        rect(476, 379, 120, 20),
+    };
+    const int32_t spacing = 200 / slots;
+    const int32_t first = (180 - (slots - 1) * spacing) / 2 + 79;
+    for (int32_t row = 0; row < slots; ++row) {
+        const int32_t y = first + row * spacing;
+        gadgets.push_back(rect(45, y, 112, 20));
+        gadgets.push_back(rect(163, y, 45, 20));
+        gadgets.push_back(rect(214, y, 20, 20));
+        gadgets.push_back(rect(241, y, 40, 20));
+        gadgets.push_back(rect(286, y, 45, 20));
+        gadgets.push_back(rect(337, y, 45, 20));
+    }
+    return gadgets;
+}
+
+void expect_beside(
+    const place::PlaceRect& placed,
+    const place::PlaceRect& anchor,
+    const std::vector<place::PlaceRect>& others,
+    const place::PlaceRect& room,
+    int32_t gap,
+    int32_t height,
+    int32_t most_width
+) {
+    check(inside(placed, room), "a seat button leaves the frame");
+    check(placed.x == anchor.x + anchor.width + gap, "a seat button left its anchor's right edge");
+    check(
+        placed.y == anchor.y + (anchor.height - height) / 2,
+        "a seat button is not centred on Energy"
+    );
+    check(placed.height == height, "a seat button is not the asked height");
+    int32_t limit = most_width;
+    for (const place::PlaceRect& other : others) {
+        if (other.width <= 0 || other.height <= 0)
+            continue;
+        const bool shares = other.y < placed.y + placed.height && placed.y < other.y + other.height;
+        if (!shares || other.x <= placed.x)
+            continue;
+        const int32_t room_for = other.x - gap - placed.x;
+        if (room_for < limit)
+            limit = room_for;
+    }
+    check(placed.width == limit, "a seat button is not as wide as the room beside Energy");
+    check(!meet(placed, anchor), "a seat button meets Energy");
+    for (const place::PlaceRect& other : others)
+        check(!meet(placed, other), "a seat button meets a gadget");
+}
+
+void place_beside_rows() {
+    const place::PlaceRect room = rect(0, 0, 640, 480);
+    for (const int32_t slots : {2, 3, 10}) {
+        const std::vector<place::PlaceRect> gadgets = skirmish_rows(slots);
+        const int32_t row_count = (static_cast<int32_t>(gadgets.size()) - 11) / 6;
+        check(row_count == slots, "the rows were not built");
+        for (int32_t row = 0; row < slots; ++row) {
+            const place::PlaceRect anchor = gadgets[static_cast<std::size_t>(11 + row * 6 + 5)];
+            std::vector<place::PlaceRect> others;
+            others.reserve(gadgets.size() - 1);
+            for (std::size_t gadget_at = 0; gadget_at < gadgets.size(); ++gadget_at) {
+                if (gadget_at == static_cast<std::size_t>(11 + row * 6 + 5))
+                    continue;
+                others.push_back(gadgets[gadget_at]);
+            }
+            const std::optional<place::PlaceRect> placed =
+                place::place_beside(anchor, others, room, 4, 17, 48, 160);
+            check(placed.has_value(), "a row has no seat button");
+            check(
+                placed->x == 386 && placed->x + placed->width == 472, "the button is not 386 to 472"
+            );
+            expect_beside(*placed, anchor, others, room, 4, 17, 160);
+        }
+    }
+
+    const place::PlaceRect wide = rect(0, 0, 960, 720);
+    for (const int32_t slots : {2, 3, 10}) {
+        std::vector<place::PlaceRect> gadgets = skirmish_rows(slots);
+        for (place::PlaceRect& gadget : gadgets)
+            gadget = scale_rect(gadget);
+        for (int32_t row = 0; row < slots; ++row) {
+            const place::PlaceRect anchor = gadgets[static_cast<std::size_t>(11 + row * 6 + 5)];
+            std::vector<place::PlaceRect> others;
+            for (std::size_t gadget_at = 0; gadget_at < gadgets.size(); ++gadget_at) {
+                if (gadget_at == static_cast<std::size_t>(11 + row * 6 + 5))
+                    continue;
+                others.push_back(gadgets[gadget_at]);
+            }
+            const std::optional<place::PlaceRect> placed =
+                place::place_beside(anchor, others, wide, 6, 25, 72, 240);
+            check(placed.has_value(), "a row at one and a half has no seat button");
+            expect_beside(*placed, anchor, others, wide, 6, 25, 240);
+        }
+    }
+
+    const place::PlaceRect energy = rect(337, 169, 45, 20);
+    const std::vector<place::PlaceRect> shortening{rect(450, 169, 20, 20)};
+    const std::optional<place::PlaceRect> shortened =
+        place::place_beside(energy, shortening, room, 4, 17, 48, 160);
+    check(shortened.has_value(), "a rectangle in the way refused the button");
+    check(
+        shortened->x == 386 && shortened->width == 60, "a rectangle in the way did not shorten it"
+    );
+
+    const std::vector<place::PlaceRect> tight{rect(430, 169, 20, 20)};
+    check(
+        !place::place_beside(energy, tight, room, 4, 17, 48, 160), "too little room gave a button"
+    );
+    const place::PlaceRect narrow = rect(0, 0, 420, 480);
+    check(
+        !place::place_beside(energy, {}, narrow, 4, 17, 48, 160),
+        "a button that leaves the frame was kept"
+    );
+    const std::vector<place::PlaceRect> overlapping{rect(370, 169, 30, 20)};
+    check(
+        !place::place_beside(energy, overlapping, room, 4, 17, 48, 160),
+        "a button that meets a gadget was kept"
+    );
+}
+
 } // namespace
 
 int main() {
@@ -440,6 +577,7 @@ int main() {
         no_room_test();
         beside_test();
         focus_test();
+        place_beside_rows();
         column_test();
         middle_test();
         over_test();

@@ -1199,6 +1199,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_map_browser.cpp
   src/app/runtime_mutator_picker.cpp
   src/app/runtime_brain_picker.cpp
+  src/app/oa_button_focus.cpp
+  src/app/runtime_brain_seats_screen.cpp
   src/app/runtime_mutator_prompts.cpp
   src/app/runtime_mutator_button.cpp
   src/app/runtime_mutator_room.cpp
@@ -1269,6 +1271,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_mutator_picker_check.cpp
   src/app/runtime_brain_picker_check.cpp
+  src/app/runtime_brain_seats_check.cpp
   src/app/runtime_mutator_prompts_check.cpp
   src/app/runtime_brain_saves_check.cpp
   src/app/runtime_mutator_button_check.cpp
@@ -2111,6 +2114,26 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_brain_picker_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED brain-picker-clean)
+      # Each computer row's brain button on the skirmish setup, at 640x480
+      # and 1280x720: the label, the place beside Energy, Tab, the picker,
+      # the hover card and the brains a start seats. It leaves each size's
+      # frame in its folder for review. Every built-in registry is off, so
+      # nothing is fetched. Each run starts from a clean folder.
+      set(oa_brain_seats_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/brain-seats")
+      file(MAKE_DIRECTORY "${oa_brain_seats_dir}")
+      add_test(NAME brain-seats-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_brain_seats_dir}/Open Annihilation" "${oa_brain_seats_dir}/files"
+        "${oa_brain_seats_dir}/data" "${oa_brain_seats_dir}/brain-seats.conf")
+      set_tests_properties(brain-seats-clean PROPERTIES FIXTURES_SETUP brain-seats-clean)
+      add_test(NAME native-brain-seat-buttons COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-brain-seat-buttons
+        --preferences-file "${oa_brain_seats_dir}/brain-seats.conf"
+        --user-folder "${oa_brain_seats_dir}/Open Annihilation"
+        --data-dir "${oa_brain_seats_dir}/data")
+      set_tests_properties(native-brain-seat-buttons PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_brain_seats_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED brain-seats-clean)
       # Start without a mutator that stopped a skirmish, the question after a
       # crash, Get mutators over the picker, and the host's "The game did not
       # start". A scratch user folder holds two made-up mutators. Each run
