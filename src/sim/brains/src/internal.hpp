@@ -41,6 +41,20 @@ inline constexpr std::size_t most_options = 16;
 inline constexpr std::size_t reason_limit = 255;
 /// Most timers one brain may have waiting.
 inline constexpr uint16_t max_timers = 1024;
+/// Most orders one turn may pass to the match.
+inline constexpr uint32_t max_orders_per_turn = 4096;
+
+/// Orders given and the refusals, for one turn or for the match.
+struct OrderTally {
+    uint32_t given{};
+    uint32_t not_own{};
+    uint32_t dead{};
+    uint32_t not_seen{};
+    uint32_t not_buildable{};
+    uint32_t over_limit{};
+    uint32_t by_engine{};
+};
+
 /// Registry reference that means a timer holds no function. Equal to LUA_NOREF.
 inline constexpr int timer_ref_empty = -2;
 
@@ -157,6 +171,13 @@ struct Seat {
     bool contacts_compared{};
     /// True when this seat's files match the Classic fingerprint.
     bool classic{};
+    /// Orders given and refused since this turn started. `start` is one turn.
+    OrderTally turn_orders{};
+    /// Orders given and refused since the seat was made.
+    OrderTally match_orders{};
+    /// Orders passed to the match since this turn started, whether or not it
+    /// kept them. A refusal before the call does not count here.
+    uint32_t orders_this_turn{};
     /// Timers waiting to run on a later turn.
     WaitingTimer timers[max_timers]{};
     /// The next timer id. It starts at 1 and only grows.

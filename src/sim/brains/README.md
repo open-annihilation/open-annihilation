@@ -28,12 +28,14 @@ brain plays as the built-in computer player.
   fields, `game.map` and what the seat may see are installed, then
   `brain.say`, `brain.random`, `brain.after`, `brain.every` and
   `brain.cancel`. `brain.shared_random` is installed only when the seat is
-  Classic and it has a match. It has to work when the seat has no match:
-  `game.in_match` is false, `game.map` is nil, `me` still carries the
+  Classic and it has a match. The unit order methods, `brain.order_counts`,
+  `brain.site` and `brain.place` follow. It has to work when the seat has no
+  match: `game.in_match` is false, `game.map` is nil, `me` still carries the
   player, level, difficulty and options copied from the spec, `units`,
-  `weapons` and `features` exist and are empty, and `brain.say` answers
-  that chat is not connected. With no match, `me.seen` and `me.radar` are
-  empty, `me:sees` and `me:sees_unit` are false, and `me.sight` and
+  `weapons` and `features` exist and are empty, `brain.say` answers that
+  chat is not connected, `brain.site` and `brain.place` return nil, and
+  `brain.order_counts` is all zeros. With no match, `me.seen` and `me.radar`
+  are empty, `me:sees` and `me:sees_unit` are false, and `me.sight` and
   `me.explored` are nil.
 
 ## State
@@ -221,7 +223,10 @@ unit, and another player's live unit while the seat can see it now or the
 brain has full awareness. `health` and `health_percent` stay nil when the
 type hides damage, unless the seat owns the unit or the brain has full
 awareness. An own field or method reads only the seat's own live unit.
-A07 adds own methods, including orders, through `add_unit_method`.
+Order methods are registered through `add_unit_method` with access
+`always`. The method itself counts a dead handle and a unit the seat does
+not own. Access `own` would return nil before that method ran, so the
+refusal would not be counted.
 
 `me` stays the table B01 created. `player`, `level`, `difficulty` and
 `options` move into a hidden table, and assigning `me` raises `me is
@@ -394,6 +399,69 @@ match does that. With no say hook, or outside a match, the answer is
 The app sets that hook, and the listener that queues heard lines, only once
 a brain is seated. A match with no brain keeps the chat listener it already
 had. The simulation reaches the app only through this hook.
+
+## Orders and sites
+
+A unit handle takes the orders a player can give. Each call reaches the
+match at once. The order runs in the next tick's unit sweep. A refusal
+returns false and is counted. It is not raised.
+
+`move` and `patrol` call `issue_ground_move` and `issue_patrol`. `attack`
+calls `issue_attack_command` with no point. `attack_ground` is a click on
+open ground (`issue_attack_ground`). `attack_point` is the built-in
+player's attack on a point: it resolves the attack command over open ground
+and gives that mission with `issue_order`, unqueued, and returns false when
+no mission kind resolves. Classic's attack on a point is `attack_point`.
+`dgun` calls `issue_attack_special`, and a unit argument uses that unit's
+slot and its current position. `guard`, `repair`, `help`, `capture`, `load`
+and `unload` call `issue_guard`, `issue_repair`, `issue_help_build`,
+`issue_capture`, `issue_load` and `issue_unload`. `reclaim` of a unit calls
+`issue_reclaim`; `reclaim` of a position calls `issue_feature_reclaim`.
+`build` calls `issue_mobile_build`, with a facing from 0 to 3. `queue`
+calls `queue_factory_build`, with a count from 1 to 1000 and a default of 1.
+`requeue` calls `change_queued_count` for the `BuildingBuild` kind. `stop`
+calls `issue_stop`. `on` calls `toggle_activation` for the active bit only
+when that bit differs, and returns true when nothing needed changing.
+`cloak` calls `issue_cloak`. `self_destruct` calls `toggle_self_destruct`
+for that one unit. Where a method takes a queue flag, a missing flag is
+false.
+
+`stance` gives `issue_state_order` for each of `move` (`hold`, `manoeuvre`,
+`roam`) and `fire` (`hold`, `return`, `at_will`) that the table names.
+`direct = true` writes the standing bits the way the built-in player writes
+them and gives no order. The only test for that write is `seat_is_classic`.
+Any other seat, one with full awareness included, raises `stance: direct
+writes are for the Classic brain only`.
+
+An order is refused when the handle is dead (`dead`), the unit is not the
+seat's (`not_own`), the turn has already passed 4,096 orders to the match
+(`over_limit`), the target is not one the seat may read (`not_seen`), or
+the type is not on the builder's list (`not_buildable`). The first failing
+check is the one that counts. A match refusal, a null mission or a caught
+exception counts as `by_engine` and does not reach Lua. `on` with nothing
+to change, a direct stance and a site check are not orders toward that
+limit. `brain.order_counts()` is this turn. `brain.order_counts("match")`
+is the match. A live turn starts the turn's counts again. `start` is one
+turn.
+
+`brain.site(type, cx, cz [, facing [, check]])` charges 16. On a seat with
+full awareness, `"site"` (the default) is `site_clear_for` and `"yard"` is
+`building_site_clear`. On any other seat the type must be a building,
+`"site"` is that check's map-edge test and then `building_site` with the
+seat as the placing player, and `"yard"` is `building_site` alone. Full
+awareness is the only choice. `seat_is_classic` does not decide it.
+`brain.place(type, near, radius [, facing])` starts at the footprint cell
+whose centre is `near`, then walks rings at Chebyshev distance up to
+`radius` world units divided by 16, each ring from its north-west corner
+clockwise. It returns the first cell where `"site"` holds, and that cell's
+centre, or nil after the ring limit or 4,096 cells. Each cell tried
+charges 16.
+
+`sim-brains-orders` gives every order from the made-up brain `order-giver`
+and from C++ on a second match, and compares the queues and the next tick.
+`sim-brains-sites` compares `brain.site` with the check the seat's
+awareness selects, over a grid of cells and every facing, and compares
+`brain.place` with that same walk.
 
 ## When a brain fails
 

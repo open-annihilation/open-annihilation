@@ -32,6 +32,7 @@ add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua
   src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp src/classic.cpp
   src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
   src/failure.cpp src/save.cpp src/lua_profile.cpp src/lua_map.cpp src/reach.cpp src/lua_sight.cpp
+  src/lua_orders.cpp src/lua_sites.cpp
   "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
@@ -159,4 +160,24 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
   add_test(NAME sim-brains-map COMMAND oa-sim-brains-map-test)
   set_tests_properties(sim-brains-map PROPERTIES TIMEOUT 180)
+
+  # Orders a seated brain gives, beside the same calls from C++. The made-up
+  # brain is order-giver.
+  add_executable(oa-sim-brains-orders-test tests/orders_test.cpp)
+  target_include_directories(oa-sim-brains-orders-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(
+    oa-sim-brains-orders-test PRIVATE
+    "OA_ORDER_GIVER_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/data/order-giver\"")
+  target_link_libraries(oa-sim-brains-orders-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash oa-sim-gameplay-input
+    oa-data-mission-types)
+  add_test(NAME sim-brains-orders COMMAND oa-sim-brains-orders-test)
+  set_tests_properties(sim-brains-orders PROPERTIES TIMEOUT 180)
+
+  # Building sites a seated brain judges, beside the match's own checks.
+  add_executable(oa-sim-brains-sites-test tests/sites_test.cpp)
+  target_link_libraries(oa-sim-brains-sites-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options)
+  add_test(NAME sim-brains-sites COMMAND oa-sim-brains-sites-test)
+  set_tests_properties(sim-brains-sites PROPERTIES TIMEOUT 120)
 endif()
