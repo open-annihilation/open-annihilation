@@ -10,6 +10,7 @@ Classic is an example and the documentation of that player. It is not the defaul
 | --- | --- |
 | `oabrain.yaml` | Manifest: id `classic`, levels easy, medium and hard, full awareness on. |
 | `brain.lua` | The seat, the 30-tick sort countdown, and the ten squad tasks. |
+| `lua/report.lua` | The console weight report for the seat. |
 | `lua/squads.lua` | The squad sort and the standing orders it writes. |
 | `lua/types.lua` | The type fields the sort and the tasks read, with the player's byte cuts. |
 | `lua/rules.lua` | The ai.* rules, using 3.1c's values where a hack is off. |
@@ -17,6 +18,8 @@ Classic is an example and the documentation of that player. It is not the defaul
 | `README.md` | This file. |
 
 `brain.lua` keeps the seat on `hooks.seat`. The task bodies set the next tick and then return. Squad 5 runs the structures timetable only while `ai.squad5-factory-tick` is on; otherwise it is idle and marks no section.
+
+A second start on a seat that has already started reloads the profile: the weight and limit tables are reset, the profile is applied again, and the grids, tasks and metal spots stay. That start draws nothing. A loaded game has no saved seat, so start builds the seat again from the units, the same way a new game does. `hooks.report` returns the weight report.
 
 ## Sections
 

@@ -12,6 +12,7 @@ local construction = require("tasks.construction")
 local knowledge = require("knowledge")
 local profile = require("profile")
 local rally = require("tasks.rally")
+local report = require("report")
 local siege = require("tasks.siege")
 local squads = require("squads")
 local strike = require("tasks.strike")
@@ -79,11 +80,18 @@ local function blank(squad)
 end
 
 function hooks.start(game, me, saved)
+    if hooks.seat ~= nil then
+        -- A second start reloads the profile. The grids, the tasks and the
+        -- metal spots stay, and this start draws nothing.
+        profile.reload(hooks.seat)
+        return
+    end
     if saved ~= nil then
         -- A saved seat is accepted. This timetable does not apply it.
+        -- A loaded game starts in a new seat, so saved is nil and the
+        -- timetable below is the same one a new game builds.
     end
     local loaded_rules = rules.load(game)
-    local previous = hooks.seat
     local seat = {
         player = me.player,
         me = me,
@@ -168,23 +176,17 @@ function hooks.start(game, me, saved)
         siege.run(seat, seat.tasks[9])
     end
     knowledge.create(seat)
-    if previous ~= nil then
-        seat.plan = previous.plan or 1
-        seat.grids_ready = previous.grids_ready or 0
-        seat.land_grid = previous.land_grid
-        seat.water_grid = previous.water_grid
-        seat.metal = previous.metal
-        seat.placement_radius = previous.placement_radius or 0
-        profile.reload(seat)
+    if me.handed_over then
+        profile.apply_handed(seat)
     else
-        if me.handed_over then
-            profile.apply_handed(seat)
-        else
-            profile.apply_all(seat)
-        end
-        knowledge.scan_metal(seat)
+        profile.apply_all(seat)
     end
+    knowledge.scan_metal(seat)
     hooks.seat = seat
+end
+
+function hooks.report()
+    return report.write(hooks.seat)
 end
 
 function hooks.onTick(tick)

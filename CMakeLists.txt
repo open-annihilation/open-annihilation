@@ -47,6 +47,8 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaTextFonts.cmake")
 # The registries the game ships with, copied beside it (cmake/OaRegistries.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaRegistries.cmake")
+# Classic, packed beside the game on a host build (cmake/OaBrains.cmake).
+include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaBrains.cmake")
 
 # OA_GAME_DIR, the installed game the game-data tests and native checks read,
 # and the helpers that register those tests (cmake/OaGameData.cmake).
@@ -3647,7 +3649,8 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-brain-shadow PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
-        # Classic beside the built-in player, every section, three skirmishes.
+        # Classic beside the built-in player, every section, three skirmishes
+        # and a load of the four-player skirmish.
         add_test(NAME native-brain-shadow-classic COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_shadow.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
@@ -4358,6 +4361,9 @@ if(TARGET oa-game)
   # The built-in registry descriptors, beside the fonts
   # (cmake/OaRegistries.cmake).
   oa_copy_registries(oa-game "$<GENEX_EVAL:$<TARGET_PROPERTY:oa-game,OA_GAME_FILES_DIR>>")
+  # Classic's package, beside the registries. A cross build skips this
+  # (cmake/OaBrains.cmake).
+  oa_pack_classic_brain(oa-game "$<GENEX_EVAL:$<TARGET_PROPERTY:oa-game,OA_GAME_FILES_DIR>>")
   # The engine ships no language packs. It does ship the interface
   # catalogue, languages/interface.tdf, the engine's own words in German,
   # French, Spanish and Italian. The game reads that file with every other
