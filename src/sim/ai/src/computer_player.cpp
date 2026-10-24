@@ -847,11 +847,16 @@ void computer_player_tick_orders(
     auto& ai = state->players[player];
     if (--ai.sort_countdown < 1) {
         ai.sort_countdown = static_cast<int32_t>(sort_interval_ticks);
+        if (const auto note = host.note_section)
+            note(host.context, player, section_sort);
         sort_squads(state, host, ai);
     }
     for (auto& task : ai.tasks) {
-        if (task.kind != TaskKind::none && task.next_tick <= tick_of(host))
+        if (task.kind != TaskKind::none && task.next_tick <= tick_of(host)) {
+            if (const auto note = host.note_section; note != nullptr && task.kind != TaskKind::idle)
+                note(host.context, player, static_cast<uint8_t>(static_cast<uint32_t>(task.squad)));
             run_task(state, host, ai, task);
+        }
     }
 }
 

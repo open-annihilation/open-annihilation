@@ -219,7 +219,18 @@ struct ComputerHost {
     /// Gives a unit the order the Attack command gives over open ground at a point, in
     /// place of its orders; false when the unit takes no such order.
     bool (*order_attack_point)(void* context, uint16_t unit, const oa::FixedVec3* at){};
+    /// Notes the section the built-in player is about to run. Null notes nothing.
+    ///
+    /// @param context ComputerHost::context
+    /// @param player player index, 0 to 9
+    /// @param section `section_sort`, a task's squad index, or `section_start`
+    void (*note_section)(void* context, uint8_t player, uint8_t section){};
 };
+
+/// The squad sort. A task's section is its squad index, 1 to 9.
+inline constexpr uint8_t section_sort = 0;
+/// The set-up of one computer player's controller, before its first set-up draw.
+inline constexpr uint8_t section_start = 10;
 
 /// Stores the AI profile text and the unit types' build lists applied at the next
 /// initialisation.
