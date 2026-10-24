@@ -174,30 +174,48 @@ def classic_skirmish(native, game_dir, workdir, name, *extra):
     return output
 
 
+def require_start_same(output, name):
+    """Every brain-shadow seat line must say the set-up matched."""
+    found = False
+    for line in output.splitlines():
+        if not line.startswith("brain shadow: seat "):
+            continue
+        found = True
+        if "start same" not in line:
+            print(output, end="")
+            raise SystemExit(f"{name}: a seat line did not say start same")
+    if not found:
+        print(output, end="")
+        raise SystemExit(f"{name}: no brain shadow seat line")
+
+
 def check_classic(native, game_dir, workdir, brain, sections):
     ridge = workdir / "ridge.yaml"
     ridge.parent.mkdir(parents=True, exist_ok=True)
     ridge.write_text(RIDGE, encoding="utf-8")
     shadow = ["--brain-shadow", str(brain), "--brain-shadow-sections", sections]
-    classic_skirmish(
+    seed = classic_skirmish(
         native, game_dir, workdir / "seed", "classic-seed",
         "--match-ticks", CLASSIC_TICKS, "--seed", SEED, *shadow,
     )
+    require_start_same(seed, "classic-seed")
     sides = workdir / "sides"
     sides.mkdir(parents=True, exist_ok=True)
     four_player_preferences(sides / "preferences.conf")
-    classic_skirmish(
+    sided = classic_skirmish(
         native, game_dir, sides, "classic-sides",
         "--match-ticks", CLASSIC_TICKS, "--seed", "4242", *shadow,
     )
+    require_start_same(sided, "classic-sides")
     ridged = workdir / "ridge"
     ridged.mkdir(parents=True, exist_ok=True)
     four_player_preferences(ridged / "preferences.conf")
-    classic_skirmish(
+    ridge_run = classic_skirmish(
         native, game_dir, ridged, "classic-ridge",
         "--match-ticks", CLASSIC_TICKS, "--seed", "4242", "--mod", ridge, *shadow,
     )
-    print(f"native brain shadow classic: schedule,sort on three skirmishes, no difference")
+    require_start_same(ridge_run, "classic-ridge")
+    print("native brain shadow classic: schedule,start,sort on three skirmishes, no difference")
 
 
 def main():
