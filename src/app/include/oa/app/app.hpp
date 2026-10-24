@@ -359,6 +359,15 @@ struct Options {
     std::string brain_levels;
     // The map the brain match plays (--brain-map).
     std::string brain_map;
+    // A brain that runs beside every computer seat (--brain-shadow). Empty
+    // means this run has no shadow. An id, or a folder path.
+    std::string brain_shadow;
+    // Sections the shadow compares (--brain-shadow-sections). Empty compares
+    // every section.
+    std::string brain_shadow_sections;
+    // Where the shadow writes its call logs (--brain-shadow-log). Empty
+    // writes none.
+    std::string brain_shadow_log;
     // Headless campaign run: the campaign's name and the mission index that
     // --headless-check starts through the briefing and ticks for match_ticks.
     std::string campaign;

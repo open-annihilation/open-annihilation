@@ -117,6 +117,13 @@ struct SeatSpec {
         oa::data::script_host::default_bank_ticks,
         oa::data::script_host::default_call_time_limit
     };
+    /// When true, the brain runs beside the built-in player. Its orders,
+    /// squad changes and standing-bit writes are recorded and not applied.
+    /// `fits` and `start` wait for the set-up record, and no difficulty is noted.
+    bool shadow{};
+    /// Sections to compare, comma-separated. Empty compares every section.
+    /// The view need only last for `seat_brain`.
+    std::string_view shadow_sections{};
 };
 
 /// What seating a brain came to.

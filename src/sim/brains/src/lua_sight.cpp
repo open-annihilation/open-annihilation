@@ -131,7 +131,16 @@ bool read_cell(lua_State* lua, int index, int32_t* cell) {
 }
 
 const sim::detection::Sightings* seen_list(const Seat& seat) noexcept {
-    if (seat.match == nullptr || seat.player >= OA_PLAYER_COUNT)
+    if (seat.player >= OA_PLAYER_COUNT)
+        return nullptr;
+    if (seat.calls.host.sightings != nullptr) {
+        try {
+            return seat.calls.host.sightings(seat.calls.host.context, seat.player);
+        } catch (...) {
+            return nullptr;
+        }
+    }
+    if (seat.match == nullptr)
         return nullptr;
     try {
         return &seat.match->sightings(seat.player);
@@ -599,7 +608,14 @@ int method_sees(lua_State* lua) {
     script_host::charge_work(lua, geometry_charge);
     const Seat* seat = seat_of(lua);
     bool visible = false;
-    if (seat != nullptr && seat->match != nullptr) {
+    if (seat != nullptr && seat->calls.host.point_visible != nullptr) {
+        const oa::FixedVec3 at{x, y, z};
+        try {
+            visible = seat->calls.host.point_visible(seat->calls.host.context, seat->player, &at);
+        } catch (...) {
+            visible = false;
+        }
+    } else if (seat != nullptr && seat->match != nullptr) {
         const std::array<uint32_t, 3> point = {
             static_cast<uint32_t>(x), static_cast<uint32_t>(y), static_cast<uint32_t>(z)
         };
@@ -622,7 +638,12 @@ int method_sees_unit(lua_State* lua) {
     bool visible = false;
     if (seat != nullptr && seat->match != nullptr && unit_current(*seat->match, ref)) {
         try {
-            visible = seat->match->unit_visible(seat->player, ref.slot);
+            if (seat->calls.host.unit_visible != nullptr) {
+                visible =
+                    seat->calls.host.unit_visible(seat->calls.host.context, seat->player, ref.slot);
+            } else {
+                visible = seat->match->unit_visible(seat->player, ref.slot);
+            }
         } catch (...) {
             visible = false;
         }
@@ -678,6 +699,29 @@ int method_nearest_enemy(lua_State* lua) {
     Seat* seat = seat_of(lua);
     if (seat == nullptr || seat->match == nullptr) {
         push_nil(lua);
+        return 1;
+    }
+    if (seat->calls.nearest_enemy != nullptr) {
+        uint16_t slot = 0;
+        bool found = false;
+        try {
+            found = seat->calls.nearest_enemy(
+                &seat->calls.host,
+                seat->player,
+                x,
+                z,
+                filter.widened_flags,
+                filter.skip_submerged,
+                &slot
+            );
+        } catch (...) {
+            found = false;
+        }
+        if (!found) {
+            push_nil(lua);
+            return 1;
+        }
+        push_unit(lua, *seat, unit_ref(*seat->match, slot));
         return 1;
     }
     uint8_t relation[OA_PLAYER_COUNT + 1]{};

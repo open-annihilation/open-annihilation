@@ -1184,6 +1184,18 @@ take_match_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.brain_map = option_value(cursor);
         return true;
     }
+    if (argument == "--brain-shadow") {
+        options.brain_shadow = option_value(cursor);
+        return true;
+    }
+    if (argument == "--brain-shadow-sections") {
+        options.brain_shadow_sections = option_value(cursor);
+        return true;
+    }
+    if (argument == "--brain-shadow-log") {
+        options.brain_shadow_log = option_value(cursor);
+        return true;
+    }
     return false;
 }
 
@@ -1569,6 +1581,8 @@ void write_startup_line(std::string_view text) {
                   << "[--save-after TICK] "
                      "[--save-file PATH.sav] [--load PATH.sav] [--give-orders] [--seed N] "
                      "[--brain-match A,B] [--brain-levels L1,L2] [--brain-map NAME] "
+                     "[--brain-shadow BRAIN [--brain-shadow-sections LIST] "
+                     "[--brain-shadow-log DIR]] "
                      "[--trace-digest FILE] [--trace-units FILE] [--trace-lookups FILE] "
                      "[--draw-threads N] "
                      "[--capture-video PATH.mp4] [--showcase arm-first-mission|skirmish-battle] "
@@ -1702,6 +1716,10 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error("--brain-levels needs --brain-match");
     if (!result.brain_map.empty() && result.brain_match.empty())
         throw std::runtime_error("--brain-map needs --brain-match");
+    if (!result.brain_shadow_sections.empty() && result.brain_shadow.empty())
+        throw std::runtime_error("--brain-shadow-sections needs --brain-shadow");
+    if (!result.brain_shadow_log.empty() && result.brain_shadow.empty())
+        throw std::runtime_error("--brain-shadow-log needs --brain-shadow");
     if (!result.brain_match.empty()) {
         if (!result.headless_check)
             throw std::runtime_error("--brain-match needs --headless-check");

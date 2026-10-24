@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: steady-shadow
+name: "Steady Shadow"
+version: "1.0"
+author:
+  name: "Ridge Testers"
+description: "Marks the siege section and draws as an empty siege squad does."
+tags: ["teaching"]
+works-with: ["*"]
+levels:
+  - id: steady
+    name: "Steady"
+    difficulty: medium

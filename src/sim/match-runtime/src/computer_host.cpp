@@ -362,6 +362,236 @@ void write_match_computer_report(
     computer_write_report(match_computer_players(match), make_host(match), player, paths, out);
 }
 
+struct SetupCap {
+    ComputerHost inner{};
+    ComputerHost host{};
+    match_runtime::SetUpRecord records[OA_PLAYER_COUNT]{};
+    uint8_t current{255};
+    bool capturing{};
+};
+
+uint32_t cap_random(void* context, uint32_t bound) {
+    auto* cap = static_cast<SetupCap*>(context);
+    uint32_t value = 0;
+    if (cap->inner.random != nullptr)
+        value = cap->inner.random(cap->inner.context, bound);
+    if (cap->capturing && cap->current < OA_PLAYER_COUNT) {
+        auto& record = cap->records[cap->current];
+        if (record.draw_count < 8) {
+            record.draws[record.draw_count].bound = bound;
+            record.draws[record.draw_count].value = value;
+            ++record.draw_count;
+        }
+    }
+    return value;
+}
+
+uint32_t cap_squad_size(void* context, uint8_t player, Squad squad) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.squad_size == nullptr)
+        return 0;
+    return cap->inner.squad_size(cap->inner.context, player, squad);
+}
+
+uint16_t cap_squad_member(void* context, uint8_t player, Squad squad, uint32_t index) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.squad_member == nullptr)
+        return 0;
+    return cap->inner.squad_member(cap->inner.context, player, squad, index);
+}
+
+void cap_set_squad(void* context, uint16_t unit, Squad squad) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.set_squad != nullptr)
+        cap->inner.set_squad(cap->inner.context, unit, squad);
+}
+
+bool cap_allied(void* context, uint8_t player, uint8_t other) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.allied == nullptr)
+        return false;
+    return cap->inner.allied(cap->inner.context, player, other);
+}
+
+bool cap_primary(void* context, uint16_t unit, uint8_t* preserve, uint8_t* queue) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.primary_order == nullptr)
+        return false;
+    return cap->inner.primary_order(cap->inner.context, unit, preserve, queue);
+}
+
+bool cap_secondary(void* context, uint16_t unit) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.secondary_order == nullptr)
+        return false;
+    return cap->inner.secondary_order(cap->inner.context, unit);
+}
+
+bool cap_visible(void* context, uint8_t player, uint16_t unit) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.unit_visible == nullptr)
+        return false;
+    return cap->inner.unit_visible(cap->inner.context, player, unit);
+}
+
+const uint8_t* cap_strengths(void* context, uint8_t player, uint16_t type) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.strengths == nullptr)
+        return nullptr;
+    return cap->inner.strengths(cap->inner.context, player, type);
+}
+
+bool cap_site_clear(void* context, uint16_t type, int32_t cell_x, int32_t cell_z) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.site_clear == nullptr)
+        return false;
+    return cap->inner.site_clear(cap->inner.context, type, cell_x, cell_z);
+}
+
+bool cap_building_site(void* context, uint16_t type, int32_t cell_x, int32_t cell_z) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.building_site == nullptr)
+        return false;
+    return cap->inner.building_site(cap->inner.context, type, cell_x, cell_z);
+}
+
+uint8_t cap_cell_metal(void* context, int32_t cell_x, int32_t cell_z) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.cell_metal == nullptr)
+        return 0;
+    return cap->inner.cell_metal(cap->inner.context, cell_x, cell_z);
+}
+
+bool cap_metal_feature(void* context, int32_t cell_x, int32_t cell_z) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.metal_feature == nullptr)
+        return false;
+    return cap->inner.metal_feature(cap->inner.context, cell_x, cell_z);
+}
+
+bool cap_order_move(void* context, uint16_t unit, const oa::FixedVec3* to, bool queue) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.order_move == nullptr)
+        return false;
+    return cap->inner.order_move(cap->inner.context, unit, to, queue);
+}
+
+bool cap_order_patrol(void* context, uint16_t unit, const oa::FixedVec3* to, bool queue) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.order_patrol == nullptr)
+        return false;
+    return cap->inner.order_patrol(cap->inner.context, unit, to, queue);
+}
+
+bool cap_order_attack(void* context, uint16_t unit, uint16_t target) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.order_attack == nullptr)
+        return false;
+    return cap->inner.order_attack(cap->inner.context, unit, target);
+}
+
+bool cap_order_build(void* context, uint16_t unit, uint16_t type, const oa::FixedVec3* at) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.order_build == nullptr)
+        return false;
+    return cap->inner.order_build(cap->inner.context, unit, type, at);
+}
+
+bool cap_order_factory(void* context, uint16_t factory, uint16_t type, int32_t count) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.order_factory == nullptr)
+        return false;
+    return cap->inner.order_factory(cap->inner.context, factory, type, count);
+}
+
+void cap_set_active(void* context, uint16_t unit, bool on) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.set_active != nullptr)
+        cap->inner.set_active(cap->inner.context, unit, on);
+}
+
+bool cap_point_visible(void* context, uint8_t player, const oa::FixedVec3* at) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.point_visible == nullptr)
+        return false;
+    return cap->inner.point_visible(cap->inner.context, player, at);
+}
+
+const sim::detection::Sightings* cap_sightings(void* context, uint8_t player) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.sightings == nullptr)
+        return nullptr;
+    return cap->inner.sightings(cap->inner.context, player);
+}
+
+bool cap_weapon_reaches(void* context, uint16_t unit, const oa::FixedVec3* at) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.weapon_reaches == nullptr)
+        return false;
+    return cap->inner.weapon_reaches(cap->inner.context, unit, at);
+}
+
+bool cap_attack_point(void* context, uint16_t unit, const oa::FixedVec3* at) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (cap->inner.order_attack_point == nullptr)
+        return false;
+    return cap->inner.order_attack_point(cap->inner.context, unit, at);
+}
+
+void cap_note_section(void* context, uint8_t player, uint8_t section) {
+    auto* cap = static_cast<SetupCap*>(context);
+    if (section != section_start || player >= OA_PLAYER_COUNT)
+        return;
+    cap->current = player;
+    cap->capturing = true;
+    cap->records[player].draw_count = 0;
+    cap->records[player].stream_state = 0;
+    cap->records[player].handed_over = false;
+    if (cap->inner.context != nullptr)
+        cap->records[player].stream_state = static_cast<Match*>(cap->inner.context)->random_state();
+}
+
+void arm_setup(SetupCap& cap) noexcept {
+    cap.host.context = &cap;
+    cap.host.world = cap.inner.world;
+    cap.host.difficulty = cap.inner.difficulty;
+    cap.host.map_cells_x = cap.inner.map_cells_x;
+    cap.host.map_cells_z = cap.inner.map_cells_z;
+    cap.host.surface_metal = cap.inner.surface_metal;
+    cap.host.random = cap_random;
+    cap.host.squad_size = cap_squad_size;
+    cap.host.squad_member = cap_squad_member;
+    cap.host.set_squad = cap_set_squad;
+    cap.host.allied = cap_allied;
+    cap.host.primary_order = cap_primary;
+    cap.host.secondary_order = cap_secondary;
+    cap.host.unit_visible = cap_visible;
+    cap.host.strengths = cap_strengths;
+    cap.host.site_clear = cap_site_clear;
+    cap.host.building_site = cap_building_site;
+    cap.host.cell_metal = cap_cell_metal;
+    cap.host.metal_feature = cap_metal_feature;
+    cap.host.order_move = cap_order_move;
+    cap.host.order_patrol = cap_order_patrol;
+    cap.host.order_attack = cap_order_attack;
+    cap.host.order_build = cap_order_build;
+    cap.host.order_factory = cap_order_factory;
+    cap.host.set_active = cap_set_active;
+    cap.host.point_visible = cap_point_visible;
+    cap.host.sightings = cap_sightings;
+    cap.host.weapon_reaches = cap_weapon_reaches;
+    cap.host.order_attack_point = cap_attack_point;
+    cap.host.note_section = cap_note_section;
+}
+
+bool any_setup_hook(const Match& match) noexcept {
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        if (match.seat_hooks(player).set_up != nullptr)
+            return true;
+    }
+    return false;
+}
+
 void prepare_match_computer_players(Match& match) {
     auto* state = match_computer_players(match);
     if (state->initialized || !load_types(state, match))
@@ -376,7 +606,19 @@ void prepare_match_computer_players(Match& match) {
         } catch (const std::exception&) {
         }
     }
-    (void)computer_players_initialize(state, make_host(match));
+    if (!any_setup_hook(match)) {
+        (void)computer_players_initialize(state, make_host(match));
+        return;
+    }
+    SetupCap cap;
+    cap.inner = make_host(match);
+    arm_setup(cap);
+    (void)computer_players_initialize(state, cap.host);
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        const match_runtime::SeatHooks hooks = match.seat_hooks(player);
+        if (hooks.set_up != nullptr)
+            hooks.set_up(hooks.context, match, player, cap.records[player]);
+    }
 }
 
 void tick_match_computer_orders(Match& match, uint8_t player) {

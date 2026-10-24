@@ -9,12 +9,15 @@
 
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
+#include "oa/sim/brains/seat_calls.hpp"
 
 #include "reach.hpp"
 
 #include "oa/core/player.h"
 #include "oa/data/brain_facts.hpp"
 #include "oa/data/script_host/memory_sources.hpp"
+#include "oa/sim/match_runtime/script.hpp"
+#include "oa/sim/match_runtime/seat_hooks.hpp"
 
 #include <array>
 #include <cstddef>
@@ -192,10 +195,25 @@ struct Seat {
     /// Movement regions built when a script asks whether two points meet.
     /// One class is labelled at most once a tick.
     RegionCache regions{};
+    /// True when this brain runs beside the built-in player.
+    bool shadow{};
+    /// The calls Lua reaches the match through. Empty until the seat is filled.
+    SeatCalls calls{};
+    /// The built-in player's set-up draws. Meaningful when `setup_ready`.
+    match_runtime::SetUpRecord setup{};
+    /// True once `setup` holds this seat's record.
+    bool setup_ready{};
+    /// A copy of the stream at the set-up record. `brain.setup_random` draws it.
+    match_runtime::SharedRandom setup_copy{1};
+    /// The shadow's logs and snapshot. Null when the seat is not a shadow.
+    struct ShadowBody* shadow_body{};
+    /// Sections to compare. Empty compares every section.
+    char shadow_sections[256]{};
 
     /// Defined with the load so `NetworkSet` can stay incomplete here.
     Seat();
-    /// Releases the event buffers. The networks die with the seat.
+    /// Releases the event buffers and the shadow body. The networks die with
+    /// the seat.
     ~Seat();
 };
 
@@ -382,10 +400,65 @@ void run_due_timers(lua_State* state, Seat& seat);
 /// @param spec the package
 void note_classic(Seat& seat, const SeatSpec& spec) noexcept;
 
-/// Installs `brain.shared_random` when the seat is Classic and has a match.
+/// Installs `brain.shared_random` for a Classic seat, and for a shadow.
+///
+/// A Classic seat draws the match stream. A shadow draws its turn's copy,
+/// and only while that copy is armed. Neither is installed without a match.
 ///
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_shared_random(lua_State* state, Seat& seat);
+
+/// Installs `brain.section` for every seat, including one with no match.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_section(lua_State* state, Seat& seat);
+
+/// Installs `brain.setup_random` for a Classic seat and for a shadow.
+///
+/// Installed with no match as well: the call then raises that the seat is
+/// not set up yet.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_setup_random(lua_State* state, Seat& seat);
+
+/// Writes `me.difficulty` in the hidden table `me` reads.
+///
+/// @param state the sandbox state
+/// @param difficulty `easy`, `medium` or `hard`
+void set_hidden_difficulty(lua_State* state, const char* difficulty);
+
+/// Builds the shadow body and points the seat's calls at the recording table.
+///
+/// @param seat the shadow seat; its match, when set, supplies the live calls
+/// @param mask sections to compare
+void shadow_attach(Seat& seat, uint32_t mask) noexcept;
+
+/// Drops the shadow body. A seat that is not a shadow is left as it is.
+///
+/// @param seat the seat
+void shadow_release(Seat& seat) noexcept;
+
+/// Whether the shadow's turn copy may be drawn.
+///
+/// @param seat the seat
+/// @return true while its recording is armed for this turn
+[[nodiscard]] bool shadow_stream_ready(const Seat& seat) noexcept;
+
+/// Records one `brain.setup_random` draw on a shadow.
+///
+/// @param seat the shadow seat
+/// @param bound the bound the brain passed
+/// @param value the value the copy returned
+void shadow_note_setup_draw(Seat& seat, uint32_t bound, uint32_t value) noexcept;
+
+/// Delivers one shadow turn. A failure leaves the seat seated.
+///
+/// @param seat the shadow seat
+/// @param error receives the script error when the call fails
+/// @return false when the turn failed
+bool deliver_shadow_turn(Seat& seat, script_host::ScriptError& error);
 
 } // namespace oa::sim::brains

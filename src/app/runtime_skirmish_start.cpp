@@ -1537,6 +1537,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // and a recorded game load more after this and end theirs when they have.
     if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game()) {
         seat_chosen_brains();
+        seat_shadow_brains();
         match_->finish_load();
     }
     status_ = "Offline match world prepared for " + selected_map_name_runtime_ + " with " +

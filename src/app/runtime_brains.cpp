@@ -7,20 +7,25 @@
 
 #include "oa/app/runtime.hpp"
 
+#include "oa/app/brain_match.hpp"
 #include "oa/core/player.h"
 #include "oa/data/script_host/script_host.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/sim/brains/chat.hpp"
 #include "oa/sim/brains/seat.hpp"
+#include "oa/sim/brains/shadow.hpp"
 #include "oa/sim/messages.hpp"
 
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace oa::app {
@@ -44,6 +49,22 @@ std::string notice_reason(const oa::data::script_host::ScriptError& error) {
     if (error.chunk.empty())
         return error.message;
     return error.chunk + ":" + std::to_string(error.line) + ": " + error.message;
+}
+
+const char* shadow_start_word(oa::sim::brains::ShadowStart start) {
+    if (start == oa::sim::brains::ShadowStart::same)
+        return "same";
+    if (start == oa::sim::brains::ShadowStart::differs)
+        return "differs";
+    return "not compared";
+}
+
+void write_shadow_text(const std::filesystem::path& path, const char* text) {
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+        return;
+    if (text != nullptr)
+        out << text;
 }
 
 } // namespace
@@ -136,10 +157,13 @@ void Runtime::brain_stopped(
         runtime->brain_stop_text_[player] = std::move(described);
         BrainLog& log = runtime->brain_logs_[player];
         log.stop(tick, error);
-        runtime->post_match_message(
-            brain_notice(brain_stopped_words, log.name(), notice_reason(error)),
-            oa::sim::messages::kind_status
-        );
+        const bool shadow = runtime->match_ != nullptr &&
+                            oa::sim::brains::brain_is_shadow(*runtime->match_, player);
+        if (!shadow)
+            runtime->post_match_message(
+                brain_notice(brain_stopped_words, log.name(), notice_reason(error)),
+                oa::sim::messages::kind_status
+            );
     } catch (const std::exception&) {
         // The stop must not escape into the tick.
     }
@@ -267,6 +291,118 @@ void Runtime::seat_chosen_brains() {
         listener.heard = &Runtime::brain_chat_heard;
         set_seat_chat_listener(listener);
     }
+}
+
+void Runtime::seat_shadow_brains() {
+    if (match_ == nullptr || options_.brain_shadow.empty())
+        return;
+    if (multiplayer_session() || (current_extension_state() &
+                                  (extension_state::shared_match | extension_state::replay)) != 0)
+        return;
+    shadow_report_printed_ = false;
+    std::filesystem::path brains_folder = user_folder() / std::string(brains_folder_name);
+    std::string id = options_.brain_shadow;
+    if (brain_match_folder(options_.brain_shadow)) {
+        const std::filesystem::path folder{options_.brain_shadow};
+        brains_folder = folder.parent_path();
+        const std::string named = folder.filename().string();
+        if (!named.empty())
+            id = named;
+    }
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        const oa::Player& record = match_->state().game.players[player];
+        if (record.in_use == 0 || record.status != OA_PLAYER_STATUS_COMPUTER)
+            continue;
+        if (oa::sim::brains::brain_seated(*match_, player) ||
+            oa::sim::brains::brain_is_shadow(*match_, player))
+            continue;
+        try {
+            std::string error;
+            const std::optional<InstalledBrain> installed =
+                read_installed_brain(brains_folder, id, error);
+            if (!installed) {
+                report_seat(player, id, error.empty() ? "the brain could not be read" : error);
+                continue;
+            }
+            BrainSeatChoice choice;
+            choice.id = installed->manifest.id;
+            ResolvedSeat resolved;
+            if (!resolve_seat(*installed, choice, resolved, error)) {
+                report_seat(player, id, error.empty() ? "the brain could not be seated" : error);
+                continue;
+            }
+            std::vector<oa::sim::brains::PackageFile> files;
+            std::vector<oa::sim::brains::OptionValue> options;
+            std::vector<oa::sim::brains::NetworkFile> networks;
+            oa::sim::brains::SeatSpec spec =
+                seat_spec(player, *installed, resolved, files, options, networks);
+            spec.shadow = true;
+            spec.shadow_sections = options_.brain_shadow_sections;
+            prepare_brain_report(
+                player,
+                installed->manifest.name,
+                resolved.version,
+                installed->manifest.id,
+                resolved.level
+            );
+            const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
+            if (outcome.result != oa::sim::brains::SeatResult::seated)
+                report_seat(player, id, failure_text(outcome));
+        } catch (const std::exception& ex) {
+            const char* text = ex.what();
+            report_seat(player, id, text != nullptr ? text : "the brain could not be seated");
+        }
+    }
+}
+
+void Runtime::print_shadow_reports() {
+    if (shadow_report_printed_ || match_ == nullptr || options_.brain_shadow.empty())
+        return;
+    shadow_report_printed_ = true;
+    const bool write_logs = !options_.brain_shadow_log.empty();
+    std::filesystem::path directory;
+    if (write_logs) {
+        directory = std::filesystem::path(options_.brain_shadow_log);
+        std::error_code error;
+        std::filesystem::create_directories(directory, error);
+        if (error)
+            directory.clear();
+    }
+    for (uint8_t player = 0; player < OA_PLAYER_COUNT; ++player) {
+        const oa::sim::brains::ShadowReport* report =
+            oa::sim::brains::shadow_report(*match_, player);
+        if (report == nullptr)
+            continue;
+        const int seat = static_cast<int>(player);
+        if (report->stopped) {
+            const char* message = report->message != nullptr ? report->message : "";
+            std::cout << "brain shadow: seat " << seat << ": stopped at tick "
+                      << report->stopped_tick << ": " << message << '\n';
+        } else {
+            std::cout << "brain shadow: seat " << seat << ": start "
+                      << shadow_start_word(report->start) << ", " << report->ticks << " ticks, ";
+            if (report->differ_count == 0)
+                std::cout << "no difference\n";
+            else
+                std::cout << "first difference at tick " << report->first_tick << " in "
+                          << report->section << ", " << report->differ_count << " ticks differ\n";
+        }
+        if (directory.empty())
+            continue;
+        const std::string prefix = "seat-" + std::to_string(seat);
+        write_shadow_text(directory / (prefix + "-start-builtin.log"), report->start_builtin);
+        write_shadow_text(directory / (prefix + "-start-brain.log"), report->start_brain);
+        const uint8_t files = report->tick_files < 3 ? report->tick_files : 3;
+        for (uint8_t index = 0; index < files; ++index) {
+            const std::string tick_name =
+                prefix + "-tick-" + std::to_string(report->tick_numbers[index]);
+            write_shadow_text(
+                directory / (tick_name + "-builtin.log"), report->tick_builtin[index]
+            );
+            write_shadow_text(directory / (tick_name + "-brain.log"), report->tick_brain[index]);
+        }
+    }
+    std::cout.flush();
 }
 
 } // namespace oa::app

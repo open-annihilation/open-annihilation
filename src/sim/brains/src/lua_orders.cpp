@@ -64,7 +64,7 @@ struct SpecialAsk {
     bool aimed{};
 };
 
-using Engine = bool (*)(match_runtime::Match& match, uint16_t slot, void* context);
+using Engine = bool (*)(Seat& seat, uint16_t slot, void* context);
 
 /// What one order needs. `skip`, when it returns true, is not an order.
 struct Give {
@@ -72,7 +72,7 @@ struct Give {
     const UnitRef* target{};
     bool check_type{};
     uint16_t type{};
-    bool (*skip)(match_runtime::Match& match, uint16_t slot, void* context){};
+    bool (*skip)(Seat& seat, uint16_t slot, void* context){};
     Engine engine{};
     void* context{};
 };
@@ -143,7 +143,7 @@ bool type_on_build_list(match_runtime::Match& match, uint16_t builder, uint16_t 
 bool give_order(Seat& seat, const Give& give) {
     if (refuse_actor(seat, give.actor))
         return false;
-    if (give.skip != nullptr && give.skip(*seat.match, give.actor.slot, give.context))
+    if (give.skip != nullptr && give.skip(seat, give.actor.slot, give.context))
         return true;
     if (seat.orders_this_turn >= max_orders_per_turn) {
         count(seat, &OrderTally::over_limit);
@@ -164,8 +164,7 @@ bool give_order(Seat& seat, const Give& give) {
     ++seat.orders_this_turn;
     bool accepted = false;
     try {
-        accepted =
-            give.engine != nullptr && give.engine(*seat.match, give.actor.slot, give.context);
+        accepted = give.engine != nullptr && give.engine(seat, give.actor.slot, give.context);
     } catch (...) {
         accepted = false;
     }
@@ -230,30 +229,63 @@ sim::ground_orders::Point point_from(const oa::FixedVec3& at) noexcept {
     return {at.x, at.y, at.z};
 }
 
-bool engine_move(match_runtime::Match& match, uint16_t slot, void* context) {
+oa::FixedVec3 fixed_at(const sim::ground_orders::Point& point) noexcept {
+    return {point[0], point[1], point[2]};
+}
+
+/// Records an order the shadow does not play and reports it given.
+bool note_refused(Seat& seat, const char* name, uint16_t slot) noexcept {
+    if (seat.calls.refuse == nullptr)
+        return false;
+    seat.calls.refuse(&seat.calls.host, name, slot);
+    return true;
+}
+
+bool engine_move(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const PointAsk*>(context);
+    if (seat.calls.host.order_move != nullptr) {
+        const oa::FixedVec3 at = fixed_at(ask->point);
+        return seat.calls.host.order_move(seat.calls.host.context, slot, &at, ask->queued);
+    }
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_ground_move(slot, ask->point, ask->queued));
 }
 
-bool engine_patrol(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_patrol(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const PointAsk*>(context);
+    if (seat.calls.host.order_patrol != nullptr) {
+        const oa::FixedVec3 at = fixed_at(ask->point);
+        return seat.calls.host.order_patrol(seat.calls.host.context, slot, &at, ask->queued);
+    }
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_patrol(slot, ask->point, ask->queued));
 }
 
-bool engine_attack(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_attack(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const TargetAsk*>(context);
+    if (!ask->queued && seat.calls.host.order_attack != nullptr)
+        return seat.calls.host.order_attack(seat.calls.host.context, slot, ask->target);
+    if (ask->queued && seat.calls.attack_queued != nullptr)
+        return seat.calls.attack_queued(&seat.calls.host, slot, ask->target);
+    match_runtime::Match& match = *seat.match;
     return match.issue_attack_command(slot, ask->target, ask->queued, nullptr);
 }
 
-bool engine_attack_ground(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_attack_ground(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "attack_ground", slot))
+        return true;
     const auto* ask = static_cast<const PointAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return match.issue_attack_ground(slot, ask->point, ask->queued) != nullptr;
 }
 
 /// The built-in player's attack on a point: the Attack command over open
 /// ground, unqueued. False when no order kind resolves.
-bool engine_attack_point(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_attack_point(Seat& seat, uint16_t slot, void* context) {
     const auto* at = static_cast<const oa::FixedVec3*>(context);
+    if (seat.calls.host.order_attack_point != nullptr)
+        return seat.calls.host.order_attack_point(seat.calls.host.context, slot, at);
+    match_runtime::Match& match = *seat.match;
     const oa::World& world = match.state();
     const oa::Unit* actor = oa::world_unit_at(&world, slot);
     if (actor == nullptr)
@@ -269,8 +301,11 @@ bool engine_attack_point(match_runtime::Match& match, uint16_t slot, void* conte
     return !match.order_refused(match.issue_order(slot, kind, false, 0, &point, 0, 0));
 }
 
-bool engine_dgun(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_dgun(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "dgun", slot))
+        return true;
     const auto* ask = static_cast<const SpecialAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     sim::ground_orders::Point point = ask->point;
     uint16_t target = 0;
     if (ask->aimed) {
@@ -283,61 +318,101 @@ bool engine_dgun(match_runtime::Match& match, uint16_t slot, void* context) {
     return !match.order_refused(match.issue_attack_special(slot, point, ask->queued, target));
 }
 
-bool engine_guard(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_guard(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "guard", slot))
+        return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_guard(slot, ask->target, ask->queued));
 }
 
-bool engine_repair(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_repair(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "repair", slot))
+        return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_repair(slot, ask->target, ask->queued));
 }
 
-bool engine_help(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_help(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "help", slot))
+        return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_help_build(slot, ask->target, ask->queued));
 }
 
-bool engine_capture(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_capture(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "capture", slot))
+        return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_capture(slot, ask->target, ask->queued));
 }
 
-bool engine_load(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_load(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "load", slot))
+        return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_load(slot, ask->target, ask->queued));
 }
 
-bool engine_unload(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_unload(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "unload", slot))
+        return true;
     const auto* ask = static_cast<const PointAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_unload(slot, ask->point, ask->queued));
 }
 
-bool engine_reclaim_unit(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_reclaim_unit(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "reclaim", slot))
+        return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_reclaim(slot, ask->target, ask->queued));
 }
 
-bool engine_reclaim_point(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_reclaim_point(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "reclaim", slot))
+        return true;
     const auto* ask = static_cast<const PointAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_feature_reclaim(slot, ask->point, ask->queued));
 }
 
-bool engine_build(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_build(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const BuildAsk*>(context);
+    const oa::FixedVec3 at = fixed_at(ask->point);
+    if (ask->facing == 0 && !ask->queued && seat.calls.host.order_build != nullptr)
+        return seat.calls.host.order_build(seat.calls.host.context, slot, ask->type, &at);
+    if ((ask->facing != 0 || ask->queued) && seat.calls.build_shaped != nullptr) {
+        return seat.calls.build_shaped(
+            &seat.calls.host, slot, ask->type, &at, ask->queued, static_cast<int32_t>(ask->facing)
+        );
+    }
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(
         match.issue_mobile_build(slot, ask->type, ask->point, ask->queued, ask->facing)
     );
 }
 
-bool engine_queue(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_queue(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const CountAsk*>(context);
+    if (seat.calls.host.order_factory != nullptr) {
+        return seat.calls.host.order_factory(seat.calls.host.context, slot, ask->type, ask->count);
+    }
+    match_runtime::Match& match = *seat.match;
     match.queue_factory_build(slot, ask->type, ask->count);
     return true;
 }
 
-bool engine_requeue(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_requeue(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "requeue", slot))
+        return true;
     const auto* ask = static_cast<const CountAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     const uint8_t kind = data::mission_types::index_for_name("BuildingBuild");
     if (kind == data::mission_types::unknown_mission)
         return false;
@@ -345,37 +420,53 @@ bool engine_requeue(match_runtime::Match& match, uint16_t slot, void* context) {
     return true;
 }
 
-bool engine_stop(match_runtime::Match& match, uint16_t slot, void*) {
+bool engine_stop(Seat& seat, uint16_t slot, void*) {
+    if (note_refused(seat, "stop", slot))
+        return true;
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_stop(slot));
 }
 
-bool engine_on(match_runtime::Match& match, uint16_t slot, void*) {
+bool engine_on(Seat& seat, uint16_t slot, void* context) {
+    const auto* want = static_cast<const bool*>(context);
+    if (seat.calls.host.set_active != nullptr) {
+        seat.calls.host.set_active(seat.calls.host.context, slot, *want);
+        return true;
+    }
+    match_runtime::Match& match = *seat.match;
     match.toggle_activation(slot, OA_UNIT_STATE_ACTIVE);
     return true;
 }
 
-bool engine_cloak(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_cloak(Seat& seat, uint16_t slot, void* context) {
+    if (note_refused(seat, "cloak", slot))
+        return true;
     const auto* on = static_cast<const bool*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_cloak(slot, *on));
 }
 
-bool engine_destruct(match_runtime::Match& match, uint16_t slot, void*) {
+bool engine_destruct(Seat& seat, uint16_t slot, void*) {
+    if (note_refused(seat, "self_destruct", slot))
+        return true;
+    match_runtime::Match& match = *seat.match;
     const uint16_t unit = slot;
     match.toggle_self_destruct(std::span<const uint16_t>(&unit, 1));
     return true;
 }
 
-bool engine_state(match_runtime::Match& match, uint16_t slot, void* context) {
+bool engine_state(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const CountAsk*>(context);
+    match_runtime::Match& match = *seat.match;
     return !match.order_refused(
         match.issue_state_order(slot, static_cast<uint8_t>(ask->type), ask->count)
     );
 }
 
 /// True when the active bit is already the value `on` asks for, so `on` is not an order.
-bool activation_already(match_runtime::Match& match, uint16_t slot, void* context) {
+bool activation_already(Seat& seat, uint16_t slot, void* context) {
     const auto* want = static_cast<const bool*>(context);
-    const oa::Unit* unit = oa::world_unit_at(&match.state(), slot);
+    const oa::Unit* unit = oa::world_unit_at(&seat.match->state(), slot);
     if (unit == nullptr)
         return false;
     const bool active = (unit->state_flags & OA_UNIT_STATE_ACTIVE) != 0;
@@ -757,19 +848,40 @@ int method_stance(lua_State* state) {
     if (seat == nullptr)
         return luaL_error(state, "stance has no seat");
     // The privilege is checked before the unit, so a seat that is not
-    // Classic is refused even when the unit would have been too.
-    if (direct && (seat->match == nullptr || !seat_is_classic(*seat->match, seat->player)))
+    // Classic is refused even when the unit would have been too. A shadow
+    // holds the same write, and the call records it.
+    const bool privileged =
+        seat->shadow || (seat->match != nullptr && seat_is_classic(*seat->match, seat->player));
+    if (direct && !privileged)
         return luaL_error(state, "stance: direct writes are for the Classic brain only");
     script_host::charge_work(state, order_charge);
     if (direct) {
         if (refuse_actor(*seat, actor))
             return finish(state, false);
+        const int32_t move = has_move ? static_cast<int32_t>(move_value) : int32_t{-1};
+        const int32_t fire = has_fire ? static_cast<int32_t>(fire_value) : int32_t{-1};
+        if (seat->calls.write_stance != nullptr) {
+            seat->calls.write_stance(&seat->calls.host, actor.slot, move, fire);
+            return finish(state, true);
+        }
         oa::Unit* unit = oa::world_unit_at(&seat->match->state(), actor.slot);
         if (unit == nullptr) {
             count(*seat, &OrderTally::by_engine);
             return finish(state, false);
         }
         write_standing(*unit, has_move, move_value, has_fire, fire_value);
+        return finish(state, true);
+    }
+    if (seat->calls.refuse != nullptr && (has_move || has_fire)) {
+        if (refuse_actor(*seat, actor))
+            return finish(state, false);
+        if (seat->orders_this_turn >= max_orders_per_turn) {
+            count(*seat, &OrderTally::over_limit);
+            return finish(state, false);
+        }
+        ++seat->orders_this_turn;
+        seat->calls.refuse(&seat->calls.host, "stance", actor.slot);
+        count(*seat, &OrderTally::given);
         return finish(state, true);
     }
     bool given = true;

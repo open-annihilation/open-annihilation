@@ -472,6 +472,9 @@ one, for the engine's developers.
 | `--brain-match A,B` | Plays a two-seat headless skirmish. Each seat is an installed brain id, a brain folder, or `builtin`. It needs `--headless-check`, `--match-ticks` and `--brain-map`. [Below](#--brain-match). |
 | `--brain-levels L1,L2` | The level of each `--brain-match` seat. A built-in level is `easy`, `medium` or `hard`, and `hard` when the word is left out. A brain's level is a level id from its manifest, and its first level when the word is left out. |
 | `--brain-map NAME` | The map a `--brain-match` plays. |
+| `--brain-shadow BRAIN` | Runs BRAIN beside the built-in player on every computer seat of a skirmish, a campaign mission or a loaded game on this machine. BRAIN is an installed brain's id, or a brain folder. The built-in player still plays the seat. [Below](#--brain-shadow). |
+| `--brain-shadow-sections LIST` | Sections to compare, separated by commas: `start`, `schedule`, `sort`, `task1` to `task9`. Left out, every section is compared. It needs `--brain-shadow`. |
+| `--brain-shadow-log DIR` | Writes the shadow's call logs into DIR. It needs `--brain-shadow`. |
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
 | `--trace-lookups FILE` | Writes every game file and listing the run looks up, and, for a path a mutator serves or hides, which mutator. |
@@ -600,6 +603,43 @@ exits with status 1. A map that cannot be played prints
 `brain match: map NAME could not be played` and exits with status 1. An
 option the command refuses also exits with status 1. Status 0 means the
 match played to the end above, whoever won.
+
+#### `--brain-shadow`
+
+```sh
+open-annihilation --skip-intro --mute --headless-check --seed 1234567 --match-ticks 600 --brain-shadow tests/data/brains/steady-shadow --brain-shadow-sections task9 --brain-shadow-log /tmp/shadow-logs
+```
+
+BRAIN is an installed brain's id, or a folder (a path that holds `/` or
+`\`, or starts with `.`). The brain is seated beside every computer seat
+this machine plays, in a skirmish, a campaign mission or a loaded game. A
+seat a brain already plays keeps that brain. A network game seats no
+shadow. The built-in player plays each seat as before. The brain's orders
+are recorded and not applied.
+
+At the end of the run, one line is printed for each shadowed seat:
+
+```text
+brain shadow: seat 1: start not compared, 601 ticks, no difference
+brain shadow: seat 1: start same, 601 ticks, first difference at tick 29 in sort, 20 ticks differ
+brain shadow: seat 1: stopped at tick 12: brain.lua:4: something failed
+```
+
+The load's player pass is compared too, once, before the ticks
+`--match-ticks` runs. A run of 600 ticks compares 601, and the first squad
+sort is at tick 29.
+
+`start` is `same`, `differs` or `not compared`. The seat number is the
+engine's player index. A stopped brain prints only the stopped line.
+
+`--brain-shadow-sections` is a comma-separated list. A word that is not
+`start`, `schedule`, `sort` or `task1` to `task9` is ignored. Left out,
+every section is compared. `--brain-shadow-sections` and
+`--brain-shadow-log` need `--brain-shadow`.
+
+`--brain-shadow-log DIR` writes `seat-<p>-start-builtin.log`,
+`seat-<p>-start-brain.log`, and, for the first differing tick and the two
+before it, `seat-<p>-tick-<t>-builtin.log` and `seat-<p>-tick-<t>-brain.log`.
 
 ## Ways to launch a game
 
