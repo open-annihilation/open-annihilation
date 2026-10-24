@@ -178,6 +178,25 @@ class Failure : public std::runtime_error {
 /// @throws Failure when the folder cannot be packed
 [[nodiscard]] int run_brain_pack(std::span<const std::string> arguments, Output& output);
 
+/// Loads a brain against a game and reports how it started.
+///
+/// One positional argument is a `.oabrain` or a folder whose top holds
+/// `oabrain.yaml`. The folder's name is the brain's id. `--game-dir` is
+/// required. `--mod` is a mod folder layered over the game. `--level`
+/// selects a level; the first is used when it is omitted. `--side` is the
+/// side whose commander the seat holds, from 0 to 255, and it is 0 when
+/// omitted. `--json` prints one object. The check seats the brain in a
+/// match of the game's definitions on a flat stand-in map and never ticks
+/// that match.
+///
+/// @param arguments the file or folder and the options
+/// @param[in,out] output receives the report, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done when the brain was seated, exit_failed when it was not
+///         or the game cannot be mounted, or exit_usage when the arguments
+///         are not the command's
+[[nodiscard]] int run_brain_check(std::span<const std::string> arguments, Output& output);
+
 /// Converts an ONNX model to a .oann and reports the integer difference.
 ///
 /// One positional argument is the model. `--calibrate` is required. `--out`

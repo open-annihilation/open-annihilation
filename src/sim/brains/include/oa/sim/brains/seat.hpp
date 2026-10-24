@@ -136,6 +136,22 @@ struct SeatOutcome {
     /// A refusal's sentence, or the text fits returned, cut to 255 bytes.
     /// Empty when the failure is `error` alone.
     std::array<char, 256> reason{};
+    /// Instructions the load phase used. 0 when load did not run. The count
+    /// steps by 1,000, so a short phase can report 0.
+    uint64_t load_instructions{};
+    /// Instructions `fits` used. 0 when `fits` did not run.
+    uint64_t fits_instructions{};
+    /// Instructions `start` used. 0 when `start` did not run.
+    uint64_t start_instructions{};
+    /// True when the load phase was entered. A short load can still leave
+    /// `load_instructions` at 0.
+    bool load_ran{};
+    /// True when `fits` was called. A short call can still leave
+    /// `fits_instructions` at 0.
+    bool fits_ran{};
+    /// True when `start` was called. A short call can still leave
+    /// `start_instructions` at 0.
+    bool start_ran{};
 };
 
 /// Loads one brain for one computer seat and calls fits and start.

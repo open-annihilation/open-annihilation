@@ -31,7 +31,8 @@ target_include_directories(oa-tool-commands SYSTEM PRIVATE
   ${PROJECT_SOURCE_DIR}/third_party/monocypher)
 target_compile_features(oa-tool-commands PUBLIC cxx_std_20)
 target_link_libraries(oa-tool-commands
-  PRIVATE oa-options oa-app-package-install oa-app-game-directory oa-data-content-bundles oa-data-languages
+  PRIVATE oa-options oa-app-brain-check oa-app-package-install oa-app-game-directory
+    oa-data-content-bundles oa-data-languages
     oa-data-map-pack oa-data-map-fit oa-data-script-host oa-data-mutator-import
     oa-data-mutators oa-data-defs oa-data-defs-assets oa-formats-tdf
     oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-formats-oann
@@ -143,6 +144,16 @@ if(BUILD_TESTING)
     oa-data-neural oa-formats-json oa-base-sha256 oa-test-support oa-options)
   add_test(NAME tools-oa-tool-brain-net COMMAND oa-tool-brain-net-test)
   set_tests_properties(tools-oa-tool-brain-net PROPERTIES TIMEOUT 120)
+
+  # brain check: usage without the game, and, with --data, seating made-up brains.
+  add_executable(oa-tool-brain-check-test tests/brain_check_test.cpp)
+  target_link_libraries(oa-tool-brain-check-test PRIVATE oa-tool-commands oa-app-package-install
+    oa-formats-zip oa-formats-json oa-formats-oabrain oa-base-sha256 oa-test-support
+    oa-test-game-data oa-options)
+  add_test(NAME tools-oa-tool-brain-check COMMAND oa-tool-brain-check-test)
+  set_tests_properties(tools-oa-tool-brain-check PROPERTIES TIMEOUT 60)
+  oa_add_game_data_test(tools-oa-tool-brain-check-data oa-tool-brain-check-test --data)
+  set_tests_properties(tools-oa-tool-brain-check-data PROPERTIES TIMEOUT 120)
 
   # mutator import: made-up .tam files and a zip become mutator folders.
   add_executable(oa-tool-mutator-import-test tests/mutator_import_test.cpp)

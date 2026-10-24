@@ -13,6 +13,7 @@
 #include "lua_game.hpp"
 #include "lua_grids.hpp"
 #include "lua_networks.hpp"
+#include "orders.hpp"
 #include "sight.hpp"
 
 #include "oa/data/script_host/f32.hpp"
@@ -155,6 +156,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_profile(state, seat);
     install_map(state, seat);
     install_sight(state, seat);
+    install_orders(state, seat);
     install_networks(state, seat);
     install_grids(state, seat);
 }
