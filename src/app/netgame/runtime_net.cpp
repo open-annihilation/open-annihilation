@@ -1120,8 +1120,13 @@ struct NetworkPlay::NetHost {
             return;
         }
         state.hosting = host_slot == local_slot;
-        if (state.hosting)
+        // A joiner that has already seen the start no longer treats a remote
+        // computer as a computer, so this machine's brains go out first. The
+        // joiner then still has them when it records the game.
+        if (state.hosting) {
+            play.runtime_.note_room_computers(lobby);
             nm::net_match_queue_game_start(&state.connection, *lobby.game);
+        }
         state.building_game = lobby.game;
         state.loading_pace = {};
         state.load_rows = {};

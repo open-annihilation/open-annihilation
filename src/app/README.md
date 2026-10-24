@@ -3245,8 +3245,12 @@ state, and walks the missing-brain question.
 
 A recording names each computer player that ran a brain: the player, the
 brain, its version and its level, and, for a brain this machine ran, the
-package. It stores that as its own sector, after the mutators' sector, and
-leaves the sector out when no brain played, so a recording without brains
+package. A brain another machine ran is the one that machine's presence
+record named when the match started. Choosing the brain sends that record
+then, so a start that does not pass the battle room again still leaves
+every machine the name. It stores that as its own sector, after the
+mutators' sector, and leaves the sector out when no brain played, so a
+recording without brains
 is unchanged. Text that does not fit one sector is left out and the
 recording is still written. Playback reads the sector, logs each seat's
 brain, and seats none: every player stays mirrored. The note beside a save,

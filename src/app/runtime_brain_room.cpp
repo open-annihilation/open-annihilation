@@ -572,7 +572,9 @@ bool own_computer(const oa::Player& player) noexcept {
 /// Publishes one stored choice onto its slot.
 ///
 /// A computer the session has not seated yet is left as it is. The next note
-/// publishes it.
+/// publishes it. The other machines learn the brain from this machine's
+/// presence record, which goes out now: a launch that does not pass the
+/// battle room again still leaves them the brain a recording of the game names.
 ///
 /// @param runtime the runtime
 /// @param lobby the battle room
@@ -590,6 +592,8 @@ void publish_choice(
 ) {
     const Published published = describe_choice(runtime, listing, probe, choice);
     mp::lobby_set_computer_brain(lobby, slot, published.brain, published.difficulty);
+    mp::presence_refresh(lobby);
+    mp::presence_send_due(lobby);
 }
 
 } // namespace
