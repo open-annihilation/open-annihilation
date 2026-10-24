@@ -36,15 +36,18 @@ void write_note(const fs::path& path, const std::string& text) {
 /// @param choice the content this run plays
 /// @param mod the mod's name, or empty
 /// @param played the mutators the match is playing, in list order
+/// @param brains the brains that played, in player order
 /// @return the note's text
 std::string note_text(
     const oa::data::content_bundles::ContentChoice& choice,
     std::string_view mod,
-    const std::vector<saves::ContentMutator>& played
+    const std::vector<saves::ContentMutator>& played,
+    const std::vector<saves::ContentBrain>& brains
 ) {
     saves::ContentRecord record =
         saves::content_record_from(choice.base_game, choice.expansions, std::string(mod));
     record.mutators = played;
+    record.brains = brains;
     return saves::content_record_text(record);
 }
 
@@ -65,7 +68,10 @@ void Runtime::note_content_beside(const fs::path& path) const {
         return;
     fs::path note = path;
     note += saves::content_note_suffix;
-    write_note(note, note_text(content_choice(), mod_label(mod_profile()), played_mutators()));
+    write_note(
+        note,
+        note_text(content_choice(), mod_label(mod_profile()), played_mutators(), played_brains())
+    );
 }
 
 void Runtime::note_film_content(const fs::path& folder) {
@@ -76,7 +82,7 @@ void Runtime::note_film_content(const fs::path& folder) {
         return;
     write_note(
         folder / std::string(saves::film_content_name),
-        note_text(content_choice(), mod_label(mod_profile()), played_mutators())
+        note_text(content_choice(), mod_label(mod_profile()), played_mutators(), played_brains())
     );
     film_content_noted_ = key;
 }

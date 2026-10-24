@@ -652,12 +652,14 @@ void Runtime::check_text_fit() {
     const auto show_brain = [&](std::string_view key) {
         LibraryHost& host = library_host();
         const library::EntryId id{"fit-core", library::Kind::brain, std::string(key)};
-        if (library::find_entry(host.model, id) == nullptr)
-            inject_brains();
         host.state.details_page = width <= 640;
         host.state.menu = library::MenuKind::none;
         const std::string screen = std::string("library/brains/") + std::string(key);
         for (const int32_t scroll : kScrolls) {
+            // A feed that finished during the last paint rebuilt the Library
+            // from its own inputs, so the check's brains go in again.
+            if (library::find_entry(host.model, id) == nullptr)
+                inject_brains();
             require(
                 library::find_entry(host.model, id) != nullptr,
                 screen + " has no " + std::string(key)

@@ -33,9 +33,11 @@
 //
 // Open Annihilation adds a sector of type 0x4f414d31 (the bytes 1 M A O on
 // disk) when a game was played with mutators. It holds the loadout as text
-// and is absent otherwise, so a recording without it is unchanged. Readers
-// that do not know the type skip it; this parser keeps every sector and
-// continues.
+// and is absent otherwise, so a recording without it is unchanged. It adds
+// a sector of type 0x4f414231 (the bytes 1 B A O on disk) when computer
+// players ran brains. It holds those seats as text and is absent otherwise,
+// so a recording without brains is unchanged. Readers that do not know a
+// type skip it; this parser keeps every sector and continues.
 //
 // Only version 5 has been checked against recordings; other versions are rejected.
 
@@ -87,6 +89,10 @@ enum class SectorType : uint32_t {
     /// Loadout of a game played with mutators, as text. Open Annihilation's
     /// own type, the bytes 1 M A O on disk. Other readers skip it.
     mutators = 0x4f414d31,
+    /// The brains that played a game's computer players, as text. Open
+    /// Annihilation's own type, the bytes 1 B A O on disk. Other readers
+    /// skip it.
+    brains = 0x4f414231,
 };
 
 enum class RecordedSide : uint8_t { arm = 0, core = 1 };

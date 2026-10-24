@@ -445,6 +445,9 @@ void Runtime::hand_setup_brain_seats(brain::Setup setup) {
 }
 
 void Runtime::take_pending_brain_seats() {
+    // The room's labels belong to the match that kept them. The network start
+    // records the new room after this returns.
+    remote_played_brains_.clear();
     if (!pending_brain_seats_ || match_ == nullptr)
         return;
     std::vector<BrainSeat> pending = std::move(*pending_brain_seats_);
@@ -502,6 +505,7 @@ void Runtime::take_pending_brain_seats() {
                 installed->manifest.id,
                 resolved.level
             );
+            store_brain_game_facts();
             const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
             if (outcome.result != oa::sim::brains::SeatResult::seated) {
                 log_builtin(seat.player, seat.id, failure_text(outcome));

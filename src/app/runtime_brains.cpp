@@ -269,6 +269,7 @@ void Runtime::seat_chosen_brains() {
                 installed->manifest.id,
                 resolved.level
             );
+            store_brain_game_facts();
             const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
             if (outcome.result != oa::sim::brains::SeatResult::seated) {
                 refuse(failure_text(outcome));
@@ -345,6 +346,7 @@ void Runtime::seat_shadow_brains() {
                 installed->manifest.id,
                 resolved.level
             );
+            store_brain_game_facts();
             const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
             if (outcome.result != oa::sim::brains::SeatResult::seated)
                 report_seat(player, id, failure_text(outcome));

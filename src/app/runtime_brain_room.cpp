@@ -504,6 +504,68 @@ picker::Choice choice_from_seat(
     return fallen;
 }
 
+/// The difficulty a launch named for one slot. Unset is hard.
+///
+/// @param lobby the battle room
+/// @param slot the computer's slot
+/// @return easy, medium or hard
+brain::Difficulty difficulty_of_launch(const mp::Lobby& lobby, uint8_t slot) noexcept {
+    if (slot >= mp::kSlotCount || !lobby.computer_difficulty_set[slot])
+        return brain::Difficulty::hard;
+    if (lobby.computer_difficulty[slot] == 0)
+        return brain::Difficulty::easy;
+    if (lobby.computer_difficulty[slot] == 1)
+        return brain::Difficulty::medium;
+    return brain::Difficulty::hard;
+}
+
+/// The choice a launch's brain becomes.
+///
+/// The level is the one `default_level` gives for the launch's difficulty,
+/// hard when the launch named none. The brain's default options are left
+/// for the seat to fill. A brain that is missing, unfit or without a level
+/// plays the built-in player at that difficulty, and both the launch and
+/// the fallback are logged.
+///
+/// @param listing the brains installed here
+/// @param probe this room's fit
+/// @param id the launch's brain
+/// @param slot the slot the computer sits in
+/// @param wanted the launch's difficulty
+/// @return the choice to store
+picker::Choice choice_from_launch(
+    const brain::Listing& listing,
+    const library::Inputs& probe,
+    std::string_view id,
+    uint8_t slot,
+    brain::Difficulty wanted
+) {
+    std::cerr << "open-annihilation: brains: the launch puts " << id << " on player "
+              << static_cast<int>(slot) << '\n';
+    picker::Choice built_in;
+    built_in.level = level_id_of(wanted);
+    const brain::InstalledBrain* installed = brain::find(listing, id);
+    std::string reason;
+    if (installed == nullptr) {
+        reason = "it is not installed";
+    } else {
+        reason = unfit_reason(probe, *installed);
+        if (reason.empty()) {
+            const std::string level = level_for(installed->manifest, wanted);
+            if (!level.empty()) {
+                picker::Choice choice;
+                choice.brain = installed->manifest.id;
+                choice.level = level;
+                return choice;
+            }
+            reason = "the brain has no level";
+        }
+    }
+    std::cerr << "open-annihilation: brains: player " << static_cast<int>(slot) << ": " << id
+              << ": " << reason << "; the built-in player plays\n";
+    return built_in;
+}
+
 /// Grows a rectangle by the focus ring's margin.
 ///
 /// @param rect the rectangle
@@ -572,7 +634,9 @@ bool own_computer(const oa::Player& player) noexcept {
 /// Publishes one stored choice onto its slot.
 ///
 /// A computer the session has not seated yet is left as it is. The next note
-/// publishes it.
+/// publishes it. The other machines learn the brain from this machine's
+/// presence record, which goes out now: a launch that does not pass the
+/// battle room again still leaves them the brain a recording of the game names.
 ///
 /// @param runtime the runtime
 /// @param lobby the battle room
@@ -590,6 +654,8 @@ void publish_choice(
 ) {
     const Published published = describe_choice(runtime, listing, probe, choice);
     mp::lobby_set_computer_brain(lobby, slot, published.brain, published.difficulty);
+    mp::presence_refresh(lobby);
+    mp::presence_send_due(lobby);
 }
 
 } // namespace
@@ -1602,7 +1668,12 @@ void Runtime::note_room_computers(mp::Lobby& lobby) {
         RoomBrainChoice made;
         made.player_id = local.player_id;
         made.slot = local.slot;
-        if (room_brain_cursor_ < remembered.size()) {
+        const std::string launch_id = lobby.computer_launch_brain[local.slot];
+        if (!launch_id.empty()) {
+            made.choice = choice_from_launch(
+                listing, probe, launch_id, local.slot, difficulty_of_launch(lobby, local.slot)
+            );
+        } else if (room_brain_cursor_ < remembered.size()) {
             const brain::Seat seat = remembered[room_brain_cursor_];
             ++room_brain_cursor_;
             made.choice = choice_from_seat(listing, probe, default_id, local.slot, seat);
@@ -1613,6 +1684,28 @@ void Runtime::note_room_computers(mp::Lobby& lobby) {
     }
     for (const RoomBrainChoice& held : room_brain_choices_)
         publish_choice(*this, lobby, static_cast<int32_t>(held.slot), held.choice, listing, probe);
+}
+
+void Runtime::keep_remote_played_brains(const mp::Lobby& lobby) {
+    remote_played_brains_.clear();
+    if (match_ == nullptr || lobby.game == nullptr)
+        return;
+    for (int32_t slot = 0; slot < mp::kSlotCount; ++slot) {
+        const oa::Player& player = lobby.game->players[slot];
+        if (own_computer(player))
+            continue;
+        const mp::ComputerBrain* shown = mp::lobby_computer_brain(lobby, slot);
+        if (shown == nullptr || shown->id.empty())
+            continue;
+        RemotePlayedBrain label;
+        label.player = slot;
+        label.id = shown->id;
+        label.name = shown->name;
+        label.version = shown->version;
+        label.level_id = shown->level_id;
+        label.level_name = shown->level;
+        remote_played_brains_.push_back(std::move(label));
+    }
 }
 
 brain::Seats Runtime::room_brain_seats() const {

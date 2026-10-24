@@ -3442,8 +3442,10 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     std::array<uint32_t, OA_PLAYER_COUNT> seen_before_count_{};
     // How many entries each player's previous seen list has room for.
     std::array<uint32_t, OA_PLAYER_COUNT> seen_before_room_{};
-    // Scratch for one refresh, in three parts of `seen_work_room_` entries:
-    // the list now, the units gained and the units lost.
+    // Scratch for one refresh that reports seen_changed, in three parts of
+    // `seen_work_room_` entries: the list now, the units gained and the units
+    // lost. Empty until a refresh is reported; one nobody hears writes its
+    // list straight into `seen_before_`.
     std::unique_ptr<sim::detection::SightedUnit[]> seen_work_;
     // How many entries each part of the scratch has room for.
     uint32_t seen_work_room_{};

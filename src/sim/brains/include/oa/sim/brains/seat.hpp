@@ -237,6 +237,59 @@ struct SaveHooks {
 [[nodiscard]] SaveOutcome
 save_brain_state(match_runtime::Match& match, uint8_t player, SaveHooks hooks);
 
+/// What reading a seated brain's report came to.
+enum class ReportOutcome : uint8_t {
+    written, ///< `report` returned; `length` is the text copied, and may be 0
+    absent,  ///< no seated brain, or its table has no report function
+    failed,  ///< report raised or spent its allowance; the seat was handed back
+};
+
+/// The text `report` returned, copied into the caller's buffer.
+struct ReportResult {
+    /// What the call came to.
+    ReportOutcome outcome{};
+    /// Bytes copied into the buffer. At most 64 KiB, and at most the buffer's size.
+    std::size_t length{};
+};
+
+/// Runs a seated brain's `report` and copies the text it returns.
+///
+/// The call runs under a fresh phase allowance, in that seat's sandbox.
+/// A brain with no `report` function leaves the seat as it is and returns
+/// `absent`. A return that is not a string, including nil, is empty text
+/// and `written`. A string is copied up to 64 KiB and the buffer's size.
+/// A raise or a spent allowance hands the seat back, as any other hook's
+/// failure does, and returns `failed`. A shadow seat is left alone.
+///
+/// @param match the match
+/// @param player player index, 0 to 9
+/// @param out where the text is copied; the call writes no terminating NUL
+/// @return written, absent or failed, and how many bytes were copied
+[[nodiscard]] ReportResult
+brain_report(match_runtime::Match& match, uint8_t player, std::span<char> out);
+
+/// What calling a seated brain's `start` again came to.
+enum class RestartOutcome : uint8_t {
+    restarted, ///< the profile was refreshed, and start ran or the brain has none
+    absent,    ///< no seated brain
+    failed,    ///< save or start raised or spent its allowance; the seat was handed back
+};
+
+/// Calls a seated brain's `start` again with the reloaded profile.
+///
+/// The profile text is read from the match's computer players and stored in
+/// `game.ai_profile` first. `save` then runs, when the brain has one, and
+/// its plain data is the third argument of `start`, or nil when it has no
+/// `save` or the return is not plain data. Each of those calls uses a fresh
+/// phase allowance in the same sandbox. A brain with no `start` stays seated
+/// and returns `restarted`. A raise or a spent allowance hands the seat
+/// back and returns `failed`. A shadow seat is left alone.
+///
+/// @param match the match
+/// @param player player index, 0 to 9
+/// @return restarted, absent or failed
+[[nodiscard]] RestartOutcome restart_brain(match_runtime::Match& match, uint8_t player);
+
 /// Returns how many instructions one player's brain calls have used.
 ///
 /// The total covers the load, fits, start and every tick that ran, including

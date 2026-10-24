@@ -14,6 +14,7 @@
 
 #include "oa/netgame/match/net_match.hpp"
 #include "oa/session/demo.hpp"
+#include "oa/data/brain_library/seats.hpp"
 #include "oa/data/mutators/choice.hpp"
 
 #include <SDL3/SDL.h>
@@ -94,6 +95,36 @@ void NetworkPlay::start_demo_playback() {
                 runtime_.recorded_mutators_refusal(mutator_text, &playback_mutators);
             if (!refusal.empty())
                 throw std::runtime_error(refusal);
+        }
+    }
+    // The sector only names the brains. Playback mirrors every player, so
+    // nothing is seated and a sector that cannot be read is not a refusal.
+    if (const oa::formats::tad::Sector* brains = oa::formats::tad::find_sector(
+            session->playback.demo, oa::formats::tad::SectorType::brains
+        )) {
+        const std::string_view brains_view = oa::formats::tad::sector_text(*brains);
+        const std::optional<oa::data::brain_library::Seats> parsed =
+            oa::data::brain_library::parse_seats(brains_view);
+        if (parsed) {
+            std::vector<const oa::data::brain_library::Seat*> order;
+            order.reserve(parsed->seats.size());
+            for (const oa::data::brain_library::Seat& recorded_seat : parsed->seats)
+                order.push_back(&recorded_seat);
+            std::stable_sort(
+                order.begin(),
+                order.end(),
+                [](const oa::data::brain_library::Seat* left,
+                   const oa::data::brain_library::Seat* right) {
+                    return left->place < right->place;
+                }
+            );
+            for (const oa::data::brain_library::Seat* recorded_seat : order) {
+                if (recorded_seat->brain.empty())
+                    continue;
+                std::cerr << "demo brains: player " << recorded_seat->place << " played "
+                          << recorded_seat->brain << ' ' << recorded_seat->version << " at "
+                          << recorded_seat->level << '\n';
+            }
         }
     }
     const bool ignore_unit_table = staged ? !staged->strict : net_options().demo_ignore_unit_table;

@@ -32,4 +32,14 @@ void install_game(lua_State* state, Seat& seat);
 /// @param key the field name
 void set_game_field(lua_State* state, Seat& seat, const char* key);
 
+/// Replaces `game.ai_profile` with the match's reloaded profile text.
+///
+/// The path and the report path stay the ones the seat was given. Nothing
+/// is written when the match has no profile text yet. The caller counts
+/// the work: this pushes the table and does not open a phase of its own.
+///
+/// @param state the sandbox state
+/// @param seat the seated brain
+void refresh_ai_profile(lua_State* state, Seat& seat);
+
 } // namespace oa::sim::brains

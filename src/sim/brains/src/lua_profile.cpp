@@ -576,4 +576,17 @@ void install_profile(lua_State* state, Seat& seat) {
     lua_setglobal(state, "brain");
 }
 
+void refresh_ai_profile(lua_State* state, Seat& seat) {
+    if (state == nullptr || seat.match == nullptr)
+        return;
+    const oa::sim::ai::ComputerPlayers* players = oa::sim::ai::match_computer_players(*seat.match);
+    if (players == nullptr || players->profile_text == nullptr)
+        return;
+    static const oa::data::brain_facts::GameFacts fallback{};
+    const oa::data::brain_facts::GameFacts* facts = seat.facts != nullptr ? seat.facts : &fallback;
+    const std::string_view text(players->profile_text, players->profile_length);
+    push_profile(state, seat, facts->ai_profile.path, text, true, facts->ai_profile_report_path);
+    set_game_field(state, seat, "ai_profile");
+}
+
 } // namespace oa::sim::brains
