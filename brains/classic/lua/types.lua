@@ -131,13 +131,18 @@ end
 
 function types.load(game)
     local loaded = {}
-    local units = game.units
-    if units == nil then
+    if game == nil then
         return loaded
     end
-    local count = #units
+    -- `units` is the type catalog. `game.units` is the live unit list and
+    -- does not answer a length.
+    local catalog = units
+    if catalog == nil then
+        return loaded
+    end
+    local count = #catalog
     for index = 1, count do
-        loaded[index] = row_of(units[index])
+        loaded[index] = row_of(catalog[index])
     end
     return loaded
 end
