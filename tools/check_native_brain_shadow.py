@@ -16,8 +16,8 @@ timed ticks, so those 600 ticks compare 601 passes and the first sort is at
 tick 29.
 
 Legs are positional. `inert` is this check. `classic` plays three skirmishes
-with `--brain` and `--sections` and requires every `brain shadow: seat` line
-to end with `no difference`.
+with `--brain`. `--sections` is optional; omitted, the game compares every
+section. Every `brain shadow: seat` line must end with `no difference`.
 """
 import argparse
 import os
@@ -193,7 +193,10 @@ def check_classic(native, game_dir, workdir, brain, sections):
     ridge = workdir / "ridge.yaml"
     ridge.parent.mkdir(parents=True, exist_ok=True)
     ridge.write_text(RIDGE, encoding="utf-8")
-    shadow = ["--brain-shadow", str(brain), "--brain-shadow-sections", sections]
+    shadow = ["--brain-shadow", str(brain)]
+    if sections:
+        shadow.extend(["--brain-shadow-sections", sections])
+    named = sections if sections else "every section"
     seed = classic_skirmish(
         native, game_dir, workdir / "seed", "classic-seed",
         "--match-ticks", CLASSIC_TICKS, "--seed", SEED, *shadow,
@@ -215,10 +218,7 @@ def check_classic(native, game_dir, workdir, brain, sections):
         "--match-ticks", CLASSIC_TICKS, "--seed", "4242", "--mod", ridge, *shadow,
     )
     require_start_same(ridge_run, "classic-ridge")
-    print(
-        "native brain shadow classic: schedule,start,sort,task1,task4,task5"
-        " on three skirmishes, no difference"
-    )
+    print(f"native brain shadow classic: {named} on three skirmishes, no difference")
 
 
 def main():
@@ -234,8 +234,8 @@ def main():
     for leg in legs:
         if leg not in ("inert", "classic"):
             raise SystemExit(f"unknown leg: {leg}")
-        if leg == "classic" and (args.brain is None or args.sections == ""):
-            raise SystemExit("classic needs --brain and --sections")
+        if leg == "classic" and args.brain is None:
+            raise SystemExit("classic needs --brain")
     native = args.native.resolve()
     game_dir = args.game_dir.resolve()
     args.scratch_root.mkdir(parents=True, exist_ok=True)
