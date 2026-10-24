@@ -165,8 +165,10 @@ for _ = 1, 11 do
 end
 )";
 
+void builtin_fingerprint_is_the_package();
+
 void seeds_match_the_reference() {
-    CHECK(brains::classic_fingerprint_builtin[0] == '\0');
+    builtin_fingerprint_is_the_package();
     for (const Golden& row : golden) {
         const uint64_t seed =
             brains::brain_random_seed(row.match_seed, row.player, row.id, row.version);
@@ -363,6 +365,41 @@ std::string fingerprint_text(const Sample& sample) {
     const std::vector<brains::PackageFile> files = sample.files();
     const std::array<char, 65> text = brains::classic_fingerprint(files);
     return std::string(text.data());
+}
+
+bool lower_hex(char value) noexcept {
+    return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f');
+}
+
+Sample load_classic_package() {
+    const std::filesystem::path root(OA_CLASSIC_DIR);
+    Sample sample;
+    for (const std::filesystem::directory_entry& entry :
+         std::filesystem::recursive_directory_iterator(root)) {
+        if (!entry.is_regular_file())
+            continue;
+        const std::string relative = std::filesystem::relative(entry.path(), root).generic_string();
+        if (relative == ".oa-origin.yaml")
+            continue;
+        sample.paths.push_back(relative);
+        sample.bytes.push_back(read_file(entry.path()));
+    }
+    return sample;
+}
+
+void builtin_fingerprint_is_the_package() {
+    const char* baked = brains::classic_fingerprint_builtin;
+    std::size_t length = 0;
+    while (baked[length] != '\0')
+        ++length;
+    CHECK(length == 64);
+    for (std::size_t index = 0; index < length; ++index)
+        CHECK(lower_hex(baked[index]));
+    const Sample package = load_classic_package();
+    CHECK(!package.paths.empty());
+    const std::string got = fingerprint_text(package);
+    CHECK(got.size() == 64);
+    CHECK(got == baked);
 }
 
 brains::SeatOutcome

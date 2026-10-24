@@ -9,16 +9,26 @@
 #include "oa/base/sha256.hpp"
 #include "oa/data/brain_facts.hpp"
 #include "oa/data/script_host/script_host.hpp"
+#include "oa/sim/brains/seat_calls.hpp"
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <optional>
 #include <span>
 #include <string_view>
 
+struct lua_State;
+
+namespace oa::data::unit_definitions {
+struct UnitDefinition;
+}
+
 namespace oa::sim::match_runtime {
 class Match;
-}
+struct SetUpRecord;
+} // namespace oa::sim::match_runtime
 
 namespace oa::sim::brains {
 
@@ -277,5 +287,120 @@ struct ReportHooks {
 /// @param match the match
 /// @param hooks the hooks; empty functions report nothing
 void set_report_hooks(match_runtime::Match& match, ReportHooks hooks) noexcept;
+
+/// What a tool seat loads. The views need only last for `ToolSeat::open`.
+///
+/// The seat has no match. It reads the world, the random stream and the
+/// squad calls in `calls`, and the unit definitions beside them.
+struct ToolSeatSpec {
+    /// The package, the level and the options. `shadow` stays false.
+    SeatSpec spec{};
+    /// Calls into the world this seat plays. Copied into the seat.
+    SeatCalls calls{};
+    /// Facts `game` is built from. Copied into the seat.
+    oa::data::brain_facts::GameFacts facts{};
+    /// Unit definitions indexed like the world's unit defs. May be null.
+    const oa::data::unit_definitions::UnitDefinition* definitions{};
+    /// How many `definitions` entries are addressable.
+    std::size_t definition_count{};
+    /// Set-up draws `brain.setup_random` replays. Null leaves the seat
+    /// without a record.
+    const match_runtime::SetUpRecord* setup{};
+};
+
+/// One brain seated with no match, for a test or a tool.
+///
+/// `open` loads the package, runs fits and start, and keeps the sandbox.
+/// It does not take a player slot and it does not note a difficulty. `tick`
+/// calls `hooks.onTick` under the per-tick bank. Destroying the seat closes
+/// the sandbox.
+class ToolSeat {
+  public:
+
+    /// An empty seat. `open` makes one that holds a brain.
+    ToolSeat() = default;
+    ToolSeat(const ToolSeat&) = delete;
+    ToolSeat& operator=(const ToolSeat&) = delete;
+    /// Moves the brain and leaves `other` empty.
+    ToolSeat(ToolSeat&& other) noexcept;
+    /// Moves the brain and leaves `other` empty.
+    ToolSeat& operator=(ToolSeat&& other) noexcept;
+    /// Closes the sandbox.
+    ~ToolSeat();
+
+    /// Loads `spec` and runs fits and start.
+    ///
+    /// On failure no seat is returned and `error` says why. A refusal uses
+    /// `ErrorKind::runtime` and the refusal's sentence. A script failure
+    /// copies the script error.
+    ///
+    /// @param spec the package and the world it plays
+    /// @param[out] error set when no seat is returned
+    /// @return the seat, or no value when it could not be seated
+    [[nodiscard]] static std::optional<ToolSeat>
+    open(const ToolSeatSpec& spec, oa::data::script_host::ScriptError& error);
+
+    /// Runs `hooks.onTick` for `tick`.
+    ///
+    /// The world's tick is set to `tick` first, so `me.tick` matches the
+    /// argument. A seat with no `onTick` runs nothing and succeeds.
+    ///
+    /// @param tick the turn, the same value `onTick` receives
+    /// @param[out] error set when the call returns false
+    /// @return false when this turn or an earlier phase failed
+    [[nodiscard]] bool tick(uint32_t tick, oa::data::script_host::ScriptError& error);
+
+    /// Whether this package matched the Classic fingerprint.
+    ///
+    /// The bit is the one `note_classic` sets. A match seat reads it through
+    /// `seat_is_classic`.
+    ///
+    /// @return true when the seated package is Classic
+    [[nodiscard]] bool classic() const noexcept;
+
+    /// What seating came to. A moved-from seat reads an empty outcome.
+    ///
+    /// @return the outcome of `open`
+    [[nodiscard]] const SeatOutcome& outcome() const noexcept;
+
+    /// The sandbox, until the seat is destroyed or moved from.
+    ///
+    /// @return the sandbox, or null when the seat is empty
+    [[nodiscard]] oa::data::script_host::Sandbox* sandbox() noexcept;
+
+    /// Runs `work` with the seat table `hooks.seat` at the top of the stack.
+    ///
+    /// The stack is restored when `work` returns. `work` stores what it
+    /// reads in `context`.
+    ///
+    /// @param context pointer passed to `work`; may be null
+    /// @param work the call to make; null does nothing and succeeds
+    /// @param[out] error set when the call returns false
+    /// @return false when this phase or an earlier one failed
+    [[nodiscard]] bool with_seat(
+        void* context,
+        void (*work)(void* context, lua_State* state),
+        oa::data::script_host::ScriptError& error
+    );
+
+    /// Runs `work` on the sandbox, the way `Sandbox::run_host` does.
+    ///
+    /// @param phase name recorded on an error
+    /// @param context pointer passed to `work`; may be null
+    /// @param work the call to make; null does nothing and succeeds
+    /// @param[out] error set when the call returns false
+    /// @return false when this phase or an earlier one failed
+    [[nodiscard]] bool host(
+        std::string_view phase,
+        void* context,
+        void (*work)(void* context, lua_State* state),
+        oa::data::script_host::ScriptError& error
+    );
+
+  private:
+
+    struct Body;
+    std::unique_ptr<Body> body{};
+};
 
 } // namespace oa::sim::brains

@@ -110,6 +110,7 @@ if(BUILD_TESTING)
   target_include_directories(oa-sim-brains-random-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${oa_brains_generated}")
   target_compile_definitions(oa-sim-brains-random-test PRIVATE
+    "OA_CLASSIC_DIR=\"${PROJECT_SOURCE_DIR}/brains/classic\""
     "OA_CLASSIC_SAMPLE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/classic-sample\"")
   target_link_libraries(oa-sim-brains-random-test PRIVATE oa-sim-brains oa-sim-unit-movement
     oa-base-sha256 oa-test-match oa-options)
@@ -214,4 +215,12 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
   add_test(NAME sim-brains-shadow-match COMMAND oa-sim-brains-shadow-match-test)
   set_tests_properties(sim-brains-shadow-match PROPERTIES TIMEOUT 180)
+
+  # Classic beside the built-in player on the computer-player fake.
+  add_executable(oa-sim-brains-classic-test tests/classic_test.cpp)
+  target_link_libraries(oa-sim-brains-classic-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-data-unit-definitions)
+  add_test(NAME sim-brains-classic COMMAND oa-sim-brains-classic-test
+    "${PROJECT_SOURCE_DIR}/brains/classic")
+  set_tests_properties(sim-brains-classic PROPERTIES TIMEOUT 180)
 endif()
