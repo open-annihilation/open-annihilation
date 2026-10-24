@@ -1152,6 +1152,52 @@ when that screen goes or a match starts.
   every language. A FIXTURES_SETUP test (`mutator-picker-clean`) clears its
   folders before each run.
 
+## The brain picker
+
+The brain picker is one modal screen on the OA layer (`brain-picker`),
+centred over the screen that asked, at the size class's dialog size. Its
+model and screen are
+[src/ui/brain-picker](../ui/brain-picker/README.md);
+`runtime_brain_picker.cpp` hosts them. It closes as Cancel when the
+screen underneath goes or a match starts.
+
+- **The request.** `open_brain_picker` takes a `BrainPickerRequest`: the
+  setup, the seat's name, the choice it opens on, the setup's difficulty,
+  whether that difficulty fixes the built-in player's level, whether the
+  picker offers the choice for every computer seat, and two calls. USE THIS
+  calls the first with the choice and whether it is for every computer
+  seat. CANCEL, the header's close mark, and the screen underneath going
+  away call the second and hand nothing back. It refuses while a match is
+  running, while a front-end dialog or a modal OA screen is up, without
+  the layer's fonts, or while the picker is already open.
+- **The feed.** `BrainPickerFeed` is where the list comes from. The
+  runtime's own feed, installed the first time the picker opens, lists the
+  built-in computer player and then each brain installed in the player's
+  Brains folder. A brain's name, description, level names and option labels
+  are resolved for the language in use when that list is built. Its icon
+  is decoded then and kept until the picker closes. `draw` and `tick` do
+  not list the folder, read a manifest or decode an icon. The generation
+  moves on only when the Library installs or removes a brain. A check
+  replaces the feed with `set_brain_picker_feed` and puts the runtime's
+  back with `restore_brain_picker_feed`.
+- **The check.** `native-brain-picker` (`--check-brain-picker`,
+  `runtime_brain_picker_check.cpp`) turns every built-in registry off and
+  at 640x480, 1280x720, 1920x1080 and 2560x1440 opens the picker over the
+  main menu on a feed of made-up brains. It requires the size class and
+  the centred window, the row order, Ridge Raider locked with "Made for
+  Ridge", Firm, Calm then USE THIS handing Steady Commander at calm with
+  aggression high and every seat off, the built-in player's Difficulty
+  note and every computer seat, CANCEL handing nothing, and the keyboard
+  alone and the controller alone each reaching a level and USE THIS. At
+  1280x720 it also takes the header's close mark. It then restores the
+  runtime's own feed and, after two made-up packages are written into the
+  check's Brains folder, requires those rows under the built-in player.
+  It writes each size's opening frame as `brain-picker-<w>x<h>.png`.
+  `--check-text-fit` paints `brain-picker`, the inline details at Regular
+  and Large, and Compact's details page, in every language. A
+  FIXTURES_SETUP test (`brain-picker-clean`) clears its folders before
+  each run.
+
 ## The mutator questions
 
 Four questions live in the picker module (`prompts.hpp`) and the app raises

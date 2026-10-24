@@ -1180,6 +1180,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_map_browser.cpp
   src/app/runtime_mutator_picker.cpp
+  src/app/runtime_brain_picker.cpp
   src/app/runtime_mutator_prompts.cpp
   src/app/runtime_mutator_button.cpp
   src/app/runtime_mutator_room.cpp
@@ -1249,6 +1250,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_mutator_picker_check.cpp
+  src/app/runtime_brain_picker_check.cpp
   src/app/runtime_mutator_prompts_check.cpp
   src/app/runtime_mutator_button_check.cpp
   src/app/runtime_mutator_room_check.cpp
@@ -2069,6 +2071,27 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_mutator_picker_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED mutator-picker-clean)
+      # The brain picker over the main menu, on a feed of made-up brains,
+      # at 640x480, 1280x720, 1920x1080 and 2560x1440: the row order, a
+      # locked row, the level, USE THIS, every computer seat, CANCEL, the
+      # keys and the controller. It leaves each size's frame in its folder
+      # for review. Every built-in registry is off, so nothing is fetched.
+      # Each run starts from a clean folder.
+      set(oa_brain_picker_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/brain-picker")
+      file(MAKE_DIRECTORY "${oa_brain_picker_dir}")
+      add_test(NAME brain-picker-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_brain_picker_dir}/Open Annihilation" "${oa_brain_picker_dir}/files"
+        "${oa_brain_picker_dir}/data" "${oa_brain_picker_dir}/brain-picker.conf")
+      set_tests_properties(brain-picker-clean PROPERTIES FIXTURES_SETUP brain-picker-clean)
+      add_test(NAME native-brain-picker COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-brain-picker
+        --preferences-file "${oa_brain_picker_dir}/brain-picker.conf"
+        --user-folder "${oa_brain_picker_dir}/Open Annihilation"
+        --data-dir "${oa_brain_picker_dir}/data")
+      set_tests_properties(native-brain-picker PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_brain_picker_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED brain-picker-clean)
       # Start without a mutator that stopped a skirmish, the question after a
       # crash, Get mutators over the picker, and the host's "The game did not
       # start". A scratch user folder holds two made-up mutators. Each run
