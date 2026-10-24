@@ -3249,6 +3249,22 @@ account and the next mission starts from the campaign seat.
 `native-saved-brains`) saves a skirmish Steady Commander plays, loads that
 state, and walks the missing-brain question.
 
+A recording names each computer player that ran a brain: the player, the
+brain, its version and its level, and, for a brain this machine ran, the
+package. A brain another machine ran is the one that machine's presence
+record named when the match started. Choosing the brain sends that record
+then, so a start that does not pass the battle room again still leaves
+every machine the name. It stores that as its own sector, after the
+mutators' sector, and leaves the sector out when no brain played, so a
+recording without brains
+is unchanged. Text that does not fit one sector is left out and the
+recording is still written. Playback reads the sector, logs each seat's
+brain, and seats none: every player stays mirrored. The note beside a save,
+a recording or a film lists each of those seats after the mutators, in
+player order: the player and the brain's id, then the version, the level's
+name and the brain's name. A note without those lines reads as it does
+today. An older build ignores the lines it does not know.
+
 When a seated brain's turn fails, its sandbox closes and its hooks come
 off before that turn returns. From the next tick the built-in computer
 player plays the seat from the units as they stand. The machine that

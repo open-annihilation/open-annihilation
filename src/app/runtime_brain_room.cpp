@@ -634,7 +634,9 @@ bool own_computer(const oa::Player& player) noexcept {
 /// Publishes one stored choice onto its slot.
 ///
 /// A computer the session has not seated yet is left as it is. The next note
-/// publishes it.
+/// publishes it. The other machines learn the brain from this machine's
+/// presence record, which goes out now: a launch that does not pass the
+/// battle room again still leaves them the brain a recording of the game names.
 ///
 /// @param runtime the runtime
 /// @param lobby the battle room
@@ -652,6 +654,8 @@ void publish_choice(
 ) {
     const Published published = describe_choice(runtime, listing, probe, choice);
     mp::lobby_set_computer_brain(lobby, slot, published.brain, published.difficulty);
+    mp::presence_refresh(lobby);
+    mp::presence_send_due(lobby);
 }
 
 } // namespace
@@ -1680,6 +1684,28 @@ void Runtime::note_room_computers(mp::Lobby& lobby) {
     }
     for (const RoomBrainChoice& held : room_brain_choices_)
         publish_choice(*this, lobby, static_cast<int32_t>(held.slot), held.choice, listing, probe);
+}
+
+void Runtime::keep_remote_played_brains(const mp::Lobby& lobby) {
+    remote_played_brains_.clear();
+    if (match_ == nullptr || lobby.game == nullptr)
+        return;
+    for (int32_t slot = 0; slot < mp::kSlotCount; ++slot) {
+        const oa::Player& player = lobby.game->players[slot];
+        if (own_computer(player))
+            continue;
+        const mp::ComputerBrain* shown = mp::lobby_computer_brain(lobby, slot);
+        if (shown == nullptr || shown->id.empty())
+            continue;
+        RemotePlayedBrain label;
+        label.player = slot;
+        label.id = shown->id;
+        label.name = shown->name;
+        label.version = shown->version;
+        label.level_id = shown->level_id;
+        label.level_name = shown->level;
+        remote_played_brains_.push_back(std::move(label));
+    }
 }
 
 brain::Seats Runtime::room_brain_seats() const {

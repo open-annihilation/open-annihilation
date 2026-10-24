@@ -1329,6 +1329,106 @@ void recording_carries_loadout_text() {
     }
 }
 
+// A recording with brains text writes that text as the brains sector, after
+// the mutators' sector, and reads it back byte for byte. An empty text writes
+// none, and the file matches a recording that never carried one. A text one
+// byte past one sector chunk is left out, and the recording still parses.
+void recording_carries_brains_text() {
+    const std::string text = "{\"seats\":[{\"brain\":\"steady-commander\",\"place\":1}]}";
+    DemoRecording with_text;
+    recording_begin(&with_text, live_setup(2, false));
+    with_text.setup.brains_text = text;
+    const auto written = recording_write(with_text);
+    CHECK(written.ok());
+    const auto parsed = formats::tad::parse(written.bytes);
+    CHECK(parsed.ok());
+    if (parsed.ok()) {
+        const auto* sector =
+            formats::tad::find_sector(*parsed.demo, formats::tad::SectorType::brains);
+        CHECK(sector != nullptr);
+        if (sector != nullptr) {
+            const std::string back(
+                reinterpret_cast<const char*>(sector->data.data()), sector->data.size()
+            );
+            CHECK(back == text);
+            CHECK(formats::tad::sector_text(*sector) == text);
+        }
+    }
+
+    DemoRecording plain;
+    recording_begin(&plain, live_setup(2, false));
+    const auto plain_written = recording_write(plain);
+    CHECK(plain_written.ok());
+    DemoRecording empty_text;
+    recording_begin(&empty_text, live_setup(2, false));
+    empty_text.setup.brains_text.clear();
+    const auto empty_written = recording_write(empty_text);
+    CHECK(empty_written.ok() && empty_written.bytes == plain_written.bytes);
+    const auto empty_parsed = formats::tad::parse(empty_written.bytes);
+    CHECK(empty_parsed.ok());
+    if (empty_parsed.ok()) {
+        CHECK(
+            formats::tad::find_sector(*empty_parsed.demo, formats::tad::SectorType::brains) ==
+            nullptr
+        );
+    }
+
+    DemoRecording both;
+    recording_begin(&both, live_setup(2, false));
+    both.setup.loadout_text = "ridge-pace 1";
+    both.setup.brains_text = text;
+    const auto both_written = recording_write(both);
+    CHECK(both_written.ok());
+    const auto both_parsed = formats::tad::parse(both_written.bytes);
+    CHECK(both_parsed.ok());
+    if (both_parsed.ok()) {
+        int mutators_at = -1;
+        int brains_at = -1;
+        const auto& sectors = both_parsed.demo->sectors;
+        for (std::size_t index = 0; index < sectors.size(); ++index) {
+            if (sectors[index].type == static_cast<uint32_t>(formats::tad::SectorType::mutators))
+                mutators_at = static_cast<int>(index);
+            if (sectors[index].type == static_cast<uint32_t>(formats::tad::SectorType::brains))
+                brains_at = static_cast<int>(index);
+        }
+        CHECK(mutators_at >= 0 && brains_at == mutators_at + 1);
+    }
+    DemoRecording loadout_only;
+    recording_begin(&loadout_only, live_setup(2, false));
+    loadout_only.setup.loadout_text = "ridge-pace 1";
+    const auto loadout_written = recording_write(loadout_only);
+    CHECK(loadout_written.ok() && loadout_written.bytes != both_written.bytes);
+
+    DemoRecording exact;
+    recording_begin(&exact, live_setup(2, false));
+    const std::string full(recording_brains_most_bytes, 'q');
+    exact.setup.brains_text = full;
+    const auto exact_written = recording_write(exact);
+    CHECK(exact_written.ok());
+    const auto exact_parsed = formats::tad::parse(exact_written.bytes);
+    CHECK(exact_parsed.ok());
+    if (exact_parsed.ok()) {
+        const auto* sector =
+            formats::tad::find_sector(*exact_parsed.demo, formats::tad::SectorType::brains);
+        CHECK(sector != nullptr && sector->data.size() == full.size());
+        CHECK(sector != nullptr && formats::tad::sector_text(*sector) == full);
+    }
+
+    DemoRecording too_long;
+    recording_begin(&too_long, live_setup(2, false));
+    too_long.setup.brains_text.assign(recording_brains_most_bytes + 1, 'q');
+    const auto omitted = recording_write(too_long);
+    CHECK(omitted.ok() && omitted.bytes == empty_written.bytes);
+    const auto omitted_parsed = formats::tad::parse(omitted.bytes);
+    CHECK(omitted_parsed.ok());
+    if (omitted_parsed.ok()) {
+        CHECK(
+            formats::tad::find_sector(*omitted_parsed.demo, formats::tad::SectorType::brains) ==
+            nullptr
+        );
+    }
+}
+
 // A chat record from a recorded player.
 std::vector<uint8_t> chat_payload(const char* text) {
     std::vector<uint8_t> payload{formats::tad::payload_marker};
@@ -1567,6 +1667,7 @@ int main() {
     live_recording_round_trips(true);
     ten_players_watch_without_a_slot();
     recording_carries_loadout_text();
+    recording_carries_brains_text();
     slotless_viewer_watches_the_recording();
     recorded_unicode_chat_plays_back();
     recorded_alliance_line_reads_in_the_language_shown();

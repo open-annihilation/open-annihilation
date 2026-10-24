@@ -17,6 +17,7 @@ namespace {
 
 using oa::data::content_bundles::ContentChoice;
 using oa::data::saves::ContentBlock;
+using oa::data::saves::ContentBrain;
 using oa::data::saves::ContentGap;
 using oa::data::saves::ContentMutator;
 using oa::data::saves::ContentRecord;
@@ -240,6 +241,116 @@ void test_thirty_three_mutators_keep_thirty_two() {
     OA_CHECK(!saw_last);
 }
 
+void test_brains_round_trip() {
+    const std::string on[]{"campaign"};
+    ContentRecord record = content_record_from("totala", on, "Ridge");
+    record.mutators = {ContentMutator{hex_fill('a'), "ridge-pace", "1.0", "Ridge Pace"}};
+    record.brains = {
+        ContentBrain{4, "ridge-scout", "0.4", "Easy", "Ridge Scout"},
+        ContentBrain{1, "steady-commander", "1.2", "Firm", "Steady Commander"},
+    };
+    const std::string text = content_record_text(record);
+    const std::string brain_lines = "brain: 1 steady-commander\n"
+                                    "brain-version: 1.2\n"
+                                    "brain-level: Firm\n"
+                                    "brain-name: Steady Commander\n"
+                                    "brain: 4 ridge-scout\n"
+                                    "brain-version: 0.4\n"
+                                    "brain-level: Easy\n"
+                                    "brain-name: Ridge Scout\n";
+    OA_CHECK(text.find("\nmutator-name: Ridge Pace\n" + brain_lines) != std::string::npos);
+    const ContentRecord again = content_record_from_text(text);
+    OA_CHECK(again.present);
+    OA_CHECK(again.mutators.size() == 1 && again.mutators[0].id == "ridge-pace");
+    OA_CHECK(again.brains.size() == 2);
+    OA_CHECK(again.brains[0].player == 1 && again.brains[0].id == "steady-commander");
+    OA_CHECK(again.brains[0].version == "1.2" && again.brains[0].level == "Firm");
+    OA_CHECK(again.brains[0].name == "Steady Commander");
+    OA_CHECK(again.brains[1].player == 4 && again.brains[1].id == "ridge-scout");
+    OA_CHECK(again.brains[1].version == "0.4" && again.brains[1].level == "Easy");
+    OA_CHECK(again.brains[1].name == "Ridge Scout");
+    OA_CHECK(content_record_text(again) == text);
+}
+
+void test_note_without_brains_is_unchanged() {
+    const std::string on[]{"campaign"};
+    ContentRecord record = content_record_from("totala", on, "Ridge");
+    record.mutators = {ContentMutator{hex_fill('a'), "ridge-pace", "1.0", "Ridge Pace"}};
+    const std::string text = content_record_text(record);
+    OA_CHECK(text.find("brain:") == std::string::npos);
+    OA_CHECK(
+        text == "base-game: totala\nexpansions: campaign\nmod: Ridge\n"
+                "mutator: " +
+                    hex_fill('a') +
+                    " ridge-pace\n"
+                    "mutator-version: 1.0\n"
+                    "mutator-name: Ridge Pace\n"
+    );
+    const ContentRecord again = content_record_from_text(text);
+    OA_CHECK(again.brains.empty());
+    OA_CHECK(again.mutators.size() == 1);
+    OA_CHECK(content_record_text(again) == text);
+}
+
+void test_broken_brain_lines_are_skipped() {
+    std::string text = "base-game: totala\nexpansions: campaign\nmod: Ridge\n";
+    text += "brain-version: orphan\n";
+    text += "brain-level: Orphan\n";
+    text += "brain-name: Orphan\n";
+    text += "brain: 10 steady-commander\n";
+    text += "brain-version: lost-player\n";
+    text += "brain: a steady-commander\n";
+    text += "brain-level: Lost Digit\n";
+    text += "brain: 2 NotKebab\n";
+    text += "brain-name: Lost Case\n";
+    text += "brain: 2 a--b\n";
+    text += "brain: 2 -ab\n";
+    text += "brain: 2 ab-\n";
+    text += "brain: 2 steady-commander extra\n";
+    text += "brain-version: lost-extra\n";
+    text += "brain: 1 steady-commander\n";
+    text += "brain-version: 1.2\n";
+    text += "brain-level: Firm\n";
+    text += "brain-name: Steady Commander\n";
+    text += "other: ignored\n";
+    text += "brain: 4 ridge-scout\n";
+    text += "brain-name: Ridge Scout\n";
+    const ContentRecord record = content_record_from_text(text);
+    OA_CHECK(record.present);
+    OA_CHECK(record.base_game == "totala");
+    OA_CHECK(record.mod == "Ridge");
+    OA_CHECK(record.expansions.size() == 1 && record.expansions[0] == "campaign");
+    OA_CHECK(record.brains.size() == 2);
+    OA_CHECK(record.brains[0].player == 1 && record.brains[0].id == "steady-commander");
+    OA_CHECK(record.brains[0].version == "1.2" && record.brains[0].level == "Firm");
+    OA_CHECK(record.brains[0].name == "Steady Commander");
+    OA_CHECK(record.brains[1].player == 4 && record.brains[1].id == "ridge-scout");
+    OA_CHECK(record.brains[1].version.empty() && record.brains[1].level.empty());
+    OA_CHECK(record.brains[1].name == "Ridge Scout");
+}
+
+void test_eleven_brains_keep_ten() {
+    std::string text = "base-game: totala\nexpansions:\nmod:\n";
+    for (int index = 0; index < 11; ++index) {
+        const int player = index % 10;
+        text += "brain: " + std::to_string(player) + " pace-" + std::to_string(index) + "\n";
+        text += "brain-version: " + std::to_string(index) + "\n";
+        text += "brain-level: Level " + std::to_string(index) + "\n";
+        text += "brain-name: Pace " + std::to_string(index) + "\n";
+    }
+    const ContentRecord record = content_record_from_text(text);
+    OA_CHECK(record.present);
+    OA_CHECK(record.brains.size() == 10);
+    OA_CHECK(record.brains.front().player == 0 && record.brains.front().id == "pace-0");
+    OA_CHECK(record.brains.front().version == "0" && record.brains.front().name == "Pace 0");
+    OA_CHECK(record.brains.back().player == 9 && record.brains.back().id == "pace-9");
+    OA_CHECK(record.brains.back().level == "Level 9" && record.brains.back().name == "Pace 9");
+    bool saw_last = false;
+    for (const ContentBrain& brain : record.brains)
+        saw_last = saw_last || brain.id == "pace-10";
+    OA_CHECK(!saw_last);
+}
+
 void test_line_break_refuses_the_note() {
     const std::string on[]{"campaign"};
     ContentRecord record = content_record_from("totala", on, "Ridge");
@@ -264,5 +375,9 @@ int main() {
     test_broken_mutator_lines_are_skipped();
     test_thirty_three_mutators_keep_thirty_two();
     test_line_break_refuses_the_note();
+    test_brains_round_trip();
+    test_note_without_brains_is_unchanged();
+    test_broken_brain_lines_are_skipped();
+    test_eleven_brains_keep_ten();
     return oa::test::check_exit_status();
 }
