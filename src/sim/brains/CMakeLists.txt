@@ -110,6 +110,7 @@ if(BUILD_TESTING)
   target_include_directories(oa-sim-brains-random-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${oa_brains_generated}")
   target_compile_definitions(oa-sim-brains-random-test PRIVATE
+    "OA_CLASSIC_DIR=\"${PROJECT_SOURCE_DIR}/brains/classic\""
     "OA_CLASSIC_SAMPLE_DIR=\"${CMAKE_CURRENT_SOURCE_DIR}/tests/classic-sample\"")
   target_link_libraries(oa-sim-brains-random-test PRIVATE oa-sim-brains oa-sim-unit-movement
     oa-base-sha256 oa-test-match oa-options)

@@ -26,21 +26,32 @@
 
 namespace oa::test::classic_harness {
 
+/// One squad a sort section assigned, and the unit slot it went to.
 struct Assign {
+    /// The unit slot the assign named.
     uint16_t slot{};
+    /// The squad the unit joined.
     int32_t squad{};
 };
 
+/// Markers and sort assigns recorded for one tick.
 struct TickLog {
+    /// True while the section being recorded is the sort.
     bool in_sort{};
+    /// Section names, in the order they were marked.
     std::vector<std::string> markers;
+    /// Squad assigns that happened during the sort section.
     std::vector<Assign> assigns;
 };
 
+/// The log the built-in player's section callback writes.
 inline TickLog* active_builtin = nullptr;
+/// The log the Classic section callback writes.
 inline TickLog* active_classic = nullptr;
+/// The set-up record the scripted stream copies draws into. Null records nothing.
 inline oa::sim::match_runtime::SetUpRecord* recording_setup = nullptr;
 
+/// The section name a marker index stands for.
 inline const char* section_word(uint8_t section) noexcept {
     switch (section) {
     case 0:
@@ -70,6 +81,7 @@ inline const char* section_word(uint8_t section) noexcept {
     }
 }
 
+/// Records one section name and whether it is the sort section.
 inline void remember_marker(TickLog* log, const char* name) {
     if (log == nullptr || name == nullptr)
         return;
@@ -77,14 +89,17 @@ inline void remember_marker(TickLog* log, const char* name) {
     log->markers.emplace_back(name);
 }
 
+/// Records a section marker from the built-in player.
 inline void note_builtin_section(void*, uint8_t, uint8_t section) {
     remember_marker(active_builtin, section_word(section));
 }
 
+/// Records a section marker from Classic.
 inline void note_classic_section(void*, const char* name) {
     remember_marker(active_classic, name);
 }
 
+/// Assigns a squad on the built-in player's fake, and records it during a sort.
 inline void set_squad_builtin(void* context, uint16_t slot, oa::sim::ai::Squad squad) {
     if (active_builtin != nullptr && active_builtin->in_sort) {
         Assign row;
@@ -95,6 +110,7 @@ inline void set_squad_builtin(void* context, uint16_t slot, oa::sim::ai::Squad s
     computer_fake::fake_of(context)->set_squad(slot, static_cast<int>(squad));
 }
 
+/// Assigns a squad on Classic's fake, and records it during a sort.
 inline void set_squad_classic(void* context, uint16_t slot, oa::sim::ai::Squad squad) {
     if (active_classic != nullptr && active_classic->in_sort) {
         Assign row;
@@ -122,12 +138,14 @@ inline uint32_t capture_random(void* context, uint32_t bound) {
     return value;
 }
 
+/// Clears one tick's markers and assigns.
 inline void clear_log(TickLog& log) {
     log.in_sort = false;
     log.markers.clear();
     log.assigns.clear();
 }
 
+/// Clears both logs and points the section callbacks at them.
 inline void watch(TickLog& builtin, TickLog& classic) {
     clear_log(builtin);
     clear_log(classic);
@@ -135,23 +153,28 @@ inline void watch(TickLog& builtin, TickLog& classic) {
     active_classic = &classic;
 }
 
+/// The standing move order stored in a unit's flags.
 inline uint32_t standing_move(const oa::Unit& unit) noexcept {
     return (unit.flags & OA_UNIT_FLAG_MOVE_ORDER_MASK) >> OA_UNIT_FLAG_MOVE_ORDER_SHIFT;
 }
 
+/// The standing fire order stored in a unit's flags.
 inline uint32_t standing_fire(const oa::Unit& unit) noexcept {
     return (unit.flags & OA_UNIT_FLAG_FIRE_ORDER_MASK) >> OA_UNIT_FLAG_FIRE_ORDER_SHIFT;
 }
 
+/// The standing move and fire bits stored in a unit's flags.
 inline uint32_t standing_bits(const oa::Unit& unit) noexcept {
     return unit.flags & (OA_UNIT_FLAG_MOVE_ORDER_MASK | OA_UNIT_FLAG_FIRE_ORDER_MASK);
 }
 
+/// Writes each unit's slot into its id, so a handle's slot is that id.
 inline void stamp_ids(computer_fake::Fake& fake) {
     for (std::size_t slot = 0; slot < fake.units.size(); ++slot)
         fake.units[slot].id = static_cast<uint16_t>(slot);
 }
 
+/// Copies text into a fixed buffer and stops at the first NUL.
 inline void copy_text(char* dest, std::size_t room, const char* source) {
     std::size_t index = 0;
     if (source != nullptr) {
@@ -210,11 +233,13 @@ inline void copy_catalog(
     }
 }
 
+/// The package's paths and bytes, and the file list a seat loads.
 struct PackageBytes {
     std::vector<std::string> paths;
     std::vector<std::vector<uint8_t>> bytes;
     std::vector<oa::sim::brains::PackageFile> files;
 
+    /// Rebuilds the file list from the stored paths and bytes.
     void bind() {
         files.clear();
         files.reserve(paths.size());
@@ -225,6 +250,7 @@ struct PackageBytes {
         }
     }
 
+    /// Reads every file under a package folder, leaving out `.oa-origin.yaml`.
     void load(const std::filesystem::path& root) {
         paths.clear();
         bytes.clear();
@@ -249,6 +275,7 @@ struct PackageBytes {
     }
 };
 
+/// Refreshes one player's knowledge when thirty ticks have passed since the last.
 inline void
 refresh_knowledge(oa::sim::ai::ComputerPlayers& state, computer_fake::Fake& fake, uint8_t index) {
     constexpr uint32_t refresh_period = 30;
@@ -267,6 +294,7 @@ refresh_knowledge(oa::sim::ai::ComputerPlayers& state, computer_fake::Fake& fake
     fake.knowledge_tick[index] = turn;
 }
 
+/// Runs the built-in order tick for every computer player, then refreshes knowledge.
 inline void tick_players(
     oa::sim::ai::ComputerPlayers& state,
     computer_fake::Fake& fake,
@@ -283,6 +311,7 @@ inline void tick_players(
     }
 }
 
+/// One value read from the seat table by a dotted path.
 struct PathRead {
     const char* path{};
     bool ok{};
@@ -292,6 +321,7 @@ struct PathRead {
     char words[64]{};
 };
 
+/// Walks a dotted path on the seat table and stores the value it finds.
 inline void read_path_work(void* context, lua_State* state) {
     auto* box = static_cast<PathRead*>(context);
     if (box == nullptr || box->path == nullptr || lua_type(state, -1) != LUA_TTABLE)
@@ -346,6 +376,7 @@ inline void read_path_work(void* context, lua_State* state) {
     }
 }
 
+/// Reads one dotted path from the seated hooks table.
 inline PathRead read_path(oa::sim::brains::ToolSeat& seat, const char* path) {
     PathRead box;
     box.path = path;
@@ -355,6 +386,7 @@ inline PathRead read_path(oa::sim::brains::ToolSeat& seat, const char* path) {
     return box;
 }
 
+/// The fields a direct squad-sort call is given.
 struct SortAsk {
     bool building{};
     bool armed{};
@@ -368,6 +400,7 @@ struct SortAsk {
     lua_Integer squad{};
 };
 
+/// Calls squads.sort_squad with the fields in the ask.
 inline void call_sort_work(void* context, lua_State* state) {
     auto* ask = static_cast<SortAsk*>(context);
     lua_getglobal(state, "require");
@@ -403,6 +436,7 @@ inline void call_sort_work(void* context, lua_State* state) {
     ask->squad = lua_tointeger(state, -1);
 }
 
+/// Returns the squad squads.sort_squad chooses for these fields.
 inline lua_Integer sort_squad(oa::sim::brains::ToolSeat& seat, const SortAsk& fields) {
     SortAsk ask = fields;
     oa::data::script_host::ScriptError error;
@@ -413,12 +447,14 @@ inline lua_Integer sort_squad(oa::sim::brains::ToolSeat& seat, const SortAsk& fi
     return ask.squad;
 }
 
+/// One set-up draw asked of the seated brain.
 struct SetupAsk {
     lua_Integer bound{};
     bool ok{};
     lua_Integer value{};
 };
 
+/// Calls brain.setup_random for the bound in the ask.
 inline void call_setup_work(void* context, lua_State* state) {
     auto* ask = static_cast<SetupAsk*>(context);
     lua_getglobal(state, "brain");
@@ -432,6 +468,7 @@ inline void call_setup_work(void* context, lua_State* state) {
     ask->value = lua_tointeger(state, -1);
 }
 
+/// Returns the integer brain.setup_random draws for this bound.
 inline lua_Integer setup_draw(oa::sim::brains::ToolSeat& seat, lua_Integer bound) {
     SetupAsk ask;
     ask.bound = bound;
@@ -443,10 +480,12 @@ inline lua_Integer setup_draw(oa::sim::brains::ToolSeat& seat, lua_Integer bound
     return ask.value;
 }
 
+/// The Lua type of brain.shared_random.
 struct KindAsk {
     int kind{LUA_TNIL};
 };
 
+/// Reads the Lua type of brain.shared_random.
 inline void call_shared_kind(void* context, lua_State* state) {
     auto* ask = static_cast<KindAsk*>(context);
     lua_getglobal(state, "brain");
@@ -454,6 +493,7 @@ inline void call_shared_kind(void* context, lua_State* state) {
     ask->kind = lua_type(state, -1);
 }
 
+/// Returns the Lua type of brain.shared_random, or nil when it is absent.
 inline int shared_random_kind(oa::data::script_host::Sandbox& sandbox) {
     KindAsk ask;
     oa::data::script_host::ScriptError error;
@@ -462,6 +502,7 @@ inline int shared_random_kind(oa::data::script_host::Sandbox& sandbox) {
     return ask.kind;
 }
 
+/// The seat spec that loads this package as Classic.
 inline oa::sim::brains::SeatSpec classic_spec(const PackageBytes& package) {
     oa::sim::brains::SeatSpec spec;
     spec.player = 1;
@@ -476,6 +517,7 @@ inline oa::sim::brains::SeatSpec classic_spec(const PackageBytes& package) {
     return spec;
 }
 
+/// Opens a tool seat on this package, the host's calls and the given facts.
 inline oa::sim::brains::ToolSeat open_classic(
     const PackageBytes& package,
     const oa::sim::ai::ComputerHost& host,
@@ -500,6 +542,7 @@ inline oa::sim::brains::ToolSeat open_classic(
     return std::move(*opened);
 }
 
+/// Runs one Classic tick and throws when the script fails.
 inline void play_classic(oa::sim::brains::ToolSeat& seat, uint32_t turn) {
     oa::data::script_host::ScriptError error;
     if (!seat.tick(turn, error))
