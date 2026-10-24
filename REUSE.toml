@@ -191,6 +191,14 @@ path = "tests/data/mutators/**"
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+# Made-up brain packages the brains tests seat, and the sample package whose
+# file bytes the Classic fingerprint test hashes. Some carry their own header
+# lines; the sample cannot without changing the bytes it is about.
+[[annotations]]
+path = ["src/sim/brains/tests/data/**", "src/sim/brains/tests/classic-sample/**"]
+SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # The made-up Ridge maps the map-rule tests read. An OTA has no comment
 # style the licence check knows, so these carry no header lines.
 [[annotations]]
