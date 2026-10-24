@@ -56,6 +56,7 @@ struct Seen {
     int32_t x{};
     int32_t y{};
     int32_t z{};
+    int32_t ground{};
     uint8_t owner{};
     std::string type_name;
     std::string commander;
@@ -112,6 +113,9 @@ void read_match(oa::sim::match_runtime::Match& match, void* context) {
         seen->x = unit.position.x;
         seen->y = unit.position.y;
         seen->z = unit.position.z;
+        seen->ground = match.map_height(
+            static_cast<uint32_t>(unit.position.x), static_cast<uint32_t>(unit.position.z)
+        );
         seen->owner = unit.owner_index;
         if (unit.type_index < world.unit_def_count)
             seen->type_name = world.unit_defs[unit.type_index].unit_name;
@@ -187,7 +191,10 @@ void expect_commander(const Seen& seen) {
     OA_CHECK(seen.found);
     OA_CHECK(seen.owner == 1);
     OA_CHECK(seen.x == centre);
-    OA_CHECK(seen.y == 0);
+    // Create settles the commander on the map's ground. The height is that
+    // ground, in 16.16, which is above the sea on this flat land.
+    OA_CHECK(seen.ground > 0);
+    OA_CHECK(seen.y == static_cast<int32_t>(static_cast<uint32_t>(seen.ground) << 16));
     OA_CHECK(seen.z == centre);
     OA_CHECK(!seen.commander.empty());
     OA_CHECK(same_ascii(seen.type_name, seen.commander));
