@@ -719,9 +719,26 @@ void add_computer(
     ++block.computer_count;
 }
 
+/// Copies a brain id, or leaves the built-in player when the id is empty.
+///
+/// @param[out] computer the computer player
+/// @param id the id; empty seats the built-in player
+/// @param place where a refusal points, such as --computer-player brain
+void store_brain_id(
+    launch::LaunchComputer& computer, std::string_view id, const LaunchPlace& place
+) {
+    if (id.empty())
+        return;
+    if (!oa::formats::oamut::mutator_id(id))
+        refuse(place, "is not a kebab-case brain id");
+    for (std::size_t index = 0; index < id.size(); ++index)
+        computer.brain[index] = id[index];
+    computer.brain[id.size()] = '\0';
+}
+
 /// Reads one computer player of the file's list.
 ///
-/// @param item the list's item, a group of side, team, colour and difficulty
+/// @param item the list's item, a group of side, team, colour, difficulty and brain
 /// @param place the item's place, such as computer-players[2]
 /// @return the computer player
 launch::LaunchComputer read_computer_group(const oamod::Node& item, const LaunchPlace& place) {
@@ -744,27 +761,30 @@ launch::LaunchComputer read_computer_group(const oamod::Node& item, const Launch
                 read_between(value, at, launch::kLaunchColourFirst, launch::kLaunchColourLast);
         else if (entry.key.text == "difficulty")
             computer.difficulty = read_word(value, at, kDifficultyWords, "easy, medium or hard");
+        else if (entry.key.text == "brain")
+            store_brain_id(computer, read_text(value, at), at);
         else
             refuse(at, "is not a launch setting");
     }
     return computer;
 }
 
-/// Reads one computer player an option gives: SIDE[:TEAM[:COLOUR[:DIFFICULTY]]].
+/// Reads one computer player an option gives: SIDE[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]].
 ///
-/// An empty part leaves that choice to the battle room.
+/// An empty part leaves that choice to the battle room. An empty brain seats
+/// the built-in player the room would have chosen.
 ///
 /// @param text the option's value
 /// @param place the option
 /// @return the computer player
 launch::LaunchComputer read_computer_text(std::string_view text, const LaunchPlace& place) {
-    std::array<std::string_view, 4> parts{};
+    std::array<std::string_view, 5> parts{};
     std::size_t count = 0;
     std::size_t start = 0;
     while (true) {
         const auto colon = text.find(':', start);
         if (count == parts.size())
-            refuse(place, "expected SIDE[:TEAM[:COLOUR[:DIFFICULTY]]]");
+            refuse(place, "expected SIDE[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]");
         parts[count++] = text.substr(
             start, colon == std::string_view::npos ? std::string_view::npos : colon - start
         );
@@ -797,6 +817,10 @@ launch::LaunchComputer read_computer_text(std::string_view text, const LaunchPla
         const auto [value, name] = part(3, "difficulty");
         computer.difficulty =
             read_word(value, LaunchPlace{{}, name}, kDifficultyWords, "easy, medium or hard");
+    }
+    if (count > 4 && !parts[4].empty()) {
+        const std::string name = std::string(place.name) + " brain";
+        store_brain_id(computer, parts[4], LaunchPlace{{}, name});
     }
     return computer;
 }
@@ -1198,10 +1222,11 @@ constexpr LaunchField kFields[] = {
      Reader::network_play,
      store_restrictions},
     {"computer-players",
-     "--computer-player arm|core[:TEAM[:COLOUR[:DIFFICULTY]]]",
+     "--computer-player arm|core[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]",
      "The computer players this machine seats, at most 9, each with a side, and a team, colour "
-     "and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses. Give the "
-     "option once for each.",
+     "and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a "
+     "brain's id. A brain that is not installed refuses the launch; one that does not fit plays "
+     "the built-in player. Give the option once for each.",
      Reader::network_play,
      store_computers},
     {"content.base-game",

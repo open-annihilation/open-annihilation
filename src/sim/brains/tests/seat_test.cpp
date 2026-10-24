@@ -801,6 +801,173 @@ void instruction_totals_cover_load_tick_and_a_stop() {
     CHECK(brains::seat_instructions(*stopping.match, computer) > before);
 }
 
+std::string report_text(Fixture& fixture) {
+    std::vector<char> buffer(512);
+    const brains::ReportResult result = brains::brain_report(*fixture.match, computer, buffer);
+    CHECK(result.outcome == brains::ReportOutcome::written);
+    return std::string(buffer.data(), result.length);
+}
+
+void report_returns_its_text() {
+    Fixture fixture;
+    arm(fixture);
+    Package package;
+    package.with_network = false;
+    add_file(
+        package,
+        "brain.lua",
+        "local hooks = {}\n"
+        "function hooks.report()\n"
+        "  return \"held the line\"\n"
+        "end\n"
+        "return hooks\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(report_text(fixture) == "held the line");
+    CHECK(brains::brain_seated(*fixture.match, computer));
+}
+
+void report_absent_when_the_brain_has_none() {
+    Fixture fixture;
+    arm(fixture);
+    Package package;
+    package.with_network = false;
+    add_file(package, "brain.lua", "return {}\n");
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    std::vector<char> buffer(16);
+    const brains::ReportResult result = brains::brain_report(*fixture.match, computer, buffer);
+    CHECK(result.outcome == brains::ReportOutcome::absent);
+    CHECK(result.length == 0);
+    CHECK(brains::brain_seated(*fixture.match, computer));
+}
+
+void report_that_raises_hands_the_seat_back() {
+    Fixture fixture;
+    arm(fixture);
+    Package package;
+    package.with_network = false;
+    add_file(
+        package,
+        "brain.lua",
+        "local hooks = {}\n"
+        "function hooks.report()\n"
+        "  error(\"nope\")\n"
+        "end\n"
+        "return hooks\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    std::vector<char> buffer(16);
+    const brains::ReportResult result = brains::brain_report(*fixture.match, computer, buffer);
+    CHECK(result.outcome == brains::ReportOutcome::failed);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
+}
+
+void restart_passes_the_save_and_counts() {
+    Fixture fixture;
+    arm(fixture);
+    Package package;
+    package.with_network = false;
+    add_file(
+        package,
+        "brain.lua",
+        "local starts = 0\n"
+        "local saved_n = \"nil\"\n"
+        "local hooks = {}\n"
+        "function hooks.start(game, me, saved)\n"
+        "  starts = starts + 1\n"
+        "  if saved == nil then\n"
+        "    saved_n = \"nil\"\n"
+        "  else\n"
+        "    saved_n = tostring(saved.n)\n"
+        "  end\n"
+        "end\n"
+        "function hooks.save()\n"
+        "  return { n = starts }\n"
+        "end\n"
+        "function hooks.report()\n"
+        "  return \"starts \" .. starts .. \" saved \" .. saved_n\n"
+        "end\n"
+        "return hooks\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(report_text(fixture) == "starts 1 saved nil");
+    CHECK(brains::restart_brain(*fixture.match, computer) == brains::RestartOutcome::restarted);
+    CHECK(brains::brain_seated(*fixture.match, computer));
+    CHECK(report_text(fixture) == "starts 2 saved 1");
+}
+
+void restart_without_start_stays_seated() {
+    Fixture fixture;
+    arm(fixture);
+    Package package;
+    package.with_network = false;
+    add_file(
+        package,
+        "brain.lua",
+        "local hooks = {}\n"
+        "function hooks.report()\n"
+        "  return \"quiet\"\n"
+        "end\n"
+        "return hooks\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::restart_brain(*fixture.match, computer) == brains::RestartOutcome::restarted);
+    CHECK(brains::brain_seated(*fixture.match, computer));
+    CHECK(report_text(fixture) == "quiet");
+}
+
+void restart_whose_start_raises_hands_the_seat_back() {
+    Fixture fixture;
+    arm(fixture);
+    Package package;
+    package.with_network = false;
+    add_file(
+        package,
+        "brain.lua",
+        "local n = 0\n"
+        "local hooks = {}\n"
+        "function hooks.start()\n"
+        "  n = n + 1\n"
+        "  if n > 1 then error(\"nope\") end\n"
+        "end\n"
+        "return hooks\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::restart_brain(*fixture.match, computer) == brains::RestartOutcome::failed);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
+}
+
+void restart_sees_the_reloaded_profile() {
+    Fixture fixture;
+    arm(fixture);
+    oa::data::brain_facts::GameFacts facts;
+    facts.ai_profile.path = "ai/test.txt";
+    facts.ai_profile.text = profile;
+    facts.ai_profile_report_path = "report.txt";
+    brains::set_match_game_facts(*fixture.match, std::move(facts));
+    Package package;
+    package.with_network = false;
+    add_file(
+        package,
+        "brain.lua",
+        "local seen = \"\"\n"
+        "local hooks = {}\n"
+        "function hooks.start(game)\n"
+        "  seen = game.ai_profile.text\n"
+        "end\n"
+        "function hooks.report()\n"
+        "  return seen\n"
+        "end\n"
+        "return hooks\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(report_text(fixture) == profile);
+    constexpr const char* reloaded = "weight ARMSOLAR 0.2\n";
+    CHECK(sim::ai::reload_match_computer_profiles(*fixture.match, reloaded));
+    CHECK(brains::restart_brain(*fixture.match, computer) == brains::RestartOutcome::restarted);
+    CHECK(report_text(fixture) == reloaded);
+}
+
 void two_brains_end_with_the_match() {
     Fixture fixture;
     fixture.match->simulation().players[2].present = true;
@@ -844,6 +1011,13 @@ int main() {
         save_over_one_mebibyte_is_omitted();
         start_receives_the_saved_state();
         instruction_totals_cover_load_tick_and_a_stop();
+        report_returns_its_text();
+        report_absent_when_the_brain_has_none();
+        report_that_raises_hands_the_seat_back();
+        restart_passes_the_save_and_counts();
+        restart_without_start_stays_seated();
+        restart_whose_start_raises_hands_the_seat_back();
+        restart_sees_the_reloaded_profile();
         two_brains_end_with_the_match();
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "sim-brains-seat: %s\n", ex.what());
