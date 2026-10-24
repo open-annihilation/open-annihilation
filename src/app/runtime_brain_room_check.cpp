@@ -474,10 +474,24 @@ void Runtime::check_brain_room() {
     require(!any_seat(), "a seat button shows with no brain installed");
     if (LayerScreen* seats = oa_layer().find("brain-room"))
         oa_layer().close(seats);
-    const renderer::Surface closed = capture();
-    keep_brain_room_screen();
-    const renderer::Surface allowed = capture();
-    const std::size_t differing = pixels_differ(closed, allowed);
+    // Two frames of one moment: the interface's clock is held while both are
+    // drawn, so whatever steps by it (the chat line's caret) draws the same
+    // however long a frame takes. It runs again after, however this ends.
+    std::size_t differing = 0;
+    {
+        struct HeldClock {
+            Runtime& runtime;
+            std::optional<uint32_t> kept{};
+
+            ~HeldClock() { runtime.fake_frontend_tick_ = kept; }
+        } held_clock{*this, fake_frontend_tick_};
+
+        fake_frontend_tick_ = frontend_tick();
+        const renderer::Surface closed = capture();
+        keep_brain_room_screen();
+        const renderer::Surface allowed = capture();
+        differing = pixels_differ(closed, allowed);
+    }
     require(
         differing == 0,
         "the no-brain frame differs from the closed screen (" + std::to_string(differing) +
