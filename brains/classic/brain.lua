@@ -4,8 +4,10 @@
 -- Classic's seat: the squad sort's countdown and one task per squad.
 -- Each task's first act is to set the tick it runs on next. Structures,
 -- construction and an armed factory's tick then choose builds and sites.
--- The other tasks keep the timetable.
+-- The aircraft wing scouts or raids. Strike, rally and siege keep the
+-- timetable.
 
+local air = require("tasks.air")
 local construction = require("tasks.construction")
 local knowledge = require("knowledge")
 local profile = require("profile")
@@ -123,6 +125,9 @@ function hooks.start(game, me, saved)
     seat.tasks[8].kind = "air_raid"
     seat.tasks[8].every = function()
         return 30 + brain.shared_random(900)
+    end
+    seat.tasks[8].run = function()
+        air.run(seat, seat.tasks[8].squad)
     end
     -- @quirk The sort never fills squad 9, so the siege task only keeps its
     -- timetable unless a unit was already in that squad.
