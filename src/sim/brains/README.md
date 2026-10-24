@@ -36,7 +36,10 @@ brain plays as the built-in computer player.
   chat is not connected, `brain.site` and `brain.place` return nil, and
   `brain.order_counts` is all zeros. With no match, `me.seen` and `me.radar`
   are empty, `me:sees` and `me:sees_unit` are false, and `me.sight` and
-  `me.explored` are nil.
+  `me.explored` are nil. Networks and grids are installed last, after the
+  orders. `brain.network` and `brain.tensor` still work when the seat has no
+  match. `brain.grid` returns nil then, without reading its arguments or any
+  match field.
 
 ## State
 
@@ -180,6 +183,12 @@ state hash.
 what a handle reads in and out of sight, the seen list, the sight and
 explored grids, radar contacts and their events, and the full-awareness
 search.
+
+`sim-brains-networks` (`tests/networks_test.cpp`) seats the made-up brain
+`steady-commander` on that fixture, with the made-up mod `ridge`. It builds
+networks with `oann::write`, runs them from Lua, refuses a bad file, a run
+that is too large and a set that would pass 64 MiB, and checks tensors,
+charges and `brain.grid`.
 
 `sim-brains-failure` (`tests/failure_test.cpp`) seats `steady-commander` on
 the same fixture. A turn that raises, spends the bank, hits the real-time
@@ -677,3 +686,131 @@ Outside a match the profile fields still work and `unit` is nil.
 `sim-brains-profile` seats the made-up brain `profile-reader` on the
 computer-build fixture. `sim-brains-profile-data` parses every installed
 `ai/*.txt` profile.
+
+## Networks
+
+After every network file's SHA-256 matches the manifest, and before the
+sandbox opens, the load reads each file with `oann::read` and builds it
+with `Network::build`. `Network::memory_bytes_of` runs first. A network
+that would take the seat past 64 MiB (`67108864` bytes) is refused before
+`build` allocates it, and so is a file `oann::read` refuses or a network
+`build` refuses. The reason is `network <id>: <the oann or build problem>`.
+The seat is removed and the built-in computer player keeps the seat. An
+empty network list holds no `NetworkSet`. The load is outside every phase
+and is charged to nothing. Nothing here repeats the SHA-256 check.
+
+A network holds at most 8,388,608 weight elements and one run at most
+268435456 operations. A tensor holds at most 4194304 elements. A grid side
+is 8, 16, 32, 64 or 128. 64 is the default.
+
+`brain.network(id)` returns the handle of a network the load built, the
+same userdata every time for one id. A missing id raises
+`brain.network: this brain has no network 'x'` and costs nothing. A found
+id costs 1.
+
+`brain.tensor(values[, shape])` builds an immutable tensor. `values` is a
+sequence of 1 to 4194304 numbers. An integer `i` is stored as `i × 65536`.
+A fractional number is multiplied by 65536 and truncated toward zero; a
+non-finite number is refused. A fixed value is stored as its count. A
+value outside -32768 to 32767.99998 is refused with
+`brain.tensor: value 5 is outside -32768 to 32767` (the index is 1-based;
+the text stops at 32767). `shape` is 1 to 4 positive integers whose
+product is the number of values, or `{#values}` when it is omitted. The
+other refusals are `brain.tensor: the shape must be 1 to 4 positive
+integers`, `brain.tensor: the shape covers N values, not M`,
+`brain.tensor: expects 1 to 4194304 numbers`,
+`brain.tensor: value N is not a number` and
+`brain.tensor: value N is not a finite number`. The result's metatable is
+`oa.brain.tensor`. `tostring(t)` is `tensor: 2x8x8`. Assigning a field
+raises `a tensor cannot be changed` and costs nothing.
+
+`t:get(i)` is the 1-based element as a fixed value. An index outside
+`1` to the element count raises `brain.tensor: index 0 is outside 1 to N`
+and costs nothing. `t:argmax()` is the 1-based index of the largest
+element, the first when several match. `t:totable()` is a sequence of
+fixed values. `t:size()` and `#t` are the element count. `t:shape()` is
+the shape as a sequence.
+
+`net:run(inputs)` takes a table with exactly the network's input names.
+An unknown name is refused with the first in raw byte order:
+`network <id>: unknown input '<name>'`. A key that is not a string, when
+every string key is a real input, raises
+`network <id>: input names must be strings`. A missing input is refused
+with the first in file order: `network <id>: missing input '<name>'`. A
+value that is not a tensor raises
+`network <id>: input '<name>' must be a tensor`. A tensor whose element
+count differs raises
+`network <id>: input '<name>' has <got> elements, not <want>` (always the
+word elements; the shape is not compared). Each element becomes that
+input's int16 by `rescale(count, -16, exponent)` and `saturate_int16`.
+The result is a new table. An int16 output is a tensor of that output's
+shape, each element `saturate_int32(rescale(q, exponent, -16))`. An
+argmax output is a Lua integer, the 0-based index plus one. An embedding
+row out of range raises before that table exists:
+`network threat: layer 4 (embedding) has no row 70`. A call whose first
+argument is not a table raises
+`network <id>: run expects a table of inputs` and costs nothing.
+`run` on a value that is not a network raises `run expects a network`.
+
+`net:inputs()` and `net:outputs()` are the port names in file order.
+`net:cost()` is the units one run is charged, `charge_units()`.
+
+Charges are fixed by sizes and taken once, before the work, with
+`charge_work`. An argument error taken before that charge costs nothing.
+A charge the allowance cannot hold stops the phase before any result
+exists.
+
+- `brain.tensor`: one unit per value and one per shape entry.
+- `t:totable()`: one unit per element.
+- `t:get`: one unit. The brief's "as shown" is read this way.
+- `t:argmax`: one unit per 64 elements, rounded up.
+- `t:size` and `#t`: one unit.
+- `t:shape`: one unit per shape entry.
+- `net:run`: `charge_units()`, plus one unit per 64 input elements
+  converted, plus one unit per 64 output elements converted, plus
+  `scan_call_charge` (4096) for the one walk of the argument keys.
+- `brain.grid`: one unit per 16 cells of `layers × size × size`, rounded
+  up, plus one unit per unit slot when any of `own`, `allies`, `enemies`,
+  `threat` or `radar` is asked (one walk, however many of those five),
+  plus one unit per 64 map plots when `height` or `metal` is asked, plus
+  one unit per 64 sight cells when `sight`, `explored` or `water` is
+  asked. `water`'s value is read from map plots; its charge is the sight
+  cells, grouped with `sight` and `explored`.
+- `brain.network`, `tostring`, and `net:cost`: one unit. `net:cost`
+  returns the run charge and the call itself costs one.
+- `net:inputs` and `net:outputs`: one unit per name, and one unit when
+  the network has no ports of that kind.
+- Assigning a tensor or a network costs nothing; it raises.
+
+`brain.grid(layers[, size])` returns a tensor `{#layers, size, size}`.
+`layers` is a sequence of 1 to 10 distinct names, in the order the tensor
+stores them. Rows run from north (`z = 0`) to south and columns from west
+to east. Cell `(row, col)` covers world x from `col × W / size` to
+`(col + 1) × W / size`, and z alike, with `W` and `H` the map's
+`map_width_world` and `map_height_world`. The division is whole numbers.
+A map plot is 16 world units and a sight cell is 32. A source cell belongs
+to the grid cell that holds its centre. A grid cell that no centre falls
+in reads the source cell under its own centre. The ten layers are:
+
+- `sight`: the share of its sight cells the seat sees now, `count × 65536 / total`, truncated, from 0 to 1.
+- `explored`: the share of its sight cells the seat has ever seen, the same way.
+- `water`: the share of its map plots whose height is below `Game.sea_level`.
+- `height`: the mean `MapPlot.height`, truncated to 1/65536.
+- `metal`: the mean `MapPlot.metal`, the same way.
+- `own`: the seat's live units in the cell, nanoframes included, stored as `n × 65536`.
+- `allies`: allied players' live units the seat may see, excluding the seat's own.
+- `enemies`: other players' live units the seat may see.
+- `threat`: those enemies whose type has `OA_UNIT_DEF_FLAG_HAS_WEAPONS`.
+- `radar`: radar and sonar contacts that are not also in sight.
+
+Units are walked once, in slot order. A unit whose world position is
+negative or past the map is skipped. Sight and explored are 0 when the
+sight grid has no cells; water is still read from the plots. Full
+awareness shows units the seat could not otherwise see. It does not invent
+radar contacts, and a contact still in sight stays off `radar`. An unknown
+layer raises `brain.grid: unknown layer 'foo'`. A repeated name raises
+`brain.grid: layer 'sight' is repeated`. A size other than the five above
+raises `brain.grid: size must be 8, 16, 32, 64 or 128`. A sequence that is
+empty or longer than 10 raises `brain.grid: expects 1 to 10 layer names`.
+Those refusals cost nothing. Outside a match the call returns nil and
+costs nothing.

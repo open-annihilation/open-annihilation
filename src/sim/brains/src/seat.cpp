@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Seats one brain: the package's bytes are copied, every network's digest is
-// checked, then the entry, fits and start run. A failure removes the seat
-// and installs no hooks.
+// checked, each network is built, then the entry, fits and start run. A
+// failure removes the seat and installs no hooks.
 
 #include "internal.hpp"
 
 #include "oa/core/game_state.h"
 #include "oa/core/player.h"
+#include "oa/data/neural/network.hpp"
 #include "oa/data/script_host/plain_data.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
@@ -18,12 +19,21 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <new>
+#include <optional>
 #include <string_view>
 #include <utility>
 
 namespace oa::sim::brains {
+
+Seat::Seat() = default;
+
+Seat::~Seat() {
+    delete[] incoming.items;
+    delete[] delivering.items;
+}
 
 void write_reason(std::array<char, 256>& reason, std::string_view text) {
     const std::size_t count = text.size() < reason_limit ? text.size() : reason_limit;
@@ -78,6 +88,18 @@ void write_parts(
 bool refuse(SeatOutcome& outcome, std::string_view text) {
     outcome.result = SeatResult::refused;
     write_reason(outcome.reason, text);
+    return false;
+}
+
+bool refuse_network(SeatOutcome& outcome, std::string_view id, std::string_view detail) {
+    char buffer[256];
+    const int id_n = id.size() > 80 ? 80 : static_cast<int>(id.size());
+    const int detail_n = detail.size() > 160 ? 160 : static_cast<int>(detail.size());
+    std::snprintf(
+        buffer, sizeof buffer, "network %.*s: %.*s", id_n, id.data(), detail_n, detail.data()
+    );
+    outcome.result = SeatResult::refused;
+    write_reason(outcome.reason, buffer);
     return false;
 }
 
@@ -364,6 +386,60 @@ bool play_turn(void* context, match_runtime::Match& match, uint8_t player) {
 
 } // namespace
 
+bool build_networks(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
+    if (spec.networks.empty())
+        return true;
+    namespace neural = oa::data::neural;
+    namespace oann = oa::formats::oann;
+    try {
+        auto held = std::make_unique<neural::NetworkSet>(neural::max_brain_network_bytes);
+        std::size_t planned = 0;
+        for (const NetworkFile& network : spec.networks) {
+            const PackageFile* file = find_file(spec, network.path);
+            if (file == nullptr) {
+                outcome.result = SeatResult::refused;
+                write_parts(outcome.reason, network.path, " is not among the package files", {});
+                return false;
+            }
+            oann::Problem problem;
+            const std::optional<oann::Model> model = oann::read(file->bytes, problem);
+            if (!model)
+                return refuse_network(outcome, network.id, problem.message);
+            const std::size_t bytes = neural::Network::memory_bytes_of(*model);
+            if (bytes > neural::max_brain_network_bytes ||
+                planned > neural::max_brain_network_bytes - bytes) {
+                uint64_t would = static_cast<uint64_t>(planned);
+                const uint64_t more = static_cast<uint64_t>(bytes);
+                if (would > ~uint64_t{0} - more)
+                    would = ~uint64_t{0};
+                else
+                    would += more;
+                char detail[160];
+                std::snprintf(
+                    detail,
+                    sizeof detail,
+                    "networks would take %llu bytes; a brain may hold %llu",
+                    static_cast<unsigned long long>(would),
+                    static_cast<unsigned long long>(neural::max_brain_network_bytes)
+                );
+                return refuse_network(outcome, network.id, detail);
+            }
+            planned += bytes;
+            std::optional<neural::Network> built = neural::Network::build(*model, problem);
+            if (!built)
+                return refuse_network(outcome, network.id, problem.message);
+            if (!held->add(network.id, std::move(*built), problem))
+                return refuse_network(outcome, network.id, problem.message);
+        }
+        seat.networks = std::move(held);
+    } catch (const std::exception&) {
+        write_reason(outcome.reason, "the seat could not be stored");
+        outcome.result = SeatResult::failed;
+        return false;
+    }
+    return true;
+}
+
 bool package_acceptable(const SeatSpec& spec, SeatOutcome& outcome) {
     return texts_fit(spec, outcome) && entry_present(spec, outcome) &&
            networks_match(spec, outcome);
@@ -542,6 +618,11 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         const auto* computer_players =
             static_cast<const sim::ai::ComputerPlayers*>(computer_slot.get());
         seat.handed_over = computer_players->initialized != 0;
+    }
+
+    if (!build_networks(seat, spec, outcome)) {
+        close_seat(*brains, player);
+        return outcome;
     }
 
     if (!open_and_fit(seat, spec, outcome)) {
