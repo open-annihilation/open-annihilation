@@ -164,6 +164,11 @@ Every document in the repository, by what you want to do.
   standard, the format of a brain package (`oabrain.yaml` inside a
   `.oabrain`) and its rules: the manifest, the runtime, the hooks, and
   what a brain may read and order.
+- [brains/authoring.md](brains/authoring.md): writing a brain, from an
+  empty folder through Steady Commander to Classic's walkthrough.
+- [playing-with-brains.md](playing-with-brains.md): getting a brain,
+  setting it on a computer seat, the default, and what a network game or
+  a stopped brain does.
 - [registries/README.md](registries/README.md): the OA Registry
   Specification, version 1: the descriptor and `.oareg` file, the
   catalogue and its signature, packages, the download API, running a

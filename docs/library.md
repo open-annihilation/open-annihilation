@@ -2,7 +2,10 @@
 
 The Library is where Open Annihilation finds, installs, updates, rolls
 back and uninstalls mods, map packs, mutators and language packs without
-leaving the game, and where you choose the mod you play. It lists
+leaving the game, and where you choose the mod you play. It also lists
+brains: you get one here, update it and uninstall it, and you choose
+which computer player new seats start with. A brain has no roll back.
+It lists
 every package that Core Prime's registry, built into the game, and any
 registry you added offer, together with what you have installed, and it
 says for each whether you have it, whether an update waits, and what it
@@ -14,6 +17,7 @@ settings and exactly what a download sends and records.
 [map packs](maps/README.md) and [languages](languages.md) theirs.
 Switching a mutator on is
 [Playing with mutators](playing-with-mutators.md).
+Choosing a brain is [Playing with brains](playing-with-brains.md).
 
 ## Contents
 
@@ -21,6 +25,7 @@ Switching a mutator on is
 - [The Active tab](#the-active-tab)
 - [Tabs and states](#tabs-and-states)
 - [The Mutators tab](#the-mutators-tab)
+- [The Brains tab](#the-brains-tab)
 - [Search and filters](#search-and-filters)
 - [The details](#the-details)
 - [Choosing a mod](#choosing-a-mod)
@@ -47,7 +52,8 @@ The Library opens on the main menu, from:
   gears (the same size, a quarter of a side apart, 12 pixels in from the
   frame). It opens on the [Active](#the-active-tab) tab. Its bottom-right
   corner shows how many packages you have added: mods, map packs, mutators,
-  language packs and downloaded expansions. The base game and a language the game
+  language packs and downloaded expansions. An installed brain is left out
+  of that count. The base game and a language the game
   holds itself are left out, and a map pack counts once: `7`, `123`, or
   `999+` above 999. While the catalogues are still being read and that
   number is not final, a small spinner turns there instead, and stops once
@@ -247,11 +253,12 @@ each other. The other tabs are where packages are got, updated and played.
 
 ## Tabs and states
 
-The tabs are **Active**, **Mods**, **Maps**, **Mutators**, **Languages**,
-**Updates** and **Registries**. Each tab after Active shows how many it
+The tabs are **Active**, **Mods**, **Maps**, **Mutators**, **Brains**,
+**Languages**, **Updates** and **Registries**. **Brains** has no short
+name. Each tab after Active shows how many it
 lists under All, before a search or a tag, in brackets after its title
 and in that title's own font and colour: "Mods (11)", "Maps (2)",
-"Mutators (4)", "Languages (2)", "Updates (2)", "Registries (2)". The
+"Mutators (4)", "Brains (3)", "Languages (2)", "Updates (2)", "Registries (2)". The
 names are always the full ones.
 At Regular and Large the search sits beside the tabs; when the tabs do
 not all fit beside it, as a wordier language's names may not, the tabs
@@ -424,6 +431,70 @@ The Library never switches a mutator on. There is no control here that
 plays one, and the Active tab has no Mutators tile. Switching one on is
 the **Mutators** button on a skirmish, a campaign launch or the host's
 battle room.
+
+## The Brains tab
+
+**Brains** lists brains the same way Mutators lists mutators: a row for
+each, with its picture, its name, "by {author}", its summary, its
+version, its size beside the version, and its state icon. The built-in
+computer player leads the list under **All** and **Installed**. It is
+absent under **New**: it is not a package a registry published. Its name
+is **Built-in computer player**. The summary under it reads "Open
+Annihilation's own computer player. It plays as Total Annihilation's
+does." While it is the default, the status is **Built in · Default** and
+the chip **Default** marks the row. While it is not, the status is
+**Built in**. It cannot be removed.
+
+The search reads "Search brains, authors, tags". The filters are
+**All**, **New**, **Installed** and **Updates**, and **TAGS** for the
+tags a brain carries: Economy, Classic, Rush, Turtle, Air, Naval,
+Learned, Teaching and Experimental. Any other tag id is shown as written.
+
+The details of an installed or listed brain, after **Installed**,
+**Latest** and **Author**, follow this order. **Levels** joins the level
+names. **Works with** is **Any mod** when the manifest says so, or the
+mods it names; a package that does not fit the game being played marks
+that fact. **Needs** names an engine range, or an expansion, when the
+manifest asks for one. **Full awareness**, only when the manifest sets
+it, reads "Sees every unit on the map, as Total Annihilation's own
+computer player does", and the chip **Full awareness** marks the row.
+**Network**, when the package carries one, reads "Uses a learned network
+({size})". **Checked**, on an installed brain whose verdict is set, uses
+the same sentences as a mutator's check. A brain that fits fills
+`{summary}` with "it fits this game", so the fact is "With {mod}:
+{summary}", or "With No Mod: {summary}" when no mod is playing.
+**Size** and **From** follow. The details do not
+list the brain's options. Those are on the seat's picker.
+
+The built-in computer player's details are **Levels** (Easy, Medium and
+Hard) and **Works with** **Any mod**, and nothing else.
+
+A brain that does not fit the game being played keeps **GET** and
+**UPDATE** on. That is information. At Compact the row ends "· {reason}".
+The reason is "Made for {names}", the engine requirement, or
+"Needs {name}".
+
+The actions are **GET** or **UPDATE** (still on when the brain does not
+fit), then **USE BY DEFAULT** when it is installed and is not the
+default, then **CHECK WITH THIS MOD** for an installed copy whose
+verdict is set, then **UNINSTALL** and **OPEN FOLDER** when installed,
+then **HOMEPAGE** when the listing has one. **CHECK WITH THIS MOD**
+loads the installed copy and runs its fit. It does not seat the brain.
+It is off during a game and while that check is running. There is no
+**ROLL BACK**. **GET** stays **GET**: it does not become **GET WITH
+{name}** or **GET WITH {count} MORE**. **USE BY DEFAULT** makes that brain
+the one new computer seats start with. On the built-in computer player
+it is offered while the built-in player is not the default, and it
+clears the preference. While the built-in player is the default, its
+details offer nothing.
+
+**UNINSTALL** on the default brain adds, before the question's last
+paragraph, "It is your default computer player: new computer seats go
+back to the built-in player."
+
+The Library never seats a brain. Choosing one for a computer seat is the
+control on a skirmish, a campaign launch or the battle room, described in
+[Playing with brains](playing-with-brains.md).
 
 ## The details
 
@@ -1062,7 +1133,7 @@ during a game waits for the main menu. What a check keeps is under
 Packages install into your own Open Annihilation folder ([the installation
 guides](installation/macos.md#where-it-keeps-its-files) say where it is),
 each in a folder named by its key: `Mods/<id>`, `Maps/<id>`,
-`Mutators/<id>` and `Languages/<tag>`. Beside a package's files OA keeps
+`Mutators/<id>`, `Brains/<id>` and `Languages/<tag>`. Beside a package's files OA keeps
 `.oa-origin.yaml`, the record of where it came from, and `.backup`, the
 copy an update replaced. **UNINSTALL** removes a package's folder with
 both ([uninstalling](#uninstalling)), and **OPEN FOLDER** shows it.

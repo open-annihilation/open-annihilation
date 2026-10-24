@@ -29,6 +29,16 @@ a campaign save. Loading it needs the same ones. When one is missing, the
 game names it. [Playing with mutators](playing-with-mutators.md) says what
 the note holds and what the refusal reads.
 
+A save keeps each computer seat's brain as well: the id, the version, the
+level and the options. The note beside the save, and beside a recording,
+names each brain after the mutators, with the player and the id, then the
+version, the level's name and the brain's name. A recording keeps that
+text and does not run the brain when it is played back. Loading a save
+whose brain is not installed asks "Load with the built-in player?"
+**LOAD WITH THE BUILT-IN PLAYER** takes those seats from the units as
+they stand. [Playing with brains](playing-with-brains.md#saves-and-recordings)
+quotes the question.
+
 ## What a saved game keeps
 
 A saved game keeps what a 3.1c saved game keeps. Shots in flight are not
