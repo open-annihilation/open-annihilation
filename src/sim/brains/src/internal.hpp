@@ -543,6 +543,18 @@ void install_section(lua_State* state, Seat& seat);
 /// @param seat the seat being opened
 void install_setup_random(lua_State* state, Seat& seat);
 
+/// Copies Classic's land and sea strike flags onto the match's tasks.
+///
+/// Classic keeps `attacking` on its own task tables. The match's computer
+/// player still owns the tasks a check reads, and the built-in player would
+/// have written the flag there. A shadow does not write: its built-in player
+/// already did, and a later tick of that player must see its own flag.
+///
+/// @param state the sandbox state, during the seat's turn
+/// @param seat the seat whose turn just ran `onTick`
+/// @param hooks absolute stack index of the brain's hooks table
+void publish_classic_strike(lua_State* state, Seat& seat, int hooks);
+
 /// Writes `me.difficulty` in the hidden table `me` reads.
 ///
 /// @param state the sandbox state
