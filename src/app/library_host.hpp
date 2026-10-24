@@ -119,9 +119,9 @@ struct LibraryFeed {
     /// The work gives the verdict, or nothing when it is cancelled. An empty
     /// function means the check could not start. Null: the host checks no
     /// brain, and every brain's verdict stays unset.
-    std::function<std::optional<oa::ui::library::Verdict>(const std::atomic<bool>& cancel)> (
-        *start_brain_check
-    )(void* context, std::string_view id){};
+    std::function<std::optional<oa::ui::library::Verdict>(
+        const std::atomic<bool>& cancel
+    )> (*start_brain_check)(void* context, std::string_view id){};
     /// Keeps a verdict the worker found, for the installed brain against the
     /// game being played. Called on the main thread. Null keeps nothing.
     void (*keep_brain_verdict)(
@@ -349,11 +349,12 @@ struct Runtime::LibraryHost {
     std::optional<oa::data::mutators::VerdictKey> prepared_key{};
     /// The key of the verdict `keep_verdict` is about to keep. The main thread only.
     std::optional<oa::data::mutators::VerdictKey> delivered_key{};
+
     /// A brain verdict kept for this run, by the brain and the game it was
     /// checked against. Nothing is written to disk. The main thread only.
     struct RememberedBrainVerdict {
-        BrainVerdictKey key{};                 ///< the brain and the game
-        oa::ui::library::Verdict verdict{};    ///< what the check found
+        BrainVerdictKey key{};              ///< the brain and the game
+        oa::ui::library::Verdict verdict{}; ///< what the check found
     };
 
     std::vector<RememberedBrainVerdict> brain_verdicts{};
