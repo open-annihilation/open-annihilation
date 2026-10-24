@@ -1026,7 +1026,14 @@ the engine, with their size class and scale.
   container and runs its tests under Wine. Use it when a change touches
   platform-specific code. The container keeps compiled objects in a Docker
   volume that every run and every checkout shares, so a rebuild compiles only
-  what changed.
+  what changed. A cross build cannot run the `oa-tool` it compiles.
+  `OA_HOST_OA_TOOL` is the absolute path of a host build's `oa-tool`. When
+  it names that executable, the cross build packs `brains/classic.oabrain`
+  beside the game with it, the same command a host build runs. When it is
+  empty, the cross build leaves Classic unpacked and says so at configure
+  time. `tools/build_windows.sh` passes `build/oa-tool` when that file
+  exists. An empty `OA_HOST_OA_TOOL` in the environment leaves Classic
+  unpacked.
 - **Windows XP:** `OA_MINGW_TRIPLE=i686-w64-mingw32 tools/build_windows.sh
   --xp` builds the tree for 32-bit Windows XP SP3 into
   `build-windows-i686-xp`, and `tools/build_windows.sh --xp` for the 64-bit
