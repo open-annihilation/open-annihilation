@@ -130,8 +130,9 @@ tad::WriteResult recording_write(const DemoRecording& recording) {
     demo.map_name = setup.map_name;
     // The views below point into storage that lives until the write returns.
     std::vector<std::vector<uint8_t>> storage;
-    // Recorder text, date, the loadout sector, then an address and a status per player.
-    storage.reserve(setup.players.size() * 2 + 3);
+    // Recorder text, date, the loadout sector, the brains sector, then an
+    // address and a status per player.
+    storage.reserve(setup.players.size() * 2 + 4);
     const auto keep = [&](std::vector<uint8_t> bytes) -> std::span<const uint8_t> {
         storage.push_back(std::move(bytes));
         return storage.back();
@@ -149,6 +150,14 @@ tad::WriteResult recording_write(const DemoRecording& recording) {
         demo.sectors.push_back(
             {static_cast<uint32_t>(tad::SectorType::mutators),
              keep({setup.loadout_text.begin(), setup.loadout_text.end()})}
+        );
+    }
+    // One sector chunk holds the length word, the type word and the text.
+    // A text that does not fit is left out, and the recording still stands.
+    if (!setup.brains_text.empty() && setup.brains_text.size() <= recording_brains_most_bytes) {
+        demo.sectors.push_back(
+            {static_cast<uint32_t>(tad::SectorType::brains),
+             keep({setup.brains_text.begin(), setup.brains_text.end()})}
         );
     }
     for (std::size_t i = 0; i < setup.players.size(); ++i) {

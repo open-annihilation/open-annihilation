@@ -17,6 +17,7 @@
 #include "oa/data/persist/hapibank.hpp"
 #include "oa/data/persist/save_brains.hpp"
 #include "oa/data/persist/save_sections.hpp"
+#include "oa/data/saves/content_record.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oamut/manifest.hpp"
 #include "oa/formats/oabrain/manifest.hpp"
@@ -24,6 +25,7 @@
 #include "oa/ui/brain_picker/prompts.hpp"
 #include "oa/ui/library/text.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <exception>
@@ -46,6 +48,7 @@ namespace oabrain = oa::formats::oabrain;
 namespace oamut = oa::formats::oamut;
 namespace oamod = oa::formats::oamod;
 namespace persist = oa::data::persist;
+namespace saves = oa::data::saves;
 namespace picker = oa::ui::brain_picker;
 namespace library = oa::ui::library;
 namespace kit = oa::ui::kit;
@@ -442,6 +445,126 @@ bool Runtime::offer_builtin_brain_load(const std::filesystem::path& path) {
     OaLayer& layer = oa_layer();
     layer.push(std::make_unique<QuestionScreen>(layer, screen_, std::move(question), answers));
     return true;
+}
+
+namespace {
+
+/// The level's name for a seated brain, or the level id when it has none.
+///
+/// @param listing the brains installed here
+/// @param id the brain's id
+/// @param level_id the level's id
+/// @return the name the player saw, or the id
+std::string
+level_name_of(const brain::Listing& listing, std::string_view id, std::string_view level_id) {
+    const brain::InstalledBrain* installed = brain::find(listing, id);
+    if (installed == nullptr)
+        return std::string(level_id);
+    const oabrain::Level* level = oabrain::find_level(installed->manifest, level_id);
+    if (level == nullptr || level->name.empty())
+        return std::string(level_id);
+    return level->name;
+}
+
+/// The brain's name, or empty when this machine has no such brain.
+///
+/// @param listing the brains installed here
+/// @param id the brain's id
+/// @return the name players see
+std::string brain_name_of(const brain::Listing& listing, std::string_view id) {
+    const brain::InstalledBrain* installed = brain::find(listing, id);
+    if (installed == nullptr)
+        return {};
+    return installed->manifest.name;
+}
+
+} // namespace
+
+std::string Runtime::played_brains_text() const {
+    if (match_ == nullptr)
+        return {};
+    brain::Seats seats;
+    const brain::Listing& listing = installed_brains();
+    seats.seats.reserve(seated_brains_.size() + remote_played_brains_.size());
+    for (const BrainSeat& seated : seated_brains_) {
+        if (seated.id.empty())
+            continue;
+        brain::Seat named;
+        named.place = static_cast<int32_t>(seated.player);
+        named.brain = seated.id;
+        named.version = seated.version;
+        named.package_sha256 = seated.package_sha256;
+        named.level = seated.level;
+        named.options = seated.options;
+        named.name = brain_name_of(listing, seated.id);
+        seats.seats.push_back(std::move(named));
+    }
+    for (const RemotePlayedBrain& remote : remote_played_brains_) {
+        if (remote.id.empty())
+            continue;
+        bool already = false;
+        for (const brain::Seat& seat : seats.seats) {
+            if (seat.place == remote.player)
+                already = true;
+        }
+        if (already)
+            continue;
+        brain::Seat named;
+        named.place = remote.player;
+        named.brain = remote.id;
+        named.version = remote.version;
+        named.level = remote.level_id;
+        named.name = remote.name;
+        seats.seats.push_back(std::move(named));
+    }
+    if (seats.seats.empty())
+        return {};
+    return brain::seats_text(seats);
+}
+
+std::vector<saves::ContentBrain> Runtime::played_brains() const {
+    std::vector<saves::ContentBrain> listed;
+    if (match_ == nullptr)
+        return listed;
+    const brain::Listing& listing = installed_brains();
+    listed.reserve(seated_brains_.size() + remote_played_brains_.size());
+    for (const BrainSeat& seated : seated_brains_) {
+        if (seated.id.empty())
+            continue;
+        saves::ContentBrain item;
+        item.player = static_cast<int32_t>(seated.player);
+        item.id = seated.id;
+        item.version = seated.version;
+        item.level = level_name_of(listing, seated.id, seated.level);
+        item.name = brain_name_of(listing, seated.id);
+        listed.push_back(std::move(item));
+    }
+    for (const RemotePlayedBrain& remote : remote_played_brains_) {
+        if (remote.id.empty())
+            continue;
+        bool already = false;
+        for (const saves::ContentBrain& item : listed) {
+            if (item.player == remote.player)
+                already = true;
+        }
+        if (already)
+            continue;
+        saves::ContentBrain item;
+        item.player = remote.player;
+        item.id = remote.id;
+        item.version = remote.version;
+        item.level = remote.level_name.empty() ? remote.level_id : remote.level_name;
+        item.name = remote.name;
+        listed.push_back(std::move(item));
+    }
+    std::stable_sort(
+        listed.begin(),
+        listed.end(),
+        [](const saves::ContentBrain& left, const saves::ContentBrain& right) {
+            return left.player < right.player;
+        }
+    );
+    return listed;
 }
 
 } // namespace oa::app

@@ -191,6 +191,7 @@ struct PresenceMutators;
 } // namespace oa::netgame
 
 namespace oa::data::saves {
+struct ContentBrain;
 struct ContentMutator;
 } // namespace oa::data::saves
 
@@ -4890,6 +4891,23 @@ class Runtime final : public menu::Host,
     /// @return the mutators, or an empty list when this match applied none
     [[nodiscard]] std::vector<oa::data::saves::ContentMutator> played_mutators() const;
 
+    /// The brains that played this match's computer players, as seats text.
+    ///
+    /// This machine's seated brains are named with their package SHA-256.
+    /// Other machines' computers are named from the room's labels kept at the
+    /// start, without a package. Empty when no brain played.
+    ///
+    /// @return the seats text, or empty when no brain played
+    [[nodiscard]] std::string played_brains_text() const;
+
+    /// The brains that played this match's computer players, for the content note.
+    ///
+    /// One entry per brain, in player order. The level is the level's name and
+    /// the name is the brain's name. Empty when no brain played.
+    ///
+    /// @return those brains, or an empty list when none played
+    [[nodiscard]] std::vector<oa::data::saves::ContentBrain> played_brains() const;
+
     /// Why a recording's loadout cannot be played on this machine.
     ///
     /// Empty when the text is the canonical loadout and every mutator is
@@ -5052,6 +5070,15 @@ class Runtime final : public menu::Host,
     ///
     /// @param lobby the battle room, this machine's or a launch's
     void note_room_computers(oa::ui::frontend_multiplayer::Lobby& lobby);
+
+    /// Remembers the brains other machines' computers play, as the room shows them.
+    ///
+    /// Called when a network match has started, from the room as it stands
+    /// then. This machine's own computers are not among them: those come from
+    /// the brains the match seated. A later match drops what this one remembered.
+    ///
+    /// @param lobby the battle room the match started from
+    void keep_remote_played_brains(const oa::ui::frontend_multiplayer::Lobby& lobby);
 
     /// The choices of the computer players this machine runs.
     ///
@@ -18950,6 +18977,20 @@ class Runtime final : public menu::Host,
     std::optional<std::vector<BrainSeat>> pending_brain_seats_;
     /// The brains the running match seated. Empty when no match is running.
     std::vector<BrainSeat> seated_brains_;
+
+    /// A brain another machine's computer plays, as the room showed it.
+    struct RemotePlayedBrain {
+        int32_t player{};         ///< the player, 0 to 9
+        std::string id{};         ///< the brain's id
+        std::string name{};       ///< the brain's name
+        std::string version{};    ///< the brain's version
+        std::string level_id{};   ///< the level's id
+        std::string level_name{}; ///< the level's name
+    };
+
+    /// Brains other machines' computers play in the running match. Empty when
+    /// this match started with none, and once the next match starts.
+    std::vector<RemotePlayedBrain> remote_played_brains_{};
     /// The seats the last successful load handed on. Cleared when that load
     /// stops before its match.
     oa::data::brain_library::Seats loaded_brain_seats_{};

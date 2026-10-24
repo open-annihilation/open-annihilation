@@ -5,6 +5,8 @@
 
 #include "oa/data/content_bundles.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -119,6 +121,28 @@ bool mutator_tokens(std::string_view value, std::string& sha256, std::string& id
     return true;
 }
 
+/// Splits a `brain` value into a player and an id, when both are well formed.
+///
+/// The player is one digit, 0 to 9. The id is lower-case kebab-case, and
+/// nothing follows it.
+///
+/// @param value the text after `brain:`
+/// @param[out] player the player, when the value is well formed
+/// @param[out] id the id, when the value is well formed
+/// @return true when the value is one player, one space and one kebab-case id
+bool brain_tokens(std::string_view value, int32_t& player, std::string& id) {
+    if (value.size() < 3 || value[1] != ' ')
+        return false;
+    if (value[0] < '0' || value[0] > '9')
+        return false;
+    const std::string_view name = value.substr(2);
+    if (name.find(' ') != std::string_view::npos || !kebab_id(name))
+        return false;
+    player = static_cast<int32_t>(value[0] - '0');
+    id.assign(name);
+    return true;
+}
+
 /// Joins English names with a comma and a space.
 ///
 /// @param names the names
@@ -183,6 +207,11 @@ std::string content_record_text(const ContentRecord& record) {
             has_line_break(mutator.version) || has_line_break(mutator.name))
             return {};
     }
+    for (const ContentBrain& brain : record.brains) {
+        if (has_line_break(brain.id) || has_line_break(brain.version) ||
+            has_line_break(brain.level) || has_line_break(brain.name))
+            return {};
+    }
     std::string text = "base-game: " + record.base_game + "\nexpansions: ";
     for (std::size_t index = 0; index < record.expansions.size(); ++index) {
         if (index != 0)
@@ -203,6 +232,28 @@ std::string content_record_text(const ContentRecord& record) {
         text += mutator.name;
         text += '\n';
     }
+    std::vector<const ContentBrain*> brains;
+    brains.reserve(record.brains.size());
+    for (const ContentBrain& brain : record.brains)
+        brains.push_back(&brain);
+    std::stable_sort(
+        brains.begin(), brains.end(), [](const ContentBrain* left, const ContentBrain* right) {
+            return left->player < right->player;
+        }
+    );
+    for (const ContentBrain* brain : brains) {
+        text += "brain: ";
+        text += std::to_string(brain->player);
+        text += ' ';
+        text += brain->id;
+        text += "\nbrain-version: ";
+        text += brain->version;
+        text += "\nbrain-level: ";
+        text += brain->level;
+        text += "\nbrain-name: ";
+        text += brain->name;
+        text += '\n';
+    }
     return text;
 }
 
@@ -214,9 +265,14 @@ ContentRecord content_record_from_text(std::string_view text) {
     bool saw_base = false;
     // How many mutators a note keeps. Further mutator lines are skipped.
     constexpr std::size_t most_mutators = 32;
+    // How many brains a note keeps. Further brain lines are skipped.
+    constexpr std::size_t most_brains = 10;
     std::vector<ContentMutator> mutators;
+    std::vector<ContentBrain> brains;
     bool follow = false;
     bool keep = false;
+    bool brain_follow = false;
+    bool brain_keep = false;
     std::size_t at = 0;
     while (at < text.size()) {
         const std::size_t end = text.find('\n', at);
@@ -250,6 +306,29 @@ ContentRecord content_record_from_text(std::string_view text) {
         } else if (take_field(line, "mutator-name", value)) {
             if (follow && keep)
                 mutators.back().name = std::move(value);
+        } else if (take_field(line, "brain", value)) {
+            int32_t player = 0;
+            std::string brain_id;
+            brain_follow = true;
+            if (brains.size() >= most_brains || !brain_tokens(value, player, brain_id)) {
+                brain_keep = false;
+            } else {
+                brains.push_back(
+                    ContentBrain{
+                        player, std::move(brain_id), std::string{}, std::string{}, std::string{}
+                    }
+                );
+                brain_keep = true;
+            }
+        } else if (take_field(line, "brain-version", value)) {
+            if (brain_follow && brain_keep)
+                brains.back().version = std::move(value);
+        } else if (take_field(line, "brain-level", value)) {
+            if (brain_follow && brain_keep)
+                brains.back().level = std::move(value);
+        } else if (take_field(line, "brain-name", value)) {
+            if (brain_follow && brain_keep)
+                brains.back().name = std::move(value);
         }
         if (end == std::string_view::npos)
             break;
@@ -271,8 +350,10 @@ ContentRecord content_record_from_text(std::string_view text) {
         comma = next + 1;
     }
     record = content_record_from(base, listed, mod);
-    if (record.present)
+    if (record.present) {
         record.mutators = std::move(mutators);
+        record.brains = std::move(brains);
+    }
     return record;
 }
 

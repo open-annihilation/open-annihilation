@@ -11,13 +11,16 @@ built-in order tick, so this brain places four frames late in the build
 window and then stops. The engine's computer player takes the strike the
 loopback check still requires. It runs one headless loopback of 600 ticks
 with a computer player, and requires the host's "plays steady-commander 1.2
-at firm" line once and the loopback's own pass line. The script exits 77
-when no game data is installed.
+at firm" line once and the loopback's own pass line. It then records that
+loopback and plays the recording back: playback names the brain and seats
+none, and the note beside the recording lists it. The script exits 77 when
+no game data is installed.
 """
 
 import argparse
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import tempfile
@@ -160,6 +163,110 @@ def lines_with(output, phrase):
     return [line for line in output.splitlines() if phrase in line]
 
 
+def run_game(native, game_dir, work, arguments):
+    """Runs one headless game. Returns its status and combined output."""
+    environment = dict(
+        os.environ,
+        SDL_VIDEO_DRIVER="dummy",
+        SDL_AUDIO_DRIVER="dummy",
+        SDL_RENDER_DRIVER="software",
+    )
+    command = [
+        *RUNNER,
+        str(native),
+        "--game-dir",
+        str(game_dir),
+        "--skip-intro",
+        "--mute",
+        *arguments,
+    ]
+    result = subprocess.run(
+        command,
+        cwd=work,
+        env=environment,
+        timeout=RUN_TIMEOUT_SECONDS,
+        check=False,
+        capture_output=True,
+        text=True,
+        errors="replace",
+    )
+    return result.returncode, result.stdout + result.stderr
+
+
+def player_of(output):
+    """The player the host's plays line names, or None."""
+    found = re.search(r"player (\d+) plays steady-commander 1\.2 at firm", output)
+    if found is None:
+        return None
+    return found.group(1)
+
+
+def note_lists_brain(path, player):
+    """True when the note beside path names that player at firm."""
+    note = Path(str(path) + ".oa-content")
+    if not note.is_file():
+        return False
+    lines = note.read_text(encoding="utf-8", errors="replace").splitlines()
+    try:
+        at = lines.index(f"brain: {player} steady-commander")
+    except ValueError:
+        return False
+    following = lines[at + 1:at + 3]
+    return following == ["brain-version: 1.2", "brain-level: Firm"]
+
+
+def record_and_play(native, game_dir, work, user, preferences):
+    """Records the loopback and plays it back. Raises ScriptFailure when one differs."""
+    recorded = work / "brain.tad"
+    common = [
+        "--headless-check",
+        "--user-folder",
+        str(user),
+        "--preferences-file",
+        str(preferences),
+    ]
+    status, output = run_game(native, game_dir, work, [
+        *common,
+        "--net-loopback-check",
+        "600",
+        "--net-loopback-computer",
+        "--net-record",
+        str(recorded),
+    ])
+    player = player_of(output)
+    played = lines_with(output, PLAYS)
+    if len(played) != 1 or player is None:
+        print(output, end="" if output.endswith("\n") or output == "" else "\n")
+        raise ScriptFailure(
+            f"the recorded host played Steady Commander {len(played)} times, not once"
+        )
+    if BUILT not in output or status != 0:
+        print(output, end="" if output.endswith("\n") or output == "" else "\n")
+        raise ScriptFailure(f"the recorded loopback exited with {status}")
+    if not note_lists_brain(recorded, player):
+        print(output, end="" if output.endswith("\n") or output == "" else "\n")
+        raise ScriptFailure(f"the note beside {recorded.name} does not list player {player}")
+    play_status, play_output = run_game(native, game_dir, work, [
+        *common,
+        "--play-demo",
+        str(recorded),
+        "--demo-unit-table",
+        "strict",
+        "--match-ticks",
+        "300",
+    ])
+    demo_line = f"demo brains: player {player} played steady-commander 1.2 at firm"
+    demo_lines = [line for line in play_output.splitlines() if line == demo_line]
+    if len(demo_lines) != 1 or "plays steady-commander" in play_output or play_status != 0:
+        print(play_output, end="" if play_output.endswith("\n") or play_output == "" else "\n")
+        raise ScriptFailure(
+            f"playback of player {player} exited with {play_status}, "
+            f"with {len(demo_lines)} demo brain lines"
+        )
+    print(f"net brain: recorded {recorded.name} naming player {player}")
+    print(f"net brain: playback logs the brain for player {player} and seats none")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", type=Path, required=True)
@@ -220,6 +327,7 @@ def main():
                 raise ScriptFailure("the loopback did not report that the computer player built")
             if result.returncode != 0:
                 raise ScriptFailure(f"open-annihilation exited with {result.returncode}")
+            record_and_play(native, game_dir, work, user, preferences)
         except ScriptFailure as failure:
             print(output, end="" if output.endswith("\n") or output == "" else "\n")
             print(f"net brain: {failure}", flush=True)

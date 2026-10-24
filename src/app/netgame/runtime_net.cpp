@@ -1292,6 +1292,9 @@ struct NetworkPlay::NetHost {
              // at the host's.
              .run_unit_limit = state.hosting}
         );
+        // Other machines' computers, as the room showed them. This machine's
+        // own are the brains the match just seated.
+        runtime.keep_remote_played_brains(lobby);
         mp::unit_sync_destroy(lobby);
         if (!runtime.match_ || runtime.altitude_sight_blocked_)
             throw std::runtime_error(
@@ -1549,6 +1552,13 @@ struct NetworkPlay::NetHost {
                 << "demo mutators: the loadout is too long for the recording and is left out\n";
         } else {
             setup.loadout_text = loadout_text;
+        }
+        // Empty text writes no sector, so a game without brains is unchanged.
+        const std::string brains_text = runtime.played_brains_text();
+        if (brains_text.size() > oa::session::demo::recording_brains_most_bytes) {
+            std::cerr << "demo brains: the seats are too long for the recording and are left out\n";
+        } else {
+            setup.brains_text = brains_text;
         }
         const auto add_player = [&](uint8_t slot) {
             const auto& player = world.game.players[slot];

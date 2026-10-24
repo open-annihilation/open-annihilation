@@ -406,6 +406,30 @@ void test_recording_without_mutators_sector() {
     );
 }
 
+void test_brains_sector_round_trips() {
+    Fixture fixture;
+    const std::string text = "steady-commander 1";
+    const Bytes body(text.begin(), text.end());
+    fixture.demo.sectors.push_back({static_cast<uint32_t>(tad::SectorType::brains), body});
+    const Bytes bytes = encoded(fixture.demo);
+    const auto result = tad::parse(bytes);
+    require(result.ok(), "brains sector parses");
+    const auto* sector = tad::find_sector(*result.demo, tad::SectorType::brains);
+    require(sector != nullptr && tad::sector_text(*sector) == text, "brains sector text");
+    require(sector != nullptr && same(sector->data, body), "brains sector bytes");
+    require(encoded(*result.demo) == bytes, "brains sector round trip");
+}
+
+void test_recording_without_brains_sector() {
+    const Fixture fixture;
+    const auto result = tad::parse(encoded(fixture.demo));
+    require(result.ok(), "recording without the brains sector parses");
+    require(result.demo->sectors.size() == 3, "no extra sector");
+    require(
+        tad::find_sector(*result.demo, tad::SectorType::brains) == nullptr, "brains sector absent"
+    );
+}
+
 void test_unknown_sector_is_kept() {
     Fixture fixture;
     const Bytes extra{0x10, 0x20, 0x30};
@@ -439,6 +463,8 @@ int main() {
         test_malformed();
         test_mutators_sector_round_trips();
         test_recording_without_mutators_sector();
+        test_brains_sector_round_trips();
+        test_recording_without_brains_sector();
         test_unknown_sector_is_kept();
         std::cout << "tad-format: ok\n";
         return 0;
