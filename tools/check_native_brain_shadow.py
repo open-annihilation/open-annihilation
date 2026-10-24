@@ -176,6 +176,7 @@ def classic_skirmish(native, game_dir, workdir, name, *extra):
 
 def check_classic(native, game_dir, workdir, brain, sections):
     ridge = workdir / "ridge.yaml"
+    ridge.parent.mkdir(parents=True, exist_ok=True)
     ridge.write_text(RIDGE, encoding="utf-8")
     shadow = ["--brain-shadow", str(brain), "--brain-shadow-sections", sections]
     classic_skirmish(
