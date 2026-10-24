@@ -222,6 +222,27 @@ void fill_shared(SeatCalls& calls) noexcept {
     calls.write_stance = write_stance_of;
     calls.section = section_noop;
     calls.refuse = nullptr;
+    calls.knowledge = nullptr;
+}
+
+const sim::ai::ComputerKnowledge*
+match_knowledge(void* context, uint8_t player, uint32_t* refreshed_tick) {
+    const ComputerHost* host = host_of(context);
+    if (host == nullptr || host->context == nullptr)
+        return nullptr;
+    try {
+        auto& match = *static_cast<Match*>(host->context);
+        const uint32_t refreshed = match.sightings(player).refreshed_tick;
+        const sim::ai::ComputerKnowledge* knowledge =
+            sim::ai::computer_player_knowledge(sim::ai::match_computer_players(match), player);
+        if (knowledge == nullptr)
+            return nullptr;
+        if (refreshed_tick != nullptr)
+            *refreshed_tick = refreshed;
+        return knowledge;
+    } catch (const std::exception&) {
+        return nullptr;
+    }
 }
 
 } // namespace
@@ -236,6 +257,7 @@ SeatCalls seat_calls_for_match(Match& match) {
     calls.attack_queued = match_attack_queued;
     calls.build_shaped = match_build_shaped;
     calls.weapon_reaches_slot = match_weapon_slot;
+    calls.knowledge = match_knowledge;
     return calls;
 }
 

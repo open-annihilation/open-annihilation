@@ -7,6 +7,7 @@
 
 local types = {}
 
+local flag_downloadable = 0x00000020
 local flag_builder = 0x00000040
 local flag_can_fly = 0x00000800
 local flag_amphibious = 0x00200000
@@ -89,7 +90,27 @@ local function categories_of(list)
     return table.concat(parts, " ")
 end
 
-local function row_of(record)
+local function build_ids_of(game, index, builder)
+    if builder ~= 1 or game == nil or type(game.build_list) ~= "function" then
+        return {}
+    end
+    local list = game.build_list(index)
+    if type(list) ~= "table" then
+        return {}
+    end
+    local ids = {}
+    for slot = 1, #list do
+        local entry = list[slot]
+        local id = 0
+        if (type(entry) == "userdata" or type(entry) == "table") and type(entry.index) == "function" then
+            id = whole(entry:index())
+        end
+        ids[#ids + 1] = id
+    end
+    return ids
+end
+
+local function row_of(record, game, index)
     local row = {
         unit_name = "",
         side = "",
@@ -105,6 +126,10 @@ local function row_of(record)
         footprint_x = 0,
         footprint_z = 0,
         extracts_metal = nil,
+        downloadable = 0,
+        has_build_list = 0,
+        build_ids = {},
+        build_count = 0,
     }
     if type(record) ~= "userdata" and type(record) ~= "table" then
         return row
@@ -113,11 +138,16 @@ local function row_of(record)
     row.side = cut(record.side, 31)
     row.categories = categories_of(record.category)
     row.ai_weight = cut(record.ai_weight, 63)
+    row.downloadable = flag_bit(record.downloadable, 1)
+    row.has_build_list = flag_bit(record.builder, 1)
     row.flags = flag_bit(record.builder, flag_builder)
         | flag_bit(record.canfly, flag_can_fly)
         | flag_bit(record.amphibious, flag_amphibious)
+        | flag_bit(record.downloadable, flag_downloadable)
     row.abilities = flag_bit(record.cancapture, ability_capture)
         | flag_bit(record.commander, ability_commander)
+    row.build_ids = build_ids_of(game, index, row.has_build_list)
+    row.build_count = #row.build_ids
     row.bm_code = whole(record.bmcode)
     row.makes_metal = whole(record.makesmetal)
     row.min_water_depth = whole(record.minwaterdepth)
@@ -142,7 +172,7 @@ function types.load(game)
     end
     local count = #catalog
     for index = 1, count do
-        loaded[index] = row_of(catalog[index])
+        loaded[index] = row_of(catalog[index], game, index)
     end
     return loaded
 end

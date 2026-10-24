@@ -677,10 +677,13 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
             log_call(seat, "start", nullptr, 0);
 
             struct EndLog {
-                Seat& held;
+                Seat* held;
 
-                ~EndLog() { log_end_turn(held); }
-            } end_log{seat};
+                ~EndLog() {
+                    if (held != nullptr)
+                        log_end_turn(*held);
+                }
+            } end_log{&seat};
 
             StartBox starting;
             starting.seat = &seat;
@@ -693,6 +696,11 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
             if (!seat.sandbox->call("start", start_hooks, error)) {
                 outcome.start_instructions = seat.sandbox->instructions_used();
                 note_call_instructions(seat);
+                // Failing closes the seat, so its prints and its log turn
+                // are handed over first.
+                note_prints(seat);
+                log_end_turn(seat);
+                end_log.held = nullptr;
                 fail_host(outcome, *brains, player, error);
                 return outcome;
             }

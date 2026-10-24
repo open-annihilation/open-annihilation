@@ -260,6 +260,46 @@ bool downloads_allowed(match_runtime::Match& match) noexcept {
     return players->downloadables_restricted == 0;
 }
 
+uint32_t list_cap(const Seat& seat) noexcept {
+    if (seat.match != nullptr) {
+        const uint32_t kept = data::limits::build_list_kept(seat.match->limits().build_lists) + 1;
+        return kept < list_room ? kept : list_room;
+    }
+    if (seat.calls.build_kept != 0 && seat.calls.build_kept < list_room)
+        return seat.calls.build_kept;
+    return list_room;
+}
+
+uint32_t collect_run_ids(
+    const uint16_t* runs,
+    uint32_t run_length,
+    uint32_t type_count,
+    uint16_t unit_type,
+    bool builder,
+    uint16_t* out,
+    uint32_t cap
+) noexcept {
+    if (runs == nullptr || out == nullptr || unit_type == 0 || unit_type >= type_count || !builder)
+        return 0;
+    const uint16_t* run = runs;
+    const uint16_t* const end = run + run_length;
+    for (uint32_t type_index = 0; type_index < type_count && run < end; ++type_index) {
+        const uint32_t count = *run++;
+        const auto present = static_cast<uint32_t>(end - run);
+        const uint32_t length = count < present ? count : present;
+        if (type_index == unit_type) {
+            uint32_t kept = 0;
+            for (uint32_t slot = 0; slot < length && kept < cap; ++slot) {
+                if (run[slot] != 0 && run[slot] < type_count)
+                    out[kept++] = run[slot];
+            }
+            return kept;
+        }
+        run += length;
+    }
+    return 0;
+}
+
 uint32_t collect_build_ids(
     match_runtime::Match& match, uint16_t unit_type, uint16_t* out, uint32_t cap
 ) noexcept {
@@ -320,7 +360,9 @@ int game_parse_profile(lua_State* state) {
 
 int game_build_list(lua_State* state) {
     Seat* seat = seat_of(state);
-    if (seat == nullptr || seat->match == nullptr) {
+    const bool tool_runs =
+        seat != nullptr && seat->match == nullptr && seat->calls.build_runs != nullptr;
+    if (seat == nullptr || (seat->match == nullptr && !tool_runs)) {
         lua_pushnil(state);
         return 1;
     }
@@ -328,10 +370,26 @@ int game_build_list(lua_State* state) {
     if (!resolve_unit_type(state, 1, "build_list", &unit_type))
         return 0;
     uint16_t ids[list_room];
-    const uint32_t kept_limit =
-        data::limits::build_list_kept(seat->match->limits().build_lists) + 1;
-    const uint32_t cap = kept_limit < list_room ? kept_limit : list_room;
-    const uint32_t kept = collect_build_ids(*seat->match, unit_type, ids, cap);
+    const uint32_t cap = list_cap(*seat);
+    uint32_t kept = 0;
+    if (seat->match != nullptr) {
+        kept = collect_build_ids(*seat->match, unit_type, ids, cap);
+    } else {
+        const oa::World* world = seat->calls.host.world;
+        const uint32_t type_count = world != nullptr ? world->unit_def_count : 0;
+        bool builder = false;
+        if (world != nullptr && world->unit_defs != nullptr && unit_type < type_count)
+            builder = (world->unit_defs[unit_type].flags & OA_UNIT_DEF_FLAG_BUILDER) != 0;
+        kept = collect_run_ids(
+            seat->calls.build_runs,
+            seat->calls.build_run_length,
+            type_count,
+            unit_type,
+            builder,
+            ids,
+            cap
+        );
+    }
     lua_getglobal(state, "units");
     const int units = lua_gettop(state);
     lua_createtable(state, static_cast<int>(kept), 0);
@@ -475,7 +533,7 @@ void install_profile(lua_State* state, Seat& seat) {
         lua_pop(state, 1);
         lua_newtable(state);
     }
-    if (seat.match == nullptr) {
+    if (seat.match == nullptr && seat.calls.build_runs == nullptr) {
         lua_pushnil(state);
         set_game_field(state, seat, "build_list");
         lua_pushnil(state);
@@ -490,9 +548,21 @@ void install_profile(lua_State* state, Seat& seat) {
 
     lua_pushcfunction(state, game_build_list);
     set_game_field(state, seat, "build_list");
-    const uint32_t cap = data::limits::build_list_kept(seat.match->limits().build_lists) + 1;
+    uint32_t cap = list_room;
+    if (seat.match != nullptr)
+        cap = data::limits::build_list_kept(seat.match->limits().build_lists) + 1;
+    else if (seat.calls.build_kept != 0)
+        cap = seat.calls.build_kept;
     lua_pushinteger(state, static_cast<lua_Integer>(cap));
     set_game_field(state, seat, "build_list_cap");
+    if (seat.match == nullptr) {
+        lua_pushnil(state);
+        set_game_field(state, seat, "downloadables_allowed");
+        lua_pushnil(state);
+        lua_setfield(state, -2, "strengths");
+        lua_setglobal(state, "brain");
+        return;
+    }
     lua_pushboolean(state, downloads_allowed(*seat.match) ? 1 : 0);
     set_game_field(state, seat, "downloadables_allowed");
     lua_pushcfunction(state, brain_strengths);

@@ -568,14 +568,16 @@ void Runtime::check_text_fit() {
     /// would replace a verdict the check set by hand.
     const auto inject_brains = [&] {
         LibraryHost& host = library_host();
-        // Only this check's own listing counts: a catalogue may list a brain
-        // with the same key under another registry.
-        for (const library::Listing& listed : host.model.inputs.listings) {
-            if (listed.kind == library::Kind::brain && listed.key == "steady-commander" &&
-                listed.registry == "fit-core")
-                return;
-        }
+        // This check's own brains are put in again whole, so a model that
+        // kept their listings but not their entries gets both back. A
+        // catalogue's brain with the same key under another registry stays.
         library::Inputs inputs = host.model.inputs;
+        std::erase_if(inputs.listings, [](const library::Listing& listed) {
+            return listed.kind == library::Kind::brain && listed.registry == "fit-core";
+        });
+        std::erase_if(inputs.installed, [](const library::Installed& held) {
+            return held.kind == library::Kind::brain && held.registry == "fit-core";
+        });
         bool listed = false;
         for (const library::Registry& registry : inputs.registries)
             if (registry.id == "fit-core")

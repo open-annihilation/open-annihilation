@@ -639,13 +639,48 @@ static int method_metal_feature(lua_State* lua) {
     return 1;
 }
 
+int push_host_spots(lua_State* lua, const Seat& seat) {
+    const auto& host = seat.calls.host;
+    lua_newtable(lua);
+    const int list = lua_gettop(lua);
+    lua_Integer row = 1;
+    uint64_t scanned = 0;
+    for (int32_t z = 0; z < host.map_cells_z; ++z) {
+        for (int32_t x = 0; x < host.map_cells_x; ++x) {
+            ++scanned;
+            bool feature = false;
+            try {
+                feature = host.metal_feature(host.context, x, z);
+            } catch (...) {
+                feature = false;
+            }
+            if (!feature)
+                continue;
+            lua_createtable(lua, 0, 2);
+            lua_pushinteger(lua, static_cast<lua_Integer>(x));
+            lua_setfield(lua, -2, "cx");
+            lua_pushinteger(lua, static_cast<lua_Integer>(z));
+            lua_setfield(lua, -2, "cz");
+            lua_rawseti(lua, list, row);
+            ++row;
+        }
+    }
+    script_host::charge_work(lua, scanned * script_host::element_charge);
+    return 1;
+}
+
 static int method_metal_spots(lua_State* lua) {
     if (!map_self(lua, "metal_spots"))
         return 0;
-    Seat* seat = live_seat(lua);
+    Seat* seat = seat_of(lua);
     if (seat == nullptr)
         return 0;
-    return push_spots(lua, *seat->match, metal_spot);
+    if (seat->match != nullptr)
+        return push_spots(lua, *seat->match, metal_spot);
+    if (seat->calls.host.metal_feature == nullptr || seat->calls.host.map_cells_x <= 0 ||
+        seat->calls.host.map_cells_z <= 0)
+        return 0;
+    return push_host_spots(lua, *seat);
 }
 
 static int method_geo_spots(lua_State* lua) {
