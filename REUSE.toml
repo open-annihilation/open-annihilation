@@ -199,6 +199,12 @@ path = ["src/sim/brains/tests/data/**", "src/sim/brains/tests/classic-sample/**"
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
 SPDX-License-Identifier = "GPL-3.0-only"
 
+# The learned scout example's network. A .oann file cannot hold a header.
+[[annotations]]
+path = "brains/examples/learned-scout/nets/*.oann"
+SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
+SPDX-License-Identifier = "GPL-3.0-only"
+
 # The made-up Ridge maps the map-rule tests read. An OTA has no comment
 # style the licence check knows, so these carry no header lines.
 [[annotations]]
