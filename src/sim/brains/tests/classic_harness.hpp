@@ -153,6 +153,13 @@ inline void watch(TickLog& builtin, TickLog& classic) {
     active_classic = &classic;
 }
 
+/// Points the section callbacks at nothing, so a game played after the logs
+/// are gone records nowhere.
+inline void unwatch() {
+    active_builtin = nullptr;
+    active_classic = nullptr;
+}
+
 /// The standing move order stored in a unit's flags.
 inline uint32_t standing_move(const oa::Unit& unit) noexcept {
     return (unit.flags & OA_UNIT_FLAG_MOVE_ORDER_MASK) >> OA_UNIT_FLAG_MOVE_ORDER_SHIFT;

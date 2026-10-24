@@ -51,6 +51,7 @@ using oa::test::classic_harness::standing_bits;
 using oa::test::classic_harness::standing_fire;
 using oa::test::classic_harness::standing_move;
 using oa::test::classic_harness::tick_players;
+using oa::test::classic_harness::unwatch;
 using oa::test::classic_harness::watch;
 using oa::test::computer_fake::ARMCK;
 using oa::test::computer_fake::ARMCOM;
@@ -219,6 +220,7 @@ void step(Twin& twin, uint32_t turn) {
     tick_players(twin.builtin_players.state, twin.builtin, twin.builtin_host);
     play_classic(*twin.seat, turn);
     refresh_knowledge(twin.classic_players.state, twin.classic_world, 1);
+    unwatch();
     if (twin.builtin_log.markers != twin.classic_log.markers) {
         std::fprintf(stderr, "markers differ at tick %u\n", turn);
         CHECK(false);
