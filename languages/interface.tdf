@@ -8746,6 +8746,14 @@
 	it=Cerca aggiornamenti;
 	}
 
+[Seat {n}]
+	{
+	de=Platz {n};
+	fr=Place {n};
+	es=Puesto {n};
+	it=Posto {n};
+	}
+
 [Sees every unit on the map]
 	{
 	de=Sieht jede Einheit auf der Karte;

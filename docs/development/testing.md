@@ -1233,6 +1233,9 @@ checking words. The dry run is the Library worker's.
 main menu at four window sizes on a fixture feed of made-up brains, then
 on the runtime's own feed after two packages are written into the scratch
 Brains folder.
+`native-brain-seat-buttons` (`--check-brain-seat-buttons`) checks each computer
+row's brain button on the skirmish setup at 640x480 and 1280x720, in a scratch
+folder: the label, Tab, the picker, the hover card and the brains a start seats.
 `native-replay-loadout` starts the game with
 `--check-replay-loadout`
 and two installed mutators. It refuses a loadout that cannot be read or

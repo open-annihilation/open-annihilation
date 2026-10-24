@@ -9,8 +9,9 @@
 // files screen and the folder chooser paint through their own painter, which
 // records the same way. A startup notice drawn by the game's own windows is
 // opened too; that painter keeps no record. SKIRMISH is painted with
-// Mutators reading "Mutators" and "Mutators (5)", and NEWGAME with the
-// button, in every language and both sizes; its words must read whole.
+// Mutators reading "Mutators" and "Mutators (5)", with three computer rows'
+// brain buttons, one of them a long name, and NEWGAME with the button, in
+// every language and both sizes; Mutators' words must read whole.
 // The Brains tab's details are painted too: one brain not installed and one
 // installed, at both sizes and at 960x540, Compact on its details page.
 // "Load with the built-in player?" is painted with two 64-byte names.
@@ -27,6 +28,10 @@
 #include "oa/app/game_files_import.hpp"
 #include "oa/app/mutators_memory.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/data/brain_library/library.hpp"
+#include "oa/data/brain_library/seats.hpp"
+#include "oa/formats/oabrain/manifest.hpp"
+#include "oa/formats/oamut/manifest.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
@@ -46,6 +51,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -207,6 +213,57 @@ SDL_Window* fit_window(void* context) {
 /// @return the renderer
 SDL_Renderer* fit_renderer(void* context) {
     return static_cast<FitWindow*>(context)->renderer;
+}
+
+/// One long-named brain written under the player's Brains folder for the
+/// seat buttons, and removed when the paint is done. The destructor does
+/// not throw.
+struct LongBrainPackage {
+    fs::path folder{}; ///< the package folder
+
+    LongBrainPackage() = default;
+    ~LongBrainPackage() {
+        std::error_code removed;
+        fs::remove_all(folder, removed);
+    }
+
+    LongBrainPackage(const LongBrainPackage&) = delete;
+    LongBrainPackage& operator=(const LongBrainPackage&) = delete;
+};
+
+/// Writes ridge-long-beacon, a brain whose name does not fit a seat button.
+///
+/// @param folder the brain's folder
+void write_long_brain(const fs::path& folder) {
+    oa::formats::oabrain::Manifest manifest;
+    manifest.format = oa::formats::oabrain::format_version;
+    manifest.id = "ridge-long-beacon";
+    manifest.name = "Ridge Long Beacon Watching The Far Western Hills Past The Lantern Line";
+    manifest.version.major = 1;
+    manifest.version.parts = 1;
+    manifest.author.name = "Ridge Testers";
+    manifest.description = "A made-up brain with a long name.";
+    manifest.tags = {"teaching"};
+    manifest.works_with.push_back(oa::formats::oamut::Condition{"*", {}, {}});
+    oa::formats::oabrain::Level level;
+    level.id = "far";
+    level.name = "Far Watch";
+    level.difficulty = oa::formats::oabrain::Difficulty::medium;
+    manifest.levels.push_back(std::move(level));
+    if (!folder.parent_path().empty())
+        fs::create_directories(folder);
+    const std::string text = oa::formats::oabrain::write_manifest(manifest);
+    std::ofstream manifest_out(
+        folder / std::string(oa::formats::oabrain::manifest_file), std::ios::binary | std::ios::trunc
+    );
+    manifest_out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    require(static_cast<bool>(manifest_out), "could not write the long brain");
+    std::ofstream script_out(
+        folder / std::string(oa::formats::oabrain::default_entry), std::ios::binary | std::ios::trunc
+    );
+    constexpr std::string_view script = "local brain = {}\nreturn brain\n";
+    script_out.write(script.data(), static_cast<std::streamsize>(script.size()));
+    require(static_cast<bool>(script_out), "could not write the long brain's script");
 }
 
 /// Ends the Game files screen after the pass that painted it.
@@ -723,6 +780,42 @@ void Runtime::check_text_fit() {
             paint("skirmish/mutators-five");
             require_whole_words("skirmish/mutators-five");
             replace_setup_mutators(mutators_memory::Setup::skirmish, {});
+            // Three computer rows, one of them a brain whose name is longer
+            // than the button. The package is removed before the next screen.
+            {
+                require(!user_folder_.empty(), "the run has no folder of the player's own");
+                LongBrainPackage package;
+                package.folder = user_folder_ /
+                                 std::string(oa::data::brain_library::brains_folder_name) /
+                                 "ridge-long-beacon";
+                write_long_brain(package.folder);
+                const auto saved_slots = skirmish_settings_.slots;
+                const oa::data::brain_library::Seats saved_seats =
+                    setup_brain_seats(oa::data::brain_library::Setup::skirmish);
+                constexpr int32_t computer_rows[] = {1, 2, 3};
+                for (const int32_t slot : computer_rows) {
+                    if (static_cast<std::size_t>(slot) < skirmish_settings_.slots.size()) {
+                        skirmish_settings_.slots[static_cast<std::size_t>(slot)].controller =
+                            entry::controller::computer;
+                    }
+                }
+                reload_installed_brains();
+                oa::data::brain_library::Seat seat;
+                seat.place = 1;
+                seat.brain = "ridge-long-beacon";
+                seat.level = "far";
+                oa::data::brain_library::Seats chosen;
+                chosen.seats.push_back(std::move(seat));
+                setup_brain_seats(oa::data::brain_library::Setup::skirmish) = std::move(chosen);
+                skirmish::setup(state_, skirmish_settings_, preferences_, skirmish_ui_, *this);
+                paint("skirmish/brain-seats");
+                skirmish_settings_.slots = saved_slots;
+                setup_brain_seats(oa::data::brain_library::Setup::skirmish) = saved_seats;
+                std::error_code removed;
+                fs::remove_all(package.folder, removed);
+                reload_installed_brains();
+                skirmish::setup(state_, skirmish_settings_, preferences_, skirmish_ui_, *this);
+            }
             load(Screen::single_player);
             load(Screen::new_campaign);
             paint("newgame/mutators");

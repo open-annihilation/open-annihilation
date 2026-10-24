@@ -391,4 +391,43 @@ bool nearer_gadget(
     return false;
 }
 
+std::optional<PlaceRect> place_beside(
+    const PlaceRect& anchor,
+    std::span<const PlaceRect> others,
+    const PlaceRect& room,
+    int32_t gap,
+    int32_t height,
+    int32_t least_width,
+    int32_t most_width
+) {
+    if (height <= 0 || most_width <= 0)
+        return std::nullopt;
+    const int32_t x = anchor.x + anchor.width + gap;
+    const int32_t y = anchor.y + (anchor.height - height) / 2;
+    bool limited = false;
+    int32_t first_x = 0;
+    for (const PlaceRect& other : others) {
+        if (other.width <= 0 || other.height <= 0)
+            continue;
+        const bool shares = other.y < y + height && y < other.y + other.height;
+        if (!shares || other.x <= x)
+            continue;
+        if (!limited || other.x < first_x) {
+            limited = true;
+            first_x = other.x;
+        }
+    }
+    int32_t width = most_width;
+    if (limited)
+        width = first_x - gap - x;
+    if (width > most_width)
+        width = most_width;
+    if (width < least_width)
+        return std::nullopt;
+    const PlaceRect button{x, y, width, height};
+    if (!inside(button, room) || meets_any(button, others))
+        return std::nullopt;
+    return button;
+}
+
 } // namespace oa::ui::frontend_state

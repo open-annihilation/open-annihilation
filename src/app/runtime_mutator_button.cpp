@@ -12,6 +12,7 @@
 // screen's Tab order. Y opens the picker. In the battle room a launch that
 // locks the host's options draws the button disabled.
 
+#include "oa_button_focus.hpp"
 #include "oa_layer.hpp"
 #include "touch_state.hpp"
 #include "oa/app/mutators_memory.hpp"
@@ -43,7 +44,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <optional>
@@ -100,7 +100,6 @@ constexpr kit::ControlId button_id = 1;
 constexpr int32_t least_gap = 2;
 /// The gap MORE MAPS…'s rule leaves, where the button falls back to it.
 constexpr int32_t anchor_gap = 4;
-constexpr int32_t column_slack = 10;
 /// The waiting line beside START, at its widest, in points.
 constexpr int32_t reason_line_width = 400;
 
@@ -160,163 +159,6 @@ bool takes_focus(const gui::Gadget& gadget) noexcept {
     if (gadget.common.width <= 0 || gadget.common.height <= 0)
         return false;
     return gui::keyboard_focusable(gadget);
-}
-
-/// One focusable record, in the layer's points, with the frame column it sits in.
-struct FocusRecord {
-    int32_t index{-1};       ///< the gadget's index
-    place::PlaceRect at{};   ///< its rectangle, in points
-    int32_t frame_x{};       ///< its left edge, in frame pixels
-    int32_t frame_y{};       ///< its top edge, in frame pixels
-    int32_t focus_place{-1}; ///< its place in the battle room's order; -1 elsewhere
-};
-
-int64_t order_key(const place::PlaceRect& rect) noexcept {
-    return static_cast<int64_t>(rect.y) * 5000 + rect.x;
-}
-
-/// The record just before the button, the first of a shared key.
-///
-/// @param records the focusable records
-/// @param button the button
-/// @return its index, or -1 when none comes before
-int32_t record_before(const std::vector<FocusRecord>& records, const place::PlaceRect& button) {
-    const int64_t key = order_key(button);
-    int64_t best = 0;
-    int32_t index = -1;
-    for (const FocusRecord& record : records) {
-        const int64_t other = order_key(record.at);
-        if (other <= key && (index < 0 || other > best)) {
-            best = other;
-            index = record.index;
-        }
-    }
-    return index;
-}
-
-/// The record just after the button, the first of a shared key.
-///
-/// @param records the focusable records
-/// @param button the button
-/// @return its index, or -1 when none comes after
-int32_t record_after(const std::vector<FocusRecord>& records, const place::PlaceRect& button) {
-    const int64_t key = order_key(button);
-    int64_t best = 0;
-    int32_t index = -1;
-    for (const FocusRecord& record : records) {
-        const int64_t other = order_key(record.at);
-        if (other > key && (index < 0 || other < best)) {
-            best = other;
-            index = record.index;
-        }
-    }
-    return index;
-}
-
-int32_t first_record(const std::vector<FocusRecord>& records) {
-    int64_t best = 0;
-    int32_t index = -1;
-    for (const FocusRecord& record : records) {
-        const int64_t other = order_key(record.at);
-        if (index < 0 || other < best) {
-            best = other;
-            index = record.index;
-        }
-    }
-    return index;
-}
-
-int32_t last_record(const std::vector<FocusRecord>& records) {
-    int64_t best = 0;
-    int32_t index = -1;
-    for (const FocusRecord& record : records) {
-        const int64_t other = order_key(record.at);
-        if (index < 0 || other > best) {
-            best = other;
-            index = record.index;
-        }
-    }
-    return index;
-}
-
-/// The next record down the anchor's column that sits wholly under the button.
-///
-/// The column is the frame pixels whose left edge lies within 10 of the anchor's.
-///
-/// @param records the focusable records
-/// @param anchor_x the anchor's left edge, in frame pixels
-/// @param button the button, in points
-/// @return its index, or -1 when the column has none under the button
-int32_t column_below(
-    const std::vector<FocusRecord>& records, int32_t anchor_x, const place::PlaceRect& button
-) {
-    int32_t best_y = 0;
-    int32_t index = -1;
-    for (const FocusRecord& record : records) {
-        const int32_t delta = record.frame_x - anchor_x;
-        if (delta <= -column_slack || delta >= column_slack)
-            continue;
-        if (record.at.y < button.y + button.height)
-            continue;
-        if (index < 0 || record.frame_y < best_y) {
-            best_y = record.frame_y;
-            index = record.index;
-        }
-    }
-    return index;
-}
-
-enum class Aim : uint8_t { up, down, left, right };
-
-/// The nearest focusable record in a direction, by the rectangles' centres.
-///
-/// A record is in the direction when the primary step is positive and at
-/// least the step across. The nearest centre wins.
-///
-/// @param records the focusable records
-/// @param button the button
-/// @param aim the direction
-/// @return its index, or -1 when none lies that way
-int32_t
-nearest_record(const std::vector<FocusRecord>& records, const place::PlaceRect& button, Aim aim) {
-    const int32_t origin_x = button.x + button.width / 2;
-    const int32_t origin_y = button.y + button.height / 2;
-    int64_t best = 0;
-    int32_t index = -1;
-    for (const FocusRecord& record : records) {
-        const int32_t centre_x = record.at.x + record.at.width / 2;
-        const int32_t centre_y = record.at.y + record.at.height / 2;
-        const int32_t dx = centre_x - origin_x;
-        const int32_t dy = centre_y - origin_y;
-        int32_t primary = 0;
-        int32_t secondary = 0;
-        switch (aim) {
-        case Aim::up:
-            primary = -dy;
-            secondary = dx;
-            break;
-        case Aim::down:
-            primary = dy;
-            secondary = dx;
-            break;
-        case Aim::left:
-            primary = -dx;
-            secondary = dy;
-            break;
-        case Aim::right:
-            primary = dx;
-            secondary = dy;
-            break;
-        }
-        if (primary <= 0 || std::abs(primary) < std::abs(secondary))
-            continue;
-        const int64_t distance = static_cast<int64_t>(dx) * dx + static_cast<int64_t>(dy) * dy;
-        if (index < 0 || distance < best) {
-            best = distance;
-            index = record.index;
-        }
-    }
-    return index;
 }
 
 /// Tells whether Mutators shows over this screen.
