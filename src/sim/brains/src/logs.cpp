@@ -577,6 +577,21 @@ bool wrap_weapon_slot(void* context, uint16_t unit, const oa::FixedVec3* at, uin
     return seat.logged_inner.weapon_reaches_slot(&seat.logged_inner.host, unit, at, weapon);
 }
 
+const sim::ai::ComputerKnowledge*
+wrap_knowledge(void* context, uint8_t player, uint32_t* refreshed_tick) {
+    Seat& seat = seat_of_host(context);
+    if (seat.logged_inner.knowledge == nullptr)
+        return nullptr;
+    return seat.logged_inner.knowledge(&seat.logged_inner.host, player, refreshed_tick);
+}
+
+uint32_t wrap_builds_held_until(void* context, uint8_t player) {
+    Seat& seat = seat_of_host(context);
+    if (seat.logged_inner.builds_held_until == nullptr)
+        return 0;
+    return seat.logged_inner.builds_held_until(&seat.logged_inner.host, player);
+}
+
 void arm_logged_calls(Seat& seat) noexcept {
     seat.logged_inner = seat.calls;
     ComputerHost& host = seat.calls.host;
@@ -650,6 +665,12 @@ void arm_logged_calls(Seat& seat) noexcept {
         seat.calls.build_shaped = wrap_build_shaped;
     if (seat.logged_inner.weapon_reaches_slot != nullptr)
         seat.calls.weapon_reaches_slot = wrap_weapon_slot;
+    // These read the match through the host's context, which the log now
+    // holds, so they are passed the inner host as the others are.
+    if (seat.logged_inner.knowledge != nullptr)
+        seat.calls.knowledge = wrap_knowledge;
+    if (seat.logged_inner.builds_held_until != nullptr)
+        seat.calls.builds_held_until = wrap_builds_held_until;
 }
 
 uint32_t logged_match_stream(void* context) noexcept {
