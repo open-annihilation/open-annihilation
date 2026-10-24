@@ -109,7 +109,16 @@ bool refuse_actor(Seat& seat, UnitRef actor) noexcept {
 /// A target the seat may name: its own live unit, a live unit under full
 /// awareness, or one `seat_may_see` allows.
 bool target_readable(const Seat& seat, UnitRef ref) noexcept {
-    if (seat.match == nullptr || !unit_current(*seat.match, ref))
+    if (seat.match == nullptr) {
+        if (!unit_current_for_seat(seat, ref))
+            return false;
+        if (seat_owns(seat, ref))
+            return true;
+        if (seat.full_awareness)
+            return true;
+        return seat_may_see != nullptr && seat_may_see(seat, ref);
+    }
+    if (!unit_current(*seat.match, ref))
         return false;
     if (seat_owns(seat, ref))
         return true;

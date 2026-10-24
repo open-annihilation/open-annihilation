@@ -777,15 +777,23 @@ int method_reaches(lua_State* lua) {
     }
     script_host::charge_work(lua, 16);
     Seat* seat = seat_of(lua);
-    bool failed = seat == nullptr || seat->match == nullptr;
+    if (seat == nullptr) {
+        push_nil(lua);
+        return 1;
+    }
+    // Weapon 1 uses the host callback even when the seat has no match. With
+    // neither a match nor a callback the answer stays unknown.
+    bool failed = false;
     bool hits = false;
-    if (!failed && weapon == 1 && seat->calls.host.weapon_reaches != nullptr) {
+    if (weapon == 1 && seat->calls.host.weapon_reaches != nullptr) {
         try {
             hits = seat->calls.host.weapon_reaches(seat->calls.host.context, ref.slot, &point);
         } catch (const std::exception&) {
             failed = true;
         }
-    } else if (!failed && weapon != 1 && seat->calls.weapon_reaches_slot != nullptr) {
+    } else if (seat->match == nullptr) {
+        failed = true;
+    } else if (weapon != 1 && seat->calls.weapon_reaches_slot != nullptr) {
         try {
             hits = seat->calls.weapon_reaches_slot(
                 &seat->calls.host, ref.slot, &point, static_cast<uint8_t>(weapon - 1)

@@ -4,14 +4,17 @@
 -- Classic's seat: the squad sort's countdown and one task per squad.
 -- Each task's first act is to set the tick it runs on next. Structures,
 -- construction and an armed factory's tick then choose builds and sites.
--- The aircraft wing scouts or raids. Strike, rally and siege keep the
--- timetable.
+-- Strike groups recruit and attack, rallies follow them, the aircraft wing
+-- scouts or raids, and the siege searches and attacks a point.
 
-local air = require("tasks.air")
+local air_raid = require("tasks.air_raid")
 local construction = require("tasks.construction")
 local knowledge = require("knowledge")
 local profile = require("profile")
+local rally = require("tasks.rally")
+local siege = require("tasks.siege")
 local squads = require("squads")
+local strike = require("tasks.strike")
 local structures = require("tasks.structures")
 local types = require("types")
 local rules = require("rules")
@@ -127,7 +130,7 @@ function hooks.start(game, me, saved)
         return 30 + brain.shared_random(900)
     end
     seat.tasks[8].run = function()
-        air.run(seat, seat.tasks[8].squad)
+        air_raid.run(seat, seat.tasks[8])
     end
     -- @quirk The sort never fills squad 9, so the siege task only keeps its
     -- timetable unless a unit was already in that squad.
@@ -143,11 +146,26 @@ function hooks.start(game, me, saved)
     seat.tasks[1].run = function()
         structures.run(seat, seat.tasks[1].squad)
     end
+    seat.tasks[2].run = function()
+        strike.run(seat, seat.tasks[2])
+    end
+    seat.tasks[3].run = function()
+        rally.run(seat, seat.tasks[3])
+    end
     seat.tasks[4].run = function()
         construction.run(seat, seat.tasks[4].squad)
     end
     seat.tasks[5].run = function()
         structures.run(seat, seat.tasks[5].squad)
+    end
+    seat.tasks[6].run = function()
+        strike.run(seat, seat.tasks[6])
+    end
+    seat.tasks[7].run = function()
+        rally.run(seat, seat.tasks[7])
+    end
+    seat.tasks[9].run = function()
+        siege.run(seat, seat.tasks[9])
     end
     knowledge.create(seat)
     if previous ~= nil then

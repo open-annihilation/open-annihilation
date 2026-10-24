@@ -697,10 +697,11 @@ int method_nearest_enemy(lua_State* lua) {
     }
     script_host::charge_work(lua, search_charge);
     Seat* seat = seat_of(lua);
-    if (seat == nullptr || seat->match == nullptr) {
+    if (seat == nullptr) {
         push_nil(lua);
         return 1;
     }
+    // A tool seat has no match. The engine search is still the host callback.
     if (seat->calls.nearest_enemy != nullptr) {
         uint16_t slot = 0;
         bool found = false;
@@ -721,7 +722,11 @@ int method_nearest_enemy(lua_State* lua) {
             push_nil(lua);
             return 1;
         }
-        push_unit(lua, *seat, unit_ref(*seat->match, slot));
+        push_unit(lua, *seat, seat_unit_ref(*seat, slot));
+        return 1;
+    }
+    if (seat->match == nullptr) {
+        push_nil(lua);
         return 1;
     }
     uint8_t relation[OA_PLAYER_COUNT + 1]{};
@@ -759,13 +764,15 @@ int method_seen_raw(lua_State* lua) {
     charge_sequence(lua, count);
     const int hint = count > 1000000u ? 0 : static_cast<int>(count);
     lua_createtable(lua, hint, 0);
-    if (slots == nullptr || seat == nullptr || seat->match == nullptr || count == 0)
+    if (slots == nullptr || seat == nullptr || count == 0)
+        return 1;
+    const oa::World* world = seat_world(*seat);
+    if (world == nullptr)
         return 1;
     const int sequence = lua_gettop(lua);
-    const oa::World& world = seat->match->state();
     for (uint32_t index = 0; index < count; ++index) {
         const uint16_t slot = slots[index];
-        const oa::Unit* unit = oa::world_unit_at(&world, slot);
+        const oa::Unit* unit = oa::world_unit_at(world, slot);
         lua_createtable(lua, 0, 5);
         lua_pushinteger(lua, static_cast<lua_Integer>(slot));
         lua_setfield(lua, -2, "slot");
