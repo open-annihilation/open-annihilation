@@ -37,6 +37,9 @@ const oa::data::brain_library::Listing& Runtime::installed_brains() const {
 }
 
 void Runtime::reload_installed_brains() const {
+    // The picker watches this count. A change before the first read still
+    // moves it, and still leaves the listing unmade.
+    ++installed_brains_generation_;
     if (brain_library_state_ == nullptr)
         return;
     brain_library_state_->listing = oa::data::brain_library::list_installed(

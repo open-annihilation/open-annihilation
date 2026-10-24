@@ -11,6 +11,8 @@
 #include "definitions.hpp"
 #include "handles_internal.hpp"
 #include "lua_game.hpp"
+#include "lua_grids.hpp"
+#include "lua_networks.hpp"
 #include "orders.hpp"
 #include "sight.hpp"
 
@@ -157,6 +159,8 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_map(state, seat);
     install_sight(state, seat);
     install_orders(state, seat);
+    install_networks(state, seat);
+    install_grids(state, seat);
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {

@@ -32,20 +32,22 @@ add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua
   src/check.cpp src/handles.cpp src/lua_me.cpp src/events.cpp src/deliver.cpp src/classic.cpp
   src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
   src/failure.cpp src/save.cpp src/lua_profile.cpp src/lua_map.cpp src/reach.cpp src/lua_sight.cpp
-  src/lua_orders.cpp src/lua_sites.cpp src/seat_calls.cpp src/shadow.cpp
+  src/lua_orders.cpp src/lua_sites.cpp src/lua_networks.cpp src/lua_grids.cpp src/seat_calls.cpp
+  src/shadow.cpp
   "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
 target_link_libraries(oa-sim-brains PUBLIC oa-sim-match-runtime oa-data-script-host
   oa-data-brain-facts)
-target_link_libraries(oa-sim-brains PRIVATE oa-base-sha256 oa-sim-unit-movement oa-options
-  oa-data-field-schema oa-data-mission-types oa-data-unit-definitions oa-sim-simulation-state)
+target_link_libraries(oa-sim-brains PRIVATE oa-base-sha256 oa-data-neural oa-formats-oann
+  oa-sim-unit-movement oa-options oa-data-field-schema oa-data-mission-types
+  oa-data-unit-definitions oa-sim-simulation-state)
 
 if(BUILD_TESTING)
   add_executable(oa-sim-brains-seat-test tests/seat_test.cpp)
   target_link_libraries(oa-sim-brains-seat-test PRIVATE oa-sim-brains oa-sim-unit-movement
-    oa-base-sha256 oa-test-match oa-options)
+    oa-base-sha256 oa-formats-oann oa-test-match oa-options)
   add_test(NAME sim-brains-seat COMMAND oa-sim-brains-seat-test)
   set_tests_properties(sim-brains-seat PROPERTIES TIMEOUT 120)
 
@@ -180,6 +182,15 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options)
   add_test(NAME sim-brains-sites COMMAND oa-sim-brains-sites-test)
   set_tests_properties(sim-brains-sites PROPERTIES TIMEOUT 120)
+
+  # Networks, tensors and map grids. The made-up brain is steady-commander
+  # and the made-up mod is ridge. No installed-map fixture is read.
+  add_executable(oa-sim-brains-networks-test tests/networks_test.cpp)
+  target_include_directories(oa-sim-brains-networks-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_link_libraries(oa-sim-brains-networks-test PRIVATE oa-sim-brains oa-data-neural
+    oa-formats-oann oa-base-sha256 oa-sim-unit-movement oa-test-match oa-options)
+  add_test(NAME sim-brains-networks COMMAND oa-sim-brains-networks-test)
+  set_tests_properties(sim-brains-networks PROPERTIES TIMEOUT 60)
 
   # The logging host, the recording squad view, and the comparison.
   add_executable(oa-sim-brains-shadow-test tests/shadow_test.cpp)

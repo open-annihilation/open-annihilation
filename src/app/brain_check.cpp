@@ -1008,6 +1008,7 @@ std::optional<BrainCheckReport> check_seated(
         .scenario_definitions = &scenario,
         .uptime_milliseconds = [] { return 1000u; },
         .collision_plots = flat.plots,
+        .altitude_sight = std::nullopt,
         .minimum_wind = 0,
         .maximum_wind = 0,
         .tidal_strength = 0.0F,
