@@ -628,4 +628,65 @@ inline void play_classic(oa::sim::brains::ToolSeat& seat, uint32_t turn) {
         throw std::runtime_error(oa::data::script_host::describe(error));
 }
 
+/// Failure text from a later `hooks.start`, copied off the Lua stack.
+struct LaterStart {
+    /// True when `hooks.start` did not run.
+    bool failed{};
+    /// The Lua error, or why the hooks table could not be called.
+    char message[192]{};
+};
+
+/// Copies `text` into `box` and marks the later start failed.
+inline void note_later_start(LaterStart* box, const char* text) {
+    if (box == nullptr || box->failed)
+        return;
+    box->failed = true;
+    std::size_t index = 0;
+    if (text != nullptr) {
+        while (index + 1 < sizeof box->message && text[index] != '\0') {
+            box->message[index] = text[index];
+            ++index;
+        }
+    }
+    box->message[index] = '\0';
+}
+
+/// Calls `hooks.start(game, me, saved)` on the hooks table the seat loaded.
+///
+/// `with_seat` leaves that table under `hooks.seat`. `require` only finds
+/// `lua/<name>.lua`, and the entry sits at the package root, so this is the
+/// call a later open uses. `game` and `me` are the values the seat holds.
+/// This harness has no saved bytes, so `saved` is nil.
+inline void start_later_work(void* context, lua_State* state) {
+    auto* box = static_cast<LaterStart*>(context);
+    const int seat = lua_gettop(state);
+    if (seat < 2 || lua_type(state, seat) != LUA_TTABLE ||
+        lua_type(state, seat - 1) != LUA_TTABLE) {
+        note_later_start(box, "the seated hooks are missing");
+        return;
+    }
+    lua_getfield(state, seat - 1, "start");
+    if (lua_type(state, -1) != LUA_TFUNCTION) {
+        note_later_start(box, "hooks.start is missing");
+        return;
+    }
+    lua_getfield(state, seat, "game");
+    lua_getfield(state, seat, "me");
+    lua_pushnil(state);
+    if (lua_pcall(state, 3, 0, 0) != LUA_OK)
+        note_later_start(box, lua_tostring(state, -1));
+}
+
+/// Runs the seated entry's `hooks.start` again and throws when it fails.
+inline void start_later(oa::sim::brains::ToolSeat& seat) {
+    LaterStart box;
+    oa::data::script_host::ScriptError error;
+    if (!seat.with_seat(&box, start_later_work, error))
+        throw std::runtime_error(oa::data::script_host::describe(error));
+    if (box.failed) {
+        const char* text = box.message[0] != '\0' ? box.message : "hooks.start failed";
+        throw std::runtime_error(text);
+    }
+}
+
 } // namespace oa::test::classic_harness

@@ -32,6 +32,7 @@ using oa::test::classic_harness::copy_catalog;
 using oa::test::classic_harness::knowledge_link;
 using oa::test::classic_harness::open_classic;
 using oa::test::classic_harness::play_classic;
+using oa::test::classic_harness::start_later;
 using oa::test::classic_harness::recording_setup;
 using oa::test::classic_harness::refresh_knowledge;
 using oa::test::computer_fake::ARMCK;
@@ -462,15 +463,6 @@ void pass_work(void* context, lua_State* state) {
     }
     if (ask->difficulty != nullptr)
         oa::sim::brains::set_hidden_difficulty(state, ask->difficulty);
-    if (ask->restart) {
-        if (!push_required(state, &ask->status, "brain", "start"))
-            return;
-        lua_getfield(state, seat, "game");
-        lua_getfield(state, seat, "me");
-        if (lua_pcall(state, 2, 0, 0) != LUA_OK)
-            note(&ask->status, lua_tostring(state, -1));
-        return;
-    }
     if (ask->fresh) {
         if (!push_required(state, &ask->status, "knowledge", "reset"))
             return;
@@ -500,6 +492,10 @@ void pass_work(void* context, lua_State* state) {
 }
 
 void run_pass(oa::sim::brains::ToolSeat& seat, const PassAsk& request) {
+    if (request.restart) {
+        start_later(seat);
+        return;
+    }
     PassAsk ask = request;
     oa::data::script_host::ScriptError error;
     if (!seat.with_seat(&ask, pass_work, error))
