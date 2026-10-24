@@ -177,4 +177,20 @@ function types.load(game)
     return loaded
 end
 
+-- Builder lists are published when the match sets its computer players up,
+-- which is after start and before the first tick. A start that runs earlier
+-- keeps empty lists, so the first tick reads them again.
+function types.refresh_builds(loaded, game)
+    if type(loaded) ~= "table" then
+        return
+    end
+    for index = 1, #loaded do
+        local row = loaded[index]
+        if type(row) == "table" then
+            row.build_ids = build_ids_of(game, index, row.has_build_list)
+            row.build_count = #row.build_ids
+        end
+    end
+end
+
 return types
