@@ -51,14 +51,18 @@ inline constexpr uint64_t argument_unit = 2;
 /// charge, stops a loop of those.
 inline constexpr uint64_t metatable_copy_charge = 64;
 
-/// Instructions between two reads of the clock in the count hook.
+/// Instructions between count-hook calls.
 ///
-/// The hook runs this often, and counts the allowance only on every
+/// The allowance is counted on every
 /// `budget_check_interval / clock_check_interval`-th call, so the count
-/// still steps by `budget_check_interval` at the same instructions. One
-/// interpreter step that rebuilds a large table can take tens of
-/// milliseconds, and checking the clock every 100 instructions keeps a loop
-/// of such steps from running far past the limit.
+/// still steps by `budget_check_interval` at the same instructions. The
+/// processor clock is read on that same call. The steady clock is read on
+/// every call: a wait has to be noticed within these 100 instructions, and
+/// that read is cheap. Reading the processor clock on every call costs
+/// enough that the default bank of 60 million instructions can miss its
+/// count and stop for time. One step of 1000 instructions of a tight loop
+/// is a fraction of a millisecond. A single slow step is still stopped at
+/// the next processor-clock read.
 inline constexpr int clock_check_interval = 100;
 
 static_assert(clock_check_interval > 1);
@@ -114,11 +118,16 @@ struct Sandbox::Control {
     bool allowance_spent{};
     /// Count hook calls since the allowance was last counted. Reset at each phase start.
     int clock_checks{};
-    /// Real time this phase may run. Copied from `OpenOptions::time_limit`.
+    /// Processor time this phase may run. Copied from `OpenOptions::time_limit`.
     std::chrono::milliseconds time_limit{default_time_limit};
-    /// Steady time when this phase started. The count hook and `charge()` compare it.
+    /// Steady time when this phase started. The grace compares it.
     std::chrono::steady_clock::time_point phase_started{};
-    /// Set once the phase has run past `time_limit`. Sticky until the next phase.
+    /// Processor time, in nanoseconds, when this phase started. 0 if that read failed.
+    uint64_t phase_started_cpu_ns{};
+    /// Latest processor-time sample, in nanoseconds. The grace uses it to see
+    /// whether the allowance will run out first. 0 until a read succeeds.
+    uint64_t cpu_sampled_ns{};
+    /// Set once the phase has run past its time limit. Sticky until the next phase.
     bool time_expired{};
     bool sandbox_failed{};
 
@@ -128,13 +137,13 @@ struct Sandbox::Control {
     uint64_t bank_limit{};
     /// Instructions still available to a banked call.
     uint64_t bank_balance{};
-    /// Real time one banked call may run.
+    /// Processor time one banked call may run.
     std::chrono::milliseconds bank_call_time_limit{default_call_time_limit};
     /// Set for the duration of a banked call. The time sentence reads it.
     bool banked_call{};
     /// Profile allowance put back when a banked call ends.
     uint64_t profile_instruction_allowance{default_instruction_budget};
-    /// Profile real-time limit put back when a banked call ends.
+    /// Profile processor-time limit put back when a banked call ends.
     std::chrono::milliseconds profile_time_limit{default_time_limit};
 
     ErrorKind pending_kind{ErrorKind::none};
@@ -342,14 +351,88 @@ void remember_load_error(HostDetail::Control* control, lua_State* state);
 /// @param state the sandbox state
 void rearm_count_hook(lua_State* state);
 
-/// Reports whether `control`'s phase has run past its real-time limit.
+/// How far real time may run past the limit while this thread is not scheduled.
 ///
-/// Reads a steady clock. The count hook and `charge()` are the only callers.
+/// The limit itself is this thread's processor time, so other programs do not
+/// spend it. A steady clock can stop the phase once real time is past the
+/// limit by this much, so a wait between two reads cannot run on. It does not
+/// stop a phase whose counted rate will spend the instruction allowance
+/// first: a busy machine would otherwise report the wait instead of the
+/// count. The time-limit tests allow one second of real time past the limit.
+inline constexpr std::chrono::milliseconds schedule_grace{250};
+
+/// Nanoseconds of processor time this thread has used.
+///
+/// Returns 0 when the clock cannot be read. The count hook reads it on a
+/// budget step, and `charge()` reads it on every charge. The calls between
+/// budget steps do not.
+///
+/// @return nanoseconds, or 0 when the read fails
+uint64_t thread_cpu_ns();
+
+/// Reports whether real time is past the limit by `schedule_grace`.
+///
+/// Reads a steady clock. The count hook calls this on every call, and
+/// `phase_past_time_limit` calls it on a budget step and from `charge()`.
 ///
 /// @param control the phase being checked
-/// @return true when the phase's elapsed time has reached its limit
-inline bool phase_past_time_limit(const HostDetail::Control* control) {
-    return std::chrono::steady_clock::now() - control->phase_started >= control->time_limit;
+/// @return true when the wait has reached the grace
+inline bool wall_past_grace(const HostDetail::Control* control) {
+    return std::chrono::steady_clock::now() - control->phase_started >=
+           control->time_limit + schedule_grace;
+}
+
+/// Reports whether the allowance runs out before the processor-time limit.
+///
+/// Uses the instructions counted so far and the latest processor-time sample.
+/// No sample, or an allowance so large the product would not fit, means the
+/// clock stays in charge. A sample that failed at the start is ignored.
+///
+/// @param control the phase being checked
+/// @return true when the count, not the clock, should end the phase
+inline bool allowance_finishes_first(const HostDetail::Control* control) {
+    if (control->instructions_used == 0 || control->phase_started_cpu_ns == 0)
+        return false;
+    if (control->cpu_sampled_ns <= control->phase_started_cpu_ns)
+        return false;
+    if (control->instructions_used >= control->instruction_allowance)
+        return true;
+    const uint64_t cpu_used = control->cpu_sampled_ns - control->phase_started_cpu_ns;
+    const uint64_t remaining = control->instruction_allowance - control->instructions_used;
+    if (cpu_used != 0 && remaining > UINT64_MAX / cpu_used)
+        return false;
+    const auto limit_ns = static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::nanoseconds>(control->time_limit).count()
+    );
+    if (limit_ns != 0 && control->instructions_used > UINT64_MAX / limit_ns)
+        return true;
+    return remaining * cpu_used <= limit_ns * control->instructions_used;
+}
+
+/// Reports whether `control`'s phase has run past its time limit.
+///
+/// True when this thread's processor time has reached the limit. Also true
+/// when real time has reached the limit plus `schedule_grace`, unless
+/// `allowance_finishes_first` says the count will run out before that
+/// processor time. A processor-clock read that failed at the start is
+/// ignored, so a later successful read is not the whole time since the
+/// thread began. Stores the sample it reads. The count hook and `charge()`
+/// are the only callers.
+///
+/// @param control the phase being checked
+/// @return true when the phase should stop for time
+inline bool phase_past_time_limit(HostDetail::Control* control) {
+    const uint64_t now_ns = thread_cpu_ns();
+    if (now_ns != 0)
+        control->cpu_sampled_ns = now_ns;
+    if (control->phase_started_cpu_ns != 0 && now_ns >= control->phase_started_cpu_ns) {
+        const auto used = std::chrono::nanoseconds(now_ns - control->phase_started_cpu_ns);
+        if (used >= control->time_limit)
+            return true;
+    }
+    if (!wall_past_grace(control))
+        return false;
+    return !allowance_finishes_first(control);
 }
 
 /// Marks the phase past its real-time limit and raises that error.

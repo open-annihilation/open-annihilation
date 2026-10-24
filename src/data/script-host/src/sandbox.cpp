@@ -18,24 +18,60 @@
 #include <string>
 #include <utility>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <time.h>
+#endif
+
 namespace oa::data::script_host {
+
+uint64_t thread_cpu_ns() {
+#if defined(_WIN32)
+    FILETIME created{};
+    FILETIME exited{};
+    FILETIME kernel{};
+    FILETIME user{};
+    if (GetThreadTimes(GetCurrentThread(), &created, &exited, &kernel, &user) == 0)
+        return 0;
+    ULARGE_INTEGER kernel_ticks;
+    kernel_ticks.LowPart = kernel.dwLowDateTime;
+    kernel_ticks.HighPart = kernel.dwHighDateTime;
+    ULARGE_INTEGER user_ticks;
+    user_ticks.LowPart = user.dwLowDateTime;
+    user_ticks.HighPart = user.dwHighDateTime;
+    return (kernel_ticks.QuadPart + user_ticks.QuadPart) * 100;
+#else
+    struct timespec now{};
+    if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &now) != 0 || now.tv_sec < 0)
+        return 0;
+    return static_cast<uint64_t>(now.tv_sec) * 1'000'000'000 + static_cast<uint64_t>(now.tv_nsec);
+#endif
+}
+
 namespace {
 
 // File-local. Other files re-arm it through rearm_count_hook.
 extern "C" {
 static void script_count_hook(lua_State* state, lua_Debug* /*activation*/) {
     HostDetail::Control* control = control_from(state);
-    // At the clock interval, nine calls in ten only read the clock. The tenth
-    // counts the allowance as one call per budget_check_interval did, so the
-    // count, the charges and where a spent allowance stops the phase are the
-    // same. Scripts have no coroutines, so every instruction runs on this one
-    // state. Once armed at one instruction, every call takes the full check.
+    // Nine calls in ten only read the steady clock. Reading the processor
+    // clock on every call made the default bank miss its count and stop for
+    // time. The tenth call counts the allowance, as one call per
+    // budget_check_interval did, and reads the processor clock. Scripts have
+    // no coroutines, so every instruction runs on this one state. Once armed
+    // at one instruction, every call takes the full check.
     if (lua_gethookcount(state) == clock_check_interval) {
         ++control->clock_checks;
         if (control->clock_checks < clock_checks_per_budget_check) {
-            if (phase_past_time_limit(control)) {
+            if (wall_past_grace(control) && !allowance_finishes_first(control))
                 raise_time_limit(state);
-            }
             return;
         }
         control->clock_checks = 0;
@@ -417,9 +453,11 @@ static int trampoline(lua_State* state) {
     control->allowance_spent = false;
     control->clock_checks = 0;
     control->time_expired = false;
-    // The phase's start. Later reads of the clock are in the count hook and
+    // The phase's start. Later reads of either clock are in the count hook and
     // in charge(), and only those reads can stop the phase.
     control->phase_started = std::chrono::steady_clock::now();
+    control->phase_started_cpu_ns = thread_cpu_ns();
+    control->cpu_sampled_ns = control->phase_started_cpu_ns;
     write_time_message(*control);
     control->string_refused = false;
     control->string_refused_length = 0;

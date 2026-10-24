@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One Lua state per package, with a profile, a memory cap, a fresh
-// instruction allowance and a fresh real-time limit for every phase. A
+// instruction allowance and a fresh processor-time limit for every phase. A
 // profile may also carry a bank for one call at a time. Scripts see only
 // the libraries this host opens, and every error comes back as a value.
 #pragma once
@@ -75,13 +75,15 @@ inline constexpr uint64_t element_charge = 1;
 /// when every key is visited.
 inline constexpr uint64_t table_walk_charge = 64;
 
-/// Real time one phase may run before that phase stops.
+/// Processor time one phase may run before that phase stops.
 ///
-/// A steady clock is read when the phase starts. The count hook and the
-/// library charges compare it with this limit. The limit stops work the
-/// instruction count cannot see. It never changes a result that does come
-/// back, and a script near the limit can pass on one machine and fail on
-/// another.
+/// The count hook and the library charges compare this thread's processor
+/// time with the limit. A steady clock stops the phase as well once real
+/// time is a quarter of a second past the limit, unless the instructions
+/// counted so far will spend the allowance before that processor time. The
+/// limit stops work the instruction count cannot see. It never changes a
+/// result that does come back, and a script near the limit can pass on one
+/// machine and fail on another.
 inline constexpr std::chrono::milliseconds default_time_limit{10000};
 
 /// Instructions a bank adds for one tick.
@@ -96,9 +98,10 @@ inline constexpr uint64_t default_tick_allowance = 2'000'000;
 /// The balance opens at this many ticks and a refill never passes it.
 inline constexpr uint32_t default_bank_ticks = 30;
 
-/// Real time one banked call may run before that call stops.
+/// Processor time one banked call may run before that call stops.
 ///
 /// This is a backstop for a hang. It does not change the instruction balance.
+/// The same steady-clock grace as `default_time_limit` applies.
 inline constexpr std::chrono::milliseconds default_call_time_limit{250};
 
 /// Most bytes in one string. A script that would make a longer one stops.
@@ -139,16 +142,18 @@ enum class ErrorKind : uint8_t {
     module_loop,
     /// A string would have passed `string_length_limit`.
     string_length,
-    /// The phase ran longer than its real-time limit.
+    /// The phase used more processor time than its limit, or waited past it.
     ///
     /// The limit is `default_time_limit` unless `OpenOptions::time_limit`
     /// names another. The hook and the library charges notice it at their
-    /// next check, so the phase can run a little past the limit. A script
-    /// near the limit can pass on one machine and fail on another. The
-    /// limit only stops the script: a result that comes back is unchanged.
-    /// In multiplayer the loadout digest refuses a match whose machines
-    /// disagree, so the two outcomes cannot run as one match. A dry run
-    /// records this failure like any other.
+    /// next check, so the phase can run a little past the limit. A steady
+    /// clock also stops the phase once real time is a quarter of a second
+    /// past the limit, unless the allowance will run out first. A script near
+    /// the limit can pass on one
+    /// machine and fail on another. The limit only stops the script: a
+    /// result that comes back is unchanged. In multiplayer the loadout
+    /// digest refuses a match whose machines disagree, so the two outcomes
+    /// cannot run as one match. A dry run records this failure like any other.
     time_limit
 };
 
@@ -189,7 +194,9 @@ struct Bank {
     uint64_t per_tick{};
     /// How many ticks of `per_tick` the bank may hold, the current tick included.
     uint32_t ticks{default_bank_ticks};
-    /// Real time one banked call may run. The default is `default_call_time_limit`.
+    /// Processor time one banked call may run. The default is
+    /// `default_call_time_limit`. Real time past it by the same grace stops
+    /// the call as well.
     std::chrono::milliseconds call_time_limit{default_call_time_limit};
 };
 
@@ -230,8 +237,9 @@ struct OpenOptions {
     /// no argument returns to. The caller passes the game's seed. Zero is a
     /// defined sequence, not an extra draw.
     uint64_t random_seed{};
-    /// Real time each phase of this sandbox may run. Each phase starts
-    /// again from the full value. The default is `default_time_limit`.
+    /// Processor time each phase of this sandbox may run. Each phase starts
+    /// again from the full value. The default is `default_time_limit`. Real
+    /// time past it by the same grace stops the phase as well.
     std::chrono::milliseconds time_limit{default_time_limit};
 };
 
@@ -319,9 +327,9 @@ class Sandbox {
     /// Calls the function `hooks.push` pushes, under the bank's balance.
     ///
     /// The instruction allowance for this call is the balance, and the
-    /// real-time limit is the bank's. When the call returns, the instructions
-    /// it used are taken off the balance, and the profile's own allowance and
-    /// real-time limit are put back. A profile with no bank returns false,
+    /// processor-time limit is the bank's. When the call returns, the
+    /// instructions it used are taken off the balance, and the profile's own
+    /// allowance and time limit are put back. A profile with no bank returns false,
     /// runs nothing and leaves the sandbox usable. A balance of zero fails
     /// the sandbox without running the call.
     ///
@@ -468,7 +476,7 @@ compile_check(std::span<const uint8_t> source, std::string_view path, ScriptErro
 /// build and every run. A spent allowance raises the instruction-budget
 /// error, as the count hook does, and arms that hook so a protected call
 /// cannot keep the phase alive. A string refusal or a phase past its
-/// real-time limit raises that error instead. No C++ object with a
+/// time limit raises that error instead. No C++ object with a
 /// destructor may be alive across this call: the raise leaves such an
 /// object unrun.
 ///
