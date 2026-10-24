@@ -492,8 +492,9 @@ Runtime::Runtime(
         if (options_.check_map_browser)
             prepare_map_browser_check();
         if (options_.check_mutator_picker || options_.check_brain_picker ||
-            options_.check_brain_seat_buttons || options_.check_mutator_button ||
-            options_.check_mutator_room || options_.check_mutator_prompts)
+            options_.check_brain_seat_buttons || options_.check_brain_campaign ||
+            options_.check_mutator_button || options_.check_mutator_room ||
+            options_.check_mutator_prompts)
             prepare_mutator_picker_check();
         if (options_.check_map_pack_lists)
             prepare_map_pack_lists_check();
@@ -753,6 +754,11 @@ int Runtime::run() {
         }
         if (options_.check_brain_seat_buttons) {
             check_brain_seat_buttons();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_brain_campaign) {
+            check_brain_campaign();
             flush_preferences();
             return 0;
         }

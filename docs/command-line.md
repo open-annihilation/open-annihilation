@@ -413,6 +413,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-mutator-picker` | Checks the mutator picker at four window sizes, including a cancelled download, a check after an install, USE THESE fetching one, a download already under way, and the runtime's own feed. |
 | `--check-brain-picker` | Checks the brain picker at four window sizes: the row order, a locked brain, the level, USE THIS, every computer seat, CANCEL, the keys, the controller, and the runtime's own feed. |
 | `--check-brain-seat-buttons` | Checks each computer row's brain button on the skirmish setup at 640x480 and 1280x720: its place beside Energy, the label, Tab, the picker, the hover card and the brains a start seats. |
+| `--check-brain-campaign` | Checks the campaign computer player's brain button on NEWGAME and Any Mission at 640x480 and 1280x720: its place under Difficulty, the label, Tab, the picker, the brain the first mission seats and the seat a loaded campaign save leaves. |
 | `--check-mutator-prompts` | Checks the questions a stopped skirmish start, a crash and Get mutators ask: START WITHOUT IT, BACK, FORGET IT and RETRY. Then the host's "The game did not start" for a guest without its release and for one with it. |
 | `--check-mod-warning` | Checks the warning for a mod whose files are missing. |
 | `--check-mod-install` | Installs, rolls back and replaces made-up mod packages. |

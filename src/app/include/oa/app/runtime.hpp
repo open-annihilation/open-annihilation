@@ -6470,10 +6470,11 @@ class Runtime final : public menu::Host,
     /// Energy button while a brain is installed.
     struct BrainSeatsScreen;
 
-    /// Keeps the computer-seat buttons on the OA layer while SKIRMISH shows
-    /// and a brain is installed: pushes the screen when the layer has none.
-    /// OaLayer::tick calls it once a frame, after MUTATORS…. A Library that
-    /// has just closed reloads the installed brains first.
+    /// Keeps the computer-seat buttons on the OA layer while SKIRMISH, NEWGAME
+    /// or Any Mission shows and a brain is installed: pushes the screen when
+    /// the layer has none. OaLayer::tick calls it once a frame, after
+    /// MUTATORS…. A Library that has just closed reloads the installed brains
+    /// first.
     void keep_brain_seats_screen();
 
     /// Runs --check-brain-seat-buttons: each computer row's brain button on
@@ -6483,6 +6484,14 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_seat_buttons();
+
+    /// Runs --check-brain-campaign: the campaign's brain button on NEWGAME
+    /// and Any Mission at 640x480 and 1280x720, Tab, the picker, the brain
+    /// the first mission seats and the seat a loaded campaign save leaves.
+    /// Writes brain-campaign-<screen>-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_campaign();
 
     /// Runs --check-mutator-room: the host's MUTATORS… in a battle room
     /// hosted alone, at 640x480 and 1280x720, the remembered multiplayer
