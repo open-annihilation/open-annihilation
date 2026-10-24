@@ -18,6 +18,7 @@
 #include <exception>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <system_error>
@@ -479,9 +480,7 @@ void BrainLog::begin(
     std::string_view level,
     uint32_t seed
 ) {
-    if (out_.is_open())
-        out_.close();
-    out_.clear();
+    out_.reset();
     path_.clear();
     bytes_ = 0;
     full_ = false;
@@ -493,8 +492,8 @@ void BrainLog::begin(
         path_ = data_directory / "logs" / "brains" /
                 ("seat-" + std::to_string(static_cast<int>(player) + 1) + ".log");
         std::filesystem::create_directories(path_.parent_path());
-        out_.open(path_, std::ios::binary | std::ios::trunc);
-        if (!out_) {
+        out_ = std::make_unique<std::ofstream>(path_, std::ios::binary | std::ios::trunc);
+        if (!*out_) {
             failed_ = true;
             report_unwritable();
             return;
@@ -555,8 +554,7 @@ void BrainLog::stop_text(uint32_t tick, std::string_view reason) {
 void BrainLog::fail(uint8_t player) {
     player_ = player;
     failed_ = true;
-    if (out_.is_open())
-        out_.close();
+    out_.reset();
     report_unwritable();
 }
 
@@ -569,12 +567,13 @@ std::string_view BrainLog::name() const noexcept {
 }
 
 bool BrainLog::open() const noexcept {
-    return out_.is_open() && !failed_ && !full_;
+    return out_ != nullptr && out_->is_open() && !failed_ && !full_;
 }
 
 void BrainLog::write_line(std::string_view text) {
-    if (failed_ || full_ || !out_.is_open())
+    if (failed_ || full_ || out_ == nullptr || !out_->is_open())
         return;
+    std::ofstream& out = *out_;
     const std::size_t closing = log_full.size() + 1;
     if (bytes_ >= log_bytes || closing > log_bytes - bytes_) {
         full_ = true;
@@ -583,23 +582,23 @@ void BrainLog::write_line(std::string_view text) {
     const std::size_t room = log_bytes - closing - bytes_;
     const std::size_t need = text.size() + 1;
     if (need > room) {
-        out_.write(log_full.data(), static_cast<std::streamsize>(log_full.size()));
-        out_.put('\n');
+        out.write(log_full.data(), static_cast<std::streamsize>(log_full.size()));
+        out.put('\n');
         bytes_ += closing;
         full_ = true;
-        out_.flush();
-        if (!out_)
+        out.flush();
+        if (!out)
             report_unwritable();
         return;
     }
-    out_.write(text.data(), static_cast<std::streamsize>(text.size()));
-    out_.put('\n');
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    out.put('\n');
     bytes_ += need;
-    if (!out_) {
+    if (!out) {
         report_unwritable();
         return;
     }
-    out_.flush();
+    out.flush();
 }
 
 void BrainLog::report_unwritable() {

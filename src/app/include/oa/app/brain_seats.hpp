@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -250,7 +251,9 @@ class BrainLog {
     /// Reports once that this seat's log could not be written.
     void report_unwritable();
 
-    std::ofstream out_{};
+    /// The open file. Null until `begin`, so a seat with no brain holds no
+    /// stream or stream buffer.
+    std::unique_ptr<std::ofstream> out_{};
     std::filesystem::path path_{};
     std::string name_{};
     std::size_t bytes_{};
