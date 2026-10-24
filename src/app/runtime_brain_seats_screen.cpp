@@ -215,8 +215,8 @@ library::PlayedMod played_mod(const Mods& mods) {
     library::PlayedMod played;
     if (mods.playing_mod_folder.empty())
         return played;
-    for (std::size_t at = 0; at < mods.mod_folders.size() && at < mods.mod_names.size() &&
-                             at < mods.mod_details.size();
+    for (std::size_t at = 0;
+         at < mods.mod_folders.size() && at < mods.mod_names.size() && at < mods.mod_details.size();
          ++at) {
         if (mods.mod_folders[at] != mods.playing_mod_folder)
             continue;
@@ -399,7 +399,8 @@ void BrainSeatsAccess::write(
         write_one(seats, settings, slot, choice);
         return;
     }
-    const int32_t limit = std::min(settings.slot_count, static_cast<int32_t>(settings.slots.size()));
+    const int32_t limit =
+        std::min(settings.slot_count, static_cast<int32_t>(settings.slots.size()));
     for (int32_t at = 0; at < limit; ++at)
         write_one(seats, settings, at, choice);
 }
@@ -535,8 +536,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     /// @return none or redraw when the screen takes it; pass otherwise
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
         if (pressed == kit::Key::info) {
-            const int32_t focused =
-                focused_slot_ >= 0 ? focused_slot_ : mp::presence_card_no_slot;
+            const int32_t focused = focused_slot_ >= 0 ? focused_slot_ : mp::presence_card_no_slot;
             if (card_.key_info(focused)) {
                 ++revision_;
                 return LayerAnswer::none;
@@ -694,7 +694,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         int32_t slot{-1};          ///< the slot, from 0
         kit::ControlId id{};       ///< its control id
         std::string name{};        ///< its automation name, without oa.
-        place::PlaceRect at{};    ///< the button, in the layer's points
+        place::PlaceRect at{};     ///< the button, in the layer's points
         kit::Rect local{};         ///< the button, in the screen's points
         int32_t energy{-1};        ///< its row's Energy gadget
         std::string label{};       ///< the whole label, uncut
@@ -704,14 +704,14 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
 
     /// Where the buttons, the records and the open card lie.
     struct Geometry {
-        bool ok{};                              ///< a button was placed
-        kit::Rect bounds{};                     ///< the screen's place, in the layer's points
-        std::vector<SeatButton> buttons{};     ///< the computer rows that have a button
-        std::vector<FocusRecord> focusable{};  ///< the records Tab can stop on
+        bool ok{};                               ///< a button was placed
+        kit::Rect bounds{};                      ///< the screen's place, in the layer's points
+        std::vector<SeatButton> buttons{};       ///< the computer rows that have a button
+        std::vector<FocusRecord> focusable{};    ///< the records Tab can stop on
         std::vector<place::PlaceRect> gadgets{}; ///< every gadget, in the screen's points
-        std::optional<kit::Rect> card{};        ///< the open card, in the screen's points
-        std::optional<kit::Rect> arrow{};       ///< its arrow, in the screen's points
-        kit::HoverCardLook card_look{};         ///< the open card's look
+        std::optional<kit::Rect> card{};         ///< the open card, in the screen's points
+        std::optional<kit::Rect> arrow{};        ///< its arrow, in the screen's points
+        kit::HoverCardLook card_look{};          ///< the open card's look
     };
 
     /// One stop in the combined Tab order: a record, or a seat button.
@@ -754,7 +754,8 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             const auto* fields = std::get_if<gui::ButtonFields>(&gadgets[at].fields);
             if (fields == nullptr)
                 break;
-            if (std::optional<std::string> translated = renderer::translated_stage_caption(*fields, stage))
+            if (std::optional<std::string> translated =
+                    renderer::translated_stage_caption(*fields, stage))
                 return *translated;
             return std::string(renderer::staged_caption(fields->text, stage));
         }
@@ -944,7 +945,8 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         }
         const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
         if (open_button != nullptr && fonts != nullptr) {
-            const int32_t arrow_depth = kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
+            const int32_t arrow_depth =
+                kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
             laid.card_look = picker::seat_card(open_button->shown, hooks);
             const kit::Point size = kit::hover_card_size(*fonts, laid.card_look);
             const kit::Rect badge = as_kit(open_button->at);
@@ -1261,7 +1263,8 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         if (current_button == nullptr)
             return LayerAnswer::pass;
         if (pressed == kit::Key::left)
-            return current_button->energy > 0 ? hand_focus(current_button->energy) : LayerAnswer::none;
+            return current_button->energy > 0 ? hand_focus(current_button->energy)
+                                              : LayerAnswer::none;
         if (pressed == kit::Key::right) {
             const int32_t next = nearest_record(laid.focusable, current_button->at, Aim::right);
             return next > 0 ? hand_focus(next) : LayerAnswer::none;
@@ -1302,17 +1305,17 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         runtime_.open_brain_picker(std::move(request));
     }
 
-    Runtime& runtime_;                 ///< the runtime whose setup it shows over
-    LayerView view_{};                 ///< the view it was last laid out for
-    mp::PresenceCardTrigger card_{};   ///< when a seat's card opens and closes
-    int32_t hovered_slot_{-1};         ///< the button the pointer is over; -1 for none
-    int32_t pressed_slot_{-1};         ///< the button a press is held on; -1 for none
-    int32_t focused_slot_{-1};         ///< the button the keyboard focus is on; -1 for none
-    bool have_pointer_{};              ///< the pointer has been seen
-    kit::Point pointer_layer_{};       ///< the pointer, in the layer's points
-    bool card_pressed_{};              ///< a press started on the open card
-    std::string seal_{};               ///< the buttons and the card last drawn
-    uint64_t revision_{};              ///< counts the changes to how it looks
+    Runtime& runtime_;               ///< the runtime whose setup it shows over
+    LayerView view_{};               ///< the view it was last laid out for
+    mp::PresenceCardTrigger card_{}; ///< when a seat's card opens and closes
+    int32_t hovered_slot_{-1};       ///< the button the pointer is over; -1 for none
+    int32_t pressed_slot_{-1};       ///< the button a press is held on; -1 for none
+    int32_t focused_slot_{-1};       ///< the button the keyboard focus is on; -1 for none
+    bool have_pointer_{};            ///< the pointer has been seen
+    kit::Point pointer_layer_{};     ///< the pointer, in the layer's points
+    bool card_pressed_{};            ///< a press started on the open card
+    std::string seal_{};             ///< the buttons and the card last drawn
+    uint64_t revision_{};            ///< counts the changes to how it looks
 };
 
 void Runtime::keep_brain_seats_screen() {

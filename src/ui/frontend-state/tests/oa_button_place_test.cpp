@@ -476,7 +476,8 @@ void expect_beside(
     check(inside(placed, room), "a seat button leaves the frame");
     check(placed.x == anchor.x + anchor.width + gap, "a seat button left its anchor's right edge");
     check(
-        placed.y == anchor.y + (anchor.height - height) / 2, "a seat button is not centred on Energy"
+        placed.y == anchor.y + (anchor.height - height) / 2,
+        "a seat button is not centred on Energy"
     );
     check(placed.height == height, "a seat button is not the asked height");
     int32_t limit = most_width;
@@ -514,7 +515,9 @@ void place_beside_rows() {
             const std::optional<place::PlaceRect> placed =
                 place::place_beside(anchor, others, room, 4, 17, 48, 160);
             check(placed.has_value(), "a row has no seat button");
-            check(placed->x == 386 && placed->x + placed->width == 472, "the button is not 386 to 472");
+            check(
+                placed->x == 386 && placed->x + placed->width == 472, "the button is not 386 to 472"
+            );
             expect_beside(*placed, anchor, others, room, 4, 17, 160);
         }
     }
@@ -544,10 +547,14 @@ void place_beside_rows() {
     const std::optional<place::PlaceRect> shortened =
         place::place_beside(energy, shortening, room, 4, 17, 48, 160);
     check(shortened.has_value(), "a rectangle in the way refused the button");
-    check(shortened->x == 386 && shortened->width == 60, "a rectangle in the way did not shorten it");
+    check(
+        shortened->x == 386 && shortened->width == 60, "a rectangle in the way did not shorten it"
+    );
 
     const std::vector<place::PlaceRect> tight{rect(430, 169, 20, 20)};
-    check(!place::place_beside(energy, tight, room, 4, 17, 48, 160), "too little room gave a button");
+    check(
+        !place::place_beside(energy, tight, room, 4, 17, 48, 160), "too little room gave a button"
+    );
     const place::PlaceRect narrow = rect(0, 0, 420, 480);
     check(
         !place::place_beside(energy, {}, narrow, 4, 17, 48, 160),

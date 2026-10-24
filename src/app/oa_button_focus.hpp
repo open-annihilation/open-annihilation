@@ -16,11 +16,11 @@ namespace oa::app {
 
 /// One focusable record, in the layer's points, with the frame column it sits in.
 struct FocusRecord {
-    int32_t index{-1};       ///< the gadget's index
+    int32_t index{-1};                      ///< the gadget's index
     oa::ui::frontend_state::PlaceRect at{}; ///< its rectangle, in points
-    int32_t frame_x{};       ///< its left edge, in frame pixels
-    int32_t frame_y{};       ///< its top edge, in frame pixels
-    int32_t focus_place{-1}; ///< its place in the battle room's order; -1 elsewhere
+    int32_t frame_x{};                      ///< its left edge, in frame pixels
+    int32_t frame_y{};                      ///< its top edge, in frame pixels
+    int32_t focus_place{-1};                ///< its place in the battle room's order; -1 elsewhere
 };
 
 /// Which way an arrow from a button looks for a record.
@@ -42,16 +42,18 @@ enum class Aim : uint8_t {
 /// @param records the focusable records
 /// @param button the button
 /// @return its index, or -1 when none comes before
-[[nodiscard]] int32_t
-record_before(const std::vector<FocusRecord>& records, const oa::ui::frontend_state::PlaceRect& button);
+[[nodiscard]] int32_t record_before(
+    const std::vector<FocusRecord>& records, const oa::ui::frontend_state::PlaceRect& button
+);
 
 /// The record just after the button, the first of a shared key.
 ///
 /// @param records the focusable records
 /// @param button the button
 /// @return its index, or -1 when none comes after
-[[nodiscard]] int32_t
-record_after(const std::vector<FocusRecord>& records, const oa::ui::frontend_state::PlaceRect& button);
+[[nodiscard]] int32_t record_after(
+    const std::vector<FocusRecord>& records, const oa::ui::frontend_state::PlaceRect& button
+);
 
 /// The record with the smallest Tab key.
 ///

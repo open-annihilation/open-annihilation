@@ -6,8 +6,10 @@
 // Three made-up brains are then written, and the remembered skirmish seats
 // name Steady Commander at firm on place 1. The button reads that label,
 // sits inside the frame, meets no gadget and stands 4 frame pixels right of
-// Energy. Player2 cycled to a computer reads the built-in player and the
-// Difficulty button's word, and cycling Difficulty changes it. Tab from
+// Energy. Player2 is put back to Open before the kept frame, because a
+// previous size may have saved it as a computer, then cycled until it is a
+// computer. It reads the built-in player and the Difficulty button's word,
+// and cycling Difficulty changes it. Tab from
 // Energy1 focuses the button with the GUI's focus none, Tab moves on and
 // Shift+Tab returns. Return opens the picker on Steady Commander at Firm;
 // the built-in player and USE THIS put that word back. Lantern Scout with
@@ -303,6 +305,46 @@ void Runtime::check_brain_seat_buttons() {
         pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
         frames(1);
     };
+    // Compact keeps the level on the details page, which hides the list, and
+    // the list can be scrolled so a row sits outside the pane. Either way the
+    // row is brought back before a press: BACK leaves the details page, and
+    // the wheel over the list scrolls until the row's press area shows.
+    // Positive notches move toward the top.
+    const auto wheel_list = [&](float notches) {
+        const std::optional<AutomationControl> pane = named("oa.brains.list");
+        if (!pane.has_value())
+            return false;
+        const layout::Point at{
+            pane->window_x + pane->window_width / 2, pane->window_y + pane->window_height / 2
+        };
+        SDL_Event motion =
+            window_pointer_event(sdl_.window, sdl_.renderer, SDL_EVENT_MOUSE_MOTION, at, 0);
+        dispatch_event(motion, running);
+        SDL_Event wheel{};
+        wheel.type = SDL_EVENT_MOUSE_WHEEL;
+        wheel.wheel.windowID = motion.motion.windowID;
+        wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+        wheel.wheel.y = notches;
+        wheel.wheel.mouse_x = motion.motion.x;
+        wheel.wheel.mouse_y = motion.motion.y;
+        dispatch_event(wheel, running);
+        require(running, "a wheel ended the run");
+        frames(1);
+        return true;
+    };
+    const auto show_row = [&](std::string_view row_name) {
+        if (named(row_name).has_value())
+            return;
+        if (named("oa.brains.back").has_value())
+            click_named("oa.brains.back");
+        for (int32_t turn = 0; turn < 12 && !named(row_name).has_value(); ++turn)
+            if (!wheel_list(1.0F))
+                break;
+        for (int32_t turn = 0; turn < 24 && !named(row_name).has_value(); ++turn)
+            if (!wheel_list(-1.0F))
+                break;
+        require_named(row_name, std::string(row_name) + " is not shown");
+    };
     const auto press_key = [&](SDL_Keycode key, SDL_Scancode scancode, SDL_Keymod mod) {
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
@@ -351,7 +393,9 @@ void Runtime::check_brain_seat_buttons() {
         exercise_click(entry::resource_name(entry::Button::skirmish));
         frames(2);
         close_covering();
-        require(screen_ == Screen::skirmish, std::string("SKIRMISH did not open") + std::string(on));
+        require(
+            screen_ == Screen::skirmish, std::string("SKIRMISH did not open") + std::string(on)
+        );
     };
     const auto gadget_index = [this](std::string_view name) {
         const auto& gadgets = resources_.layout.gadgets;
@@ -414,6 +458,21 @@ void Runtime::check_brain_seat_buttons() {
         apply_output_mode();
         open_skirmish(on);
         require(!any_seat(), "a seat button shows before any brain is written" + on);
+        // A previous size saved Player2 as a computer when its match started,
+        // and entering the menu reads that back. Open hides the row, which is
+        // the frame this size keeps.
+        for (int32_t step = 0;
+             step < 3 && skirmish_settings_.slots.size() > 2 &&
+             skirmish_settings_.slots[2].controller != entry::controller::disabled;
+             ++step) {
+            exercise_click("Player2");
+            frames(2);
+        }
+        require(
+            skirmish_settings_.slots.size() > 2 &&
+                skirmish_settings_.slots[2].controller == entry::controller::disabled,
+            "Player2 did not start Open" + on
+        );
         park();
         const int32_t opening_focus = frontend_focus();
         const std::string opening_word = difficulty_word();
@@ -521,16 +580,26 @@ void Runtime::check_brain_seat_buttons() {
                 static_cast<int32_t>(common.height)
             };
             const kit::Rect gadget_window = kit::to_canvas(frame_to_points(seen, frame), percent);
-            require(
-                !overlaps(button, gadget_window), "the button meets " + common.name + on
-            );
+            require(!overlaps(button, gadget_window), "the button meets " + common.name + on);
         }
         std::cout << "brain seat check: oa.brain-seat.1 reads Steady Commander · Firm, inside "
                      "the frame, meeting no gadget, "
                   << gap << " window pixels right of Energy1" << on << "\n";
 
-        exercise_click("Player2");
-        frames(2);
+        // One click from Open makes a computer. A click on a row that is
+        // already a computer turns it Open and hides the seat button.
+        for (int32_t step = 0;
+             step < 3 && skirmish_settings_.slots.size() > 2 &&
+             skirmish_settings_.slots[2].controller != entry::controller::computer;
+             ++step) {
+            exercise_click("Player2");
+            frames(2);
+        }
+        require(
+            skirmish_settings_.slots.size() > 2 &&
+                skirmish_settings_.slots[2].controller == entry::controller::computer,
+            "Player2 did not become a computer" + on
+        );
         const std::string built_in = "Built-in" + std::string(kDot) + difficulty_word();
         const AutomationControl second =
             require_named("oa.brain-seat.2", "oa.brain-seat.2 is not shown" + on);
@@ -567,7 +636,9 @@ void Runtime::check_brain_seat_buttons() {
         frames(1);
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_NONE);
         frames(1);
-        require(seat_focused("oa.brain-seat.1"), "Tab from Energy1 did not focus oa.brain-seat.1" + on);
+        require(
+            seat_focused("oa.brain-seat.1"), "Tab from Energy1 did not focus oa.brain-seat.1" + on
+        );
         require(frontend_focus() < 0, "the GUI kept a focus ring on the button" + on);
         std::cout << "brain seat check: Tab from Energy1 focuses oa.brain-seat.1 and the GUI's "
                      "focus is none"
@@ -577,17 +648,16 @@ void Runtime::check_brain_seat_buttons() {
         require(!seat_focused("oa.brain-seat.1"), "Tab did not move on from oa.brain-seat.1" + on);
         press_key(SDLK_TAB, SDL_SCANCODE_TAB, SDL_KMOD_SHIFT);
         frames(1);
-        require(seat_focused("oa.brain-seat.1"), "Shift+Tab did not return to oa.brain-seat.1" + on);
+        require(
+            seat_focused("oa.brain-seat.1"), "Shift+Tab did not return to oa.brain-seat.1" + on
+        );
         std::cout << "brain seat check: Tab moves on and Shift+Tab returns" << on << "\n";
 
         require(
-            oa_layer().take_pad_action(pad::Action::library_search),
-            "Y did not open Mutators" + on
+            oa_layer().take_pad_action(pad::Action::library_search), "Y did not open Mutators" + on
         );
         frames(1);
-        require(
-            oa_layer().find(mutators::screen_name) != nullptr, "Y left Mutators closed" + on
-        );
+        require(oa_layer().find(mutators::screen_name) != nullptr, "Y left Mutators closed" + on);
         click_named("oa.mutators.cancel");
         require(
             oa_layer().find(mutators::screen_name) == nullptr, "CANCEL left Mutators open" + on
@@ -607,6 +677,7 @@ void Runtime::check_brain_seat_buttons() {
         require(level.text.find("Firm") != std::string::npos, "the level does not read Firm" + on);
         std::cout << "brain seat check: Return opens the picker on Steady Commander at Firm" << on
                   << "\n";
+        show_row("oa.brains.row.built-in");
         click_named("oa.brains.row.built-in");
         click_named("oa.brains.use");
         require(
@@ -627,6 +698,7 @@ void Runtime::check_brain_seat_buttons() {
             oa_layer().find(brains::screen_name) != nullptr,
             "the seat button did not open the picker again" + on
         );
+        show_row("oa.brains.row.lantern-scout");
         click_named("oa.brains.row.lantern-scout");
         reveal_details();
         click_named("oa.brains.every-seat.on");
@@ -648,8 +720,8 @@ void Runtime::check_brain_seat_buttons() {
             "every computer seat did not set both rows (" + first_lantern.text + ", " +
                 second_lantern.text + ")" + on
         );
-        std::cout << "brain seat check: Lantern Scout with every computer seat sets both rows"
-                  << on << "\n";
+        std::cout << "brain seat check: Lantern Scout with every computer seat sets both rows" << on
+                  << "\n";
 
         const layout::Point rest{
             first_lantern.window_x + first_lantern.window_width / 2,
@@ -702,8 +774,7 @@ void Runtime::check_brain_seat_buttons() {
             logged.find("player 0 plays") == std::string::npos,
             "START logged a brain for the human seat" + on
         );
-        std::cout << "brain seat check: START logs lantern-scout for players 1 and 2" << on
-                  << "\n";
+        std::cout << "brain seat check: START logs lantern-scout for players 1 and 2" << on << "\n";
         leave_match();
         open_skirmish(on);
         const AutomationControl remembered_first =
@@ -726,6 +797,19 @@ void Runtime::check_brain_seat_buttons() {
         require(!removed, "the Brains folder could not be removed" + on);
         open_skirmish(on);
         require(!any_seat(), "a seat button remains with no brain installed" + on);
+        // Entering the main menu reads the preferences saved when the match
+        // started, which still name Player2 as a computer. Cycle that row
+        // back to Open so it matches the frame kept before any brain.
+        if (skirmish_settings_.slots.size() > 2 &&
+            skirmish_settings_.slots[2].controller != entry::controller::disabled) {
+            exercise_click("Player2");
+            frames(2);
+        }
+        require(
+            skirmish_settings_.slots.size() > 2 &&
+                skirmish_settings_.slots[2].controller == entry::controller::disabled,
+            "Player2 did not return to Open" + on
+        );
         if (frontend_focus() != opening_focus)
             set_frontend_focus(opening_focus);
         require(difficulty_word() == opening_word, "Difficulty did not stay " + opening_word + on);

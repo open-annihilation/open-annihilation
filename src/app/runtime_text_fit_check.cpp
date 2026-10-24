@@ -222,6 +222,7 @@ struct LongBrainPackage {
     fs::path folder{}; ///< the package folder
 
     LongBrainPackage() = default;
+
     ~LongBrainPackage() {
         std::error_code removed;
         fs::remove_all(folder, removed);
@@ -254,12 +255,14 @@ void write_long_brain(const fs::path& folder) {
         fs::create_directories(folder);
     const std::string text = oa::formats::oabrain::write_manifest(manifest);
     std::ofstream manifest_out(
-        folder / std::string(oa::formats::oabrain::manifest_file), std::ios::binary | std::ios::trunc
+        folder / std::string(oa::formats::oabrain::manifest_file),
+        std::ios::binary | std::ios::trunc
     );
     manifest_out.write(text.data(), static_cast<std::streamsize>(text.size()));
     require(static_cast<bool>(manifest_out), "could not write the long brain");
     std::ofstream script_out(
-        folder / std::string(oa::formats::oabrain::default_entry), std::ios::binary | std::ios::trunc
+        folder / std::string(oa::formats::oabrain::default_entry),
+        std::ios::binary | std::ios::trunc
     );
     constexpr std::string_view script = "local brain = {}\nreturn brain\n";
     script_out.write(script.data(), static_cast<std::streamsize>(script.size()));
