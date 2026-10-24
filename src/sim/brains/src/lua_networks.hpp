@@ -35,4 +35,24 @@ void install_networks(lua_State* state, Seat& seat);
 /// @return the elements, or null after a raising call
 int32_t* push_zero_tensor(lua_State* state, uint8_t rank, const uint32_t dims[4]);
 
+/// One tensor's shape and elements, when a stack value is a tensor.
+struct TensorView {
+    /// 1 to 4.
+    uint8_t rank{};
+    /// `dims` multiplied out.
+    uint32_t count{};
+    /// The first `rank` entries are the shape. The rest are 0.
+    uint32_t dims[4]{};
+    /// The elements. They live as long as the userdata stays reachable.
+    const int32_t* values{};
+};
+
+/// Fills `view` when the stack value is a tensor.
+///
+/// @param state sandbox state
+/// @param index stack index
+/// @param view filled on success; unchanged otherwise
+/// @return true when `index` is a tensor
+bool tensor_view(lua_State* state, int index, TensorView& view);
+
 } // namespace oa::sim::brains

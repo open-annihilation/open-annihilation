@@ -474,6 +474,12 @@ void publish_logged_shadow_turn(
 /// @param seat the seat being opened
 void install_random(lua_State* state, Seat& seat);
 
+/// Adds `brain.record`. Works when the seat has no match.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_record(lua_State* state, Seat& seat);
+
 /// Installs `brain.after`, `brain.every` and `brain.cancel`.
 ///
 /// Works when the seat has no match: the timers are stored and nothing runs

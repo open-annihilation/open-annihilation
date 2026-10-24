@@ -161,6 +161,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_orders(state, seat);
     install_networks(state, seat);
     install_grids(state, seat);
+    install_record(state, seat);
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {
