@@ -1169,6 +1169,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mutators.cpp
   src/app/runtime_brains.cpp
   src/app/runtime_brain_match.cpp
+  src/app/runtime_brain_logs.cpp
   src/app/runtime_brain_facts.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp

@@ -209,6 +209,10 @@ struct LobbyPackMap;
 struct LocalPack;
 } // namespace oa::ui::frontend_multiplayer
 
+namespace oa::sim::brains {
+struct RecordSample;
+}
+
 namespace oa::app {
 
 struct PresenceFacts;
@@ -5556,6 +5560,14 @@ class Runtime final : public menu::Host,
     /// (runtime_pack_maps.cpp).
     struct PackMapState;
 
+    /// The open brain log and record file (runtime_brain_logs.cpp).
+    struct BrainTraceFiles;
+
+    /// Frees the brain log and the record file.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_brain_trace_files(BrainTraceFiles* state) noexcept;
+
     /// Frees the pack maps' state.
     ///
     /// @param state state to free; null is allowed
@@ -7293,6 +7305,33 @@ class Runtime final : public menu::Host,
     /// are configured. Throws std::runtime_error when either cannot be loaded or
     /// stored.
     void configure_computer_players();
+
+    /// Installs the brain log and record hooks when the command asked for a file.
+    ///
+    /// Lines and samples that arrive before the files exist are kept until
+    /// `open_brain_log_files`. Neither hook is installed when no file was
+    /// asked for, so a match with no file plays as before.
+    void install_brain_log_hooks();
+
+    /// Creates the brain log and the record file, when the command named them.
+    ///
+    /// The record file's first line is its header. Samples kept before the
+    /// file existed follow that line. Throws std::runtime_error when a named
+    /// file cannot be created.
+    void open_brain_log_files();
+
+    /// Writes one result line for each seat of a brain match that played.
+    ///
+    /// @param winner the winning player, or 255 when there is none
+    /// @param live live units of player 0 and player 1
+    void write_brain_record_results(uint8_t winner, const uint32_t* live);
+
+    /// Keeps one tick of the brain log. A null runtime does nothing.
+    static void brain_log_lines(void* context, std::string_view text) noexcept;
+
+    /// Keeps one training sample. A null runtime does nothing.
+    static void
+    brain_log_sample(void* context, const oa::sim::brains::RecordSample& sample) noexcept;
 
     /// Remembers the computer seats a setup starts with and holds the brains
     /// the next match seats.
@@ -18859,6 +18898,11 @@ class Runtime final : public menu::Host,
     // null until a pack map is first named.
     std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{
         nullptr, destroy_pack_map_state
+    };
+    /// The brain log and the record file for this run. Null until a match
+    /// asks for either.
+    std::unique_ptr<BrainTraceFiles, void (*)(BrainTraceFiles*) noexcept> brain_trace_files_{
+        nullptr, destroy_brain_trace_files
     };
     // The registries and their catalogues; null until start_content.
     std::unique_ptr<ContentState, void (*)(ContentState*) noexcept> content_{

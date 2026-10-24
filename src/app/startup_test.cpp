@@ -1329,6 +1329,55 @@ int main() {
         "--brain-map needs --brain-match"
     );
     expect(
+        rejection({"--brain-trace", "log.txt"}) == "--brain-trace needs --headless-check",
+        "--brain-trace needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-trace", "log.txt"}) ==
+            "--brain-trace needs --match-ticks",
+        "--brain-trace needs --match-ticks"
+    );
+    expect(
+        rejection({"--brain-record", "records.txt"}) == "--brain-record needs --headless-check",
+        "--brain-record needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-record", "records.txt"}) ==
+            "--brain-record needs --match-ticks",
+        "--brain-record needs --match-ticks"
+    );
+    expect(
+        rejection({"--brain-trace"}) == "--brain-trace requires a value",
+        "--brain-trace requires a value"
+    );
+    expect(
+        rejection({"--brain-trace", ""}) == "--brain-trace requires a value",
+        "an empty brain log path is refused"
+    );
+    expect(
+        rejection({"--brain-record"}) == "--brain-record requires a value",
+        "--brain-record requires a value"
+    );
+    expect(
+        rejection({"--brain-record", ""}) == "--brain-record requires a value",
+        "an empty record path is refused"
+    );
+    {
+        const auto logged = parse(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--brain-trace",
+             "log.txt",
+             "--brain-record",
+             "records.txt"}
+        );
+        expect(
+            logged.brain_trace == "log.txt" && logged.brain_record == "records.txt",
+            "the brain log and the record file are stored"
+        );
+    }
+    expect(
         rejection({"--brain-match", "x,y"}) == "--brain-match needs --headless-check",
         "--brain-match needs --headless-check"
     );
