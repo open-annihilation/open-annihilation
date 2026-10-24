@@ -971,13 +971,16 @@ setting the file leaves out keeps the battle room's own choice.
 joins needs `game.address`, or `--join ADDRESS`.
 
 Each item of `computer-players` is a group of `side` (`arm` or `core`),
-`team` (`1` to `5`, or `none`), `colour` (`1` to `10`) and `difficulty`
-(`easy`, `medium` or `hard`). Any but the side may be left out, and the
-battle room then chooses it as it does for a computer player a click seats:
-no team, the next free colour, and hard. A refusal names an item by its
-place, counting from 1 (`computer-players[2].team`). A deathmatch or a
-tournament game seats no computer players, and the computer players and the
-player must fit `game.player-limit`.
+`team` (`1` to `5`, or `none`), `colour` (`1` to `10`), `difficulty`
+(`easy`, `medium` or `hard`) and `brain`, an installed brain's id. Any but
+the side may be left out, and the battle room then chooses it as it does
+for a computer player a click seats: no team, the next free colour, hard,
+and the room's own brain. A brain that is not installed refuses the launch.
+One that does not fit the game plays the built-in player. A refusal names
+an item by its place, counting from 1 (`computer-players[2].team`,
+`computer-players[2].brain`). A deathmatch or a tournament game seats no
+computer players, and the computer players and the player must fit
+`game.player-limit`.
 
 `rules.unit-restrictions` is a group of units and their limits, each unit by
 its FBI UnitName in any case: `0` cannot be built, `1` to `100` is the most
@@ -1150,7 +1153,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `rules.time-limit` | `--time-limit N` | A whole number of 0 or more, kept and passed on with the score report. |
 | `rules.lock-options` | `--lock-options[=on\|off]` | Locks the battle room's option controls for a host: `on` or `off`. |
 | `rules.unit-restrictions` | `--unit-restriction UNIT=0-100\|no-limit` | Build limits, as the battle room's Restrictions sets them: each unit by its FBI UnitName (such as `CORKROG`), from 0, which cannot be built, through 100, or `no-limit`. Give the option once for each unit. A unit the game's content does not have is left out. |
-| `computer-players` | `--computer-player arm\|core[:TEAM[:COLOUR[:DIFFICULTY]]]` | The computer players this machine seats, at most 9, each with a side, and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses. Give the option once for each. |
+| `computer-players` | `--computer-player arm\|core[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]` | The computer players this machine seats, at most 9, each with a side, and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a brain's id. A brain that is not installed refuses the launch; one that does not fit plays the built-in player. Give the option once for each. |
 | `content.base-game` | `--content GAME[:EXPANSION,...]` | The base game this run plays, by its id. |
 | `content.expansions` | `--content GAME[:EXPANSION,...]` | The expansions this run plays, a list of ids. It needs a base game. |
 | `content.mod` | `--mod FILE \| --mod-dir PATH` | The mod this run plays: in the file a mod's id or a path, and on the command line its profile or its folder. |
@@ -1160,11 +1163,15 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `status.quit-after-game` | `--quit-after-game[=after-score]` | Leaves when the game ends (`on`), stays (`off`), or leaves after the score (`after-score`). |
 
 `--computer-player` takes the computer player's side, then, after a colon
-each, its team (`1` to `5`, or `none`), its colour (`1` to `10`) and its
-difficulty (`easy`, `medium` or `hard`). A part left out or left empty is
-chosen by the battle room: `core:2::hard` is Core on team 2, in the next
-free colour, playing hard. The first `--computer-player` replaces the
-file's list, and each adds one computer player.
+each, its team (`1` to `5`, or `none`), its colour (`1` to `10`), its
+difficulty (`easy`, `medium` or `hard`) and a brain's id. A part left out
+or left empty is chosen by the battle room: `core:2::hard` is Core on team
+2, in the next free colour, playing hard, with the room's own brain.
+`core:2::hard:steady-commander` seats that installed brain at the level
+hard gives. A brain that is not installed refuses the launch. One that
+does not fit the game plays the built-in player. The first
+`--computer-player` replaces the file's list, and each adds one computer
+player.
 
 `--unit-restriction` takes a unit's FBI UnitName, an equals sign and its
 limit, such as `CORKROG=0`. In the file the restrictions are a group of

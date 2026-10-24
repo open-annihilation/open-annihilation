@@ -35,6 +35,7 @@
 #include "oa/data/campaign/map_catalog.hpp"
 #include "oa/data/content_bundles.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/data/brain_library/library.hpp"
 #include "oa/data/mutator_library/library.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/pipeline.hpp"
@@ -1721,6 +1722,53 @@ void refuse_unusable_mutators(const Options& options) {
     }
 }
 
+/// Refuses a launch brain the game cannot seat, before a window opens.
+///
+/// An id that is not kebab-case was already refused while the launch was
+/// read. One that is not installed, or whose manifest does not read, ends
+/// the run with status 2 and names the id. An empty id is the built-in
+/// player and is not looked up. With no player folder, a named id is
+/// refused the same way.
+///
+/// @param options the parsed command line
+void refuse_unusable_brains(const Options& options) {
+    namespace launch = oa::ui::frontend_multiplayer::launch;
+    const auto& net = netgame_context().options;
+    if (!net.launch_planned)
+        return;
+    const launch::LaunchBlock& block = netgame_context().launch.block;
+    const int32_t count = std::min(block.computer_count, launch::kLaunchComputerLimit);
+    bool named = false;
+    for (int32_t index = 0; index < count; ++index) {
+        if (block.computers[index].brain[0] != '\0')
+            named = true;
+    }
+    if (!named)
+        return;
+    bool from_option = false;
+    for (const auto& replaced : net.launch_replaced) {
+        if (replaced.first == "computer-players" && replaced.second.starts_with("--"))
+            from_option = true;
+    }
+    oa::data::brain_library::Listing listing;
+    if (const std::optional<fs::path> player = launch_user_folder(options)) {
+        listing = oa::data::brain_library::list_installed(
+            *player / std::string(oa::data::brain_library::brains_folder_name)
+        );
+    }
+    for (int32_t index = 0; index < count; ++index) {
+        const char* id = block.computers[index].brain;
+        if (id[0] == '\0')
+            continue;
+        if (oa::data::brain_library::find(listing, id) != nullptr)
+            continue;
+        const std::string field = "computer-players[" + std::to_string(index + 1) + "].brain";
+        const std::string place =
+            from_option ? std::string("--computer-player brain") : launch_place(field);
+        throw netgame::LaunchRefusal(place + ": " + id + " is not installed");
+    }
+}
+
 /// Runs the game once: finds the game folders and their profile, with the
 /// Game files screen where the platform brings game files in and none is
 /// usable, opens the window the first time, plays the intro movies the
@@ -1748,6 +1796,7 @@ int run_once(
     start_player_evicted_fetch(options);
     resolve_launch_mod(options);
     refuse_unusable_mutators(options);
+    refuse_unusable_brains(options);
     // Captured before game_dir is filled with the folder this start plays:
     // the second compose, after a copy made on this start, still runs.
     const bool mount_copy = mount_managed_copy(options);

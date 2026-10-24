@@ -279,7 +279,7 @@ bool same_block(const nl::LaunchBlock& left, const nl::LaunchBlock& right) {
         const auto& one = left.computers[at];
         const auto& other = right.computers[at];
         same = one.faction == other.faction && one.team == other.team && one.color == other.color &&
-               one.difficulty == other.difficulty;
+               one.difficulty == other.difficulty && same_text(one.brain, other.brain);
     }
     for (int32_t at = 0; same && at < left.restriction_count && at < nl::kLaunchRestrictionLimit;
          ++at)
@@ -1211,6 +1211,89 @@ void check_options_match_the_file(const std::string& launch, const std::string& 
         }
 }
 
+/// The fifth part and the group's brain are read, an empty part is the built-in
+/// player, a bad id is refused at its place, and a sixth part is refused.
+void check_computer_brains() {
+    const auto named =
+        parse({"--host", "--computer-player", "core:2::hard:steady-commander"}).launch.block;
+    expect(
+        named.computer_count == 1 && named.computers[0].faction == nl::faction::core &&
+            named.computers[0].team == 2 && named.computers[0].color == 0 &&
+            named.computers[0].difficulty == nl::difficulty::hard &&
+            same_text(named.computers[0].brain, "steady-commander"),
+        "the fifth part names the brain"
+    );
+    const auto empty_tail = parse({"--host", "--computer-player", "core:2::hard:"}).launch.block;
+    expect(
+        empty_tail.computer_count == 1 &&
+            empty_tail.computers[0].difficulty == nl::difficulty::hard &&
+            empty_tail.computers[0].brain[0] == '\0',
+        "an empty fifth part seats the built-in player"
+    );
+    const auto four = parse({"--host", "--computer-player", "core:none:4:easy"}).launch.block;
+    expect(
+        four.computer_count == 1 && four.computers[0].brain[0] == '\0' &&
+            four.computers[0].team == 0 && four.computers[0].difficulty == nl::difficulty::easy,
+        "four parts leave the brain empty"
+    );
+    const std::string bad_option =
+        rejection({"--host", "--computer-player", "core:1::hard:Steady"});
+    expect(
+        bad_option == "--computer-player brain: is not a kebab-case brain id",
+        "a bad id names --computer-player brain: " + bad_option
+    );
+    const std::string too_many =
+        rejection({"--host", "--computer-player", "core:1:2:hard:steady-commander:extra"});
+    expect(
+        too_many == "--computer-player: expected SIDE[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]",
+        "more than five parts are refused: " + too_many
+    );
+    const std::string file = refused_text(
+        "oalaunch: 1\n"
+        "game:\n"
+        "  role: host\n"
+        "computer-players:\n"
+        "  - side: arm\n"
+        "  - side: core\n"
+        "    team: 2\n"
+        "    difficulty: hard\n"
+        "    brain: steady-commander\n"
+    );
+    expect(file.empty(), "a group's brain is read: " + file);
+    const auto grouped = launch_file::read_launch_text(
+        "launch.oalaunch",
+        "oalaunch: 1\n"
+        "game:\n"
+        "  role: host\n"
+        "computer-players:\n"
+        "  - side: arm\n"
+        "    brain: \"\"\n"
+        "  - side: core\n"
+        "    team: 2\n"
+        "    difficulty: hard\n"
+        "    brain: steady-commander\n"
+    );
+    expect(
+        grouped.block.computer_count == 2 && grouped.block.computers[0].brain[0] == '\0' &&
+            same_text(grouped.block.computers[1].brain, "steady-commander") &&
+            grouped.block.computers[1].difficulty == nl::difficulty::hard,
+        "the group's brain is stored, and an empty one is the built-in player"
+    );
+    const std::string bad_file = refused_text(
+        "oalaunch: 1\n"
+        "game:\n"
+        "  role: host\n"
+        "computer-players:\n"
+        "  - side: arm\n"
+        "  - side: core\n"
+        "    brain: Nope\n"
+    );
+    expect(
+        bad_file == "launch.oalaunch: computer-players[2].brain: is not a kebab-case brain id",
+        "a bad id names computer-players[2].brain: " + bad_file
+    );
+}
+
 /// The names and the password a launch takes are as long as the game keeps
 /// them, one limit for each: the file's field and its option refuse one
 /// character more, with or without a launch beside the option, the manual's
@@ -1913,6 +1996,7 @@ int main() {
         scratch.write("launch.oalaunch", kLaunch), scratch.write("plain.oalaunch", kPlainHost)
     );
     check_refusals(scratch);
+    check_computer_brains();
     check_name_limits();
     check_either_file(scratch);
     check_kept_status(scratch);

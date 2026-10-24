@@ -27,6 +27,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <new>
 
 namespace oa::sim::brains {
 namespace {
@@ -505,8 +506,7 @@ static int brain_grid(lua_State* state) {
         units += (sight_cells + 63u) / 64u;
     script_host::charge_work(state, units);
 
-    auto* scratch = static_cast<GridScratch*>(lua_newuserdatauv(state, sizeof(GridScratch), 0));
-    std::memset(scratch, 0, sizeof(GridScratch));
+    auto* scratch = new (lua_newuserdatauv(state, sizeof(GridScratch), 0)) GridScratch{};
     const uint32_t dims[4] = {layer_count, size, size, 0};
     int32_t* elements = push_zero_tensor(state, 3, dims);
     if (elements == nullptr)
