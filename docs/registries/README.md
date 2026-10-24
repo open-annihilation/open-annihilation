@@ -23,7 +23,7 @@ a member this version already defines. OA refuses a descriptor whose
   `Registries.yaml`.
 - [catalogue.md](catalogue.md): the catalogue OA reads.
 - [signatures.md](signatures.md): the detached signature, keys and rotation.
-- [packages.md](packages.md): the five package kinds, how they are addressed,
+- [packages.md](packages.md): the six package kinds, how they are addressed,
   and what OA checks before it installs one.
 - [download-api.md](download-api.md): direct downloads and the optional
   download API.
