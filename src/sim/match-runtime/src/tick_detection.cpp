@@ -30,6 +30,30 @@ int32_t whole_to_fixed(int32_t whole) {
     return static_cast<int32_t>(static_cast<uint32_t>(whole) << 16);
 }
 
+/// Gives `list` room for at least `needed` entries in each of its `parts`
+/// parts. The room doubles from 64 until it is enough, so a list grows only
+/// when a player sees more units at once than before. What the list held is
+/// not kept.
+///
+/// @param list the list
+/// @param room the entries each part has room for, updated
+/// @param needed the entries each part must hold
+/// @param parts how many parts of `room` entries the list holds
+void make_seen_room(
+    std::unique_ptr<sim::detection::SightedUnit[]>& list,
+    uint32_t& room,
+    uint32_t needed,
+    std::size_t parts
+) {
+    if (list != nullptr && needed <= room)
+        return;
+    uint32_t grown = room == 0 ? 64U : room;
+    while (grown < needed)
+        grown *= 2U;
+    list = std::make_unique<sim::detection::SightedUnit[]>(static_cast<std::size_t>(grown) * parts);
+    room = grown;
+}
+
 } // namespace
 
 uint16_t Match::participant_count() const noexcept {
@@ -508,7 +532,14 @@ void Match::refresh_player_knowledge(uint8_t player) {
     if (knowledge != nullptr)
         sim::ai::computer_knowledge_settle(*knowledge, tally);
     sightings.refreshed_tick = tick;
-    const auto seen_stride = static_cast<std::size_t>(sightings.capacity);
+    const uint32_t before_count = seen_before_count_[player];
+    make_seen_room(
+        seen_work_,
+        seen_work_room_,
+        sightings.seen_count > before_count ? sightings.seen_count : before_count,
+        3
+    );
+    const auto seen_stride = static_cast<std::size_t>(seen_work_room_);
     detection::SightedUnit* const now_list = seen_work_.get();
     uint32_t now_count = 0;
     for (uint32_t filed = 0; filed < sightings.seen_count; ++filed) {
@@ -523,11 +554,9 @@ void Match::refresh_player_knowledge(uint8_t player) {
         detection::SightedUnit* const lost_list = gained_list + seen_stride;
         uint32_t gained_count = 0;
         uint32_t lost_count = 0;
-        const auto* const before_list =
-            seen_before_.get() + static_cast<std::size_t>(player) * seen_stride;
         detection::diff_sighted(
             std::span<const detection::SightedUnit>{
-                before_list, static_cast<std::size_t>(seen_before_count_[player])
+                seen_before_[player].get(), static_cast<std::size_t>(before_count)
             },
             std::span<const detection::SightedUnit>{now_list, static_cast<std::size_t>(now_count)},
             [&](const detection::SightedUnit& entry) {
@@ -552,7 +581,8 @@ void Match::refresh_player_knowledge(uint8_t player) {
             );
         }
     }
-    auto* const stored = seen_before_.get() + static_cast<std::size_t>(player) * seen_stride;
+    make_seen_room(seen_before_[player], seen_before_room_[player], now_count, 1);
+    auto* const stored = seen_before_[player].get();
     for (uint32_t copied = 0; copied < now_count; ++copied)
         stored[copied] = now_list[copied];
     seen_before_count_[player] = now_count;
