@@ -294,9 +294,16 @@ if [[ "$release_build" == 1 ]]; then
     binary="$app/Contents/MacOS/$app_executable"
     [[ "$(ls -A "$app/Contents/MacOS")" == "$app_executable" ]] || fail "Contents/MacOS holds more than $app_executable"
     resources="$(ls -A "$app/Contents/Resources" | LC_ALL=C sort | tr '\n' ' ')"
-    expected="$(printf '%s\n' ATTRIBUTIONS.md LICENSE fonts languages licenses registries "$(plist_value "$app" CFBundleIconFile)" \
-        | LC_ALL=C sort | tr '\n' ' ')"
+    # Classic, packed beside the game, when the source ships it.
+    shipped_brains=""
+    [[ -f "$repo_dir/brains/classic/oabrain.yaml" ]] && shipped_brains="brains"
+    expected="$(printf '%s\n' ATTRIBUTIONS.md LICENSE fonts languages licenses registries ${shipped_brains:+"$shipped_brains"} \
+        "$(plist_value "$app" CFBundleIconFile)" | LC_ALL=C sort | tr '\n' ' ')"
     [[ "$resources" == "$expected" ]] || fail "unexpected files in Contents/Resources: $resources"
+    if [[ -n "$shipped_brains" ]]; then
+        [[ "$(ls -A "$app/Contents/Resources/brains")" == "classic.oabrain" ]] \
+            || fail "Contents/Resources/brains holds more than classic.oabrain"
+    fi
     cmp -s "$repo_dir/registries/coreprime.yaml" "$app/Contents/Resources/registries/coreprime.yaml" \
         || fail "Contents/Resources/registries/coreprime.yaml differs from the source"
     # The engine's own words in its built-in languages, and nothing else in
