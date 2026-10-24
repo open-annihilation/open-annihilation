@@ -9,6 +9,7 @@
 
 #include "oa/core/game_state.h"
 #include "oa/core/player.h"
+#include "oa/data/script_host/plain_data.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
 
@@ -339,6 +340,8 @@ void read_fits(void* context, lua_State* state, int results) {
 
 struct StartBox {
     Seat* seat{};
+    const uint8_t* saved{};
+    std::size_t saved_count{};
 };
 
 int push_start(void* context, lua_State* state) {
@@ -348,7 +351,10 @@ int push_start(void* context, lua_State* state) {
     lua_remove(state, -2);
     lua_getglobal(state, "game");
     lua_getglobal(state, "me");
-    lua_pushnil(state);
+    if (box->saved == nullptr || box->saved_count == 0)
+        lua_pushnil(state);
+    else
+        script_host::push_plain_data(state, std::span<const uint8_t>(box->saved, box->saved_count));
     return 3;
 }
 
@@ -548,6 +554,8 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         if (seat.has_start) {
             StartBox starting;
             starting.seat = &seat;
+            starting.saved = spec.saved.data();
+            starting.saved_count = spec.saved.size();
             script_host::CallHooks start_hooks;
             start_hooks.context = &starting;
             start_hooks.push = push_start;

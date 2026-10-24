@@ -428,6 +428,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-match-bars", &Options::check_match_bars, {}},
         {"--check-kill-board", &Options::check_kill_board, {}},
         {"--check-paused-save", &Options::check_paused_save, {}},
+        {"--check-saved-brains", &Options::check_saved_brains, {}},
         {"--check-simulation-hash", &Options::check_simulation_hash, {}},
         {"--check-zoom-memory", &Options::check_zoom_memory, {}},
         {"--check-language-switch", &Options::check_language_switch, {}},

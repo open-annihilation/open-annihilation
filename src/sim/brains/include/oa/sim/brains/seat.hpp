@@ -103,6 +103,11 @@ struct SeatSpec {
     std::span<const PackageFile> files{};
     /// The networks the manifest names.
     std::span<const NetworkFile> networks{};
+    /// Saved state from an earlier game, as plain-data bytes.
+    ///
+    /// Empty is no state: `start` receives nil. The bytes need only last for
+    /// `seat_brain`. Damaged bytes fail seating.
+    std::span<const uint8_t> saved{};
     /// Replaces the Classic fingerprint baked into this build, for this load.
     /// Tests set it. The app never sets it. Empty uses the baked-in value.
     std::string_view classic_fingerprint_for_tests{};
@@ -178,6 +183,42 @@ struct SeatOutcome {
 /// @return the sandbox, or null without a seated brain
 [[nodiscard]] oa::data::script_host::Sandbox*
 seat_sandbox(match_runtime::Match& match, uint8_t player) noexcept;
+
+/// What asking a seated brain for its state came to.
+enum class SaveOutcome : uint8_t {
+    absent,  ///< no seated brain, or its table has no save function
+    stored,  ///< plain data was handed to the caller
+    omitted, ///< the return was not plain data, had no values, or passed 1 MiB
+    failed,  ///< save raised or spent its allowance; the seat was handed back
+};
+
+/// Where a saved state is handed.
+///
+/// `accept` is called only after `save` returns and the bytes are plain data,
+/// and only when those bytes are not empty. The span lasts for the call.
+/// A null `accept` still counts as stored.
+struct SaveHooks {
+    /// Pointer passed to `accept`. May be null.
+    void* context{};
+    /// The state's bytes. Null skips the hand-off.
+    void (*accept)(void* context, std::span<const uint8_t> bytes){};
+};
+
+/// Runs a seated brain's `save` and encodes the value it returns.
+///
+/// The call runs under a fresh phase allowance. A brain with no `save`
+/// function leaves the seat as it is and returns `absent`. A return that is
+/// not plain data, that has no values, or that would pass 1 MiB is left out
+/// and the brain stays seated. A raise or a spent allowance hands the seat
+/// back, as any other hook's failure does, and returns `failed`. The bytes
+/// are accepted only after the call returns.
+///
+/// @param match the match
+/// @param player player index, 0 to 9
+/// @param hooks where the bytes go; `accept` may be null
+/// @return absent, stored, omitted or failed
+[[nodiscard]] SaveOutcome
+save_brain_state(match_runtime::Match& match, uint8_t player, SaveHooks hooks);
 
 /// Returns how many instructions one player's brain calls have used.
 ///
