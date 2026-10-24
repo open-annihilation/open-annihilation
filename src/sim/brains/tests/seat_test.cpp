@@ -625,6 +625,7 @@ void start_receives_the_saved_state() {
     host::ScriptError error;
     CHECK(sandbox->run_host("read", &seen, read_held, error));
     CHECK(seen.starts == 4);
+}
 
 void instruction_totals_cover_load_tick_and_a_stop() {
     Fixture fixture;
