@@ -23,6 +23,7 @@
 #include "oa/ui/frontend_multiplayer/room_mutators.hpp"
 #include "oa/ui/frontend_multiplayer/team_rules.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -426,6 +427,20 @@ struct ChatMeasure {
     int32_t (*width)(void* context, std::string_view line){};
 };
 
+/// The brain one computer player plays, as the battle room shows it.
+///
+/// Absent on a slot means the built-in player. Another machine does not need
+/// the brain installed: the name, version and level travel in the presence
+/// record.
+struct ComputerBrain {
+    std::string id;        ///< the brain's id
+    std::string name;      ///< the brain's name
+    std::string version;   ///< the brain's version; may be empty
+    std::string level_id;  ///< the level's id
+    std::string level;     ///< the level's name
+    bool full_awareness{}; ///< the brain sees every unit
+};
+
 struct Lobby {
     Game* game{};
     PlayerSetupInfo infos[kSlotCount];
@@ -496,6 +511,10 @@ struct Lobby {
     /// this machine seats the player or a presence record names it.
     uint8_t computer_difficulty[kSlotCount]{};
     bool computer_difficulty_set[kSlotCount]{};
+    /// The brain a computer player in this slot plays. Empty is the built-in
+    /// player. This machine sets its own; a peer's presence record sets the
+    /// computers that peer runs. A slot swap carries the brain with the player.
+    std::array<std::optional<ComputerBrain>, kSlotCount> computer_brain{};
     /// A change the host asked of another machine's computer player, kept
     /// until that machine echoes it. Kind 0 is none. The player id names the
     /// computer player, so a slot swap does not move the command.
@@ -1205,6 +1224,28 @@ void lobby_publish_session(Lobby& lobby) noexcept;
 /// @param name Player name, or null for none.
 /// @return False when no slot can take the player.
 bool lobby_add_player(Lobby& lobby, uint32_t player_id, const char* name) noexcept;
+
+/// Keeps the brain a computer player of this machine plays, and its difficulty.
+///
+/// Only a computer player this machine runs is changed. A remote slot, an
+/// empty slot and a slot outside the table are left as they are. An empty
+/// brain is the built-in player. The difficulty is noted as a presence
+/// record's computer list notes it: 0 easy, 1 medium, 2 hard.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param slot Player slot.
+/// @param brain The brain, or nothing for the built-in player.
+/// @param difficulty 0 easy, 1 medium or 2 hard.
+void lobby_set_computer_brain(
+    Lobby& lobby, int32_t slot, std::optional<ComputerBrain> brain, uint8_t difficulty
+) noexcept;
+
+/// Returns the brain a computer player in a slot plays.
+///
+/// @param lobby Lobby state.
+/// @param slot Player slot.
+/// @return The brain, or null for the built-in player and for a slot outside the table.
+[[nodiscard]] const ComputerBrain* lobby_computer_brain(const Lobby& lobby, int32_t slot) noexcept;
 
 /// Seats a computer player in an open slot as a session player of this machine.
 ///

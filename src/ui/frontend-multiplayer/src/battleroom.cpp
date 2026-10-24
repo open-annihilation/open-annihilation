@@ -959,6 +959,7 @@ void clear_computer_difficulty(Lobby& lobby, int32_t slot) noexcept {
     const auto id = slot_player(lobby, slot).player_id;
     lobby.computer_difficulty[slot] = 0;
     lobby.computer_difficulty_set[slot] = false;
+    lobby.computer_brain[slot].reset();
     if (lobby.computer_command_kind != 0 && lobby.computer_command_player == id)
         lobby.computer_command_kind = 0;
 }
@@ -1043,6 +1044,8 @@ bool owner_runs_oa(Lobby& lobby, int32_t owner) noexcept {
 /// @param slot The computer player's slot.
 /// @return True when this machine hosts and the owner's machine runs OA.
 bool host_edits_remote_computer(Lobby& lobby, int32_t slot) noexcept {
+    if (slot < 0 || slot >= kSlotCount || lobby.computer_brain[slot])
+        return false;
     if (!host_is_local(lobby) || !remote_computer(lobby, slot))
         return false;
     return owner_runs_oa(lobby, computer_owner_slot(lobby, slot));
@@ -1058,6 +1061,8 @@ bool host_edits_remote_computer(Lobby& lobby, int32_t slot) noexcept {
 /// @param slot The computer player's slot.
 /// @return True when a click on the row should change it.
 bool edits_computer(Lobby& lobby, int32_t slot) noexcept {
+    if (slot < 0 || slot >= kSlotCount || lobby.computer_brain[slot])
+        return false;
     if (lobby_launch_locked(lobby))
         return false;
     if ((info_of(lobby, local_player(lobby)).options & option::ready) != 0)
@@ -1162,6 +1167,36 @@ void take_computer_presence(Lobby& lobby, int32_t sender_slot) noexcept {
             note_computer_command_echo(lobby, id, kComputerEditDifficulty, difficulty);
         }
     }
+    std::span<const uint8_t> brains_value;
+    const bool brains_found = netgame::find_presence_field(
+        bytes, size, netgame::PresenceTag::computer_brains, &brains_value
+    );
+    const auto decoded =
+        brains_found ? netgame::decode_presence_brains(brains_value) : std::nullopt;
+    for (int32_t slot = 0; slot < kSlotCount; ++slot) {
+        if (computer_owner_slot(lobby, slot) != sender_slot)
+            continue;
+        const auto id = slot_player(lobby, slot).player_id;
+        const netgame::PresenceBrain* match = nullptr;
+        if (decoded) {
+            for (const auto& item : *decoded) {
+                if (item.player == id)
+                    match = &item;
+            }
+        }
+        if (match == nullptr) {
+            lobby.computer_brain[slot].reset();
+            continue;
+        }
+        ComputerBrain brain;
+        brain.id = match->id;
+        brain.name = match->name;
+        brain.version = match->version;
+        brain.level_id = match->level_id;
+        brain.level = match->level;
+        brain.full_awareness = match->full_awareness;
+        lobby.computer_brain[slot] = std::move(brain);
+    }
     const auto host = lobby_host_slot(lobby);
     if (host_is_local(lobby) || host == kNoSlot || sender_slot != static_cast<int32_t>(host))
         return;
@@ -1205,6 +1240,47 @@ void append_computer_presence(
                 &written
             ) == netgame::WireError::ok)
             size = written;
+    }
+    std::vector<netgame::PresenceBrain> brains;
+    for (int32_t slot = 0; slot < kSlotCount; ++slot) {
+        const auto& player = slot_player(lobby, slot);
+        if (!occupied_by(player, kSlotComputer) || !lobby.computer_brain[slot])
+            continue;
+        const auto& seated = *lobby.computer_brain[slot];
+        netgame::PresenceBrain item;
+        item.player = player.player_id;
+        item.id = seated.id;
+        item.name = seated.name;
+        item.version = seated.version;
+        item.level_id = seated.level_id;
+        item.level = seated.level;
+        item.full_awareness = seated.full_awareness;
+        brains.push_back(std::move(item));
+    }
+    if (!brains.empty()) {
+        const auto limit = capacity < netgame::presence_record_max_bytes
+                               ? capacity
+                               : netgame::presence_record_max_bytes;
+        if (limit > size + netgame::presence_field_header_bytes) {
+            const auto room = limit - size - netgame::presence_field_header_bytes;
+            uint8_t value[netgame::presence_record_max_bytes];
+            std::size_t brain_written = 0;
+            std::size_t sent = 0;
+            if (netgame::encode_presence_brains(brains, value, room, &brain_written, &sent) ==
+                    netgame::WireError::ok &&
+                sent != 0) {
+                std::size_t total = 0;
+                if (netgame::append_presence_field(
+                        record,
+                        size,
+                        capacity,
+                        netgame::PresenceTag::computer_brains,
+                        std::span<const uint8_t>(value, brain_written),
+                        &total
+                    ) == netgame::WireError::ok)
+                    size = total;
+            }
+        }
     }
     if (lobby.computer_command_kind == 0)
         return;
@@ -2037,6 +2113,7 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
     std::fill(
         std::begin(lobby.computer_difficulty_set), std::end(lobby.computer_difficulty_set), false
     );
+    lobby.computer_brain.fill(std::nullopt);
     lobby.computer_command_player = 0;
     lobby.computer_command_kind = 0;
     lobby.computer_command_value = 0;
@@ -2309,6 +2386,7 @@ void lobby_swap_slots(Lobby& lobby, int32_t first, int32_t second) noexcept {
     std::swap(records.sent_to[first], records.sent_to[second]);
     std::swap(lobby.computer_difficulty[first], lobby.computer_difficulty[second]);
     std::swap(lobby.computer_difficulty_set[first], lobby.computer_difficulty_set[second]);
+    std::swap(lobby.computer_brain[first], lobby.computer_brain[second]);
     slot_set_status(lobby, a, kSlotOpen);
     a.in_use = 0;
     // The game renumbers eleven records; the eleventh lies past the table.
@@ -4281,6 +4359,23 @@ void lobby_send_slot_table(Lobby& lobby) noexcept {
     const auto host = lobby_host_slot(lobby);
     if (netgame::encode_record(record, wire, sizeof(wire), &written) == netgame::WireError::ok)
         send(lobby, slot_player(lobby, host).player_id, kBroadcastId, wire, written);
+}
+
+void lobby_set_computer_brain(
+    Lobby& lobby, int32_t slot, std::optional<ComputerBrain> brain, uint8_t difficulty
+) noexcept {
+    if (slot < 0 || slot >= kSlotCount || lobby.game == nullptr)
+        return;
+    if (!occupied_by(slot_player(lobby, slot), kSlotComputer))
+        return;
+    lobby.computer_brain[slot] = std::move(brain);
+    note_computer_difficulty(lobby, slot, difficulty);
+}
+
+const ComputerBrain* lobby_computer_brain(const Lobby& lobby, int32_t slot) noexcept {
+    if (slot < 0 || slot >= kSlotCount || !lobby.computer_brain[slot])
+        return nullptr;
+    return &*lobby.computer_brain[slot];
 }
 
 void lobby_add_computer(Lobby& lobby, int32_t slot) noexcept {
