@@ -136,6 +136,40 @@ void logging_arm(
 /// @param session the logging host
 void logging_note_stances(LoggingHost& session) noexcept;
 
+/// Writes one call-log entry the way a shadow turn writes it.
+///
+/// The text includes the newline. `storage` needs 192 bytes.
+///
+/// @param entry the entry
+/// @param storage where the line is written, including a terminating NUL
+/// @param storage_size bytes `storage` can hold
+/// @return the number of bytes written, not counting the NUL, or -1
+int format_call_log_entry(const LogEntry& entry, char* storage, uint32_t storage_size) noexcept;
+
+/// Writes `tick <t> seat <p> builtin` or `brain`, and a newline.
+///
+/// @param tick the tick
+/// @param player the engine player index
+/// @param brain true for a brain's log, false for the built-in player's
+/// @param storage where the line is written, including a terminating NUL
+/// @param storage_size bytes `storage` can hold
+/// @return the number of bytes written, not counting the NUL, or -1
+int format_tick_heading(
+    uint32_t tick, uint8_t player, bool brain, char* storage, uint32_t storage_size
+) noexcept;
+
+/// Renders one tick of a call log, the heading and then each entry.
+///
+/// The caller frees the text with `delete[]`. A null return means the text
+/// could not be stored.
+///
+/// @param log the entries; it is not changed
+/// @param tick the tick
+/// @param player the engine player index
+/// @param brain true for a brain's log, false for the built-in player's
+/// @return the text, or null
+char* render_call_log(const CallLog& log, uint32_t tick, uint8_t player, bool brain) noexcept;
+
 /// The brain's calls: orders are recorded, reads of the seat come from a
 /// snapshot, and every other read goes to `live`. It cannot be copied or
 /// moved: `calls.host.context` points at it.

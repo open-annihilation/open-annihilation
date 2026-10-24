@@ -33,7 +33,7 @@ add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua
   src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
   src/failure.cpp src/save.cpp src/lua_profile.cpp src/lua_map.cpp src/reach.cpp src/lua_sight.cpp
   src/lua_orders.cpp src/lua_sites.cpp src/lua_networks.cpp src/lua_grids.cpp src/seat_calls.cpp
-  src/shadow.cpp
+  src/shadow.cpp src/logs.cpp
   "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")

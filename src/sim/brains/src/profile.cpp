@@ -149,7 +149,7 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_handles(state, seat);
     install_me(state, seat);
     install_chat(state, seat);
-    install_random(state);
+    install_random(state, seat);
     install_timers(state, seat);
     install_shared_random(state, seat);
     install_section(state, seat);
