@@ -783,9 +783,13 @@ void test_charges() {
         host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
         CHECK(sandbox != nullptr);
         host::ScriptError error;
-        CHECK(banked(*sandbox, "local t = brain.tensor({1, 2, 3}); return t:argmax()\n", error));
+        // At most 40 bytes, so the chunk name is a short string. A longer
+        // source is charged once, when the string cache first keeps it, and
+        // the second call would then spend less.
+        const char* script = "return brain.tensor{1,2,3}:argmax()";
+        CHECK(banked(*sandbox, script, error));
         const uint64_t first = sandbox->instructions_used();
-        CHECK(banked(*sandbox, "local t = brain.tensor({1, 2, 3}); return t:argmax()\n", error));
+        CHECK(banked(*sandbox, script, error));
         const uint64_t second = sandbox->instructions_used();
         CHECK(first > 0);
         CHECK(first == second);

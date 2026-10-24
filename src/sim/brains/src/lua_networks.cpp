@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string_view>
 
 namespace oa::sim::brains {
@@ -110,6 +111,14 @@ NetworkBody* need_network(lua_State* state) {
 
 uint64_t groups_of(uint64_t count) {
     return (count + 63u) / 64u;
+}
+
+/// Lua's formatter accepts `%I` for a `lua_Integer`, and nothing wider.
+lua_Integer lua_count(uint64_t value) {
+    const auto limit = static_cast<uint64_t>(std::numeric_limits<lua_Integer>::max());
+    if (value > limit)
+        return std::numeric_limits<lua_Integer>::max();
+    return static_cast<lua_Integer>(value);
 }
 
 /// Reads one value as a count of 65536ths. Raises on a bad value.
@@ -213,9 +222,9 @@ static int tensor_get(lua_State* state) {
     if (index < 1 || static_cast<uint64_t>(index) > head->count) {
         luaL_error(
             state,
-            "brain.tensor: index %lld is outside 1 to %u",
-            static_cast<long long>(index),
-            head->count
+            "brain.tensor: index %I is outside 1 to %I",
+            index,
+            static_cast<lua_Integer>(head->count)
         );
         return 0;
     }
@@ -362,9 +371,9 @@ static int brain_tensor(lua_State* state) {
             if (wide > ~uint64_t{0} / product) {
                 luaL_error(
                     state,
-                    "brain.tensor: the shape covers %llu values, not %llu",
-                    static_cast<unsigned long long>(~uint64_t{0}),
-                    static_cast<unsigned long long>(count)
+                    "brain.tensor: the shape covers %I values, not %I",
+                    lua_count(~uint64_t{0}),
+                    lua_count(count)
                 );
                 return 0;
             }
@@ -374,9 +383,9 @@ static int brain_tensor(lua_State* state) {
         if (product != count) {
             luaL_error(
                 state,
-                "brain.tensor: the shape covers %llu values, not %llu",
-                static_cast<unsigned long long>(product),
-                static_cast<unsigned long long>(count)
+                "brain.tensor: the shape covers %I values, not %I",
+                lua_count(product),
+                lua_count(count)
             );
             return 0;
         }
@@ -530,11 +539,11 @@ static int network_run(lua_State* state) {
         if (head->count != inputs[index].elements) {
             luaL_error(
                 state,
-                "network %s: input '%s' has %u elements, not %u",
+                "network %s: input '%s' has %I elements, not %I",
                 body->id,
                 inputs[index].name,
-                head->count,
-                inputs[index].elements
+                static_cast<lua_Integer>(head->count),
+                static_cast<lua_Integer>(inputs[index].elements)
             );
             return 0;
         }
@@ -567,10 +576,10 @@ static int network_run(lua_State* state) {
     if (stopped.failed) {
         luaL_error(
             state,
-            "network %s: layer %u (embedding) has no row %ld",
+            "network %s: layer %I (embedding) has no row %I",
             body->id,
-            static_cast<unsigned>(stopped.layer),
-            static_cast<long>(stopped.row)
+            static_cast<lua_Integer>(stopped.layer),
+            static_cast<lua_Integer>(stopped.row)
         );
         return 0;
     }

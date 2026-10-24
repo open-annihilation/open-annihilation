@@ -46,7 +46,7 @@ target_link_libraries(oa-sim-brains PRIVATE oa-base-sha256 oa-data-neural oa-for
 if(BUILD_TESTING)
   add_executable(oa-sim-brains-seat-test tests/seat_test.cpp)
   target_link_libraries(oa-sim-brains-seat-test PRIVATE oa-sim-brains oa-sim-unit-movement
-    oa-base-sha256 oa-test-match oa-options)
+    oa-base-sha256 oa-formats-oann oa-test-match oa-options)
   add_test(NAME sim-brains-seat COMMAND oa-sim-brains-seat-test)
   set_tests_properties(sim-brains-seat PROPERTIES TIMEOUT 120)
 
