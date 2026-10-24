@@ -3511,6 +3511,15 @@ endforeach()
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-brain-seats PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} SKIP_RETURN_CODE ${OA_GAME_DATA_SKIP_CODE})
+        # PrintWeights writes a seated brain's report, and ReloadAIProfiles
+        # calls its start again. With no brain, both files are today's report
+        # (tools/check_native_brain_console.py).
+        add_test(NAME native-brain-console COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_console.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-brain-console PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} SKIP_RETURN_CODE ${OA_GAME_DATA_SKIP_CODE})
         # A skirmish saved with mutators loads with those mutators, refuses a
         # missing one by name, and a save without them loads with none
         # (tools/check_native_saveload_mutators.py).

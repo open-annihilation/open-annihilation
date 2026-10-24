@@ -19,6 +19,12 @@ brain plays as the built-in computer player.
 - `set_report_hooks` stores where a seat reports printed lines and a stop.
   The simulation writes no file and posts no message. Empty functions
   report nothing. The hooks are kept before any brain is seated.
+- `brain_report` runs a seated brain's `report` under the phase allowance
+  and copies the text it returns, at most 64 KiB. A brain with no `report`
+  leaves the seat as it is.
+- `restart_brain` stores the match's reloaded profile in `game.ai_profile`
+  and calls that seat's `start` again, with what `save` returns now, or
+  nil. Both calls use the phase allowance in the same sandbox.
 - The brain profile is named `brain`. `install_libraries` is the one place
   a later change adds a library: one call, after the ones already there.
   It opens `f32` and `geometry`, adds `geometry.sine_scaled` and

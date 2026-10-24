@@ -960,6 +960,7 @@ void clear_computer_difficulty(Lobby& lobby, int32_t slot) noexcept {
     lobby.computer_difficulty[slot] = 0;
     lobby.computer_difficulty_set[slot] = false;
     lobby.computer_brain[slot].reset();
+    lobby.computer_launch_brain[static_cast<std::size_t>(slot)].clear();
     if (lobby.computer_command_kind != 0 && lobby.computer_command_player == id)
         lobby.computer_command_kind = 0;
 }
@@ -2114,6 +2115,7 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
         std::begin(lobby.computer_difficulty_set), std::end(lobby.computer_difficulty_set), false
     );
     lobby.computer_brain.fill(std::nullopt);
+    lobby.computer_launch_brain.fill({});
     lobby.computer_command_player = 0;
     lobby.computer_command_kind = 0;
     lobby.computer_command_value = 0;
@@ -2387,6 +2389,10 @@ void lobby_swap_slots(Lobby& lobby, int32_t first, int32_t second) noexcept {
     std::swap(lobby.computer_difficulty[first], lobby.computer_difficulty[second]);
     std::swap(lobby.computer_difficulty_set[first], lobby.computer_difficulty_set[second]);
     std::swap(lobby.computer_brain[first], lobby.computer_brain[second]);
+    std::swap(
+        lobby.computer_launch_brain[static_cast<std::size_t>(first)],
+        lobby.computer_launch_brain[static_cast<std::size_t>(second)]
+    );
     slot_set_status(lobby, a, kSlotOpen);
     a.in_use = 0;
     // The game renumbers eleven records; the eleventh lies past the table.
@@ -2974,6 +2980,10 @@ bool seat_launch_computers(Lobby& lobby) noexcept {
             note_computer_difficulty(
                 lobby, slot, static_cast<uint8_t>(computer.difficulty - nl::difficulty::easy)
             );
+        if (computer.brain[0] == '\0')
+            lobby.computer_launch_brain[static_cast<std::size_t>(slot)].clear();
+        else
+            lobby.computer_launch_brain[static_cast<std::size_t>(slot)] = computer.brain;
         notify(lobby, 2);
     }
     if (seated == 0)

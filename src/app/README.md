@@ -2644,7 +2644,13 @@ language and both sizes.
   sends. The listener, the pace and the queue live in `oa-app-seat-chat`.
 - `runtime_console.cpp`, `runtime_console_debug.cpp`: the in-game console's
   host hooks, the debug grid, "Profile" bars and DebugBreak, and the console
-  part of `--check-navigation`.
+  part of `--check-navigation`. `PrintWeights` writes a seated brain's
+  `report()` text, or one line of the brain's name, its version and
+  "gives no report." when that brain has no report, and today's report
+  when the built-in player has the seat. `ReloadAIProfiles` reloads the
+  built-in players' profile and calls each seated brain's `start` again
+  with that profile. `native-brain-console` checks both on a headless
+  skirmish.
 - `runtime_console_cheats.cpp`, `runtime_console_sound.cpp`: the cheat flag
   each mission start sets, from `sim::scenario::session_cheats_allowed`: a
   campaign and a skirmish run cheats, a multiplayer game while its host's

@@ -40,6 +40,8 @@ inline constexpr int32_t core = 2;
 
 /// The most computer players a launch seats: every seat but the player's own.
 inline constexpr int32_t kLaunchComputerLimit = 9;
+/// A kebab-case id of at most 64 bytes, empty for the built-in player.
+inline constexpr std::size_t kLaunchBrainIdBytes = 65;
 /// The teams a launch names, 1 through 5, which the battle room shows as its five team icons.
 inline constexpr int32_t kLaunchTeamFirst = 1;
 inline constexpr int32_t kLaunchTeamLast = 5;
@@ -76,6 +78,8 @@ struct LaunchComputer {
     int32_t team{};       ///< 1 to 5; 0 seats it on no team
     int32_t color{};      ///< 1 to 10; 0 takes the next free colour
     int32_t difficulty{}; ///< difficulty values
+    /// A kebab-case id of at most 64 bytes. Empty seats the built-in player.
+    char brain[kLaunchBrainIdBytes]{};
 };
 
 // One launch. Texts are terminated within their fields.

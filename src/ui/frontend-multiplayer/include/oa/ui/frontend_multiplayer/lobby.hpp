@@ -515,6 +515,10 @@ struct Lobby {
     /// player. This machine sets its own; a peer's presence record sets the
     /// computers that peer runs. A slot swap carries the brain with the player.
     std::array<std::optional<ComputerBrain>, kSlotCount> computer_brain{};
+    /// The brain id a launch named for the computer player in this slot.
+    /// Empty leaves the remembered seat and the default. A slot swap carries
+    /// it with the player, and clearing the slot forgets it.
+    std::array<std::string, kSlotCount> computer_launch_brain{};
     /// A change the host asked of another machine's computer player, kept
     /// until that machine echoes it. Kind 0 is none. The player id names the
     /// computer player, so a slot swap does not move the command.

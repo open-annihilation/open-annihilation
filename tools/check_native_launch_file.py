@@ -547,6 +547,81 @@ def check_refused_launch(native, game_dir, workdir, name, text, field):
     print(f"{name}: {refusal[refusal.rfind('/') + 1:]}")
 
 
+STEADY_MANIFEST = """oabrain: 1
+id: steady-commander
+name: "Steady Commander"
+version: "1.2"
+author:
+  name: "Ridge Testers"
+description: "Holds the line."
+tags: ["teaching"]
+works-with: ["*"]
+levels:
+  - id: firm
+    name: "Firm"
+    difficulty: hard
+"""
+
+BRAIN_SCRIPT = "local hooks = {}\nreturn hooks\n"
+LAUNCH_PUTS = "brains: the launch puts steady-commander on player"
+
+
+def install_steady(user):
+    """Writes steady-commander under the scratch player's Brains folder."""
+    folder = user / "Brains" / "steady-commander"
+    folder.mkdir(parents=True)
+    (folder / "oabrain.yaml").write_text(STEADY_MANIFEST, encoding="utf-8")
+    (folder / "brain.lua").write_text(BRAIN_SCRIPT, encoding="utf-8")
+
+
+def check_launch_brain(native, game_dir, workdir):
+    """A host option names an installed brain, and the battle room logs that it was seated."""
+    port = free_port()
+    user = workdir / "brain-host-user"
+    user.mkdir()
+    install_steady(user)
+    logs = workdir / "brain-host-log"
+    logs.mkdir()
+    game = Game(native, game_dir, workdir, "brain-host", [
+        "--skip-intro", "--dplay-port", str(port), "--player-name", "Commander",
+        "--user-folder", str(user), "--log-dir", str(logs), "--host", "--map", "Acid Foursome",
+        "--computer-player", "core:2::hard:steady-commander",
+    ], log_dir=logs)
+    try:
+        game.wait_in_log(LAUNCH_PUTS)
+        game.wait_in_log(ROOM_LINE)
+    finally:
+        game.stop()
+    if LAUNCH_PUTS not in game.log_text():
+        raise LaunchFileFailure(f"brain-host did not log the launch line:\n{game.log_text()}")
+    print(f"brain-host: {LAUNCH_PUTS}")
+
+
+def check_missing_brain(native, game_dir, workdir):
+    """A brain that is not installed ends with status 2 before a window, and the log names it."""
+    status, lines, log = run_apart(native, game_dir, workdir, "missing-brain", [
+        "--dplay-port", str(free_port()), "--status-stdout", "--host", "--map", "Acid Foursome",
+        "--computer-player", "core:2::hard:tide-keeper",
+    ])
+    if status != 2:
+        raise LaunchFileFailure(f"missing-brain exited with {status}, expected 2")
+    objects = status_objects("missing-brain", lines)
+    events = [item.get("event") for item in objects]
+    if events != ["hello", "exit"]:
+        raise LaunchFileFailure(f"missing-brain wrote the status lines {events}, not hello and exit")
+    if objects[1].get("reason") != "refused" or objects[1].get("code") != 2:
+        raise LaunchFileFailure(f"missing-brain ended its status lines with {objects[1]}")
+    combined = log + "\n" + "\n".join(lines)
+    if "tide-keeper is not installed" not in combined:
+        raise LaunchFileFailure(f"missing-brain did not name tide-keeper:\n{combined}")
+    if "--computer-player brain" not in combined:
+        raise LaunchFileFailure(f"missing-brain did not name --computer-player brain:\n{combined}")
+    if WINDOW_LINE in combined:
+        raise LaunchFileFailure(f"missing-brain opened a window:\n{combined}")
+    print(f"missing-brain: exit 2, no window, {lines[-1]}")
+    print("missing-brain: tide-keeper is not installed")
+
+
 def check_transport(native, game_dir, workdir):
     """-n1:127.0.0.1 alone goes from the main menu to the game list of that address.
 
@@ -609,6 +684,8 @@ def check(native, game_dir, workdir):
     check_list_with_log(native, game_dir, workdir)
     check_refused_launch(native, game_dir, workdir, "missing-map", MISSING_MAP_YAML, "map")
     check_refused_launch(native, game_dir, workdir, "missing-mod", MISSING_MOD_YAML, "content.mod")
+    check_launch_brain(native, game_dir, workdir)
+    check_missing_brain(native, game_dir, workdir)
     check_transport(native, game_dir, workdir)
 
 
@@ -632,7 +709,9 @@ def main():
           "name has a space, a bad file and a bad option exited 2, -r "
           "exited 0, --list-content --json parsed beside an idle pipe and alone on standard "
           "output beside --log-dir with no window, a missing map and a missing mod exited 2 "
-          "with no window and an exit line, and -n1 alone opened the game list")
+          "with no window and an exit line, a host named steady-commander and the log said "
+          "the launch put it on a player, tide-keeper was refused before a window, and -n1 "
+          "alone opened the game list")
     return 0
 
 
