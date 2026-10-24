@@ -84,7 +84,7 @@ open-annihilation-<version>-windows-x64-setup.exe /S /D=C:\Games\Open Annihilati
 This makes a folder such as `open-annihilation-<version>-windows-x64` that
 holds `open-annihilation.exe`, `oa-intro.exe`, `oa-tool.exe`, `LICENSE`,
 `ATTRIBUTIONS.md`, `licenses/`, `fonts/`, `languages/interface.tdf`,
-`registries/` and `brains/classic.oabrain`. Always start the game from
+`registries/` and `classic.oabrain` in `brains/`. Always start the game from
 this folder, never from inside the `.zip`.
 
 ## 4. Get the game data

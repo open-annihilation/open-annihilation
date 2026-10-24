@@ -329,10 +329,10 @@ and `windows-95`. The suite lays each one out as a folder named
 `open-annihilation-<version>-<package>` and zips that folder. The same
 folder is what the installer packs. It holds `open-annihilation.exe`,
 `oa-intro.exe`, `oa-tool.exe`, `LICENSE`, `ATTRIBUTIONS.md`, `licenses/`,
-`fonts/`, `languages/interface.tdf`, `registries/` and
-`brains/classic.oabrain`. The installer refuses a folder that has no
-`brains/classic.oabrain`, and installs that file into `brains` beside the
-game. The uninstaller removes it.
+`fonts/`, `languages/interface.tdf`, `registries/` and `brains/` with
+Classic packed as `classic.oabrain`. The installer refuses a folder whose
+`brains/` has no `classic.oabrain`, and installs that file into `brains`
+beside the game. The uninstaller removes it.
 
 `packaging/windows/open-annihilation.nsi` is the one NSIS 3 script. Build
 it with `makensis`, which is the `nsis` package on Debian and Nix and
@@ -368,7 +368,7 @@ install folder.
 shape, using the tree's notices, catalogue and registries and stand-in
 executables, and builds all four with Homebrew's `makensis`. It also
 checks that an unknown package name, a folder missing `LICENSE` and a
-folder missing `brains/classic.oabrain` are refused.
+folder missing `classic.oabrain` in `brains/` are refused.
 
 NSIS 3's ANSI installer is what the Windows 95 package ships. A run on a
 Windows 95 machine is what shows that it starts there. If that run fails,

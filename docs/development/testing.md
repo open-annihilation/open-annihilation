@@ -1028,7 +1028,7 @@ the engine, with their size class and scale.
   volume that every run and every checkout shares, so a rebuild compiles only
   what changed. A cross build cannot run the `oa-tool` it compiles.
   `OA_HOST_OA_TOOL` is the absolute path of a host build's `oa-tool`. When
-  it names that executable, the cross build packs `brains/classic.oabrain`
+  it names that executable, the cross build packs `classic.oabrain` in `brains/`
   beside the game with it, the same command a host build runs. When it is
   empty, the cross build leaves Classic unpacked and says so at configure
   time. `tools/build_windows.sh` passes `build/oa-tool` when that file
