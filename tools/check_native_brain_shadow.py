@@ -16,8 +16,11 @@ timed ticks, so those 600 ticks compare 601 passes and the first sort is at
 tick 29.
 
 Legs are positional. `inert` is this check. `classic` plays three skirmishes
-with `--brain`. `--sections` is optional; omitted, the game compares every
-section. Every `brain shadow: seat` line must end with `no difference`.
+with `--brain`, then saves the four-player skirmish at tick 3000 and loads
+that save under the shadow for another 3000 ticks. `--sections` is optional;
+omitted, the game compares every section. Every `brain shadow: seat` line
+must end with `no difference`, and every classic seat line must say
+`start same`.
 """
 import argparse
 import os
@@ -218,7 +221,30 @@ def check_classic(native, game_dir, workdir, brain, sections):
         "--match-ticks", CLASSIC_TICKS, "--seed", "4242", "--mod", ridge, *shadow,
     )
     require_start_same(ridge_run, "classic-ridge")
-    print(f"native brain shadow classic: {named} on three skirmishes, no difference")
+    loaded_dir = workdir / "load"
+    loaded_dir.mkdir(parents=True, exist_ok=True)
+    four_player_preferences(loaded_dir / "preferences.conf")
+    save_path = loaded_dir / "skirmish.sav"
+    saved = run(
+        native, game_dir, loaded_dir,
+        "--match-ticks", CLASSIC_TICKS, "--seed", "4242",
+        "--save-after", CLASSIC_TICKS, "--save-file", save_path,
+        timeout=CLASSIC_TIMEOUT,
+    )
+    if saved.returncode != 0:
+        print(saved.stdout + saved.stderr, end="")
+        raise SystemExit(f"skirmish classic-save exited with {saved.returncode}")
+    if not save_path.is_file():
+        raise SystemExit("skirmish classic-save wrote no save")
+    loaded = classic_skirmish(
+        native, game_dir, loaded_dir, "classic-load",
+        "--load", save_path, "--match-ticks", CLASSIC_TICKS, *shadow,
+    )
+    require_start_same(loaded, "classic-load")
+    print(
+        f"native brain shadow classic: {named} on three skirmishes and a loaded game, "
+        "no difference"
+    )
 
 
 def main():

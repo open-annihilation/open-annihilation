@@ -4,7 +4,7 @@
 // Classic beside the built-in computer player on the fake match the AI tests
 // use. test_controller_presence has no Classic version: it only asks which
 // player records have a controller, and Classic does not decide that.
-// test_weight_report belongs to the report that follows this ticket.
+// test_weight_report expects the same text as the built-in player's report.
 //
 // test_tick follows the whole run: ticks 1..120, then one tick at 400 after
 // the home units are cleared. That tick recruits the strike squad and
@@ -2409,6 +2409,8 @@ void test_profile(const PackageBytes& package);
 void test_adopt_handed_player(const PackageBytes& package);
 void test_downloadable_directives(const PackageBytes& package);
 void test_profile_reload(const PackageBytes& package);
+void test_weight_report(const PackageBytes& package);
+void test_load_start(const PackageBytes& package);
 void test_profile_leading_lines(const PackageBytes& package);
 void test_difficulty_names(const PackageBytes& package);
 void test_profile_twins(const PackageBytes& package);
@@ -2461,6 +2463,8 @@ int main(int argc, char** argv) {
         test_adopt_handed_player(package);
         test_downloadable_directives(package);
         test_profile_reload(package);
+        test_weight_report(package);
+        test_load_start(package);
         test_profile_leading_lines(package);
         test_difficulty_names(package);
         test_profile_twins(package);

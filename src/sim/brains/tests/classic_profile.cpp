@@ -10,18 +10,23 @@
 #include "internal.hpp"
 
 #include "oa/data/match_rules/difficulty_names.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/test/game_assets.hpp"
 #include "oa/test/game_data.hpp"
+#include "oa/test/scratch_directory.hpp"
 
 #include "lua.hpp"
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <filesystem>
 #include <iterator>
 #include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -692,7 +697,8 @@ void prepare(
     uint8_t player,
     bool capture,
     bool handed,
-    const oa::data::match_rules::AiDifficultyNames* names
+    const oa::data::match_rules::AiDifficultyNames* names,
+    bool (*metal)(void*, int32_t, int32_t) = nullptr
 ) {
     describe_catalog(prep.players.state);
     copy_catalog(prep.fake, prep.players.state, prep.definitions);
@@ -712,6 +718,8 @@ void prepare(
         prep.facts.mod.profile = std::move(mod);
     }
     prep.host = host_for(prep.fake);
+    if (metal != nullptr)
+        prep.host.metal_feature = metal;
     prep.host.difficulty = game_difficulty;
     prep.facts.difficulty = game_difficulty;
     if (text != nullptr && text[0] != '\0') {
@@ -795,6 +803,146 @@ void clear_metal() {
     for (auto& row : metal_cells)
         for (bool& cell : row)
             cell = false;
+}
+
+struct TaskShot {
+    CallStatus status{};
+    int32_t countdown{};
+    char kind[10][16]{};
+    int32_t next[10]{};
+};
+
+void copy_bounded(char* dest, std::size_t room, const char* text, std::size_t length) {
+    if (room == 0)
+        return;
+    std::size_t count = length;
+    if (count + 1 > room)
+        count = room - 1;
+    for (std::size_t index = 0; index < count; ++index)
+        dest[index] = text[index];
+    dest[count] = '\0';
+}
+
+void read_tasks_work(void* context, lua_State* state) {
+    auto* shot = static_cast<TaskShot*>(context);
+    const int seat = lua_gettop(state);
+    if (lua_type(state, seat) != LUA_TTABLE) {
+        note(&shot->status, "the seat table is missing");
+        return;
+    }
+    shot->countdown =
+        static_cast<int32_t>(named_integer(state, &shot->status, seat, "sort_countdown"));
+    lua_getfield(state, seat, "tasks");
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        note(&shot->status, "the task table is missing");
+        lua_pop(state, 1);
+        return;
+    }
+    const int tasks = lua_gettop(state);
+    for (int index = 0; index < 10; ++index) {
+        lua_rawgeti(state, tasks, index);
+        if (lua_type(state, -1) != LUA_TTABLE) {
+            note(&shot->status, "a task row is missing");
+            lua_pop(state, 1);
+            return;
+        }
+        const int row = lua_gettop(state);
+        lua_getfield(state, row, "kind");
+        std::size_t length = 0;
+        const char* text = lua_tolstring(state, -1, &length);
+        if (text == nullptr) {
+            note(&shot->status, "a task kind is missing");
+            lua_pop(state, 2);
+            return;
+        }
+        copy_bounded(shot->kind[index], sizeof shot->kind[index], text, length);
+        lua_pop(state, 1);
+        shot->next[index] = static_cast<int32_t>(named_integer(state, &shot->status, row, "next"));
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+}
+
+TaskShot read_tasks(oa::sim::brains::ToolSeat& seat) {
+    TaskShot shot;
+    oa::data::script_host::ScriptError error;
+    if (!seat.with_seat(&shot, read_tasks_work, error))
+        fail(oa::data::script_host::describe(error));
+    check_call(shot.status);
+    return shot;
+}
+
+void expect_tasks(const TaskShot& kept, const TaskShot& fresh, const char* label) {
+    expect_equal(kept.countdown, fresh.countdown, std::string(label) + " countdown");
+    for (int index = 0; index < 10; ++index) {
+        const std::string name = std::string(label) + " task " + std::to_string(index);
+        check(std::strcmp(kept.kind[index], fresh.kind[index]) == 0, name + " kind");
+        expect_equal(kept.next[index], fresh.next[index], name + " next");
+    }
+}
+
+struct ReportText {
+    CallStatus status{};
+    std::string text;
+};
+
+void report_work(void* context, lua_State* state) {
+    auto* box = static_cast<ReportText*>(context);
+    const int top = lua_gettop(state);
+    if (top < 2 || lua_type(state, top - 1) != LUA_TTABLE) {
+        note(&box->status, "the seated hooks are missing");
+        return;
+    }
+    lua_getfield(state, top - 1, "report");
+    if (lua_type(state, -1) != LUA_TFUNCTION) {
+        note(&box->status, "hooks.report is missing");
+        return;
+    }
+    if (lua_pcall(state, 0, 1, 0) != LUA_OK) {
+        note(&box->status, lua_tostring(state, -1));
+        return;
+    }
+    if (lua_type(state, -1) != LUA_TSTRING) {
+        note(&box->status, "hooks.report did not return text");
+        return;
+    }
+    std::size_t length = 0;
+    const char* text = lua_tolstring(state, -1, &length);
+    if (text != nullptr)
+        box->text.assign(text, length);
+}
+
+std::string classic_report(oa::sim::brains::ToolSeat& seat) {
+    ReportText box;
+    oa::data::script_host::ScriptError error;
+    if (!seat.with_seat(&box, report_work, error))
+        fail(oa::data::script_host::describe(error));
+    check_call(box.status);
+    return box.text;
+}
+
+std::string read_all(std::FILE* file) {
+    std::string text;
+    if (file == nullptr)
+        return text;
+    std::rewind(file);
+    char buffer[256];
+    std::size_t count = 0;
+    while ((count = std::fread(buffer, 1, sizeof buffer, file)) != 0)
+        text.append(buffer, count);
+    return text;
+}
+
+void expect_text(const std::string& got, const std::string& want, const char* label) {
+    if (got == want)
+        return;
+    std::size_t index = 0;
+    while (index < got.size() && index < want.size() && got[index] == want[index])
+        ++index;
+    fail(
+        std::string(label) + " differs at byte " + std::to_string(index) + " got " +
+        std::to_string(got.size()) + " want " + std::to_string(want.size())
+    );
 }
 
 } // namespace
@@ -1082,6 +1230,9 @@ void test_profile_reload(const PackageBytes& package) {
     Prepared prep;
     mark_players(prep.fake, 1);
     prep.fake.rolls.assign(64, 5);
+    clear_metal();
+    metal_cells[1][3] = true;
+    metal_cells[20][10] = true;
     prepare(
         prep,
         package,
@@ -1094,11 +1245,13 @@ void test_profile_reload(const PackageBytes& package) {
         1,
         true,
         false,
-        nullptr
+        nullptr,
+        test_metal_feature
     );
     Snapshot request;
     request.read_grids = true;
     request.read_knowledge = true;
+    request.read_metal = true;
     Snapshot shot = read_snapshot(*prep.seat, request);
     auto* knowledge = oa::sim::ai::computer_player_knowledge(&prep.players.state, 1);
     check(knowledge != nullptr, "reload record");
@@ -1125,10 +1278,16 @@ void test_profile_reload(const PackageBytes& package) {
     );
     shot = read_snapshot(*prep.seat, request);
     compare_grids(shot, *knowledge);
+    compare_metal(shot, *knowledge);
     expect_equal(shot.grids_ready, 1, "grids are seeded");
+    check(shot.metal.size() == 2, "the metal map lists both spots");
+    const TaskShot tasks_before = read_tasks(*prep.seat);
+    check(tasks_before.countdown == 29, "the sort countdown has moved");
+    check(tasks_before.next[1] != 0, "a task has a next tick before the reload");
     const auto roll_seeded = prep.fake.roll;
     const int32_t land_step = shot.land[0];
     const int32_t water_phase = shot.water[3];
+    const auto metal_count = static_cast<long long>(shot.metal.size());
     PassAsk again;
     again.restart = true;
     run_pass(*prep.seat, again);
@@ -1154,10 +1313,163 @@ void test_profile_reload(const PackageBytes& package) {
     expect_equal(shot.land[0], land_step, "the land grid is kept");
     expect_equal(shot.water[3], water_phase, "the water grid is kept");
     expect_equal(shot.grids_ready, 1, "a later start does not reseed");
+    expect_equal(
+        static_cast<long long>(shot.metal.size()), metal_count, "the metal spots are kept"
+    );
+    compare_metal(shot, *knowledge);
+    const TaskShot tasks_after = read_tasks(*prep.seat);
+    expect_tasks(tasks_after, tasks_before, "reload");
     check(
         prep.players.state.players[1].present && !prep.players.state.players[0].present,
         "controllers kept"
     );
+}
+
+// The same text the built-in player's weight-report test expects.
+void test_weight_report(const PackageBytes& package) {
+    const char* text = "plan any\nlimit ARMMEX 8\nweight ARMSOLAR 0.5\n";
+    const std::string expected = "Match clock: 01:02:03\r\n"
+                                 "Name: 'Robot' in player slot 1\r\n"
+                                 "Played by: AI\r\n"
+                                 "Map file: 'Maps/Test.TNT'\r\n"
+                                 "AI settings file: '(null)'\r\n"
+                                 "Challenge level: 'HARD'\r\n"
+                                 "================================================\r\n"
+                                 "Columns: build limit - priority : metal value : energy value "
+                                 "= weight percent before economy adjustment - short name : "
+                                 "full name\r\n"
+                                 "n/a  -  50 :  50 :  50 = 100 - '\t\t:'\r\n"
+                                 "   8 -  50 :  -5 :  50 = 100 - 'ARMMEX\t\t:Metal Extractor'\r\n"
+                                 "n/a  -  50 :  50 :  50 =  50 - '\t\t:'\r\n";
+    Prepared prep;
+    prep.fake.player(1, OA_PLAYER_STATUS_COMPUTER, 10, 30);
+    std::snprintf(
+        prep.fake.world.game.players[1].name, sizeof prep.fake.world.game.players[1].name, "Robot"
+    );
+    prep.fake.world.game.tick = 108000 + 2 * 1800 + 3 * 30 + 7;
+    prep.fake.world.unit_def_count = ARMSOLAR + 1;
+    prep.fake.strength[ARMMEX][1] = 0xfb;
+    describe_catalog(prep.players.state);
+    copy_catalog(prep.fake, prep.players.state, prep.definitions);
+    std::snprintf(
+        prep.fake.defs[ARMMEX].name, sizeof prep.fake.defs[ARMMEX].name, "Metal Extractor"
+    );
+    check(
+        oa::sim::ai::computer_players_configure(
+            &prep.players.state,
+            text,
+            std::span<const uint16_t>(kBuildLists, std::size(kBuildLists))
+        ),
+        "report: configure"
+    );
+    prep.host = host_for(prep.fake);
+    prep.host.difficulty = OA_DIFFICULTY_HARD;
+    prep.facts.difficulty = OA_DIFFICULTY_HARD;
+    prep.facts.map_path = "Maps/Test.TNT";
+    prep.facts.ai_profile.path = "ai/profile.txt";
+    prep.facts.ai_profile.text = text;
+    check(
+        oa::sim::ai::computer_players_initialize(&prep.players.state, prep.host),
+        "report: initialize"
+    );
+    ClassicBind bind;
+    bind.use_player = true;
+    bind.player = 1;
+    bind.use_difficulty = true;
+    bind.difficulty = OA_DIFFICULTY_HARD;
+    bind.build_runs = kBuildLists;
+    bind.build_run_length = static_cast<uint32_t>(std::size(kBuildLists));
+    bind.build_kept = 31;
+    bind.knowledge_fake = &prep.fake;
+    bind.knowledge_players = &prep.players.state;
+    seat_classic(prep, package, bind, nullptr, false);
+    for (uint32_t index = 0; index < prep.fake.world.unit_def_count; ++index) {
+        prep.fake.defs[index].unit_name[0] = '\0';
+        prep.fake.defs[index].name[0] = '\0';
+    }
+    std::snprintf(
+        prep.fake.defs[ARMMEX].unit_name, sizeof prep.fake.defs[ARMMEX].unit_name, "ARMMEX"
+    );
+    std::snprintf(
+        prep.fake.defs[ARMMEX].name, sizeof prep.fake.defs[ARMMEX].name, "Metal Extractor"
+    );
+    const auto scratch = oa::test::make_scratch_directory("C06-weight-report");
+    std::FILE* out = oa::platform::open_file(scratch / "weights.txt", "w+b");
+    check(out != nullptr, "report file");
+    oa::sim::ai::computer_write_report(
+        &prep.players.state, prep.host, 1, {"Maps/Test.TNT", nullptr}, out
+    );
+    const std::string builtin = read_all(out);
+    std::fclose(out);
+    std::error_code removal;
+    std::filesystem::remove_all(scratch, removal);
+    const std::string classic = classic_report(*prep.seat);
+    expect_text(builtin, expected, "built-in weight report");
+    expect_text(classic, expected, "Classic weight report");
+}
+
+// A fresh sandbox started with no saved seat matches another new game.
+void test_load_start(const PackageBytes& package) {
+    const char* text = "weight ARMSOLAR 0.5\nplan easy\nlimit ARMMEX 4\n";
+    Prepared prep;
+    prep.fake.player(1, OA_PLAYER_STATUS_COMPUTER, 0, 0);
+    clear_metal();
+    metal_cells[1][3] = true;
+    metal_cells[20][10] = true;
+    describe_catalog(prep.players.state);
+    copy_catalog(prep.fake, prep.players.state, prep.definitions);
+    check(
+        oa::sim::ai::computer_players_configure(
+            &prep.players.state,
+            text,
+            std::span<const uint16_t>(kBuildLists, std::size(kBuildLists))
+        ),
+        "load: configure"
+    );
+    prep.host = host_for(prep.fake);
+    prep.host.metal_feature = test_metal_feature;
+    prep.host.difficulty = OA_DIFFICULTY_EASY;
+    prep.facts.difficulty = OA_DIFFICULTY_EASY;
+    prep.facts.ai_profile.path = "ai/profile.txt";
+    prep.facts.ai_profile.text = text;
+    check(
+        oa::sim::ai::computer_players_initialize(&prep.players.state, prep.host), "load: initialize"
+    );
+    ClassicBind bind;
+    bind.use_player = true;
+    bind.player = 1;
+    bind.use_difficulty = true;
+    bind.difficulty = OA_DIFFICULTY_EASY;
+    bind.build_runs = kBuildLists;
+    bind.build_run_length = static_cast<uint32_t>(std::size(kBuildLists));
+    bind.build_kept = 31;
+    bind.knowledge_fake = &prep.fake;
+    bind.knowledge_players = &prep.players.state;
+    seat_classic(prep, package, bind, nullptr, false);
+    seat_classic(prep, package, bind, nullptr, true);
+    Snapshot request;
+    request.read_grids = true;
+    request.read_metal = true;
+    const Snapshot first = read_snapshot(*prep.seat, request);
+    const Snapshot second = read_snapshot(*prep.other, request);
+    const auto* knowledge = oa::sim::ai::computer_player_knowledge(&prep.players.state, 1);
+    check(knowledge != nullptr, "load record");
+    compare_weights(first, *knowledge, prep.players.state.type_count);
+    compare_weights(second, *knowledge, prep.players.state.type_count);
+    compare_metal(first, *knowledge);
+    compare_metal(second, *knowledge);
+    expect_equal(first.grids_ready, 0, "a new game has not seeded its grids");
+    expect_equal(second.grids_ready, 0, "a loaded game has not seeded its grids");
+    check(first.metal.size() == 2, "a new game lists both metal spots");
+    const TaskShot first_tasks = read_tasks(*prep.seat);
+    const TaskShot second_tasks = read_tasks(*prep.other);
+    expect_tasks(second_tasks, first_tasks, "load");
+    expect_equal(first_tasks.countdown, 30, "a new game's sort countdown");
+    check(std::strcmp(first_tasks.kind[1], "structures") == 0, "squad 1 is structures");
+    check(std::strcmp(first_tasks.kind[5], "idle") == 0, "squad 5 is idle");
+    check(std::strcmp(first_tasks.kind[8], "air_raid") == 0, "squad 8 is the air raid");
+    for (int index = 0; index < 10; ++index)
+        expect_equal(first_tasks.next[index], 0, "task " + std::to_string(index) + " has not run");
 }
 
 void test_profile_leading_lines(const PackageBytes& package) {
