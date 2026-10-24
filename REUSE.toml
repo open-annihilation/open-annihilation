@@ -28,6 +28,7 @@ path = [
     "*.md",
     "COPYRIGHT",
     ".github/**.md",
+    "brains/**.md",
     "cmake/**.md",
     "docs/**",
     "src/**.md",
