@@ -191,6 +191,10 @@ end
 
 function hooks.onTick(tick)
     local seat = hooks.seat
+    if seat.builds_ready ~= 1 then
+        types.refresh_builds(seat.types, seat.game)
+        seat.builds_ready = 1
+    end
     if seat.grids_ready ~= 1 then
         knowledge.seed_grids(seat)
     end

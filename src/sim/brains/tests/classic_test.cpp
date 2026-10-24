@@ -2,8 +2,41 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Classic beside the built-in computer player on the fake match the AI tests
-// use. test_controller_presence has no Classic version: it only asks which
-// player records have a controller, and Classic does not decide that.
+// use.
+//
+// Twins of src/sim/ai/tests/computer_player_test.cpp. The twin has the same
+// name. test_controller_presence has none: it tests the engine's seating
+// rule, which Classic does not decide.
+//
+//   test_build_list_limits             classic_profile.cpp
+//   test_whole_build_lists             classic_profile.cpp
+//   test_sort_squads                   classic_test.cpp
+//   test_profile                       classic_profile.cpp
+//   test_adopt_handed_player           classic_profile.cpp
+//   test_downloadable_directives       classic_profile.cpp
+//   test_weight_report                 classic_profile.cpp
+//   test_score_and_pick                classic_test.cpp
+//   test_lab_idle_without_metal_income classic_test.cpp
+//   test_scripted_units_stay_unsorted  classic_test.cpp
+//   test_busy_factory_gets_no_pick     classic_test.cpp
+//   test_controller_presence           none, the engine's seating rule
+//   test_tick                          classic_test.cpp
+//   test_sighted_weight                classic_test.cpp
+//   test_siege                         classic_test.cpp
+//   test_campaign_downloadables        classic_test.cpp
+//   test_profile_reload                classic_profile.cpp
+//   test_installed_data                classic_profile.cpp
+//   test_profile_leading_lines         classic_profile.cpp
+//   test_difficulty_names              classic_profile.cpp
+//   test_squad5_factory_tick           classic_test.cpp
+//   test_factory_tick_filter           classic_test.cpp
+//   test_builder_withhold_threshold    classic_test.cpp
+//   test_attack_wave_size              classic_test.cpp
+//   test_patrol_group_size             classic_test.cpp
+//   test_patrol_null_enemy_skip        classic_test.cpp
+//   test_squad_assignment              classic_test.cpp
+//   test_nearest_enemy_filter          classic_test.cpp
+//
 // test_weight_report expects the same text as the built-in player's report.
 //
 // test_tick follows the whole run: ticks 1..120, then one tick at 400 after

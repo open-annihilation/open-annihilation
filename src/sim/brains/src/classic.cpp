@@ -14,6 +14,7 @@
 
 #include "oa/base/sha256.hpp"
 #include "oa/core/player.h"
+#include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
 
 #include "lua.hpp"
@@ -256,6 +257,55 @@ void install_setup_random(lua_State* state, Seat& seat) {
     if (!seat.classic && !seat.shadow)
         return;
     install_named(state, seat, "setup_random", brain_setup_random);
+}
+
+namespace {
+
+// `tasks` is on top of the stack. One strike squad's flag is copied and the
+// stack is left as it was. A task that is not a strike is left alone.
+void publish_one_strike(
+    lua_State* state, sim::ai::ComputerPlayer& controller, sim::ai::Squad squad
+) {
+    auto& task = controller.tasks[static_cast<uint32_t>(squad)];
+    if (task.kind != sim::ai::TaskKind::strike)
+        return;
+    lua_rawgeti(state, -1, static_cast<lua_Integer>(squad));
+    if (lua_type(state, -1) == LUA_TTABLE) {
+        lua_pushliteral(state, "attacking");
+        lua_rawget(state, -2);
+        if (lua_type(state, -1) == LUA_TNUMBER)
+            task.attacking = lua_tointeger(state, -1) != 0 ? 1 : 0;
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+}
+
+} // namespace
+
+void publish_classic_strike(lua_State* state, Seat& seat, int hooks) {
+    if (state == nullptr || seat.match == nullptr || seat.shadow || !seat.classic)
+        return;
+    if (seat.player >= OA_PLAYER_COUNT)
+        return;
+    sim::ai::ComputerPlayers* players = sim::ai::match_computer_players(*seat.match);
+    if (players == nullptr || players->initialized == 0)
+        return;
+    lua_pushliteral(state, "seat");
+    lua_rawget(state, hooks);
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        lua_pop(state, 1);
+        return;
+    }
+    lua_pushliteral(state, "tasks");
+    lua_rawget(state, -2);
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        lua_pop(state, 2);
+        return;
+    }
+    sim::ai::ComputerPlayer& controller = players->players[seat.player];
+    publish_one_strike(state, controller, sim::ai::Squad::land_strike);
+    publish_one_strike(state, controller, sim::ai::Squad::naval_strike);
+    lua_pop(state, 2);
 }
 
 } // namespace oa::sim::brains

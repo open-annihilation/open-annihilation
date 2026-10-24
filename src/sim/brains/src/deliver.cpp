@@ -513,6 +513,7 @@ void call_tick(lua_State* state, Seat& seat, int hooks) {
         log_call(seat, "onTick", &shown, 1);
     }
     lua_call(state, 1, 0);
+    publish_classic_strike(state, seat, hooks);
 }
 
 extern "C" {

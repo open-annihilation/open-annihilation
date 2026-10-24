@@ -270,6 +270,32 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     set_tests_properties(native-net-loopback-brain PROPERTIES
       TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
       SKIP_RETURN_CODE 77)
+    # The three computer checks above, with Classic in each computer seat.
+    add_test(NAME native-net-loopback-computer-classic COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_classic_swap.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}"
+      --brain "${PROJECT_SOURCE_DIR}/brains/classic"
+      loopback-computer)
+    set_tests_properties(native-net-loopback-computer-classic PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    add_test(NAME native-net-loopback-computer-watcher-classic COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_classic_swap.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}"
+      --brain "${PROJECT_SOURCE_DIR}/brains/classic"
+      loopback-watcher)
+    set_tests_properties(native-net-loopback-computer-watcher-classic PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    add_test(NAME native-net-loopback-each-ai-classic COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_classic_swap.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}"
+      --brain "${PROJECT_SOURCE_DIR}/brains/classic"
+      loopback-each-ai)
+    set_tests_properties(native-net-loopback-each-ai-classic PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      PASS_REGULAR_EXPRESSION "recording played back")
     add_test(NAME native-host-not-found COMMAND ${Python3_EXECUTABLE}
       "${PROJECT_SOURCE_DIR}/tools/check_native_host_not_found.py"
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
