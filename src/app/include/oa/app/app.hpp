@@ -359,6 +359,15 @@ struct Options {
     std::string brain_levels;
     // The map the brain match plays (--brain-map).
     std::string brain_map;
+    // A brain that runs beside every computer seat (--brain-shadow). Empty
+    // means this run has no shadow. An id, or a folder path.
+    std::string brain_shadow;
+    // Sections the shadow compares (--brain-shadow-sections). Empty compares
+    // every section.
+    std::string brain_shadow_sections;
+    // Where the shadow writes its call logs (--brain-shadow-log). Empty
+    // writes none.
+    std::string brain_shadow_log;
     // Headless campaign run: the campaign's name and the mission index that
     // --headless-check starts through the briefing and ticks for match_ticks.
     std::string campaign;
@@ -720,6 +729,11 @@ struct Options {
     // brain button, the focus hand-over, the picker, the hover card and
     // the brains a start seats. A scratch preferences file holds the seat.
     bool check_brain_seat_buttons = false;
+    // On NEWGAME and Any Mission at 640x480 and 1280x720, requires the
+    // campaign's brain button, Tab, the picker and the brain a mission
+    // and a loaded campaign save seat. A scratch preferences file holds
+    // the seat.
+    bool check_brain_campaign = false;
     // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
     // question after a crash, and Get mutators over the picker.
     bool check_mutator_prompts = false;

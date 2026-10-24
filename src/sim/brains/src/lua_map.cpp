@@ -534,7 +534,10 @@ static int method_height(lua_State* lua) {
     // cell, this is the height in cells. Called with a column and a row, it
     // is that cell's corner height.
     if (lua_gettop(lua) == 1) {
-        lua_pushinteger(lua, static_cast<lua_Integer>(seat->match->state().game.map_height));
+        const int32_t cells = seat->calls.host.world != nullptr
+                                  ? seat->calls.host.map_cells_z
+                                  : seat->match->state().game.map_height;
+        lua_pushinteger(lua, static_cast<lua_Integer>(cells));
         return 1;
     }
     int32_t x = 0;
@@ -596,6 +599,16 @@ static int method_metal(lua_State* lua) {
     Seat* seat = live_seat(lua);
     if (seat == nullptr)
         return 0;
+    if (seat->calls.host.cell_metal != nullptr) {
+        uint8_t metal = 0;
+        try {
+            metal = seat->calls.host.cell_metal(seat->calls.host.context, x, z);
+        } catch (...) {
+            metal = 0;
+        }
+        lua_pushinteger(lua, static_cast<lua_Integer>(metal));
+        return 1;
+    }
     const sim::spatial_state::Plot* plot = plot_at(*seat->match, x, z);
     lua_pushinteger(lua, plot == nullptr ? lua_Integer{0} : static_cast<lua_Integer>(plot->metal));
     return 1;
@@ -611,6 +624,16 @@ static int method_metal_feature(lua_State* lua) {
     Seat* seat = live_seat(lua);
     if (seat == nullptr)
         return 0;
+    if (seat->calls.host.metal_feature != nullptr) {
+        bool feature = false;
+        try {
+            feature = seat->calls.host.metal_feature(seat->calls.host.context, x, z);
+        } catch (...) {
+            feature = false;
+        }
+        lua_pushboolean(lua, feature ? 1 : 0);
+        return 1;
+    }
     const sim::spatial_state::Plot* plot = plot_at(*seat->match, x, z);
     lua_pushboolean(lua, plot != nullptr && metal_spot(*plot) ? 1 : 0);
     return 1;
@@ -851,7 +874,9 @@ static int map_index(lua_State* lua) {
         return 1;
     }
     if (same_text(key, length, "width")) {
-        lua_pushinteger(lua, static_cast<lua_Integer>(game.map_width));
+        const int32_t cells =
+            seat->calls.host.world != nullptr ? seat->calls.host.map_cells_x : game.map_width;
+        lua_pushinteger(lua, static_cast<lua_Integer>(cells));
         return 1;
     }
     if (same_text(key, length, "world_width")) {
@@ -883,7 +908,9 @@ static int map_index(lua_State* lua) {
         return 1;
     }
     if (same_text(key, length, "surface_metal")) {
-        lua_pushinteger(lua, static_cast<lua_Integer>(surface_metal(*seat->match)));
+        const int32_t metal = seat->calls.host.world != nullptr ? seat->calls.host.surface_metal
+                                                                : surface_metal(*seat->match);
+        lua_pushinteger(lua, static_cast<lua_Integer>(metal));
         return 1;
     }
     lua_pushnil(lua);

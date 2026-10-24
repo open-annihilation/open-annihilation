@@ -298,6 +298,7 @@ void check_game_files_options(Options& options) {
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
         {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
+        {options.check_brain_campaign, "--check-brain-campaign"},
         {options.check_mutator_prompts, "--check-mutator-prompts"},
         {options.check_mutator_button, "--check-mutator-button"},
         {options.check_mutator_room, "--check-mutator-room"},
@@ -607,6 +608,7 @@ void check_director_options(Options& options) {
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
         {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
+        {options.check_brain_campaign, "--check-brain-campaign"},
         {options.check_mutator_prompts, "--check-mutator-prompts"},
         {options.check_mutator_button, "--check-mutator-button"},
         {options.check_mutator_room, "--check-mutator-room"},
@@ -713,6 +715,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_mutator_picker, "--check-mutator-picker"},
             {options.check_brain_picker, "--check-brain-picker"},
             {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
+            {options.check_brain_campaign, "--check-brain-campaign"},
             {options.check_mutator_prompts, "--check-mutator-prompts"},
             {options.check_mutator_button, "--check-mutator-button"},
             {options.check_mutator_room, "--check-mutator-room"},
@@ -875,6 +878,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-mutator-picker", &Options::check_mutator_picker},
     {"--check-brain-picker", &Options::check_brain_picker},
     {"--check-brain-seat-buttons", &Options::check_brain_seat_buttons},
+    {"--check-brain-campaign", &Options::check_brain_campaign},
     {"--check-mutator-prompts", &Options::check_mutator_prompts},
     {"--check-map-pack-lists", &Options::check_map_pack_lists},
     {"--check-mod-map-settings", &Options::check_mod_map_settings},
@@ -1186,6 +1190,18 @@ take_match_option(std::string_view argument, ArgumentCursor& cursor, Options& op
     }
     if (argument == "--brain-map") {
         options.brain_map = option_value(cursor);
+        return true;
+    }
+    if (argument == "--brain-shadow") {
+        options.brain_shadow = option_value(cursor);
+        return true;
+    }
+    if (argument == "--brain-shadow-sections") {
+        options.brain_shadow_sections = option_value(cursor);
+        return true;
+    }
+    if (argument == "--brain-shadow-log") {
+        options.brain_shadow_log = option_value(cursor);
         return true;
     }
     return false;
@@ -1538,6 +1554,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-map-browser] [--check-mutator-button] [--check-mutator-picker] "
                      "[--check-brain-picker] "
                      "[--check-brain-seat-buttons] "
+                     "[--check-brain-campaign] "
                      "[--check-mutator-prompts] [--check-mutator-dry-run] "
                      "[--check-mutator-room] [--check-brain-room] [--check-mod-warning] "
                      "[--check-mod-install] [--check-language-install] [--check-challenge] "
@@ -1573,6 +1590,8 @@ void write_startup_line(std::string_view text) {
                   << "[--save-after TICK] "
                      "[--save-file PATH.sav] [--load PATH.sav] [--give-orders] [--seed N] "
                      "[--brain-match A,B] [--brain-levels L1,L2] [--brain-map NAME] "
+                     "[--brain-shadow BRAIN [--brain-shadow-sections LIST] "
+                     "[--brain-shadow-log DIR]] "
                      "[--trace-digest FILE] [--trace-units FILE] [--trace-lookups FILE] "
                      "[--draw-threads N] "
                      "[--capture-video PATH.mp4] [--showcase arm-first-mission|skirmish-battle] "
@@ -1706,6 +1725,10 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error("--brain-levels needs --brain-match");
     if (!result.brain_map.empty() && result.brain_match.empty())
         throw std::runtime_error("--brain-map needs --brain-match");
+    if (!result.brain_shadow_sections.empty() && result.brain_shadow.empty())
+        throw std::runtime_error("--brain-shadow-sections needs --brain-shadow");
+    if (!result.brain_shadow_log.empty() && result.brain_shadow.empty())
+        throw std::runtime_error("--brain-shadow-log needs --brain-shadow");
     if (!result.brain_match.empty()) {
         if (!result.headless_check)
             throw std::runtime_error("--brain-match needs --headless-check");
@@ -1792,9 +1815,9 @@ void write_startup_line(std::string_view text) {
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
         result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
         result.check_mutator_picker || result.check_brain_picker ||
-        result.check_brain_seat_buttons || result.check_mutator_prompts ||
-        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
-        result.check_click_snap;
+        result.check_brain_seat_buttons || result.check_brain_campaign ||
+        result.check_mutator_prompts || result.check_map_pack_lists ||
+        result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

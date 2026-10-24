@@ -528,6 +528,23 @@ int getter_mobile(lua_State* lua) {
 }
 
 int getter_squad(lua_State* lua) {
+    UnitRef ref{};
+    if (!to_unit(lua, 1, &ref)) {
+        push_nil(lua);
+        return 1;
+    }
+    const Seat* seat = seat_of(lua);
+    if (seat != nullptr && seat->calls.unit_squad != nullptr) {
+        try {
+            const int32_t squad = seat->calls.unit_squad(
+                const_cast<sim::ai::ComputerHost*>(&seat->calls.host), ref.slot
+            );
+            lua_pushinteger(lua, static_cast<lua_Integer>(squad));
+        } catch (const std::exception&) {
+            push_nil(lua);
+        }
+        return 1;
+    }
     const oa::Unit* unit = arg_unit(lua);
     if (unit == nullptr) {
         push_nil(lua);
@@ -591,6 +608,23 @@ int method_head_order(lua_State* lua) {
 
     if (seat == nullptr || seat->match == nullptr) {
         head.failed = true;
+    } else if (seat->calls.host.primary_order != nullptr && seat->calls.primary_kind != nullptr) {
+        try {
+            uint8_t preserve = 0;
+            uint8_t command = 0;
+            head.present = seat->calls.host.primary_order(
+                seat->calls.host.context, ref.slot, &preserve, &command
+            );
+            if (head.present) {
+                head.kind = seat->calls.primary_kind(
+                    const_cast<sim::ai::ComputerHost*>(&seat->calls.host), ref.slot
+                );
+                head.busy = (preserve & order_preserve_busy) != 0;
+                head.idle = (command & order_queue_idle) != 0;
+            }
+        } catch (const std::exception&) {
+            head.failed = true;
+        }
     } else {
         try {
             const match_runtime::Match& played = *seat->match;
@@ -626,6 +660,12 @@ int method_has_background_order(lua_State* lua) {
     bool held = false;
     if (seat == nullptr || seat->match == nullptr) {
         failed = true;
+    } else if (seat->calls.host.secondary_order != nullptr) {
+        try {
+            held = seat->calls.host.secondary_order(seat->calls.host.context, ref.slot);
+        } catch (const std::exception&) {
+            failed = true;
+        }
     } else {
         try {
             const match_runtime::Match& played = *seat->match;
@@ -717,7 +757,21 @@ int method_reaches(lua_State* lua) {
     Seat* seat = seat_of(lua);
     bool failed = seat == nullptr || seat->match == nullptr;
     bool hits = false;
-    if (!failed) {
+    if (!failed && weapon == 1 && seat->calls.host.weapon_reaches != nullptr) {
+        try {
+            hits = seat->calls.host.weapon_reaches(seat->calls.host.context, ref.slot, &point);
+        } catch (const std::exception&) {
+            failed = true;
+        }
+    } else if (!failed && weapon != 1 && seat->calls.weapon_reaches_slot != nullptr) {
+        try {
+            hits = seat->calls.weapon_reaches_slot(
+                &seat->calls.host, ref.slot, &point, static_cast<uint8_t>(weapon - 1)
+            );
+        } catch (const std::exception&) {
+            failed = true;
+        }
+    } else if (!failed) {
         try {
             const oa::Unit* unit = oa::world_unit_at(&seat->match->state(), ref.slot);
             if (unit == nullptr)

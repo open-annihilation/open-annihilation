@@ -23,3 +23,8 @@
 # Classic's files are hashed byte for byte, so every checkout keeps them
 # exactly as committed, line endings included.
 /brains/classic/** -text
+
+# The mutator fixtures are read and hashed as bytes throughout the pipeline
+# tests, so every checkout keeps them exactly as committed, line endings
+# included.
+/tests/data/mutators/** -text

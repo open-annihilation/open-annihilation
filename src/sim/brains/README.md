@@ -27,8 +27,12 @@ brain plays as the built-in computer player.
   the read-only `me` surface, the definition collections, the AI profile
   fields, `game.map` and what the seat may see are installed, then
   `brain.say`, `brain.random`, `brain.after`, `brain.every` and
-  `brain.cancel`. `brain.shared_random` is installed only when the seat is
-  Classic and it has a match. The unit order methods, `brain.order_counts`,
+  `brain.cancel`. `brain.shared_random` is installed when the seat is
+  Classic or a shadow, and it has a match. `brain.section` is installed for
+  every brain. `brain.setup_random` is installed for a Classic seat and for
+  a shadow, and with no set-up record it raises
+  `brain.setup_random: the seat is not set up yet`. The unit order methods,
+  `brain.order_counts`,
   `brain.site` and `brain.place` follow. It has to work when the seat has no
   match: `game.in_match` is false, `game.map` is nil, `me` still carries the
   player, level, difficulty and options copied from the spec, `units`,
@@ -361,8 +365,92 @@ scripts and the simulation draw from. `bound` is an integer from 0 to
 4294967295; anything else raises `brain.shared_random: argument 1 must be an
 integer from 0 to 4294967295`. The result is the match's own bounded draw: a
 value below `bound`, or 0 without advancing the stream when `bound`, read as
-a signed 32-bit value, is below 2. For any other brain, and for every brain
-with no match, `brain.shared_random` is nil.
+a signed 32-bit value, is below 2. A Classic seat draws the match's stream.
+A shadow draws a copy of it, put back at each section (see Shadow). For any
+other brain, and for every brain with no match, `brain.shared_random` is nil.
+
+`brain.section(name)` marks a section of the turn. `name` is 1 to 15
+letters, digits or hyphens; anything else raises `brain.section: a section
+name is up to 15 letters, digits or hyphens`. In a game the mark does
+nothing. A shadow, and a later trace, record it. With no match it does
+nothing.
+
+`brain.setup_random(bound)` draws from a copy of the shared stream taken at
+the seat's built-in set-up, and advances only that copy. The bound is
+checked as `brain.shared_random` checks it. Before the set-up record exists,
+and with no match, it raises `brain.setup_random: the seat is not set up
+yet`. A brain that is neither Classic nor a shadow has no
+`brain.setup_random`.
+
+## Shadow
+
+`--brain-shadow` runs a brain beside the built-in player on every computer
+seat this machine plays. The built-in player plays the seat. The brain reads
+the seat as it stood before that turn, draws from a copy of the shared
+stream, and its orders, squad changes, standing-bit writes and draws are
+recorded and not applied. A seat a brain already plays is not shadowed. A
+network game is not shadowed. A failed shadow is not called again; the
+built-in player keeps the seat, and the run prints the stop instead of a
+comparison. No notice is posted.
+
+The set-up record keeps the stream state just before the seat's first
+set-up draw, and the first eight draws (bound and value). `set_up` then
+calls `start`. `brain.setup_random` draws from a copy restored to that
+state. Draws it makes are the `start` section.
+
+At each `brain.section(name)` the copy is set to the stream state at the
+built-in player's marker of that name, and the squad view is the snapshot
+plus that player's assigns from the sections before the marker. Before the
+brain's n-th draw in a section, when the built-in player's n-th draw there
+exists and the stream moved between the previous draw (or the marker) and
+that draw, the copy is set to the state before that draw and the log records
+`resync`. A resync does not change the bound. The reset does not copy the
+built-in player's entries of that same section into the brain's log.
+
+Compared, for the sections named by `--brain-shadow-sections` (default
+every one of `start`, `schedule`, `sort`, `task1` to `task9`):
+
+- `schedule` is the list of section markers.
+- Each other section is its entries in order. Every field counts: the kind,
+  the slots, the type, the 16.16 coordinates, the queue flag, and the bound
+  and value of each draw. `resync` lines are left out.
+- `sort` also compares the stance list, in order.
+- `start` compares the set-up record's draws with the brain's
+  `setup_random` draws, whenever the brain makes them.
+
+Each time the built-in player acts, including the load's player pass, that
+turn is compared. One line is printed per seat at the end of the run. The
+logs kept are the set-up and, when the logs differ, the first differing
+tick and the two before it. Older ticks are dropped. `--brain-shadow-log
+DIR` writes
+`seat-<p>-start-builtin.log`, `seat-<p>-start-brain.log`, and
+`seat-<p>-tick-<t>-builtin.log` and `seat-<p>-tick-<t>-brain.log` for those
+ticks. `<p>` is the engine player index.
+
+Both logs use the same lines, one entry a line, numbers in decimal,
+coordinates as signed 16.16 integers:
+
+```text
+tick <t> seat <p> builtin|brain
+section <name>
+draw <bound> <value>
+assign <slot> <squad>
+move <slot> <x> <y> <z> <queue>
+patrol <slot> <x> <y> <z> <queue>
+attack <slot> <target>
+build <slot> <type> <x> <y> <z>
+queue <slot> <type> <count>
+on <slot> <0|1>
+attack_point <slot> <x> <y> <z>
+stance <slot> <move> <fire>
+refused <name> <slot>
+resync <state>
+```
+
+`sort` is the squad sort. `task1` to `task9` are the built-in tasks.
+`start` is the set-up. A section the list does not name is not compared.
+An empty squad's siege task (`task9`) marks the section, draws once from a
+bound of 150, and orders nothing.
 
 ## Classic
 

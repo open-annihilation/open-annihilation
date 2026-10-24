@@ -1700,8 +1700,28 @@ run_timed(const fs::path& game, const fs::path& packages, const char* id, long& 
     return run;
 }
 
+/// True for an optimised build. The Visual Studio Debug configuration
+/// defines `_DEBUG` and compiles without optimisation; GCC and Clang define
+/// `__OPTIMIZE__` only above `-O0`. The Check build type is optimised and
+/// does not define `_DEBUG`, so it keeps the tight bound.
+constexpr bool optimised_build() {
+#if defined(_MSC_VER)
+#if defined(_DEBUG)
+    return false;
+#else
+    return true;
+#endif
+#elif defined(__OPTIMIZE__)
+    return true;
+#else
+    return false;
+#endif
+}
+
 /// A loop of builds or of removals stops on the instruction allowance, at a
-/// small part of the real-time limit's worth of work.
+/// small part of the real-time limit's worth of work. The 3 s processor-time
+/// bound is for an optimised build: an unoptimised one spends several times
+/// that, near the hook's real-time limit, so only the stop is checked there.
 void test_budget(const fs::path& game, const fs::path& packages) {
     write_package(
         packages,
@@ -1722,7 +1742,8 @@ void test_budget(const fs::path& game, const fs::path& packages) {
         if (run.mutators.empty())
             continue;
         OA_CHECK(run.mutators.front().cause == mutators::Cause::instruction_budget);
-        OA_CHECK(cpu_ms < 3000);
+        if (optimised_build())
+            OA_CHECK(cpu_ms < 3000);
     }
 }
 
@@ -1791,7 +1812,8 @@ void test_game_data() {
         if (loop.mutators.empty())
             continue;
         OA_CHECK(loop.mutators.front().cause == mutators::Cause::instruction_budget);
-        OA_CHECK(cpu_ms < 3000);
+        if (optimised_build())
+            OA_CHECK(cpu_ms < 3000);
     }
 
     write_package(

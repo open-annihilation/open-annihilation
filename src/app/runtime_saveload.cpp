@@ -1505,6 +1505,48 @@ bool Runtime::read_save_summary(const fs::path& path, ui::frontend::LoadSummary&
     return ui::frontend::savegame_read_load_summary(bank_summary_reader(), &guard.bank, summary);
 }
 
+namespace {
+
+/// The computer player a campaign mission seats, in slot 1.
+constexpr int32_t campaign_computer = 1;
+
+/// Makes the campaign's seat the brain a loaded save seated on player 1.
+///
+/// A save that seated no brain there leaves the built-in player. Version and
+/// package stay empty: a setup's memory does not keep them.
+///
+/// @param runtime the runtime
+void take_campaign_seat_from_load(Runtime& runtime) {
+    namespace brain = oa::data::brain_library;
+    brain::Seats& seats = runtime.setup_brain_seats(brain::Setup::campaign);
+    brain::Seat* own = nullptr;
+    for (brain::Seat& seat : seats.seats) {
+        if (seat.place == campaign_computer)
+            own = &seat;
+    }
+    if (own == nullptr) {
+        seats.seats.push_back({});
+        own = &seats.seats.back();
+    }
+    own->place = campaign_computer;
+    own->brain.clear();
+    own->level.clear();
+    own->options.clear();
+    own->version.clear();
+    own->package_sha256.clear();
+    own->name.clear();
+    for (const brain::Seat& loaded : runtime.loaded_brain_seats().seats) {
+        if (loaded.place != campaign_computer)
+            continue;
+        own->brain = loaded.brain;
+        own->level = loaded.level;
+        own->options = loaded.options;
+        break;
+    }
+}
+
+} // namespace
+
 bool Runtime::load_saved_game(const fs::path& path) {
     // The built-in answer is for this load only. A stop before the brains are
     // checked, including a throw, must not leave it set for a later load.
@@ -1576,6 +1618,11 @@ bool Runtime::load_saved_game(const fs::path& path) {
         const bool loaded = load_saved_campaign(path, bank, summary);
         if (loaded && saved_campaign_mutators_)
             campaign_mutators_ = std::move(*saved_campaign_mutators_);
+        // The missions after this save play the computer player it seated.
+        // A skirmish save does not come through here, so its load leaves the
+        // campaign seat as it is.
+        if (loaded)
+            take_campaign_seat_from_load(*this);
         held_mutators.keep = loaded;
         held_brains.keep = loaded;
         return loaded;
@@ -1766,7 +1813,9 @@ void Runtime::finish_saved_game_start(bool restored_players) {
     match_tick_blocked_ = false;
     // The saved game is loaded, alliances and all; its players' pass runs at
     // the saved tick before the first tick, so until then the world stands as
-    // the save restored it.
+    // the save restored it. A shadow is seated before that pass, as a new
+    // game seats one before its own.
+    seat_shadow_brains();
     match_->finish_load();
 }
 
@@ -2224,6 +2273,7 @@ void Runtime::run_headless_saveload() {
         write_ppm(options_.snapshot, surface_);
     }
     print_memory_status();
+    print_shadow_reports();
 }
 
 } // namespace oa::app

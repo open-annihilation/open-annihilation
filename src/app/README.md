@@ -1250,6 +1250,45 @@ stop for the keyboard.
   language and both sizes. A FIXTURES_SETUP test (`brain-seats-clean`)
   clears its folders before each run.
 
+## The campaign's computer player
+
+While at least one brain is installed, NEWGAME and Any Mission show one
+button in the Difficulty button's column, under it. The button reads the
+campaign seat's brain and level. The built-in player reads "Built-in" and
+the word the Difficulty button is showing. The automation name is
+`oa.brain-seat.campaign`. With no brain installed those screens are unchanged.
+
+- **Placement.** The button takes the size of the control under Difficulty
+  and sits in that column, with a gap of 2 above and below. When the column
+  has no room for that, the button is the label's own size, placed against
+  Difficulty by the same rule a block uses when it does not fit.
+- **The picker.** A press opens the campaign seat's picker. The seat is
+  named Computer player, and the built-in player's level stays the run's
+  difficulty. A mission has one computer player, so the picker has no
+  switch for every computer seat. USE THIS sets the campaign's seat at
+  place 1, which every mission of the run starts with.
+- **Focus.** Tab and Shift+Tab, and a controller's L1, R1 and A, reach the
+  button. Up and Down stay with the campaign and mission lists. The card
+  shows when the pointer rests on the button, and on the information key.
+- **Saves.** Once a campaign save has loaded, the campaign's seat becomes
+  the brain, level and options that save seated on player 1. A save that
+  seated no brain there leaves the built-in player. A skirmish save leaves
+  the campaign's seat as it is.
+- **The check.** `native-brain-campaign` (`--check-brain-campaign`,
+  `runtime_brain_campaign_check.cpp`) at 640x480 and 1280x720 keeps a frame
+  of NEWGAME and of Any Mission before any brain is written. It then
+  requires the button under Difficulty, reading the built-in player and the
+  Difficulty button's word, Tab reaching it while Up does not, the picker,
+  Steady Commander at Firm, and the same button on Any Mission. The first
+  mission logs `player 1 plays steady-commander 1.2 at firm`. A save made
+  in that mission, loaded after the campaign seat was set back to the
+  built-in player, leaves the seat at Steady Commander, and a skirmish save
+  leaves it as it is. With the brain removed the frames match the ones it
+  kept. It writes `brain-campaign-<screen>-<w>x<h>.png`.
+  `--check-text-fit` paints the button with a long brain name, in every
+  language and both sizes. A FIXTURES_SETUP test (`brain-campaign-clean`)
+  clears its folders before each run.
+
 ## The mutator questions
 
 Four questions live in the picker module (`prompts.hpp`) and the app raises

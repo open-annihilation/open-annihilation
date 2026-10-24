@@ -5184,6 +5184,20 @@ class Runtime final : public menu::Host,
     /// is running.
     void seat_chosen_brains();
 
+    /// Seats `--brain-shadow` beside every computer seat this machine plays.
+    ///
+    /// A seat a brain already plays is left alone. A network game, a shared
+    /// match and a replay seat nothing. A brain that cannot be read writes
+    /// one line to standard error and that seat keeps the built-in player.
+    /// Nothing is seated when no match is running or the option is empty.
+    void seat_shadow_brains();
+
+    /// Prints one line for each shadowed seat, and writes the logs when asked.
+    ///
+    /// The first call prints. A later call in the same match prints nothing,
+    /// so a headless run and the leave that follows it do not both print.
+    void print_shadow_reports();
+
     /// Opens the seat's log and installs the report hooks.
     ///
     /// Called before the brain is seated, so lines from fits and start are
@@ -6482,10 +6496,11 @@ class Runtime final : public menu::Host,
     /// Energy button while a brain is installed.
     struct BrainSeatsScreen;
 
-    /// Keeps the computer-seat buttons on the OA layer while SKIRMISH shows
-    /// and a brain is installed: pushes the screen when the layer has none.
-    /// OaLayer::tick calls it once a frame, after MUTATORS…. A Library that
-    /// has just closed reloads the installed brains first.
+    /// Keeps the computer-seat buttons on the OA layer while SKIRMISH, NEWGAME
+    /// or Any Mission shows and a brain is installed: pushes the screen when
+    /// the layer has none. OaLayer::tick calls it once a frame, after
+    /// MUTATORS…. A Library that has just closed reloads the installed brains
+    /// first.
     void keep_brain_seats_screen();
 
     /// Runs --check-brain-seat-buttons: each computer row's brain button on
@@ -6514,6 +6529,14 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_room();
+
+    /// Runs --check-brain-campaign: the campaign's brain button on NEWGAME
+    /// and Any Mission at 640x480 and 1280x720, Tab, the picker, the brain
+    /// the first mission seats and the seat a loaded campaign save leaves.
+    /// Writes brain-campaign-<screen>-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_campaign();
 
     /// Runs --check-mutator-room: the host's MUTATORS… in a battle room
     /// hosted alone, at 640x480 and 1280x720, the remembered multiplayer
@@ -18910,9 +18933,11 @@ class Runtime final : public menu::Host,
     std::array<std::string, OA_PLAYER_COUNT> brain_seat_level_{};
     /// True after that seat's brain stopped. The match plays on.
     std::array<bool, OA_PLAYER_COUNT> brain_seat_stopped_{};
-    /// The tick the stop was reported, and the sentence that names it.
+    /// The tick a brain stopped, and the sentence that names why.
     std::array<uint32_t, OA_PLAYER_COUNT> brain_stop_tick_{};
     std::array<std::string, OA_PLAYER_COUNT> brain_stop_text_{};
+    /// True after this match's shadow lines have been printed.
+    bool shadow_report_printed_{false};
     // The mounted pack map, the game's names, the fits and the refusals;
     // null until a pack map is first named.
     std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{

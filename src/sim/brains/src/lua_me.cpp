@@ -116,7 +116,14 @@ bool kept_in_squad(const Seat& seat, uint32_t squad_number, uint16_t slot) noexc
     const oa::Unit* unit = oa::world_unit_at(&seat.match->state(), slot);
     if (unit == nullptr || unit->type_index == 0 || !oa::unit_is_live_target(unit->flags))
         return false;
-    return unit->squad == 0;
+    if (seat.calls.unit_squad == nullptr)
+        return unit->squad == 0;
+    try {
+        return seat.calls.unit_squad(const_cast<sim::ai::ComputerHost*>(&seat.calls.host), slot) ==
+               0;
+    } catch (const std::exception&) {
+        return false;
+    }
 }
 
 bool copy_members(
@@ -131,6 +138,21 @@ bool copy_members(
     if (seat.match == nullptr)
         return true;
     try {
+        if (seat.calls.host.squad_size != nullptr && seat.calls.host.squad_member != nullptr) {
+            const auto squad = static_cast<sim::ai::Squad>(squad_number);
+            const uint32_t count =
+                seat.calls.host.squad_size(seat.calls.host.context, seat.player, squad);
+            for (uint32_t index = 0; index < count && *used < room; ++index) {
+                const uint16_t member = seat.calls.host.squad_member(
+                    seat.calls.host.context, seat.player, squad, index
+                );
+                if (filter_squad_zero && !kept_in_squad(seat, squad_number, member))
+                    continue;
+                out[*used] = member;
+                *used += 1;
+            }
+            return true;
+        }
         const auto members = seat.match->squad_members(seat.player, squad_number);
         for (const uint16_t member : members) {
             if (*used >= room)
@@ -144,6 +166,12 @@ bool copy_members(
         return false;
     }
     return true;
+}
+
+bool players_allied(const Seat& seat, uint8_t other) {
+    if (seat.calls.host.allied != nullptr)
+        return seat.calls.host.allied(seat.calls.host.context, seat.player, other);
+    return seat.match->allied(seat.player, other);
 }
 
 std::size_t occupied_count(const Seat& seat) noexcept {
@@ -564,7 +592,14 @@ int method_allied(lua_State* lua) {
         push_nil(lua);
         return 1;
     }
-    push_bool(lua, seat->match->allied(seat->player, static_cast<uint8_t>(which)));
+    bool allied = false;
+    try {
+        allied = players_allied(*seat, static_cast<uint8_t>(which));
+    } catch (const std::exception&) {
+        push_nil(lua);
+        return 1;
+    }
+    push_bool(lua, allied);
     return 1;
 }
 
@@ -576,7 +611,13 @@ int method_allies(lua_State* lua) {
         for (uint8_t which = 0; which < OA_PLAYER_COUNT; ++which) {
             if (which == seat->player)
                 continue;
-            if (!seat->match->allied(seat->player, which))
+            bool allied = false;
+            try {
+                allied = players_allied(*seat, which);
+            } catch (const std::exception&) {
+                allied = false;
+            }
+            if (!allied)
                 continue;
             allies[found] = which;
             ++found;
@@ -622,7 +663,13 @@ int method_players(lua_State* lua) {
         lua_setfield(lua, -2, "side");
         push_team(lua, record);
         lua_setfield(lua, -2, "team");
-        push_bool(lua, seat->match->allied(seat->player, which));
+        bool allied = false;
+        try {
+            allied = players_allied(*seat, which);
+        } catch (const std::exception&) {
+            allied = false;
+        }
+        push_bool(lua, allied);
         lua_setfield(lua, -2, "allied");
         push_bool(lua, record.status == OA_PLAYER_STATUS_COMPUTER);
         lua_setfield(lua, -2, "computer");
@@ -702,7 +749,15 @@ int method_squad_size(lua_State* lua) {
     bool failed = false;
     if (seat != nullptr && seat->match != nullptr) {
         try {
-            used = seat->match->squad_members(seat->player, squad_number).size();
+            if (seat->calls.host.squad_size != nullptr) {
+                used = seat->calls.host.squad_size(
+                    seat->calls.host.context,
+                    seat->player,
+                    static_cast<sim::ai::Squad>(squad_number)
+                );
+            } else {
+                used = seat->match->squad_members(seat->player, squad_number).size();
+            }
         } catch (const std::exception&) {
             failed = true;
         }
@@ -790,7 +845,13 @@ int method_assign(lua_State* lua) {
     }
     bool failed = false;
     try {
-        seat->match->set_unit_squad(ref.slot, squad_number);
+        if (seat->calls.host.set_squad != nullptr) {
+            seat->calls.host.set_squad(
+                seat->calls.host.context, ref.slot, static_cast<sim::ai::Squad>(squad_number)
+            );
+        } else {
+            seat->match->set_unit_squad(ref.slot, squad_number);
+        }
     } catch (const std::exception&) {
         failed = true;
     }
@@ -886,6 +947,19 @@ void add_me_method(lua_State* lua, const char* name, lua_CFunction function) {
     ensure_table(lua, &me_method_token);
     lua_pushcfunction(lua, function);
     lua_setfield(lua, -2, name);
+    lua_pop(lua, 1);
+}
+
+void set_hidden_difficulty(lua_State* lua, const char* difficulty) {
+    if (lua == nullptr || difficulty == nullptr)
+        return;
+    lua_rawgetp(lua, LUA_REGISTRYINDEX, &me_values_token);
+    if (lua_type(lua, -1) != LUA_TTABLE) {
+        lua_pop(lua, 1);
+        return;
+    }
+    lua_pushstring(lua, difficulty);
+    lua_setfield(lua, -2, "difficulty");
     lua_pop(lua, 1);
 }
 
