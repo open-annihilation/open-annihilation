@@ -33,7 +33,7 @@ add_library(oa-sim-brains src/seat.cpp src/profile.cpp src/read_only.cpp src/lua
   src/random.cpp src/timers.cpp src/definitions.cpp src/lua_defs.cpp src/lua_chat.cpp
   src/failure.cpp src/save.cpp src/lua_profile.cpp src/lua_map.cpp src/reach.cpp src/lua_sight.cpp
   src/lua_orders.cpp src/lua_sites.cpp src/lua_networks.cpp src/lua_grids.cpp src/seat_calls.cpp
-  src/shadow.cpp
+  src/shadow.cpp src/logs.cpp src/lua_record.cpp
   "${oa_classic_fingerprint_header}")
 add_library(oa::sim::brains ALIAS oa-sim-brains)
 target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_generated}")
@@ -121,6 +121,12 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options)
   add_test(NAME sim-brains-timers COMMAND oa-sim-brains-timers-test)
   set_tests_properties(sim-brains-timers PROPERTIES TIMEOUT 60)
+
+  add_executable(oa-sim-brains-logs-test tests/logs_test.cpp)
+  target_link_libraries(oa-sim-brains-logs-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
+  add_test(NAME sim-brains-logs COMMAND oa-sim-brains-logs-test)
+  set_tests_properties(sim-brains-logs PROPERTIES TIMEOUT 120)
 
   add_executable(oa-sim-brains-chat-test tests/chat_test.cpp)
   target_compile_definitions(

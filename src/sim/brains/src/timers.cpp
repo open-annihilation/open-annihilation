@@ -185,6 +185,7 @@ void run_due_timers(lua_State* state, Seat& seat) {
         if (!timer.waiting && ref != timer_ref_empty)
             luaL_unref(state, LUA_REGISTRYINDEX, ref);
         script_host::charge_work(state, script_host::element_charge);
+        log_call(seat, "timer", nullptr, 0);
         lua_call(state, 0, 0);
     }
 }

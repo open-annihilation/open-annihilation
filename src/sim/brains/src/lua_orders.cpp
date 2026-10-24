@@ -241,6 +241,35 @@ bool note_refused(Seat& seat, const char* name, uint16_t slot) noexcept {
     return true;
 }
 
+void log_point_order(
+    Seat& seat, const char* name, uint16_t slot, const sim::ground_orders::Point& point, bool queued
+) noexcept {
+    const int64_t numbers[] = {
+        static_cast<int64_t>(slot),
+        static_cast<int64_t>(point[0]),
+        static_cast<int64_t>(point[1]),
+        static_cast<int64_t>(point[2]),
+        queued ? int64_t{1} : int64_t{0},
+    };
+    log_order(seat, name, numbers, 5);
+}
+
+void log_target_order(
+    Seat& seat, const char* name, uint16_t slot, uint16_t target, bool queued
+) noexcept {
+    const int64_t numbers[] = {
+        static_cast<int64_t>(slot),
+        static_cast<int64_t>(target),
+        queued ? int64_t{1} : int64_t{0},
+    };
+    log_order(seat, name, numbers, 3);
+}
+
+void log_slot_order(Seat& seat, const char* name, uint16_t slot) noexcept {
+    const int64_t number = static_cast<int64_t>(slot);
+    log_order(seat, name, &number, 1);
+}
+
 bool engine_move(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const PointAsk*>(context);
     if (seat.calls.host.order_move != nullptr) {
@@ -275,6 +304,7 @@ bool engine_attack_ground(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "attack_ground", slot))
         return true;
     const auto* ask = static_cast<const PointAsk*>(context);
+    log_point_order(seat, "attack_ground", slot, ask->point, ask->queued);
     match_runtime::Match& match = *seat.match;
     return match.issue_attack_ground(slot, ask->point, ask->queued) != nullptr;
 }
@@ -305,6 +335,10 @@ bool engine_dgun(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "dgun", slot))
         return true;
     const auto* ask = static_cast<const SpecialAsk*>(context);
+    if (ask->aimed)
+        log_target_order(seat, "dgun", slot, ask->target, ask->queued);
+    else
+        log_point_order(seat, "dgun", slot, ask->point, ask->queued);
     match_runtime::Match& match = *seat.match;
     sim::ground_orders::Point point = ask->point;
     uint16_t target = 0;
@@ -322,6 +356,7 @@ bool engine_guard(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "guard", slot))
         return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    log_target_order(seat, "guard", slot, ask->target, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_guard(slot, ask->target, ask->queued));
 }
@@ -330,6 +365,7 @@ bool engine_repair(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "repair", slot))
         return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    log_target_order(seat, "repair", slot, ask->target, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_repair(slot, ask->target, ask->queued));
 }
@@ -338,6 +374,7 @@ bool engine_help(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "help", slot))
         return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    log_target_order(seat, "help", slot, ask->target, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_help_build(slot, ask->target, ask->queued));
 }
@@ -346,6 +383,7 @@ bool engine_capture(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "capture", slot))
         return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    log_target_order(seat, "capture", slot, ask->target, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_capture(slot, ask->target, ask->queued));
 }
@@ -354,6 +392,7 @@ bool engine_load(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "load", slot))
         return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    log_target_order(seat, "load", slot, ask->target, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_load(slot, ask->target, ask->queued));
 }
@@ -362,6 +401,7 @@ bool engine_unload(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "unload", slot))
         return true;
     const auto* ask = static_cast<const PointAsk*>(context);
+    log_point_order(seat, "unload", slot, ask->point, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_unload(slot, ask->point, ask->queued));
 }
@@ -370,6 +410,7 @@ bool engine_reclaim_unit(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "reclaim", slot))
         return true;
     const auto* ask = static_cast<const TargetAsk*>(context);
+    log_target_order(seat, "reclaim", slot, ask->target, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_reclaim(slot, ask->target, ask->queued));
 }
@@ -378,6 +419,7 @@ bool engine_reclaim_point(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "reclaim", slot))
         return true;
     const auto* ask = static_cast<const PointAsk*>(context);
+    log_point_order(seat, "reclaim", slot, ask->point, ask->queued);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_feature_reclaim(slot, ask->point, ask->queued));
 }
@@ -412,6 +454,12 @@ bool engine_requeue(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "requeue", slot))
         return true;
     const auto* ask = static_cast<const CountAsk*>(context);
+    const int64_t numbers[] = {
+        static_cast<int64_t>(slot),
+        static_cast<int64_t>(ask->type),
+        static_cast<int64_t>(ask->count),
+    };
+    log_order(seat, "requeue", numbers, 3);
     match_runtime::Match& match = *seat.match;
     const uint8_t kind = data::mission_types::index_for_name("BuildingBuild");
     if (kind == data::mission_types::unknown_mission)
@@ -423,6 +471,7 @@ bool engine_requeue(Seat& seat, uint16_t slot, void* context) {
 bool engine_stop(Seat& seat, uint16_t slot, void*) {
     if (note_refused(seat, "stop", slot))
         return true;
+    log_slot_order(seat, "stop", slot);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_stop(slot));
 }
@@ -442,6 +491,8 @@ bool engine_cloak(Seat& seat, uint16_t slot, void* context) {
     if (note_refused(seat, "cloak", slot))
         return true;
     const auto* on = static_cast<const bool*>(context);
+    const int64_t numbers[] = {static_cast<int64_t>(slot), *on ? int64_t{1} : int64_t{0}};
+    log_order(seat, "cloak", numbers, 2);
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(match.issue_cloak(slot, *on));
 }
@@ -449,6 +500,7 @@ bool engine_cloak(Seat& seat, uint16_t slot, void* context) {
 bool engine_destruct(Seat& seat, uint16_t slot, void*) {
     if (note_refused(seat, "self_destruct", slot))
         return true;
+    log_slot_order(seat, "self_destruct", slot);
     match_runtime::Match& match = *seat.match;
     const uint16_t unit = slot;
     match.toggle_self_destruct(std::span<const uint16_t>(&unit, 1));
@@ -457,6 +509,18 @@ bool engine_destruct(Seat& seat, uint16_t slot, void*) {
 
 bool engine_state(Seat& seat, uint16_t slot, void* context) {
     const auto* ask = static_cast<const CountAsk*>(context);
+    if (ask->type == sim::match_runtime::standing_move_order_kind)
+        log_standing_order(seat, slot, false, ask->count);
+    else if (ask->type == sim::match_runtime::standing_fire_order_kind)
+        log_standing_order(seat, slot, true, ask->count);
+    else {
+        const int64_t numbers[] = {
+            static_cast<int64_t>(slot),
+            static_cast<int64_t>(ask->type),
+            static_cast<int64_t>(ask->count),
+        };
+        log_order(seat, "state", numbers, 3);
+    }
     match_runtime::Match& match = *seat.match;
     return !match.order_refused(
         match.issue_state_order(slot, static_cast<uint8_t>(ask->type), ask->count)

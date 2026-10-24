@@ -605,6 +605,23 @@ void prepare_match_computer_players(sim::match_runtime::Match& match);
 /// @param match match that owns the state
 /// @param player player index
 void tick_match_computer_orders(sim::match_runtime::Match& match, uint8_t player);
+
+/// Runs one built-in order tick when a brain log is open.
+///
+/// Return true when this match's tick was run. Return false when this match
+/// is not logging, and the usual tick runs.
+using LoggedComputerTurn = bool (*)(
+    void* context, sim::match_runtime::Match& match, uint8_t player, const ComputerHost& host
+);
+
+/// Installs the function `tick_match_computer_orders` asks first.
+///
+/// A null function restores the usual tick. The function returns false when
+/// that match is not logging, so another match is left alone.
+///
+/// @param turn the function, or null
+/// @param context passed to `turn`
+void set_logged_computer_turn(LoggedComputerTurn turn, void* context) noexcept;
 /// Writes a match player's weight report (computer_write_report).
 ///
 /// @param match match that owns the state

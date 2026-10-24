@@ -311,7 +311,15 @@ void destroy_players(ComputerPlayers* state) noexcept {
     delete state;
 }
 
+LoggedComputerTurn logged_turn = nullptr;
+void* logged_turn_context = nullptr;
+
 } // namespace
+
+void set_logged_computer_turn(LoggedComputerTurn turn, void* context) noexcept {
+    logged_turn = turn;
+    logged_turn_context = context;
+}
 
 ComputerHost match_computer_host(Match& match) noexcept {
     return make_host(match);
@@ -623,6 +631,8 @@ void prepare_match_computer_players(Match& match) {
 
 void tick_match_computer_orders(Match& match, uint8_t player) {
     const ComputerHost host = make_host(match);
+    if (logged_turn != nullptr && logged_turn(logged_turn_context, match, player, host))
+        return;
     // +AI can hand a human to the computer after the start. That player has
     // no controller until this tick builds one.
     computer_players_adopt(match_computer_players(match), host, player);

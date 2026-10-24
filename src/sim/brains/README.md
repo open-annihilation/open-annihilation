@@ -452,6 +452,65 @@ resync <state>
 An empty squad's siege task (`task9`) marks the section, draws once from a
 bound of 150, and orders nothing.
 
+## Logs and records
+
+`--brain-trace FILE` writes one brain log for the whole match. It needs a
+headless run of a set number of ticks. The file is created when the match
+starts. The first line is `brain log 1`. After that, every computer seat
+this machine plays contributes the call log of each of its ticks: a
+brain's hook calls, orders and draws, and a built-in seat's orders and
+draws. A shadow run writes both of its sides, the built-in player first.
+`<p>` in `tick <t> seat <p>` is the engine's player index. `fits` and
+`start` are tick 0.
+
+The brain log uses the shadow's lines, and four more:
+
+```text
+brain log 1
+call <hook> <n>…
+own-draw <low> <high> <value>
+own-draw float <16 hex digits>
+order <name> <slot> <n>…
+```
+
+`call` is written before the hook runs. Its numbers are the hook's
+arguments: a unit is its slot, a player is its index, an amount is the
+amount delivered. A timer is named `timer`. `brain.random(n)` writes
+`own-draw 1 n`, and `brain.random(0)` writes `own-draw 0 0` with the raw
+word. `math.random(m, n)` writes `own-draw m n`. `math.random()`
+writes `own-draw float` and 16 lower-case hex digits of the value's bits.
+`brain.shared_random` is a `draw` line, the same line the shadow writes.
+An order the shadow's lines already name is written as that line. Any
+other order is `order`, with its numbers in the order the brain passed
+them.
+
+`--brain-record FILE` writes what a brain passes to `brain.record`, as
+JSON lines. The same match writes the same bytes on every machine.
+
+```lua
+brain.record{
+  features = { sectors = brain.grid({"own", "explored"}, 8) },
+  decision = dx
+}
+```
+
+`features` is one to 16 tensors. A name is 1 to 31 letters, digits or
+underscores. `decision` is an integer or a tensor. One call holds at most
+4194304 elements. A wrong call raises, for example
+`brain.record: feature 'grid' is not a tensor`. The call costs 64
+instructions plus one more for every 64 elements, whether or not a file
+is open, and it returns nothing. Outside a match it checks and charges
+the same and records nothing.
+
+The file's first line is a header: the map, the seed, and each computer
+seat's brain or `builtin`, its level, and a brain's version. A sample
+line follows each call, features in byte order of their names. Values are
+counts of 65536ths, so `65536` is 1. An integer decision is written as
+that integer. A brain match that plays to its report then writes one
+result line a seat: whether it won, the tick, and how many units it still
+has. Record seats are numbered from 1, so record seat 1 is log seat 0.
+The file stops at 1 GiB with a last line `{"kind":"full"}`.
+
 ## Classic
 
 A seat is Classic only when its files are the files of this build's
