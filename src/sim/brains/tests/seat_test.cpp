@@ -478,7 +478,7 @@ void phase_counts_record_what_ran() {
         Fixture fixture;
         Package package;
         package.entry = "missing.lua";
-        add_file(package, "nets/scout.oann", "scout");
+        add_file(package, "nets/scout.oann", tiny_network());
         const brains::SeatOutcome outcome = seat_it(fixture, package);
         CHECK(outcome.result == brains::SeatResult::refused);
         CHECK(!outcome.load_ran);
@@ -504,7 +504,7 @@ void phase_counts_record_what_ran() {
             "end\n"
             "return hooks\n"
         );
-        add_file(package, "nets/scout.oann", "scout");
+        add_file(package, "nets/scout.oann", tiny_network());
         const brains::SeatOutcome outcome = seat_it(fixture, package);
         CHECK(outcome.result == brains::SeatResult::seated);
         CHECK(outcome.load_ran);
@@ -532,7 +532,7 @@ void phase_counts_record_what_ran() {
             "function hooks.start() while true do end end\n"
             "return hooks\n"
         );
-        add_file(package, "nets/scout.oann", "scout");
+        add_file(package, "nets/scout.oann", tiny_network());
         const brains::SeatOutcome outcome = seat_it(fixture, package);
         CHECK(outcome.result == brains::SeatResult::does_not_fit);
         CHECK(outcome.load_ran);
