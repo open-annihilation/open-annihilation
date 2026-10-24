@@ -505,6 +505,7 @@ void Runtime::take_pending_brain_seats() {
                 installed->manifest.id,
                 resolved.level
             );
+            store_brain_game_facts();
             const oa::sim::brains::SeatOutcome outcome = oa::sim::brains::seat_brain(*match_, spec);
             if (outcome.result != oa::sim::brains::SeatResult::seated) {
                 log_builtin(seat.player, seat.id, failure_text(outcome));

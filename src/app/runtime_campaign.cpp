@@ -998,7 +998,15 @@ std::string Runtime::read_computer_profile() {
 void Runtime::configure_computer_players() {
     if (!match_)
         return;
-    oa::sim::brains::set_match_game_facts(*match_, brain_game_facts());
+    brain_game_facts_stored_ = false;
+    // The facts read every AI profile and the map's mission file, so a match
+    // no brain can be seated in does without them.
+    bool brain_may_play = !options_.brain_shadow.empty() ||
+                          (pending_brain_seats_.has_value() && !pending_brain_seats_->empty());
+    for (const std::optional<BrainSeatChoice>& choice : brain_seat_choices_)
+        brain_may_play = brain_may_play || choice.has_value();
+    if (brain_may_play)
+        store_brain_game_facts();
     install_brain_log_hooks();
     // Every type's build list as the game holds it, its CANBUILD entries then
     // the download menus': per type, a count then its ids.
@@ -1015,6 +1023,13 @@ void Runtime::configure_computer_players() {
     if (!oa::sim::ai::configure_match_computer_players(*match_, profile, lists, campaign_mission_))
         throw std::runtime_error("cannot store the computer players' profile and build lists");
     take_pending_brain_seats();
+}
+
+void Runtime::store_brain_game_facts() {
+    if (!match_ || brain_game_facts_stored_)
+        return;
+    oa::sim::brains::set_match_game_facts(*match_, brain_game_facts());
+    brain_game_facts_stored_ = true;
 }
 
 void Runtime::reload_computer_profiles() {
