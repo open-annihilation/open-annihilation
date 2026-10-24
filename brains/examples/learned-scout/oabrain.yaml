@@ -20,4 +20,4 @@ levels:
 networks:
   - id: scout
     file: "nets/scout.oann"
-    sha256: "fcccef0c3dccbf8aac16a80266efcaf1013b5cc8f568dbcd4f8b17d53fe1c601"
+    sha256: "86dfb50db0e35d9a85d46a9c12ff612da603b190cb52032926f739e2c04f5a21"

@@ -16,29 +16,29 @@ Input:
 Output:
     MODEL.onnx, a model with input sectors of shape [1, 2, 8, 8] and output
     choice. The network is conv2d 1x1 from 2 channels to 8, relu, conv2d
-    1x1 from 8 channels to 1, flatten, and argmax. One line is printed:
+    1x1 from 8 channels to 1, flatten, and argmax. Two lines are printed:
         held-out agreement: NN.N% (correct/total)
-    That is how often the written model's argmax matches the recorded
-    decision on the held-out samples.
+        closed form agreement: NN.N% (correct/total)
+    The first is how often the written model's argmax matches the recorded
+    decision on the held-out samples. The second scores those same samples
+    with a fixed ranking of explored share and distance. Those weights are
+    not the trained network.
 
-    The records are the learned scout's rule. That rule skips a centre the
-    unit cannot stand on. Both levels use that rule. The brain records the
-    choice every 30 ticks, and it sends the unit when the unit has no order
-    or is standing within its footprint of the centre it was last sent to.
-    The scores below rank explored share and distance only, then one small
-    descent step is applied.
+    The records are the learned scout's rule. A centre the unit cannot
+    stand on is fully explored in channel 1, so the rule skips it by the
+    explored share. The brain records the choice every 30 ticks. It sends
+    the unit when the head order is absent or its idle bit is set.
 
 Reproducibility:
     The same records produce the same model bytes on any machine.
-    random.Random(20261023) draws a starting weight for every value, at
-    scale 0, and the closed form of the rule then replaces that start.
-    Gradient descent uses no further draws. It runs for 1 epoch at rate
-    1e-16, samples in file order, one update from the sum of the
-    per-sample gradients. Every fifth sample, counting from 1, is held out
-    and is not part of that sum. Sums are loops in a fixed order. The only
-    arithmetic is +, -, * and /, plus comparisons. The weights are rounded
-    to float32 before the agreement is measured and before the file is
-    written.
+    random.Random(20261023) draws a starting weight for every value,
+    uniform in ±0.1. Gradient descent uses no further draws. It runs for
+    550 epochs at rate 0.008, samples in file order, one update from the
+    sum of the per-sample gradients. Every fifth sample, counting from 1,
+    is held out and is not part of that sum. Sums are loops in a fixed
+    order. The only arithmetic is +, -, * and /, plus comparisons. The
+    weights are rounded to float32 before the agreement is measured and
+    before the file is written.
 """
 
 import argparse
@@ -50,12 +50,12 @@ import sys
 HIDDEN = 8
 CELLS = 64
 CHANNELS = 2
-# The closed form already ranks sectors. A larger step knocks the hinge
-# biases off the grid the integer converter uses, and that noise is enough
-# to change a close argmax. One tiny step still runs the descent.
-EPOCHS = 1
-RATE = 1e-16
+# The best plain descent found on these records. A higher rate diverges,
+# and a longer run at this rate lowers the held-out agreement.
+EPOCHS = 550
+RATE = 0.008
 SEED = 20261023
+SCALE = 0.1
 UNIT = 65536.0
 HALF = 0.5
 WIDTH = 0.03125
@@ -111,19 +111,12 @@ def starting_weights(rng):
     bias_1 = []
     for _unit in range(HIDDEN):
         weights_1.append([
-            (rng.random() * 2.0 - 1.0) * 0.0,
-            (rng.random() * 2.0 - 1.0) * 0.0,
+            (rng.random() * 2.0 - 1.0) * SCALE,
+            (rng.random() * 2.0 - 1.0) * SCALE,
         ])
-        bias_1.append((rng.random() * 2.0 - 1.0) * 0.0)
-    weights_2 = [(rng.random() * 2.0 - 1.0) * 0.0 for _unit in range(HIDDEN)]
-    bias_2 = (rng.random() * 2.0 - 1.0) * 0.0
-    form_w1, form_b1, form_w2, form_b2 = closed_form()
-    for unit in range(HIDDEN):
-        weights_1[unit][0] = form_w1[unit][0]
-        weights_1[unit][1] = form_w1[unit][1]
-        bias_1[unit] = form_b1[unit]
-        weights_2[unit] = form_w2[unit]
-    bias_2 = form_b2
+        bias_1.append((rng.random() * 2.0 - 1.0) * SCALE)
+    weights_2 = [(rng.random() * 2.0 - 1.0) * SCALE for _unit in range(HIDDEN)]
+    bias_2 = (rng.random() * 2.0 - 1.0) * SCALE
     return weights_1, bias_1, weights_2, bias_2
 
 
@@ -215,13 +208,8 @@ def train(samples):
             weights_2[unit] = weights_2[unit] - RATE * grad_w2[unit] / count
         bias_2 = bias_2 - RATE * grad_b2 / count
     weights_1, bias_1, weights_2, bias_2 = round_weights(weights_1, bias_1, weights_2, bias_2)
-    correct = 0
-    total = 0
-    for features, decision in held:
-        total = total + 1
-        if argmax(features, weights_1, bias_1, weights_2, bias_2) == decision:
-            correct = correct + 1
-    return weights_1, bias_1, weights_2, bias_2, correct, total
+    correct, total = count_correct(held, weights_1, bias_1, weights_2, bias_2)
+    return weights_1, bias_1, weights_2, bias_2, correct, total, held
 
 
 def whole_number(value, where):
@@ -428,12 +416,22 @@ def model_bytes(weights_1, bias_1, weights_2, bias_2):
     return bytes(model.bytes)
 
 
-def agreement_text(correct, total):
+def agreement_line(label, correct, total):
     if total == 0:
         percent = 0.0
     else:
         percent = 100.0 * correct / total
-    return f"held-out agreement: {percent:.1f}% ({correct}/{total})"
+    return f"{label}: {percent:.1f}% ({correct}/{total})"
+
+
+def count_correct(samples, weights_1, bias_1, weights_2, bias_2):
+    correct = 0
+    total = 0
+    for features, decision in samples:
+        total = total + 1
+        if argmax(features, weights_1, bias_1, weights_2, bias_2) == decision:
+            correct = correct + 1
+    return correct, total
 
 
 def main(argv):
@@ -442,14 +440,18 @@ def main(argv):
     parser.add_argument("--out", required=True, help="ONNX model to write")
     args = parser.parse_args(argv)
     samples = read_records(args.records)
-    weights_1, bias_1, weights_2, bias_2, correct, total = train(samples)
+    weights_1, bias_1, weights_2, bias_2, correct, total, held = train(samples)
+    form_w1, form_b1, form_w2, form_b2 = closed_form()
+    form_w1, form_b1, form_w2, form_b2 = round_weights(form_w1, form_b1, form_w2, form_b2)
+    form_correct, form_total = count_correct(held, form_w1, form_b1, form_w2, form_b2)
     payload = model_bytes(weights_1, bias_1, weights_2, bias_2)
     try:
         with open(args.out, "wb") as handle:
             handle.write(payload)
     except OSError as error:
         raise SystemExit("train_learned_scout: cannot write " + args.out + ": " + str(error))
-    print(agreement_text(correct, total))
+    print(agreement_line("held-out agreement", correct, total))
+    print(agreement_line("closed form agreement", form_correct, form_total))
     return 0
 
 

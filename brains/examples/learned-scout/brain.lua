@@ -3,24 +3,20 @@
 
 -- Learned Scout walks the map. Every 30 ticks, each of this seat's units
 -- that can move is considered.
--- A sector counts only when the unit can stand on that centre.
--- The rule level records that choice every time. It sends the unit when
--- the unit is free: it has no order, or it is standing within its footprint
--- of the centre it was last sent to. A move order can remain after the unit
--- has stopped there.
--- The learned level asks nets/scout.oann which sector when the unit is
--- free, and follows the written rule when that centre is blocked.
+-- A unit is free when head_order() returns nil, or when its third value
+-- is true. That value is the idle bit: a finished move stays at the head
+-- of the queue with the bit set.
+-- A centre the unit cannot stand on is written as fully explored, and the
+-- rule reads that. The rule level records the choice every time and sends
+-- the unit when it is free. The learned level sends a free unit to the
+-- sector nets/scout.oann picks.
 
 local sectors = require("sectors")
 local rule = require("rule")
 
--- A map cell is 16 world units. The footprint is counted in cells.
-local CELL = 16
-
 local hooks = {}
 local scout = nil
 local teaching = false
-local sent = {}
 
 function hooks.fits()
     return true
@@ -34,34 +30,10 @@ function hooks.start()
     return true
 end
 
-local function footprint_reach(unit)
-    local definition = unit.type
-    local wide = 1
-    if definition ~= nil then
-        if definition.footprintx ~= nil and definition.footprintx > wide then
-            wide = definition.footprintx
-        end
-        if definition.footprintz ~= nil and definition.footprintz > wide then
-            wide = definition.footprintz
-        end
-    end
-    return wide * CELL
-end
-
--- True when the unit is standing within its footprint of the last centre.
-local function standing_there(unit)
-    local slot = unit.slot
-    if slot == nil or unit.x == nil or unit.z == nil then
-        return false
-    end
-    local goal = sent[slot]
-    if goal == nil then
-        return false
-    end
-    local dx = unit.x:floor() - goal.x
-    local dz = unit.z:floor() - goal.z
-    local reach = footprint_reach(unit)
-    return dx * dx + dz * dz <= reach * reach
+-- True when the unit has no head order, or that order's idle bit is set.
+local function is_free(unit)
+    local kind, _, idle = unit:head_order()
+    return kind == nil or idle == true
 end
 
 local function consider(unit, explored, width, height)
@@ -69,7 +41,7 @@ local function consider(unit, explored, width, height)
     if definition == nil or definition.canmove ~= true then
         return
     end
-    local free = unit:head_order() == nil or standing_there(unit)
+    local free = is_free(unit)
     if not teaching and not free then
         return
     end
@@ -79,15 +51,12 @@ local function consider(unit, explored, width, height)
     end
     local choice = nil
     if teaching then
-        choice = rule.choose(look.explored_raw, look.squared, look.stand)
+        choice = rule.choose(look.explored_raw, look.squared)
     else
         local out = scout:run({sectors = look.tensor})
         choice = out.choice - 1
-        if choice < 0 or choice >= 64 or not look.stand[choice + 1] then
-            choice = rule.choose(look.explored_raw, look.squared, look.stand)
-        end
     end
-    if choice == nil then
+    if choice == nil or choice < 0 or choice >= 64 then
         return
     end
     if teaching then
@@ -99,10 +68,7 @@ local function consider(unit, explored, width, height)
     if not free then
         return
     end
-    if sectors.send(unit, choice, width, height) and unit.slot ~= nil then
-        local cx, cz = sectors.centre(choice, width, height)
-        sent[unit.slot] = {x = cx, z = cz}
-    end
+    sectors.send(unit, choice, width, height)
 end
 
 local function survey()
