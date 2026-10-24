@@ -532,24 +532,34 @@ void Match::refresh_player_knowledge(uint8_t player) {
     if (knowledge != nullptr)
         sim::ai::computer_knowledge_settle(*knowledge, tally);
     sightings.refreshed_tick = tick;
-    const uint32_t before_count = seen_before_count_[player];
-    make_seen_room(
-        seen_work_,
-        seen_work_room_,
-        sightings.seen_count > before_count ? sightings.seen_count : before_count,
-        3
-    );
-    const auto seen_stride = static_cast<std::size_t>(seen_work_room_);
-    detection::SightedUnit* const now_list = seen_work_.get();
-    uint32_t now_count = 0;
-    for (uint32_t filed = 0; filed < sightings.seen_count; ++filed) {
-        const auto unit_slot = sightings.seen[filed];
-        now_list[now_count] = detection::SightedUnit{
-            unit_slot, bridge_->runtime(slots_.at(unit_slot)).instance_generation
-        };
-        ++now_count;
-    }
-    if (event_wanted<&EventHooks::seen_changed>()) {
+    // Writes this refresh's seen list, with each unit's generation.
+    const auto fill_seen = [&](detection::SightedUnit* list) {
+        uint32_t count = 0;
+        for (uint32_t filed = 0; filed < sightings.seen_count; ++filed) {
+            const auto unit_slot = sightings.seen[filed];
+            list[count] = detection::SightedUnit{
+                unit_slot, bridge_->runtime(slots_.at(unit_slot)).instance_generation
+            };
+            ++count;
+        }
+        return count;
+    };
+    if (!event_wanted<&EventHooks::seen_changed>()) {
+        // Nothing compares the two lists, so the new one is written over the
+        // previous one and the scratch is not needed.
+        make_seen_room(seen_before_[player], seen_before_room_[player], sightings.seen_count, 1);
+        seen_before_count_[player] = fill_seen(seen_before_[player].get());
+    } else {
+        const uint32_t before_count = seen_before_count_[player];
+        make_seen_room(
+            seen_work_,
+            seen_work_room_,
+            sightings.seen_count > before_count ? sightings.seen_count : before_count,
+            3
+        );
+        const auto seen_stride = static_cast<std::size_t>(seen_work_room_);
+        detection::SightedUnit* const now_list = seen_work_.get();
+        const uint32_t now_count = fill_seen(now_list);
         detection::SightedUnit* const gained_list = now_list + seen_stride;
         detection::SightedUnit* const lost_list = gained_list + seen_stride;
         uint32_t gained_count = 0;
@@ -580,12 +590,12 @@ void Match::refresh_player_knowledge(uint8_t player) {
                 }
             );
         }
+        make_seen_room(seen_before_[player], seen_before_room_[player], now_count, 1);
+        auto* const stored = seen_before_[player].get();
+        for (uint32_t copied = 0; copied < now_count; ++copied)
+            stored[copied] = now_list[copied];
+        seen_before_count_[player] = now_count;
     }
-    make_seen_room(seen_before_[player], seen_before_room_[player], now_count, 1);
-    auto* const stored = seen_before_[player].get();
-    for (uint32_t copied = 0; copied < now_count; ++copied)
-        stored[copied] = now_list[copied];
-    seen_before_count_[player] = now_count;
     if (random_.bounded(detection::sighting_period) == 0)
         refresh_strategic_state(player);
 }
