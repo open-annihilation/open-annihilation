@@ -77,26 +77,34 @@ that table something other than `brain`, which is the global the profile
 installs ([5.1 Phases](oabrain-standard.md#51-phases)).
 
 The script reads the commander's build list and classifies records. A
-metal extractor is a record with `extractsmetal` above zero. An energy
-building makes energy, metal, wind or tide. A land factory is a structure
-that builds (`builder`, `bmcode` 0, not a commander, `minwaterdepth` at
-most 0) whose own build list holds a land combat unit: it can move and
-attack, it is not a builder, it cannot fly, and it stands on land. A
-record whose categories are only words the commander already has is
-skipped, so the commander does not build a copy of itself. An empty
-category list still counts. `brain.random` picks among the records that
-qualify, and again for the building's facing.
+metal extractor is a land record with `extractsmetal` above zero. An
+energy building is a land record that makes energy, metal, wind or tide.
+Land means `minwaterdepth` at most 0. A record that only stands in water
+has no site beside a land commander, because `brain.place` returns nil
+for it, so those records stay off the lists. A land factory is a
+structure that builds (`builder`, `bmcode` 0, land) whose own build list
+holds a land combat unit: it can move and attack, it is not a builder,
+it cannot fly, and it stands on land. A record whose categories are only
+words the commander already has is skipped, so the commander does not
+build a copy of itself. An empty category list still counts.
+`brain.random` picks among the records that qualify, and again for the
+building's facing.
 
 Easy builds one metal extractor and one energy building. Medium builds
 two and one. Hard builds two and two. Then the commander builds one land
-factory. `onUnitIdle` on the commander asks for the next building.
-`onUnitIdle` on a structure that builds queues the combat unit.
-`onUnitFinished` counts the building, or adds a combat unit to the squad,
-and sends the squad when it is large enough. `brain.every` runs the same
-step every 30 ticks, once the first `start` has armed it. The squad's
-size is 4, 8 or 12 from the choice `soon`, `steady` or `late`. The squad
-attacks the nearest living enemy on `me.seen`. `save` returns how many
-squads have been sent. `fits` returns true.
+factory. The place call is
+`brain.place(record, { x = builder.x, z = builder.z }, 200, facing)`,
+with `facing` equal to `brain.random(4) - 1`. The centre that call
+returns is what `unit:build` receives. When it returns nil, the same turn
+tries the next building: energy after metal, then the factory.
+`onUnitIdle` on the commander asks for the next building. `onUnitIdle`
+on a structure that builds queues the combat unit. `onUnitFinished`
+counts the building, or adds a combat unit to the squad, and sends the
+squad when it is large enough. `brain.every` runs the same step every 30
+ticks, once the first `start` has armed it. The squad's size is 4, 8 or
+12 from the choice `soon`, `steady` or `late`. The squad attacks the
+nearest living enemy on `me.seen`. `save` returns how many squads have
+been sent. `fits` returns true.
 
 `extractsmetal`, `energymake` and the other resource fields are `f32`
 values. Read them with `:tonumber()` ([5.3 Numbers](oabrain-standard.md#53-numbers)).
@@ -145,9 +153,13 @@ local function labelled(record, commander_words)
     return fresh or not any
 end
 
+local function land(record)
+    return real_of(record, "minwaterdepth") <= 0
+end
+
 local function land_combat(record)
     return record.canmove == true and record.canattack == true and record.builder ~= true
-        and record.canfly ~= true and real_of(record, "minwaterdepth") <= 0
+        and record.canfly ~= true and land(record)
 end
 
 local function energy_record(record)
@@ -165,12 +177,11 @@ local function classify(list, commander_words)
     for index = 1, #list do
         local record = list[index]
         if record.commander ~= true and labelled(record, commander_words) then
-            if positive(record, "extractsmetal") then
+            if positive(record, "extractsmetal") and land(record) then
                 metals[#metals + 1] = record
-            elseif energy_record(record) then
+            elseif energy_record(record) and land(record) then
                 energies[#energies + 1] = record
-            elseif record.builder == true and record.bmcode == 0
-                and real_of(record, "minwaterdepth") <= 0 then
+            elseif record.builder == true and record.bmcode == 0 and land(record) then
                 local built, fights = game.build_list(record), {}
                 if type(built) == "table" then
                     for slot = 1, #built do
@@ -211,9 +222,9 @@ local function free(unit)
 end
 
 local function place_build(builder, record)
-    if builder.position == nil then return false end
+    if builder.x == nil or builder.z == nil then return false end
     local facing = brain.random(4) - 1
-    local _, _, x, z = brain.place(record, builder.position, 2048, facing)
+    local _, _, x, z = brain.place(record, { x = builder.x, z = builder.z }, 200, facing)
     if x == nil then return false end
     return builder:build(record, { x = x, z = z }, facing) == true
 end
@@ -282,12 +293,15 @@ local function build_next()
     if commander == nil or commander.alive ~= true then commander = find_commander() end
     if commander == nil or not free(commander) then return end
     local metal_need, energy_need = plan_counts()
-    local record, factory = nil, false
-    if metal_type ~= nil and metal_done < metal_need then record = metal_type
-    elseif energy_type ~= nil and energy_done < energy_need then record = energy_type
-    elseif factory_type ~= nil and not factory_ordered then record, factory = factory_type, true
+    if metal_type ~= nil and metal_done < metal_need then
+        if place_build(commander, metal_type) then return end
     end
-    if record ~= nil and place_build(commander, record) and factory then factory_ordered = true end
+    if energy_type ~= nil and energy_done < energy_need then
+        if place_build(commander, energy_type) then return end
+    end
+    if factory_type ~= nil and not factory_ordered then
+        if place_build(commander, factory_type) then factory_ordered = true end
+    end
 end
 
 local function queue_plants()
@@ -351,7 +365,7 @@ build/oa-tool brain pack brains/examples/steady-commander --out /tmp/O02-scratch
 ```
 
 ```text
-packed /tmp/O02-scratch/O02-steady-commander.oabrain: 2 files, 2829 bytes, sha256 9993d1755f7e82f6ff18e7c7fb0a90543860519104fddd361cb80b73d61fb5aa
+packed /tmp/O02-scratch/O02-steady-commander.oabrain: 2 files, 2822 bytes, sha256 e691879fd12193d72b01d2465948da5698980fca37804dcb1bf5272570856969
 ```
 
 Check the package against the base game:
@@ -364,21 +378,19 @@ build/oa-tool brain check /tmp/O02-scratch/O02-steady-commander.oabrain --game-d
 brain: steady-commander 1.0 level easy
 game: totala
 mod: none
-load: not run, 0 instructions
-fits: does not fit: works-with names *; this game is ta-3.1c, 0 instructions
-start: not run, 0 instructions
-lua: 0 bytes
+load: ok, 0 instructions
+fits: ok, 0 instructions
+start: ok, 15 instructions
+lua: 1231655 bytes
 networks: 0 bytes
-result: refused
+result: ok
 ```
 
-The check exits 1. [11. Compatibility](oabrain-standard.md#11-compatibility)
+The check exits 0. [11. Compatibility](oabrain-standard.md#11-compatibility)
 says `*` fits any mod and the base game alone, and the Library's
-**Works with** line for this manifest is **Any mod**. This build's
-`oa-tool brain check`, with no `--mod`, treats `*` as a mod id and
-refuses the base game before `load` and `start`. A folder passed to
-`--brain-match` is still seated. That gap is a follow-up for the checker.
-The manifest keeps `*`, which is what lets the script play another mod.
+**Works with** line for this manifest is **Any mod**. `fits: ok` is
+`hooks.fits` returning true. Load and start both ran. The manifest keeps
+`*`, which is what lets the script play another mod.
 
 The first match seats the folder against Classic on Painted Desert:
 
@@ -388,81 +400,97 @@ open-annihilation --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR"
   --brain-match brains/examples/steady-commander,brains/classic \
   --brain-levels medium,medium \
   --brain-map "Painted Desert" --seed 4242 --match-ticks 1800 \
-  --brain-trace /tmp/O02-scratch/O02-trace.txt \
   --brain-record /tmp/O02-scratch/O02-record.txt
 ```
 
-The process exits 139. No line begins with `brain match: `. The trace
-stops during Classic's `start`:
+It exits 0:
 
 ```text
-brain log 1
-tick 0 seat 0 brain
-call fits
-tick 0 seat 0 brain
-call start
-tick 0 seat 1 brain
-call start
-tick 0 seat 0 brain
+brain match: map Painted Desert seed 4242 ticks 1800
+brain match: seat 1 steady-commander 1.0 level medium side 0
+brain match: seat 2 classic 1.0 level medium side 1
+brain match: end tick 1800 winner none reason time
+brain match: seat 1 units 6 built 6 lost 0 kills 0 metal 9155 energy 8064 metal-produced 45 energy-produced 1492 instructions 746835 status playing
+brain match: seat 2 units 4 built 4 lost 0 kills 0 metal 943 energy 542 metal-produced 94 energy-produced 1234 instructions 11247757 status playing
+brain match: digest a166a0bb22a312d5
 ```
 
-The same stop happens with Classic in the first seat and the built-in
-player in the second, 120 ticks, the same map and seed. That run's trace
-is only:
+`status playing` means the script stayed inside its budget for the whole
+match ([5.2 Budgets](oabrain-standard.md#52-budgets)). Seat 1 has built 6
+units. Medium asks for two metal extractors and one energy building, then
+one land factory, and that factory queues a combat unit. Steady Commander
+never reads `me.knowledge`. The record of this match is quoted in
+[11. Testing](#11-testing).
 
-```text
-brain log 1
-tick 0 seat 0 brain
-call start
+The same folder against the built-in player is the run whose trace shows
+Steady Commander's own orders. Classic's log of calls is a long one; the
+built-in seat's orders sit in the same file and the example's lines are
+the `seat 0 brain` blocks.
+
+```sh
+open-annihilation --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR" \
+  --user-folder /tmp/O02-user --data-dir /tmp/O02-scratch/O02-data \
+  --brain-match brains/examples/steady-commander,builtin \
+  --brain-levels medium,hard \
+  --brain-map "Painted Desert" --seed 4242 --match-ticks 2400 \
+  --brain-trace /tmp/O02-scratch/O02-trace-play.txt \
+  --brain-record /tmp/O02-scratch/O02-record-play.txt
 ```
 
-Classic's `start` reads `me.knowledge`. On this tree that read stops the
-process during Classic's start, so the match never prints a report.
-[13. Classic, a walkthrough](#13-classic-a-walkthrough) says where that
-read lives. Steady Commander never reads `me.knowledge`.
-
-Seating the same folder against the built-in player does print a report.
-The command is the one above with `builtin` in the second seat,
-`--brain-levels medium,hard`, `--match-ticks 2400`, and the trace and
-record paths `/tmp/O02-scratch/O02-trace-play.txt` and
-`/tmp/O02-scratch/O02-record-play.txt`. It exits 0:
+It exits 0:
 
 ```text
 brain match: map Painted Desert seed 4242 ticks 2400
 brain match: seat 1 steady-commander 1.0 level medium side 0
 brain match: seat 2 built-in level hard side 1
 brain match: end tick 2400 winner none reason time
-brain match: seat 1 units 1 built 1 lost 0 kills 0 metal 10000 energy 10000 metal-produced 56 energy-produced 1417 instructions 6250977 status playing
-brain match: seat 2 units 5 built 5 lost 0 kills 0 metal 914 energy 281 metal-produced 216 energy-produced 2285 instructions - status built-in
-brain match: digest ee657b67309c7eec
+brain match: seat 1 units 7 built 7 lost 0 kills 0 metal 9108 energy 7846 metal-produced 60 energy-produced 2206 instructions 965058 status playing
+brain match: seat 2 units 5 built 5 lost 0 kills 0 metal 703 energy 656 metal-produced 195 energy-produced 3225 instructions - status built-in
+brain match: digest 8c8a9e89f53f3ff1
 ```
 
-`status playing` means the script stayed inside its budget for the whole
-match ([5.2 Budgets](oabrain-standard.md#52-budgets)). Seat 1 still has
-its commander alone, and its metal store is still 10000. The trace shows
-why. Tick 1 calls `onUnitIdle`, then the script draws while it classifies:
+Tick 1 calls `onUnitIdle`, draws while it classifies, and places the
+first building:
 
 ```text
 tick 1 seat 0 brain
 call onUnitIdle 1
 own-draw 1 6 1
 own-draw 1 4 4
-own-draw 1 2 2
-own-draw 1 7 4
+own-draw 1 1 1
+own-draw 1 3 1
 own-draw 1 2 1
-own-draw 1 4 3
+own-draw 1 4 2
+build 1 78 116916224 0 63438848
 ```
 
-`own-draw 1 n` is `brain.random(n)` ([`--brain-trace`](../command-line.md#--brain-trace-and---brain-record)).
-Later ticks draw only `own-draw 1 4`, the facing, and the trace has no
-`build` line for seat 0. `brain.place` returned no site, so `unit:build`
-was not called. The factory was never queued. The search stops at 4,096
-cells or at `radius / 16` rings, whichever comes first
-([8.3 Sites](oabrain-standard.md#83-sites)). On a seat without full
-awareness the accepted cell is a building site for this seat.
+`own-draw 1 n` is `brain.random(n)`
+([`--brain-trace`](../command-line.md#--brain-trace-and---brain-record)).
+The draws pick a qualifying record and a facing. `build` is `unit:build`
+([the command line](../command-line.md#--brain-trace-and---brain-record)).
+Two more economy placements follow as each one finishes. The fourth
+`build` is the land factory, once medium's two extractors and one energy
+building are done:
 
-How to read a report is [11. Testing](#11-testing). The words on each
-line are [the command line](../command-line.md#--brain-match).
+```text
+tick 568 seat 0 brain
+call onUnitFinished 4 1
+call onUnitIdle 1
+own-draw 1 4 3
+build 1 68 116391936 0 69206016
+```
+
+The factory then queues the combat unit. One timer after it finishes:
+
+```text
+tick 1440 seat 0 brain
+call timer
+queue 5 95 1
+```
+
+`queue` is `unit:queue`. How to read a report is
+[11. Testing](#11-testing). The words on each line are
+[the command line](../command-line.md#--brain-match).
 
 ## 2. Reading the game
 
@@ -497,9 +525,11 @@ A builder places with `unit:build`. A combat unit attacks with
 
 `brain.place(type, near, radius [, facing])` starts at the footprint
 nearest `near` and walks outward. It returns the cell and the centre, or
-nil. `facing` is 0 to 3. `brain.random(4) - 1` is that range, and
-`brain.random` is never called with 0. On a seat without full awareness
-the site test is the building site with this seat as the placing player.
+nil. `facing` is 0 to 3. Steady Commander passes the builder's `x` and
+`z`, a radius of 200 and `brain.random(4) - 1`. `brain.random` is never
+called with 0. On a seat without full awareness the site test is the
+building site with this seat as the placing player. A nil return leaves
+that building unplaced, and the same turn tries the next one.
 
 A refused order returns false and is counted. It is not raised. The
 reasons include a dead unit, a unit the seat does not own, the order
@@ -612,11 +642,27 @@ same sentences a mutator uses. A brain that fits fills `{summary}` with
 "it fits this game", so the fact is "With {mod}: {summary}", or "With No
 Mod: {summary}" when no mod is playing.
 
-The checker's refusal of `*` on the base game, quoted in
-[1. A first brain](#1-a-first-brain), is stricter than this section of
-the standard and stricter than the Library, which shows **Any mod** and
-treats the package as fitting. Trust the standard and the Library for
-what a seat does. A match of the folder still seats it.
+The check quoted in [1. A first brain](#1-a-first-brain) is this package
+on the base game with no `--mod`. `result: ok` and exit 0 are that run.
+`fits: ok` is the script returning true. A package that defines no
+`fits` reports `fits: none` for that phase and can still finish
+`result: ok`. Classic is that case:
+
+```sh
+build/oa-tool brain check brains/classic --game-dir "$OA_GAME_DIR"
+```
+
+```text
+brain: classic 1.0 level easy
+game: totala
+mod: none
+load: ok, 119 instructions
+fits: none, 0 instructions
+start: ok, 10223791 instructions
+lua: 2410674 bytes
+networks: 0 bytes
+result: ok
+```
 
 ## 8. Keeping state across a save
 
@@ -698,30 +744,31 @@ oa-tool brain net MODEL.onnx --calibrate DATA [--out FILE] [--weights int8|int16
 `oabrain.yaml`, against a game. It seats the brain on a flat stand-in
 map and never ticks that match. The report quoted in
 [1. A first brain](#1-a-first-brain) is the run against the base game
-with no `--mod`. `result: refused` and exit 1 are that run. A phase that
-did not run says `not run`. `--json` prints one object.
-`--mod FOLDER` checks against a mod. `--level` picks a level id, and the
-first level when it is left out.
+with no `--mod`. `result: ok` and exit 0 are that run. A phase that
+did not run says `not run`. A brain with no `fits` hook says `fits: none`,
+which is Classic's line in [7. Fitting a mod](#7-fitting-a-mod).
+`--json` prints one object. `--mod FOLDER` checks against a mod.
+`--level` picks a level id, and the first level when it is left out.
 
 ### A headless match
 
 `--brain-match` plays two computer seats. Each seat is an installed
 brain id, a folder (a path that holds `/` or `\`, or starts with `.`),
 or `builtin`. It needs `--headless-check`, `--match-ticks` and
-`--brain-map`. The report for Steady Commander against the built-in
-player is quoted in [1. A first brain](#1-a-first-brain).
+`--brain-map`. Both reports are quoted in
+[1. A first brain](#1-a-first-brain).
 
 Every line starts with `brain match: `. `winner none` and `reason time`
 mean both seats still had units when the tick count was spent. `units`
-counts the living units. `built` counts units the seat has built. In
-this report that count is 1, the commander the seat started with.
-`instructions` is what the
-brain's calls have used, or `-` for a built-in seat. `status playing`
-means the brain was still being called. `digest` is the world digest.
-Status 0 means the match played to the end. The rest of the words are
+counts the living units. `built` counts units the seat has built. In the
+Classic match Steady Commander's `built` count is 6, and in the built-in
+match it is 7. `instructions` is what the brain's calls have used, or
+`-` for a built-in seat. `status playing` means the brain was still
+being called. `digest` is the world digest. Status 0 means the match
+played to the end. The rest of the words are
 [the command line](../command-line.md#--brain-match).
 
-The match against Classic, quoted above, exits 139 and prints no report.
+The match against Classic, quoted above, exits 0 and prints that report.
 
 ### Trace and record
 
@@ -742,11 +789,19 @@ Tick 1 is the `onUnitIdle` excerpt in
 Report seat 1 is log seat 0. The line shapes are
 [the command line](../command-line.md#--brain-trace-and---brain-record).
 
-The record of that match is three JSON lines:
+The Classic match's record is three JSON lines:
+
+```text
+{"kind":"header","format":1,"map":"Painted Desert","seed":4242,"seats":[{"seat":1,"brain":"steady-commander","version":"1.0","level":"medium"},{"seat":2,"brain":"classic","version":"1.0","level":"medium"}]}
+{"kind":"result","seat":1,"winner":false,"tick":1800,"units":6}
+{"kind":"result","seat":2,"winner":false,"tick":1800,"units":4}
+```
+
+The built-in match's record is the same shape:
 
 ```text
 {"kind":"header","format":1,"map":"Painted Desert","seed":4242,"seats":[{"seat":1,"brain":"steady-commander","version":"1.0","level":"medium"},{"seat":2,"brain":"builtin","level":"hard"}]}
-{"kind":"result","seat":1,"winner":false,"tick":2400,"units":1}
+{"kind":"result","seat":1,"winner":false,"tick":2400,"units":7}
 {"kind":"result","seat":2,"winner":false,"tick":2400,"units":5}
 ```
 
@@ -868,8 +923,9 @@ and the seat flags it.
 - `lua/tasks/structures.lua`, `construction.lua`, `strike.lua`,
   `rally.lua`, `air_raid.lua` and `siege.lua` are the squad tasks
 
-`brain.lua` builds one task for each squad from 0 to 9, then `onTick`
-seeds the grids, runs the squad sort and runs each task whose turn has
+`brain.lua` builds one task for each squad from 0 to 9. On the first tick
+`onTick` refreshes the build lists and seeds the grids. Each tick then
+runs the squad sort on its countdown and runs each task whose turn has
 come.
 
 ### The task table
@@ -936,14 +992,18 @@ wing. Squad 9 is siege. The comment on squad 9 is a quirk: the sort
 never fills that squad, so the siege task only keeps its timetable
 unless a unit was already in it.
 
-The sort itself is the countdown in `onTick`. It starts at 30. Each
-tick subtracts one, and at the bottom it returns to 30 and calls
-`squads.sort`.
+On the first tick `onTick` refreshes the build lists and seeds the grids.
+The sort itself is the countdown. It starts at 30. Each tick subtracts
+one, and at the bottom it returns to 30 and calls `squads.sort`.
 
 ```lua
 -- …
 function hooks.onTick(tick)
     local seat = hooks.seat
+    if seat.builds_ready ~= 1 then
+        types.refresh_builds(seat.types, seat.game)
+        seat.builds_ready = 1
+    end
     if seat.grids_ready ~= 1 then
         knowledge.seed_grids(seat)
     end
@@ -967,6 +1027,7 @@ function hooks.onTick(tick)
             end
         end
     end
+end
 -- …
 ```
 
@@ -1006,11 +1067,12 @@ player, so the weight compounds by that count:
 -- …
 ```
 
-`knowledge.lua` keeps the per-type weights and the metal spots, and it
-reads owned counts, the builder count and the base position from
-`me.knowledge`. `start` calls `knowledge.scan_metal`. That is the read
-that stops a headless match of this folder on this tree, quoted in
-[1. A first brain](#1-a-first-brain).
+`knowledge.lua` keeps the per-type weights and the metal spots.
+`knowledge.scan_metal` reads `map:metal_spots()` during `start`. Owned
+counts, the builder count and the base position come from `me.knowledge`
+when a task asks for them, on a tick, after the match has prepared the
+computer players. The match in [1. A first brain](#1-a-first-brain)
+plays to its report.
 
 `build.lua` scores a type from the stores, the income and the type's
 strength, then walks the builder's list once. `place.lua` grows a
@@ -1110,24 +1172,24 @@ command line is
 
 Swapped in, the tests that seat Classic where the built-in player would
 play are the ones this tree's `CMakeLists.txt` registers:
-`sim-brains-classic`, `sim-brains-classic-data`, `ai-computer-player`,
+`sim-brains-classic`, `sim-brains-classic-data`,
+`sim-brains-classic-match`, `ai-computer-player`,
 `match-computer-build`, `native-trace`, `native-stage`,
-`native-director-render`, `native-net-loopback-computer`,
-`native-net-loopback-computer-watcher` and
-`native-net-loopback-each-ai`. C07's names, `sim-brains-classic-match`,
-`native-classic-trace`, `native-classic-stage`,
-`native-classic-director-render`,
+`native-director-render`, `native-classic-trace`, `native-classic-stage`,
+`native-classic-director-render`, `native-net-loopback-computer`,
+`native-net-loopback-computer-watcher`, `native-net-loopback-each-ai`,
 `native-net-loopback-computer-classic`,
 `native-net-loopback-computer-watcher-classic` and
-`native-net-loopback-each-ai-classic`, are not registered in this tree.
+`native-net-loopback-each-ai-classic`.
 
 A soak plays 1,000 seeded headless skirmishes, 20,000 ticks each, over
 the base game and the published mods. The same seed plays the same
 match. The soak is the long check that a seat running Classic stays on
 the built-in player's orders for a whole game.
 
-The headless match quoted in [1. A first brain](#1-a-first-brain) does
-not add to that proof. It stops during Classic's `start`.
+The headless match quoted in [1. A first brain](#1-a-first-brain) seats
+Steady Commander beside Classic and plays to its report. Shadow, and the
+tests named above, compare Classic's orders with the built-in player's.
 
 ### Reading it
 
