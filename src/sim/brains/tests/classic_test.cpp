@@ -16,6 +16,7 @@
 #include "classic_harness.hpp"
 
 #include "oa/sim/brains/classic.hpp"
+#include "oa/test/game_data.hpp"
 
 #include "match_fixture.hpp"
 
@@ -564,7 +565,34 @@ void test_fingerprint(const char* root) {
 
 } // namespace
 
+void test_build_list_limits(const PackageBytes& package);
+void test_whole_build_lists(const PackageBytes& package);
+void test_profile(const PackageBytes& package);
+void test_adopt_handed_player(const PackageBytes& package);
+void test_downloadable_directives(const PackageBytes& package);
+void test_profile_reload(const PackageBytes& package);
+void test_profile_leading_lines(const PackageBytes& package);
+void test_difficulty_names(const PackageBytes& package);
+void test_profile_twins(const PackageBytes& package);
+void test_knowledge_twins(const PackageBytes& package);
+void test_grid_and_metal_twins(const PackageBytes& package);
+void test_installed_data(const char* package_root);
+
 int main(int argc, char** argv) {
+    if (oa::test::game_data_requested(argc, argv)) {
+        if (argc < 3) {
+            std::fprintf(stderr, "usage: oa-sim-brains-classic-test --data <brains/classic>\n");
+            return 2;
+        }
+        try {
+            test_installed_data(argv[2]);
+        } catch (const std::exception& error) {
+            std::fprintf(stderr, "FAIL: %s\n", error.what());
+            return 1;
+        }
+        std::printf("sim-brains-classic-data: ok\n");
+        return 0;
+    }
     if (argc < 2) {
         std::fprintf(stderr, "usage: oa-sim-brains-classic-test <brains/classic>\n");
         return 2;
@@ -579,6 +607,17 @@ int main(int argc, char** argv) {
         test_siege_centre(package);
         test_setup_random(package);
         test_fingerprint(argv[1]);
+        test_build_list_limits(package);
+        test_whole_build_lists(package);
+        test_profile(package);
+        test_adopt_handed_player(package);
+        test_downloadable_directives(package);
+        test_profile_reload(package);
+        test_profile_leading_lines(package);
+        test_difficulty_names(package);
+        test_profile_twins(package);
+        test_knowledge_twins(package);
+        test_grid_and_metal_twins(package);
     } catch (const std::exception& error) {
         std::fprintf(stderr, "FAIL: %s\n", error.what());
         return 1;

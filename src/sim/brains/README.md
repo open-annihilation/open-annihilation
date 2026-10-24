@@ -120,7 +120,10 @@ the cell is a metal deposit, false off the map.
 
 `map:metal_spots()` and `map:geo_spots()` are the deposits in the engine's
 scan order, rows then columns. Each entry is `{cx, cz}`. Walking the map
-costs one charge per cell.
+costs one charge per cell. Outside a match, `map:metal_spots()` walks the
+seat's metal-feature query when the seat has a world and that query, in
+the same order, and is nil when the query is absent. `map:geo_spots()`
+stays nil outside a match.
 
 `map:classes()` lists the movement classes the match's unit types use, in
 handle order. Each entry is `name`, `handle`, `footprint_x` and
@@ -248,7 +251,9 @@ as `f32`, and its surpluses as Lua numbers. `tick` is the match tick.
 `handed_over` is recorded when the seat is made: false before the built-in
 player's set-up has run, true when a seat is made after that. `me.knowledge`
 is that built-in player's knowledge record for the seat (`tick`, `builders`,
-`base`, and `knowledge:owned`), or nil when the record is not there.
+`base`, and `knowledge:owned`), or nil when the record is not there. The
+record is the seat's knowledge call. Outside a match that call is null, so
+`me.knowledge` stays nil and the call is not made through a null match.
 
 `me:units` and `me:each_unit` walk the seat's occupied slots in slot order.
 `me:each_unit` takes that list before the first call. `me:squad`,
@@ -827,8 +832,9 @@ until the match prepares its computer players, which is before the brain's
 first `onTick`, and it is replaced when the match refreshes that player.
 
 Outside a match the profile fields still work and `unit` is nil.
-`build_list`, `build_list_cap`, `downloadables_allowed` and
-`brain.strengths` are nil.
+`build_list` and `build_list_cap` are nil unless the seat carries build-list
+runs, in which case they follow the same rules from those runs and the seat's
+kept count. `downloadables_allowed` and `brain.strengths` are nil.
 
 `sim-brains-profile` seats the made-up brain `profile-reader` on the
 computer-build fixture. `sim-brains-profile-data` parses every installed

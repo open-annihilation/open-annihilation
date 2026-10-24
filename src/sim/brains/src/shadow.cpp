@@ -1077,6 +1077,14 @@ void rec_refuse(void* context, const char* name, uint16_t slot) {
     recording_refuse(recording_from_host(context), name, slot);
 }
 
+const sim::ai::ComputerKnowledge*
+rec_knowledge(void* context, uint8_t player, uint32_t* refreshed_tick) {
+    Recording& recorded = recording_from_host(context);
+    if (recorded.live.knowledge == nullptr)
+        return nullptr;
+    return recorded.live.knowledge(&recorded.live.host, player, refreshed_tick);
+}
+
 void arm_recording(Recording& recorded) noexcept {
     SeatCalls& calls = recorded.calls;
     calls.host.context = &recorded;
@@ -1119,6 +1127,7 @@ void arm_recording(Recording& recorded) noexcept {
     calls.build_shaped = rec_build_shaped;
     calls.weapon_reaches_slot = rec_weapon_slot;
     calls.refuse = rec_refuse;
+    calls.knowledge = recorded.live.knowledge != nullptr ? rec_knowledge : nullptr;
 }
 
 uint32_t bit_of(const char* name) noexcept {

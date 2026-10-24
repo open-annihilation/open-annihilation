@@ -3609,12 +3609,12 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-brain-shadow PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
-        # Classic beside the built-in player: schedule and sort, three skirmishes.
+        # Classic beside the built-in player: schedule, start and sort, three skirmishes.
         add_test(NAME native-brain-shadow-classic COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_shadow.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
-          --brain "${PROJECT_SOURCE_DIR}/brains/classic" --sections schedule,sort
+          --brain "${PROJECT_SOURCE_DIR}/brains/classic" --sections schedule,start,sort
           classic)
         set_tests_properties(native-brain-shadow-classic PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})

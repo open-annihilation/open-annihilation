@@ -502,6 +502,63 @@ inline int shared_random_kind(oa::data::script_host::Sandbox& sandbox) {
     return ask.kind;
 }
 
+/// Optional facts a tool seat carries beside the package. Null leaves the
+/// medium Classic spec, with no build-list runs and no knowledge record.
+struct ClassicBind {
+    /// When set, the seat's player index. Otherwise player 1.
+    bool use_player{};
+    /// The player index `use_player` selects.
+    uint8_t player{};
+    /// When set, the seat's difficulty number. Otherwise medium.
+    bool use_difficulty{};
+    /// OA_DIFFICULTY_EASY, MEDIUM or HARD.
+    int32_t difficulty{};
+    /// When set, the level id. Otherwise "medium".
+    bool use_level{};
+    /// The level id. A literal, alive for the open call.
+    const char* level{};
+    /// Build-list runs for a seat with no match: a count and that many ids,
+    /// from type 0. Null leaves `build_list` nil.
+    const uint16_t* build_runs{};
+    /// How many `uint16_t` values `build_runs` holds.
+    uint32_t build_run_length{};
+    /// Entries a builder's list keeps, including the download entry. 0 keeps
+    /// the longest list.
+    uint32_t build_kept{};
+    /// The fake `host.context` points at, when this seat reads a knowledge record.
+    computer_fake::Fake* knowledge_fake{};
+    /// The built-in players whose record `me.knowledge` reads. Null leaves it nil.
+    oa::sim::ai::ComputerPlayers* knowledge_players{};
+};
+
+/// The fake and the built-in players one knowledge callback reads.
+///
+/// A tool seat's context stays the fake. The callback is keyed by that fake,
+/// so two seats on one fake share one record.
+struct KnowledgeLink {
+    /// The fake the host context must point at.
+    computer_fake::Fake* fake{};
+    /// The players that hold the record.
+    oa::sim::ai::ComputerPlayers* players{};
+};
+
+/// The record the open seat's knowledge callback reads. Cleared when a seat
+/// opens without one.
+inline KnowledgeLink knowledge_link{};
+
+/// Returns the built-in record for the fake this host plays, or null.
+inline const oa::sim::ai::ComputerKnowledge*
+fake_knowledge(void* context, uint8_t player, uint32_t* refreshed) {
+    if (context == nullptr || knowledge_link.players == nullptr || knowledge_link.fake == nullptr)
+        return nullptr;
+    const auto* host = static_cast<const oa::sim::ai::ComputerHost*>(context);
+    if (host->context == nullptr || computer_fake::fake_of(host->context) != knowledge_link.fake)
+        return nullptr;
+    if (refreshed != nullptr && player < 10)
+        *refreshed = knowledge_link.fake->knowledge_tick[player];
+    return oa::sim::ai::computer_player_knowledge(knowledge_link.players, player);
+}
+
 /// The seat spec that loads this package as Classic.
 inline oa::sim::brains::SeatSpec classic_spec(const PackageBytes& package) {
     oa::sim::brains::SeatSpec spec;
@@ -518,17 +575,39 @@ inline oa::sim::brains::SeatSpec classic_spec(const PackageBytes& package) {
 }
 
 /// Opens a tool seat on this package, the host's calls and the given facts.
+///
+/// `bind` adds the player, the difficulty, build-list runs and the knowledge
+/// record. Null leaves those unset. The runs and the players must outlive the
+/// seat. Facts are copied into the seat.
 inline oa::sim::brains::ToolSeat open_classic(
     const PackageBytes& package,
     const oa::sim::ai::ComputerHost& host,
     const oa::data::brain_facts::GameFacts& facts,
     const std::vector<oa::data::unit_definitions::UnitDefinition>& definitions,
-    const oa::sim::match_runtime::SetUpRecord* setup
+    const oa::sim::match_runtime::SetUpRecord* setup,
+    const ClassicBind* bind = nullptr
 ) {
     oa::sim::brains::ToolSeatSpec spec;
     spec.spec = classic_spec(package);
     spec.calls = oa::sim::brains::seat_calls_from_computer_host(host);
     spec.calls.section = note_classic_section;
+    knowledge_link = {};
+    if (bind != nullptr) {
+        if (bind->use_player)
+            spec.spec.player = bind->player;
+        if (bind->use_difficulty)
+            spec.spec.difficulty = bind->difficulty;
+        if (bind->use_level && bind->level != nullptr)
+            spec.spec.level = bind->level;
+        spec.calls.build_runs = bind->build_runs;
+        spec.calls.build_run_length = bind->build_run_length;
+        spec.calls.build_kept = bind->build_kept;
+        if (bind->knowledge_fake != nullptr && bind->knowledge_players != nullptr) {
+            knowledge_link.fake = bind->knowledge_fake;
+            knowledge_link.players = bind->knowledge_players;
+            spec.calls.knowledge = fake_knowledge;
+        }
+    }
     spec.facts = facts;
     if (!definitions.empty()) {
         spec.definitions = definitions.data();
