@@ -59,11 +59,16 @@ relu, a conv2d of 1 by 1 from 8 channels to 1, a flatten, and an argmax.
 That is 24 weights and 9 biases. The output is named `choice`.
 
 The trainer draws each starting weight from `random.Random(20261023)`,
-uniform in ±0.1. It then runs plain gradient descent on the squared error
-between the 64 scores and the one-hot choice, for 550 epochs at rate
-`0.008`. The same records produce the same model bytes. The trainer also
-prints a closed-form agreement. That ranking is a comparison only. It is
-not the network's weights.
+uniform in ±0.1. It then runs plain gradient descent on a margin: for
+each sample, the recorded sector's score should be at least 1 above the
+best other sector's, and a sample that misses it adds the difference to
+the loss. It runs for 2000 epochs at rate `0.3`, which takes a few minutes.
+Squared error between the 64 scores and the one-hot choice is the obvious
+first loss, but it stops near 80%: it spends its effort on the 63 sectors
+not chosen. The margin looks only at the choice and its nearest rival.
+The same records produce the same model bytes. The trainer also prints a
+closed-form agreement. That ranking is a comparison only. It is not the
+network's weights.
 
 ## Records
 
@@ -204,19 +209,19 @@ The converter will not replace an existing `nets/scout.oann`, so the
 remove comes before it. The trainer prints:
 
 ```
-held-out agreement: 80.6% (291/361)
+held-out agreement: 95.8% (346/361)
 closed form agreement: 87.8% (317/361)
 ```
 
 ```
-56bd2bae6f4616a6c63ab32db0f60fb29c777dc4de7d4f08a23cade9e654240a  N05-scout.onnx
+036a4a855fa8641330299d026a3b2465d8082e90e6f22cafbf518ab29e764c53  N05-scout.onnx
 ```
 
-The converter prints `agreement: choice 99.7% (1801 of 1806)`. The network
+The converter prints `agreement: choice 99.8% (1802 of 1806)`. The network
 file's SHA-256, which `oabrain.yaml` names, is:
 
 ```
-86dfb50db0e35d9a85d46a9c12ff612da603b190cb52032926f739e2c04f5a21  nets/scout.oann
+49c1902a2ced00d0a010ed3e6def535bb087d74a6ab9d7cf7bd8ce753175a85f  nets/scout.oann
 ```
 
 The `.onnx` and the records file are not part of the package. The game
@@ -261,13 +266,14 @@ brain match: map Ashap Plateau seed 20261023 ticks 9000
 brain match: seat 1 learned-scout 1.0 level learned side 0
 brain match: seat 2 built-in level easy side 1
 brain match: end tick 9000 winner none reason time
-brain match: seat 1 units 1 built 1 lost 0 kills 1 metal 10000 energy 9625 metal-produced 150 energy-produced 3762 instructions 2250312 status playing
-brain match: seat 2 units 4 built 5 lost 1 kills 0 metal 1000 energy 12 metal-produced 650 energy-produced 3762 instructions - status built-in
-brain match: digest 52928fa9ab6a69eb
+brain match: seat 1 units 1 built 1 lost 0 kills 0 metal 10000 energy 10000 metal-produced 150 energy-produced 3762 instructions 1049307 status playing
+brain match: seat 2 units 11 built 11 lost 0 kills 0 metal 954 energy 637 metal-produced 558 energy-produced 7345 instructions - status built-in
+brain match: digest c917b1dc16a53a0d
 ```
 
 The seat stays `playing`. The second run prints that same report and the
-same digest.
+same digest. It is also the `rule` match's digest below: on this map the
+network sends the commander everywhere the written rule does.
 
 Level `rule` uses `--brain-levels rule,easy` and prints the Ashap Plateau
 report from the records section above, including digest

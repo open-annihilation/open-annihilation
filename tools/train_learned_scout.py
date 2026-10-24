@@ -32,8 +32,11 @@ Output:
 Reproducibility:
     The same records produce the same model bytes on any machine.
     random.Random(20261023) draws a starting weight for every value,
-    uniform in ±0.1. Gradient descent uses no further draws. It runs for
-    550 epochs at rate 0.008, samples in file order, one update from the
+    uniform in ±0.1. Gradient descent uses no further draws. Its loss is a
+    margin on the choice: for each sample, the recorded sector's score
+    should be at least 1 above the best other sector's (the lowest index
+    on a tie), and a sample that misses it adds the difference. It runs
+    for 2000 epochs at rate 0.3, samples in file order, one update from the
     sum of the per-sample gradients. Every fifth sample, counting from 1,
     is held out and is not part of that sum. Sums are loops in a fixed
     order. The only arithmetic is +, -, * and /, plus comparisons. The
@@ -50,10 +53,12 @@ import sys
 HIDDEN = 8
 CELLS = 64
 CHANNELS = 2
-# The best plain descent found on these records. A higher rate diverges,
-# and a longer run at this rate lowers the held-out agreement.
-EPOCHS = 550
-RATE = 0.008
+# A margin of 1 between the recorded sector and its best rival. Slower
+# rates or fewer epochs stop before the network learns the half-explored
+# step; squared error against the one-hot choice stopped near 80%.
+MARGIN = 1.0
+EPOCHS = 2000
+RATE = 0.3
 SEED = 20261023
 SCALE = 0.1
 UNIT = 65536.0
@@ -173,31 +178,36 @@ def train(samples):
         grad_w1 = [[0.0, 0.0] for _unit in range(HIDDEN)]
         grad_b1 = [0.0 for _unit in range(HIDDEN)]
         grad_w2 = [0.0 for _unit in range(HIDDEN)]
-        grad_b2 = 0.0
         for features, decision in training:
+            scores = []
             for index in range(CELLS):
+                scores.append(
+                    score_at(
+                        features[index],
+                        features[CELLS + index],
+                        weights_1,
+                        bias_1,
+                        weights_2,
+                        bias_2,
+                    )
+                )
+            rival = -1
+            for index in range(CELLS):
+                if index != decision and (rival < 0 or scores[index] > scores[rival]):
+                    rival = index
+            if MARGIN + scores[rival] - scores[decision] <= 0.0:
+                continue
+            # The rival's score is pushed down and the recorded sector's up.
+            for index, sign in ((rival, 1.0), (decision, -1.0)):
                 explored = features[index]
                 distance = features[CELLS + index]
-                pre = []
-                hidden = []
                 for unit in range(HIDDEN):
                     total = bias_1[unit]
                     total = total + weights_1[unit][0] * explored
                     total = total + weights_1[unit][1] * distance
-                    pre.append(total)
-                    hidden.append(relu(total))
-                score = bias_2
-                for unit in range(HIDDEN):
-                    score = score + weights_2[unit] * hidden[unit]
-                target = 0.0
-                if index == decision:
-                    target = 1.0
-                delta = 2.0 * (score - target)
-                grad_b2 = grad_b2 + delta
-                for unit in range(HIDDEN):
-                    grad_w2[unit] = grad_w2[unit] + delta * hidden[unit]
-                    if pre[unit] > 0.0:
-                        back = delta * weights_2[unit]
+                    grad_w2[unit] = grad_w2[unit] + sign * relu(total)
+                    if total > 0.0:
+                        back = sign * weights_2[unit]
                         grad_b1[unit] = grad_b1[unit] + back
                         grad_w1[unit][0] = grad_w1[unit][0] + back * explored
                         grad_w1[unit][1] = grad_w1[unit][1] + back * distance
@@ -206,7 +216,6 @@ def train(samples):
             weights_1[unit][1] = weights_1[unit][1] - RATE * grad_w1[unit][1] / count
             bias_1[unit] = bias_1[unit] - RATE * grad_b1[unit] / count
             weights_2[unit] = weights_2[unit] - RATE * grad_w2[unit] / count
-        bias_2 = bias_2 - RATE * grad_b2 / count
     weights_1, bias_1, weights_2, bias_2 = round_weights(weights_1, bias_1, weights_2, bias_2)
     correct, total = count_correct(held, weights_1, bias_1, weights_2, bias_2)
     return weights_1, bias_1, weights_2, bias_2, correct, total, held
