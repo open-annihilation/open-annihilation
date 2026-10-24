@@ -4,28 +4,33 @@
 // Classic beside the built-in computer player on the fake match the AI tests
 // use. test_controller_presence has no Classic version: it only asks which
 // player records have a controller, and Classic does not decide that.
+// test_weight_report belongs to the report that follows this ticket.
 //
-// A 400-tick run keeps the test_tick units and does not clear them for a
-// strike. Structures, construction and an armed factory's tick run. That
-// run passes no build lists, so those tasks issue no orders. Its checks
-// are the section markers, the assigns made inside the sort section, and
-// the standing bits. Orders, the draw counts and the full squad map are
-// printed at the first difference and are not assertions. Strike
-// recruitment is tick 301 on the built-in player; the sort itself still
-// agrees.
+// test_tick follows the whole run: ticks 1..120, then one tick at 400 after
+// the home units are cleared. That tick recruits the strike squad and
+// attacks. Section markers, sort assigns and standing bits are checked on
+// every tick. With the guard up, every task section's draws and orders are
+// checked too.
 
 #include "classic_harness.hpp"
 
 #include "oa/base/game_math.hpp"
+#include "oa/core/unit_def.h"
+#include "oa/core/world.h"
+#include "oa/sim/ai.hpp"
 #include "oa/sim/brains/classic.hpp"
+#include "oa/sim/detection.hpp"
+#include "oa/sim/unit_movement/movement.hpp"
 #include "oa/test/game_data.hpp"
 
 #include "match_fixture.hpp"
 
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -111,6 +116,7 @@ struct Twin {
     TickLog builtin_log;
     TickLog classic_log;
     Noted noted;
+    bool check_squads{};
     std::optional<oa::sim::brains::ToolSeat> seat;
 };
 
@@ -203,6 +209,8 @@ void note_squads(Twin& twin, uint32_t turn) {
             stderr, "squads differ at tick %u slot %u\n", turn, static_cast<unsigned>(index)
         );
         twin.noted.squads = true;
+        if (twin.check_squads)
+            CHECK(false);
         return;
     }
 }
@@ -236,8 +244,7 @@ bool same_order(
 }
 
 void compare_synced_sections(const Twin& twin, const RollSync& sync, uint32_t turn) {
-    const int tasks[] = {1, 4, 5};
-    for (const int task : tasks) {
+    for (int task = 1; task <= 9; ++task) {
         const SectionCut& left = sync.builtin_cuts[task];
         const SectionCut& right = sync.classic_cuts[task];
         if (left.marked != right.marked) {
@@ -531,6 +538,8 @@ void expect_whole(const PathRead& read, lua_Integer expect) {
     CHECK(read.ok && read.whole && read.number == expect);
 }
 
+void open_playing(Twin& twin, const PackageBytes& package, bool hold);
+
 void test_tick(const PackageBytes& package) {
     Twin twin;
     arm_hosts(twin);
@@ -553,7 +562,9 @@ void test_tick(const PackageBytes& package) {
     }
     fill_types(twin);
     copy_both(twin);
-    seat_pair(twin, package);
+    open_playing(twin, package, false);
+    twin.check_squads = true;
+    SyncGuard guard(twin);
     step(twin, 1);
     expect_whole(read_path(*twin.seat, "sort_countdown"), 29);
     expect_whole(read_path(*twin.seat, "tasks[1].next"), 31);
@@ -583,8 +594,45 @@ void test_tick(const PackageBytes& package) {
     CHECK(twin.classic_world.units[12].squad == 3);
     CHECK(standing_move(twin.classic_world.units[12]) == 2u);
     CHECK(standing_move(twin.classic_world.units[10]) == 1u);
-    for (uint32_t turn = 121; turn <= 400; ++turn)
-        step(twin, turn);
+    bool builtin_factory = false;
+    bool classic_factory = false;
+    bool builtin_build = false;
+    bool classic_build = false;
+    for (const auto& order : twin.builtin.orders) {
+        builtin_factory = builtin_factory || (order.kind == "factory" && order.unit == 11 &&
+                                              (order.arg == ARMPW || order.arg == ARMCK));
+        builtin_build = builtin_build || (order.kind == "build" && order.unit == 10);
+    }
+    for (const auto& order : twin.classic_world.orders) {
+        classic_factory = classic_factory || (order.kind == "factory" && order.unit == 11 &&
+                                              (order.arg == ARMPW || order.arg == ARMCK));
+        classic_build = classic_build || (order.kind == "build" && order.unit == 10);
+    }
+    CHECK(builtin_factory);
+    CHECK(classic_factory);
+    CHECK(builtin_build);
+    CHECK(classic_build);
+    // The home squads are cleared, then one tick at 400 recruits and attacks.
+    // Ticks 121..399 are not played, so the strike's next tick is still 301.
+    twin.builtin.orders.clear();
+    twin.classic_world.orders.clear();
+    for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+        fake->set_squad(11, 0);
+        fake->units[11].flags = 0;
+        fake->set_squad(10, 0);
+        fake->units[10].flags = 0;
+    }
+    step(twin, 400);
+    CHECK((twin.builtin.squads[{1, 2}].size() == 4));
+    CHECK((twin.classic_world.squads[{1, 2}].size() == 4));
+    bool builtin_attack = false;
+    bool classic_attack = false;
+    for (const auto& order : twin.builtin.orders)
+        builtin_attack = builtin_attack || (order.kind == "attack" && order.arg == 1);
+    for (const auto& order : twin.classic_world.orders)
+        classic_attack = classic_attack || (order.kind == "attack" && order.arg == 1);
+    CHECK(builtin_attack);
+    CHECK(classic_attack);
 }
 
 void test_siege_centre(const PackageBytes& package) {
@@ -1562,6 +1610,794 @@ void test_float_heap_order(const PackageBytes& package) {
     }
 }
 
+struct WeightAsk {
+    int32_t x{};
+    int32_t z{};
+    int32_t radius{};
+    bool ok{};
+    lua_Integer weight{};
+    char message[256]{};
+};
+
+struct WeightWrite {
+    lua_Integer key{};
+    lua_Integer value{};
+};
+
+void write_weight_work(void* context, lua_State* state) {
+    auto* write = static_cast<const WeightWrite*>(context);
+    if (write == nullptr || lua_type(state, -1) != LUA_TTABLE)
+        return;
+    lua_getfield(state, -1, "base_weights");
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        lua_pop(state, 1);
+        return;
+    }
+    lua_pushinteger(state, write->value);
+    lua_rawseti(state, -2, write->key);
+    lua_pop(state, 1);
+}
+
+void call_weight_work(void* context, lua_State* state) {
+    auto* ask = static_cast<WeightAsk*>(context);
+    if (ask == nullptr || lua_type(state, -1) != LUA_TTABLE)
+        return;
+    const int seat_index = lua_gettop(state);
+    lua_getglobal(state, "require");
+    lua_pushliteral(state, "squads");
+    if (lua_pcall(state, 1, 1, 0) != LUA_OK) {
+        copy_message(ask->message, sizeof ask->message, lua_tostring(state, -1));
+        return;
+    }
+    lua_getfield(state, -1, "sighted_weight");
+    lua_pushvalue(state, seat_index);
+    lua_newtable(state);
+    lua_pushinteger(state, static_cast<lua_Integer>(ask->x));
+    lua_setfield(state, -2, "x");
+    lua_pushinteger(state, 0);
+    lua_setfield(state, -2, "y");
+    lua_pushinteger(state, static_cast<lua_Integer>(ask->z));
+    lua_setfield(state, -2, "z");
+    lua_pushinteger(state, static_cast<lua_Integer>(ask->radius));
+    if (lua_pcall(state, 3, 1, 0) != LUA_OK) {
+        copy_message(ask->message, sizeof ask->message, lua_tostring(state, -1));
+        return;
+    }
+    if (lua_isinteger(state, -1) == 0) {
+        copy_message(ask->message, sizeof ask->message, "sighted weight was not an integer");
+        return;
+    }
+    ask->ok = true;
+    ask->weight = lua_tointeger(state, -1);
+}
+
+void run_seat(oa::sim::brains::ToolSeat& seat, void* context, void (*work)(void*, lua_State*)) {
+    oa::data::script_host::ScriptError error;
+    if (!seat.with_seat(context, work, error))
+        throw std::runtime_error(oa::data::script_host::describe(error));
+}
+
+struct WeightView {
+    std::array<uint16_t, 6> seen{40, 41, 42, 43, 44, 63};
+    oa::sim::detection::Sightings sightings{};
+};
+
+WeightView weight_view;
+
+const oa::sim::detection::Sightings* weight_sightings(void*, uint8_t player) {
+    return player == 1 ? &weight_view.sightings : nullptr;
+}
+
+void test_sighted_weight(const PackageBytes& package) {
+    Twin twin;
+    arm_hosts(twin);
+    twin.builtin.player(1, OA_PLAYER_STATUS_COMPUTER, 10, 30);
+    twin.classic_world.player(1, OA_PLAYER_STATUS_COMPUTER, 10, 30);
+    weight_view = {};
+    weight_view.seen = {40, 41, 42, 43, 44, 63};
+    weight_view.sightings.seen = weight_view.seen.data();
+    weight_view.sightings.capacity = static_cast<uint32_t>(weight_view.seen.size());
+    weight_view.sightings.seen_count = static_cast<uint32_t>(weight_view.seen.size());
+    twin.classic_host.sightings = weight_sightings;
+    fill_types(twin);
+    copy_both(twin);
+    stamp_ids(twin.builtin);
+    stamp_ids(twin.classic_world);
+    seat_pair(twin, package);
+    auto* knowledge = oa::sim::ai::computer_player_knowledge(&twin.classic_players.state, 1);
+    CHECK(knowledge != nullptr);
+    CHECK(knowledge->base_weights != nullptr);
+    CHECK(knowledge->base_weights[ARMLLT] == 40);
+    knowledge->base_weights[ARMPW] = -5;
+    WeightWrite write;
+    write.key = ARMPW;
+    write.value = -5;
+    run_seat(*twin.seat, &write, write_weight_work);
+    constexpr int32_t x = 500;
+    constexpr int32_t z = 700;
+    const oa::FixedVec3 at{x << 16, 0, z << 16};
+    auto& world = twin.classic_world;
+    world.spawn(40, 0, ARMLLT, x + 96, z + 128, OA_UNIT_FLAG_BUILDING);
+    world.spawn(41, 0, ARMLLT, x + 161, z, OA_UNIT_FLAG_BUILDING);
+    world.spawn(42, 0, ARMPW, x, z - 10, 0).flags = 0;
+    world.spawn(43, 0, ARMLLT, x - 160, z, OA_UNIT_FLAG_BUILDING);
+    world.units[43].position.x -= 200;
+    world.spawn(44, 0, ARMLLT, x, z, OA_UNIT_FLAG_BUILDING);
+    world.units[44].type_index = static_cast<uint16_t>(oa::test::computer_fake::TYPE_COUNT + 3);
+    world.spawn(45, 0, ARMSOLAR, x + 20, z + 20, OA_UNIT_FLAG_BUILDING);
+    const int32_t expect_160 = oa::sim::ai::computer_sighted_weight(
+        &twin.classic_players.state, *knowledge, weight_view.sightings, world.world, at, 160
+    );
+    const int32_t expect_159 = oa::sim::ai::computer_sighted_weight(
+        &twin.classic_players.state, *knowledge, weight_view.sightings, world.world, at, 159
+    );
+    const int32_t expect_161 = oa::sim::ai::computer_sighted_weight(
+        &twin.classic_players.state, *knowledge, weight_view.sightings, world.world, at, 161
+    );
+    CHECK(expect_160 == 75);
+    CHECK(expect_159 == -5);
+    CHECK(expect_161 == 115);
+    auto lua_weight = [&](int32_t radius) {
+        WeightAsk ask;
+        ask.x = at.x;
+        ask.z = at.z;
+        ask.radius = radius;
+        run_seat(*twin.seat, &ask, call_weight_work);
+        if (!ask.ok)
+            std::fprintf(stderr, "sighted weight: %s\n", ask.message);
+        CHECK(ask.ok);
+        return ask.weight;
+    };
+    CHECK(lua_weight(160) == 75);
+    CHECK(lua_weight(159) == -5);
+    CHECK(lua_weight(161) == 115);
+    weight_view.sightings.seen_count = 0;
+    CHECK(
+        oa::sim::ai::computer_sighted_weight(
+            &twin.classic_players.state, *knowledge, weight_view.sightings, world.world, at, 160
+        ) == 0
+    );
+    CHECK(lua_weight(160) == 0);
+}
+
+struct SiegeView {
+    std::array<uint16_t, 4> seen{};
+    oa::sim::detection::Sightings sightings{};
+    bool reach[64]{};
+    int32_t visible_below_z = 0;
+};
+
+SiegeView siege_view;
+
+bool siege_point_visible(void*, uint8_t player, const oa::FixedVec3* at) {
+    return player == 1 && at != nullptr && (at->z >> 16) < siege_view.visible_below_z;
+}
+
+const oa::sim::detection::Sightings* siege_sightings(void*, uint8_t player) {
+    return player == 1 ? &siege_view.sightings : nullptr;
+}
+
+bool siege_weapon_reaches(void*, uint16_t unit, const oa::FixedVec3*) {
+    return unit < 64 && siege_view.reach[unit];
+}
+
+bool siege_order_attack_point(void* context, uint16_t unit, const oa::FixedVec3* at) {
+    if (at == nullptr)
+        return false;
+    oa::test::computer_fake::fake_of(context)->orders.push_back(
+        {"attack point", unit, 0, *at, false}
+    );
+    return true;
+}
+
+void install_siege(ComputerHost& host) {
+    host.point_visible = siege_point_visible;
+    host.sightings = siege_sightings;
+    host.weapon_reaches = siege_weapon_reaches;
+    host.order_attack_point = siege_order_attack_point;
+}
+
+void quiet_siege_work(void*, lua_State* state) {
+    if (lua_type(state, -1) != LUA_TTABLE)
+        return;
+    lua_pushinteger(state, 1000000);
+    lua_setfield(state, -2, "sort_countdown");
+    lua_getfield(state, -1, "tasks");
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        lua_pop(state, 1);
+        return;
+    }
+    for (int task = 0; task <= 8; ++task) {
+        lua_rawgeti(state, -1, task);
+        if (lua_type(state, -1) == LUA_TTABLE) {
+            lua_pushinteger(state, 1000000);
+            lua_setfield(state, -2, "next");
+        }
+        lua_pop(state, 1);
+    }
+    lua_pop(state, 1);
+}
+
+void quiet_but_siege(Twin& twin) {
+    auto& ai = twin.builtin_players.state.players[1];
+    ai.sort_countdown = 1000000;
+    for (auto& task : ai.tasks) {
+        if (task.kind != oa::sim::ai::TaskKind::siege)
+            task.next_tick = 1000000;
+    }
+    run_seat(*twin.seat, nullptr, quiet_siege_work);
+}
+
+void script_rolls(Twin& twin, const uint32_t* values, std::size_t count) {
+    twin.builtin.rolls.assign(values, values + count);
+    twin.classic_world.rolls.assign(values, values + count);
+    twin.builtin.roll = 0;
+    twin.classic_world.roll = 0;
+    twin.builtin.orders.clear();
+    twin.classic_world.orders.clear();
+}
+
+bool same_point(const oa::FixedVec3& point, int32_t x, int32_t y, int32_t z) {
+    return point.x == x && point.y == y && point.z == z;
+}
+
+void expect_attack_points(
+    const Fake& fake, const uint16_t* units, std::size_t count, int32_t x, int32_t z
+) {
+    CHECK(fake.orders.size() == count);
+    for (std::size_t index = 0; index < count; ++index) {
+        const auto& order = fake.orders[index];
+        CHECK(order.kind == "attack point");
+        CHECK(order.unit == units[index]);
+        CHECK(same_point(order.at, x, 0, z));
+    }
+}
+
+void add_siege_member(
+    Fake& fake,
+    uint16_t slot,
+    uint16_t type,
+    int32_t x,
+    int32_t z,
+    uint32_t flags,
+    uint32_t movement
+) {
+    auto& unit = fake.spawn(slot, 1, type, x, z, flags);
+    unit.movement = movement;
+    unit.def = oa::world_unit_def_ref(&fake.world, &fake.defs[type]);
+    fake.set_squad(slot, static_cast<int>(Squad::siege));
+}
+
+void test_siege(const PackageBytes& package) {
+    Twin twin;
+    arm_hosts(twin);
+    siege_view = {};
+    install_siege(twin.builtin_host);
+    install_siege(twin.classic_host);
+    for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+        fake->world.game.map_width_world = 1024;
+        fake->world.game.map_height_world = 512;
+        fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+        fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+        stamp_ids(*fake);
+    }
+    fill_types(twin);
+    copy_both(twin);
+    for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+        fake->defs[ARMPW].abilities |= OA_UNIT_DEF_ABILITY_CAN_ATTACK;
+        fake->defs[ARMLLT].abilities |= OA_UNIT_DEF_ABILITY_CAN_ATTACK;
+    }
+    open_playing(twin, package, false);
+    const int32_t centre_x = 512 << 16;
+    const int32_t centre_z = 256 << 16;
+    auto& task = twin.builtin_players.state.players[1].tasks[static_cast<uint32_t>(Squad::siege)];
+    CHECK(task.kind == oa::sim::ai::TaskKind::siege);
+    CHECK(same_point(task.siege_target, centre_x, 0, centre_z));
+    CHECK(same_point(task.siege_probe, centre_x, 0, centre_z));
+    CHECK(same_point(task.siege_step, centre_x, 0, centre_z));
+    CHECK(task.siege_weight == 0);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_target.x"), centre_x);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_target.z"), centre_z);
+    quiet_but_siege(twin);
+    twin.check_squads = true;
+    SyncGuard guard(twin);
+    const uint32_t empty_rolls[] = {7};
+    script_rolls(twin, empty_rolls, 1);
+    step(twin, 100);
+    CHECK(twin.builtin.roll == 1u);
+    CHECK(twin.classic_world.roll == 1u);
+    CHECK(task.next_tick == 100u + 7u + 30u);
+    expect_whole(read_path(*twin.seat, "tasks[9].next"), static_cast<lua_Integer>(task.next_tick));
+    CHECK(same_point(task.siege_probe, centre_x, 0, centre_z));
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_probe.x"), centre_x);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_probe.z"), centre_z);
+    CHECK(twin.builtin.orders.empty());
+    CHECK(twin.classic_world.orders.empty());
+
+    for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+        add_siege_member(*fake, 20, ARMPW, 100, 100, OA_UNIT_FLAG_HAS_WEAPONS, 1);
+        add_siege_member(
+            *fake, 21, ARMLLT, 120, 100, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS, 0
+        );
+        add_siege_member(
+            *fake, 22, ARMLLT, 140, 100, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS, 0
+        );
+        add_siege_member(*fake, 23, ARMCK, 160, 100, 0, 1);
+        add_siege_member(*fake, 24, ARMPW, 180, 100, OA_UNIT_FLAG_HAS_WEAPONS, 1);
+        fake->spawn(2, 0, ARMLLT, 512 + 96, 576 + 128, OA_UNIT_FLAG_BUILDING);
+        fake->spawn(3, 0, ARMLLT, 512, 576 - 30, OA_UNIT_FLAG_BUILDING);
+        fake->spawn(4, 0, ARMLLT, 512 + 170, 576, OA_UNIT_FLAG_BUILDING);
+    }
+    siege_view.reach[22] = true;
+    siege_view.seen = {2, 3, 4, 0};
+    siege_view.sightings.seen = siege_view.seen.data();
+    siege_view.sightings.capacity = 4;
+    siege_view.sightings.seen_count = 3;
+    siege_view.visible_below_z = 800;
+    const uint32_t turn_rolls[] = {9, 0, 0x8000u, 12};
+    script_rolls(twin, turn_rolls, 4);
+    const uint32_t armed = task.next_tick;
+    step(twin, armed);
+    const oa::FixedVec3 turned{
+        -oa::sim::unit_movement::sine_scaled(0x8000, 0x1400000),
+        0,
+        -oa::sim::unit_movement::cosine_scaled(0x8000, 0x1400000)
+    };
+    CHECK(turned.x == 0 && turned.z == 0x1400000);
+    const int32_t first_z = 576 << 16;
+    CHECK(twin.builtin.roll == 4u);
+    CHECK(twin.classic_world.roll == 4u);
+    CHECK(same_point(task.siege_step, turned.x, 0, turned.z));
+    CHECK(same_point(task.siege_probe, centre_x, 0, first_z));
+    CHECK(same_point(task.siege_target, centre_x, 0, first_z));
+    CHECK(task.siege_weight == 80);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_step.x"), turned.x);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_step.z"), turned.z);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_probe.z"), first_z);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_target.z"), first_z);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_weight"), 80);
+    const uint16_t attackers[] = {20, 22, 24};
+    expect_attack_points(twin.builtin, attackers, 3, centre_x, first_z);
+    expect_attack_points(twin.classic_world, attackers, 3, centre_x, first_z);
+
+    const uint32_t hold_rolls[] = {1, 3};
+    script_rolls(twin, hold_rolls, 2);
+    const uint32_t unseen = task.next_tick;
+    step(twin, unseen);
+    const int32_t second_z = 896 << 16;
+    CHECK(twin.builtin.roll == 2u);
+    CHECK(twin.classic_world.roll == 2u);
+    CHECK(same_point(task.siege_probe, centre_x, 0, second_z));
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_probe.z"), second_z);
+    CHECK(same_point(task.siege_target, centre_x, 0, first_z));
+    CHECK(task.siege_weight == 80);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_weight"), 80);
+    CHECK(twin.builtin.orders.size() == 3u);
+    CHECK(twin.classic_world.orders.size() == 3u);
+
+    siege_view.visible_below_z = 2000;
+    siege_view.sightings.seen_count = 1;
+    const uint32_t poor_rolls[] = {1, 3, 5};
+    script_rolls(twin, poor_rolls, 3);
+    step(twin, task.next_tick);
+    CHECK(twin.builtin.roll == 3u);
+    CHECK(twin.classic_world.roll == 3u);
+    CHECK(same_point(task.siege_target, centre_x, 0, first_z));
+    CHECK(task.siege_weight == 80);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_target.z"), first_z);
+    expect_whole(read_path(*twin.seat, "tasks[9].siege_weight"), 80);
+}
+
+void test_attack_wave_size(const PackageBytes& package) {
+    for (const int32_t wave : {6, 10}) {
+        Twin twin;
+        arm_hosts(twin);
+        twin.rules.ai.attack_wave_size.enabled = wave != 6;
+        twin.rules.ai.attack_wave_size.units = wave;
+        publish_rules(twin);
+        for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+            fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+            fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+            fake->spawn(1, 0, ARMLLT, 900, 900, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+            fake->spawn(10, 1, ARMSOLAR, 200, 200, OA_UNIT_FLAG_BUILDING);
+            for (uint32_t slot = 12; slot < 19; ++slot) {
+                fake->spawn(
+                    slot, 1, ARMPW, 300 + static_cast<int32_t>(slot), 300, OA_UNIT_FLAG_HAS_WEAPONS
+                );
+            }
+            fake->rolls = filled_rolls(7);
+            stamp_ids(*fake);
+        }
+        fill_types(twin);
+        copy_both(twin);
+        open_playing(twin, package, false);
+        expect_whole(read_path(*twin.seat, "tasks[2].launch"), wave);
+        expect_whole(read_path(*twin.seat, "tasks[6].launch"), wave);
+        expect_whole(read_path(*twin.seat, "tasks[2].min_size"), 3);
+        expect_whole(read_path(*twin.seat, "tasks[6].min_size"), 3);
+        const auto& tasks = twin.builtin_players.state.players[1].tasks;
+        CHECK(tasks[2].launch_size == wave && tasks[6].launch_size == wave);
+        CHECK(tasks[2].min_size == 3 && tasks[6].min_size == 3);
+        twin.check_squads = true;
+        {
+            SyncGuard guard(twin);
+            for (uint32_t turn = 1; turn <= 301; ++turn)
+                step(twin, turn);
+        }
+        CHECK((twin.builtin.squads[{1, 2}].size() == 7u));
+        CHECK((twin.classic_world.squads[{1, 2}].size() == 7u));
+        const bool expect_attack = wave == 6;
+        CHECK((orders_of(twin.builtin, "attack", 12) != 0) == expect_attack);
+        CHECK((orders_of(twin.classic_world, "attack", 12) != 0) == expect_attack);
+    }
+}
+
+bool unqueued_patrol(const Fake& fake, uint16_t unit) {
+    for (const auto& order : fake.orders) {
+        if (order.kind == "patrol" && order.unit == unit && !order.queue)
+            return true;
+    }
+    return false;
+}
+
+void set_base(Twin& twin, int32_t x, int32_t z) {
+    const oa::FixedVec3 base{x << 16, 0, z << 16};
+    twin.builtin_players.state.players[1].knowledge.base_position = base;
+    twin.classic_players.state.players[1].knowledge.base_position = base;
+}
+
+void test_patrol_group_size(const PackageBytes& package) {
+    for (const int32_t size : {5, 15}) {
+        Twin twin;
+        arm_hosts(twin);
+        twin.rules.ai.patrol_group_size.enabled = size != 5;
+        twin.rules.ai.patrol_group_size.units = size;
+        publish_rules(twin);
+        for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+            fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+            fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+            fake->spawn(1, 0, ARMLLT, 500, 600, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+            for (uint32_t wing = 0; wing < 6; ++wing) {
+                const auto slot = static_cast<uint16_t>(11 + wing);
+                fake->spawn(slot, 1, ARMFIG, 300 + static_cast<int32_t>(wing), 300, 0);
+                fake->set_squad(slot, static_cast<int>(Squad::aircraft));
+            }
+            fake->rolls = filled_rolls(3);
+            stamp_ids(*fake);
+        }
+        fill_types(twin);
+        copy_both(twin);
+        open_playing(twin, package, false);
+        set_base(twin, 200, 200);
+        twin.builtin.roll = 0;
+        twin.classic_world.roll = 0;
+        twin.check_squads = true;
+        {
+            SyncGuard guard(twin);
+            step(twin, 1);
+        }
+        const bool expect_scout = size == 15;
+        CHECK((orders_of(twin.builtin, "move", 11) != 0) == expect_scout);
+        CHECK((orders_of(twin.classic_world, "move", 11) != 0) == expect_scout);
+        CHECK(unqueued_patrol(twin.builtin, 11) == !expect_scout);
+        CHECK(unqueued_patrol(twin.classic_world, 11) == !expect_scout);
+    }
+}
+
+void test_patrol_null_enemy_skip(const PackageBytes& package) {
+    for (const bool on : {false, true}) {
+        Twin twin;
+        arm_hosts(twin);
+        twin.rules.ai.patrol_null_enemy_skip.enabled = on;
+        publish_rules(twin);
+        for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+            fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+            fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+            fake->spawn(1, 0, ARMLLT, 500, 600, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+            for (uint32_t wing = 0; wing < 2; ++wing) {
+                const auto slot = static_cast<uint16_t>(11 + wing);
+                fake->spawn(slot, 1, ARMFIG, 300 + static_cast<int32_t>(wing), 300, 0);
+                fake->set_squad(slot, static_cast<int>(Squad::aircraft));
+            }
+            fake->rolls = filled_rolls(3);
+            stamp_ids(*fake);
+        }
+        fill_types(twin);
+        copy_both(twin);
+        open_playing(twin, package, false);
+        twin.builtin.roll = 0;
+        twin.classic_world.roll = 0;
+        twin.check_squads = true;
+        {
+            SyncGuard guard(twin);
+            step(twin, 1);
+        }
+        auto queued_enemy = [](const Fake& fake) {
+            for (const auto& order : fake.orders) {
+                if (order.unit == 11 && order.kind == "patrol" && order.queue &&
+                    order.at.x == (500 << 16) && order.at.z == (600 << 16))
+                    return true;
+            }
+            return false;
+        };
+        auto edge = [](const Fake& fake) {
+            for (const auto& order : fake.orders) {
+                if (order.unit == 11 && order.kind == "patrol" && !order.queue &&
+                    order.at.x == (3 << 16) && order.at.z == 0)
+                    return true;
+            }
+            return false;
+        };
+        CHECK(queued_enemy(twin.builtin) == !on);
+        CHECK(queued_enemy(twin.classic_world) == !on);
+        CHECK(edge(twin.builtin) == on);
+        CHECK(edge(twin.classic_world) == on);
+        const std::size_t draws = on ? 5u : 2u;
+        CHECK(twin.builtin.roll == draws);
+        CHECK(twin.classic_world.roll == draws);
+    }
+}
+
+uint16_t attack_target(const Fake& fake, uint16_t unit) {
+    uint16_t target = 0;
+    for (const auto& order : fake.orders) {
+        if (order.kind == "attack" && order.unit == unit)
+            target = order.arg;
+    }
+    return target;
+}
+
+void test_nearest_enemy_filter(const PackageBytes& package) {
+    using Filter = oa::data::match_rules::AiNearestEnemyFilterRules;
+    for (const auto filter : {Filter::base, Filter::skip_submerged}) {
+        for (const bool naval : {false, true}) {
+            Twin twin;
+            arm_hosts(twin);
+            twin.rules.ai.nearest_enemy_filter.enabled = filter != Filter::base;
+            twin.rules.ai.nearest_enemy_filter.rules = filter;
+            publish_rules(twin);
+            for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+                fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+                fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+                auto& sub = fake->spawn(1, 0, ARMPT, 400, 300, OA_UNIT_FLAG_HAS_WEAPONS);
+                const uint32_t submerged = 3;
+                std::memcpy(sub.last_occupy_code, &submerged, sizeof submerged);
+                constexpr uint32_t move_rate_tier_2 = 0x8u;
+                fake->spawn(2, 0, ARMPW, 500, 300, OA_UNIT_FLAG_HAS_WEAPONS | move_rate_tier_2);
+                fake->spawn(
+                    3, 0, ARMLLT, 600, 300, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS
+                );
+                const auto type = naval ? ARMPT : ARMPW;
+                for (uint32_t slot = 12; slot < 19; ++slot) {
+                    fake->spawn(
+                        slot,
+                        1,
+                        type,
+                        300 + static_cast<int32_t>(slot),
+                        300,
+                        OA_UNIT_FLAG_HAS_WEAPONS
+                    );
+                }
+                fake->rolls = filled_rolls(7);
+                stamp_ids(*fake);
+            }
+            fill_types(twin);
+            copy_both(twin);
+            open_playing(twin, package, false);
+            twin.check_squads = true;
+            {
+                SyncGuard guard(twin);
+                for (uint32_t turn = 1; turn <= 301; ++turn)
+                    step(twin, turn);
+            }
+            const uint16_t expected = filter == Filter::base ? 1 : naval ? 1 : 3;
+            CHECK(attack_target(twin.builtin, 12) == expected);
+            CHECK(attack_target(twin.classic_world, 12) == expected);
+        }
+    }
+}
+
+void apply_ridge(oa::data::match_rules::MatchRules& match_rules) {
+    using oa::data::match_rules::AiDifficultyNamesNames;
+    using oa::data::match_rules::AiFactoryTickFilterPowerToggle;
+    using oa::data::match_rules::AiNearestEnemyFilterRules;
+    using oa::data::match_rules::AiSquadAssignmentRules;
+    auto& ai = match_rules.ai;
+    ai.difficulty_names.enabled = true;
+    ai.difficulty_names.names = {
+        AiDifficultyNamesNames::hard,
+        AiDifficultyNamesNames::medium,
+        AiDifficultyNamesNames::easy,
+    };
+    ai.squad5_factory_tick.enabled = true;
+    ai.factory_tick_filter.enabled = true;
+    ai.factory_tick_filter.skip_busy_background_queue = true;
+    ai.factory_tick_filter.power_toggle = AiFactoryTickFilterPowerToggle::energy_use_32;
+    ai.builder_withhold_threshold.enabled = true;
+    ai.builder_withhold_threshold.builders = 10;
+    ai.commander_keeps_orders_when_damaged.enabled = true;
+    ai.attack_wave_size.enabled = true;
+    ai.attack_wave_size.units = 10;
+    ai.patrol_group_size.enabled = true;
+    ai.patrol_group_size.units = 15;
+    ai.patrol_null_enemy_skip.enabled = true;
+    ai.squad_assignment.enabled = true;
+    ai.squad_assignment.rules = AiSquadAssignmentRules::role_squads;
+    ai.nearest_enemy_filter.enabled = true;
+    ai.nearest_enemy_filter.rules = AiNearestEnemyFilterRules::skip_submerged;
+}
+
+void play_long(Twin& twin, uint32_t until) {
+    twin.check_squads = true;
+    SyncGuard guard(twin);
+    for (uint32_t turn = 1; turn <= until; ++turn)
+        step(twin, turn);
+    CHECK(!twin.noted.squads);
+    CHECK(twin.builtin.orders.size() == twin.classic_world.orders.size());
+}
+
+void test_land_army_twin(const PackageBytes& package) {
+    for (const bool ridge : {false, true}) {
+        Twin twin;
+        arm_hosts(twin);
+        if (ridge)
+            apply_ridge(twin.rules);
+        publish_rules(twin);
+        for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+            fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+            fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 50);
+            fake->spawn(1, 0, ARMLLT, 9000, 9000, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+            fake->spawn(10, 1, ARMSOLAR, 200, 200, OA_UNIT_FLAG_BUILDING);
+            for (uint32_t slot = 0; slot < 40; ++slot) {
+                const auto unit = static_cast<uint16_t>(11 + slot);
+                int32_t x = 1000;
+                int32_t z = 1000;
+                if (slot < 8)
+                    x = 1000 + static_cast<int32_t>(slot) * 10;
+                else if (slot < 16) {
+                    x = 1000 + static_cast<int32_t>(slot - 8) * 10;
+                    z = 1020;
+                } else
+                    x = 20000 + static_cast<int32_t>(slot) * 3000;
+                fake->spawn(unit, 1, ARMPW, x, z, OA_UNIT_FLAG_HAS_WEAPONS);
+                const int squad = slot < 8 || slot >= 16 ? 2 : 3;
+                fake->set_squad(unit, squad);
+            }
+            fake->rolls = filled_rolls(7);
+            stamp_ids(*fake);
+        }
+        fill_types(twin);
+        copy_both(twin);
+        open_playing(twin, package, false);
+        play_long(twin, 1500);
+        CHECK((twin.builtin.squads[{1, 2}].size() == 16u));
+        CHECK((twin.classic_world.squads[{1, 2}].size() == 16u));
+    }
+}
+
+void test_navy_submerged_twin(const PackageBytes& package) {
+    for (const bool ridge : {false, true}) {
+        Twin twin;
+        arm_hosts(twin);
+        if (ridge)
+            apply_ridge(twin.rules);
+        publish_rules(twin);
+        for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+            fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+            fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+            auto& sub = fake->spawn(1, 0, ARMPT, 250, 100, OA_UNIT_FLAG_HAS_WEAPONS);
+            const uint32_t submerged = 3;
+            std::memcpy(sub.last_occupy_code, &submerged, sizeof submerged);
+            fake->spawn(2, 0, ARMPW, 800, 100, OA_UNIT_FLAG_HAS_WEAPONS | 0x8u);
+            fake->spawn(3, 0, ARMLLT, 1400, 100, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS);
+            for (uint32_t slot = 0; slot < 9; ++slot) {
+                const auto unit = static_cast<uint16_t>(12 + slot);
+                const int32_t x = slot < 8 ? 100 + static_cast<int32_t>(slot) * 8 : 8000;
+                fake->spawn(unit, 1, ARMPT, x, 100, OA_UNIT_FLAG_HAS_WEAPONS);
+                fake->set_squad(unit, static_cast<int>(Squad::navy));
+            }
+            fake->rolls = filled_rolls(7);
+            stamp_ids(*fake);
+        }
+        fill_types(twin);
+        copy_both(twin);
+        open_playing(twin, package, false);
+        play_long(twin, 1500);
+        CHECK((twin.builtin.squads[{1, static_cast<int>(Squad::naval_strike)}].size() == 8u));
+        CHECK((twin.classic_world.squads[{1, static_cast<int>(Squad::naval_strike)}].size() == 8u));
+        CHECK(attack_target(twin.builtin, 12) == 1u);
+        CHECK(attack_target(twin.classic_world, 12) == 1u);
+    }
+}
+
+void test_air_wing_twin(const PackageBytes& package) {
+    for (const bool ridge : {false, true}) {
+        for (const bool with_base : {false, true}) {
+            for (uint32_t wing = 1; wing <= 16; ++wing) {
+                Twin twin;
+                arm_hosts(twin);
+                if (ridge)
+                    apply_ridge(twin.rules);
+                publish_rules(twin);
+                for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+                    fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+                    fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+                    fake->spawn(
+                        1, 0, ARMLLT, 500, 600, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS
+                    );
+                    if (with_base)
+                        fake->spawn(10, 1, ARMSOLAR, 200, 200, OA_UNIT_FLAG_BUILDING);
+                    for (uint32_t member = 0; member < wing; ++member) {
+                        const auto slot = static_cast<uint16_t>(11 + member);
+                        fake->spawn(slot, 1, ARMFIG, 300 + static_cast<int32_t>(member), 300, 0);
+                        fake->set_squad(slot, static_cast<int>(Squad::aircraft));
+                    }
+                    fake->rolls = filled_rolls(3);
+                    stamp_ids(*fake);
+                }
+                fill_types(twin);
+                copy_both(twin);
+                open_playing(twin, package, false);
+                if (with_base)
+                    set_base(twin, 200, 200);
+                play_long(twin, 1500);
+                CHECK(!twin.builtin.orders.empty());
+            }
+        }
+    }
+}
+
+void test_siege_seen_twin(const PackageBytes& package) {
+    for (const bool ridge : {false, true}) {
+        Twin twin;
+        arm_hosts(twin);
+        if (ridge)
+            apply_ridge(twin.rules);
+        publish_rules(twin);
+        siege_view = {};
+        install_siege(twin.builtin_host);
+        install_siege(twin.classic_host);
+        for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+            fake->world.game.map_width_world = 1024;
+            fake->world.game.map_height_world = 512;
+            fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
+            fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
+            stamp_ids(*fake);
+        }
+        fill_types(twin);
+        copy_both(twin);
+        for (Fake* fake : {&twin.builtin, &twin.classic_world}) {
+            fake->defs[ARMPW].abilities |= OA_UNIT_DEF_ABILITY_CAN_ATTACK;
+            fake->defs[ARMLLT].abilities |= OA_UNIT_DEF_ABILITY_CAN_ATTACK;
+            add_siege_member(*fake, 20, ARMPW, 100, 100, OA_UNIT_FLAG_HAS_WEAPONS, 1);
+            add_siege_member(
+                *fake, 21, ARMLLT, 120, 100, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS, 0
+            );
+            add_siege_member(
+                *fake, 22, ARMLLT, 140, 100, OA_UNIT_FLAG_BUILDING | OA_UNIT_FLAG_HAS_WEAPONS, 0
+            );
+            add_siege_member(*fake, 23, ARMCK, 160, 100, 0, 1);
+            add_siege_member(*fake, 24, ARMPW, 180, 100, OA_UNIT_FLAG_HAS_WEAPONS, 1);
+            fake->spawn(2, 0, ARMLLT, 400, 300, OA_UNIT_FLAG_BUILDING);
+            fake->spawn(3, 0, ARMLLT, 420, 300, OA_UNIT_FLAG_BUILDING);
+            fake->rolls = filled_rolls(7);
+        }
+        siege_view.reach[22] = true;
+        siege_view.seen = {2, 3, 0, 0};
+        siege_view.sightings.seen = siege_view.seen.data();
+        siege_view.sightings.capacity = 4;
+        siege_view.sightings.seen_count = 2;
+        siege_view.visible_below_z = 4000;
+        open_playing(twin, package, false);
+        play_long(twin, 1500);
+        CHECK(orders_named(twin.builtin, "attack point") > 0u);
+        CHECK(
+            orders_named(twin.classic_world, "attack point") ==
+            orders_named(twin.builtin, "attack point")
+        );
+    }
+}
+
 } // namespace
 
 void test_build_list_limits(const PackageBytes& package);
@@ -1603,6 +2439,16 @@ int main(int argc, char** argv) {
         test_squad_assignment(package);
         test_scripted_units_stay_unsorted(package);
         test_tick(package);
+        test_sighted_weight(package);
+        test_siege(package);
+        test_attack_wave_size(package);
+        test_patrol_group_size(package);
+        test_patrol_null_enemy_skip(package);
+        test_nearest_enemy_filter(package);
+        test_land_army_twin(package);
+        test_navy_submerged_twin(package);
+        test_air_wing_twin(package);
+        test_siege_seen_twin(package);
         test_siege_centre(package);
         test_setup_random(package);
         test_fingerprint(argv[1]);
