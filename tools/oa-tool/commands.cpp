@@ -225,6 +225,27 @@ const Command brain_commands[] = {
         {},
     },
     {
+        "check",
+        "FILE --game-dir DIR [--mod FOLDER] [--level LEVEL] [--side N] [--json]",
+        "Load a brain against a game and report how it started.",
+        "FILE is a .oabrain or a folder whose top holds oabrain.yaml. The folder's name is the "
+        "brain's id. --game-dir is the game, mounted the way the game mounts it, and is required. "
+        "--mod is a mod folder layered over that game. --level selects a level; the first level "
+        "is used when it is omitted. --side is the side whose commander the brain's seat holds, "
+        "from 0 to 255, and it is 0 when omitted. The check builds a match from the game's own "
+        "unit, weapon and feature definitions and its computer-player profile, on a flat "
+        "stand-in map, seats the brain, and never ticks the match. It reports whether the brain "
+        "loaded, whether it fits, whether it started, the instructions each phase used, and the "
+        "memory its Lua and its networks hold. A unit file that does not load is a warning. "
+        "--json prints one object. Exit 0 when the brain was seated, 1 when it was not, and 2 "
+        "when the arguments are not the command's. A file of another kind, or a folder without "
+        "oabrain.yaml, is a usage error.",
+        1,
+        any_count,
+        run_brain_check,
+        {},
+    },
+    {
         "net",
         "MODEL.onnx --calibrate DATA [--out FILE] [--weights int8|int16] "
         "[--max-difference X] [--force] [--json]",
@@ -396,14 +417,17 @@ const Command command_table[] = {
     {
         "brain",
         "COMMAND",
-        "Pack brains and convert a network.",
-        "Packs a brain folder into a .oabrain and converts an ONNX model into a .oann. brain pack "
-        "reads a folder whose top holds oabrain.yaml. oa-tool check reports a brain's facts: "
-        "summary, description, homepage, tags, author, requires, works_with, levels, "
-        "full_awareness, networks, network_bytes, options, icon, entry, scripts and data. A "
-        "folder without oabrain.yaml is a usage error. brain net reads an ONNX model of opset 11 "
-        "to 21, quantises it with a calibration file and reports how far the integer network is "
-        "from the floating-point one.",
+        "Pack brains, check one against a game, and convert a network.",
+        "Packs a brain folder into a .oabrain, checks a brain against a game, and converts an "
+        "ONNX model into a .oann. brain pack reads a folder whose top holds oabrain.yaml. "
+        "oa-tool check reports a brain's facts: summary, description, homepage, tags, author, "
+        "requires, works_with, levels, full_awareness, networks, network_bytes, options, icon, "
+        "entry, scripts and data. A folder without oabrain.yaml is a usage error. brain check "
+        "loads a .oabrain, or a folder whose top holds oabrain.yaml, against a game. It seats "
+        "the brain in a match of the game's definitions on a flat stand-in map and never ticks "
+        "that match. It reports whether the brain loaded, fitted and started. brain net reads "
+        "an ONNX model of opset 11 to 21, quantises it with a calibration file and reports how "
+        "far the integer network is from the floating-point one.",
         0,
         0,
         nullptr,

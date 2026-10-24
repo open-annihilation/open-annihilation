@@ -188,6 +188,10 @@ void stop_on_first_tick(Package& package, host::ErrorKind kind, std::string_view
 
 void bank_spent_hands_the_seat_back() {
     Package package;
+    // The default bank is 60 million instructions. A loaded or slow build can
+    // take longer than the 250 ms real-time limit to spend it, so the clock
+    // would stop the call first; this case is about the instructions.
+    package.bank.call_time_limit = std::chrono::milliseconds(60'000);
     add_file(package, "brain.lua", "return { onTick = function() while true do end end }\n");
     stop_on_first_tick(package, host::ErrorKind::instruction_budget, "allowance of");
 }

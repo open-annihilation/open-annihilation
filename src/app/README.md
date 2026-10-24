@@ -3117,10 +3117,29 @@ installed brain. `set_brain_seat` names the brain, the level and the
 options for one player. Just before a new game finishes loading, the
 runtime reads that brain from `Brains` in the player's folder, checks that
 it fits, and seats it. A seat with no brain, or a brain that does not fit
-or cannot be read, plays as the built-in computer player. A saved game, a
-network game and a recording do not seat a brain. The package is read by
-`oa-app-brain-seats` (`brain_seats.hpp`); the seat itself lives in the
-simulation.
+or cannot be read, plays as the built-in computer player. A network game
+is not saved. A recording does not seat a brain. A saved game names each
+computer seat's brain and seats that brain before the first tick. The
+package is read by `oa-app-brain-seats` (`brain_seats.hpp`); the seat
+itself lives in the simulation.
+
+A save made while brains play stores a Brains account beside the mutators'
+loadout. The account holds the seats, each brain's version, package, level,
+options and the name players see, and each brain's own saved state, at most
+1 MiB. A brain without `save()` starts again from the units. Loading seats
+each saved brain that is installed, and hands `start` the saved state when
+the installed brain is the same version and package. A different version or
+package leaves the state out, and the log names the version that saved it.
+A save that names a brain which is not installed is refused with a sentence
+naming it. From the game's Load screen the question "Load with the built-in
+player?" is pushed over that screen. LOAD WITH THE BUILT-IN PLAYER loads
+with the built-in player on the missing seats, and BACK loads nothing. A
+save with no brain seated holds no Brains account. The end screen's save
+between missions is made after the match was released, so it holds no
+account and the next mission starts from the campaign seat.
+`--check-saved-brains` (`runtime_brain_saves_check.cpp`, ctest
+`native-saved-brains`) saves a skirmish Steady Commander plays, loads that
+state, and walks the missing-brain question.
 
 When a seated brain's turn fails, its sandbox closes and its hooks come
 off before that turn returns. From the next tick the built-in computer

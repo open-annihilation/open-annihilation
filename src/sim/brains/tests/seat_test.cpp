@@ -10,6 +10,8 @@
 #include "oa/core/game_state.h"
 #include "oa/core/player.h"
 #include "oa/data/script_host/fixed.hpp"
+#include "oa/data/script_host/plain_data.hpp"
+#include "oa/formats/oann/oann.hpp"
 #include "oa/sim/brains/seat.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
 
@@ -19,6 +21,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -57,7 +60,46 @@ void add_file(Package& package, std::string path, std::string text) {
     package.files.emplace_back(std::move(path), std::move(text));
 }
 
-brains::SeatOutcome seat_it(Fixture& fixture, Package& package) {
+/// One relu of a single element, the same shape networks_test writes.
+std::string tiny_network() {
+    namespace oann = oa::formats::oann;
+    oann::Model model;
+    oann::Tensor signal;
+    signal.name = "signal";
+    signal.role = oann::Role::input;
+    signal.type = oann::ElementType::int16;
+    signal.rank = 1;
+    signal.dims[0] = 1;
+    oann::Tensor kept;
+    kept.name = "kept";
+    kept.role = oann::Role::output;
+    kept.type = oann::ElementType::int16;
+    kept.rank = 1;
+    kept.dims[0] = 1;
+    model.tensors.push_back(std::move(signal));
+    model.tensors.push_back(std::move(kept));
+    oann::Layer layer;
+    layer.kind = oann::LayerKind::relu;
+    layer.input_count = 1;
+    layer.inputs.fill(oann::no_tensor);
+    layer.inputs[0] = 0;
+    layer.output = 1;
+    layer.weights = oann::no_tensor;
+    layer.bias = oann::no_tensor;
+    model.layers.push_back(layer);
+    oann::Problem problem;
+    const std::optional<std::vector<uint8_t>> bytes = oann::write(model, problem);
+    if (!bytes)
+        throw std::runtime_error(problem.message);
+    return std::string(bytes->begin(), bytes->end());
+}
+
+void add_scout(Package& package) {
+    add_file(package, "nets/scout.oann", tiny_network());
+}
+
+brains::SeatOutcome
+seat_it(Fixture& fixture, Package& package, std::span<const uint8_t> saved = {}) {
     std::vector<brains::PackageFile> files;
     files.reserve(package.files.size());
     for (const auto& held : package.files)
@@ -98,6 +140,7 @@ brains::SeatOutcome seat_it(Fixture& fixture, Package& package) {
     spec.options = options;
     spec.files = files;
     spec.networks = networks;
+    spec.saved = saved;
     return brains::seat_brain(*fixture.match, spec);
 }
 
@@ -250,7 +293,7 @@ Package ready_package() {
     Package package;
     add_file(package, "brain.lua", ready_script());
     add_file(package, "lua/tactics/wave.lua", "return { mark = \"steady\" }\n");
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     package.options.push_back({"hold", brains::OptionKind::toggle, true, 0.0, {}});
     package.options.push_back({"waves", brains::OptionKind::number, false, 3.0, {}});
     package.options.push_back({"stance", brains::OptionKind::choice, false, 0.0, "hold"});
@@ -297,7 +340,7 @@ void fits_true_seats() {
         "brain.lua",
         "local hooks = {}\nfunction hooks.fits() return true end\nreturn hooks\n"
     );
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::seated);
     CHECK(brains::brain_seated(*fixture.match, computer));
@@ -313,7 +356,7 @@ void fits_reason_leaves_the_built_in_player() {
         "function hooks.fits() return \"No build list for this mod's third side\" end\n"
         "return hooks\n"
     );
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::does_not_fit);
     CHECK(reason_of(outcome) == "No build list for this mod's third side");
@@ -333,7 +376,7 @@ void fits_nil_fails() {
         "brain.lua",
         "local hooks = {}\nfunction hooks.fits() return nil end\nreturn hooks\n"
     );
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::failed);
     CHECK(outcome.error.kind == host::ErrorKind::runtime);
@@ -348,7 +391,7 @@ void syntax_error_names_the_module() {
     Package package;
     add_file(package, "brain.lua", "require(\"util\")\nreturn {}\n");
     add_file(package, "lua/util.lua", "return (\n");
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::failed);
     CHECK(outcome.error.kind == host::ErrorKind::syntax);
@@ -362,7 +405,7 @@ void entry_returning_a_number_fails() {
     Fixture fixture;
     Package package;
     add_file(package, "brain.lua", "return 1\n");
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::failed);
     CHECK(reason_of(outcome) == "brain.lua must return a table of hooks");
@@ -374,7 +417,7 @@ void on_tick_must_be_a_function() {
     Fixture fixture;
     Package package;
     add_file(package, "brain.lua", "return { onTick = 5 }\n");
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::failed);
     CHECK(reason_of(outcome) == "brain.lua: onTick must be a function");
@@ -386,7 +429,7 @@ void missing_entry_is_refused() {
     Fixture fixture;
     Package package;
     package.entry = "missing.lua";
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::refused);
     CHECK(reason_of(outcome) == "missing.lua is not among the package files");
@@ -415,13 +458,91 @@ void start_stops_at_the_phase_allowance() {
         "brain.lua",
         "local hooks = {}\nfunction hooks.start() while true do end end\nreturn hooks\n"
     );
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::failed);
     CHECK(outcome.error.kind == host::ErrorKind::instruction_budget);
     CHECK(outcome.error.message == "the script ran past its budget of 50000000 instructions");
+    CHECK(outcome.start_instructions >= host::default_instruction_budget);
+    CHECK(
+        outcome.start_instructions <=
+        host::default_instruction_budget + static_cast<uint64_t>(host::budget_check_interval)
+    );
+    CHECK(outcome.fits_instructions == 0);
     CHECK(!brains::brain_seated(*fixture.match, computer));
     CHECK(brains::seat_sandbox(*fixture.match, computer) == nullptr);
+}
+
+void phase_counts_record_what_ran() {
+    {
+        Fixture fixture;
+        Package package;
+        package.entry = "missing.lua";
+        add_file(package, "nets/scout.oann", tiny_network());
+        const brains::SeatOutcome outcome = seat_it(fixture, package);
+        CHECK(outcome.result == brains::SeatResult::refused);
+        CHECK(!outcome.load_ran);
+        CHECK(!outcome.fits_ran);
+        CHECK(!outcome.start_ran);
+        CHECK(outcome.load_instructions == 0);
+        CHECK(outcome.fits_instructions == 0);
+        CHECK(outcome.start_instructions == 0);
+    }
+
+    {
+        Fixture fixture;
+        Package package;
+        add_file(
+            package,
+            "brain.lua",
+            "local n = 0\n"
+            "for i = 1, 4000 do n = n + i end\n"
+            "local hooks = {}\n"
+            "function hooks.start()\n"
+            "  local m = 0\n"
+            "  for i = 1, 4000 do m = m + i end\n"
+            "end\n"
+            "return hooks\n"
+        );
+        add_file(package, "nets/scout.oann", tiny_network());
+        const brains::SeatOutcome outcome = seat_it(fixture, package);
+        CHECK(outcome.result == brains::SeatResult::seated);
+        CHECK(outcome.load_ran);
+        CHECK(!outcome.fits_ran);
+        CHECK(outcome.start_ran);
+        CHECK(outcome.load_instructions > 0);
+        CHECK(outcome.load_instructions % 1000 == 0);
+        CHECK(outcome.fits_instructions == 0);
+        CHECK(outcome.start_instructions > 0);
+        CHECK(outcome.start_instructions % 1000 == 0);
+    }
+
+    {
+        Fixture fixture;
+        Package package;
+        add_file(
+            package,
+            "brain.lua",
+            "local hooks = {}\n"
+            "function hooks.fits(game)\n"
+            "  local n = 0\n"
+            "  for i = 1, 4000 do n = n + i end\n"
+            "  return 'no room'\n"
+            "end\n"
+            "function hooks.start() while true do end end\n"
+            "return hooks\n"
+        );
+        add_file(package, "nets/scout.oann", tiny_network());
+        const brains::SeatOutcome outcome = seat_it(fixture, package);
+        CHECK(outcome.result == brains::SeatResult::does_not_fit);
+        CHECK(outcome.load_ran);
+        CHECK(outcome.fits_ran);
+        CHECK(!outcome.start_ran);
+        CHECK(outcome.fits_instructions > 0);
+        CHECK(outcome.fits_instructions % 1000 == 0);
+        CHECK(outcome.start_instructions == 0);
+        CHECK(!brains::brain_seated(*fixture.match, computer));
+    }
 }
 
 void local_unused_and_a_second_seat_are_refused() {
@@ -458,7 +579,7 @@ void seated_brain_skips_the_order_tick() {
     arm(fixture);
     Package package;
     add_file(package, "brain.lua", "return {}\n");
-    add_file(package, "nets/scout.oann", "scout");
+    add_scout(package);
     const brains::SeatOutcome outcome = seat_it(fixture, package);
     CHECK(outcome.result == brains::SeatResult::seated);
     CHECK(brains::brain_seated(*fixture.match, computer));
@@ -472,6 +593,156 @@ void seated_brain_skips_the_order_tick() {
         players->players[computer].sort_countdown ==
         static_cast<int32_t>(sim::ai::sort_interval_ticks)
     );
+}
+
+struct HeldBytes {
+    std::vector<uint8_t> bytes;
+};
+
+void keep_bytes(void* context, std::span<const uint8_t> bytes) {
+    static_cast<HeldBytes*>(context)->bytes.assign(bytes.begin(), bytes.end());
+}
+
+struct StartsRead {
+    const uint8_t* bytes{};
+    std::size_t count{};
+    lua_Integer starts{-1};
+    int ok{};
+};
+
+void read_starts(void* context, lua_State* state) {
+    auto* box = static_cast<StartsRead*>(context);
+    host::push_plain_data(state, std::span<const uint8_t>(box->bytes, box->count));
+    lua_getfield(state, -1, "starts");
+    if (lua_isinteger(state, -1) != 0) {
+        box->starts = lua_tointeger(state, -1);
+        box->ok = 1;
+    }
+    lua_pop(state, 2);
+}
+
+struct HeldStart {
+    lua_Integer starts{-1};
+};
+
+void read_held(void* context, lua_State* state) {
+    auto* box = static_cast<HeldStart*>(context);
+    lua_getglobal(state, "held_starts");
+    if (lua_isinteger(state, -1) != 0)
+        box->starts = lua_tointeger(state, -1);
+    lua_pop(state, 1);
+}
+
+Package script_package(std::string script) {
+    Package package;
+    package.with_network = false;
+    add_file(package, "brain.lua", std::move(script));
+    return package;
+}
+
+void save_returns_a_table() {
+    Fixture fixture;
+    Package package = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  return { starts = 3 }\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    HeldBytes held;
+    brains::SaveHooks hooks;
+    hooks.context = &held;
+    hooks.accept = keep_bytes;
+    CHECK(brains::save_brain_state(*fixture.match, computer, hooks) == brains::SaveOutcome::stored);
+    CHECK(!held.bytes.empty());
+    CHECK(brains::brain_seated(*fixture.match, computer));
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    StartsRead read;
+    read.bytes = held.bytes.data();
+    read.count = held.bytes.size();
+    host::ScriptError error;
+    CHECK(sandbox->run_host("read", &read, read_starts, error));
+    CHECK(read.ok == 1);
+    CHECK(read.starts == 3);
+}
+
+void save_absent_when_the_brain_has_none() {
+    Fixture fixture;
+    Package package = script_package("return {}\n");
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::save_brain_state(*fixture.match, computer, {}) == brains::SaveOutcome::absent);
+    CHECK(brains::brain_seated(*fixture.match, computer));
+}
+
+void save_that_raises_hands_the_seat_back() {
+    Fixture fixture;
+    Package package = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  error(\"no\")\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::save_brain_state(*fixture.match, computer, {}) == brains::SaveOutcome::failed);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
+}
+
+void save_over_one_mebibyte_is_omitted() {
+    Fixture fixture;
+    Package package = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  local parts = {}\n"
+        "  for i = 1, 20 do\n"
+        "    parts[i] = string.rep(\"x\", 60000)\n"
+        "  end\n"
+        "  return parts\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::save_brain_state(*fixture.match, computer, {}) == brains::SaveOutcome::omitted);
+    CHECK(brains::brain_seated(*fixture.match, computer));
+}
+
+void start_receives_the_saved_state() {
+    Fixture fixture;
+    Package writer = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  return { starts = 4 }\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, writer).result == brains::SeatResult::seated);
+    HeldBytes held;
+    brains::SaveHooks hooks;
+    hooks.context = &held;
+    hooks.accept = keep_bytes;
+    CHECK(brains::save_brain_state(*fixture.match, computer, hooks) == brains::SaveOutcome::stored);
+    fixture.match->simulation().players[2].present = true;
+    fixture.match->simulation().players[2].status = OA_PLAYER_STATUS_COMPUTER;
+    Package reader = script_package(
+        "local brain = {}\n"
+        "function brain.start(game, me, saved)\n"
+        "  held_starts = -1\n"
+        "  if type(saved) == \"table\" and type(saved.starts) == \"number\" then\n"
+        "    held_starts = saved.starts\n"
+        "  end\n"
+        "end\n"
+        "return brain\n"
+    );
+    reader.player = 2;
+    CHECK(seat_it(fixture, reader, held.bytes).result == brains::SeatResult::seated);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, 2);
+    CHECK(sandbox != nullptr);
+    HeldStart seen;
+    host::ScriptError error;
+    CHECK(sandbox->run_host("read", &seen, read_held, error));
+    CHECK(seen.starts == 4);
 }
 
 void instruction_totals_cover_load_tick_and_a_stop() {
@@ -490,7 +761,7 @@ void instruction_totals_cover_load_tick_and_a_stop() {
         "  end\n"
         "}\n"
     );
-    add_file(quiet, "nets/scout.oann", "scout");
+    add_scout(quiet);
     CHECK(seat_it(fixture, quiet).result == brains::SeatResult::seated);
     host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
     CHECK(sandbox != nullptr);
@@ -521,7 +792,7 @@ void instruction_totals_cover_load_tick_and_a_stop() {
         "  end\n"
         "}\n"
     );
-    add_file(breaker, "nets/scout.oann", "scout");
+    add_scout(breaker);
     CHECK(seat_it(stopping, breaker).result == brains::SeatResult::seated);
     const uint64_t before = brains::seat_instructions(*stopping.match, computer);
     ++stopping.match->state().game.tick;
@@ -537,7 +808,7 @@ void two_brains_end_with_the_match() {
     Package first;
     first.player = computer;
     add_file(first, "brain.lua", "return {}\n");
-    add_file(first, "nets/scout.oann", "scout");
+    add_scout(first);
     Package second = first;
     second.player = 2;
     CHECK(seat_it(fixture, first).result == brains::SeatResult::seated);
@@ -564,8 +835,14 @@ int main() {
         missing_entry_is_refused();
         bad_digest_runs_no_lua();
         start_stops_at_the_phase_allowance();
+        phase_counts_record_what_ran();
         local_unused_and_a_second_seat_are_refused();
         seated_brain_skips_the_order_tick();
+        save_returns_a_table();
+        save_absent_when_the_brain_has_none();
+        save_that_raises_hands_the_seat_back();
+        save_over_one_mebibyte_is_omitted();
+        start_receives_the_saved_state();
         instruction_totals_cover_load_tick_and_a_stop();
         two_brains_end_with_the_match();
     } catch (const std::exception& ex) {

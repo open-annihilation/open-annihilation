@@ -34,6 +34,8 @@ SeatOutcome check_brain(const SeatSpec& spec, const oa::data::brain_facts::GameF
     }
     created->match = nullptr;
     created->facts = &facts;
+    if (!build_networks(*created, spec, outcome))
+        return outcome;
     if (!open_and_fit(*created, spec, outcome))
         return outcome;
     created->sandbox.reset();

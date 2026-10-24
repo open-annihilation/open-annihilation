@@ -491,8 +491,10 @@ void Runtime::take_pending_brain_seats() {
             std::vector<oa::sim::brains::PackageFile> files;
             std::vector<oa::sim::brains::OptionValue> options;
             std::vector<oa::sim::brains::NetworkFile> networks;
-            const oa::sim::brains::SeatSpec spec =
+            oa::sim::brains::SeatSpec spec =
                 seat_spec(seat.player, *installed, resolved, files, options, networks);
+            if (seat.saved.has_value() && !seat.saved->empty())
+                spec.saved = *seat.saved;
             prepare_brain_report(
                 seat.player,
                 installed->manifest.name,

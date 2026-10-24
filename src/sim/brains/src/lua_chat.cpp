@@ -179,7 +179,7 @@ void set_chat_hooks(match_runtime::Match& match, ChatHooks hooks) noexcept {
         try {
             held.reset(created, [](void* pointer) { delete static_cast<Brains*>(pointer); });
         } catch (...) {
-            delete created;
+            // A reset that throws has already passed `created` to the deleter.
             return;
         }
     }

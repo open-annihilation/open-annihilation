@@ -2,13 +2,15 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Seats one brain: the package's bytes are copied, every network's digest is
-// checked, then the entry, fits and start run. A failure removes the seat
-// and installs no hooks.
+// checked, each network is built, then the entry, fits and start run. A
+// failure removes the seat and installs no hooks.
 
 #include "internal.hpp"
 
 #include "oa/core/game_state.h"
 #include "oa/core/player.h"
+#include "oa/data/neural/network.hpp"
+#include "oa/data/script_host/plain_data.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
 
@@ -17,12 +19,21 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <new>
+#include <optional>
 #include <string_view>
 #include <utility>
 
 namespace oa::sim::brains {
+
+Seat::Seat() = default;
+
+Seat::~Seat() {
+    delete[] incoming.items;
+    delete[] delivering.items;
+}
 
 void write_reason(std::array<char, 256>& reason, std::string_view text) {
     const std::size_t count = text.size() < reason_limit ? text.size() : reason_limit;
@@ -77,6 +88,18 @@ void write_parts(
 bool refuse(SeatOutcome& outcome, std::string_view text) {
     outcome.result = SeatResult::refused;
     write_reason(outcome.reason, text);
+    return false;
+}
+
+bool refuse_network(SeatOutcome& outcome, std::string_view id, std::string_view detail) {
+    char buffer[256];
+    const int id_n = id.size() > 80 ? 80 : static_cast<int>(id.size());
+    const int detail_n = detail.size() > 160 ? 160 : static_cast<int>(detail.size());
+    std::snprintf(
+        buffer, sizeof buffer, "network %.*s: %.*s", id_n, id.data(), detail_n, detail.data()
+    );
+    outcome.result = SeatResult::refused;
+    write_reason(outcome.reason, buffer);
     return false;
 }
 
@@ -339,6 +362,8 @@ void read_fits(void* context, lua_State* state, int results) {
 
 struct StartBox {
     Seat* seat{};
+    const uint8_t* saved{};
+    std::size_t saved_count{};
 };
 
 int push_start(void* context, lua_State* state) {
@@ -348,7 +373,10 @@ int push_start(void* context, lua_State* state) {
     lua_remove(state, -2);
     lua_getglobal(state, "game");
     lua_getglobal(state, "me");
-    lua_pushnil(state);
+    if (box->saved == nullptr || box->saved_count == 0)
+        lua_pushnil(state);
+    else
+        script_host::push_plain_data(state, std::span<const uint8_t>(box->saved, box->saved_count));
     return 3;
 }
 
@@ -357,6 +385,60 @@ bool play_turn(void* context, match_runtime::Match& match, uint8_t player) {
 }
 
 } // namespace
+
+bool build_networks(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
+    if (spec.networks.empty())
+        return true;
+    namespace neural = oa::data::neural;
+    namespace oann = oa::formats::oann;
+    try {
+        auto held = std::make_unique<neural::NetworkSet>(neural::max_brain_network_bytes);
+        std::size_t planned = 0;
+        for (const NetworkFile& network : spec.networks) {
+            const PackageFile* file = find_file(spec, network.path);
+            if (file == nullptr) {
+                outcome.result = SeatResult::refused;
+                write_parts(outcome.reason, network.path, " is not among the package files", {});
+                return false;
+            }
+            oann::Problem problem;
+            const std::optional<oann::Model> model = oann::read(file->bytes, problem);
+            if (!model)
+                return refuse_network(outcome, network.id, problem.message);
+            const std::size_t bytes = neural::Network::memory_bytes_of(*model);
+            if (bytes > neural::max_brain_network_bytes ||
+                planned > neural::max_brain_network_bytes - bytes) {
+                uint64_t would = static_cast<uint64_t>(planned);
+                const uint64_t more = static_cast<uint64_t>(bytes);
+                if (would > ~uint64_t{0} - more)
+                    would = ~uint64_t{0};
+                else
+                    would += more;
+                char detail[160];
+                std::snprintf(
+                    detail,
+                    sizeof detail,
+                    "networks would take %llu bytes; a brain may hold %llu",
+                    static_cast<unsigned long long>(would),
+                    static_cast<unsigned long long>(neural::max_brain_network_bytes)
+                );
+                return refuse_network(outcome, network.id, detail);
+            }
+            planned += bytes;
+            std::optional<neural::Network> built = neural::Network::build(*model, problem);
+            if (!built)
+                return refuse_network(outcome, network.id, problem.message);
+            if (!held->add(network.id, std::move(*built), problem))
+                return refuse_network(outcome, network.id, problem.message);
+        }
+        seat.networks = std::move(held);
+    } catch (const std::exception&) {
+        write_reason(outcome.reason, "the seat could not be stored");
+        outcome.result = SeatResult::failed;
+        return false;
+    }
+    return true;
+}
 
 bool package_acceptable(const SeatSpec& spec, SeatOutcome& outcome) {
     return texts_fit(spec, outcome) && entry_present(spec, outcome) &&
@@ -392,11 +474,14 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         script_host::CallHooks load_hooks;
         load_hooks.context = &loaded;
         load_hooks.read = read_entry;
+        outcome.load_ran = true;
         if (!seat.sandbox->run_file(spec.entry, "load", &load_hooks, error)) {
+            outcome.load_instructions = seat.sandbox->instructions_used();
             note_call_instructions(seat);
             fail_sandbox_host(outcome, seat, error);
             return false;
         }
+        outcome.load_instructions = seat.sandbox->instructions_used();
         note_call_instructions(seat);
         note_prints(seat);
         if (loaded.status == 1) {
@@ -423,11 +508,14 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
             fit_hooks.context = &fits;
             fit_hooks.push = push_fits;
             fit_hooks.read = read_fits;
+            outcome.fits_ran = true;
             if (!seat.sandbox->call("fits", fit_hooks, error)) {
+                outcome.fits_instructions = seat.sandbox->instructions_used();
                 note_call_instructions(seat);
                 fail_sandbox_host(outcome, seat, error);
                 return false;
             }
+            outcome.fits_instructions = seat.sandbox->instructions_used();
             note_call_instructions(seat);
             if (fits.status == 1) {
                 note_prints(seat);
@@ -532,6 +620,11 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         seat.handed_over = computer_players->initialized != 0;
     }
 
+    if (!build_networks(seat, spec, outcome)) {
+        close_seat(*brains, player);
+        return outcome;
+    }
+
     if (!open_and_fit(seat, spec, outcome)) {
         close_seat(*brains, player);
         return outcome;
@@ -542,14 +635,19 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         if (seat.has_start) {
             StartBox starting;
             starting.seat = &seat;
+            starting.saved = spec.saved.data();
+            starting.saved_count = spec.saved.size();
             script_host::CallHooks start_hooks;
             start_hooks.context = &starting;
             start_hooks.push = push_start;
+            outcome.start_ran = true;
             if (!seat.sandbox->call("start", start_hooks, error)) {
+                outcome.start_instructions = seat.sandbox->instructions_used();
                 note_call_instructions(seat);
                 fail_host(outcome, *brains, player, error);
                 return outcome;
             }
+            outcome.start_instructions = seat.sandbox->instructions_used();
             note_call_instructions(seat);
             note_prints(seat);
         }

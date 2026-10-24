@@ -36,17 +36,19 @@ enum class Difficulty : uint8_t {
 /// `place` is the player slot, 0 to 9, in a skirmish or a campaign. In the
 /// battle room it is the order this machine seated its computer players,
 /// from 0. An empty `brain` is the built-in computer player, chosen on
-/// purpose. `version` and `package_sha256` are empty in a setup's memory
-/// and are filled when a game is saved. `level` is a brain's level id, or
-/// `easy`, `medium` or `hard` for the built-in player; empty means the
-/// setup's own difficulty. `options` are in the brain's option order, each
-/// value as that option's canonical text.
+/// purpose. `version`, `package_sha256` and `name` are empty in a setup's
+/// memory and are filled when a game is saved. `name` is the name players
+/// see. `level` is a brain's level id, or `easy`, `medium` or `hard` for
+/// the built-in player; empty means the setup's own difficulty. `options`
+/// are in the brain's option order, each value as that option's canonical
+/// text.
 struct Seat {
     int32_t place{};              ///< the seat, 0 to 9
     std::string brain{};          ///< the brain's id; empty is built-in
     std::string version{};        ///< the brain's version; empty in memory
     std::string package_sha256{}; ///< 64 lower-case hex digits; empty in memory
     std::string level{};          ///< the level id; empty for the setup's difficulty
+    std::string name{};           ///< the name players see; empty in memory
     std::vector<std::pair<std::string, std::string>> options{}; ///< option id and canonical value
 };
 

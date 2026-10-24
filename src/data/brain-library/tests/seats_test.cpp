@@ -76,6 +76,7 @@ void test_round_trip() {
     OA_CHECK(read->seats[1].level == "firm");
     OA_CHECK(read->seats[1].version == "1.2");
     OA_CHECK(read->seats[1].package_sha256 == kSha);
+    OA_CHECK(read->seats[1].name.empty());
     OA_CHECK(read->seats[1].options.size() == 1);
     if (read->seats[1].options.empty())
         return;
@@ -98,6 +99,22 @@ void test_round_trip() {
     const std::optional<lib::Seats> kept_read = lib::parse_seats(kept);
     OA_CHECK(kept_read.has_value());
     OA_CHECK(lib::seats_text(*kept_read) == kept);
+
+    lib::Seats named;
+    lib::Seat commander = seat_of(1, "steady-commander", "firm");
+    commander.name = "Steady Commander";
+    commander.version = "1.2";
+    named.seats.push_back(std::move(commander));
+    const std::string with_name = lib::seats_text(named);
+    OA_CHECK(
+        with_name ==
+        R"({"seats":[{"brain":"steady-commander","level":"firm","name":"Steady Commander","place":1,"version":"1.2"}]})"
+    );
+    const std::optional<lib::Seats> named_read = lib::parse_seats(with_name);
+    OA_CHECK(named_read.has_value());
+    OA_CHECK(named_read->seats.size() == 1);
+    if (!named_read->seats.empty())
+        OA_CHECK(named_read->seats[0].name == "Steady Commander");
 }
 
 void test_out_of_order_and_unknown() {
@@ -151,6 +168,9 @@ void test_refusals() {
     refuse(R"({"seats":[{"place":0,"package_sha256":")" + std::string(64, 'g') + R"("}]})");
     refuse(R"({"seats":[{"place":0,"level":"Firm"}]})");
     refuse(R"({"seats":[{"place":0,"level":""}]})");
+    refuse(R"({"seats":[{"place":0,"name":""}]})");
+    refuse("{\"seats\":[{\"place\":0,\"name\":\"bad\x7f\"}]}");
+    refuse(R"({"seats":[{"place":0,"name":")" + std::string(65, 'a') + R"("}]})");
     refuse(R"({"seats":[{"place":0,"level":")" + std::string(65, 'a') + R"("}]})");
     refuse(R"({"seats":[{"place":0,"options":[]}]})");
     refuse(R"({"seats":[{"place":0,"options":{"Bad":"high"}}]})");

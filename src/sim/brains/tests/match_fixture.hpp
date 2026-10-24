@@ -218,11 +218,17 @@ struct Fixture {
         for (size_t i = 1; i < type_count; ++i)
             loaded[i].type = types[i];
 
-        sim::match_runtime::OfflineInputs input{
-            map,        loaded, types, fields,      weapons,   terrain_values,       masks, 32, 32, 40,
-            visibility, 0,      30,    random_seed, &scenario, [] { return 1000u; }, plots, {}, 0,  0,
-            0.0F,       {}
-        };
+        sim::match_runtime::OfflineInputs input{map,        loaded,
+                                                types,      fields,
+                                                weapons,    terrain_values,
+                                                masks,      32,
+                                                32,         40,
+                                                visibility, 0,
+                                                30,         random_seed,
+                                                &scenario,  [] { return 1000u; },
+                                                plots,      {},
+                                                0,          0,
+                                                0.0F,       {}};
         input.rules = rules;
         input.limits = limits;
         match = std::make_unique<sim::match_runtime::Match>(input, services);

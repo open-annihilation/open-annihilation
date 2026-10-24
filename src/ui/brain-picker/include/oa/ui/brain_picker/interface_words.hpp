@@ -40,6 +40,10 @@ inline constexpr std::string_view interface_words[] = {
     words::switch_off,
     words::switch_on,
     words::empty_brains,
+    words::load_built_in_title,
+    words::saved_with_missing,
+    words::built_in_takes_seats,
+    words::load_built_in_button,
 };
 
 } // namespace oa::ui::brain_picker

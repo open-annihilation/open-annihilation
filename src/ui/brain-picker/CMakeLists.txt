@@ -2,9 +2,11 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 # The brain seat picker's model and its screen: which brain a computer seat
-# plays, and the kit window that draws the list, the details and the footer.
+# plays, at which level, with which options, the kit window that draws the
+# list, the details and the footer, and the load question a saved game asks.
 # It reads no file, clock, preference or network.
-add_library(oa-ui-brain-picker src/draw.cpp src/input.cpp src/layout.cpp src/model.cpp src/text.cpp)
+add_library(oa-ui-brain-picker src/draw.cpp src/input.cpp src/layout.cpp src/model.cpp
+  src/text.cpp src/prompts.cpp)
 add_library(oa::ui::brain_picker ALIAS oa-ui-brain-picker)
 target_include_directories(oa-ui-brain-picker PUBLIC include)
 target_compile_features(oa-ui-brain-picker PUBLIC cxx_std_20)
@@ -50,4 +52,12 @@ if(BUILD_TESTING)
   oa_add_game_data_test(ui-brain-picker-draw-data oa-ui-brain-picker-draw-test --data
     "${PROJECT_SOURCE_DIR}/languages/interface.tdf")
   set_tests_properties(ui-brain-picker-draw-data PROPERTIES TIMEOUT 60)
+
+  # "Load with the built-in player?": one missing brain and two, the buttons,
+  # the texts fitting at every class, and a lookup that translates.
+  add_executable(oa-ui-brain-picker-prompts-test tests/prompts_test.cpp)
+  target_link_libraries(oa-ui-brain-picker-prompts-test PRIVATE oa-ui-brain-picker oa-ui-kit
+    oa-test-support)
+  add_test(NAME ui-brain-picker-prompts COMMAND oa-ui-brain-picker-prompts-test)
+  set_tests_properties(ui-brain-picker-prompts PROPERTIES TIMEOUT 30)
 endif()
