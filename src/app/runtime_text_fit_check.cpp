@@ -10,8 +10,9 @@
 // records the same way. A startup notice drawn by the game's own windows is
 // opened too; that painter keeps no record. SKIRMISH is painted with
 // Mutators reading "Mutators" and "Mutators (5)", with three computer rows'
-// brain buttons, one of them a long name, and NEWGAME with the button, in
-// every language and both sizes; Mutators' words must read whole.
+// brain buttons, one of them a long name, and NEWGAME with Mutators and with
+// the campaign brain button showing that long name, in every language and
+// both sizes; Mutators' words must read whole.
 // The Brains tab's details are painted too: one brain not installed and one
 // installed, at both sizes and at 960x540, Compact on its details page.
 // "Load with the built-in player?" is painted with two 64-byte names.
@@ -234,12 +235,19 @@ struct LongBrainPackage {
 
 /// Writes ridge-long-beacon, a brain whose name does not fit a seat button.
 ///
+/// The name stays within the 64 bytes a manifest keeps. A longer name is
+/// not installed, and the campaign button then stays hidden.
+///
 /// @param folder the brain's folder
 void write_long_brain(const fs::path& folder) {
     oa::formats::oabrain::Manifest manifest;
     manifest.format = oa::formats::oabrain::format_version;
     manifest.id = "ridge-long-beacon";
-    manifest.name = "Ridge Long Beacon Watching The Far Western Hills Past The Lantern Line";
+    manifest.name = "Ridge Long Beacon Watching The Far Western Hills Past Nightfall";
+    require(
+        manifest.name.size() <= oa::formats::oabrain::most_name_bytes,
+        "the long brain's name is longer than a manifest allows"
+    );
     manifest.version.major = 1;
     manifest.version.parts = 1;
     manifest.author.name = "Ridge Testers";
@@ -824,6 +832,44 @@ void Runtime::check_text_fit() {
             paint("newgame/mutators");
             require_whole_words("newgame/mutators");
             replace_setup_mutators(mutators_memory::Setup::campaign, {});
+            // The campaign seat's button, with a brain name longer than the
+            // button. The package is removed before the next screen.
+            {
+                require(!user_folder_.empty(), "the run has no folder of the player's own");
+                LongBrainPackage package;
+                package.folder = user_folder_ /
+                                 std::string(oa::data::brain_library::brains_folder_name) /
+                                 "ridge-long-beacon";
+                write_long_brain(package.folder);
+                reload_installed_brains();
+                require(
+                    oa::data::brain_library::find(installed_brains(), "ridge-long-beacon") !=
+                        nullptr,
+                    "newgame/brain-seat: the long brain is not installed"
+                );
+                const oa::data::brain_library::Seats saved_seats =
+                    setup_brain_seats(oa::data::brain_library::Setup::campaign);
+                oa::data::brain_library::Seat seat;
+                seat.place = 1;
+                seat.brain = "ridge-long-beacon";
+                seat.level = "far";
+                oa::data::brain_library::Seats chosen;
+                chosen.seats.push_back(std::move(seat));
+                setup_brain_seats(oa::data::brain_library::Setup::campaign) = std::move(chosen);
+                paint("newgame/brain-seat");
+                bool shown = false;
+                std::vector<AutomationControl> controls;
+                oa_layer().automation_controls(controls);
+                for (const AutomationControl& control : controls) {
+                    if (control.name == "oa.brain-seat.campaign" && control.visible)
+                        shown = true;
+                }
+                require(shown, "newgame/brain-seat: oa.brain-seat.campaign is not shown");
+                setup_brain_seats(oa::data::brain_library::Setup::campaign) = saved_seats;
+                std::error_code removed;
+                fs::remove_all(package.folder, removed);
+                reload_installed_brains();
+            }
             load(Screen::main_menu);
 
             open_engine_settings_from_menu();

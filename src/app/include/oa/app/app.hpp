@@ -733,6 +733,11 @@ struct Options {
     // brain button, the focus hand-over, the picker, the hover card and
     // the brains a start seats. A scratch preferences file holds the seat.
     bool check_brain_seat_buttons = false;
+    // On NEWGAME and Any Mission at 640x480 and 1280x720, requires the
+    // campaign's brain button, Tab, the picker and the brain a mission
+    // and a loaded campaign save seat. A scratch preferences file holds
+    // the seat.
+    bool check_brain_campaign = false;
     // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
     // question after a crash, and Get mutators over the picker.
     bool check_mutator_prompts = false;
