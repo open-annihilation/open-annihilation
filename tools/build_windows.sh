@@ -62,8 +62,10 @@ Environment: OA_MINGW_TRIPLE (x86_64-w64-mingw32, the default, or
 i686-w64-mingw32), OA_WINDOWS_DEPS (default: local/deps/windows, with the
 same additions as the build tree), OA_WINDOWS_BUILD_DIR, OA_BUILD_TYPE,
 OA_BUILD_JOBS, OA_WINDOWS_CTEST_ARGS, OA_WINDOWS_CCACHE (0 builds without
-ccache). A dependency folder or build tree made for another target is
-refused rather than mixed with this one's.
+ccache), OA_HOST_OA_TOOL (the host build's oa-tool, used to pack Classic
+beside the game; when unset, build/oa-tool is passed if that file exists,
+and an empty value leaves Classic unpacked). A dependency folder or build
+tree made for another target is refused rather than mixed with this one's.
 USAGE
 }
 
@@ -194,12 +196,43 @@ printf '%s\n' "$target" >"$deps_record"
 python3 "$repo_dir/tools/bootstrap_windows_deps.py" "${bootstrap_args[@]}"
 python3 "$repo_dir/tools/bootstrap_text_fonts.py" --fonts-only
 
+# A cross build cannot run the oa-tool it compiles. Classic is packed with
+# the host build's oa-tool when one is named. An empty OA_HOST_OA_TOOL is
+# passed through, so the configure leaves Classic unpacked on purpose.
+host_tool_args=()
+if [[ -n "${OA_HOST_OA_TOOL+x}" && -z "$OA_HOST_OA_TOOL" ]]; then
+    host_tool_args=("-DOA_HOST_OA_TOOL=")
+else
+    host_oa_tool="${OA_HOST_OA_TOOL:-}"
+    if [[ -z "$host_oa_tool" ]]; then
+        for candidate in "$source_dir/build/oa-tool" "$repo_dir/build/oa-tool"; do
+            if [[ -x "$candidate" && ! -d "$candidate" ]]; then
+                host_oa_tool=$candidate
+                break
+            fi
+        done
+    fi
+    if [[ -n "$host_oa_tool" ]]; then
+        if [[ ! -x "$host_oa_tool" || -d "$host_oa_tool" ]]; then
+            printf 'build_windows.sh: OA_HOST_OA_TOOL=%s is not an executable\n' "$host_oa_tool" >&2
+            exit 2
+        fi
+        case "$host_oa_tool" in
+            /*) ;;
+            *) host_oa_tool="$(cd -- "$(dirname -- "$host_oa_tool")" && pwd)/$(basename -- "$host_oa_tool")" ;;
+        esac
+        host_tool_args=("-DOA_HOST_OA_TOOL=$host_oa_tool")
+        printf 'Packing Classic with the host oa-tool %s\n' "$host_oa_tool"
+    fi
+fi
+
 printf 'Configuring %s (%s, %s)...\n' "$build_dir" "$target" "$build_type"
 cmake -S "$source_dir" -B "$build_dir" ${generator_args[@]+"${generator_args[@]}"} -DCMAKE_TOOLCHAIN_FILE="$toolchain" \
     "-DCMAKE_C_COMPILER_LAUNCHER=$compiler_launcher" "-DCMAKE_CXX_COMPILER_LAUNCHER=$compiler_launcher" \
     "-DCMAKE_BUILD_TYPE=$build_type" "-DOA_WINDOWS_DEPS=$deps" "-DOA_WINDOWS_XP=$windows_xp" \
     "-DOA_WINDOWS_95=$windows_95" \
     -DOA_BUILD_PLATFORM=ON -DOA_BUILD_INTRO_PLAYER=ON "-DBUILD_TESTING=$testing" \
+    ${host_tool_args[@]+"${host_tool_args[@]}"} \
     ${launcher_args[@]+"${launcher_args[@]}"}
 
 if [[ ${#targets[@]} -gt 0 ]]; then

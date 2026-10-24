@@ -22,6 +22,15 @@ target's `OA_GAME_FILES_DIR` property names it for build commands. The
 out-of-memory report goes to `ErrorLog.txt` beside the application: beside
 the executable, or beside the bundle, never inside it.
 
+Classic travels with those files as `classic.oabrain` in `brains/`. The build
+packs `brains/classic` with `oa-tool brain pack` after the game links
+(`cmake/OaBrains.cmake`). A build that runs its own `oa-tool` uses that
+tool. A cross build cannot run the `oa-tool` it compiles: it packs Classic
+with the host build's `oa-tool` when `OA_HOST_OA_TOOL` names that
+executable, and leaves Classic out when the option is empty, saying so
+once at configure time. `tools/build_windows.sh` passes `build/oa-tool`
+when the host build has one.
+
 The game carries three icons. `tools/make_icons.py` makes them on macOS
 from the 1024-pixel pictures in `branding/` and the results are committed
 beside those pictures. The app icon, the plates alone
