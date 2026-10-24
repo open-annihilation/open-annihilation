@@ -2,7 +2,7 @@
 
 `oa-data-script-host` runs one package's Lua in a sandbox. A script can use a
 small set of libraries, `require` only the package's own `lua/` files, and
-stop at an instruction allowance, a memory cap or a processor-time limit. Nothing
+stop at an instruction allowance, a memory cap or a real-time limit. Nothing
 it does reaches a file, a clock, the environment or a network, and a failure
 comes back as a value that names the package, the phase, the chunk and the
 line.
@@ -27,9 +27,9 @@ The interpreter underneath is Lua 5.4.9, built as the C library
 - `run_file` loads a package path as a text chunk and runs it as one phase.
   `call` runs the function `push` placed on the stack, then `read` sees how
   many results came back. Each of those phases has a fresh instruction
-  allowance and a fresh processor-time limit.
+  allowance and a fresh real-time limit.
 - `call_banked` runs one call the way `call` does, but the allowance is the
-  bank's balance and the processor-time limit is the bank's. The instructions
+  bank's balance and the real-time limit is the bank's. The instructions
   that call used come off the balance. `refill_bank` adds one tick's
   allowance, and the balance never passes the limit. A profile with no bank
   makes `call_banked` return an error and leaves the sandbox usable.
@@ -69,62 +69,50 @@ moves that state; the moved-from object has no state.
 - `open`, `run_file`, `call`, `run_host` and `compile_check` do their Lua work
   inside one protected call. A failure marks the sandbox failed, and every
   later phase returns that same error and runs nothing.
-- Once the instruction allowance is spent, the time limit is past, or
+- Once the instruction allowance is spent, the real-time limit is past, or
   the sandbox has failed, `xpcall` returns the error unchanged and does not
   run the handler the script passed. A handler that loops, or one that
   catches errors with `pcall`, cannot keep the phase alive. An instruction
-  error, a time-limit error or a memory error is reported even when the
+  error, a real-time error or a memory error is reported even when the
   script's own `pcall` caught it, including when an allocation spent the
   allowance.
 - No C++ object with a destructor is alive across a Lua raise. `install`,
   `push`, `read` and the `run_host` work may raise and must not throw.
 - The instruction allowance is per phase and is not a clock. The memory cap
   is the Lua allocation only. Passing either one sticks for that phase.
-- Each phase also stops when this thread has used more than its processor-time
-  limit. The default is `default_time_limit`, 10 seconds.
-  `OpenOptions::time_limit` sets another for that sandbox. The count hook
-  reads the processor clock on every budget step (every
-  `budget_check_interval` instructions) and a steady clock on every call
-  (every `clock_check_interval` instructions). Every library charge reads
-  both. The calls between budget steps do not read the processor clock: that
-  read on every call costs enough that the default bank of 60 million
-  instructions stops for time before the count. The count still steps by
-  `budget_check_interval` at the same instructions. The host does not start a
-  thread or a signal to
-  watch the clock. Processor time is what the limit names, so other programs
-  on the machine do not spend it. The steady clock stops the phase once real
-  time is a quarter of a second past the limit, unless the instructions
-  counted so far will spend the allowance before that processor time: a busy
-  machine then reports the spent allowance instead of the wait. A phase whose
-  allowance cannot run out still stops on that grace, inside the second the
-  time-limit test allows. Past either clock the phase ends with `time_limit`
-  and the
-  message `<phase> ran for more than 10 seconds; its work is too large or
-  never ends` (a limit that is not a whole number of seconds names that
-  length in milliseconds). A `pcall` or `xpcall` cannot keep the phase going.
-  The charges above are unchanged: the limit sits beside them. A phase that
-  finishes inside the limit has the same results, the same charges and the
-  same messages as it would with no clock.
-- The processor clock is read at the next budget step or the next charge, so
-  a phase can run past the limit by the work of `budget_check_interval`
-  instructions, or of one charge. The steady clock is read on every hook
-  call, so real time past the grace is noticed within `clock_check_interval`
-  instructions. Most instructions take well under a microsecond; the slow
-  ones are the steps Limitations names. The slowest found is an assignment
-  that makes a table rebuild itself: 10 to 30 milliseconds of processor time
-  for a table of a million keys, about the largest whose rebuild fits the
-  default memory cap. A loop can do that every 4 instructions, so about 250
-  rebuilds can fall between two reads of the processor clock, and about 25
-  between two reads of the steady clock. A loop of 64 KiB zero-filled
-  comparisons is one interpreter step per comparison. A tight loop stops
-  within one budget step of processor time when the thread is running. Real
-  time past the limit stops at the grace above, plus the wait until the next
-  steady-clock read. The limit only ever stops a script; it never changes a
-  result. A
-  script near the limit can pass on a fast machine and fail on a slow one.
-  In multiplayer the loadout digest refuses a match whose machines disagree,
-  so the difference cannot desync a match. A dry run records `time_limit`
-  like any other failure.
+- Each phase also stops when it has run longer than its real-time limit. The
+  default is `default_time_limit`, 10 seconds. `OpenOptions::time_limit`
+  sets another for that sandbox. A steady clock is read when the phase
+  starts and checked in the instruction hook, every 100 instructions, and in
+  every library charge. The hook counts the allowance on every tenth of
+  those calls, so the count still steps by `budget_check_interval` at the
+  same instructions. There is no thread and no signal. Past the limit the
+  phase ends with `time_limit` and the message `<phase> ran for more than 10
+  seconds; its work is too large or never ends` (a limit that is not a whole
+  number of seconds names that length in milliseconds). A `pcall` or
+  `xpcall` cannot keep the phase going. The charges above are unchanged: the
+  limit sits beside them. A phase that finishes inside the limit has the
+  same results, the same charges and the same messages as it would with no
+  clock.
+- The check lands at the next hook or the next charge, so a phase can run
+  past the limit by the work of 100 instructions, or of one charge. Most
+  instructions take well under a microsecond; the slow ones are the steps
+  Limitations names. The slowest found is an assignment that makes a table
+  rebuild itself: 10 to 30 milliseconds of processor time for a table of a
+  million keys, about the largest whose rebuild fits the default memory cap.
+  A loop can do that every 4 instructions, 25 times between two reads of the
+  clock, so it can run a quarter to three quarters of a second of processor
+  time past the limit, and longer in real time on a machine busy with other
+  work. On the machine where this was measured (10 cores, load averages of
+  20 to 80), loops that rebuild such a table stopped 0.01 to 0.9 seconds
+  after a 2 second limit, and in three runs at the busiest 2.4 to 2.9
+  seconds after it. A loop of 64 KiB zero-filled comparisons stopped within
+  60 milliseconds of a 300 millisecond limit, and a tight loop within the
+  same millisecond. The limit only ever stops a script; it never changes a
+  result. A script near the limit can pass on a fast machine and fail on a
+  slow one. In multiplayer the loadout digest refuses a match whose machines
+  disagree, so the difference cannot desync a match. A dry run records
+  `time_limit` like any other failure.
 - A profile may carry a bank. The defaults are 2,000,000 instructions a
   tick (`default_tick_allowance`), 30 ticks (`default_bank_ticks`) and 250
   milliseconds (`default_call_time_limit`). The bank opens full. Its limit
@@ -138,15 +126,15 @@ moves that state; the moved-from object has no state.
   A phase that is not banked (`open`, `run_file`, `call`, `run_host`,
   `compile_check`) still uses the profile's allowance and leaves the
   balance unchanged.
-- A banked call's limit is the bank's processor time, 250 milliseconds unless
-  the profile names another. The same steady-clock grace applies. Past either
-  clock the call stops with `time_limit` and the message `<phase> ran for
-  more than 250 milliseconds on this computer; the stop is for the computer's
-  speed, not the script's instructions`. The length is spelled the same way
-  as the phase limit above (`250 milliseconds`, `1 second`). A phase that is
-  not banked keeps `OpenOptions::time_limit` and today's sentence. A `pcall`
-  or `xpcall` cannot keep a banked call going past a spent balance or a
-  passed time limit.
+- A banked call's real-time limit is the bank's, 250 milliseconds unless
+  the profile names another. Past it the call stops with `time_limit` and
+  the message `<phase> ran for more than 250 milliseconds on this computer;
+  the stop is for the computer's speed, not the script's instructions`.
+  The length is spelled the same way as the phase limit above (`250
+  milliseconds`, `1 second`). A phase that is not banked keeps
+  `OpenOptions::time_limit` and today's sentence. A `pcall` or `xpcall`
+  cannot keep a banked call going past a spent balance or a passed time
+  limit.
 - `drain_printed` hands out every kept line, oldest first, including the
   omission note when lines were dropped, then clears the print limits. The
   next call can keep `max_printed_lines` lines again. It is only for the
@@ -509,7 +497,7 @@ use part of the allowance both pass. Keeping strings stops on the memory
 cap, including inside `pcall`. A required module that loops forever is
 reported at that module's chunk.
 
-`data-script-host-time-limit` gives a phase a short processor-time limit and an
+`data-script-host-time-limit` gives a phase a short real-time limit and an
 instruction allowance it cannot spend. A tight loop, a loop of 64 KiB
 zero-filled comparisons, a loop of calls with 300,000 arguments, and the
 same tight loop inside `pcall` and inside `xpcall` with a looping handler
@@ -580,7 +568,7 @@ on the same calls and refills hold the same balance. Spending the balance
 down, refilling, and overspending stops with the banked instruction
 sentence. A loop, including one inside `pcall` and one inside `xpcall`
 with a looping handler, stops on the balance and the failure sticks. A
-banked call that cannot spend its allowance stops on the bank's processor-time
+banked call that cannot spend its allowance stops on the bank's real-time
 limit, with the sentence that names the computer's speed; a phase that is
 not banked in that sandbox keeps the sandbox's own limit and today's
 sentence. `run_file`, `call` and `run_host` keep the profile allowance and
@@ -624,7 +612,7 @@ of `__index` tables, arithmetic on a long string of spaces (`s + 0`), and a
 table that grows and shrinks its parts again and again. `next` on a table
 emptied after millions of entries does more work than its 4096 units pay
 for, and so does `setmetatable` with such a table as the metatable, for
-its 64 units. The processor-time limit above is what stops a phase that hides its
+its 64 units. The real-time limit above is what stops a phase that hides its
 work in those steps. A `__gc` entry added to the installed metatable after
 `setmetatable` is not caught. `instructions_used` counts Lua instructions in
 steps of the check interval, so a short phase can report zero; pattern

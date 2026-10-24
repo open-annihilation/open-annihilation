@@ -1756,20 +1756,12 @@ from those integers.
 
 ### 10.8 The time limit
 
-Each phase stops when this thread has used more than its processor-time
-limit. The default is 10 seconds. The processor clock is read on every
-budget step of the instruction hook (every 1,000 instructions) and in
-every library charge. The steady clock is read on every hook call (every
-100 instructions) and in every charge. The allowance is still counted on
-the budget step, so the count still steps by 1,000 instructions. The
-host does not start a thread or a signal to watch the clock.
-
-Processor time is what the limit names, so other programs on the machine
-do not spend it. The steady clock stops the phase once real time is a
-quarter of a second past the limit, unless the instructions counted so
-far will spend the allowance before that processor time. A phase whose
-allowance cannot run out still stops on that grace. The stop stays
-inside a second of real time past the limit.
+Each phase stops when it has run longer than its real-time limit. The
+default is 10 seconds. A steady clock is read when the phase starts and
+checked in the instruction hook, every 100 instructions, and in every
+library charge. The hook counts the allowance on every tenth of those
+calls, so the count still steps by 1,000 instructions. There is no
+thread and no signal.
 
 The default message is
 `<phase> ran for more than 10 seconds; its work is too large or never ends`.
@@ -1781,17 +1773,21 @@ limit has the same results, the same charges and the same messages as
 it would with no clock. The limit only stops the script. A result that
 comes back is unchanged.
 
-The processor clock is read at the next budget step or the next charge,
-so a phase can run past the limit by the work of 1,000 instructions, or
-of one charge. The steady clock is read on every hook call, so real time
-past the grace is noticed within 100 instructions. Most instructions
-take well under a microsecond. The slowest step found is an assignment
-that makes a table rebuild itself: 10 to 30 milliseconds of processor
-time for a table of a million keys, about the largest whose rebuild fits
-the default memory cap. A loop can do that every 4 instructions, so
-about 250 rebuilds can fall between two reads of the processor clock,
-and about 25 between two reads of the steady clock. A tight loop stops
-within one budget step of processor time when the thread is running.
+The check lands at the next hook or the next charge, so a phase can run
+past the limit by the work of 100 instructions, or of one charge. Most
+instructions take well under a microsecond. The slowest step found is
+an assignment that makes a table rebuild itself: 10 to 30 milliseconds
+of processor time for a table of a million keys, about the largest
+whose rebuild fits the default memory cap. A loop can do that every 4
+instructions, 25 times between two reads of the clock, so it can run a
+quarter to three quarters of a second of processor time past the limit,
+and longer in real time on a machine busy with other work. On the
+machine where this was measured (10 cores, load averages of 20 to 80),
+loops that rebuild such a table stopped 0.01 to 0.9 seconds after a 2
+second limit, and in three runs at the busiest 2.4 to 2.9 seconds after
+it. A loop of 64 KiB zero-filled comparisons stopped within 60
+milliseconds of a 300 millisecond limit, and a tight loop within the
+same millisecond.
 
 A script near the limit can pass on one machine and fail on another.
 Every machine must produce the same result.
