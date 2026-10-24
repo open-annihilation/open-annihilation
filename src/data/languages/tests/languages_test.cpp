@@ -5,7 +5,8 @@
 // found without regard to case, fallback chains ending in English, the
 // operating system's locales normalised and matched alone and in order, the
 // settings' choice, and the interface catalogue read from small built
-// files, malformed and oversized ones included.
+// files, malformed and oversized ones included, and merged by text and
+// language.
 
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -334,6 +335,123 @@ void malformed_catalogues_add_nothing() {
     // An empty file is a catalogue with nothing in it.
     OA_CHECK(catalogue.add(""));
     OA_CHECK(catalogue.size() == 0);
+}
+
+/// Files merge into one catalogue by English text and language: a text
+/// already held keeps the translations a later file does not give, a later
+/// file's translation of a text into a language replaces the earlier one,
+/// and within one file the last one read is kept.
+void catalogue_files_merge_by_text_and_language() {
+    clear_pack_languages();
+    const auto& french = *languages::find_by_tag("fr");
+    const auto& german = *languages::find_by_tag("de");
+    const auto& spanish = *languages::find_by_tag("es");
+    languages::InterfaceText catalogue;
+    OA_CHECK(catalogue.add(
+        "[Bravo]\n{\nfr=Bravo fr;\nde=Bravo de;\n}\n"
+        "[Delta]\n{\nfr=Delta fr;\n}\n"
+        "[Delta]\n{\nFR=Delta fr again;\n}\n"
+    ));
+    OA_CHECK(catalogue.size() == 3);
+    OA_CHECK(catalogue.text("Delta", french) == "Delta fr again");
+    // Texts before, between and after the held ones, one of them in UTF-8.
+    OA_CHECK(catalogue.add(
+        "[Alpha]\n{\nes=Alfa;\n}\n"
+        "[Charlie]\n{\nde=Charlie de;\n}\n"
+        "[Delta]\n{\nde=Delta de;\nfr=Delta fr last;\n}\n"
+        "[Echo]\n{\nfr=\xC3\x89\x63ho;\n}\n"
+        "[\xC3\x89t\xC3\xA9]\n{\nfr=\xC3\x89t\xC3\xA9 fr;\n}\n"
+    ));
+    OA_CHECK(catalogue.size() == 8);
+    OA_CHECK(catalogue.text("Alpha", spanish) == "Alfa");
+    OA_CHECK(catalogue.text("Alpha", french) == "Alpha");
+    OA_CHECK(catalogue.text("Bravo", french) == "Bravo fr");
+    OA_CHECK(catalogue.text("Bravo", german) == "Bravo de");
+    OA_CHECK(catalogue.text("Charlie", german) == "Charlie de");
+    OA_CHECK(catalogue.text("Delta", french) == "Delta fr last");
+    OA_CHECK(catalogue.text("Delta", german) == "Delta de");
+    OA_CHECK(catalogue.text("Echo", french) == "\xC3\x89\x63ho");
+    OA_CHECK(catalogue.text("\xC3\x89t\xC3\xA9", french) == "\xC3\x89t\xC3\xA9 fr");
+    OA_CHECK(catalogue.text("\xC3\x89t\xC3\xA9", german) == "\xC3\x89t\xC3\xA9");
+    // Texts the catalogue does not hold, before, among and after its own.
+    OA_CHECK(catalogue.text("", french).empty());
+    OA_CHECK(catalogue.text("Al", french) == "Al");
+    OA_CHECK(catalogue.text("Alphabet", french) == "Alphabet");
+    OA_CHECK(catalogue.text("\xC3\xBF", french) == "\xC3\xBF");
+}
+
+/// Tags are read without regard to case and with '_' as '-', and a text
+/// shows in the first language of the chain that has it: the language
+/// itself, its fallbacks, then English, whose own translation counts too.
+void catalogue_follows_tags_and_fallback_chains() {
+    clear_pack_languages();
+    languages::InterfaceText catalogue;
+    OA_CHECK(catalogue.add(
+        "[Settings]\n{\nZH_hans=\xE8\xAE\xBE\xE7\xBD\xAE;\n"
+        "fr=Param\xC3\xA8tres;\nWA=Apontiaedjes;\n}\n"
+        "[Back]\n{\nfr=Retour;\n}\n"
+        "[Colour]\n{\nEN=Color;\n}\n"
+    ));
+    OA_CHECK(catalogue.size() == 5);
+    const languages::Language* chinese = languages::find_by_tag("zh-Hans");
+    OA_CHECK(chinese != nullptr);
+    if (chinese != nullptr)
+        OA_CHECK(catalogue.text("Settings", *chinese) == "\xE8\xAE\xBE\xE7\xBD\xAE");
+    const std::array<std::string_view, 1> fallbacks{"fr"};
+    const std::array<std::string_view, 1> locales{"wa"};
+    const languages::Language walloon{"wa", "Walon", "Walloon", "Walloon", locales, fallbacks};
+    OA_CHECK(catalogue.text("Settings", walloon) == "Apontiaedjes");
+    OA_CHECK(catalogue.text("Back", walloon) == "Retour");
+    OA_CHECK(catalogue.text("Colour", walloon) == "Color");
+    OA_CHECK(catalogue.text("Colour", languages::english()) == "Color");
+    OA_CHECK(catalogue.text("Back", languages::english()) == "Back");
+    OA_CHECK(catalogue.text("Not in the catalogue", walloon) == "Not in the catalogue");
+}
+
+/// A refused file, or one whose every value is empty, leaves the catalogue
+/// as it was.
+void refused_catalogues_leave_the_catalogue_as_it_was() {
+    clear_pack_languages();
+    const auto& german = *languages::find_by_tag("de");
+    languages::InterfaceText catalogue;
+    OA_CHECK(catalogue.add(kCatalogue));
+    OA_CHECK(catalogue.size() == 3);
+    std::string error;
+    OA_CHECK(
+        !catalogue.add("[Cancel]\n{\nde=Abbrechen;\n}\n[Mouse wheel zoom]\n{\nde=Neu\n}\n", &error)
+    );
+    OA_CHECK(!error.empty());
+    std::string oversized = "[Cancel]\n{\nde=Abbrechen;\n}\n";
+    oversized.resize(languages::most_catalogue_bytes + 1, ' ');
+    error.clear();
+    OA_CHECK(!catalogue.add(oversized, &error));
+    OA_CHECK(!error.empty());
+    OA_CHECK(catalogue.add("[Cancel]\n{\nde=;\n}\n[Mouse wheel zoom]\n{\nde=;\n}\n"));
+    OA_CHECK(catalogue.size() == 3);
+    OA_CHECK(catalogue.text("Cancel", german) == "Cancel");
+    OA_CHECK(catalogue.text("Mouse wheel zoom", german) == "Mausrad-Zoom");
+}
+
+/// An add leaves the texts it does not replace where they were, so a view
+/// of one taken before it still reads the same text.
+void catalogue_keeps_texts_in_place_through_later_adds() {
+    clear_pack_languages();
+    const auto& french = *languages::find_by_tag("fr");
+    const auto& german = *languages::find_by_tag("de");
+    languages::InterfaceText catalogue;
+    OA_CHECK(catalogue.add(kCatalogue));
+    const std::string_view zoom = catalogue.text("Mouse wheel zoom", german);
+    const std::string_view shadow = catalogue.text("Font shadow", french);
+    OA_CHECK(catalogue.add(
+        "[Font shadow]\n{\nde=Schatten;\n}\n[Cancel]\n{\nde=Abbrechen;\n}\n"
+        "[Mouse wheel zoom]\n{\nfr=Zoom;\n}\n"
+    ));
+    OA_CHECK(zoom == "Mausrad-Zoom");
+    OA_CHECK(zoom.data() == catalogue.text("Mouse wheel zoom", german).data());
+    OA_CHECK(shadow == "Ombre du texte");
+    OA_CHECK(shadow.data() == catalogue.text("Font shadow", french).data());
+    OA_CHECK(catalogue.text("Mouse wheel zoom", french) == "Zoom");
+    OA_CHECK(catalogue.text("Font shadow", german) == "Schatten");
 }
 
 /// The installed catalogue and language answer interface_text; without a
@@ -765,6 +883,10 @@ int main() {
     settings_choice_names_a_language_or_the_system_one();
     catalogue_translates_by_english_text();
     malformed_catalogues_add_nothing();
+    catalogue_files_merge_by_text_and_language();
+    catalogue_follows_tags_and_fallback_chains();
+    refused_catalogues_leave_the_catalogue_as_it_was();
+    catalogue_keeps_texts_in_place_through_later_adds();
     installed_language_answers_interface_text();
     named_language_reads_one_text();
     data_words_follow_the_chain();

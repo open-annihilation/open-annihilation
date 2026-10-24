@@ -110,6 +110,9 @@ the interface.
   `InterfaceText`, the engine's own words in the languages translations are
   given for, read from TDF files whose sections name the English text and
   whose keys are tags; `set_interface_language()` and `interface_text()`.
+  It keeps the characters of each file's texts in one block, each English
+  text once, and finds a translation by binary search over sorted tables,
+  so a text costs no allocation of its own.
   `interface_text_in(english, language)` reads one text in a named language
   from that same catalogue and leaves the language in use unchanged. The
   engine ships one catalogue file, `languages/interface.tdf`, with German,
@@ -154,7 +157,8 @@ pack adds, languages that are not installed, an entry that stays readable
 after a later change replaces it, the needs that are drawable, tags and
 3.1c's words found in any case, fallback chains, locales normalised and
 matched alone and in lists, the settings' choice, the catalogue read from
-small built files, malformed and oversized ones included, the words a
-language is looked up by, and the units' texts with their fallbacks,
-installed and not. `defs` checks that a unit file's language keys reach
-the sink, cut to their fields.
+small built files (malformed and oversized ones included, files merged by
+text and language, tags in any case, fallback chains, and texts kept in
+place by a later file), the words a language is looked up by, and the
+units' texts with their fallbacks, installed and not. `defs` checks that
+a unit file's language keys reach the sink, cut to their fields.
