@@ -530,6 +530,11 @@ const std::vector<ValueCase>& value_cases() {
         {"--brain-map",
          "Ashap Plateau",
          {"--headless-check", "--match-ticks", "60", "--brain-match", "builtin,builtin"}},
+        {"--brain-record", "records.txt", {"--headless-check", "--match-ticks", "60"}},
+        {"--brain-shadow", "steady-commander", {}},
+        {"--brain-shadow-log", "shadow-logs", {"--brain-shadow", "steady-commander"}},
+        {"--brain-shadow-sections", "build,attack", {"--brain-shadow", "steady-commander"}},
+        {"--brain-trace", "log.txt", {"--headless-check", "--match-ticks", "60"}},
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
         {"--check-unit-language", "fr", {}},
@@ -1330,6 +1335,93 @@ int main() {
         rejection({"--brain-map", "Ashap Plateau"}) == "--brain-map needs --brain-match",
         "--brain-map needs --brain-match"
     );
+    expect(
+        rejection({"--brain-shadow-sections", "build,attack"}) ==
+            "--brain-shadow-sections needs --brain-shadow",
+        "--brain-shadow-sections needs --brain-shadow"
+    );
+    expect(
+        rejection({"--brain-shadow-log", "shadow-logs"}) ==
+            "--brain-shadow-log needs --brain-shadow",
+        "--brain-shadow-log needs --brain-shadow"
+    );
+    expect(
+        rejection({"--brain-shadow", ""}) == "--brain-shadow requires a value",
+        "an empty shadow brain is refused"
+    );
+    expect(
+        rejection({"--brain-shadow-sections", ""}) == "--brain-shadow-sections requires a value",
+        "an empty shadow section list is refused"
+    );
+    expect(
+        rejection({"--brain-shadow-log", ""}) == "--brain-shadow-log requires a value",
+        "an empty shadow log folder is refused"
+    );
+    {
+        const auto shadow = parse(
+            {"--brain-shadow",
+             "steady-commander",
+             "--brain-shadow-sections",
+             "build,attack",
+             "--brain-shadow-log",
+             "shadow-logs"}
+        );
+        expect(
+            shadow.brain_shadow == "steady-commander" &&
+                shadow.brain_shadow_sections == "build,attack" &&
+                shadow.brain_shadow_log == "shadow-logs",
+            "a shadow run stores its three options"
+        );
+    }
+    expect(
+        rejection({"--brain-trace", "log.txt"}) == "--brain-trace needs --headless-check",
+        "--brain-trace needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-trace", "log.txt"}) ==
+            "--brain-trace needs --match-ticks",
+        "--brain-trace needs --match-ticks"
+    );
+    expect(
+        rejection({"--brain-record", "records.txt"}) == "--brain-record needs --headless-check",
+        "--brain-record needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-record", "records.txt"}) ==
+            "--brain-record needs --match-ticks",
+        "--brain-record needs --match-ticks"
+    );
+    expect(
+        rejection({"--brain-trace"}) == "--brain-trace requires a value",
+        "--brain-trace requires a value"
+    );
+    expect(
+        rejection({"--brain-trace", ""}) == "--brain-trace requires a value",
+        "an empty brain log path is refused"
+    );
+    expect(
+        rejection({"--brain-record"}) == "--brain-record requires a value",
+        "--brain-record requires a value"
+    );
+    expect(
+        rejection({"--brain-record", ""}) == "--brain-record requires a value",
+        "an empty record path is refused"
+    );
+    {
+        const auto logged = parse(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--brain-trace",
+             "log.txt",
+             "--brain-record",
+             "records.txt"}
+        );
+        expect(
+            logged.brain_trace == "log.txt" && logged.brain_record == "records.txt",
+            "the brain log and the record file are stored"
+        );
+    }
     expect(
         rejection({"--brain-match", "x,y"}) == "--brain-match needs --headless-check",
         "--brain-match needs --headless-check"

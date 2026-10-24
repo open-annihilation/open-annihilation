@@ -743,6 +743,18 @@ int32_t* push_zero_tensor(lua_State* state, uint8_t rank, const uint32_t dims[4]
     return tensor_elements(head);
 }
 
+bool tensor_view(lua_State* state, int index, TensorView& view) {
+    TensorHead* head = tensor_at(state, index);
+    if (head == nullptr || head->rank < 1 || head->rank > 4)
+        return false;
+    view.rank = head->rank;
+    view.count = head->count;
+    for (uint8_t axis = 0; axis < 4; ++axis)
+        view.dims[axis] = axis < head->rank ? head->dims[axis] : 0u;
+    view.values = tensor_elements(head);
+    return view.values != nullptr;
+}
+
 void install_networks(lua_State* state, Seat& seat) {
     (void)seat;
     ensure_tensor_meta(state);

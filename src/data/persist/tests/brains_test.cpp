@@ -16,6 +16,7 @@
 #include <cstring>
 #include <span>
 #include <string>
+#include <tuple>
 #include <vector>
 
 using namespace oa::data::persist;

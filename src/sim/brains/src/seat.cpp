@@ -7,14 +7,18 @@
 
 #include "internal.hpp"
 
+#include "orders.hpp"
+
 #include "oa/sim/brains/shadow.hpp"
 
 #include "oa/core/game_state.h"
 #include "oa/core/player.h"
 #include "oa/data/neural/network.hpp"
 #include "oa/data/script_host/plain_data.hpp"
+#include "oa/data/unit_definitions.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
+#include "oa/sim/match_runtime/seat_hooks.hpp"
 
 #include "lua.hpp"
 
@@ -22,9 +26,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
+#include <memory>
 #include <new>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 
@@ -35,6 +42,8 @@ Seat::Seat() = default;
 Seat::~Seat() {
     delete[] incoming.items;
     delete[] delivering.items;
+    std::free(log_text);
+    log_text = nullptr;
     shadow_release(*this);
 }
 
@@ -504,6 +513,15 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         }
 
         if (seat.has_fits && !seat.shadow) {
+            log_begin_turn(seat, 0, true);
+            log_call(seat, "fits", nullptr, 0);
+
+            struct EndLog {
+                Seat& held;
+
+                ~EndLog() { log_end_turn(held); }
+            } end_log{seat};
+
             FitsBox fits;
             fits.seat = &seat;
             fits.status = 2;
@@ -640,6 +658,7 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         close_seat(*brains, player);
         return outcome;
     }
+    log_arm_seat(seat);
 
     if (!build_networks(seat, spec, outcome)) {
         close_seat(*brains, player);
@@ -654,6 +673,15 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     try {
         script_host::ScriptError error;
         if (seat.has_start && !seat.shadow) {
+            log_begin_turn(seat, 0, true);
+            log_call(seat, "start", nullptr, 0);
+
+            struct EndLog {
+                Seat& held;
+
+                ~EndLog() { log_end_turn(held); }
+            } end_log{seat};
+
             StartBox starting;
             starting.seat = &seat;
             starting.saved = spec.saved.data();
@@ -708,6 +736,230 @@ void set_match_game_facts(match_runtime::Match& match, oa::data::brain_facts::Ga
     if (brains == nullptr)
         return;
     brains->facts = std::move(facts);
+}
+
+struct ToolSeat::Body {
+    // The seat points into this storage, so the rows outlive the seat.
+    std::unique_ptr<oa::data::unit_definitions::UnitDefinition[]> definitions;
+    oa::data::brain_facts::GameFacts facts{};
+    SeatOutcome outcome{};
+    Seat seat;
+};
+
+namespace {
+
+int tool_noop(lua_State*) {
+    return 0;
+}
+
+struct ToolTick {
+    Seat* seat{};
+    uint32_t turn{};
+};
+
+int push_tool_tick(void* context, lua_State* state) {
+    auto* box = static_cast<ToolTick*>(context);
+    lua_rawgeti(state, LUA_REGISTRYINDEX, box->seat->hooks_ref);
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        lua_pop(state, 1);
+        lua_pushcfunction(state, tool_noop);
+        return 0;
+    }
+    lua_getfield(state, -1, "onTick");
+    lua_remove(state, -2);
+    if (lua_type(state, -1) != LUA_TFUNCTION) {
+        lua_pop(state, 1);
+        lua_pushcfunction(state, tool_noop);
+        return 0;
+    }
+    lua_pushinteger(state, static_cast<lua_Integer>(box->turn));
+    return 1;
+}
+
+struct ToolWork {
+    Seat* seat{};
+    void* context{};
+    void (*work)(void*, lua_State*){};
+};
+
+void run_tool_work(void* context, lua_State* state) {
+    auto* box = static_cast<ToolWork*>(context);
+    const int base = lua_gettop(state);
+    lua_rawgeti(state, LUA_REGISTRYINDEX, box->seat->hooks_ref);
+    if (lua_type(state, -1) == LUA_TTABLE)
+        lua_getfield(state, -1, "seat");
+    else
+        lua_pushnil(state);
+    if (box->work != nullptr)
+        box->work(box->context, state);
+    lua_settop(state, base);
+}
+
+void note_open_failure(const SeatOutcome& outcome, script_host::ScriptError& error) {
+    if (outcome.error.kind != script_host::ErrorKind::none) {
+        error = outcome.error;
+        return;
+    }
+    error = {};
+    error.kind = script_host::ErrorKind::runtime;
+    error.phase = "open";
+    error.message = outcome.reason.data();
+}
+
+} // namespace
+
+ToolSeat::~ToolSeat() = default;
+
+ToolSeat::ToolSeat(ToolSeat&&) noexcept = default;
+
+ToolSeat& ToolSeat::operator=(ToolSeat&&) noexcept = default;
+
+std::optional<ToolSeat> ToolSeat::open(const ToolSeatSpec& spec, script_host::ScriptError& error) {
+    std::unique_ptr<Body> created;
+    try {
+        created = std::make_unique<Body>();
+    } catch (const std::bad_alloc&) {
+        error = {};
+        error.kind = script_host::ErrorKind::runtime;
+        error.phase = "open";
+        error.message = "the seat could not be stored";
+        return std::nullopt;
+    }
+    std::size_t definition_count = 0;
+    if (spec.definitions != nullptr && spec.definition_count > 0) {
+        try {
+            created->definitions = std::make_unique<oa::data::unit_definitions::UnitDefinition[]>(
+                spec.definition_count
+            );
+            for (std::size_t index = 0; index < spec.definition_count; ++index)
+                created->definitions[index] = spec.definitions[index];
+            definition_count = spec.definition_count;
+        } catch (const std::bad_alloc&) {
+            error = {};
+            error.kind = script_host::ErrorKind::runtime;
+            error.phase = "open";
+            error.message = "the seat could not be stored";
+            return std::nullopt;
+        }
+    }
+    try {
+        created->facts = spec.facts;
+    } catch (const std::bad_alloc&) {
+        error = {};
+        error.kind = script_host::ErrorKind::runtime;
+        error.phase = "open";
+        error.message = "the seat could not be stored";
+        return std::nullopt;
+    }
+    Seat& held = created->seat;
+    held.facts = &created->facts;
+    held.plain_definitions = created->definitions.get();
+    held.plain_definition_count = definition_count;
+    held.match = nullptr;
+    if (!copy_spec_into(held, spec.spec)) {
+        error = {};
+        error.kind = script_host::ErrorKind::runtime;
+        error.phase = "open";
+        error.message = "the seat could not be stored";
+        return std::nullopt;
+    }
+    held.calls = spec.calls;
+    held.match = nullptr;
+    if (spec.setup != nullptr) {
+        held.setup = *spec.setup;
+        held.setup_ready = true;
+        held.setup_copy.restore(spec.setup->stream_state);
+        held.setup_cursor = 0;
+        held.handed_over = spec.setup->handed_over;
+    }
+    SeatOutcome& outcome = created->outcome;
+    if (!package_acceptable(spec.spec, outcome) || !build_networks(held, spec.spec, outcome)) {
+        note_open_failure(outcome, error);
+        return std::nullopt;
+    }
+    if (!open_and_fit(held, spec.spec, outcome)) {
+        note_open_failure(outcome, error);
+        return std::nullopt;
+    }
+    if (held.has_start && !held.shadow) {
+        StartBox starting;
+        starting.seat = &held;
+        starting.saved = spec.spec.saved.data();
+        starting.saved_count = spec.spec.saved.size();
+        script_host::CallHooks start_hooks;
+        start_hooks.context = &starting;
+        start_hooks.push = push_start;
+        outcome.start_ran = true;
+        if (!held.sandbox->call("start", start_hooks, error)) {
+            outcome.start_instructions = held.sandbox->instructions_used();
+            outcome.result = SeatResult::failed;
+            outcome.error = error;
+            return std::nullopt;
+        }
+        outcome.start_instructions = held.sandbox->instructions_used();
+    }
+    outcome.result = SeatResult::seated;
+    ToolSeat tool;
+    tool.body = std::move(created);
+    return tool;
+}
+
+bool ToolSeat::tick(uint32_t turn, script_host::ScriptError& error) {
+    if (body == nullptr || !body->seat.sandbox.has_value())
+        return false;
+    Seat& held = body->seat;
+    begin_order_turn(held);
+    if (held.calls.host.world != nullptr)
+        held.calls.host.world->game.tick = turn;
+    held.sandbox->refill_bank();
+    ToolTick box;
+    box.seat = &held;
+    box.turn = turn;
+    script_host::CallHooks call;
+    call.context = &box;
+    call.push = push_tool_tick;
+    return held.sandbox->call_banked("tick", call, error);
+}
+
+bool ToolSeat::classic() const noexcept {
+    return body != nullptr && body->seat.classic;
+}
+
+const SeatOutcome& ToolSeat::outcome() const noexcept {
+    if (body == nullptr) {
+        static const SeatOutcome empty{};
+        return empty;
+    }
+    return body->outcome;
+}
+
+script_host::Sandbox* ToolSeat::sandbox() noexcept {
+    if (body == nullptr || !body->seat.sandbox.has_value())
+        return nullptr;
+    return &body->seat.sandbox.value();
+}
+
+bool ToolSeat::with_seat(
+    void* context, void (*work)(void* context, lua_State* state), script_host::ScriptError& error
+) {
+    if (body == nullptr || !body->seat.sandbox.has_value())
+        return false;
+    ToolWork box;
+    box.seat = &body->seat;
+    box.context = context;
+    box.work = work;
+    return body->seat.sandbox->run_host("seat", &box, run_tool_work, error);
+}
+
+bool ToolSeat::host(
+    std::string_view phase,
+    void* context,
+    void (*work)(void* context, lua_State* state),
+    script_host::ScriptError& error
+) {
+    if (body == nullptr || !body->seat.sandbox.has_value())
+        return false;
+    return body->seat.sandbox->run_host(phase, context, work, error);
 }
 
 } // namespace oa::sim::brains

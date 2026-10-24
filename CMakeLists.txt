@@ -1169,6 +1169,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mutators.cpp
   src/app/runtime_brains.cpp
   src/app/runtime_brain_match.cpp
+  src/app/runtime_brain_logs.cpp
   src/app/runtime_brain_facts.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp
@@ -3632,6 +3633,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-brain-shadow PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Classic beside the built-in player: schedule and sort, three skirmishes.
+        add_test(NAME native-brain-shadow-classic COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_shadow.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
+          --brain "${PROJECT_SOURCE_DIR}/brains/classic" --sections schedule,sort
+          classic)
+        set_tests_properties(native-brain-shadow-classic PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # --stage places units and asks for stockpiled rounds in a headless
         # skirmish, which plays to the same digest each time, and stops at a
         # line naming a type the game lacks.
@@ -3647,6 +3657,13 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-brain-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --brain-trace and --brain-record write the same files twice, and the
+        # same report and trace stream as a run that writes neither.
+        add_test(NAME native-brain-logs COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_logs.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-brain-logs PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A stage's lines timed for later ticks place units, move a group,
         # send one on patrol and set one on another's nearest units, and stop
         # at a line that does not read; a director script that names the

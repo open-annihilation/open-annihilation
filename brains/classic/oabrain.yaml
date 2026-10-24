@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: classic
+name: Classic
+description: "The engine's own computer player, written in Lua: it plays exactly as the built-in computer player does."
+version: "1.0"
+author:
+  name: The Open Annihilation Authors
+tags: [classic, teaching]
+works-with: ["*"]
+requires:
+  engine: ">= 0.8.6"
+levels:
+  - id: easy
+    name: Easy
+    difficulty: easy
+  - id: medium
+    name: Medium
+    difficulty: medium
+  - id: hard
+    name: Hard
+    difficulty: hard
+fullAwareness: true
+entry: brain.lua

@@ -237,6 +237,7 @@ int Runtime::run_headless_brain_match(std::size_t ticks) {
     }
     write_brain_match_digest(std::cout, match_world_digest());
     std::cout.flush();
+    write_brain_record_results(winner, live.data());
     return 0;
 }
 

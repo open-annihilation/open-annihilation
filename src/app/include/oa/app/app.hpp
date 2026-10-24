@@ -368,6 +368,10 @@ struct Options {
     // Where the shadow writes its call logs (--brain-shadow-log). Empty
     // writes none.
     std::string brain_shadow_log;
+    // Where a brain log is written (--brain-trace). Empty writes none.
+    std::string brain_trace;
+    // Where training records are written (--brain-record). Empty writes none.
+    std::string brain_record;
     // Headless campaign run: the campaign's name and the mission index that
     // --headless-check starts through the briefing and ticks for match_ticks.
     std::string campaign;

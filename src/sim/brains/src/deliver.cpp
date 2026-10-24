@@ -213,6 +213,43 @@ void push_order_name(lua_State* state, uint8_t kind) {
     lua_pushlstring(state, text, length);
 }
 
+void log_one_slot(Seat& seat, const char* name, uint16_t slot) noexcept {
+    const int64_t number = static_cast<int64_t>(slot);
+    log_call(seat, name, &number, 1);
+}
+
+void log_two_slots(
+    Seat& seat, const char* name, uint16_t slot, bool extra, uint16_t other
+) noexcept {
+    if (!extra) {
+        log_one_slot(seat, name, slot);
+        return;
+    }
+    const int64_t numbers[2] = {static_cast<int64_t>(slot), static_cast<int64_t>(other)};
+    log_call(seat, name, numbers, 2);
+}
+
+void log_damage_numbers(Seat& seat, const char* name, const Event& event, bool other) noexcept {
+    int64_t numbers[3];
+    uint32_t count = 0;
+    numbers[count++] = static_cast<int64_t>(event.unit_slot);
+    if (other)
+        numbers[count++] = static_cast<int64_t>(event.other_slot);
+    numbers[count++] = static_cast<int64_t>(event.amount);
+    log_call(seat, name, numbers, count);
+}
+
+void log_given_numbers(Seat& seat, const char* name, const Event& event) noexcept {
+    int64_t numbers[4];
+    uint32_t count = 0;
+    numbers[count++] = static_cast<int64_t>(event.unit_slot);
+    if (event.other_slot != 0)
+        numbers[count++] = static_cast<int64_t>(event.other_slot);
+    numbers[count++] = static_cast<int64_t>(event.from);
+    numbers[count++] = static_cast<int64_t>(event.to);
+    log_call(seat, name, numbers, count);
+}
+
 void call_event(
     lua_State* state,
     Seat& seat,
@@ -235,41 +272,43 @@ void call_event(
             event.other_generation,
             event.other_slot != 0 && event.other_slot != event.unit_slot
         );
+        log_two_slots(
+            seat,
+            name,
+            event.unit_slot,
+            event.other_slot != 0 && event.other_slot != event.unit_slot,
+            event.other_slot
+        );
         lua_call(state, 2, 0);
         return;
-    case EventKind::damaged:
+    case EventKind::damaged: {
+        const bool other = may_name(seat, event.other_slot, event.from, seen);
         push_ref(state, seat, event.unit_slot, event.unit_generation);
-        push_optional(
-            state,
-            seat,
-            event.other_slot,
-            event.other_generation,
-            may_name(seat, event.other_slot, event.from, seen)
-        );
+        push_optional(state, seat, event.other_slot, event.other_generation, other);
         lua_pushinteger(state, static_cast<lua_Integer>(event.amount));
         lua_pushstring(state, damage_word(event.detail));
+        log_damage_numbers(seat, name, event, other);
         lua_call(state, 4, 0);
         return;
-    case EventKind::died:
+    }
+    case EventKind::died: {
+        const bool other = may_name(seat, event.other_slot, event.to, seen);
         push_ref(state, seat, event.unit_slot, event.unit_generation);
-        push_optional(
-            state,
-            seat,
-            event.other_slot,
-            event.other_generation,
-            may_name(seat, event.other_slot, event.to, seen)
-        );
+        push_optional(state, seat, event.other_slot, event.other_generation, other);
         if (wreck == nullptr)
             lua_pushnil(state);
         else
             push_wreck(state, seat, *wreck);
+        log_two_slots(seat, name, event.unit_slot, other, event.other_slot);
         lua_call(state, 3, 0);
         return;
+    }
     case EventKind::given:
         push_ref(state, seat, event.unit_slot, event.unit_generation);
         push_optional(state, seat, event.other_slot, event.other_generation, event.other_slot != 0);
         lua_pushinteger(state, static_cast<lua_Integer>(event.from));
         lua_pushinteger(state, static_cast<lua_Integer>(event.to));
+        log_given_numbers(seat, name, event);
         lua_call(state, 4, 0);
         return;
     case EventKind::idle:
@@ -277,18 +316,21 @@ void call_event(
     case EventKind::lost:
     case EventKind::path_failed:
         push_ref(state, seat, event.unit_slot, event.unit_generation);
+        log_one_slot(seat, name, event.unit_slot);
         lua_call(state, 1, 0);
         return;
     case EventKind::order_ended:
         push_ref(state, seat, event.unit_slot, event.unit_generation);
         push_order_name(state, event.detail);
         lua_pushstring(state, event.to != 0 ? "done" : "failed");
+        log_one_slot(seat, name, event.unit_slot);
         lua_call(state, 3, 0);
         return;
     case EventKind::carried:
     case EventKind::dropped:
         push_ref(state, seat, event.unit_slot, event.unit_generation);
         push_optional(state, seat, event.other_slot, event.other_generation, event.other_slot != 0);
+        log_two_slots(seat, name, event.unit_slot, event.other_slot != 0, event.other_slot);
         lua_call(state, 2, 0);
         return;
     case EventKind::wreck:
@@ -359,6 +401,12 @@ void report_diplomacy(lua_State* state, Seat& seat, int hooks, bool table) {
             continue;
         lua_pushinteger(state, static_cast<lua_Integer>(other));
         lua_pushboolean(state, allied ? 1 : 0);
+        {
+            const int64_t numbers[2] = {
+                static_cast<int64_t>(other), allied ? int64_t{1} : int64_t{0}
+            };
+            log_call(seat, "onAllianceChanged", numbers, 2);
+        }
         lua_call(state, 2, 0);
     }
     for (uint8_t other = 0; other < OA_PLAYER_COUNT; ++other) {
@@ -370,6 +418,10 @@ void report_diplomacy(lua_State* state, Seat& seat, int hooks, bool table) {
         if (!table || !start_hook(state, hooks, "onPlayerDefeated"))
             continue;
         lua_pushinteger(state, static_cast<lua_Integer>(other));
+        {
+            const int64_t player = static_cast<int64_t>(other);
+            log_call(seat, "onPlayerDefeated", &player, 1);
+        }
         lua_call(state, 1, 0);
     }
 }
@@ -394,12 +446,20 @@ void deliver_radar(lua_State* state, Seat& seat, int hooks, bool table) {
             if (!table || !start_hook(state, hooks, "onRadarLost"))
                 return;
             push_contact(state, seat, lost);
+            {
+                const int64_t slot = static_cast<int64_t>(lost.unit);
+                log_call(seat, "onRadarLost", &slot, 1);
+            }
             lua_call(state, 1, 0);
         },
         [&](const ContactEntry& gained) {
             if (!table || !start_hook(state, hooks, "onRadarContact"))
                 return;
             push_contact(state, seat, gained);
+            {
+                const int64_t slot = static_cast<int64_t>(gained.unit);
+                log_call(seat, "onRadarContact", &slot, 1);
+            }
             lua_call(state, 1, 0);
         }
     );
@@ -435,6 +495,10 @@ void deliver_chat(lua_State* state, Seat& seat, int hooks, bool table) {
         lua_pushinteger(state, static_cast<lua_Integer>(line.from));
         lua_pushlstring(state, line.words.data(), static_cast<std::size_t>(line.length));
         lua_pushstring(state, audience);
+        {
+            const int64_t from = static_cast<int64_t>(line.from);
+            log_call(seat, "onChat", &from, 1);
+        }
         lua_call(state, 3, 0);
     }
 }
@@ -444,6 +508,10 @@ void call_tick(lua_State* state, Seat& seat, int hooks) {
         return;
     const uint32_t tick = seat.match->state().game.tick;
     lua_pushinteger(state, static_cast<lua_Integer>(tick));
+    {
+        const int64_t shown = static_cast<int64_t>(tick);
+        log_call(seat, "onTick", &shown, 1);
+    }
     lua_call(state, 1, 0);
 }
 
@@ -488,6 +556,15 @@ bool deliver_turn(void* context, match_runtime::Match&, uint8_t) {
         hand_back(*seat, error);
         return true;
     }
+    const uint32_t tick = seat->match != nullptr ? seat->match->state().game.tick : 0;
+    log_begin_turn(*seat, tick, true);
+
+    struct EndLog {
+        Seat& held;
+
+        ~EndLog() { log_end_turn(held); }
+    } end_log{*seat};
+
     // start was the turn before the first of these calls. A fresh seat is
     // already on that turn, so only a live deliver starts another.
     begin_order_turn(*seat);

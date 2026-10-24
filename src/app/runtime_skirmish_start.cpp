@@ -1536,6 +1536,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // players' pass waits for the first tick. A saved game, a network game
     // and a recorded game load more after this and end theirs when they have.
     if (!bootstrap.multiplayer && !bootstrap.replay && !resuming_saved_game()) {
+        open_brain_log_files();
         seat_chosen_brains();
         seat_shadow_brains();
         match_->finish_load();
