@@ -222,6 +222,7 @@ inline constexpr std::string_view interface_words[] = {
     "SWITCH",
     "SWITCH MOD",
     "Screen size",
+    "Seat {n}",
     "Screenshots, films and mods now go in the same Open Annihilation folder.",
     "Select groups without Alt",
     "Set by the host",

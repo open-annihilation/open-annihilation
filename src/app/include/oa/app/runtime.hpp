@@ -6451,6 +6451,25 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_mutator_button();
 
+    /// A computer seat's brain on SKIRMISH, a screen of the OA layer named
+    /// brain-seats. One button sits to the right of each computer row's
+    /// Energy button while a brain is installed.
+    struct BrainSeatsScreen;
+
+    /// Keeps the computer-seat buttons on the OA layer while SKIRMISH shows
+    /// and a brain is installed: pushes the screen when the layer has none.
+    /// OaLayer::tick calls it once a frame, after MUTATORS…. A Library that
+    /// has just closed reloads the installed brains first.
+    void keep_brain_seats_screen();
+
+    /// Runs --check-brain-seat-buttons: each computer row's brain button on
+    /// SKIRMISH at 640x480 and 1280x720, the focus hand-over, the picker,
+    /// the hover card and the brains a start seats. Writes
+    /// brain-seats-skirmish-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_seat_buttons();
+
     /// Runs --check-mutator-room: the host's MUTATORS… in a battle room
     /// hosted alone, at 640x480 and 1280x720, the remembered multiplayer
     /// set, the chat lines, and the button while the room's options are
@@ -18691,6 +18710,9 @@ class Runtime final : public menu::Host,
     /// before the listing is first read. The brain picker's own feed reads it.
     /// It starts at 1, so a generation of 0 still means a feed has not spoken.
     mutable uint64_t installed_brains_generation_{1};
+    /// True while the Library was on the OA layer last frame. Its closing
+    /// reloads the installed brains once, not every frame it stays closed.
+    bool library_was_open_{};
     // The mutators the next matches apply, and the running match's result;
     // null until a choice is stored.
     std::unique_ptr<MutatorState, void (*)(MutatorState*) noexcept> mutator_state_{
@@ -18775,6 +18797,8 @@ class Runtime final : public menu::Host,
     std::optional<std::vector<oa::ui::mutator_picker::Chosen>> saved_campaign_mutators_{};
     /// The button screen's helpers read the setup's records.
     friend struct MutatorButtonAccess;
+    /// The seat screen's helpers read the setup's records and write a choice.
+    friend struct BrainSeatsAccess;
     /// `--no-mutators` has already logged the list it refused.
     bool mutator_refusal_logged_{};
     /// A failure to store or erase a remembered set has already been logged.

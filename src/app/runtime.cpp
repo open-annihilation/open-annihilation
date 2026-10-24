@@ -492,8 +492,8 @@ Runtime::Runtime(
         if (options_.check_map_browser)
             prepare_map_browser_check();
         if (options_.check_mutator_picker || options_.check_brain_picker ||
-            options_.check_mutator_button || options_.check_mutator_room ||
-            options_.check_mutator_prompts)
+            options_.check_brain_seat_buttons || options_.check_mutator_button ||
+            options_.check_mutator_room || options_.check_mutator_prompts)
             prepare_mutator_picker_check();
         if (options_.check_map_pack_lists)
             prepare_map_pack_lists_check();
@@ -748,6 +748,11 @@ int Runtime::run() {
         }
         if (options_.check_brain_picker) {
             check_brain_picker();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_brain_seat_buttons) {
+            check_brain_seat_buttons();
             flush_preferences();
             return 0;
         }
@@ -1664,6 +1669,7 @@ void Runtime::load(Screen screen) {
             setup_brain_seats(skirmish_setup) = *remembered;
         else
             setup_brain_seats(skirmish_setup) = {};
+        reload_installed_brains();
     }
     if ((screen == Screen::new_campaign || screen == Screen::any_mission) &&
         (screen_ == Screen::single_player || screen_ == Screen::main_menu)) {

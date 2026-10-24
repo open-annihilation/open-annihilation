@@ -2612,6 +2612,7 @@ void OaLayer::tick() {
     runtime_.keep_presence_card_screen();
     runtime_.keep_more_maps_screen();
     runtime_.keep_mutator_button_screen();
+    runtime_.keep_brain_seats_screen();
     runtime_.offer_differing_results_question();
     runtime_.follow_mutator_room_chat();
     runtime_.keep_get_map_screen();
