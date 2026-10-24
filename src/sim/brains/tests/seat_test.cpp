@@ -10,6 +10,7 @@
 #include "oa/core/game_state.h"
 #include "oa/core/player.h"
 #include "oa/data/script_host/fixed.hpp"
+#include "oa/data/script_host/plain_data.hpp"
 #include "oa/sim/brains/seat.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
 
@@ -57,7 +58,8 @@ void add_file(Package& package, std::string path, std::string text) {
     package.files.emplace_back(std::move(path), std::move(text));
 }
 
-brains::SeatOutcome seat_it(Fixture& fixture, Package& package) {
+brains::SeatOutcome
+seat_it(Fixture& fixture, Package& package, std::span<const uint8_t> saved = {}) {
     std::vector<brains::PackageFile> files;
     files.reserve(package.files.size());
     for (const auto& held : package.files)
@@ -98,6 +100,7 @@ brains::SeatOutcome seat_it(Fixture& fixture, Package& package) {
     spec.options = options;
     spec.files = files;
     spec.networks = networks;
+    spec.saved = saved;
     return brains::seat_brain(*fixture.match, spec);
 }
 
@@ -474,6 +477,156 @@ void seated_brain_skips_the_order_tick() {
     );
 }
 
+struct HeldBytes {
+    std::vector<uint8_t> bytes;
+};
+
+void keep_bytes(void* context, std::span<const uint8_t> bytes) {
+    static_cast<HeldBytes*>(context)->bytes.assign(bytes.begin(), bytes.end());
+}
+
+struct StartsRead {
+    const uint8_t* bytes{};
+    std::size_t count{};
+    lua_Integer starts{-1};
+    int ok{};
+};
+
+void read_starts(void* context, lua_State* state) {
+    auto* box = static_cast<StartsRead*>(context);
+    host::push_plain_data(state, std::span<const uint8_t>(box->bytes, box->count));
+    lua_getfield(state, -1, "starts");
+    if (lua_isinteger(state, -1) != 0) {
+        box->starts = lua_tointeger(state, -1);
+        box->ok = 1;
+    }
+    lua_pop(state, 2);
+}
+
+struct HeldStart {
+    lua_Integer starts{-1};
+};
+
+void read_held(void* context, lua_State* state) {
+    auto* box = static_cast<HeldStart*>(context);
+    lua_getglobal(state, "held_starts");
+    if (lua_isinteger(state, -1) != 0)
+        box->starts = lua_tointeger(state, -1);
+    lua_pop(state, 1);
+}
+
+Package script_package(std::string script) {
+    Package package;
+    package.with_network = false;
+    add_file(package, "brain.lua", std::move(script));
+    return package;
+}
+
+void save_returns_a_table() {
+    Fixture fixture;
+    Package package = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  return { starts = 3 }\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    HeldBytes held;
+    brains::SaveHooks hooks;
+    hooks.context = &held;
+    hooks.accept = keep_bytes;
+    CHECK(brains::save_brain_state(*fixture.match, computer, hooks) == brains::SaveOutcome::stored);
+    CHECK(!held.bytes.empty());
+    CHECK(brains::brain_seated(*fixture.match, computer));
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    StartsRead read;
+    read.bytes = held.bytes.data();
+    read.count = held.bytes.size();
+    host::ScriptError error;
+    CHECK(sandbox->run_host("read", &read, read_starts, error));
+    CHECK(read.ok == 1);
+    CHECK(read.starts == 3);
+}
+
+void save_absent_when_the_brain_has_none() {
+    Fixture fixture;
+    Package package = script_package("return {}\n");
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::save_brain_state(*fixture.match, computer, {}) == brains::SaveOutcome::absent);
+    CHECK(brains::brain_seated(*fixture.match, computer));
+}
+
+void save_that_raises_hands_the_seat_back() {
+    Fixture fixture;
+    Package package = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  error(\"no\")\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::save_brain_state(*fixture.match, computer, {}) == brains::SaveOutcome::failed);
+    CHECK(!brains::brain_seated(*fixture.match, computer));
+}
+
+void save_over_one_mebibyte_is_omitted() {
+    Fixture fixture;
+    Package package = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  local parts = {}\n"
+        "  for i = 1, 20 do\n"
+        "    parts[i] = string.rep(\"x\", 60000)\n"
+        "  end\n"
+        "  return parts\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, package).result == brains::SeatResult::seated);
+    CHECK(brains::save_brain_state(*fixture.match, computer, {}) == brains::SaveOutcome::omitted);
+    CHECK(brains::brain_seated(*fixture.match, computer));
+}
+
+void start_receives_the_saved_state() {
+    Fixture fixture;
+    Package writer = script_package(
+        "local brain = {}\n"
+        "function brain.save()\n"
+        "  return { starts = 4 }\n"
+        "end\n"
+        "return brain\n"
+    );
+    CHECK(seat_it(fixture, writer).result == brains::SeatResult::seated);
+    HeldBytes held;
+    brains::SaveHooks hooks;
+    hooks.context = &held;
+    hooks.accept = keep_bytes;
+    CHECK(brains::save_brain_state(*fixture.match, computer, hooks) == brains::SaveOutcome::stored);
+    fixture.match->simulation().players[2].present = true;
+    fixture.match->simulation().players[2].status = OA_PLAYER_STATUS_COMPUTER;
+    Package reader = script_package(
+        "local brain = {}\n"
+        "function brain.start(game, me, saved)\n"
+        "  held_starts = -1\n"
+        "  if type(saved) == \"table\" and type(saved.starts) == \"number\" then\n"
+        "    held_starts = saved.starts\n"
+        "  end\n"
+        "end\n"
+        "return brain\n"
+    );
+    reader.player = 2;
+    CHECK(seat_it(fixture, reader, held.bytes).result == brains::SeatResult::seated);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, 2);
+    CHECK(sandbox != nullptr);
+    HeldStart seen;
+    host::ScriptError error;
+    CHECK(sandbox->run_host("read", &seen, read_held, error));
+    CHECK(seen.starts == 4);
+}
+
 void instruction_totals_cover_load_tick_and_a_stop() {
     Fixture fixture;
     arm(fixture);
@@ -566,6 +719,11 @@ int main() {
         start_stops_at_the_phase_allowance();
         local_unused_and_a_second_seat_are_refused();
         seated_brain_skips_the_order_tick();
+        save_returns_a_table();
+        save_absent_when_the_brain_has_none();
+        save_that_raises_hands_the_seat_back();
+        save_over_one_mebibyte_is_omitted();
+        start_receives_the_saved_state();
         instruction_totals_cover_load_tick_and_a_stop();
         two_brains_end_with_the_match();
     } catch (const std::exception& ex) {

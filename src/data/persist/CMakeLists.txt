@@ -10,14 +10,15 @@ add_library(oa-data-persist
   src/save_units.cpp
   src/save_orders.cpp
   src/save_profile.cpp
-  src/save_mutators.cpp)
+  src/save_mutators.cpp
+  src/save_brains.cpp)
 add_library(oa::data::persist ALIAS oa-data-persist)
 target_include_directories(oa-data-persist PUBLIC include)
 target_compile_features(oa-data-persist PUBLIC cxx_std_20)
 target_link_libraries(oa-data-persist PUBLIC oa-core-types oa-sim-world-environment PRIVATE oa-base-text oa-base-bytes oa-platform-shims oa-formats-sqsh ZLIB::ZLIB oa-options oa-data-defs oa-data-mission-types)
 
 if(BUILD_TESTING)
-  foreach(test_id IN ITEMS squash hapibank sections orders features profile mutators)
+  foreach(test_id IN ITEMS squash hapibank sections orders features profile mutators brains)
     add_executable(oa-persist-${test_id}-test tests/${test_id}_test.cpp)
     target_link_libraries(oa-persist-${test_id}-test PRIVATE oa-data-persist oa-formats-sqsh oa-test-support
       oa-base-bytes oa-base-text oa-options)

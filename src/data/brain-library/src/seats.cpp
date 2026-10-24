@@ -39,7 +39,25 @@ constexpr std::size_t most_value_bytes = 64;
 constexpr std::size_t sha256_hex_bytes = 64;
 
 /// The seat members this text knows, in the order they are written.
-enum class Field : uint8_t { brain, level, options, package_sha256, place, version };
+enum class Field : uint8_t { brain, level, name, options, package_sha256, place, version };
+
+/// Tells whether a present name is one a manifest may show.
+///
+/// One to 64 bytes, and no control character. An empty name is left out by
+/// the writer, so a present empty name is not this text.
+///
+/// @param text the name
+/// @return true when it may be stored
+bool display_name(std::string_view text) noexcept {
+    if (text.empty() || text.size() > oa::formats::oabrain::most_name_bytes)
+        return false;
+    for (const char byte : text) {
+        const auto value = static_cast<unsigned char>(byte);
+        if (value < 0x20 || value == 0x7f)
+            return false;
+    }
+    return true;
+}
 
 /// Tells whether a byte is a lower-case hex digit.
 ///
@@ -76,6 +94,10 @@ bool known_field(std::string_view name, Field& field) noexcept {
         field = Field::level;
         return true;
     }
+    if (name == "name") {
+        field = Field::name;
+        return true;
+    }
     if (name == "options") {
         field = Field::options;
         return true;
@@ -107,7 +129,7 @@ bool read_seat(const oa::formats::json::Json& value, Seat& seat) {
     const auto values = value.values();
     if (names.size() != values.size())
         return false;
-    bool seen[6] = {};
+    bool seen[7] = {};
     bool has_place = false;
     for (std::size_t index = 0; index < names.size(); ++index) {
         Field field{};
@@ -131,6 +153,13 @@ bool read_seat(const oa::formats::json::Json& value, Seat& seat) {
             if (text == nullptr || !oa::formats::oabrain::brain_id(*text))
                 return false;
             seat.level = *text;
+            break;
+        }
+        case Field::name: {
+            const std::string* text = member.string();
+            if (text == nullptr || !display_name(*text))
+                return false;
+            seat.name = *text;
             break;
         }
         case Field::package_sha256: {
@@ -204,6 +233,7 @@ void write_seat(oa::formats::json::JsonWriter& writer, const Seat& seat) {
     writer.begin_object();
     write_text(writer, "brain", seat.brain);
     write_text(writer, "level", seat.level);
+    write_text(writer, "name", seat.name);
     if (!seat.options.empty()) {
         writer.key("options");
         writer.begin_object();

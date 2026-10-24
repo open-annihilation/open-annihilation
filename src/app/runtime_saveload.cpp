@@ -1090,6 +1090,7 @@ bool Runtime::write_saved_game(
         auto* runtime = static_cast<SummaryBindings*>(context)->runtime;
         runtime->save_mod_profile(bank);
         runtime->save_mutators(bank);
+        runtime->save_brains(bank);
     };
     summary.save_conditions = [](void* context, persist::Bank* bank) {
         auto* runtime = static_cast<SummaryBindings*>(context)->runtime;
@@ -1325,6 +1326,8 @@ bool Runtime::start_saved_game(std::string_view dialog_path) {
             title = path_to_utf8(path.stem());
         if (offer_content_switch(path, title, false))
             return false;
+        if (offer_builtin_brain_load(path))
+            return false;
         return load_saved_game(path);
     } catch (const std::exception& failure) {
         status_ = std::string("Saved game start: ") + failure.what();
@@ -1503,6 +1506,14 @@ bool Runtime::read_save_summary(const fs::path& path, ui::frontend::LoadSummary&
 }
 
 bool Runtime::load_saved_game(const fs::path& path) {
+    // The built-in answer is for this load only. A stop before the brains are
+    // checked, including a throw, must not leave it set for a later load.
+    struct DropBuiltinAnswer {
+        Runtime& runtime;
+
+        ~DropBuiltinAnswer() { runtime.load_missing_brains_as_builtin_ = false; }
+    } drop_builtin_answer{*this};
+
     BankGuard guard;
     persist::Bank* bank = &guard.bank;
     persist::BankError error{};
@@ -1513,6 +1524,8 @@ bool Runtime::load_saved_game(const fs::path& path) {
     if (!check_saved_mod_profile(bank))
         return false;
     if (!check_saved_mutators(bank))
+        return false;
+    if (!check_saved_brains(bank))
         return false;
 
     // The save's mutators are chosen. A load that stops before its match
@@ -1528,6 +1541,22 @@ bool Runtime::load_saved_game(const fs::path& path) {
                 runtime.cancel_loadout_once();
         }
     } held_mutators{*this};
+
+    // The save's brains are held for the match this load starts. A load that
+    // stops before that match drops them, so a later start is not seated
+    // with this save's brains.
+    struct HeldBrains {
+        Runtime& runtime;
+        bool keep = false;
+        int exceptions = std::uncaught_exceptions();
+
+        ~HeldBrains() {
+            if (!keep || std::uncaught_exceptions() > exceptions) {
+                runtime.cancel_brain_seats_once();
+                runtime.loaded_brain_seats_ = {};
+            }
+        }
+    } held_brains{*this};
 
     // A campaign load that stops before it has worked must not change the
     // run's set. The destructor drops a set the success path did not take.
@@ -1548,6 +1577,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
         if (loaded && saved_campaign_mutators_)
             campaign_mutators_ = std::move(*saved_campaign_mutators_);
         held_mutators.keep = loaded;
+        held_brains.keep = loaded;
         return loaded;
     }
     if (summary.game_type != persist::game_type_skirmish) {
@@ -1630,6 +1660,7 @@ bool Runtime::load_saved_game(const fs::path& path) {
     status_ = "Loaded " + path_to_utf8(path.filename()) + " at tick " +
               std::to_string(match_timing_.tick);
     held_mutators.keep = true;
+    held_brains.keep = true;
     return true;
 }
 
