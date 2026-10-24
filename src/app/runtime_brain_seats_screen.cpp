@@ -2,10 +2,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One brain button on each computer row of SKIRMISH, to the right of that
-// row's Energy button. The button reads the seat's label, cut with … to the
-// room it has, and opens that seat's picker. Tab, the arrows and the
-// controller reach it. Resting the pointer, or the information key, shows
-// the seat's card. With no brain installed the screen is not there.
+// row's Energy button, and one on NEWGAME and Any Mission, under Difficulty,
+// for the campaign's computer player. The button reads the seat's label, cut
+// with … to the room it has, and opens that seat's picker. Tab, the arrows
+// and the controller reach it; Up and Down on the campaign screens stay with
+// the lists. Resting the pointer, or the information key, shows the seat's
+// card. With no brain installed the screen is not there.
 
 #include "oa_button_focus.hpp"
 #include "oa_layer.hpp"
@@ -67,9 +69,11 @@ struct BrainSeatsAccess {
     /// Tells whether the seat buttons show.
     ///
     /// @param runtime the runtime
-    /// @return true on SKIRMISH, with no match, no dialog, fonts, and a brain installed
+    /// @return true on SKIRMISH, NEWGAME or Any Mission, with no match, no dialog, fonts, and a brain installed
     static bool shows(Runtime& runtime) {
-        if (runtime.screen_ != Screen::skirmish)
+        const bool campaign =
+            runtime.screen_ == Screen::new_campaign || runtime.screen_ == Screen::any_mission;
+        if (runtime.screen_ != Screen::skirmish && !campaign)
             return false;
         if (runtime.match_ != nullptr)
             return false;
@@ -90,6 +94,15 @@ struct BrainSeatsAccess {
     /// @param choice the choice USE THIS handed
     /// @param every true when the choice is for every computer seat
     static void write(Runtime& runtime, int32_t slot, const picker::Choice& choice, bool every);
+
+    /// Writes a choice onto the campaign's computer player, at place 1.
+    ///
+    /// The skirmish slots are not the mission's players while NEWGAME shows,
+    /// so this does not ask whether a slot is a computer.
+    ///
+    /// @param runtime the runtime
+    /// @param choice the choice USE THIS handed
+    static void write_campaign(Runtime& runtime, const picker::Choice& choice);
 };
 
 namespace {
@@ -98,6 +111,16 @@ constexpr std::string_view screen_name = "brain-seats";
 constexpr std::string_view word_seat = "Seat {n}";
 /// The gap after Energy, and before the rectangle that limits the button, in points.
 constexpr int32_t beside_gap = 4;
+/// The campaign's computer player. A mission seats that player in slot 1.
+constexpr int32_t campaign_place = 1;
+/// The least gap above and below the campaign button, in points.
+constexpr int32_t column_gap = 2;
+/// The gap place_block leaves when the column has no room, in points.
+constexpr int32_t block_gap = 4;
+/// The campaign button's automation name, without oa.
+constexpr std::string_view campaign_button_name = "brain-seat.campaign";
+/// The campaign picker's seat, as a player reads it.
+constexpr std::string_view word_computer = "Computer player";
 /// A button narrower than this is left out, in points.
 constexpr int32_t least_width = 48;
 /// The button's width when nothing limits it, in points.
@@ -298,6 +321,18 @@ kit::Rect arrow_rect(const kit::Rect& placed, const kit::HoverCardLook& look, in
     return {};
 }
 
+/// The width a button needs for the OA badge and its words.
+///
+/// @param fonts the fonts
+/// @param height the button's height
+/// @param words the label
+/// @return the width, in points
+int32_t own_width(const kit::Fonts& fonts, int32_t height, std::string_view words) {
+    const int32_t pad = std::max(height / 5, int32_t{2});
+    const int32_t side = height - 2 * pad;
+    return pad + side + pad + kit::text_width(fonts, kit::FontRole::small, words) + pad;
+}
+
 /// The seat's name as a player reads it: "Seat 2" for slot 1.
 ///
 /// @param slot the slot, from 0
@@ -405,7 +440,28 @@ void BrainSeatsAccess::write(
         write_one(seats, settings, at, choice);
 }
 
-/// The computer-seat buttons over SKIRMISH. Not modal, no backdrop, not
+void BrainSeatsAccess::write_campaign(Runtime& runtime, const picker::Choice& choice) {
+    brain::Seats& seats = runtime.setup_brain_seats(brain::Setup::campaign);
+    brain::Seat* own = nullptr;
+    for (brain::Seat& seat : seats.seats) {
+        if (seat.place == campaign_place)
+            own = &seat;
+    }
+    if (own == nullptr) {
+        seats.seats.push_back({});
+        own = &seats.seats.back();
+    }
+    own->place = campaign_place;
+    own->brain = choice.brain;
+    own->level = choice.level;
+    own->options = choice.options;
+    own->version.clear();
+    own->package_sha256.clear();
+    own->name.clear();
+}
+
+/// The computer-seat buttons over SKIRMISH, and the campaign's one button
+/// over NEWGAME and Any Mission. Not modal, no backdrop, not
 /// opaque, so the picture shows round them. A button takes its own press
 /// and the focus handed to it. Y stays MUTATORS…'s.
 struct Runtime::BrainSeatsScreen final : LayerScreen {
@@ -644,7 +700,7 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         return shown_state;
     }
 
-    /// Closes once SKIRMISH is gone, a match has started, a dialog is up or
+    /// Closes once the setup is gone, a match has started, a dialog is up or
     /// no brain is installed. Gives up a button whose row is gone, and gives
     /// up the focus once the screen's own focus is on a record again, so the
     /// two rings never show at once. Follows the pointer for the card.
@@ -731,6 +787,13 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         return id_base + slot;
     }
 
+    /// Tells whether NEWGAME or Any Mission is showing.
+    ///
+    /// @return true on those screens
+    [[nodiscard]] bool campaign_screen() const noexcept {
+        return runtime_.screen_ == Screen::new_campaign || runtime_.screen_ == Screen::any_mission;
+    }
+
     /// The difficulty the Difficulty button is showing, else the preference.
     ///
     /// @return 0, 1 or 2, as the preference stores them
@@ -768,13 +831,15 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
     /// built-in player on purpose, and a brain that is missing or unfit is
     /// the built-in player too. Strings are copied out of the listing.
     ///
+    /// @param setup the setup the seat belongs to
     /// @param slot the slot
     /// @param difficulty the setup's difficulty
     /// @param word the Difficulty button's word
     /// @return the face and the choice
-    [[nodiscard]] std::pair<picker::SeatShown, picker::Choice>
-    face_of(int32_t slot, brain::Difficulty difficulty, const std::string& word) const {
-        const brain::Seats& seats = runtime_.setup_brain_seats(brain::Setup::skirmish);
+    [[nodiscard]] std::pair<picker::SeatShown, picker::Choice> face_of(
+        brain::Setup setup, int32_t slot, brain::Difficulty difficulty, const std::string& word
+    ) const {
+        const brain::Seats& seats = runtime_.setup_brain_seats(setup);
         const brain::Seat* own = nullptr;
         for (const brain::Seat& seat : seats.seats) {
             if (seat.place == slot)
@@ -828,11 +893,158 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         return {std::move(shown), std::move(choice)};
     }
 
+    /// Puts the buttons' bounds, local places and open card onto a geometry.
+    ///
+    /// @param laid the buttons; unchanged while it has none
+    /// @param placed_on what the screen is placed on
+    /// @param gadgets every gadget, in the layer's points
+    void complete_geometry(
+        Geometry& laid, const LayerView& placed_on, std::vector<place::PlaceRect> gadgets
+    ) const {
+        if (laid.buttons.empty())
+            return;
+        kit::Rect bounds{};
+        for (const SeatButton& button : laid.buttons)
+            bounds = unite(bounds, outset(as_kit(button.at), kit::compact_metrics.focus_inset));
+        const int32_t open = card_.open_slot();
+        const SeatButton* open_button = nullptr;
+        for (const SeatButton& button : laid.buttons) {
+            if (button.slot == open)
+                open_button = &button;
+        }
+        const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
+        if (open_button != nullptr && fonts != nullptr) {
+            const int32_t arrow_depth =
+                kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
+            laid.card_look = picker::seat_card(open_button->shown, text_hooks());
+            const kit::Point size = kit::hover_card_size(*fonts, laid.card_look);
+            const kit::Rect badge = as_kit(open_button->at);
+            const kit::Rect card =
+                mp::presence_card_place(badge, size, placed_on.frame.area, arrow_depth);
+            mp::presence_card_point(laid.card_look, card, badge);
+            const kit::Rect arrow = arrow_rect(card, laid.card_look, arrow_depth);
+            bounds = unite(bounds, card);
+            if (arrow.width > 0 && arrow.height > 0)
+                bounds = unite(bounds, arrow);
+            laid.card = local_of(card, bounds);
+            if (arrow.width > 0 && arrow.height > 0)
+                laid.arrow = local_of(arrow, bounds);
+        }
+        for (SeatButton& button : laid.buttons)
+            button.local = local_of(as_kit(button.at), bounds);
+        laid.gadgets.reserve(gadgets.size());
+        for (const place::PlaceRect& rect : gadgets)
+            laid.gadgets.push_back(as_place(local_of(as_kit(rect), bounds)));
+        laid.bounds = bounds;
+        laid.ok = bounds.width > 0 && bounds.height > 0 && !laid.buttons.empty();
+    }
+
+    /// The campaign's one button, under Difficulty.
+    ///
+    /// The button is the size of the gadget under Difficulty, centred in that
+    /// column with a gap of 2. When that column has no room, place_block puts
+    /// a button of the label's own size against Difficulty.
+    ///
+    /// @param placed_on what the screen is placed on
+    /// @return the geometry; not ok while the button is not placed
+    [[nodiscard]] Geometry campaign_geometry(const LayerView& placed_on) const {
+        Geometry laid;
+        if (!BrainSeatsAccess::shows(runtime_) || placed_on.picture_size.x <= 0)
+            return laid;
+        const auto& gadgets = runtime_.resources_.layout.gadgets;
+        if (gadgets.size() < 2)
+            return laid;
+        const auto origin = runtime_.panel_origin();
+        std::vector<place::PlaceRect> everything;
+        everything.reserve(gadgets.size());
+        place::PlaceRect anchor{};
+        bool found = false;
+        for (std::size_t at = 1; at < gadgets.size(); ++at) {
+            const gui::CommonFields& common = gadgets[at].common;
+            if (common.width <= 0 || common.height <= 0)
+                continue;
+            const kit::Rect frame{
+                static_cast<int32_t>(origin.x) + common.x,
+                static_cast<int32_t>(origin.y) + common.y,
+                static_cast<int32_t>(common.width),
+                static_cast<int32_t>(common.height)
+            };
+            const kit::Rect points = frame_to_points(placed_on, frame);
+            if (points.width <= 0 || points.height <= 0)
+                continue;
+            const place::PlaceRect rect = as_place(points);
+            everything.push_back(rect);
+            if (!found && Runtime::tdf_names_equal(common.name, "Difficulty")) {
+                anchor = rect;
+                found = true;
+            }
+            if (!takes_focus(gadgets[at]))
+                continue;
+            FocusRecord record;
+            record.index = static_cast<int32_t>(at);
+            record.at = rect;
+            record.frame_x = frame.x;
+            record.frame_y = frame.y;
+            laid.focusable.push_back(record);
+        }
+        if (!found)
+            return laid;
+        std::vector<place::PlaceRect> others;
+        others.reserve(everything.size());
+        for (const place::PlaceRect& rect : everything) {
+            if (rect.x == anchor.x && rect.y == anchor.y && rect.width == anchor.width &&
+                rect.height == anchor.height)
+                continue;
+            others.push_back(rect);
+        }
+        const kit::Rect room_frame{0, 0, placed_on.picture_size.x, placed_on.picture_size.y};
+        const kit::Rect room = frame_to_points(placed_on, room_frame);
+        const uint32_t stage = difficulty_stage();
+        const brain::Difficulty difficulty = difficulty_of(stage);
+        const std::string word = difficulty_word(stage);
+        const library::TextHooks hooks = text_hooks();
+        const std::pair<picker::SeatShown, picker::Choice> face =
+            face_of(brain::Setup::campaign, campaign_place, difficulty, word);
+        const std::string label = picker::seat_label(face.first, false, hooks);
+        const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
+        std::optional<place::PlaceRect> chosen =
+            place::place_in_column(anchor, others, as_place(room), column_gap);
+        if (!chosen && fonts != nullptr) {
+            const int32_t height = kit::compact_metrics.button_height;
+            const place::BlockSizes sizes{
+                own_width(*fonts, height, label),
+                height,
+                kit::compact_metrics.small_line,
+                0,
+                0,
+                block_gap,
+                0,
+                0
+            };
+            chosen = place::place_block(anchor, others, as_place(room), sizes).button;
+        }
+        if (!chosen || chosen->width <= 0 || chosen->height <= 0)
+            return laid;
+        SeatButton button;
+        button.slot = campaign_place;
+        button.id = control_id(campaign_place);
+        button.name = std::string(campaign_button_name);
+        button.at = *chosen;
+        button.shown = face.first;
+        button.choice = face.second;
+        button.label = label;
+        laid.buttons.push_back(std::move(button));
+        complete_geometry(laid, placed_on, std::move(everything));
+        return laid;
+    }
+
     /// Where the buttons and the open card lie for a view.
     ///
     /// @param placed_on what the screen is placed on
     /// @return the geometry; not ok while no button is placed
     [[nodiscard]] Geometry geometry(const LayerView& placed_on) const {
+        if (campaign_screen())
+            return campaign_geometry(placed_on);
         Geometry laid;
         if (!BrainSeatsAccess::shows(runtime_) || placed_on.picture_size.x <= 0)
             return laid;
@@ -926,48 +1138,13 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
             button.at = *beside;
             button.energy = energy;
             const std::pair<picker::SeatShown, picker::Choice> face =
-                face_of(slot, difficulty, word);
+                face_of(brain::Setup::skirmish, slot, difficulty, word);
             button.shown = face.first;
             button.choice = face.second;
             button.label = picker::seat_label(button.shown, false, hooks);
             laid.buttons.push_back(std::move(button));
         }
-        if (laid.buttons.empty())
-            return laid;
-        kit::Rect bounds{};
-        for (const SeatButton& button : laid.buttons)
-            bounds = unite(bounds, outset(as_kit(button.at), kit::compact_metrics.focus_inset));
-        const int32_t open = card_.open_slot();
-        const SeatButton* open_button = nullptr;
-        for (const SeatButton& button : laid.buttons) {
-            if (button.slot == open)
-                open_button = &button;
-        }
-        const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
-        if (open_button != nullptr && fonts != nullptr) {
-            const int32_t arrow_depth =
-                kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
-            laid.card_look = picker::seat_card(open_button->shown, hooks);
-            const kit::Point size = kit::hover_card_size(*fonts, laid.card_look);
-            const kit::Rect badge = as_kit(open_button->at);
-            const kit::Rect card =
-                mp::presence_card_place(badge, size, placed_on.frame.area, arrow_depth);
-            mp::presence_card_point(laid.card_look, card, badge);
-            const kit::Rect arrow = arrow_rect(card, laid.card_look, arrow_depth);
-            bounds = unite(bounds, card);
-            if (arrow.width > 0 && arrow.height > 0)
-                bounds = unite(bounds, arrow);
-            laid.card = local_of(card, bounds);
-            if (arrow.width > 0 && arrow.height > 0)
-                laid.arrow = local_of(arrow, bounds);
-        }
-        for (SeatButton& button : laid.buttons)
-            button.local = local_of(as_kit(button.at), bounds);
-        laid.gadgets.reserve(everything.size());
-        for (const place::PlaceRect& rect : everything)
-            laid.gadgets.push_back(as_place(local_of(as_kit(rect), bounds)));
-        laid.bounds = bounds;
-        laid.ok = bounds.width > 0 && bounds.height > 0 && !laid.buttons.empty();
+        complete_geometry(laid, placed_on, std::move(everything));
         return laid;
     }
 
@@ -1262,6 +1439,14 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         const SeatButton* current_button = button_of(laid, focused_slot_);
         if (current_button == nullptr)
             return LayerAnswer::pass;
+        // NEWGAME and Any Mission keep Up and Down for the campaign lists.
+        if (campaign_screen() && (pressed == kit::Key::up || pressed == kit::Key::down))
+            return LayerAnswer::pass;
+        if (campaign_screen() && (pressed == kit::Key::left || pressed == kit::Key::right)) {
+            const Aim aim = pressed == kit::Key::left ? Aim::left : Aim::right;
+            const int32_t next = nearest_record(laid.focusable, current_button->at, aim);
+            return next > 0 ? hand_focus(next) : LayerAnswer::none;
+        }
         if (pressed == kit::Key::left)
             return current_button->energy > 0 ? hand_focus(current_button->energy)
                                               : LayerAnswer::none;
@@ -1290,16 +1475,22 @@ struct Runtime::BrainSeatsScreen final : LayerScreen {
         const SeatButton* button = button_of(laid, slot);
         if (button == nullptr)
             return;
+        const bool campaign = campaign_screen();
         BrainPickerRequest request;
-        request.setup = brain::Setup::skirmish;
-        request.seat_name = seat_title(slot);
+        request.setup = campaign ? brain::Setup::campaign : brain::Setup::skirmish;
+        request.seat_name = campaign
+                                ? std::string(oa::data::languages::interface_text(word_computer))
+                                : seat_title(slot);
         request.current = button->choice;
         request.setup_difficulty = difficulty_of(difficulty_stage());
         request.built_in_level_fixed = true;
-        request.offer_every_seat = true;
+        request.offer_every_seat = !campaign;
         Runtime* runtime = &runtime_;
-        request.used = [runtime, slot](picker::Choice choice, bool every) {
-            BrainSeatsAccess::write(*runtime, slot, choice, every);
+        request.used = [runtime, slot, campaign](picker::Choice choice, bool every) {
+            if (campaign)
+                BrainSeatsAccess::write_campaign(*runtime, choice);
+            else
+                BrainSeatsAccess::write(*runtime, slot, choice, every);
         };
         request.cancelled = [] {};
         runtime_.open_brain_picker(std::move(request));
