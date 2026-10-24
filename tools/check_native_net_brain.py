@@ -4,12 +4,15 @@
 
 """A loopback host seats Steady Commander before the match's first tick.
 
-The script writes Brains/steady-commander, whose hooks do nothing, into a
-scratch user folder, and a scratch preferences file whose multiplayer key
-names that brain at firm for the first computer this machine seats. It runs
-one headless loopback of 600 ticks with a computer player, and requires the
-host's "plays steady-commander 1.2 at firm" line once and the loopback's own
-pass line. The script exits 77 when no game data is installed.
+The script writes Brains/steady-commander into a scratch user folder, and a
+scratch preferences file whose multiplayer key names that brain at firm for
+the first computer this machine seats. A seated brain's turn replaces the
+built-in order tick, so this brain places four frames late in the build
+window and then stops. The engine's computer player takes the strike the
+loopback check still requires. It runs one headless loopback of 600 ticks
+with a computer player, and requires the host's "plays steady-commander 1.2
+at firm" line once and the loopback's own pass line. The script exits 77
+when no game data is installed.
 """
 
 import argparse
@@ -43,7 +46,84 @@ levels:
     difficulty: hard
 """
 
-BRAIN_SCRIPT = "local brain = {}\nreturn brain\n"
+# A seated brain's play hook replaces the order tick, including a script
+# with no hooks, so the engine's computer player never builds and never
+# strikes. A fresh order replaces the yard under way, and an unattended
+# frame decays once it has waited, so this brain places four frames beside
+# its commander late in the build window, while each frame is still live,
+# and then stops. The engine's computer player takes the strike.
+BRAIN_SCRIPT = """local hooks = {}
+local issued = 0
+local watch = 0
+local walking = false
+local used = {}
+
+local function commander_of(units)
+  for i = 1, #units do
+    local kind = units[i].type
+    if kind and kind.builder and kind.canmove and kind.candgun then
+      return units[i]
+    end
+  end
+  return nil
+end
+
+local function yards_of(commander)
+  local list = game.build_list(commander.type)
+  local yards = {}
+  for i = 1, #list do
+    local kind = list[i]
+    if kind and not kind.canmove and not kind.builder and kind.buildtime then
+      yards[#yards + 1] = kind
+    end
+  end
+  table.sort(yards, function(a, b)
+    return a.buildtime < b.buildtime
+  end)
+  return yards
+end
+
+function hooks.onTick(tick)
+  if tick >= 700 then
+    error("the base is up")
+  end
+  if tick < 350 or (issued >= 4 and not walking) then
+    return
+  end
+  local units = me:units()
+  if walking then
+    if #units > watch then
+      walking = false
+    else
+      return
+    end
+  end
+  if issued >= 4 then
+    return
+  end
+  local commander = commander_of(units)
+  if commander == nil then
+    return
+  end
+  local yards = yards_of(commander)
+  local spot = {x = commander.x, z = commander.z}
+  for y = 1, #yards do
+    local yard = yards[y]
+    local cell_x, cell_z, x, z = brain.place(yard, spot, 200, 0)
+    local key = cell_x ~= nil and (tostring(cell_x) .. ":" .. tostring(cell_z)) or nil
+    if key ~= nil and not used[key] and brain.site(yard, cell_x, cell_z, 0, "yard")
+        and commander:build(yard, {x = x, z = z}, 0, false) then
+      used[key] = true
+      issued = issued + 1
+      watch = #units
+      walking = true
+      return
+    end
+  end
+end
+
+return hooks
+"""
 
 
 class ScriptFailure(Exception):
@@ -56,7 +136,7 @@ def quote_preference(text):
 
 
 def write_brain(user):
-    """Writes Steady Commander: a manifest and hooks that do nothing."""
+    """Writes Steady Commander: a manifest and a brain that builds, then stops."""
     folder = user / "Brains" / "steady-commander"
     folder.mkdir(parents=True)
     (folder / "oabrain.yaml").write_text(STEADY_MANIFEST, encoding="utf-8")

@@ -1077,7 +1077,9 @@ but its row's empty screen-size column. It writes
 `brain-room-host-<w>x<h>.png`. A FIXTURES_SETUP test (`brain-room-clean`)
 clears its folders before each run. `native-net-loopback-brain`
 (`tools/check_native_net_brain.py`) seats Steady Commander at firm on the
-host's computer and requires that seat's line once.
+host's computer. The brain places four frames late in the build window and
+then stops, so the engine's computer player can strike, and the check
+requires that seat's line once.
 
 ## The mutator picker
 

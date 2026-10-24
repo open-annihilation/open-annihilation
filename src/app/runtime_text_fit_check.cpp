@@ -892,56 +892,30 @@ void Runtime::check_text_fit() {
                 room_game.game_name = "Ridge Fit";
                 mp::multiplayer_bind_direct_game(room_game);
 
-                const auto room_window_pixel = [&](int32_t frame_x, int32_t frame_y) {
-                    const LayerView placed = oa_layer().view();
-                    require(
-                        placed.picture_size.x > 0 && placed.picture_size.y > 0 &&
-                            placed.picture.width > 0 && placed.picture.height > 0,
-                        "the picture has no size"
-                    );
-                    return layout::Point{
-                        static_cast<int32_t>(
-                            placed.picture.x + static_cast<int64_t>(frame_x) *
-                                                   placed.picture.width / placed.picture_size.x
-                        ),
-                        static_cast<int32_t>(
-                            placed.picture.y + static_cast<int64_t>(frame_y) *
-                                                   placed.picture.height / placed.picture_size.y
-                        ),
-                    };
-                };
-                const auto press_at = [&](layout::Point pixel, std::string_view what) {
-                    bool going = true;
-                    for (const SDL_EventType type :
-                         {SDL_EVENT_MOUSE_MOTION,
-                          SDL_EVENT_MOUSE_BUTTON_DOWN,
-                          SDL_EVENT_MOUSE_BUTTON_UP}) {
-                        SDL_Event event = window_pointer_event(
-                            sdl_.window,
-                            sdl_.renderer,
-                            type,
-                            pixel,
-                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
-                        );
-                        dispatch_event(event, going);
-                        require(going, std::string(what) + " ended the run");
-                    }
-                };
+                // --host names TCP before the menus open, and the provider
+                // list then takes that transport. This step is already on the
+                // main menu, so the launch block is named here and put back
+                // once the room is up: a transport left set would leave the
+                // main menu again when Settings opens.
+                mp::launch::LaunchBlock* const launch = mp::multiplayer_lobby().launch_link.block;
+                require(launch != nullptr, "the battle room has no launch block");
+                const int32_t saved_connection = launch->connection_type;
+                launch->connection_type = mp::launch::connection_type::tcpip;
 
                 bool found_multi = false;
-                int32_t multi_x = 0;
-                int32_t multi_y = 0;
                 for (const auto& gadget : resources_.layout.gadgets) {
                     if (gadget.common.name != menu::resource_name(menu::Button::multiplayer))
                         continue;
-                    const auto origin = panel_origin();
-                    multi_x = origin.x + gadget.common.x + gadget.common.width / 2;
-                    multi_y = origin.y + gadget.common.y + gadget.common.height / 2;
                     found_multi = true;
                     break;
                 }
                 require(found_multi, "the main menu has no MULTI");
-                press_at(room_window_pixel(multi_x, multi_y), "MULTI");
+                exercise_click(menu::resource_name(menu::Button::multiplayer));
+                // The click sets the multiplayer signal. The dispatcher runs
+                // on a later frame only when a pass was asked for; --host asks
+                // on every frame until a multiplayer screen shows, and this
+                // step asks once.
+                frontend_pass_requested_ = true;
 
                 bool room_opened = false;
                 std::string room_notice;
@@ -965,6 +939,7 @@ void Runtime::check_text_fit() {
                     room_notice.empty() ? "the battle room did not open"
                                         : "the battle room did not open: " + room_notice
                 );
+                launch->connection_type = saved_connection;
 
                 require(!user_folder_.empty(), "the run has no folder of the player's own");
                 LongBrainPackage room_package;
@@ -1016,21 +991,13 @@ void Runtime::check_text_fit() {
                 }
                 require(room_labelled, "the battle room shows no brain seat");
 
-                const std::vector<mp::BattleRoomControl> room_panel =
-                    mp::multiplayer_battle_room_controls();
-                const mp::BattleRoomControl* previous = nullptr;
-                for (const mp::BattleRoomControl& control : room_panel) {
-                    if (control.name == "PREVMENU" && control.width > 0 && control.height > 0)
-                        previous = &control;
-                }
-                require(previous != nullptr, "the battle room has no PREVMENU");
-                press_at(
-                    room_window_pixel(
-                        previous->x + previous->width / 2, previous->y + previous->height / 2
-                    ),
-                    "PREVMENU"
+                auto room_context = screen_context();
+                require(
+                    mp::multiplayer_click(&room_context, "PREVMENU"),
+                    "the battle room has no PREVMENU"
                 );
                 bool room_left = false;
+                bool pressed_again = false;
                 for (int32_t frame = 0; frame < 60 && !room_left; ++frame) {
                     mp::BattleRoomMap battle;
                     room_left = !mp::multiplayer_battle_room_open();
@@ -1038,6 +1005,14 @@ void Runtime::check_text_fit() {
                         room_left = false;
                     if (room_left)
                         break;
+                    // A click while a notice is up only clears that notice.
+                    if (frame == 1 && !pressed_again) {
+                        pressed_again = true;
+                        require(
+                            mp::multiplayer_click(&room_context, "PREVMENU"),
+                            "the battle room has no PREVMENU"
+                        );
+                    }
                     bool going = true;
                     run_frame(going);
                     require(going, "leaving the battle room ended the run");

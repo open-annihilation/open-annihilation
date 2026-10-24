@@ -383,7 +383,9 @@ void Runtime::check_brain_room() {
         oa_layer().read_whole_window(false);
         return presented;
     };
-    const auto resize = [&](const CheckWindow& window) {
+    // Sizing is separate from the room check: the first size is applied
+    // before the room opens, and a later size still has to leave the room up.
+    const auto size_window = [&](const CheckWindow& window) {
         const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
         require(
             SDL_SetWindowSize(sdl_.window, window.width, window.height) &&
@@ -392,10 +394,14 @@ void Runtime::check_brain_room() {
         );
         apply_output_mode();
         frames(2);
+    };
+    const auto resize = [&](const CheckWindow& window) {
+        size_window(window);
+        const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
         require(room_open(), "the battle room left on the " + size + " window");
     };
 
-    resize(kWindows[0]);
+    size_window(kWindows[0]);
     bool opened = false;
     for (int32_t frame = 0; frame < kOpeningFrames && !opened; ++frame) {
         run_frame(running);
