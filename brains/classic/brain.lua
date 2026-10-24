@@ -2,12 +2,17 @@
 -- SPDX-License-Identifier: GPL-3.0-only
 
 -- Classic's seat: the squad sort's countdown and one task per squad.
--- Each task's first act is to set the tick it runs on next. The task
--- bodies keep that timetable and do nothing else.
+-- Each task's first act is to set the tick it runs on next. Structures,
+-- construction and an armed factory's tick then choose builds and sites.
+-- The aircraft wing scouts or raids. Strike, rally and siege keep the
+-- timetable.
 
+local air = require("tasks.air")
+local construction = require("tasks.construction")
 local knowledge = require("knowledge")
 local profile = require("profile")
 local squads = require("squads")
+local structures = require("tasks.structures")
 local types = require("types")
 local rules = require("rules")
 
@@ -121,6 +126,9 @@ function hooks.start(game, me, saved)
     seat.tasks[8].every = function()
         return 30 + brain.shared_random(900)
     end
+    seat.tasks[8].run = function()
+        air.run(seat, seat.tasks[8].squad)
+    end
     -- @quirk The sort never fills squad 9, so the siege task only keeps its
     -- timetable unless a unit was already in that squad.
     local centre = map_centre(game)
@@ -132,6 +140,15 @@ function hooks.start(game, me, saved)
     seat.tasks[9].siege_probe = point_of(centre)
     seat.tasks[9].siege_step = point_of(centre)
     seat.tasks[9].siege_weight = 0
+    seat.tasks[1].run = function()
+        structures.run(seat, seat.tasks[1].squad)
+    end
+    seat.tasks[4].run = function()
+        construction.run(seat, seat.tasks[4].squad)
+    end
+    seat.tasks[5].run = function()
+        structures.run(seat, seat.tasks[5].squad)
+    end
     knowledge.create(seat)
     if previous ~= nil then
         seat.plan = previous.plan or 1
@@ -139,6 +156,7 @@ function hooks.start(game, me, saved)
         seat.land_grid = previous.land_grid
         seat.water_grid = previous.water_grid
         seat.metal = previous.metal
+        seat.placement_radius = previous.placement_radius or 0
         profile.reload(seat)
     else
         if me.handed_over then

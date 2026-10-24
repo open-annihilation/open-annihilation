@@ -405,7 +405,7 @@ int game_build_list(lua_State* state) {
 int brain_strengths(lua_State* state) {
     script_host::charge_work(state, 2);
     Seat* seat = seat_of(state);
-    if (seat == nullptr || seat->match == nullptr) {
+    if (seat == nullptr || (seat->match == nullptr && seat->calls.host.strengths == nullptr)) {
         lua_pushnil(state);
         return 1;
     }
@@ -540,7 +540,10 @@ void install_profile(lua_State* state, Seat& seat) {
         set_game_field(state, seat, "build_list_cap");
         lua_pushnil(state);
         set_game_field(state, seat, "downloadables_allowed");
-        lua_pushnil(state);
+        if (seat.calls.host.strengths != nullptr)
+            lua_pushcfunction(state, brain_strengths);
+        else
+            lua_pushnil(state);
         lua_setfield(state, -2, "strengths");
         lua_setglobal(state, "brain");
         return;
@@ -558,7 +561,10 @@ void install_profile(lua_State* state, Seat& seat) {
     if (seat.match == nullptr) {
         lua_pushnil(state);
         set_game_field(state, seat, "downloadables_allowed");
-        lua_pushnil(state);
+        if (seat.calls.host.strengths != nullptr)
+            lua_pushcfunction(state, brain_strengths);
+        else
+            lua_pushnil(state);
         lua_setfield(state, -2, "strengths");
         lua_setglobal(state, "brain");
         return;

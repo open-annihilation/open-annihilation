@@ -33,17 +33,20 @@ brain plays as the built-in computer player.
   the read-only `me` surface, the definition collections, the AI profile
   fields, `game.map` and what the seat may see are installed, then
   `brain.say`, `brain.random`, `brain.after`, `brain.every` and
-  `brain.cancel`. `brain.shared_random` is installed when the seat is
+  `brain.cancel`. `brain.float_heap_order` is installed for every seat.
+  `brain.shared_random` is installed when the seat is
   Classic or a shadow, and it has a match. `brain.section` is installed for
   every brain. `brain.setup_random` is installed for a Classic seat and for
   a shadow, and with no set-up record it raises
   `brain.setup_random: the seat is not set up yet`. The unit order methods,
   `brain.order_counts`,
   `brain.site` and `brain.place` follow. It has to work when the seat has no
-  match: `game.in_match` is false, `game.map` is nil, `me` still carries the
+  match: `game.in_match` is false, `game.map` is nil when the host has no
+  world, `me` still carries the
   player, level, difficulty and options copied from the spec, `units`,
   `weapons` and `features` exist and are empty, `brain.say` answers that
-  chat is not connected, `brain.site` and `brain.place` return nil, and
+  chat is not connected, `brain.place` returns nil, `brain.site` returns nil
+  unless the seat has full awareness and the host provides that check, and
   `brain.order_counts` is all zeros. With no match, `me.seen` and `me.radar`
   are empty, `me:sees` and `me:sees_unit` are false, and `me.sight` and
   `me.explored` are nil. Networks and grids are installed last, after the
@@ -101,8 +104,9 @@ texts copied onto the seat, not the match.
 
 ## The map
 
-`game.map` is the match map. Outside a match it is nil. Inside a match it
-is one read-only object for the life of the seat. Assigning a field raises
+`game.map` is the match map. It is nil when the seat has no match and its
+host has no world. A host world installs it with or without a match. It is
+one read-only object for the life of the seat. Assigning a field raises
 `map is read-only`. An unknown name reads nil. `getmetatable` is false.
 
 `name` is the map's name and `path` is its mission path, such as
@@ -260,6 +264,10 @@ is that built-in player's knowledge record for the seat (`tick`, `builders`,
 `base`, and `knowledge:owned`), or nil when the record is not there. The
 record is the seat's knowledge call. Outside a match that call is null, so
 `me.knowledge` stays nil and the call is not made through a null match.
+`me.builds_held_until` is the tick a capturing builder waits for. It is nil
+when the seat was not given that call, and the call is not made through a
+null match. 0 is a real tick: construction compares with `<`, so a hold of
+0 has already passed.
 
 `me:units` and `me:each_unit` walk the seat's occupied slots in slot order.
 `me:each_unit` takes that list before the first call. `me:squad`,
@@ -385,6 +393,12 @@ letters, digits or hyphens; anything else raises `brain.section: a section
 name is up to 15 letters, digits or hyphens`. In a game the mark does
 nothing. A shadow, and a later trace, record it. With no match it does
 nothing.
+
+`brain.float_heap_order(distances)` returns the 1-based indexes of integer
+distances, nearest first. The key of each distance is the float of its
+negation. Equal keys keep the later entry. An empty list returns an empty
+table. One distance returns that index. The call is charged by the length
+of the list. It reads no match.
 
 `brain.setup_random(bound)` draws from a copy of the shared stream taken at
 the seat's built-in set-up, and advances only that copy. The bound is
@@ -588,7 +602,8 @@ and `unload` call `issue_guard`, `issue_repair`, `issue_help_build`,
 calls `queue_factory_build`, with a count from 1 to 1000 and a default of 1.
 `requeue` calls `change_queued_count` for the `BuildingBuild` kind. `stop`
 calls `issue_stop`. `on` calls `toggle_activation` for the active bit only
-when that bit differs, and returns true when nothing needed changing.
+when that bit differs, and returns true when nothing needed changing. The
+host is still told when the bit already matches.
 `cloak` calls `issue_cloak`. `self_destruct` calls `toggle_self_destruct`
 for that one unit. Where a method takes a queue flag, a missing flag is
 false.
@@ -840,7 +855,8 @@ first `onTick`, and it is replaced when the match refreshes that player.
 Outside a match the profile fields still work and `unit` is nil.
 `build_list` and `build_list_cap` are nil unless the seat carries build-list
 runs, in which case they follow the same rules from those runs and the seat's
-kept count. `downloadables_allowed` and `brain.strengths` are nil.
+kept count. `downloadables_allowed` is nil. `brain.strengths` is installed
+when the host provides a strengths table, and nil otherwise.
 
 `sim-brains-profile` seats the made-up brain `profile-reader` on the
 computer-build fixture. `sim-brains-profile-data` parses every installed

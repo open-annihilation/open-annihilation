@@ -245,6 +245,23 @@ match_knowledge(void* context, uint8_t player, uint32_t* refreshed_tick) {
     }
 }
 
+uint32_t match_builds_held_until(void* context, uint8_t player) {
+    if (player >= OA_PLAYER_COUNT)
+        return 0;
+    const ComputerHost* host = host_of(context);
+    if (host == nullptr || host->context == nullptr)
+        return 0;
+    try {
+        auto& match = *static_cast<Match*>(host->context);
+        const sim::ai::ComputerPlayers* players = sim::ai::match_computer_players(match);
+        if (players == nullptr)
+            return 0;
+        return players->players[player].commander_build_tick;
+    } catch (const std::exception&) {
+        return 0;
+    }
+}
+
 } // namespace
 
 SeatCalls seat_calls_for_match(Match& match) {
@@ -258,6 +275,7 @@ SeatCalls seat_calls_for_match(Match& match) {
     calls.build_shaped = match_build_shaped;
     calls.weapon_reaches_slot = match_weapon_slot;
     calls.knowledge = match_knowledge;
+    calls.builds_held_until = match_builds_held_until;
     return calls;
 }
 

@@ -221,8 +221,8 @@ if(BUILD_TESTING)
   add_executable(oa-sim-brains-classic-test tests/classic_test.cpp tests/classic_profile.cpp)
   target_include_directories(oa-sim-brains-classic-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
   target_link_libraries(oa-sim-brains-classic-test PRIVATE oa-sim-brains oa-sim-unit-movement
-    oa-base-sha256 oa-test-match oa-options oa-data-unit-definitions oa-formats-hpi
-    oa-test-game-data)
+    oa-base-game-math oa-base-sha256 oa-test-match oa-options oa-data-unit-definitions
+    oa-formats-hpi oa-test-game-data)
   add_test(NAME sim-brains-classic COMMAND oa-sim-brains-classic-test
     "${PROJECT_SOURCE_DIR}/brains/classic")
   set_tests_properties(sim-brains-classic PROPERTIES TIMEOUT 180)

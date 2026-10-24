@@ -165,6 +165,18 @@ struct SeatCalls {
         void* context, uint8_t player, uint32_t* refreshed_tick
     ){};
 
+    /// The tick until which a capturing builder holds its build orders.
+    ///
+    /// 0 is a real tick: construction compares the match tick with `<`, so a
+    /// hold of 0 never waits. Null when the seat has no match. `me.builds_held_until`
+    /// stays nil while this is null, and the call is not made through a null
+    /// match: a match installs it only with the match as `host.context`.
+    ///
+    /// @param context the address of `host`
+    /// @param player the seat
+    /// @return `commander_build_tick` for that player, or 0 when the player is out of range
+    uint32_t (*builds_held_until)(void* context, uint8_t player){};
+
     /// Build-list runs for a seat that has no match: a count and that many type
     /// ids, from type 0. Null when the match holds the runs, and null outside a
     /// match that was not given a list.
