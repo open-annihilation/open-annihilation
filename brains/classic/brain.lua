@@ -5,6 +5,8 @@
 -- Each task's first act is to set the tick it runs on next. The task
 -- bodies keep that timetable and do nothing else.
 
+local knowledge = require("knowledge")
+local profile = require("profile")
 local squads = require("squads")
 local types = require("types")
 local rules = require("rules")
@@ -73,9 +75,11 @@ function hooks.start(game, me, saved)
         -- A saved seat is accepted. This timetable does not apply it.
     end
     local loaded_rules = rules.load(game)
+    local previous = hooks.seat
     local seat = {
         player = me.player,
         me = me,
+        game = game,
         sort_countdown = 30,
         rules = loaded_rules,
         types = types.load(game),
@@ -128,11 +132,30 @@ function hooks.start(game, me, saved)
     seat.tasks[9].siege_probe = point_of(centre)
     seat.tasks[9].siege_step = point_of(centre)
     seat.tasks[9].siege_weight = 0
+    knowledge.create(seat)
+    if previous ~= nil then
+        seat.plan = previous.plan or 1
+        seat.grids_ready = previous.grids_ready or 0
+        seat.land_grid = previous.land_grid
+        seat.water_grid = previous.water_grid
+        seat.metal = previous.metal
+        profile.reload(seat)
+    else
+        if me.handed_over then
+            profile.apply_handed(seat)
+        else
+            profile.apply_all(seat)
+        end
+        knowledge.scan_metal(seat)
+    end
     hooks.seat = seat
 end
 
 function hooks.onTick(tick)
     local seat = hooks.seat
+    if seat.grids_ready ~= 1 then
+        knowledge.seed_grids(seat)
+    end
     seat.sort_countdown = seat.sort_countdown - 1
     if seat.sort_countdown < 1 then
         seat.sort_countdown = 30

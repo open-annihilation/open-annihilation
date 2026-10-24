@@ -149,6 +149,31 @@ struct SeatCalls {
     /// @param name the order's name
     /// @param slot the unit, or 0 for a line that is not a unit order
     void (*refuse)(void* context, const char* name, uint16_t slot){};
+
+    /// The seat's built-in knowledge record, and the tick that record was last refreshed.
+    ///
+    /// Null when the player has no record. `me.knowledge` stays nil while this
+    /// is null, and the call is not made through a null match: a match installs
+    /// it only with the match as `host.context`, and a seat outside a match
+    /// leaves it null unless a test supplies a record of its own.
+    ///
+    /// @param context the address of `host`
+    /// @param player the seat
+    /// @param refreshed_tick receives the sightings refresh tick when a record is returned
+    /// @return the record, or null when the player has none
+    const sim::ai::ComputerKnowledge* (*knowledge)(
+        void* context, uint8_t player, uint32_t* refreshed_tick
+    ){};
+
+    /// Build-list runs for a seat that has no match: a count and that many type
+    /// ids, from type 0. Null when the match holds the runs, and null outside a
+    /// match that was not given a list.
+    const uint16_t* build_runs{};
+    /// The number of `uint16_t` values in `build_runs`.
+    uint32_t build_run_length{};
+    /// Entries a builder's list keeps, including the one the download menus add.
+    /// 0 selects the match's own limit, or the longest list when `build_runs` is set.
+    uint32_t build_kept{};
 };
 
 /// The call table of a match: `match_computer_host` and the calls beside it.
