@@ -18,8 +18,9 @@
 
 #include <algorithm>
 #include <array>
-#include <charconv>
+#include <cerrno>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
@@ -2131,12 +2132,15 @@ int run_brain_net(std::span<const std::string> arguments, Output& output) {
     std::string limit_text;
     if (const std::string* text = parsed->value("max-difference")) {
         limit_text = *text;
-        const char* first = text->data();
+        // strtod, not from_chars: the floating-point from_chars is missing
+        // from the C++ library of older macOS releases the Intel build
+        // targets. oa-tool never changes the C locale, so '.' is the point.
+        const char* first = text->c_str();
         const char* last = first + text->size();
-        double value = 0.0;
-        const std::from_chars_result converted = std::from_chars(first, last, value);
-        if (converted.ec != std::errc{} || converted.ptr != last || !std::isfinite(value) ||
-            value < 0.0) {
+        char* end = nullptr;
+        errno = 0;
+        const double value = std::strtod(first, &end);
+        if (text->empty() || errno != 0 || end != last || !std::isfinite(value) || value < 0.0) {
             return usage("--max-difference is a number that is not negative");
         }
         limited = true;
