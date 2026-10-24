@@ -3667,6 +3667,34 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # The trace skirmish, the stage and the director render, each played
+        # again with Classic in the computer seat. The director's pass and
+        # fail lines are the pinned render's.
+        add_test(NAME native-classic-trace COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_classic_swap.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
+          --brain "${PROJECT_SOURCE_DIR}/brains/classic"
+          trace)
+        set_tests_properties(native-classic-trace PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        add_test(NAME native-classic-stage COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_classic_swap.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
+          --brain "${PROJECT_SOURCE_DIR}/brains/classic"
+          stage)
+        set_tests_properties(native-classic-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        add_test(NAME native-classic-director-render COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_classic_swap.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
+          --brain "${PROJECT_SOURCE_DIR}/brains/classic"
+          --director-hash "${oa_director_render_hashes}"
+          director)
+        set_tests_properties(native-classic-director-render PROPERTIES
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          PASS_REGULAR_EXPRESSION "${oa_director_render_hashes}"
+          FAIL_REGULAR_EXPRESSION "director render check:")
         # --brain-match plays two computer seats, reports the same lines twice,
         # and refuses a map or a brain it cannot seat.
         add_test(NAME native-brain-match COMMAND ${Python3_EXECUTABLE}

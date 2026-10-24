@@ -229,4 +229,17 @@ if(BUILD_TESTING)
   oa_add_game_data_test(sim-brains-classic-data oa-sim-brains-classic-test --data
     "${PROJECT_SOURCE_DIR}/brains/classic")
   set_tests_properties(sim-brains-classic-data PROPERTIES TIMEOUT 180)
+
+  # The match-level build cases, once by the built-in player and once with
+  # Classic. About twenty pairs of 1,200 ticks: five cases, three rule sets
+  # with the modded set played twice, and each ai.* hack on its own.
+  add_executable(oa-sim-brains-classic-match-test tests/classic_match_test.cpp)
+  target_include_directories(
+    oa-sim-brains-classic-match-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_link_libraries(oa-sim-brains-classic-match-test PRIVATE oa-sim-brains oa-sim-unit-movement
+    oa-base-game-math oa-base-sha256 oa-test-match oa-options oa-data-unit-definitions
+    oa-formats-hpi oa-test-game-data oa-sim-state-hash)
+  add_test(NAME sim-brains-classic-match COMMAND oa-sim-brains-classic-match-test
+    "${PROJECT_SOURCE_DIR}/brains/classic")
+  set_tests_properties(sim-brains-classic-match PROPERTIES TIMEOUT 600)
 endif()
