@@ -410,6 +410,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-map-browser` | Checks the map browser at four window sizes. |
 | `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the button's size and place, its badge and count, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
 | `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, as large as it, at 640x480 and 1280x720, its count, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
+| `--check-brain-room` | Hosts a battle room alone and checks each computer row's brain button at 640x480 and 1280x720: the label, the greyed difficulty, the picker, every computer seat, the hover card, and the button meeting no control of the room but its row's empty screen-size column. |
 | `--check-mutator-picker` | Checks the mutator picker at four window sizes, including a cancelled download, a check after an install, USE THESE fetching one, a download already under way, and the runtime's own feed. |
 | `--check-brain-picker` | Checks the brain picker at four window sizes: the row order, a locked brain, the level, USE THIS, every computer seat, CANCEL, the keys, the controller, and the runtime's own feed. |
 | `--check-brain-seat-buttons` | Checks each computer row's brain button on the skirmish setup at 640x480 and 1280x720: its place beside Energy, the label, Tab, the picker, the hover card and the brains a start seats. |

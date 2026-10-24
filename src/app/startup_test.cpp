@@ -393,6 +393,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-map-browser", &Options::check_map_browser, {}},
         {"--check-mutator-button", &Options::check_mutator_button, {}},
         {"--check-mutator-room", &Options::check_mutator_room, {}},
+        {"--check-brain-room", &Options::check_brain_room, {}},
         {"--check-mutator-picker", &Options::check_mutator_picker, {}},
         {"--check-brain-picker", &Options::check_brain_picker, {}},
         {"--check-brain-seat-buttons", &Options::check_brain_seat_buttons, {}},

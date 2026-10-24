@@ -1261,6 +1261,27 @@ struct NetworkPlay::NetHost {
 
         runtime.release_room_mutators();
         runtime.choose_match_mutators(std::move(room_chosen));
+        // This machine's computers take their brains before the match's first
+        // tick. Another machine's computers are not in the list. The seats
+        // remembered afterwards are in the order this machine seated them.
+        runtime.note_room_computers(lobby);
+        const oa::data::brain_library::Seats room_seats = runtime.room_brain_seats();
+        std::vector<uint8_t> room_computers;
+        room_computers.reserve(room_seats.seats.size());
+        for (const oa::data::brain_library::Seat& room_seat : room_seats.seats) {
+            if (room_seat.place < 0 || room_seat.place > 9)
+                continue;
+            room_computers.push_back(static_cast<uint8_t>(room_seat.place));
+        }
+        runtime.seat_brains_once(runtime.resolve_brain_seats(
+            room_seats, room_computers, oa::data::brain_library::Difficulty::hard
+        ));
+        if (!room_seats.seats.empty()) {
+            oa::data::brain_library::Seats memory_seats = room_seats;
+            for (std::size_t seat_index = 0; seat_index < memory_seats.seats.size(); ++seat_index)
+                memory_seats.seats[seat_index].place = static_cast<int32_t>(seat_index);
+            runtime.remember_brain_seats(oa::data::brain_library::Setup::multiplayer, memory_seats);
+        }
         runtime.bootstrap_match(
             {.units_per_player = limit,
              .place_commanders = false,

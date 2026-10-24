@@ -12,6 +12,8 @@
 // Mutators reading "Mutators" and "Mutators (5)", with three computer rows'
 // brain buttons, one of them a long name, and NEWGAME with the button, in
 // every language and both sizes; Mutators' words must read whole.
+// The battle room is painted with one computer row whose brain has a long
+// name, in every language and both sizes.
 // The Brains tab's details are painted too: one brain not installed and one
 // installed, at both sizes and at 960x540, Compact on its details page.
 // "Load with the built-in player?" is painted with two 64-byte names.
@@ -37,6 +39,10 @@
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/frontend_multiplayer/get_map.hpp"
+#include "oa/ui/frontend_multiplayer/lobby.hpp"
+#include "oa/ui/frontend_multiplayer/screens.hpp"
+#include "oa/ui/frontend_state/main_menu.hpp"
 #include "oa/ui/frontend_state/skirmish_ui.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/text.hpp"
@@ -75,7 +81,10 @@ namespace dialogs = oa::ui::frontend_dialogs;
 namespace picker = oa::ui::mutator_picker;
 namespace brains = oa::ui::brain_picker;
 namespace brain_prompts = oa::ui::brain_picker;
+namespace brain = oa::data::brain_library;
 namespace layout = oa::ui::display_layout;
+namespace menu = oa::ui::frontend_state::main_menu;
+namespace mp = oa::ui::frontend_multiplayer;
 
 /// Languages the check opens every screen in, in order, unless --check-language
 /// names others.
@@ -825,6 +834,177 @@ void Runtime::check_text_fit() {
             require_whole_words("newgame/mutators");
             replace_setup_mutators(mutators_memory::Setup::campaign, {});
             load(Screen::main_menu);
+
+            // One computer row in the battle room, labelled with a brain
+            // whose name is longer than the button. The row is left, and
+            // the remembered seat is cleared, before Settings opens.
+            {
+                close_covering();
+                mp::DirectGame room_game;
+                room_game.kind = mp::DirectGame::Kind::host;
+                room_game.player_name = "Steve";
+                room_game.game_name = "Ridge Fit";
+                mp::multiplayer_bind_direct_game(room_game);
+
+                const auto room_window_pixel = [&](int32_t frame_x, int32_t frame_y) {
+                    const LayerView placed = oa_layer().view();
+                    require(
+                        placed.picture_size.x > 0 && placed.picture_size.y > 0 &&
+                            placed.picture.width > 0 && placed.picture.height > 0,
+                        "the picture has no size"
+                    );
+                    return layout::Point{
+                        static_cast<int32_t>(
+                            placed.picture.x + static_cast<int64_t>(frame_x) *
+                                                   placed.picture.width / placed.picture_size.x
+                        ),
+                        static_cast<int32_t>(
+                            placed.picture.y + static_cast<int64_t>(frame_y) *
+                                                   placed.picture.height / placed.picture_size.y
+                        ),
+                    };
+                };
+                const auto press_at = [&](layout::Point pixel, std::string_view what) {
+                    bool going = true;
+                    for (const SDL_EventType type :
+                         {SDL_EVENT_MOUSE_MOTION,
+                          SDL_EVENT_MOUSE_BUTTON_DOWN,
+                          SDL_EVENT_MOUSE_BUTTON_UP}) {
+                        SDL_Event event = window_pointer_event(
+                            sdl_.window,
+                            sdl_.renderer,
+                            type,
+                            pixel,
+                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+                        );
+                        dispatch_event(event, going);
+                        require(going, std::string(what) + " ended the run");
+                    }
+                };
+
+                bool found_multi = false;
+                int32_t multi_x = 0;
+                int32_t multi_y = 0;
+                for (const auto& gadget : resources_.layout.gadgets) {
+                    if (gadget.common.name != menu::resource_name(menu::Button::multiplayer))
+                        continue;
+                    const auto origin = panel_origin();
+                    multi_x = origin.x + gadget.common.x + gadget.common.width / 2;
+                    multi_y = origin.y + gadget.common.y + gadget.common.height / 2;
+                    found_multi = true;
+                    break;
+                }
+                require(found_multi, "the main menu has no MULTI");
+                press_at(room_window_pixel(multi_x, multi_y), "MULTI");
+
+                bool room_opened = false;
+                std::string room_notice;
+                for (int32_t frame = 0; frame < 300 && !room_opened; ++frame) {
+                    bool going = true;
+                    run_frame(going);
+                    require(going, "the battle room ended the run");
+                    if (frame % 15 == 14) {
+                        dialogs::reset_dialogs();
+                        if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
+                            oa_layer().close(notice);
+                    }
+                    mp::BattleRoomMap battle;
+                    room_opened = mp::multiplayer_battle_room_map(&battle) && !battle.joiner;
+                    const mp::DirectGameProgress& progress = mp::multiplayer_direct_game_progress();
+                    if (progress.reached == mp::DirectGameStep::failed)
+                        room_notice = progress.notice;
+                }
+                require(
+                    room_opened,
+                    room_notice.empty() ? "the battle room did not open"
+                                        : "the battle room did not open: " + room_notice
+                );
+
+                require(!user_folder_.empty(), "the run has no folder of the player's own");
+                LongBrainPackage room_package;
+                room_package.folder =
+                    user_folder_ / std::string(brain::brains_folder_name) / "ridge-long-beacon";
+                write_long_brain(room_package.folder);
+                brain::Seat room_seat;
+                room_seat.place = 0;
+                room_seat.brain = "ridge-long-beacon";
+                room_seat.level = "far";
+                brain::Seats room_seats;
+                room_seats.seats.push_back(std::move(room_seat));
+                preference_values_[std::string(settings::key::brains_multiplayer)] =
+                    brain::seats_text(room_seats);
+                preferences_dirty_ = true;
+                reload_installed_brains();
+
+                mp::Lobby& room_lobby = mp::multiplayer_lobby();
+                require(room_lobby.game != nullptr, "the battle room has no game");
+                int32_t room_slot = -1;
+                for (int32_t candidate = 0; candidate < mp::kSlotCount; ++candidate) {
+                    if (mp::slot_player(room_lobby, candidate).status == mp::kSlotOpen) {
+                        room_slot = candidate;
+                        break;
+                    }
+                }
+                require(room_slot >= 0, "the battle room has no open slot");
+                mp::lobby_add_computer(room_lobby, room_slot);
+                const oa::Player& added = mp::slot_player(room_lobby, room_slot);
+                require(
+                    added.status == mp::kSlotComputer && added.player_id != 0,
+                    "the computer player was not added"
+                );
+                note_room_computers(room_lobby);
+                paint("battle-room/brain");
+
+                bool room_labelled = false;
+                std::vector<AutomationControl> room_controls;
+                oa_layer().automation_controls(room_controls);
+                for (const AutomationControl& control : room_controls) {
+                    constexpr std::string_view prefix = "oa.brain-seat.";
+                    if (control.name.compare(0, prefix.size(), prefix) != 0 || !control.visible)
+                        continue;
+                    require(
+                        control.text.find("Ridge Long Beacon") != std::string::npos,
+                        "the battle room's seat does not name the long brain (" + control.text + ")"
+                    );
+                    room_labelled = true;
+                }
+                require(room_labelled, "the battle room shows no brain seat");
+
+                const std::vector<mp::BattleRoomControl> room_panel =
+                    mp::multiplayer_battle_room_controls();
+                const mp::BattleRoomControl* previous = nullptr;
+                for (const mp::BattleRoomControl& control : room_panel) {
+                    if (control.name == "PREVMENU" && control.width > 0 && control.height > 0)
+                        previous = &control;
+                }
+                require(previous != nullptr, "the battle room has no PREVMENU");
+                press_at(
+                    room_window_pixel(
+                        previous->x + previous->width / 2, previous->y + previous->height / 2
+                    ),
+                    "PREVMENU"
+                );
+                bool room_left = false;
+                for (int32_t frame = 0; frame < 60 && !room_left; ++frame) {
+                    mp::BattleRoomMap battle;
+                    room_left = !mp::multiplayer_battle_room_open();
+                    if (mp::multiplayer_battle_room_map(&battle))
+                        room_left = false;
+                    if (room_left)
+                        break;
+                    bool going = true;
+                    run_frame(going);
+                    require(going, "leaving the battle room ended the run");
+                }
+                require(room_left, "the battle room stayed open");
+                mp::DirectGame room_done;
+                mp::multiplayer_bind_direct_game(room_done);
+                load(Screen::main_menu);
+                preference_values_.erase(std::string(settings::key::brains_multiplayer));
+                preferences_dirty_ = true;
+                note_room_computers(mp::multiplayer_lobby());
+            }
+            reload_installed_brains();
 
             open_engine_settings_from_menu();
             settings::Dialog* dialog = engine_settings_dialog();

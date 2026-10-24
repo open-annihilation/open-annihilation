@@ -776,6 +776,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_brain_room) {
+            check_brain_room();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mod_map_settings) {
             check_mod_map_settings();
             flush_preferences();

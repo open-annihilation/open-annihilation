@@ -731,6 +731,10 @@ struct Options {
     // the remembered multiplayer set, the chat lines, and the button
     // disabled while the room's options are locked.
     bool check_mutator_room = false;
+    // Hosts a battle room alone and requires each computer row's brain
+    // button, the greyed difficulty, the picker, the card and the record
+    // this machine sends, at 640x480 and 1280x720.
+    bool check_brain_room = false;
     // Installs one map pack from the check's own registry while both map
     // lists already exist. Requires the map whose stem has a space, an
     // apostrophe and parentheses in both lists, under its index title,

@@ -204,6 +204,7 @@ class FontStack;
 } // namespace oa::platform::text_font
 
 namespace oa::ui::frontend_multiplayer {
+struct Lobby;
 struct LobbyMapSource;
 struct LobbyPackMap;
 struct LocalPack;
@@ -5024,13 +5025,38 @@ class Runtime final : public menu::Host,
     /// The seats a setup keeps for this run.
     ///
     /// Skirmish and campaign fill theirs when the setup is entered. The
-    /// battle room's record is kept here for a later ticket and is not
-    /// loaded with them.
+    /// battle room writes its seats, in the order this machine seated its
+    /// computers, when START seats them. The room's buttons read each
+    /// computer's own choice, not this record.
     ///
     /// @param setup the setup
     /// @return the seats
     [[nodiscard]] oa::data::brain_library::Seats&
     setup_brain_seats(oa::data::brain_library::Setup setup);
+
+    /// Notes the computer players this machine runs and fills a choice each
+    /// one lacks.
+    ///
+    /// A computer with no choice takes the next remembered multiplayer seat,
+    /// in the order this machine seated them, else the default brain at the
+    /// level for hard, else the built-in player at hard. A remembered brain
+    /// that is not installed or does not fit falls back the same way, and
+    /// that is logged. The choice is published onto the lobby once the
+    /// computer is seated. No computer left on this machine clears the
+    /// choices. A launch calls it with the lobby it is starting, which is
+    /// not the battle room's lobby.
+    ///
+    /// @param lobby the battle room, this machine's or a launch's
+    void note_room_computers(oa::ui::frontend_multiplayer::Lobby& lobby);
+
+    /// The choices of the computer players this machine runs.
+    ///
+    /// `place` is the slot. The seats are in the order this machine seated
+    /// them. A seat with an empty brain is the built-in player. Empty when
+    /// this machine runs no computer.
+    ///
+    /// @return those seats
+    [[nodiscard]] oa::data::brain_library::Seats room_brain_seats() const;
 
     /// The brains the computer players of one start will play.
     ///
@@ -6469,6 +6495,25 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_brain_seat_buttons();
+
+    /// A computer seat's brain in the battle room, a screen of the OA layer
+    /// named brain-room. A button sits on each computer row this machine
+    /// runs, over that row's empty screen-size column, while a brain is
+    /// installed or the seat runs one. Another machine's brain is a label.
+    struct BrainRoomScreen;
+
+    /// Keeps the battle room's brain seats on the OA layer while the battle
+    /// room is in front and a row needs one: pushes the screen when the
+    /// layer has none. OaLayer::tick calls it once a frame, after the
+    /// skirmish seat buttons.
+    void keep_brain_room_screen();
+
+    /// Runs --check-brain-room: a battle room hosted alone, at 640x480 and
+    /// 1280x720, the seat button, the picker, the card and the presence
+    /// record. Writes brain-room-host-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_room();
 
     /// Runs --check-mutator-room: the host's MUTATORS… in a battle room
     /// hosted alone, at 640x480 and 1280x720, the remembered multiplayer
@@ -18799,6 +18844,8 @@ class Runtime final : public menu::Host,
     friend struct MutatorButtonAccess;
     /// The seat screen's helpers read the setup's records and write a choice.
     friend struct BrainSeatsAccess;
+    /// The battle-room seat screen writes a choice onto this machine's computers.
+    friend struct BrainRoomAccess;
     /// `--no-mutators` has already logged the list it refused.
     bool mutator_refusal_logged_{};
     /// A failure to store or erase a remembered set has already been logged.
@@ -18806,9 +18853,36 @@ class Runtime final : public menu::Host,
     /// A failure to store or erase the default brain has already been logged.
     bool brain_default_failure_logged_{};
     /// The seats skirmish, the battle room and campaign keep for this run.
-    /// Empty until that setup is entered. The battle room's stays empty
-    /// until a later ticket fills it.
+    /// Empty until that setup is entered. The battle room's is written at
+    /// START in seating order. The room's buttons do not read it.
     std::array<oa::data::brain_library::Seats, 3> setup_brain_seats_{};
+
+    /// One computer this machine runs, and the choice it plays.
+    struct RoomBrainChoice {
+        uint32_t player_id{};                  ///< the computer's player id
+        uint8_t slot{};                        ///< the slot it sits in
+        oa::ui::brain_picker::Choice choice{}; ///< the brain, or the built-in player
+    };
+
+    /// The computers this machine runs, in the order it seated them.
+    std::vector<RoomBrainChoice> room_brain_choices_{};
+    /// How many remembered multiplayer seats this visit has already given
+    /// out. It advances as computers are seated and does not go back when
+    /// one leaves. No computer left on this machine resets it.
+    std::size_t room_brain_cursor_{};
+    /// Writes a choice onto one computer this machine runs, or every one,
+    /// and publishes it onto the lobby.
+    ///
+    /// @param lobby the battle room
+    /// @param player_id the computer the picker was opened on
+    /// @param choice the choice USE THIS handed
+    /// @param every true when the choice is for every computer this machine runs
+    void apply_room_brain_choice(
+        oa::ui::frontend_multiplayer::Lobby& lobby,
+        uint32_t player_id,
+        const oa::ui::brain_picker::Choice& choice,
+        bool every
+    );
     /// The brains the next match seats. Disengaged means none were handed.
     /// An engaged empty list seats nobody.
     std::optional<std::vector<BrainSeat>> pending_brain_seats_;

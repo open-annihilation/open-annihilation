@@ -301,6 +301,7 @@ void check_game_files_options(Options& options) {
         {options.check_mutator_prompts, "--check-mutator-prompts"},
         {options.check_mutator_button, "--check-mutator-button"},
         {options.check_mutator_room, "--check-mutator-room"},
+        {options.check_brain_room, "--check-brain-room"},
         {options.check_map_pack_lists, "--check-map-pack-lists"},
         {options.check_mod_map_settings, "--check-mod-map-settings"},
         {options.check_mod_warning, "--check-mod-warning"},
@@ -609,6 +610,7 @@ void check_director_options(Options& options) {
         {options.check_mutator_prompts, "--check-mutator-prompts"},
         {options.check_mutator_button, "--check-mutator-button"},
         {options.check_mutator_room, "--check-mutator-room"},
+        {options.check_brain_room, "--check-brain-room"},
         {options.check_map_pack_lists, "--check-map-pack-lists"},
         {options.check_mod_map_settings, "--check-mod-map-settings"},
         {options.check_mod_warning, "--check-mod-warning"},
@@ -714,6 +716,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_mutator_prompts, "--check-mutator-prompts"},
             {options.check_mutator_button, "--check-mutator-button"},
             {options.check_mutator_room, "--check-mutator-room"},
+            {options.check_brain_room, "--check-brain-room"},
             {options.check_map_pack_lists, "--check-map-pack-lists"},
             {options.check_mod_map_settings, "--check-mod-map-settings"},
             {options.check_mod_warning, "--check-mod-warning"},
@@ -868,6 +871,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-map-browser", &Options::check_map_browser},
     {"--check-mutator-button", &Options::check_mutator_button},
     {"--check-mutator-room", &Options::check_mutator_room},
+    {"--check-brain-room", &Options::check_brain_room},
     {"--check-mutator-picker", &Options::check_mutator_picker},
     {"--check-brain-picker", &Options::check_brain_picker},
     {"--check-brain-seat-buttons", &Options::check_brain_seat_buttons},
@@ -1535,7 +1539,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-brain-picker] "
                      "[--check-brain-seat-buttons] "
                      "[--check-mutator-prompts] [--check-mutator-dry-run] "
-                     "[--check-mutator-room] [--check-mod-warning] "
+                     "[--check-mutator-room] [--check-brain-room] [--check-mod-warning] "
                      "[--check-mod-install] [--check-language-install] [--check-challenge] "
                      "[--check-registries] "
                      "[--check-library] [--check-library-install] "
@@ -1786,10 +1790,11 @@ void write_startup_line(std::string_view text) {
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_mutator_button || result.check_mutator_room || result.check_mutator_picker ||
-        result.check_brain_picker || result.check_brain_seat_buttons ||
-        result.check_mutator_prompts || result.check_map_pack_lists ||
-        result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;
+        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
+        result.check_mutator_picker || result.check_brain_picker ||
+        result.check_brain_seat_buttons || result.check_mutator_prompts ||
+        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
+        result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

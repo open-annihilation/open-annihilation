@@ -62,6 +62,14 @@
 //   0x42 computer edit: a little-endian player id, a kind (1 side, 2 colour,
 //        3 team, 4 difficulty) and the new value. The host asks the machine
 //        that runs that computer player to change it. Absent: no request.
+//   0x43 computer brains: u8 count, 1 to 10, then that many items, each a
+//        little-endian u32 player id, kebab string 1 to 64 the brain's id,
+//        text string 1 to 32 its name, text string 0 to 16 its version,
+//        kebab string 1 to 64 its level's id, text string 1 to 24 its
+//        level's name, u8 flags (bit 0 full awareness; bits 1 to 7 sent as
+//        0 and ignored when read). A computer player on the built-in player
+//        is not listed. Absent: this machine's computer players play the
+//        built-in player. A value that breaks the rule is left out.
 //   0x50 mutators: u8 flags (bit 0 built: the layer was built for this
 //        loadout without an error; bit 1 lacking: a package of the loadout
 //        is not installed here at its SHA-256; bit 2 failed: a mutator
@@ -145,26 +153,43 @@ static_assert(
 /// Tags of the fields a presence record carries. A tag this engine does not
 /// know is skipped.
 enum class PresenceTag : uint8_t {
-    engine = 0x01,        ///< OA version, platform and architecture
-    mod = 0x10,           ///< the mod's id, name, version and packaging revision
-    mod_origin = 0x11,    ///< the registry, release and SHA-256 the mod came from
-    sim_hash = 0x20,      ///< the sim hash the machine plays
-    game_hacks = 0x21,    ///< game hacks that are on
-    view_hacks = 0x22,    ///< view hacks that are on
-    developer = 0x23,     ///< Developer Mode and its overrides
-    content = 0x30,       ///< whether the machine can fetch content
-    bundles = 0x31,       ///< the base game and the rule-changing expansions
-    language = 0x32,      ///< the language's name in English
-    map_pack = 0x40,      ///< the map pack the host is playing
-    computers = 0x41,     ///< computer players this machine runs, and their difficulty
-    computer_edit = 0x42, ///< a host's change to another machine's computer player
-    mutators = 0x50,      ///< the loadout's state and the mutators that fit
-    mutator_part = 0x51,  ///< the host's loadout continued from a position
-    mutator_modes = 0x52, ///< one bit per mutator: set means Add, clear means Replace
+    engine = 0x01,          ///< OA version, platform and architecture
+    mod = 0x10,             ///< the mod's id, name, version and packaging revision
+    mod_origin = 0x11,      ///< the registry, release and SHA-256 the mod came from
+    sim_hash = 0x20,        ///< the sim hash the machine plays
+    game_hacks = 0x21,      ///< game hacks that are on
+    view_hacks = 0x22,      ///< view hacks that are on
+    developer = 0x23,       ///< Developer Mode and its overrides
+    content = 0x30,         ///< whether the machine can fetch content
+    bundles = 0x31,         ///< the base game and the rule-changing expansions
+    language = 0x32,        ///< the language's name in English
+    map_pack = 0x40,        ///< the map pack the host is playing
+    computers = 0x41,       ///< computer players this machine runs, and their difficulty
+    computer_edit = 0x42,   ///< a host's change to another machine's computer player
+    computer_brains = 0x43, ///< brains this machine's computer players play
+    mutators = 0x50,        ///< the loadout's state and the mutators that fit
+    mutator_part = 0x51,    ///< the host's loadout continued from a position
+    mutator_modes = 0x52,   ///< one bit per mutator: set means Add, clear means Replace
 };
 
 /// 32 bytes: a SHA-256, or the sim hash.
 using PresenceDigest = std::array<uint8_t, 32>;
+
+/// One computer player this machine runs with a brain, as field 0x43 carries it.
+///
+/// A computer player on the built-in player is not listed.
+struct PresenceBrain {
+    uint32_t player{};     ///< the computer player's id
+    std::string id;        ///< the brain's id
+    std::string name;      ///< the brain's name
+    std::string version;   ///< the brain's version; may be empty
+    std::string level_id;  ///< the level's id
+    std::string level;     ///< the level's name
+    bool full_awareness{}; ///< the brain sees every unit
+
+    /// Compares two brain seats.
+    friend bool operator==(const PresenceBrain&, const PresenceBrain&) = default;
+};
 
 /// The engine line of a presence record.
 struct PresenceEngine {
@@ -581,6 +606,43 @@ presence_content_gap(const PresenceRecord& player, const PresenceRecord& host);
     std::span<const uint8_t> value,
     std::size_t* written
 ) noexcept;
+
+/// Writes the value of a computer-brains field, tag 0x43, without its field header.
+///
+/// The value is a count and that many whole items, in order, as many as fit
+/// in `capacity` and never more than ten. A name, version or level longer
+/// than its limit is cut at a UTF-8 character boundary. An id or a level id
+/// is not cut. `sent` is how many items were written. The count byte is that
+/// number, not the size of `brains`.
+///
+/// @param brains the computer players that play a brain, in the order to send
+/// @param[out] out storage for the value
+/// @param capacity bytes available at out
+/// @param[out] written the value's length
+/// @param[out] sent how many items were written
+/// @return ok; bad_argument for a null pointer, an empty list, or an item
+///         outside its rule; buffer_too_small when not even one item fits
+[[nodiscard]] WireError encode_presence_brains(
+    std::span<const PresenceBrain> brains,
+    uint8_t* out,
+    std::size_t capacity,
+    std::size_t* written,
+    std::size_t* sent
+) noexcept;
+
+/// Reads the value of a computer-brains field, tag 0x43.
+///
+/// A value that breaks the field's rule is left out: a count outside 1 to
+/// 10, an id or a level id that is not kebab, an empty name or level, a
+/// version or a text that is not well-formed, a flag bit past 0, bytes left
+/// over, or a value cut short. The read never looks past `value`. A broken
+/// value does not refuse the record it was found in; the caller leaves the
+/// field out.
+///
+/// @param value the field's value, without its header
+/// @return the items, or nothing when the value breaks the rule
+[[nodiscard]] std::optional<std::vector<PresenceBrain>>
+decode_presence_brains(std::span<const uint8_t> value);
 
 /// Writes the value of a mutator-part field, tag 0x51, without its field header.
 ///
