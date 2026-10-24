@@ -807,7 +807,12 @@ void set_log_hooks(Match& match, LogHooks hooks) noexcept {
         auto* created = new (std::nothrow) Brains;
         if (created == nullptr)
             return;
-        held.reset(created, [](void* pointer) { delete static_cast<Brains*>(pointer); });
+        try {
+            held.reset(created, [](void* pointer) { delete static_cast<Brains*>(pointer); });
+        } catch (...) {
+            // A reset that throws has already passed `created` to the deleter.
+            return;
+        }
     }
     auto* brains = static_cast<Brains*>(held.get());
     brains->logs = hooks;
