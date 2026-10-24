@@ -47,7 +47,8 @@ endif()
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaTextFonts.cmake")
 # The registries the game ships with, copied beside it (cmake/OaRegistries.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaRegistries.cmake")
-# Classic, packed beside the game on a host build (cmake/OaBrains.cmake).
+# Classic, packed beside the game. A cross build uses OA_HOST_OA_TOOL
+# (cmake/OaBrains.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaBrains.cmake")
 
 # OA_GAME_DIR, the installed game the game-data tests and native checks read,
@@ -4389,7 +4390,8 @@ if(TARGET oa-game)
   # The built-in registry descriptors, beside the fonts
   # (cmake/OaRegistries.cmake).
   oa_copy_registries(oa-game "$<GENEX_EVAL:$<TARGET_PROPERTY:oa-game,OA_GAME_FILES_DIR>>")
-  # Classic's package, beside the registries. A cross build skips this
+  # Classic's package, beside the registries. A cross build packs it with
+  # OA_HOST_OA_TOOL and skips it when that option is empty
   # (cmake/OaBrains.cmake).
   oa_pack_classic_brain(oa-game "$<GENEX_EVAL:$<TARGET_PROPERTY:oa-game,OA_GAME_FILES_DIR>>")
   # The engine ships no language packs. It does ship the interface
