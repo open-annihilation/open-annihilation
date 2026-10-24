@@ -3601,6 +3601,13 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-trace PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --brain-shadow seats a brain beside every computer seat. The inert
+        # leg plays the trace skirmish with and without a shadow.
+        add_test(NAME native-brain-shadow COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_shadow.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-brain-shadow PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # --stage places units and asks for stockpiled rounds in a headless
         # skirmish, which plays to the same digest each time, and stops at a
         # line naming a type the game lacks.

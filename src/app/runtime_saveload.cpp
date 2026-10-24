@@ -1813,7 +1813,9 @@ void Runtime::finish_saved_game_start(bool restored_players) {
     match_tick_blocked_ = false;
     // The saved game is loaded, alliances and all; its players' pass runs at
     // the saved tick before the first tick, so until then the world stands as
-    // the save restored it.
+    // the save restored it. A shadow is seated before that pass, as a new
+    // game seats one before its own.
+    seat_shadow_brains();
     match_->finish_load();
 }
 
@@ -2271,6 +2273,7 @@ void Runtime::run_headless_saveload() {
         write_ppm(options_.snapshot, surface_);
     }
     print_memory_status();
+    print_shadow_reports();
 }
 
 } // namespace oa::app

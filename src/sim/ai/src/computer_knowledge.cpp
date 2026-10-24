@@ -742,6 +742,8 @@ void adopt_handed_player(
     auto& ai = state->players[player];
     release_knowledge(ai.knowledge);
     ai = {};
+    if (const auto note = host.note_section)
+        note(host.context, player, section_start);
     computer_player_create(ai, player, host.world->game, state->rules.rules().ai);
     if (!create_knowledge(state, host, ai.knowledge)) {
         ai.present = 0;
@@ -890,6 +892,8 @@ bool computer_players_initialize(ComputerPlayers* state, const ComputerHost& hos
         const auto& player = host.world->game.players[index];
         if (player.in_use == 0 || player.status != OA_PLAYER_STATUS_COMPUTER)
             continue;
+        if (const auto note = host.note_section)
+            note(host.context, index, section_start);
         computer_player_create(ai, index, host.world->game, state->rules.rules().ai);
         if (!create_knowledge(state, host, ai.knowledge))
             ai.present = 0;

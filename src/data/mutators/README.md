@@ -283,11 +283,16 @@ same path. Removing the first entry of `marked.tdf` leaves a placeholder
 and a note that names no unit. A loop of refused calls under `pcall` leaves
 nothing behind, and a loop of `builds` and one of `remove` stop on the
 instruction allowance at a small part of the real-time limit's processor
-time. `data-mutators-menus-data` is the same program with `--data`
+time. An optimised build requires that stop inside 3 s of processor time.
+An unoptimised build (the Visual Studio Debug configuration, or compiled
+at `-O0`) checks the same stop and leaves that bound out, because it
+spends several times as long.
+`data-mutators-menus-data` is the same program with `--data`
 (timeout 180 seconds): it reads the installed game and checks
 `menus:builds("ARMCOM")`, a grey of `ARMALAB` on `ARMCK`, that a
 builds-only hook serves nothing, and that a loop of `builds("ARMCOM")`
-and one of `remove("ARMSOLAR")` stop on the allowance.
+and one of `remove("ARMSOLAR")` stop on the allowance, with the same
+processor-time bound as the made-up loops.
 
 `data-mutators-sides` (`tests/collections_sides_test.cpp`) runs made-up
 Ridge packages through `run_pipeline` and checks side fields, build lists,

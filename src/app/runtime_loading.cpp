@@ -315,6 +315,7 @@ void Runtime::teardown_match() {
 }
 
 void Runtime::leave_match() {
+    print_shadow_reports();
     if (match_)
         call_hook_or_report<&Extension::match_event>(
             extension_, hook_error_report(), *this, MatchEvent::left

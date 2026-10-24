@@ -126,19 +126,48 @@ bool add_cell(int32_t base, int32_t delta, int32_t* out) noexcept {
 }
 
 /// One site check. Exceptions from the match become a refusal, never a Lua error.
+///
+/// Facing 0 with full awareness uses the host's fog-free checks. Any other
+/// facing uses `site_facing`. A seat under fog uses `site_fogged` after the
+/// footprint test. A null pointer falls back to the match.
 bool cell_clear(
-    match_runtime::Match& match,
-    uint8_t player,
-    bool aware,
-    uint16_t type,
-    int32_t cell_x,
-    int32_t cell_z,
-    uint8_t facing,
-    bool yard
+    Seat& seat, uint16_t type, int32_t cell_x, int32_t cell_z, uint8_t facing, bool yard
 ) noexcept {
+    match_runtime::Match& match = *seat.match;
     bool clear = false;
     try {
-        if (aware) {
+        if (seat.full_awareness && facing == 0) {
+            if (yard && seat.calls.host.building_site != nullptr) {
+                clear =
+                    seat.calls.host.building_site(seat.calls.host.context, type, cell_x, cell_z);
+            } else if (!yard && seat.calls.host.site_clear != nullptr) {
+                clear = seat.calls.host.site_clear(seat.calls.host.context, type, cell_x, cell_z);
+            } else if (yard) {
+                match_runtime::BuildSiteOptions options;
+                options.facing = facing;
+                clear = match.building_site_clear(type, cell_x, cell_z, 0, options);
+            } else {
+                clear = match.site_clear_for(type, cell_x, cell_z, 0, 1, facing);
+            }
+        } else if (seat.full_awareness && seat.calls.site_facing != nullptr) {
+            clear = seat.calls.site_facing(
+                &seat.calls.host, type, cell_x, cell_z, static_cast<int32_t>(facing), yard
+            );
+        } else if (
+            !seat.full_awareness && !yard && !footprint_on_map(match, type, cell_x, cell_z, facing)
+        ) {
+            clear = false;
+        } else if (!seat.full_awareness && seat.calls.site_fogged != nullptr) {
+            clear = seat.calls.site_fogged(
+                &seat.calls.host,
+                seat.player,
+                type,
+                cell_x,
+                cell_z,
+                static_cast<int32_t>(facing),
+                yard
+            );
+        } else if (seat.full_awareness) {
             if (yard) {
                 match_runtime::BuildSiteOptions options;
                 options.facing = facing;
@@ -146,12 +175,10 @@ bool cell_clear(
             } else {
                 clear = match.site_clear_for(type, cell_x, cell_z, 0, 1, facing);
             }
-        } else if (!yard && !footprint_on_map(match, type, cell_x, cell_z, facing)) {
-            clear = false;
         } else {
             match_runtime::BuildSiteOptions options;
             options.facing = facing;
-            clear = match.building_site(type, cell_x, cell_z, 0, player, options).has_value();
+            clear = match.building_site(type, cell_x, cell_z, 0, seat.player, options).has_value();
         }
     } catch (...) {
         clear = false;
@@ -236,9 +263,7 @@ int brain_site(lua_State* state) {
     if (refuse_mobile(state, *seat, type))
         return 0;
     script_host::charge_work(state, site_charge);
-    const bool clear = cell_clear(
-        *seat->match, seat->player, seat->full_awareness, type, cell_x, cell_z, facing, yard
-    );
+    const bool clear = cell_clear(*seat, type, cell_x, cell_z, facing, yard);
     lua_pushboolean(state, clear ? 1 : 0);
     return 1;
 }
@@ -287,9 +312,7 @@ int brain_place(lua_State* state) {
             return true;
         ++tried;
         script_host::charge_work(state, site_charge);
-        const bool clear = cell_clear(
-            *seat->match, seat->player, seat->full_awareness, type, cell_x, cell_z, facing, false
-        );
+        const bool clear = cell_clear(*seat, type, cell_x, cell_z, facing, false);
         if (!clear)
             return false;
         lua_pushinteger(state, cell_x);

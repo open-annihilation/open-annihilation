@@ -512,4 +512,34 @@ bool deliver_turn(void* context, match_runtime::Match&, uint8_t) {
     return true;
 }
 
+bool deliver_shadow_turn(Seat& seat, script_host::ScriptError& error) {
+    if (!seat.sandbox.has_value())
+        return false;
+    script_host::Sandbox& sandbox = *seat.sandbox;
+    if (seat.stopped || sandbox.failed()) {
+        if (sandbox.failed())
+            error = sandbox.failure();
+        return false;
+    }
+    begin_order_turn(seat);
+    const EventBuffer held = seat.incoming;
+    seat.incoming = seat.delivering;
+    seat.delivering = held;
+    seat.incoming.count = 0;
+    std::swap(seat.chat_incoming, seat.chat_delivering);
+    seat.chat_incoming.count = 0;
+    sandbox.refill_bank();
+    script_host::CallHooks call;
+    call.context = &seat;
+    call.push = push_tick;
+    if (!sandbox.call_banked("tick", call, error)) {
+        note_call_instructions(seat);
+        note_prints(seat);
+        return false;
+    }
+    note_call_instructions(seat);
+    note_prints(seat);
+    return true;
+}
+
 } // namespace oa::sim::brains

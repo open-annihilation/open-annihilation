@@ -7,6 +7,8 @@
 
 #include "internal.hpp"
 
+#include "oa/sim/brains/shadow.hpp"
+
 #include "oa/core/game_state.h"
 #include "oa/core/player.h"
 #include "oa/data/neural/network.hpp"
@@ -33,6 +35,7 @@ Seat::Seat() = default;
 Seat::~Seat() {
     delete[] incoming.items;
     delete[] delivering.items;
+    shadow_release(*this);
 }
 
 void write_reason(std::array<char, 256>& reason, std::string_view text) {
@@ -500,7 +503,7 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
             return false;
         }
 
-        if (seat.has_fits) {
+        if (seat.has_fits && !seat.shadow) {
             FitsBox fits;
             fits.seat = &seat;
             fits.status = 2;
@@ -540,6 +543,13 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         return false;
     }
     return true;
+}
+
+void copy_sections(char* out, std::string_view text) noexcept {
+    const std::size_t count = text.size() < 255 ? text.size() : 255;
+    for (std::size_t index = 0; index < count; ++index)
+        out[index] = text[index];
+    out[count] = '\0';
 }
 
 bool brain_seated(const match_runtime::Match& match, uint8_t player) noexcept {
@@ -610,6 +620,8 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     const uint8_t player = spec.player;
     created->match = &match;
     created->facts = &brains->facts;
+    created->shadow = spec.shadow;
+    copy_sections(created->shadow_sections, spec.shadow_sections);
     brains->seats[player] = std::move(created);
     Seat& seat = *brains->seats[player];
     seat.match = &match;
@@ -618,6 +630,15 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         const auto* computer_players =
             static_cast<const sim::ai::ComputerPlayers*>(computer_slot.get());
         seat.handed_over = computer_players->initialized != 0;
+    }
+    if (spec.shadow)
+        shadow_attach(seat, shadow_section_mask(seat.shadow_sections));
+    else
+        seat.calls = seat_calls_for_match(match);
+    if (spec.shadow && seat.shadow_body == nullptr) {
+        write_reason(outcome.reason, "the seat could not be stored");
+        close_seat(*brains, player);
+        return outcome;
     }
 
     if (!build_networks(seat, spec, outcome)) {
@@ -632,7 +653,7 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
 
     try {
         script_host::ScriptError error;
-        if (seat.has_start) {
+        if (seat.has_start && !seat.shadow) {
             StartBox starting;
             starting.seat = &seat;
             starting.saved = spec.saved.data();
@@ -652,9 +673,11 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
             note_prints(seat);
         }
 
-        sim::ai::computer_players_set_difficulty(
-            sim::ai::match_computer_players(match), player, spec.difficulty
-        );
+        if (!seat.shadow) {
+            sim::ai::computer_players_set_difficulty(
+                sim::ai::match_computer_players(match), player, spec.difficulty
+            );
+        }
     } catch (const std::exception&) {
         write_reason(outcome.reason, "the seat could not be stored");
         outcome.result = SeatResult::failed;
@@ -665,7 +688,13 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
 
     match_runtime::SeatHooks hooks;
     hooks.context = brains->seats[player].get();
-    hooks.play = play_turn;
+    if (seat.shadow) {
+        hooks.play = shadow_play;
+        hooks.set_up = shadow_set_up;
+    } else {
+        hooks.play = play_turn;
+        hooks.set_up = playing_set_up;
+    }
     match.set_seat_hooks(player, hooks);
     ensure_listener(*brains, match);
     outcome.result = SeatResult::seated;

@@ -5158,6 +5158,20 @@ class Runtime final : public menu::Host,
     /// is running.
     void seat_chosen_brains();
 
+    /// Seats `--brain-shadow` beside every computer seat this machine plays.
+    ///
+    /// A seat a brain already plays is left alone. A network game, a shared
+    /// match and a replay seat nothing. A brain that cannot be read writes
+    /// one line to standard error and that seat keeps the built-in player.
+    /// Nothing is seated when no match is running or the option is empty.
+    void seat_shadow_brains();
+
+    /// Prints one line for each shadowed seat, and writes the logs when asked.
+    ///
+    /// The first call prints. A later call in the same match prints nothing,
+    /// so a headless run and the leave that follows it do not both print.
+    void print_shadow_reports();
+
     /// Opens the seat's log and installs the report hooks.
     ///
     /// Called before the brain is seated, so lines from fits and start are
@@ -18845,9 +18859,11 @@ class Runtime final : public menu::Host,
     std::array<std::string, OA_PLAYER_COUNT> brain_seat_level_{};
     /// True after that seat's brain stopped. The match plays on.
     std::array<bool, OA_PLAYER_COUNT> brain_seat_stopped_{};
-    /// The tick the stop was reported, and the sentence that names it.
+    /// The tick a brain stopped, and the sentence that names why.
     std::array<uint32_t, OA_PLAYER_COUNT> brain_stop_tick_{};
     std::array<std::string, OA_PLAYER_COUNT> brain_stop_text_{};
+    /// True after this match's shadow lines have been printed.
+    bool shadow_report_printed_{false};
     // The mounted pack map, the game's names, the fits and the refusals;
     // null until a pack map is first named.
     std::unique_ptr<PackMapState, void (*)(PackMapState*) noexcept> pack_map_state_{

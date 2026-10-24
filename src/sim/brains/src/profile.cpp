@@ -152,6 +152,8 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_random(state);
     install_timers(state, seat);
     install_shared_random(state, seat);
+    install_section(state, seat);
+    install_setup_random(state, seat);
     install_definitions(state, seat);
     install_profile(state, seat);
     install_map(state, seat);
