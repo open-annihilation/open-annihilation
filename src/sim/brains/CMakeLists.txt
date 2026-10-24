@@ -161,4 +161,13 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-test-match oa-options oa-sim-state-hash)
   add_test(NAME sim-brains-map COMMAND oa-sim-brains-map-test)
   set_tests_properties(sim-brains-map PROPERTIES TIMEOUT 180)
+
+  # Networks, tensors and map grids. The made-up brain is steady-commander
+  # and the made-up mod is ridge. No installed-map fixture is read.
+  add_executable(oa-sim-brains-networks-test tests/networks_test.cpp)
+  target_include_directories(oa-sim-brains-networks-test PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_link_libraries(oa-sim-brains-networks-test PRIVATE oa-sim-brains oa-data-neural
+    oa-formats-oann oa-base-sha256 oa-sim-unit-movement oa-test-match oa-options)
+  add_test(NAME sim-brains-networks COMMAND oa-sim-brains-networks-test)
+  set_tests_properties(sim-brains-networks PROPERTIES TIMEOUT 60)
 endif()
