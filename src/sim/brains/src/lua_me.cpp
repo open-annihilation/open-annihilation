@@ -772,7 +772,13 @@ int method_units(lua_State* lua) {
     for (uint32_t step = 0; step < span && static_cast<std::size_t>(row) < found; ++step) {
         if (first[step].type_index == 0)
             continue;
-        push_unit(lua, *seat, seat_unit_ref(*seat, first[step].id));
+        // The handle names the record's place in the table. Unit.id is that
+        // place once a world is initialised, and a cleared id must not send
+        // the squad sort's stance write to slot 0.
+        const uint32_t slot = oa::world_unit_slot(world, &first[step]);
+        if (slot > 65535u)
+            continue;
+        push_unit(lua, *seat, seat_unit_ref(*seat, static_cast<uint16_t>(slot)));
         lua_rawseti(lua, sequence, ++row);
     }
     return 1;
@@ -798,7 +804,10 @@ int method_each_unit(lua_State* lua) {
                 for (uint32_t step = 0; step < span && found < held.size(); ++step) {
                     if (first[step].type_index == 0)
                         continue;
-                    held[found] = seat_unit_ref(*seat, first[step].id);
+                    const uint32_t slot = oa::world_unit_slot(world, &first[step]);
+                    if (slot > 65535u)
+                        continue;
+                    held[found] = seat_unit_ref(*seat, static_cast<uint16_t>(slot));
                     ++found;
                 }
             }

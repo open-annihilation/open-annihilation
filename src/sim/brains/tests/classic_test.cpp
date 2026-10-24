@@ -1927,6 +1927,8 @@ void test_siege(const PackageBytes& package) {
         fake->spawn(2, 0, ARMLLT, 512 + 96, 576 + 128, OA_UNIT_FLAG_BUILDING);
         fake->spawn(3, 0, ARMLLT, 512, 576 - 30, OA_UNIT_FLAG_BUILDING);
         fake->spawn(4, 0, ARMLLT, 512 + 170, 576, OA_UNIT_FLAG_BUILDING);
+        // spawn clears the record, including the slot stored in id.
+        stamp_ids(*fake);
     }
     siege_view.reach[22] = true;
     siege_view.seen = {2, 3, 4, 0};
@@ -2362,7 +2364,6 @@ void test_siege_seen_twin(const PackageBytes& package) {
             fake->world.game.map_height_world = 512;
             fake->player(0, OA_PLAYER_STATUS_LOCAL, 1, 9);
             fake->player(1, OA_PLAYER_STATUS_COMPUTER, 10, 40);
-            stamp_ids(*fake);
         }
         fill_types(twin);
         copy_both(twin);
@@ -2381,6 +2382,8 @@ void test_siege_seen_twin(const PackageBytes& package) {
             fake->spawn(2, 0, ARMLLT, 400, 300, OA_UNIT_FLAG_BUILDING);
             fake->spawn(3, 0, ARMLLT, 420, 300, OA_UNIT_FLAG_BUILDING);
             fake->rolls = filled_rolls(7);
+            // spawn clears the record, including the slot stored in id.
+            stamp_ids(*fake);
         }
         siege_view.reach[22] = true;
         siege_view.seen = {2, 3, 0, 0};
