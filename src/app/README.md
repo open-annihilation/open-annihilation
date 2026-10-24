@@ -1068,6 +1068,19 @@ at once: the map picker is its own screen.
   `mutator-room-host-on-<w>x<h>.png`. A FIXTURES_SETUP test
   (`mutator-room-clean`) clears its folders before each run.
 
+`native-brain-room` (`--check-brain-room`, `runtime_brain_room_check.cpp`)
+hosts a battle room alone and checks each computer row's brain button at
+640x480 and 1280x720: no button with no brain installed, Steady Commander
+remembered at firm, the built-in player at Medium, and Lantern Scout on
+every computer this machine runs. The button meets no control of the room
+but its row's empty screen-size column. It writes
+`brain-room-host-<w>x<h>.png`. A FIXTURES_SETUP test (`brain-room-clean`)
+clears its folders before each run. `native-net-loopback-brain`
+(`tools/check_native_net_brain.py`) seats Steady Commander at firm on the
+host's computer. The brain places four frames late in the build window and
+then stops, so the engine's computer player can strike, and the check
+requires that seat's line once.
+
 ## The mutator picker
 
 The mutator picker is one modal screen on the OA layer (`mutator-picker`),
@@ -3198,7 +3211,16 @@ options for one player. Just before a new game finishes loading, the
 runtime reads that brain from `Brains` in the player's folder, checks that
 it fits, and seats it. A seat with no brain, or a brain that does not fit
 or cannot be read, plays as the built-in computer player. A network game
-is not saved. A recording does not seat a brain. A saved game names each
+is not saved. In the battle room, each computer this machine runs has a
+button over the empty screen-size column. The button reads the brain, its
+version and its level, and opens the picker. USE THIS sets that computer,
+or every computer this machine runs. Another machine's brain is shown in
+the same place, and its card names a brain that sees every unit. The
+level's difficulty is shown in the row and cannot be changed. The battle
+room remembers the seats, and START seats them before the first tick. With
+no brain installed and none chosen, the row is unchanged. The screen is
+`runtime_brain_room.cpp` (`brain-room`), kept while the battle room is in
+front. A recording does not seat a brain. A saved game names each
 computer seat's brain and seats that brain before the first tick. The
 package is read by `oa-app-brain-seats` (`brain_seats.hpp`); the seat
 itself lives in the simulation.

@@ -1477,6 +1477,221 @@ void find_and_sim_hash_see_mutator_fields() {
     CHECK(value.size() > 33);
 }
 
+PresenceBrain sample_brain(
+    uint32_t player,
+    const char* id,
+    const char* name,
+    const char* version,
+    const char* level_id,
+    const char* level,
+    bool full_awareness
+) {
+    PresenceBrain brain;
+    brain.player = player;
+    brain.id = id;
+    brain.name = name;
+    brain.version = version;
+    brain.level_id = level_id;
+    brain.level = level;
+    brain.full_awareness = full_awareness;
+    return brain;
+}
+
+void write_sample_item(Raw& raw, const PresenceBrain& brain) {
+    raw.u32(brain.player);
+    raw.str(brain.id);
+    raw.str(brain.name);
+    raw.str(brain.version);
+    raw.str(brain.level_id);
+    raw.str(brain.level);
+    raw.u8(brain.full_awareness ? 0x01 : 0x00);
+}
+
+void computer_brains_round_trip() {
+    start_case("computer brains round trip");
+    const PresenceBrain brains[] = {
+        sample_brain(0x11, "steady-commander", "Steady Commander", "1.2", "firm", "Firm", false),
+        sample_brain(0x22, "lantern-scout", "Lantern Scout", "", "wide", "Wide", true),
+        sample_brain(0x33, "ridge-keeper", "Ridge Keeper", "0.4", "calm", "Calm", false),
+    };
+    uint8_t out[presence_record_max_bytes];
+    std::size_t written = 0;
+    std::size_t sent = 0;
+    CHECK(
+        encode_presence_brains(brains, out, sizeof out, &written, &sent) == WireError::ok &&
+        sent == 3
+    );
+    const auto decoded = decode_presence_brains(std::span<const uint8_t>(out, written));
+    CHECK(decoded && decoded->size() == 3);
+    if (decoded && decoded->size() == 3) {
+        CHECK((*decoded)[0] == brains[0]);
+        CHECK((*decoded)[1] == brains[1]);
+        CHECK((*decoded)[2] == brains[2]);
+    }
+
+    Raw exact;
+    exact.u8(1);
+    write_sample_item(exact, brains[0]);
+    written = 0;
+    sent = 0;
+    CHECK(
+        encode_presence_brains(
+            std::span<const PresenceBrain>(brains, 1), out, sizeof out, &written, &sent
+        ) == WireError::ok &&
+        sent == 1 && written == exact.bytes.size() - 4
+    );
+    CHECK(std::equal(out, out + written, exact.bytes.begin() + 4));
+
+    PresenceBrain long_name = brains[0];
+    long_name.name = std::string(30, 'a') + "\xc3\xa9" + "zz";
+    written = 0;
+    sent = 0;
+    CHECK(
+        encode_presence_brains(
+            std::span<const PresenceBrain>(&long_name, 1), out, sizeof out, &written, &sent
+        ) == WireError::ok
+    );
+    const auto cut = decode_presence_brains(std::span<const uint8_t>(out, written));
+    CHECK(cut && cut->size() == 1 && (*cut)[0].name == std::string(30, 'a') + "\xc3\xa9");
+
+    std::size_t one = 0;
+    std::size_t one_sent = 0;
+    CHECK(
+        encode_presence_brains(
+            std::span<const PresenceBrain>(brains, 1), out, sizeof out, &one, &one_sent
+        ) == WireError::ok
+    );
+    written = 0;
+    sent = 99;
+    CHECK(
+        encode_presence_brains(brains, out, one, &written, &sent) == WireError::ok && sent == 1 &&
+        written == one
+    );
+    CHECK(
+        encode_presence_brains(brains, out, one - 1, &written, &sent) == WireError::buffer_too_small
+    );
+}
+
+void computer_brains_refuse_a_broken_value() {
+    start_case("computer brains refuse a broken value");
+    const auto item =
+        sample_brain(7, "steady-commander", "Steady Commander", "1.2", "firm", "Firm", false);
+    auto broken = [&](auto fill) {
+        Raw raw;
+        fill(raw);
+        return decode_presence_brains(
+            std::span<const uint8_t>(raw.bytes.data() + 4, raw.bytes.size() - 4)
+        );
+    };
+    CHECK(!broken([&](Raw& raw) { raw.u8(0); }));
+    CHECK(!broken([&](Raw& raw) {
+        raw.u8(11);
+        for (int index = 0; index < 11; ++index)
+            write_sample_item(raw, item);
+    }));
+    CHECK(!broken([&](Raw& raw) {
+        raw.u8(1);
+        auto upper = item;
+        upper.id = "Steady-commander";
+        write_sample_item(raw, upper);
+    }));
+    CHECK(!broken([&](Raw& raw) {
+        raw.u8(1);
+        auto upper = item;
+        upper.level_id = "Firm";
+        write_sample_item(raw, upper);
+    }));
+    CHECK(!broken([&](Raw& raw) {
+        raw.u8(1);
+        raw.u32(item.player);
+        raw.str(item.id);
+        raw.str(item.name);
+        raw.str(item.version);
+        raw.str("");
+        raw.str(item.level);
+        raw.u8(0);
+    }));
+    CHECK(!broken([&](Raw& raw) {
+        raw.u8(1);
+        raw.u32(item.player);
+        raw.str(item.id);
+        raw.str(item.name);
+        raw.str(item.version);
+        raw.str(item.level_id);
+        raw.str("");
+        raw.u8(0);
+    }));
+    CHECK(!broken([&](Raw& raw) {
+        raw.u8(1);
+        auto flagged = item;
+        write_sample_item(raw, flagged);
+        raw.bytes.back() = 0x02;
+    }));
+    CHECK(!broken([&](Raw& raw) {
+        raw.u8(1);
+        raw.u8(0x11);
+        raw.u8(0x00);
+    }));
+}
+
+void a_record_with_computer_brains_keeps_the_other_fields() {
+    start_case("a record with computer brains keeps the other fields");
+    const auto item =
+        sample_brain(0x42, "steady-commander", "Steady Commander", "1.2", "firm", "Firm", false);
+    Value computers;
+    computers.u32(0x42);
+    computers.u8(2);
+    Value brains;
+    brains.u8(1);
+    Raw writer;
+    write_sample_item(writer, item);
+    brains.raw(writer.bytes.data() + 4, writer.bytes.size() - 4);
+
+    Raw record;
+    record.u8(static_cast<uint8_t>(PresenceTag::sim_hash));
+    record.u16(32);
+    for (int index = 0; index < 32; ++index)
+        record.u8(0xab);
+    record.field(static_cast<uint8_t>(PresenceTag::computers), computers.bytes);
+    record.field(static_cast<uint8_t>(PresenceTag::computer_brains), brains.bytes);
+    record.finish();
+
+    std::span<const uint8_t> value;
+    CHECK(
+        find_presence_field(record.bytes.data(), record.bytes.size(), PresenceTag::sim_hash, &value)
+    );
+    CHECK(value.size() == 32 && value[0] == 0xab);
+    CHECK(find_presence_field(
+        record.bytes.data(), record.bytes.size(), PresenceTag::computers, &value
+    ));
+    CHECK(value.size() == 5);
+    PresenceRecord decoded;
+    CHECK(decode_presence(record.bytes.data(), record.bytes.size(), &decoded) == WireError::ok);
+    CHECK(decoded.sim_hash && (*decoded.sim_hash)[0] == 0xab);
+    const auto hash = presence_sim_hash(record.bytes.data(), record.bytes.size());
+    CHECK(hash && (*hash)[0] == 0xab);
+
+    Raw refused;
+    refused.u8(static_cast<uint8_t>(PresenceTag::sim_hash));
+    refused.u16(32);
+    for (int index = 0; index < 32; ++index)
+        refused.u8(0xcd);
+    refused.field(static_cast<uint8_t>(PresenceTag::computers), computers.bytes);
+    Value bad = brains;
+    bad.bytes.back() = 0x02;
+    refused.field(static_cast<uint8_t>(PresenceTag::computer_brains), bad.bytes);
+    refused.finish();
+    CHECK(decode_presence(refused.bytes.data(), refused.bytes.size(), &decoded) == WireError::ok);
+    CHECK(decoded.sim_hash && (*decoded.sim_hash)[0] == 0xcd);
+    CHECK(
+        find_presence_field(
+            refused.bytes.data(), refused.bytes.size(), PresenceTag::computers, &value
+        ) &&
+        value.size() == 5
+    );
+    CHECK(!decode_presence_brains(bad.bytes));
+}
+
 } // namespace
 
 int main() {
@@ -1503,6 +1718,9 @@ int main() {
     a_record_without_modes_keeps_todays_loadout();
     a_clash_mask_past_the_list_is_refused();
     find_and_sim_hash_see_mutator_fields();
+    computer_brains_round_trip();
+    computer_brains_refuse_a_broken_value();
+    a_record_with_computer_brains_keeps_the_other_fields();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

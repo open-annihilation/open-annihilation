@@ -906,6 +906,79 @@ void append_continuing(
     }
 }
 
+/// The most computer players one brains field lists.
+constexpr std::size_t brain_count_max = 10;
+constexpr std::size_t brain_id_max = 64;
+constexpr std::size_t brain_name_max = 32;
+constexpr std::size_t brain_version_max = 16;
+constexpr std::size_t brain_level_id_max = 64;
+constexpr std::size_t brain_level_name_max = 24;
+/// Bit 0 of a brain item's flags: the brain sees every unit. A bit past 0
+/// refuses the field when it is read.
+constexpr uint8_t brain_full_awareness_flag = 0x01;
+
+/// Cuts text at a UTF-8 character boundary.
+///
+/// A limit that lands inside a character keeps the bytes before that character.
+///
+/// @param text the text
+/// @param most the most bytes
+/// @return the text, shortened when it was longer
+std::string_view cut_on_character(std::string_view text, std::size_t most) noexcept {
+    if (text.size() <= most)
+        return text;
+    std::size_t cut = most;
+    while (cut > 0 && (static_cast<unsigned char>(text[cut]) & 0xc0u) == 0x80u)
+        --cut;
+    return text.substr(0, cut);
+}
+
+/// A brain item's name, version and level after the field's length limits.
+struct BrainShown {
+    std::string_view name{};
+    std::string_view version{};
+    std::string_view level{};
+};
+
+/// Tells whether one brain item can be written, and the text the field carries.
+bool brain_item_ok(const PresenceBrain& item, BrainShown* shown) noexcept {
+    if (!string_in_rule(item.id, 1, brain_id_max, ByteKind::kebab) ||
+        !string_in_rule(item.level_id, 1, brain_level_id_max, ByteKind::kebab))
+        return false;
+    if (!text_bytes(reinterpret_cast<const uint8_t*>(item.name.data()), item.name.size()) ||
+        !text_bytes(reinterpret_cast<const uint8_t*>(item.version.data()), item.version.size()) ||
+        !text_bytes(reinterpret_cast<const uint8_t*>(item.level.data()), item.level.size()))
+        return false;
+    const auto name = cut_on_character(item.name, brain_name_max);
+    const auto version = cut_on_character(item.version, brain_version_max);
+    const auto level = cut_on_character(item.level, brain_level_name_max);
+    if (!string_in_rule(name, 1, brain_name_max, ByteKind::text) ||
+        !string_in_rule(version, 0, brain_version_max, ByteKind::text) ||
+        !string_in_rule(level, 1, brain_level_name_max, ByteKind::text))
+        return false;
+    *shown = BrainShown{name, version, level};
+    return true;
+}
+
+/// Bytes of one brain item, its texts already within their limits.
+std::size_t brain_item_bytes(const PresenceBrain& item, BrainShown shown) noexcept {
+    return 4 + string_bytes(item.id) + string_bytes(shown.name) + string_bytes(shown.version) +
+           string_bytes(item.level_id) + string_bytes(shown.level) + 1;
+}
+
+/// Writes one brain item. The caller has kept room for it.
+void write_brain_item(
+    uint8_t* out, std::size_t* used, const PresenceBrain& item, BrainShown shown
+) noexcept {
+    put_u32(out, used, item.player);
+    put_string(out, used, item.id);
+    put_string(out, used, shown.name);
+    put_string(out, used, shown.version);
+    put_string(out, used, item.level_id);
+    put_string(out, used, shown.level);
+    put_u8(out, used, item.full_awareness ? brain_full_awareness_flag : 0);
+}
+
 } // namespace
 
 WireError
@@ -1391,6 +1464,67 @@ WireError encode_presence_map_pack(
     assert(used == size);
     *written = used;
     return WireError::ok;
+}
+
+WireError encode_presence_brains(
+    std::span<const PresenceBrain> brains,
+    uint8_t* out,
+    std::size_t capacity,
+    std::size_t* written,
+    std::size_t* sent
+) noexcept {
+    if (out == nullptr || written == nullptr || sent == nullptr || brains.empty())
+        return WireError::bad_argument;
+    const std::size_t offered = brains.size() < brain_count_max ? brains.size() : brain_count_max;
+    std::array<BrainShown, brain_count_max> shown{};
+    for (std::size_t index = 0; index < offered; ++index)
+        if (!brain_item_ok(brains[index], &shown[index]))
+            return WireError::bad_argument;
+    std::size_t value_bytes = 1;
+    std::size_t count = 0;
+    for (std::size_t index = 0; index < offered; ++index) {
+        const auto item_bytes = brain_item_bytes(brains[index], shown[index]);
+        if (value_bytes + item_bytes > capacity)
+            break;
+        value_bytes += item_bytes;
+        ++count;
+    }
+    if (count == 0)
+        return WireError::buffer_too_small;
+    std::size_t used = 0;
+    put_u8(out, &used, static_cast<uint8_t>(count));
+    for (std::size_t index = 0; index < count; ++index)
+        write_brain_item(out, &used, brains[index], shown[index]);
+    assert(used == value_bytes);
+    *written = used;
+    *sent = count;
+    return WireError::ok;
+}
+
+std::optional<std::vector<PresenceBrain>> decode_presence_brains(std::span<const uint8_t> value) {
+    Window window{value.data(), value.size()};
+    uint8_t count = 0;
+    if (!window.u8(&count) || count < 1 || count > brain_count_max)
+        return std::nullopt;
+    std::vector<PresenceBrain> brains;
+    brains.reserve(count);
+    for (uint8_t index = 0; index < count; ++index) {
+        PresenceBrain item;
+        uint8_t flags = 0;
+        if (!window.u32(&item.player) ||
+            !read_string(&window, 1, brain_id_max, ByteKind::kebab, &item.id) ||
+            !read_string(&window, 1, brain_name_max, ByteKind::text, &item.name) ||
+            !read_string(&window, 0, brain_version_max, ByteKind::text, &item.version) ||
+            !read_string(&window, 1, brain_level_id_max, ByteKind::kebab, &item.level_id) ||
+            !read_string(&window, 1, brain_level_name_max, ByteKind::text, &item.level) ||
+            !window.u8(&flags) || (flags & static_cast<uint8_t>(~brain_full_awareness_flag)) != 0)
+            return std::nullopt;
+        item.full_awareness = (flags & brain_full_awareness_flag) != 0;
+        brains.push_back(std::move(item));
+    }
+    if (window.size != 0)
+        return std::nullopt;
+    return brains;
 }
 
 WireError encode_presence_mutator_part(

@@ -4603,6 +4603,234 @@ void test_computer_rows(const oa::ui::gui_layout::Layout& lounge) {
     );
 }
 
+/// Stores a little-endian player id.
+///
+/// @param[out] out four bytes
+/// @param id the player id
+void store_player_id(uint8_t* out, uint32_t id) {
+    out[0] = static_cast<uint8_t>(id);
+    out[1] = static_cast<uint8_t>(id >> 8);
+    out[2] = static_cast<uint8_t>(id >> 16);
+    out[3] = static_cast<uint8_t>(id >> 24);
+}
+
+/// One brain the battle room's tests seat.
+mp::ComputerBrain steady_brain() {
+    mp::ComputerBrain brain;
+    brain.id = "steady-commander";
+    brain.name = "Steady Commander";
+    brain.version = "1.2";
+    brain.level_id = "firm";
+    brain.level = "Firm";
+    return brain;
+}
+
+/// Appends a field to a presence record the test is building.
+///
+/// @param[in,out] record the record, grown to hold the field
+/// @param tag the field
+/// @param value the field's value
+/// @return true when the field was added
+bool append_field(
+    std::vector<uint8_t>& record, oa::netgame::PresenceTag tag, std::span<const uint8_t> value
+) {
+    record.resize(record.size() + oa::netgame::presence_field_header_bytes + value.size());
+    std::size_t written = 0;
+    const auto error = oa::netgame::append_presence_field(
+        record.data(),
+        record.size() - oa::netgame::presence_field_header_bytes - value.size(),
+        record.size(),
+        tag,
+        value,
+        &written
+    );
+    if (error != oa::netgame::WireError::ok)
+        return false;
+    record.resize(written);
+    return true;
+}
+
+/// A brain seat and a built-in seat share one record; a peer's brain greys
+/// its row; a swap and a departure carry the brain; no brain adds no bytes.
+void test_computer_brains(const oa::ui::gui_layout::Layout& lounge) {
+    Fixture host(lounge);
+    host.loopback.next_player_id = 0x111;
+    expect(
+        host.press("PLAYER1") && host.press("PLAYER1"), "the first computer player is asked for"
+    );
+    const auto first = arrive_computer(host);
+    expect(
+        host.press("PLAYER2") && host.press("PLAYER2"), "the second computer player is asked for"
+    );
+    const auto second = arrive_computer(host);
+    expect(
+        first != 0 && second != 0 && mp::slot_player(host.lobby, 1).status == mp::kSlotComputer &&
+            mp::slot_player(host.lobby, 2).status == mp::kSlotComputer,
+        "both computer players are seated"
+    );
+    const auto source = small_presence("0.8.0");
+    bind_presence_source(host.lobby, source);
+    mp::presence_refresh(host.lobby);
+    uint8_t listed[10];
+    store_player_id(listed, first);
+    listed[4] = 2;
+    store_player_id(listed + 5, second);
+    listed[9] = 2;
+    auto expected = source;
+    expect(
+        append_field(
+            expected, oa::netgame::PresenceTag::computers, std::span<const uint8_t>(listed, 10)
+        ),
+        "the computer list the room used to send encodes"
+    );
+    const auto& plain = host.lobby.presence_records;
+    std::span<const uint8_t> brains_field;
+    expect(
+        plain.local_size == expected.size() &&
+            std::equal(expected.begin(), expected.end(), plain.local) &&
+            !oa::netgame::find_presence_field(
+                plain.local,
+                plain.local_size,
+                oa::netgame::PresenceTag::computer_brains,
+                &brains_field
+            ),
+        "a room with no brain composes the same bytes as before"
+    );
+
+    mp::lobby_set_computer_brain(host.lobby, 1, steady_brain(), 2);
+    mp::lobby_set_computer_brain(host.lobby, 0, steady_brain(), 0);
+    const auto* seated = mp::lobby_computer_brain(host.lobby, 1);
+    expect(
+        seated != nullptr && seated->id == "steady-commander" && seated->level == "Firm" &&
+            mp::lobby_computer_brain(host.lobby, 2) == nullptr &&
+            mp::lobby_computer_brain(host.lobby, 0) == nullptr &&
+            host.lobby.computer_difficulty[1] == 2,
+        "this machine's computer player keeps the brain and its difficulty"
+    );
+    mp::lobby_update_status(host.lobby, host.panel);
+    const auto* own_mem = mp::panel_control(host.panel, "MEM1");
+    expect(
+        own_mem != nullptr && own_mem->type == mp::ControlType::label && own_mem->grayed &&
+            mp::panel_text(host.panel, "MEM1") == "Hard",
+        "a brain seat's difficulty is a greyed label"
+    );
+    mp::presence_refresh(host.lobby);
+    expect(
+        oa::netgame::find_presence_field(
+            host.lobby.presence_records.local,
+            host.lobby.presence_records.local_size,
+            oa::netgame::PresenceTag::computer_brains,
+            &brains_field
+        ),
+        "the record carries the brain seat"
+    );
+    const auto decoded = oa::netgame::decode_presence_brains(brains_field);
+    std::span<const uint8_t> computers_field;
+    expect(
+        decoded && decoded->size() == 1 && (*decoded)[0].player == first &&
+            (*decoded)[0].id == "steady-commander" && (*decoded)[0].version == "1.2" &&
+            (*decoded)[0].level_id == "firm" &&
+            oa::netgame::find_presence_field(
+                host.lobby.presence_records.local,
+                host.lobby.presence_records.local_size,
+                oa::netgame::PresenceTag::computers,
+                &computers_field
+            ) &&
+            computers_field.size() == 10,
+        "one brain seat and one built-in seat share the record"
+    );
+
+    mp::lobby_swap_slots(host.lobby, 1, 2);
+    const auto* swapped = mp::lobby_computer_brain(host.lobby, 2);
+    expect(
+        swapped != nullptr && swapped->id == "steady-commander" &&
+            mp::lobby_computer_brain(host.lobby, 1) == nullptr &&
+            mp::slot_player(host.lobby, 2).player_id == first,
+        "a slot swap carries the brain"
+    );
+    clock_ticks += 0x1f;
+    expect(host.press("PLAYER2"), "the computer player that plays the brain can leave");
+    expect(
+        mp::slot_player(host.lobby, 2).status == mp::kSlotOpen &&
+            mp::lobby_computer_brain(host.lobby, 2) == nullptr,
+        "a computer player that leaves clears its brain"
+    );
+
+    Fixture remote(lounge);
+    remote.join(0x401, "Friend");
+    remote.remote_info(0x401, 0, 5);
+    oa::netgame::mark_engine_signature(reinterpret_cast<uint8_t*>(mp::slot_info(remote.lobby, 1)));
+    remote.join(0x402, "AI:Friend");
+    const auto computer = mp::slot_for_player_id(remote.lobby, 0x402);
+    expect(computer >= 0, "the remote computer player is seated");
+    mp::slot_info(remote.lobby, computer)->state = mp::kInfoStateDefeated;
+    mp::slot_player(remote.lobby, 1).machine_group = 4;
+    mp::slot_player(remote.lobby, computer).machine_group = 4;
+    oa::netgame::PresenceBrain announced;
+    announced.player = 0x402;
+    announced.id = "lantern-scout";
+    announced.name = "Lantern Scout";
+    announced.version = "1.0";
+    announced.level_id = "wide";
+    announced.level = "Wide";
+    announced.full_awareness = true;
+    uint8_t brain_value[256];
+    std::size_t brain_written = 0;
+    std::size_t brain_sent = 0;
+    uint8_t remote_listed[5];
+    store_player_id(remote_listed, 0x402);
+    remote_listed[4] = 2;
+    auto peer = small_presence("0.8.0");
+    expect(
+        oa::netgame::encode_presence_brains(
+            std::span<const oa::netgame::PresenceBrain>(&announced, 1),
+            brain_value,
+            sizeof brain_value,
+            &brain_written,
+            &brain_sent
+        ) == oa::netgame::WireError::ok &&
+            brain_sent == 1 &&
+            append_field(
+                peer,
+                oa::netgame::PresenceTag::computers,
+                std::span<const uint8_t>(remote_listed, 5)
+            ) &&
+            append_field(
+                peer,
+                oa::netgame::PresenceTag::computer_brains,
+                std::span<const uint8_t>(brain_value, brain_written)
+            ),
+        "the peer's brain seat encodes"
+    );
+    expect(
+        mp::lobby_apply_event(remote.lobby, presence_event(0x401, peer)),
+        "the peer's presence record is kept"
+    );
+    const auto* remote_brain = mp::lobby_computer_brain(remote.lobby, computer);
+    expect(
+        remote_brain != nullptr && remote_brain->id == "lantern-scout" &&
+            remote_brain->full_awareness && remote.lobby.computer_difficulty[computer] == 2,
+        "a peer's record sets that remote slot's brain"
+    );
+    mp::lobby_update_status(remote.lobby, remote.panel);
+    char mem_name[16];
+    std::snprintf(mem_name, sizeof mem_name, "MEM%d", static_cast<int>(computer));
+    const auto* remote_mem = mp::panel_control(remote.panel, mem_name);
+    expect(
+        remote_mem != nullptr && remote_mem->type == mp::ControlType::label && remote_mem->grayed &&
+            mp::panel_text(remote.panel, mem_name) == "Hard" && !remote.press(mem_name),
+        "the host sees a greyed difficulty and cannot cycle it"
+    );
+    expect(
+        mp::lobby_apply_event(remote.lobby, presence_event(0x401, small_presence("0.8.0"))),
+        "a later record with no brain seat is kept"
+    );
+    expect(
+        mp::lobby_computer_brain(remote.lobby, computer) == nullptr,
+        "a peer that no longer lists the brain clears it"
+    );
+}
+
 // The battle room sends this machine's presence record alone in its frame,
 // to each human player whose block carries the 'OA' signature, once for each
 // change and once to a player who arrives later; never to a block without
@@ -6838,6 +7066,7 @@ int main(int argc, char** argv) {
             test_row_indicators(*lounge.layout);
             test_slot_cycle(*lounge.layout);
             test_computer_rows(*lounge.layout);
+            test_computer_brains(*lounge.layout);
             test_chat_and_leave(*lounge.layout);
             test_mod_lobby_buttons(*lounge.layout);
             test_client_rules(*lounge.layout);
