@@ -33,7 +33,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <vector>
 
 namespace oa::sim::brains {
 
@@ -718,7 +717,8 @@ void set_match_game_facts(match_runtime::Match& match, oa::data::brain_facts::Ga
 }
 
 struct ToolSeat::Body {
-    std::vector<oa::data::unit_definitions::UnitDefinition> definitions;
+    // The seat points into this storage, so the rows outlive the seat.
+    std::unique_ptr<oa::data::unit_definitions::UnitDefinition[]> definitions;
     oa::data::brain_facts::GameFacts facts{};
     SeatOutcome outcome{};
     Seat seat;
@@ -803,9 +803,15 @@ std::optional<ToolSeat> ToolSeat::open(const ToolSeatSpec& spec, script_host::Sc
         error.message = "the seat could not be stored";
         return std::nullopt;
     }
+    std::size_t definition_count = 0;
     if (spec.definitions != nullptr && spec.definition_count > 0) {
         try {
-            created->definitions.assign(spec.definitions, spec.definitions + spec.definition_count);
+            created->definitions = std::make_unique<oa::data::unit_definitions::UnitDefinition[]>(
+                spec.definition_count
+            );
+            for (std::size_t index = 0; index < spec.definition_count; ++index)
+                created->definitions[index] = spec.definitions[index];
+            definition_count = spec.definition_count;
         } catch (const std::bad_alloc&) {
             error = {};
             error.kind = script_host::ErrorKind::runtime;
@@ -825,8 +831,8 @@ std::optional<ToolSeat> ToolSeat::open(const ToolSeatSpec& spec, script_host::Sc
     }
     Seat& held = created->seat;
     held.facts = &created->facts;
-    held.plain_definitions = created->definitions.empty() ? nullptr : created->definitions.data();
-    held.plain_definition_count = created->definitions.size();
+    held.plain_definitions = created->definitions.get();
+    held.plain_definition_count = definition_count;
     held.match = nullptr;
     if (!copy_spec_into(held, spec.spec)) {
         error = {};
