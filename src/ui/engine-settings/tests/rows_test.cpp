@@ -67,7 +67,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 84> kExpected{{
+constexpr std::array<Expected, 90> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -155,6 +155,12 @@ constexpr std::array<Expected, 84> kExpected{{
 #endif
     {Setting::skirmish_players, RowKind::slider, "Skirmish players", 1, 1, 9, 0, 0, false, Lock::in_game, &Locks::skirmish_players},
     {Setting::smooth_motion, RowKind::toggle, "Smooth motion", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::weapon_lighting, RowKind::slider, "Coloured weapon lighting", 0, 0, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::nanolathe_lighting, RowKind::slider, "Nanolathe glow", 0, 0, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::wreck_glow, RowKind::slider, "Wreck glow", 0, 0, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::heat_distortion, RowKind::slider, "Heat distortion", 0, 0, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::allow_full_3d, RowKind::toggle, "Allow Full 3D Mode", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::unlocked_camera, RowKind::toggle, "Unlocked Camera", 1, 1, 0, 0, 0, false, Lock::none, &Locks::unlocked_camera},
     {Setting::welcome_setup, RowKind::value_and_button, "Welcome setup", 2, 2, 0, 0, 0, false, Lock::main_menu, &Locks::welcome_setup},
 }};
 // clang-format on
@@ -165,7 +171,7 @@ static_assert(
 );
 
 /// Every field of the dialog's locks that locks a row.
-constexpr std::array<Lock Locks::*, 16> kLockFields{
+constexpr std::array<Lock Locks::*, 17> kLockFields{
     &Locks::path_search,
     &Locks::unit_limit,
     &Locks::skirmish_players,
@@ -181,6 +187,7 @@ constexpr std::array<Lock Locks::*, 16> kLockFields{
     &Locks::native_density,
     &Locks::zoomed_out_after,
     &Locks::edge_stickiness,
+    &Locks::unlocked_camera,
     &Locks::welcome_setup,
 };
 
@@ -633,11 +640,39 @@ void tab_follows_the_dialogs_focus_order() {
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
     OA_CHECK(
-        tab_order(graphics) == (std::vector<int32_t>{16, 17, 18, 19, 20,
-                                                     21, 22, 23, 24, 12,
-                                                     13, 14, 0,  1,  2,
-                                                     3,  4,  5,  6,  8,
-                                                     9,  11, 10, 7,  settings::close_x_control})
+        tab_order(graphics) == (std::vector<int32_t>{
+                                   16,
+                                   17,
+                                   18,
+                                   19,
+                                   20,
+                                   21,
+                                   22,
+                                   23,
+                                   24,
+                                   26,
+                                   27,
+                                   28,
+                                   29,
+                                   30,
+                                   31,
+                                   12,
+                                   13,
+                                   14,
+                                   0,
+                                   1,
+                                   2,
+                                   3,
+                                   4,
+                                   5,
+                                   6,
+                                   8,
+                                   9,
+                                   11,
+                                   10,
+                                   7,
+                                   settings::close_x_control
+                               })
     );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // last of them, its list's headers, Show Active Only and Restore profile

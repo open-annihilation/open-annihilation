@@ -593,6 +593,7 @@ void set_frame_shadows(
 void clear_world_draws(WorldDrawList& list) {
     list.draws.clear();
     list.squares.clear();
+    list.spatial_particles.clear();
     list.sprites.clear();
     list.lines.clear();
     list.models.clear();

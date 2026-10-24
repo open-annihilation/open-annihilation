@@ -408,6 +408,9 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-library-content", &Options::check_library_content, {}},
         {"--check-library-update-question", &Options::check_library_update_question, {}},
         {"--check-renderer-ladder", &Options::check_renderer_ladder, {}},
+        {"--check-renderer-proof", &Options::check_renderer_proof, {}},
+        {"--check-live-renderer", &Options::check_live_renderer, {}},
+        {"--experimental-3d", &Options::experimental_3d, {}},
         {"--check-briefing-narration", &Options::check_briefing_narration, {}},
         {"--check-match-layers", &Options::check_match_layers, {}},
         {"--check-render-tiers", &Options::check_render_tiers, {}},
@@ -1540,6 +1543,40 @@ int main() {
         expect(rejection(scripted).find("--choose-game-dir opens a dialog") == 0, scripted.front());
     }
 
+    const auto inspection = parse({"--experimental-3d"});
+    expect(
+        inspection.experimental_3d && !inspection.headless_check && !inspection.fixed_clock &&
+            !inspection.unattended && !inspection.skip_intro,
+        "--experimental-3d keeps the ordinary interactive launch"
+    );
+    expect(
+        rejection({"--experimental-3d", "--choose-game-dir"}).empty(),
+        "the experimental camera allows the player's folder chooser"
+    );
+
+    const auto live = parse({"--check-live-renderer"});
+    expect(
+        live.check_live_renderer && live.experimental_3d && live.headless_check &&
+            live.fixed_clock && live.unattended && live.skip_intro,
+        "--check-live-renderer exercises the experimental renderer offscreen"
+    );
+    expect(
+        rejection({"--render-script", "film.oascript", "--check-live-renderer"}) ==
+            "--render-script cannot be used with --check-live-renderer",
+        "the live renderer check cannot be combined with a director render"
+    );
+
+    const auto proof = parse({"--check-renderer-proof", "--snapshot", "local/proof"});
+    expect(
+        proof.check_renderer_proof && proof.headless_check && proof.fixed_clock &&
+            proof.unattended && proof.skip_intro && proof.snapshot == "local/proof",
+        "--check-renderer-proof is an offscreen, fixed-clock and unattended run"
+    );
+    expect(
+        rejection({"--render-script", "film.oascript", "--check-renderer-proof"}) ==
+            "--render-script cannot be used with --check-renderer-proof",
+        "the renderer proof cannot be combined with a director render"
+    );
     // The render tiers check draws in a window on the fixed clock, with
     // nobody there; --force-capable goes with it alone.
     const auto tiers = parse({"--check-render-tiers"});
@@ -1818,6 +1855,11 @@ int main() {
         parse({"--showcase", "arm-first-mission", "--seed", "9"}).seed == 9u,
         "--seed chooses a showcase's seed"
     );
+    const auto construction = parse({"--showcase", "base-construction"});
+    expect(
+        construction.showcase == oa::app::Showcase::base_construction && construction.unattended,
+        "base construction showcase runs unattended"
+    );
     const auto battle = parse({"--showcase", "skirmish-battle", "--combat", "40"});
     expect(
         battle.showcase == oa::app::Showcase::skirmish_battle && battle.unattended &&
@@ -1826,7 +1868,7 @@ int main() {
     );
     expect(
         rejection({"--showcase", "skirmish"}) ==
-            "--showcase knows two showcases: arm-first-mission and skirmish-battle",
+            "--showcase knows arm-first-mission, skirmish-battle and base-construction",
         "an unknown showcase is refused"
     );
     expect(

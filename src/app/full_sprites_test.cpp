@@ -952,6 +952,46 @@ void test_features_on_the_map(float zoom) {
     );
 }
 
+/// Compact effect sprites use a selective filter and fade without changing ordinary sprites.
+void test_compact_effect_sprites() {
+    const auto palette = test_palette();
+    const Frames frames;
+    const Picture background = grey_background(palette, field_width, field_height);
+    WorldDrawList list;
+    add_sprite(list, frames.colour_block, 30, 20, false);
+    list.sprites.back().effect_scale = 0.5F;
+    list.sprites.back().effect_opacity = 0.4F;
+    list.sprites.back().soft_effect = true;
+    add_sprite(list, frames.colour_block, 100, 60, false);
+    CardSide side(
+        field_left + field_width + border, field_top + field_height + border, gpu::Limits{}
+    );
+    side.pages.set_palette(oa::present::palette_from_bytes(palette), plain_gamma);
+    const CardDraw card = draw_card(side, list, palette, background, 1.0F);
+    OA_CHECK(card.result.sprites == 2);
+    OA_CHECK(card.result.refused == 0);
+    bool soft = false;
+    bool nearest = false;
+    for (const auto& batch : card.frame.batches) {
+        soft |= batch.sampling == card::Sampling::linear;
+        nearest |= batch.sampling == card::Sampling::nearest;
+    }
+    OA_CHECK(soft && nearest);
+    float left = 1e9F, right = -1e9F, top = 1e9F, bottom = -1e9F;
+    std::size_t faded_vertices = 0;
+    for (const auto& vertex : card.frame.vertices) {
+        if (std::abs(vertex.colour.alpha - 0.4F) > 1e-6F)
+            continue;
+        ++faded_vertices;
+        left = std::min(left, vertex.x);
+        right = std::max(right, vertex.x);
+        top = std::min(top, vertex.y);
+        bottom = std::max(bottom, vertex.y);
+    }
+    OA_CHECK(faded_vertices == 4);
+    OA_CHECK(right - left == 6 && bottom - top == 5);
+}
+
 /// A feature's shadow frames, drawn and blended, on the card as dark as the
 /// list's shadow level: the game's own at the full level, that strength of
 /// it below, within the blend tolerance of the processor's, and not drawn
@@ -1676,6 +1716,7 @@ int main(int argc, char** argv) {
         test_synthetic_scene(1.0F);
         test_synthetic_scene(2.0F);
         test_shadow_sprites();
+        test_compact_effect_sprites();
         test_features_on_the_map(1.0F);
         test_features_on_the_map(2.0F);
         test_lines(1.0F);

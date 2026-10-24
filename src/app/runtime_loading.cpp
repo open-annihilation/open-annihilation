@@ -267,6 +267,8 @@ void Runtime::teardown_match() {
     offline_services_.clear_match();
     offline_services_.set_on_screen_test(nullptr, nullptr);
     effect_boundary_.clock = nullptr;
+    live_renderer_.reset();
+    reset_match_effect_sources();
     match_.reset();
     release_match_mutators();
     // A replay or a saved game puts the player's mutators back once its match

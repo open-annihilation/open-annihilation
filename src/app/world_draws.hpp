@@ -381,6 +381,18 @@ struct SpriteDraw {
     /// (WorldFrameDraw::shown_map), so that nothing of it lies on the black
     /// past the map's edges.
     bool on_map{};
+    /// A low feature or a shadow lies on terrain in the spatial renderer;
+    /// standing features keep their upright cutout.
+    bool terrain_decal{};
+    /// Canonical feature or interpolated effect origin, retained for spatial cameras.
+    std::optional<oa::FixedVec3> world_position{};
+    /// An explosion sprite may need clearance above the rendered ground at impact.
+    bool surface_effect{};
+    /// Presentation-only size and opacity for compact rapid-fire effects.
+    float effect_scale{1};
+    float effect_opacity{1};
+    /// Filter only effect art; scenery keeps its original pixel sampling.
+    bool soft_effect{};
 };
 
 /// A rectangle of scene pixels: the columns from `left` up to `right` and
@@ -415,6 +427,13 @@ struct LineDraw {
     uint8_t palette_index{};        ///< the palette index of a bridge's line
 };
 
+/// A spatial particle retains its interpolated world position for alternate cameras.
+struct SpatialParticle {
+    oa::FixedVec3 position{};
+    std::array<uint8_t, 3> color{};
+    bool emissive{};
+};
+
 /// A unit or a 3D feature, as plan_unit_supersampled planned it.
 struct ModelDraw {
     oa::present::model::ModelRef model{};
@@ -427,6 +446,9 @@ struct ModelDraw {
     /// (WorldDrawList::shown_map_width): its plan's region lies within the
     /// map already, and the Full tier's card clips it there.
     bool on_map{};
+    /// Presentation transforms captured before deferred drawing can rebuild them.
+    std::optional<oa::FixedVec3> shown_position{};
+    std::vector<std::vector<oa::formats::objects3d::FixedVector3>> shown_vertices{};
 };
 
 /// A projectile drawn as a 3DO object (render types 1, 3 and 6): its ground
@@ -488,6 +510,7 @@ struct WorldDrawList {
     std::vector<SpriteDraw> sprites;
     std::vector<LineDraw> lines;
     std::vector<ModelDraw> models;
+    std::vector<SpatialParticle> spatial_particles;
     std::vector<oa::Unit> stand_ins; ///< 3D features' stand-in records
     std::vector<ProjectileDraw> projectiles;
     std::vector<DebrisDraw> debris;

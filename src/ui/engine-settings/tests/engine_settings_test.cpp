@@ -2375,6 +2375,67 @@ void the_hud_scaling_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Intensity values supersede legacy switches, clamp and persist independently.
+void visual_effect_switches_round_trip() {
+    const auto defaults = settings::default_settings(players_own_on_linux);
+
+    struct Effect {
+        std::string_view legacy;
+        std::string_view key;
+        uint32_t settings::EngineSettings::* field;
+    };
+
+    const std::array<Effect, 4> effects{{
+        {settings::key::weapon_lighting,
+         settings::key::weapon_lighting_intensity,
+         &settings::EngineSettings::weapon_lighting},
+        {settings::key::nanolathe_lighting,
+         settings::key::nanolathe_lighting_intensity,
+         &settings::EngineSettings::nanolathe_lighting},
+        {settings::key::wreck_glow,
+         settings::key::wreck_glow_intensity,
+         &settings::EngineSettings::wreck_glow},
+        {settings::key::heat_distortion,
+         settings::key::heat_distortion_intensity,
+         &settings::EngineSettings::heat_distortion},
+    }};
+    for (const auto& [legacy, key, field] : effects) {
+        CHECK(defaults.*field == 100);
+        CHECK(read_one(legacy, "0").*field == 0);
+        CHECK(read_one(legacy, "1").*field == 100);
+        CHECK(read_one(key, "invalid").*field == 100);
+        CHECK(read_one(key, "-10").*field == 0);
+        CHECK(read_one(key, "999").*field == 200);
+        CHECK(read_one(key, "143").*field == 140);
+        CHECK(read_one(key, "146").*field == 150);
+        Values values{{std::string{legacy}, "0"}, {std::string{key}, "150"}};
+        auto opened = settings::read_settings(values, players_own_on_linux, false);
+        CHECK(opened.*field == 150);
+        auto chosen = opened;
+        chosen.*field = 200;
+        settings::write_settings(values, opened, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(values.at(std::string{key}) == "200");
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+        values = {{std::string{legacy}, "0"}};
+        opened = settings::read_settings(values, players_own_on_linux, false);
+        settings::write_settings(values, opened, defaults, defaults, false);
+        CHECK(settings::read_settings(values, players_own_on_linux, false).*field == 100);
+    }
+    CHECK(defaults.allow_full_3d);
+    CHECK(!defaults.unlocked_camera);
+    auto chosen = defaults;
+    chosen.allow_full_3d = false;
+    chosen.unlocked_camera = true;
+    Values values;
+    settings::write_settings(values, defaults, chosen, defaults, false);
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+    settings::write_settings(values, chosen, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
 /// Smooth motion: On everywhere by default, a light machine and a Steam
 /// Deck included; a file written before it reads On; a number above 0 reads
 /// On and any other number Off; Off written alone and read back, On chosen
@@ -2750,6 +2811,7 @@ int main() {
     the_window_frame_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
+    visual_effect_switches_round_trip();
     the_interface_size_default_read_and_round_trip();
     the_zoom_limits_default_read_and_round_trip();
     the_view_past_the_map_edge_defaults_reads_and_round_trips();

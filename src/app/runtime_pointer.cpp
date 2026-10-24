@@ -437,7 +437,22 @@ void Runtime::rebuild_on_screen_units() {
         },
         this
     );
-    oa::sim::selection::collect_visible_units(world, on_screen_lists(), selection_hooks());
+    if (live_renderer_active()) {
+        int32_t count{};
+        for (const auto& slot : match_->world().slots) {
+            if (!slot.unit || slot.unit_index == 0)
+                continue;
+            const auto bounds = live_unit_bounds(slot.unit_index);
+            if (!bounds || bounds->x2 < match_layout_.left || bounds->y2 < match_layout_.top ||
+                bounds->x1 >= match_layout_.left + match_layout_.battlefield_width() ||
+                bounds->y1 >= match_layout_.top + match_layout_.battlefield_height())
+                continue;
+            if (static_cast<std::size_t>(count) < on_screen_units_.size())
+                on_screen_units_[static_cast<std::size_t>(count++)] = slot.unit_index;
+        }
+        world.game.hot_unit_count = count;
+    } else
+        oa::sim::selection::collect_visible_units(world, on_screen_lists(), selection_hooks());
 }
 
 void Runtime::refresh_on_screen_view() {
@@ -476,8 +491,12 @@ void Runtime::pick_cursor_unit(bool refresh_view) {
         (flags & input::pointer_over_view) != 0 && match_command_ == MatchCommand::build;
     if (placing)
         note_build_site_under_pointer();
-    if (!placing && (flags & (input::pointer_over_view | input::pointer_over_radar)) != 0 &&
-        on_screen_units_.size() == match_->state().unit_slot_count)
+    if (!placing && live_renderer_active() && battlefield_contains(pointer_x_, pointer_y_))
+        game.cursor_unit_id = live_unit_under(pointer_x_, pointer_y_);
+    else if (
+        !placing && (flags & (input::pointer_over_view | input::pointer_over_radar)) != 0 &&
+        on_screen_units_.size() == match_->state().unit_slot_count
+    )
         game.cursor_unit_id = oa::sim::selection::unit_under_pointer(
             match_->state(), on_screen_lists(), selection_hooks()
         );

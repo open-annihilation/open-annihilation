@@ -484,6 +484,75 @@ add_library(oa-app-render-policy src/app/render_policy.cpp src/app/memory_guard.
 add_library(oa::app::render_policy ALIAS oa-app-render-policy)
 target_link_libraries(oa-app-render-policy PUBLIC oa-app-headers oa-platform-shims
   PRIVATE oa-options)
+# The provisional renderer seam and classic projection proof. The optional
+# GPU renderer creates an offscreen SDL device; no graphics API is linked.
+add_library(oa-app-renderer-projection src/app/renderer_projection.cpp)
+add_library(oa::app::renderer_projection ALIAS oa-app-renderer-projection)
+add_library(oa-app-renderer-effects src/app/renderer_effects.cpp src/app/renderer_effect_sources.cpp
+  src/app/renderer_effect_events.cpp)
+add_library(oa::app::renderer_effects ALIAS oa-app-renderer-effects)
+target_include_directories(oa-app-renderer-effects PUBLIC src/app)
+target_link_libraries(oa-app-renderer-effects PUBLIC oa-sim-match-runtime PRIVATE oa-options)
+if(BUILD_TESTING)
+  foreach(oa_effect_part effects effect_sources effect_events)
+    add_executable(oa-app-renderer-${oa_effect_part}-test src/app/renderer_${oa_effect_part}_test.cpp)
+    target_link_libraries(oa-app-renderer-${oa_effect_part}-test PRIVATE oa-app-renderer-effects oa-test-support oa-options)
+    string(REPLACE "_" "-" oa_effect_check "${oa_effect_part}")
+    add_test(NAME app-renderer-${oa_effect_check} COMMAND oa-app-renderer-${oa_effect_part}-test)
+  endforeach()
+endif()
+target_include_directories(oa-app-renderer-projection PUBLIC src/app)
+target_link_libraries(oa-app-renderer-projection PRIVATE oa-options)
+if(BUILD_TESTING)
+  add_executable(oa-app-renderer-projection-test src/app/renderer_projection_test.cpp)
+  target_link_libraries(oa-app-renderer-projection-test PRIVATE oa-app-renderer-projection oa-test-support oa-options)
+  add_test(NAME app-renderer-projection COMMAND oa-app-renderer-projection-test)
+endif()
+# The experimental live camera and persistent GPU renderer are available in
+# normal builds; their native check remains part of OA_SELF_CHECKS.
+if(OA_BUILD_PLATFORM)
+  target_sources(oa-app-renderer-effects PRIVATE src/app/full_effects.cpp)
+  target_link_libraries(oa-app-renderer-effects PUBLIC SDL3::SDL3)
+  if(BUILD_TESTING)
+    add_executable(oa-app-full-effects-test src/app/full_effects_test.cpp)
+    target_link_libraries(oa-app-full-effects-test PRIVATE oa-app-renderer-effects oa-test-support oa-options)
+    add_test(NAME app-full-effects COMMAND oa-app-full-effects-test)
+  endif()
+  add_library(oa-app-renderer-live src/app/renderer_live_camera.cpp
+    src/app/renderer_live_gpu.cpp src/app/renderer_live_scene.cpp)
+  add_library(oa::app::renderer_live ALIAS oa-app-renderer-live)
+  target_include_directories(oa-app-renderer-live PUBLIC src/app)
+  target_link_libraries(oa-app-renderer-live PUBLIC SDL3::SDL3 oa-app-headers
+    oa-app-full-models oa-formats-tnt PRIVATE oa-sim-visibility-state oa-options)
+  if(BUILD_TESTING)
+    foreach(oa_live_part camera scene gpu)
+      add_executable(oa-app-renderer-live-${oa_live_part}-test
+        src/app/renderer_live_${oa_live_part}_test.cpp)
+      target_link_libraries(oa-app-renderer-live-${oa_live_part}-test PRIVATE
+        oa-app-renderer-live oa-test-support oa-options)
+      add_test(NAME app-renderer-live-${oa_live_part}
+        COMMAND oa-app-renderer-live-${oa_live_part}-test)
+      set_tests_properties(app-renderer-live-${oa_live_part} PROPERTIES TIMEOUT 60)
+    endforeach()
+    set_tests_properties(app-renderer-live-gpu PROPERTIES SKIP_RETURN_CODE 77)
+  endif()
+endif()
+if(OA_BUILD_PLATFORM AND OA_SELF_CHECKS)
+  add_library(oa-app-renderer-proof src/app/renderer_proof.cpp
+    src/app/renderer_proof_backend.cpp src/app/renderer_proof_gpu.cpp src/app/renderer_proof_scene.cpp)
+  add_library(oa::app::renderer_proof ALIAS oa-app-renderer-proof)
+  target_include_directories(oa-app-renderer-proof PUBLIC src/app)
+  target_link_libraries(oa-app-renderer-proof PUBLIC SDL3::SDL3 PRIVATE
+    oa-app-renderer-projection oa-formats-png oa-formats-hpi oa-formats-tnt oa-formats-gaf
+    oa-formats-objects3d oa-present-world-renderer oa-sim-model-runtime oa-options)
+  if(BUILD_TESTING)
+    add_executable(oa-app-renderer-proof-backend-test src/app/renderer_proof_backend_test.cpp)
+    target_link_libraries(oa-app-renderer-proof-backend-test PRIVATE oa-app-renderer-proof oa-test-support oa-options)
+    add_test(NAME app-renderer-proof-depth COMMAND oa-app-renderer-proof-backend-test)
+    add_test(NAME app-renderer-proof-gpu COMMAND oa-app-renderer-proof-backend-test --gpu)
+    set_tests_properties(app-renderer-proof-gpu PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 60)
+  endif()
+endif()
 # The Full tier's terrain builder (full_terrain.hpp): the level rule for a
 # zoom and the terrain tiles' quads from a terrain atlas, appended to a card
 # command list; pure, so that runtime_full.cpp draws from it and a test
@@ -1060,6 +1129,11 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/game_directory_dialog.cpp src/app/runtime.cpp
   src/app/runtime_builtin_screens.cpp
   src/app/runtime_camera.cpp src/app/middle_pan.cpp src/app/runtime_campaign.cpp
+  src/app/runtime_live_renderer.cpp
+  src/app/runtime_live_overlays.cpp
+  src/app/runtime_live_unit_overlays.cpp
+  src/app/runtime_effects.cpp
+  src/app/runtime_effect_composition.cpp
   src/app/runtime_console.cpp src/app/runtime_console_options.cpp src/app/runtime_console_debug.cpp
   src/app/runtime_console_sound.cpp src/app/runtime_console_display.cpp
   src/app/runtime_console_units.cpp
@@ -1161,6 +1235,7 @@ endif()
 # through its screens and orders and reports a verdict, for the native
 # checks. OA_SELF_CHECKS=OFF leaves them out, as the release packages do.
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
+  src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
@@ -1290,6 +1365,10 @@ else()
 endif()
 if(OA_BUILD_PLATFORM)
   add_executable(oa-game ${oa_game_sources})
+  target_link_libraries(oa-game PRIVATE oa-app-renderer-live oa-app-renderer-effects)
+  if(OA_SELF_CHECKS)
+    target_link_libraries(oa-game PRIVATE oa-app-renderer-proof)
+  endif()
   # The engine's build, its version and the commit it was built from, which
   # the renderer records' strikes and records are written under, so that a
   # new build starts free of what an older one recorded
@@ -1453,6 +1532,12 @@ if(OA_BUILD_PLATFORM)
       # that frame at the match's size.
       set(oa_layer_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/match-layers")
       file(MAKE_DIRECTORY "${oa_layer_check_dir}")
+      # Exact particle and terrain references exclude optional battlefield effects.
+      set(oa_render_reference_preferences "open-annihilation-preferences 1\n")
+      foreach(effect weapon-lighting nanolathe-lighting wreck-glow heat-distortion)
+        string(APPEND oa_render_reference_preferences "\"open-annihilation.${effect}\" \"0\"\n")
+      endforeach()
+      file(WRITE "${oa_layer_check_dir}/match-layers.conf" "${oa_render_reference_preferences}")
       add_test(NAME native-match-layers COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-match-layers
         --preferences-file "${oa_layer_check_dir}/match-layers.conf")
@@ -1489,6 +1574,17 @@ if(OA_BUILD_PLATFORM)
       # 2 GiB of memory.
       set(oa_render_tiers_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-tiers")
       file(MAKE_DIRECTORY "${oa_render_tiers_check_dir}")
+      add_test(NAME native-live-renderer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --check-live-renderer --skip-intro --mute
+        --preferences-file "${CMAKE_CURRENT_BINARY_DIR}/native-checks/live-renderer.conf")
+      set_tests_properties(native-live-renderer PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        SKIP_RETURN_CODE 77 ENVIRONMENT "SDL_AUDIO_DRIVER=dummy")
+      add_test(NAME native-renderer-proof COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --check-renderer-proof --snapshot "${CMAKE_CURRENT_BINARY_DIR}/native-checks/renderer-proof"
+        --preferences-file "${CMAKE_CURRENT_BINARY_DIR}/native-checks/renderer-proof.conf")
+      set_tests_properties(native-renderer-proof PROPERTIES TIMEOUT 180 SKIP_RETURN_CODE 77)
+      # The panning check enables lighting independently of the raw terrain references.
+      file(WRITE "${oa_render_tiers_check_dir}/render-tiers.conf" "${oa_render_reference_preferences}")
       add_test(NAME native-render-tiers COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-render-tiers --hardware-acceleration --force-capable
         --preferences-file "${oa_render_tiers_check_dir}/render-tiers.conf")
@@ -1515,6 +1611,7 @@ if(OA_BUILD_PLATFORM)
       set(oa_render_visual_check_dir
         "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-tiers-visual-rules")
       file(MAKE_DIRECTORY "${oa_render_visual_check_dir}")
+      file(WRITE "${oa_render_visual_check_dir}/render-tiers.conf" "${oa_render_reference_preferences}")
       file(WRITE "${oa_render_visual_check_dir}/visual-rules.oamod.yaml"
         "oamod: 1\n"
         "id: visual-rules\n"
@@ -1554,7 +1651,7 @@ if(OA_BUILD_PLATFORM)
         "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-tiers-modern-fonts")
       file(MAKE_DIRECTORY "${oa_render_modern_check_dir}")
       file(WRITE "${oa_render_modern_check_dir}/render-tiers.conf"
-        "open-annihilation-preferences 1\n"
+        "${oa_render_reference_preferences}"
         "\"open-annihilation.modern-fonts\" \"1\"\n")
       add_test(NAME native-render-tiers-modern-fonts COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-render-tiers --hardware-acceleration --force-capable
@@ -1573,6 +1670,7 @@ if(OA_BUILD_PLATFORM)
       # same case runs by hand, without SDL_VIDEO_DRIVER. Skips under 2 GiB.
       set(oa_render_density_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-density")
       file(MAKE_DIRECTORY "${oa_render_density_check_dir}")
+      file(WRITE "${oa_render_density_check_dir}/render-density.conf" "${oa_render_reference_preferences}")
       add_test(NAME native-render-tiers-density COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-render-tiers --hardware-acceleration --force-capable
         --native-density
@@ -1587,7 +1685,7 @@ if(OA_BUILD_PLATFORM)
         "${CMAKE_CURRENT_BINARY_DIR}/native-checks/render-density-setting")
       file(MAKE_DIRECTORY "${oa_render_density_setting_dir}")
       file(WRITE "${oa_render_density_setting_dir}/render-density.conf"
-        "open-annihilation-preferences 1\n"
+        "${oa_render_reference_preferences}"
         "\"open-annihilation.native-density\" \"1\"\n")
       add_test(NAME native-render-tiers-density-setting COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-render-tiers --hardware-acceleration --force-capable
@@ -2616,6 +2714,10 @@ if(OA_BUILD_PLATFORM)
       set(oa_director_render_hashes
         "director render: frames ec9f8e0c7906ef500077571b2da8baf5a8ad6904ca7d3aa44843b13fce496372 sound 148e026257cb31ce5afc3f1665856ef483a3983ad74a1fcb50be78d82ec3992b")
       file(MAKE_DIRECTORY "${oa_director_render_dir}")
+      # Preserve the original frame reference independently of optional effects.
+      # Their enabled rendering and simulation invariance have separate checks.
+      set(oa_director_reference_preferences "open-annihilation-preferences 1\n\"open-annihilation.weapon-lighting\" \"0\"\n\"open-annihilation.nanolathe-lighting\" \"0\"\n\"open-annihilation.wreck-glow\" \"0\"\n\"open-annihilation.heat-distortion\" \"0\"\n")
+      file(WRITE "${oa_director_render_dir}/director-render.conf" "${oa_director_reference_preferences}")
       add_test(NAME native-director-render COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --mute --check-director-render
         --preferences-file "${oa_director_render_dir}/director-render.conf")
@@ -2629,6 +2731,7 @@ if(OA_BUILD_PLATFORM)
       # gives the same frames and sound.
       set(oa_director_relative_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/director-render-relative")
       file(MAKE_DIRECTORY "${oa_director_relative_dir}")
+      file(WRITE "${oa_director_relative_dir}/director-render.conf" "${oa_director_reference_preferences}")
       add_test(NAME native-director-render-relative COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --mute --check-director-render --snapshot director-render.ppm
         --preferences-file director-render.conf)

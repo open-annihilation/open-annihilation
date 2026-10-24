@@ -90,6 +90,30 @@ inline constexpr std::string_view hardware_acceleration = "open-annihilation.har
 inline constexpr std::string_view vertical_sync = "open-annihilation.vertical-sync";
 /// 1 or 0 (EngineSettings::smooth_motion).
 inline constexpr std::string_view smooth_motion = "open-annihilation.smooth-motion";
+/// 1 or 0 (EngineSettings::allow_full_3d).
+inline constexpr std::string_view allow_full_3d = "open-annihilation.allow-full-3d";
+/// 1 or 0 (EngineSettings::unlocked_camera).
+inline constexpr std::string_view unlocked_camera = "open-annihilation.unlocked-camera";
+/// Legacy weapon lighting switch.
+inline constexpr std::string_view weapon_lighting = "open-annihilation.weapon-lighting";
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view weapon_lighting_intensity =
+    "open-annihilation.weapon-lighting.intensity";
+/// Legacy nanolathe lighting switch, migrated to 0% or 100%.
+inline constexpr std::string_view nanolathe_lighting = "open-annihilation.nanolathe-lighting";
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view nanolathe_lighting_intensity =
+    "open-annihilation.nanolathe-lighting.intensity";
+/// Legacy wreck glow switch, migrated to 0% or 100%.
+inline constexpr std::string_view wreck_glow = "open-annihilation.wreck-glow";
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view wreck_glow_intensity = "open-annihilation.wreck-glow.intensity";
+/// Legacy heat distortion switch, migrated to 0% or 100%.
+inline constexpr std::string_view heat_distortion = "open-annihilation.heat-distortion";
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view heat_distortion_intensity =
+    "open-annihilation.heat-distortion.intensity";
+
 /// "sharp", "whole-steps" or "unfiltered" (EngineSettings::menu_scaling).
 inline constexpr std::string_view menu_scaling = "open-annihilation.menu-scaling";
 /// 1 or 0 (EngineSettings::native_density).
@@ -1004,6 +1028,19 @@ struct EngineSettings {
     /// latest tick left them, as the game drew them 30 times a second. It
     /// changes only what the frames show, never the game.
     bool smooth_motion{true};
+    /// Allows rotating and tilting the battlefield with Full acceleration.
+    bool allow_full_3d{true};
+    /// Allows angles beyond the range suited to the map artwork.
+    bool unlocked_camera{};
+    /// Weapon fire, projectiles and impacts light nearby surfaces; percent.
+    uint32_t weapon_lighting{100};
+    /// Nanolathe streams and construction glow intensity, in percent.
+    uint32_t nanolathe_lighting{100};
+    /// Cooling wreck glow intensity, in percent.
+    uint32_t wreck_glow{100};
+    /// Heat distortion strength around hot weapons and wrecks, in percent.
+    uint32_t heat_distortion{100};
+
     /// How the menus are enlarged to the window.
     MenuScaling menu_scaling{MenuScaling::sharp};
     /// The window opens at the display's own pixel density, from the next
@@ -1490,6 +1527,7 @@ enum class Lock : uint8_t {
     needs_sticky,
     /// The welcome setup is walked through again only from the main menu.
     main_menu,
+    needs_full_3d, ///< Allow Full 3D Mode is off.
 };
 
 /// The game the dialog opens over.
@@ -1521,6 +1559,7 @@ struct GameState {
 
 /// What the dialog cannot change, and what its header says of the game.
 struct Locks {
+    Lock unlocked_camera{};       ///< Requires Allow Full 3D Mode.
     Lock path_search{};           ///< Pathfinding cycles
     Lock unit_limit{};            ///< Unit limit
     Lock skirmish_players{};      ///< Skirmish players

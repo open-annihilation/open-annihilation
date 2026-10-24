@@ -11,6 +11,9 @@
 #include "mod_install_watch.hpp"
 #include "pad_state.hpp"
 #include "render_host.hpp"
+#if OA_SELF_CHECKS
+#include "renderer_proof.hpp"
+#endif
 #include "screen_size.hpp"
 #include "oa/app/extension_list.hpp"
 #include "oa/app/full_screen.hpp"
@@ -1973,6 +1976,10 @@ int run_once(
                 " (name it with --game-dir PATH)"
             );
     }
+#if OA_SELF_CHECKS
+    if (options.check_renderer_proof)
+        return renderer_proof::run(options.game_dir, options.snapshot);
+#endif
     // Quit leaves before the silent copy. Skip with no folder leaves too,
     // without opening a dialog. A copy that finished here is the one the
     // start plays, so the silent copy does not run again.

@@ -16,6 +16,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "full_fog.hpp"
+#include "full_effects.hpp"
 #include "full_supersampling.hpp"
 #include "full_terrain.hpp"
 #include "oa/app/card/executor.hpp"
@@ -401,6 +402,8 @@ struct Runtime::FullPresentation {
     /// through whichever surface holds them while they paint
     /// (paints_full_canvas); null before the canvas is cleared.
     const uint8_t* canvas_pixels{};
+    /// Reused upload of the world after optional lighting and heat distortion.
+    full_effects::Upload effects_upload;
     TiledTexture overlay_texture;
     std::vector<uint8_t> overlay; ///< ARGB8888 words, the battlefield's size
     std::vector<uint8_t> opaque_bands;

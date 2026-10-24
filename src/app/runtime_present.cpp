@@ -777,7 +777,7 @@ void Runtime::present_match_layers() {
         return;
     PhoneHudAccess::prepare_frame(*this);
     const bool dialogs = compose_match_dialog_layer();
-    if (accelerated_presentation()) {
+    if (accelerated_presentation() && !live_renderer_active()) {
         try {
             // The Full tier draws the battlefield on the card; a frame it
             // drops, or cannot draw, Basic presents, the world drawn again

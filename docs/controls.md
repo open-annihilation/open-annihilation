@@ -2,6 +2,23 @@
 
 The keys a match answers, beyond the buttons on the order panel.
 
+## Pause and the game menu
+
+Pause toggles the simulation pause. On a Mac, Cmd+P does the same during a
+match, without needing a Pause key.
+
+F2 opens the game menu; Mac keyboards may require Fn+F2. In a local match,
+Resume or another press of F2 closes the menu and resumes the simulation,
+including a pause set with Pause or Cmd+P. In a shared match, closing the
+menu leaves the synchronized pause unchanged; use Pause or Cmd+P to toggle
+it.
+
+Escape first cancels an armed command, then clears the selection. With
+**Escape opens the game menu** enabled under Settings > Controls, another
+press opens the game menu when there is nothing left to cancel. Escape
+closes the open game menu as Resume does. Canceling a surrender dialog or
+closing a team panel does not clear an explicit simulation pause.
+
 ## Groups
 
 Ctrl and a digit from 1 to 9 stores the selection in that group. Alt and

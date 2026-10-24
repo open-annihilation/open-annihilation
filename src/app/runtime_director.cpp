@@ -12,6 +12,7 @@
 // headless skirmish that stage sets up and plays out. --check-director-render
 // renders a small script over the headless skirmish instead of a recording.
 #include "oa/app/runtime.hpp"
+#include "renderer_effect_events.hpp"
 #include "director_state.hpp"
 #include "match_models.hpp"
 
@@ -550,6 +551,7 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
                 director::frame_samples(clock, director::first_frame_of_tick(clock, before + 1))
                     .first;
             glue.audible = before + 1 >= clock.first_tick;
+            const auto effect_capture = capture_match_effect_events();
             if (!call_hook_or_report<&ReplayHooks::step>(replay, hook_error_report()))
                 throw std::runtime_error(
                     "the replay ended on tick " + std::to_string(before) + ", before tick " +
@@ -573,6 +575,7 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
             // The presentation notes every tick, drawn or not, so that a
             // drawn frame always has the tick before at hand.
             observe_match_tick(match_models(), *match_);
+            observe_match_effect_tick();
             present_director_announcements();
             const auto status = replay_status(replay, hook_error_report());
             if (status.errors > errors_seen) {
@@ -794,6 +797,7 @@ int Runtime::run_render_script() {
                         "the replay did not finish by tick " + std::to_string(before)
                     );
                 bind_director_view();
+                const auto effect_capture = capture_match_effect_events();
                 if (!call_hook_or_report<&ReplayHooks::step>(replay, hook_error_report()) ||
                     !match_)
                     throw std::runtime_error(
@@ -1042,6 +1046,7 @@ int Runtime::run_generate_script() {
         while (!status.finished && match_->state().game.tick < limit) {
             const uint32_t before = match_->state().game.tick;
             bind_director_view();
+            const auto effect_capture = capture_match_effect_events();
             if (!call_hook_or_report<&ReplayHooks::step>(replay, hook_error_report()) || !match_)
                 break;
             if (match_->state().game.tick == before) {

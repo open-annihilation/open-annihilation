@@ -130,6 +130,28 @@ tick 1.32 ms mean; draw 16.3 ms and present 4.9 ms a frame
 (one line in the output), then the memory report, with the largest working
 set the system saw. 30 ticks a second at game speed 10 is the full rate.
 
+## Construction in the constrained 3D view
+
+`--showcase base-construction --content totala:core-contingency
+--hardware-acceleration=full --experimental-3d` builds an Arm base on Town &
+Country. The commander constructs a solar collector, three metal extractors
+and a Kbot plant. The plant produces a construction Kbot, which builds three
+Defenders and two Guardians while the commander assists. Sites must be legal;
+extractors prefer metal-bearing ground. The sequence waits for actual
+construction completion and stops if a stage cannot finish.
+
+This is a funded showcase: resource stores are replenished, the opponent is
+idle and game speed is increased. Models, nanoframes, unit scripts and build
+orders use the running simulation. The camera opens in the classic view,
+then orbits and pans within the normal constrained range, without unlocking.
+Once the perimeter is complete, two staged waves of two Core Raiders attack
+it using ordinary combat orders. The camera varies zoom, pan and elevation
+during the fighting, then holds on the cooling wrecks. The showcase requires
+visible projectile lights, hot wrecks and heat sources before completing.
+It returns to the default top-down view and builds another solar collector
+to show construction lighting with the same Graphics settings.
+Use `--capture-video` to record the sequence and its game audio.
+
 ## Making the showcase video
 
 A preferences file of its own keeps the player's preferences out of the

@@ -4,6 +4,7 @@
 // Bounded frame-time benchmark and headless runs over live skirmish and
 // campaign matches.
 #include "oa/app/runtime.hpp"
+#include "renderer_effect_events.hpp"
 #include "engine_settings_state.hpp"
 #include "oa_layer.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
@@ -125,11 +126,13 @@ constexpr int32_t kVersionRoomBottom = 22;
 } // namespace
 
 void Runtime::step_match_simulation() {
+    const auto effect_capture = capture_match_effect_events();
     ++match_timing_.tick;
     match_->simulation().tick = match_timing_.tick;
     // A stage's lines timed for this tick run before it.
     run_due_stage_lines();
     tick_or_raise(*match_);
+    observe_match_effect_tick();
 }
 
 void Runtime::benchmark_scene(std::string_view label, std::size_t frames, bool scroll) {

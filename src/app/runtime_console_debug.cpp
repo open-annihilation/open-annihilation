@@ -157,6 +157,23 @@ void Runtime::draw_match_debug_grid(
         sources.contour_phase = contour[1];
     }
     sources.user = &view;
+    if (live_renderer_active()) {
+        sources.projection_user = this;
+        sources.project = [](void* user,
+                             int32_t x,
+                             int32_t height,
+                             int32_t z,
+                             int32_t& screen_x,
+                             int32_t& screen_y) {
+            const auto& runtime = *static_cast<Runtime*>(user);
+            const auto p = runtime.live_project_world(
+                static_cast<float>(x), static_cast<float>(height), static_cast<float>(z)
+            );
+            screen_x = p.x - runtime.match_layout_.left + wr::battlefield_origin_x;
+            screen_y = p.y - runtime.match_layout_.top + wr::battlefield_origin_y;
+        };
+    }
+
     sources.open_movement_class = [](void* user) {
         auto& v = *static_cast<DebugGridView*>(user);
         const oa::Unit* unit =
@@ -198,7 +215,21 @@ void Runtime::draw_match_debug_grid(
     );
     const auto raster = battlefield_raster();
     wr::overlay_debug_grid(game, raster, &bridge.surface, sources);
-    wr::overlay_debug_cursor_cross(game, raster, &bridge.surface);
+    if (!live_renderer_active())
+        wr::overlay_debug_cursor_cross(game, raster, &bridge.surface);
+    else if (game.debug_overlay == wr::debug_view::terrain) {
+        const auto p = live_project_world(
+            static_cast<int32_t>(game.cursor_position.x) / 65536.0F,
+            static_cast<int32_t>(game.cursor_position.y) / 65536.0F,
+            static_cast<int32_t>(game.cursor_position.z) / 65536.0F
+        );
+        const int32_t x = p.x - match_layout_.left + wr::battlefield_origin_x;
+        const int32_t y = p.y - match_layout_.top + wr::battlefield_origin_y;
+        constexpr int32_t arm = 8;
+        const auto color = game.ui_colors[1];
+        raster.line(raster.user, &bridge.surface, x - arm, y, x + arm, y, color);
+        raster.line(raster.user, &bridge.surface, x, y - arm, x, y + arm, color);
+    }
     oa::present::model::bridge_end(bridge);
 }
 

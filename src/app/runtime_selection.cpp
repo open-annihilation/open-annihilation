@@ -310,6 +310,8 @@ std::optional<oa::sim::ground_orders::Point> Runtime::match_world_point(float x,
 }
 
 std::optional<oa::sim::ground_orders::Point> Runtime::ground_point_under(float x, float y) const {
+    if (live_renderer_active())
+        return live_ground_point(x, y);
     if (!selected_tnt_)
         return std::nullopt;
     const auto viewport = live_viewport(match_camera_x_, match_camera_z_);

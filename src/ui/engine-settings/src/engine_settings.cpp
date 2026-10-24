@@ -625,8 +625,30 @@ EngineSettings read_settings(
             stored_acceleration(found->second).value_or(settings.hardware_acceleration);
     if (const auto number = stored_number(values, key::vertical_sync))
         settings.vertical_sync = *number > 0;
+    if (const auto number = stored_number(values, key::allow_full_3d))
+        settings.allow_full_3d = *number > 0;
+    if (const auto number = stored_number(values, key::unlocked_camera))
+        settings.unlocked_camera = *number > 0;
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
+    if (const auto number = stored_number(values, key::weapon_lighting_intensity))
+        settings.weapon_lighting = static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    else if (const auto number = stored_number(values, key::weapon_lighting))
+        settings.weapon_lighting = *number > 0 ? 100 : 0;
+    if (const auto number = stored_number(values, key::nanolathe_lighting_intensity))
+        settings.nanolathe_lighting =
+            static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    else if (const auto number = stored_number(values, key::nanolathe_lighting))
+        settings.nanolathe_lighting = *number > 0 ? 100 : 0;
+    if (const auto number = stored_number(values, key::wreck_glow_intensity))
+        settings.wreck_glow = static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    else if (const auto number = stored_number(values, key::wreck_glow))
+        settings.wreck_glow = *number > 0 ? 100 : 0;
+    if (const auto number = stored_number(values, key::heat_distortion_intensity))
+        settings.heat_distortion = static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    else if (const auto number = stored_number(values, key::heat_distortion))
+        settings.heat_distortion = *number > 0 ? 100 : 0;
+
     if (const auto found = values.find(std::string{key::menu_scaling}); found != values.end())
         settings.menu_scaling =
             menu_scaling_from_text(found->second).value_or(settings.menu_scaling);
@@ -852,10 +874,66 @@ void write_settings(
     );
     store(
         values,
+        key::allow_full_3d,
+        switch_text(chosen.allow_full_3d),
+        chosen.allow_full_3d != opened.allow_full_3d,
+        chosen.allow_full_3d == defaults.allow_full_3d,
+        restored
+    );
+    store(
+        values,
+        key::unlocked_camera,
+        switch_text(chosen.unlocked_camera),
+        chosen.unlocked_camera != opened.unlocked_camera,
+        chosen.unlocked_camera == defaults.unlocked_camera,
+        restored
+    );
+    store(
+        values,
         key::smooth_motion,
         switch_text(chosen.smooth_motion),
         chosen.smooth_motion != opened.smooth_motion,
         chosen.smooth_motion == defaults.smooth_motion,
+        restored
+    );
+    if (restored || chosen.weapon_lighting != opened.weapon_lighting)
+        values.erase(std::string{key::weapon_lighting});
+    store(
+        values,
+        key::weapon_lighting_intensity,
+        std::to_string(chosen.weapon_lighting),
+        chosen.weapon_lighting != opened.weapon_lighting,
+        chosen.weapon_lighting == defaults.weapon_lighting,
+        restored
+    );
+    if (restored || chosen.nanolathe_lighting != opened.nanolathe_lighting)
+        values.erase(std::string{key::nanolathe_lighting});
+    store(
+        values,
+        key::nanolathe_lighting_intensity,
+        std::to_string(chosen.nanolathe_lighting),
+        chosen.nanolathe_lighting != opened.nanolathe_lighting,
+        chosen.nanolathe_lighting == defaults.nanolathe_lighting,
+        restored
+    );
+    if (restored || chosen.wreck_glow != opened.wreck_glow)
+        values.erase(std::string{key::wreck_glow});
+    store(
+        values,
+        key::wreck_glow_intensity,
+        std::to_string(chosen.wreck_glow),
+        chosen.wreck_glow != opened.wreck_glow,
+        chosen.wreck_glow == defaults.wreck_glow,
+        restored
+    );
+    if (restored || chosen.heat_distortion != opened.heat_distortion)
+        values.erase(std::string{key::heat_distortion});
+    store(
+        values,
+        key::heat_distortion_intensity,
+        std::to_string(chosen.heat_distortion),
+        chosen.heat_distortion != opened.heat_distortion,
+        chosen.heat_distortion == defaults.heat_distortion,
         restored
     );
     store(

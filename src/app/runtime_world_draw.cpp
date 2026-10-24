@@ -7,6 +7,7 @@
 #include "match_models.hpp"
 #include "presentation_interpolation.hpp"
 #include "world_draws.hpp"
+#include "renderer_weapon_style.hpp"
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -398,6 +399,11 @@ void Runtime::plan_match_projectiles(
         draws.sprites.push_back(
             {decoded, place_world_point(viewport, position, HeightLift::nearest)}
         );
+        draws.sprites.back().world_position = oa::FixedVec3{
+            std::bit_cast<int32_t>(position[0]),
+            std::bit_cast<int32_t>(position[1]),
+            std::bit_cast<int32_t>(position[2])
+        };
         add_world_draw(draws, WorldDrawKind::sprite, draws.sprites.size() - 1);
     };
     ensure_ui_colors();
@@ -470,7 +476,30 @@ void Runtime::plan_match_projectiles(
             if (sequence == nullptr || sequence->frames.empty())
                 break;
             const auto frame = (now - shot.burst_tick) % sequence->frames.size();
-            sprite(sequence->frames[frame], shot_position);
+            const auto* definition = oa::world_weapon_def(&match_->state(), shot.def);
+            if ((full_presentation() || live_renderer_active()) && definition &&
+                renderer_weapon_style::is_emg(*definition)) {
+                // A short fading train follows the actual shot velocity, independent of frame rate.
+                constexpr int trail_samples = 3;
+                constexpr float trail_ticks = 0.45F;
+                for (int sample = trail_samples - 1; sample >= 0; --sample) {
+                    const float age = trail_ticks * sample / (trail_samples - 1);
+                    auto point = shown.position;
+                    point.x -= static_cast<int32_t>(shot.velocity.x * age);
+                    point.y -= static_cast<int32_t>(shot.velocity.y * age);
+                    point.z -= static_cast<int32_t>(shot.velocity.z * age);
+                    const auto before = draws.sprites.size();
+                    sprite(sequence->frames[frame], oa::sim::match_runtime::fixed_words(point));
+                    if (draws.sprites.size() != before) {
+                        auto& drawn = draws.sprites.back();
+                        drawn.effect_scale = sample == 0 ? 0.65F : 0.45F;
+                        drawn.effect_opacity = 1.0F - sample * 0.3F;
+                        drawn.soft_effect = true;
+                    }
+                }
+            } else {
+                sprite(sequence->frames[frame], shot_position);
+            }
             break;
         }
         case ProjectileRender::flame: {

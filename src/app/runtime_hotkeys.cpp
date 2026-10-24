@@ -490,6 +490,32 @@ void Runtime::box_select_units(int x0, int y0, int x1, int y1, bool add) {
         return;
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;
+    if (live_renderer_active()) {
+        if (!add)
+            clear_local_selection();
+        const int left = std::min(x0, x1), right = std::max(x0, x1);
+        const int top = std::min(y0, y1), bottom = std::max(y0, y1);
+        for (const auto& slot : match_->world().slots) {
+            if (!slot.unit || slot.unit_index == 0 || slot.owner_index != match_local_player_ ||
+                !match_->selectable(slot.unit_index))
+                continue;
+            const auto bounds = live_unit_bounds(slot.unit_index);
+            if (!bounds)
+                continue;
+            const auto centre_x = bounds->x1 + (bounds->x2 - bounds->x1) / 2;
+            const auto centre_y = bounds->y1 + (bounds->y2 - bounds->y1) / 2;
+            if (centre_x < left || centre_x > right || centre_y < top || centre_y > bottom)
+                continue;
+            if (add && (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0)
+                slot.unit->flags &= ~OA_UNIT_FLAG_SELECTED;
+            else
+                adopt_selection(slot.unit_index);
+        }
+        selection_shortcut_drag_filter();
+        adopt_selected_units();
+        status_ = std::to_string(selected_local_ids().size()) + " selected";
+        return;
+    }
     // The corners are the drag's ends on the canvas, projected from the
     // camera the view has now; the box goes back to Game.drag_start and
     // drag_end as map points at height 0.
@@ -1291,6 +1317,12 @@ constexpr uint8_t kDragBoxInnerColor = 0;
 } // namespace
 
 std::optional<std::array<int32_t, 3>> Runtime::match_pointer_ground(float x, float y) {
+    if (live_renderer_active()) {
+        const auto point = live_ground_point(x, y);
+        if (!point)
+            return std::nullopt;
+        return std::array<int32_t, 3>{(*point)[0] >> 16, (*point)[1] >> 16, (*point)[2] >> 16};
+    }
     if (!match_ || !selected_tnt_)
         return std::nullopt;
     const auto viewport = live_viewport(match_camera_x_, match_camera_z_);
@@ -1334,6 +1366,11 @@ void Runtime::track_match_drag() {
 std::array<oa::present::world_renderer::ScreenPoint, 2> Runtime::match_drag_corners(
     const oa::present::world_renderer::BattlefieldViewport& viewport
 ) const {
+    if (live_renderer_active() && match_drag_)
+        return {
+            live_project_world(match_drag_->start[0], match_drag_->start[1], match_drag_->start[2]),
+            live_project_world(match_drag_->end[0], match_drag_->end[1], match_drag_->end[2])
+        };
     const double scale = viewport.scale == 0.0F ? 1.0 : static_cast<double>(viewport.scale);
     const auto project = [&](const std::array<int32_t, 3>& point) {
         return oa::present::world_renderer::ScreenPoint{
@@ -1355,6 +1392,11 @@ std::array<oa::present::world_renderer::ScreenPoint, 2> Runtime::match_drag_corn
 bool Runtime::match_drag_is_click() const {
     if (!match_drag_)
         return true;
+    if (live_renderer_active()) {
+        const auto corners = match_drag_corners(live_viewport(match_camera_x_, match_camera_z_));
+        return std::abs(corners[0].x - corners[1].x) < kDragClickPixels &&
+               std::abs(corners[0].y - corners[1].y) < kDragClickPixels;
+    }
     const auto released = static_cast<int32_t>(frontend_tick());
     return released < static_cast<int32_t>(match_drag_->pressed_tick + kDragClickTicks) &&
            std::abs(match_drag_->start[0] - match_drag_->end[0]) < kDragClickPixels &&

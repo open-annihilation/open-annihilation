@@ -205,6 +205,7 @@ id is refused the same way when no player folder can be worked out.
 | `--max-fps N` | The most frames a second, from 30 through 1000, or 0 for no limit, for this run. |
 | `--hardware-acceleration[=off\|basic\|full]` | Sets Hardware acceleration for this run; alone it is `full`. |
 | `--no-hardware-acceleration` | Turns Hardware acceleration off for this run. |
+| `--experimental-3d` | Accepted for older launch scripts; camera access is now controlled by Graphics → Allow Full 3D Mode, On by default. |
 | `--native-density` | Opens the window at the display's own pixel density for this run. |
 | `--touch-controls` | Turns the touch controls on with no touch screen ([touch controls](touch-controls.md)). |
 
@@ -212,6 +213,19 @@ None of these is remembered: [settings](settings.md#for-one-run-the-command-line
 says what each one shows in Settings. 3.1c's `-d` and `-df` choose a window
 or full screen, and `-s` and `-w` turn the sound off
 ([The 3.1c command line](#the-31c-command-line)).
+
+With **Allow Full 3D Mode** enabled in Graphics, a match starts at the classic view. On a Mac,
+hold Option and click-drag to orbit; add Shift to pan. Option+R resets to
+classic, and Option+U toggles the saved Unlocked Camera setting. These gestures
+work with a trackpad's primary click or an ordinary mouse. On other
+platforms use Alt in place of Option. Alt/Option+middle-drag also orbits;
+middle-drag pans when middle-click pan is enabled.
+While rotated, selection and unit orders use the 3D camera; mouse-wheel
+zoom keeps the terrain point under the pointer anchored. Shift shows projected
+order queues and queued build sites. Escape still opens the menu. Enhanced AA and shadow
+settings apply, subject to the preview's rendering limits. The 3D
+renderer currently requires Metal and Full hardware acceleration. See the [preview notes](development/pluggable-renderers.md#interactive-skirmish-preview)
+for limitations and a weapon-effect test recipe.
 
 ### Network play
 
@@ -311,7 +325,7 @@ See [what a game reports as it is played](multiplayer/status.md).
 | Option | What it does |
 |---|---|
 | `--capture-video PATH.mp4` | Records what the window shows to an MP4 video; it needs the `ffmpeg` program ([capturing video](capture.md)). |
-| `--showcase arm-first-mission\|skirmish-battle` | Plays a scripted run for a showcase video, in place of a player ([capturing video](capture.md)). |
+| `--showcase arm-first-mission\|skirmish-battle\|base-construction` | Plays a scripted run for a showcase video, in place of a player ([capturing video](capture.md)). |
 | `--generate-script RECORDING` | Plans a director script's camera shots from a recorded game ([director scripts](director.md)). |
 | `--render-script PATH.oascript\|PATH.oamovie` | Renders a director script, or a bundle of one and its recording, to video with its sound ([director scripts](director.md)). |
 | `--output PATH` | Where `--generate-script` writes its script or bundle, or the folder `--render-script` renders into. |
@@ -419,6 +433,8 @@ Network play's own checks, the last rows, are in every build.
 | `--check-library-map-previews` | Checks the Library's map pictures. |
 | `--check-library-content` | Turns Core Contingency off in the Library, and chooses the demo when its installer is there. |
 | `--check-library-update-question` | At 640x480, confirms a rules-changing update fifty times and requires the Library to stay open with its tabs. |
+| `--check-renderer-proof` | Draws a fixed terrain scene offscreen from the installed game and compares its classic projection with the experimental renderer. `--snapshot` names the output location. |
+| `--check-live-renderer` | Starts a Skirmish headlessly and checks the experimental live renderer with an offscreen GPU; opens no window. |
 | `--check-renderer-ladder` | Forces each renderer failure the game handles and checks it goes on. |
 | `--render-fault POINT[@FRAME]` | Forces only that failure, for `--check-renderer-ladder`. |
 | `--check-briefing-narration` | Checks a briefing's narration plays and stops when it should. |

@@ -202,9 +202,14 @@ void Runtime::remap_command_key(SDL_Event& event) const {
         return;
     if ((event.key.mod & SDL_KMOD_GUI) == 0)
         return;
-    // On a desktop without touch controls Cmd keeps its meaning (macOS's
-    // Cmd+digit shows a build page).
-    if (!touch_controls_active())
+    // Mac keyboards have no Pause key. Cmd+P keeps that function available
+    // during a match without touch controls; Cmd+digits retain build pages.
+    bool desktop_pause = false;
+#if defined(__APPLE__)
+    desktop_pause = screen_ == Screen::match && event.key.key == SDLK_P &&
+                    (event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_SHIFT)) == 0;
+#endif
+    if (!touch_controls_active() && !desktop_pause)
         return;
     for (const auto& alternate : kCommandAlternates) {
         if (event.key.key != alternate.typed)

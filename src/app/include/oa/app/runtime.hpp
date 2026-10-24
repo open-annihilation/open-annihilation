@@ -112,6 +112,14 @@ struct ConsoleHost;
 enum class CrashTest : uint8_t;
 } // namespace oa::ui::console
 
+namespace oa::app::renderer_effect_sources {
+struct Source;
+} // namespace oa::app::renderer_effect_sources
+
+namespace oa::app::renderer_effect_events {
+class Capture;
+} // namespace oa::app::renderer_effect_events
+
 namespace oa::present::model {
 struct RgbBridge;
 struct RgbFrame;
@@ -2258,10 +2266,11 @@ class Runtime final : public menu::Host,
     /// @param mods SDL_Keymod bits held with it
     void press_match_key(SDL_Keycode key, SDL_Keymod mods);
 
-    /// Rewrites a hardware key event with Cmd held into the key it stands for while touch
-    /// controls are active: Cmd+. → Escape, Cmd+1..4 → F1..F4, Cmd+P → Pause (Cmd removed).
+    /// Rewrites a hardware key event with Cmd held into its alternate, removing Cmd.
     ///
-    /// Leaves every other event unchanged. [runtime_input_modifiers.cpp]
+    /// With touch controls active: Cmd+. → Escape, Cmd+1..4 → F1..F4, Cmd+P → Pause.
+    /// On desktop Macs, Cmd+P also supplies Pause during a match. Leaves every other
+    /// event unchanged. [runtime_input_modifiers.cpp]
     ///
     /// @param[in,out] event the event dispatch_event is given
     void remap_command_key(SDL_Event& event) const;
@@ -6310,6 +6319,124 @@ class Runtime final : public menu::Host,
     /// what the painters painted, and what the last Full frame drew. Made
     /// at the first switch-on of the run.
     struct FullPresentation;
+
+    /// Persistent resources and camera for the live 3D match view.
+    struct LiveRenderer;
+    /// Releases the 3D device before SDL shuts down.
+    static void destroy_live_renderer(LiveRenderer* renderer) noexcept;
+    /// Reports whether the camera has left the classic orientation.
+    [[nodiscard]] bool live_renderer_active() const noexcept;
+    /// Reports whether the wider camera range is enabled.
+    [[nodiscard]] bool live_renderer_unlocked() const noexcept;
+    /// Reports a scene or GPU failure from the last attempted frame.
+    [[nodiscard]] bool live_renderer_failed() const noexcept;
+    /// Distinguishes an unsupported GPU backend from a rendering error.
+    [[nodiscard]] bool live_renderer_unavailable() const noexcept;
+    /// Returns the geometry count of the last built live frame.
+    [[nodiscard]] std::size_t live_renderer_vertex_count() const noexcept;
+    /// Returns how many vertices in the last live frame carry emitted light.
+    [[nodiscard]] std::size_t live_renderer_emissive_vertex_count() const noexcept;
+    /// Returns the number of sight-gated construction particles in the last live frame.
+    [[nodiscard]] std::size_t live_renderer_nano_particle_count() const noexcept;
+    /// Marks terrain pixels visible through the live geometry for debug painting.
+    /// @return one byte per battlefield pixel, nonzero where terrain is frontmost
+    [[nodiscard]] std::vector<uint8_t> live_terrain_visibility_mask() const;
+    /// Scrolls the rotated view in screen directions through its ground projection.
+    /// @param screen_dx horizontal screen pixels to move the camera
+    /// @param screen_dy vertical screen pixels to move the camera
+    /// @return true when the live camera handled the scroll, including an active drag
+    bool scroll_live_match_view(double screen_dx, double screen_dy);
+    /// Applies camera permission and angle limits without moving the view centre.
+    /// @param allowed whether camera rotation is enabled
+    /// @param unlocked whether angles outside the art-friendly range are allowed
+    void apply_live_camera_settings(bool allowed, bool unlocked);
+    /// Restores classic orientation while retaining reusable GPU resources.
+    void reset_live_renderer();
+    /// Picks reconstructed terrain beneath a frame point in the rotated view.
+    /// @param x frame column in pixels
+    /// @param y frame row in pixels
+    /// @return fixed-point world position, or no terrain intersection
+    std::optional<oa::sim::ground_orders::Point> live_ground_point(float x, float y) const;
+    /// Picks the frontmost visible animated unit beneath a frame point.
+    /// @param x frame column in pixels
+    /// @param y frame row in pixels
+    /// @return unit slot, or zero when terrain or another object covers it
+    uint16_t live_unit_under(float x, float y) const;
+    /// Measures a visible unit's projected bounds in frame pixels.
+    /// @param id unit slot
+    /// @return frame bounds, or no visible geometry
+    std::optional<oa::Rect32> live_unit_bounds(uint16_t id) const;
+    /// Projects a world point through the current live camera into frame pixels.
+    /// @param x world horizontal position in pixels
+    /// @param height world altitude in pixels
+    /// @param z world map depth in pixels
+    /// @return projected frame point
+    oa::present::world_renderer::ScreenPoint
+    live_project_world(float x, float height, float z) const;
+    /// Builds picking geometry and visible unit bounds from the rendered frame.
+    void rebuild_live_picking();
+    /// Draws selection and build feedback on the live battlefield.
+    void draw_live_selection();
+    /// Draws projected order queues and terrain debug overlays on the live battlefield.
+    void draw_live_overlays();
+    /// Draws health, squad and countdown overlays at interpolated live unit positions.
+    void draw_live_unit_overlays();
+    /// Handles camera gestures while ordinary input follows gameplay paths.
+    /// @param event the SDL event in window coordinates
+    /// @return whether the 3D view consumed the event
+    bool live_renderer_take_event(SDL_Event& event);
+    /// Replaces the battlefield with the current match's 3D frame.
+    void render_live_match_surface();
+    /// Presentation-only effect history, independent of the active renderer.
+    struct MatchEffects;
+    /// Observes transient events after a simulation tick without changing the match.
+    void observe_match_effect_tick() noexcept;
+    /// Captures visual shot events while preserving existing read-only observers.
+    renderer_effect_events::Capture capture_match_effect_events() noexcept;
+    /// Collects visible light and heat sources from the current match and draw plan.
+    std::span<const renderer_effect_sources::Source> collect_match_effect_sources();
+    /// Returns the current frame's collected sources.
+    std::span<const renderer_effect_sources::Source> match_effect_sources() const noexcept;
+    /// Match a visible impact sprite to a recent EMG hit, independent of merged light centres.
+    /// @param point canonical world location in fixed-point units
+    /// @return true within six world pixels of an EMG hit in the last game second
+    bool emg_impact_at(const oa::FixedVec3& point) const noexcept;
+    /// True for smoke in the short column immediately above a recent EMG hit.
+    bool emg_smoke_at(const oa::FixedVec3& point) const noexcept;
+    /// Clears transient presentation history when changing or seeking a match.
+    void reset_match_effect_sources();
+    /// Reports whether a collected source has an enabled visual contribution.
+    bool match_effects_enabled();
+    /// Applies effects before battlefield overlays and HUD are drawn.
+    void compose_match_effects(renderer::Surface& surface, bool live);
+    /// Composes an RGB or RGBA battlefield at its output scale and local origin.
+    void compose_match_effect_pixels(
+        std::span<uint8_t> pixels,
+        uint32_t width,
+        uint32_t height,
+        uint32_t pitch,
+        uint32_t channels,
+        float origin_x,
+        float origin_y,
+        float scale_x,
+        float scale_y,
+        bool live = false,
+        float effect_row_offset = 0
+    );
+    /// Rasterizes visible scene surfaces and their camera depth for local effects.
+    void live_scene_visibility(
+        std::vector<uint8_t>& visibility,
+        std::vector<float>& depth,
+        bool terrain_only = false,
+        std::span<const uint32_t> row_left = {},
+        std::span<const uint32_t> row_right = {},
+        std::span<const uint8_t> requested_pixels = {}
+    ) const;
+    /// Projects a world position onto the live camera's depth axis.
+    float live_project_depth(float x, float height, float z) const;
+    /// Exercises live Skirmish rendering without opening a window.
+    /// @return zero on success, 77 for an unavailable GPU backend
+    int check_live_renderer();
 
     /// Frees the Full tier's presentation.
     ///
@@ -17472,9 +17599,14 @@ class Runtime final : public menu::Host,
     /// unless a check switches it on. Declared after sdl_, so its textures go
     /// before the renderer.
     AcceleratedPresentation accelerated_{};
+    std::shared_ptr<MatchEffects> match_effects_{};
     /// The Full tier's presentation; null until the tier first switches on
     /// in the run. Declared after sdl_, so its pages and targets go before
     /// the renderer.
+    /// Experimental camera and GPU resources, destroyed before the SDL host.
+    std::unique_ptr<LiveRenderer, void (*)(LiveRenderer*) noexcept> live_renderer_{
+        nullptr, &destroy_live_renderer
+    };
     std::unique_ptr<FullPresentation, void (*)(FullPresentation*) noexcept> full_{
         nullptr, &destroy_full_presentation
     };

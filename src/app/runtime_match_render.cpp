@@ -11,6 +11,7 @@
 #include "oa/app/match_model_draws.hpp"
 #include "presentation_interpolation.hpp"
 #include "world_draws.hpp"
+#include "renderer_weapon_style.hpp"
 #include "oa/base/float_precision.hpp"
 #include "oa/present/model/model_draw.hpp"
 #include "oa/present/model/rgb_bridge.hpp"
@@ -846,12 +847,12 @@ void Runtime::render_match_surface() {
     // Zoomed out past the zoom the tier draws units whole at, the frame is
     // the far view: the processor draws it at the zoom in every tier, the
     // terrain from the map's pyramid.
-    const bool far = !directed && far_view_frame();
+    const bool far = !directed && !live_renderer_active() && far_view_frame();
     // Zoomed out past After zoom with Zoomed out units at Dots, or at any
     // zoom where the models would take too much memory, each unit is a dot
     // of its owner's colour and no model is drawn at all. A director's frame
     // stays rendered until its picture cannot be allocated.
-    bool dots = !directed && dots_frame();
+    bool dots = !directed && !live_renderer_active() && dots_frame();
     // The map the view shows: the fill below draws nothing beyond it. The
     // player's camera is held within the view's limits, which let it go
     // past the map's edges (view_camera), and the limits then hold the next
@@ -870,7 +871,10 @@ void Runtime::render_match_surface() {
     // rasterised; the world layer is the overlay canvas, cleared to the key
     // colour, which the painters after the fog paint. The camera and the
     // zoom the frame draws at are kept for the card's frame.
-    const bool card_world = full_presentation() && !directed && !far;
+    const bool card_world = full_presentation() && !directed && !far && !live_renderer_active();
+    // The live renderer consumes the draw list directly. Its GPU picture replaces
+    // the whole battlefield, so a classic terrain, model and fog raster is unused.
+    const bool live_world = !directed && live_renderer_active() && !live_renderer_failed();
     // How far between map pixels the frame draws the view: an accelerated
     // frame the card draws, magnifies or the area pass reduces may, and so
     // may a scene the processor draws at a zoom below 1, which lays its
@@ -1081,7 +1085,7 @@ void Runtime::render_match_surface() {
     note_full_canvas(card_world, camera_x, camera_y, draw_scale);
     // A director's camera redraws the terrain at any change of zoom, however
     // small, so that what a frame shows never hangs on the frames before it.
-    if (card_world) {
+    if (card_world || live_world) {
         // The cache is not filled for this frame: the next frame drawn
         // whole fills it.
         terrain_cache_cam_x_ = kUncachedTerrainCamera;
@@ -1126,7 +1130,7 @@ void Runtime::render_match_surface() {
         for (std::size_t left = terrain_pixels / 3U; left != 0; --left, pixel += 3)
             std::memcpy(pixel, key.data(), 3);
         note_full_canvas_pixels(scene_layer.rgb.data());
-    } else {
+    } else if (!live_world) {
         std::memcpy(scene_layer.rgb.data(), match_terrain_cache_.rgb.data(), terrain_pixels);
     }
     viewport.destination_x = 0;
@@ -1149,15 +1153,16 @@ void Runtime::render_match_surface() {
     // Past the tier's floor a unit is a few pixels at most: the margin
     // keeps to the map pixels a large unit and its shadow reach.
     const auto cull_margin =
-        far ? static_cast<int>(
-                  std::ceil(kFarCullMarginMapPixels * static_cast<double>(match_zoom()))
-              )
-            : std::max(
-                  kLeastCullMargin,
-                  static_cast<int>(
-                      std::lround(kCullMarginMapPixels * static_cast<double>(match_zoom()))
-                  )
-              );
+        live_renderer_active() ? 2 * std::max(bf_w, bf_h) + kLeastCullMargin
+        : far ? static_cast<int>(
+                    std::ceil(kFarCullMarginMapPixels * static_cast<double>(match_zoom()))
+                )
+              : std::max(
+                    kLeastCullMargin,
+                    static_cast<int>(
+                        std::lround(kCullMarginMapPixels * static_cast<double>(match_zoom()))
+                    )
+                );
     const auto on_battlefield = [&](int x, int y) {
         return x >= viewport.destination_x - cull_margin &&
                x < viewport.destination_x + bf_w + cull_margin &&
@@ -1197,6 +1202,7 @@ void Runtime::render_match_surface() {
     // band then draws the list.
     auto& draw_list = models.draws;
     clear_world_draws(draw_list);
+    draw_list.spatial_particles.clear();
     // The features are cut off where the map the view shows ends.
     draw_list.shown_map_width = map_width;
     draw_list.shown_map_height = map_height;
@@ -1361,7 +1367,8 @@ void Runtime::render_match_surface() {
     };
     oa::present::DisplayContext* bound_display = oa::present::display_context();
     oa::present::bind_display(&models.display.context);
-    draw_match_debug_grid(models.bridge, models.display, rgb_frame, bridge_area, scale);
+    if (!live_renderer_active())
+        draw_match_debug_grid(models.bridge, models.display, rgb_frame, bridge_area, scale);
     mark_profile(OA_PROFILE_RENDER_STATIC);
     models.bridge.byte_budget = rendered_units_budget();
     if (!model_render::bridge_begin(
@@ -1392,6 +1399,14 @@ void Runtime::render_match_surface() {
     // so the bridge's pixels go back to the frame before a sprite draws over
     // them (a commit), and the next model captures the frame again.
     const auto plan_commit = [&] { add_draw(WorldDrawKind::commit, 0); };
+    // Live geometry and shadows do not consume the classic bridge rectangle.
+    // Keep it for sampled plans, which use its bounds to prepare finer images.
+    const auto model_region = [&](const model_render::ModelRef& model,
+                                  model_render::UnitSupersampling level) {
+        if (live_world && level == model_render::UnitSupersampling::off)
+            return oa::Rect32{};
+        return unit_region(renderer, model, terrain_height(&models, model.unit->position));
+    };
     // A model readied and planned for the frame's draws.
     const auto add_model = [&](const model_render::ModelRef& model,
                                const oa::Rect32& region,
@@ -1405,9 +1420,34 @@ void Runtime::render_match_surface() {
         model_render::plan_unit_supersampled(
             renderer, models.bridge, model, region, idle, level, drawn.plan
         );
+        if (live_renderer_active() && drawn.plan.linked.drawn) {
+            drawn.shown_position = model.unit->position;
+            for (const auto& piece : model.instance->pieces())
+                drawn.shown_vertices.push_back(piece.transformed_vertices);
+        }
         if (stand_in >= 0)
             drawn.model.unit = nullptr;
-        add_draw(WorldDrawKind::model, draw_list.models.size() - 1);
+        const auto parent_index = draw_list.models.size() - 1;
+        add_draw(WorldDrawKind::model, parent_index);
+        if (live_world && drawn.plan.linked.drawn) {
+            // Classic drawing composites attached units into the parent's
+            // image. The live scene needs their own geometry records, using
+            // the attachment transforms already prepared with the parent.
+            std::vector<model_render::ModelRef> carried;
+            for (const auto& child : drawn.plan.model.carried)
+                if (child.model.instance && child.model.unit)
+                    carried.push_back(child.model);
+            const bool unlit = drawn.plan.linked.unlit;
+            for (const auto& child : carried) {
+                ModelDraw attached;
+                attached.model = child;
+                attached.plan.linked = {true, unlit};
+                attached.shown_position = child.unit->position;
+                for (const auto& piece : child.instance->pieces())
+                    attached.shown_vertices.push_back(piece.transformed_vertices);
+                draw_list.models.push_back(std::move(attached));
+            }
+        }
     };
     const auto plan_object_feature = [&](MatchFeatureDraw& feature) {
         // A frame of dots draws no feature's model: a wreck or a rock of its
@@ -1434,7 +1474,7 @@ void Runtime::render_match_surface() {
         add_model(
             model,
             region_on_map(
-                unit_region(renderer, model, terrain_height(&models, models.feature_unit.position)),
+                model_region(model, model_render::UnitSupersampling::off),
                 renderer,
                 map_width,
                 map_height
@@ -1491,7 +1531,14 @@ void Runtime::render_match_surface() {
             }
             if (image == nullptr)
                 continue;
-            draw_list.sprites.push_back({image, place, sprite.shadow, true});
+            const int8_t height = feature.feature_index < world_record.feature_def_count
+                                      ? world_record.feature_defs[feature.feature_index].height
+                                      : int8_t{0};
+            const bool lies_on_terrain =
+                sprite.shadow || !oa::present::world_renderer::feature_stands(height);
+            draw_list.sprites.push_back({image, place, sprite.shadow, true, lies_on_terrain});
+            draw_list.sprites.back().world_position =
+                oa::FixedVec3{feature.position.x, feature.position.y, feature.position.z};
             add_draw(
                 sprite.translucent ? WorldDrawKind::blended_sprite : WorldDrawKind::sprite,
                 draw_list.sprites.size() - 1
@@ -1636,13 +1683,7 @@ void Runtime::render_match_surface() {
             if (carried)
                 return;
             model_render::update_linked_transforms(renderer, shown);
-            add_model(
-                shown,
-                unit_region(renderer, shown, terrain_height(&models, shown.unit->position)),
-                idle,
-                unit_level,
-                -1
-            );
+            add_model(shown, model_region(shown, unit_level), idle, unit_level, -1);
             return;
         }
         note_unit_drawn(unit_index, *model.unit, false);
@@ -1658,13 +1699,7 @@ void Runtime::render_match_surface() {
                 model.instance->model().objects.front()
             );
         model_render::note_piece_changes(model);
-        add_model(
-            model,
-            unit_region(renderer, model, terrain_height(&models, model.unit->position)),
-            idle,
-            unit_level,
-            -1
-        );
+        add_model(model, model_region(model, unit_level), idle, unit_level, -1);
     };
     // A record's shatter fragment, drawn into
     // the model bridge and written back before the record's sprite.
@@ -1736,7 +1771,29 @@ void Runtime::render_match_surface() {
     // as draw_explosions culls the record and the game places them, so an
     // odd height does not lift them a row; the layers' items are raised to
     // the nearest pixel.
+    // Resolve only the installed EMG impact art; unrelated explosions keep their presentation.
+    std::vector<const oa::formats::gaf::Sequence*> emg_impacts;
+    if (full_presentation() || live_renderer_active()) {
+        for (uint32_t index = 0; index < OA_WEAPON_DEF_COUNT; ++index) {
+            const auto& definition = world_record.game.weapon_defs[index];
+            if (!renderer_weapon_style::is_emg(definition))
+                continue;
+            oa::Projectile reference{};
+            reference.def = index + 1;
+            const auto* weapon = match_->projectile_weapon(reference);
+            if (weapon == nullptr)
+                continue;
+            const auto* sequence = explosion_sequence(weapon->explosion_gaf, weapon->explosion_art);
+            if (sequence &&
+                std::find(emg_impacts.begin(), emg_impacts.end(), sequence) == emg_impacts.end())
+                emg_impacts.push_back(sequence);
+        }
+    }
+    const auto* light_smoke = gaf_sequence(match_fx_, "smoke 1");
+    const auto* dark_smoke = gaf_sequence(match_fx_, "smoke 2");
     auto effect_lift = HeightLift::nearest;
+    bool explosion_pass = false;
+    uint16_t effect_layer = 0;
     auto plan_effect = [&](const oa::sim::effect_particles::ParticleDraw& item) {
         if (item.kind == oa::sim::effect_particles::DrawKind::fragment) {
             plan_fragment(item);
@@ -1755,18 +1812,19 @@ void Runtime::render_match_surface() {
         }
         // Part of the way through the ticks' steps, on the scene's map
         // pixels.
+        const auto shown_position =
+            point_along_step(item.position, item.motion, presentation.batch, presentation.fraction);
         const auto place = place_world_point(
-            scene_view,
-            oa::sim::match_runtime::fixed_words(point_along_step(
-                item.position, item.motion, presentation.batch, presentation.fraction
-            )),
-            effect_lift
+            scene_view, oa::sim::match_runtime::fixed_words(shown_position), effect_lift
         );
         const auto pal = static_cast<std::size_t>(item.color) * 4U;
         if (item.kind == oa::sim::effect_particles::DrawKind::pixel) {
             const std::array<uint8_t, 3> color{
                 match_palette_[pal], match_palette_[pal + 1], match_palette_[pal + 2]
             };
+            draw_list.spatial_particles.push_back(
+                {shown_position, color, effect_layer == oa::sim::effect_particles::layer_nano}
+            );
             // The square covers the scene pixels of its map pixels, from
             // its top left corner at the point, and one at least; clipped to
             // the frame before it is filled.
@@ -1800,6 +1858,29 @@ void Runtime::render_match_surface() {
         if (decoded == nullptr)
             return;
         draw_list.sprites.push_back({decoded, place});
+        draw_list.sprites.back().world_position = shown_position;
+        draw_list.sprites.back().surface_effect = explosion_pass && !flash;
+        if (!flash && emg_impact_at(item.position) &&
+            std::find(emg_impacts.begin(), emg_impacts.end(), item.sequence) != emg_impacts.end()) {
+            auto& sprite = draw_list.sprites.back();
+            constexpr float impact_scale = 0.6F;
+            constexpr float impact_opacity = 0.72F;
+            const float age =
+                float(item.frame) / std::max<std::size_t>(1, item.sequence->frames.size() - 1);
+            sprite.effect_scale = impact_scale;
+            sprite.effect_opacity = impact_opacity * (1.0F - 0.65F * age);
+            sprite.soft_effect = true;
+        }
+        if ((full_presentation() || live_renderer_active()) && !flash &&
+            (item.sequence == light_smoke || item.sequence == dark_smoke)) {
+            auto& sprite = draw_list.sprites.back();
+            sprite.soft_effect = true;
+            if (emg_smoke_at(item.position)) {
+                // Sustained rapid-fire hits keep a readable target silhouette through local smoke.
+                constexpr float smoke_opacity = 0.35F;
+                sprite.effect_opacity = smoke_opacity;
+            }
+        }
         add_draw(
             flash ? WorldDrawKind::lit_sprite : WorldDrawKind::sprite, draw_list.sprites.size() - 1
         );
@@ -1809,8 +1890,11 @@ void Runtime::render_match_surface() {
     };
     const auto plan_effect_layers = [&](uint16_t first, uint16_t last) {
         plan_commit();
-        for (uint16_t layer = first; layer <= last; ++layer)
+        for (uint16_t layer = first; layer <= last; ++layer) {
+            effect_layer = layer;
             oa::sim::effect_particles::draw_layer(match_->effects(), layer, &plan_effect, visit);
+        }
+        effect_layer = 0;
     };
 
     // The features and units this frame draws, placed in the draw order: a
@@ -2023,10 +2107,12 @@ void Runtime::render_match_surface() {
         }
     );
     effect_lift = HeightLift::down;
+    explosion_pass = true;
     oa::sim::effect_particles::draw_explosions(
         match_->effects(), explosion_view, &plan_effect, visit
     );
     effect_lift = HeightLift::nearest;
+    explosion_pass = false;
     plan_effect_layers(7, 7);
     for (const auto index : draw_plan.raised_units)
         plan_unit(units_to_draw[index]);
@@ -2051,7 +2137,7 @@ void Runtime::render_match_surface() {
         draw_list.stand_ins.push_back(preview.unit);
         add_model(
             model,
-            unit_region(renderer, model, terrain_height(&models, preview.unit.position)),
+            model_region(model, model_render::UnitSupersampling::off),
             false,
             model_render::UnitSupersampling::off,
             static_cast<int32_t>(draw_list.stand_ins.size() - 1)
@@ -2061,6 +2147,7 @@ void Runtime::render_match_surface() {
     plan_effect_layers(9, 9);
     // Every band of the frame draws the list: on the drawing threads at
     // once, or in order on this one.
+    std::ignore = collect_match_effect_sources();
     WorldFrameDraw frame_draw{};
     frame_draw.target = {
         world_surface.rgb.data(),
@@ -2102,7 +2189,7 @@ void Runtime::render_match_surface() {
     }
     // The card draws every kind of the list in the Full tier; the bands
     // draw nothing there.
-    if (!card_world)
+    if (!card_world && !live_world)
         draw_world_bands(models, frame_draw, draw_pool_.get());
     oa::present::bind_display(bound_display);
     mark_profile(OA_PROFILE_RENDER_STUFF);
@@ -2119,7 +2206,8 @@ void Runtime::render_match_surface() {
             passes
         );
     };
-    fog_pass(FogPasses::both);
+    if (!live_world)
+        fog_pass(FogPasses::both);
     // The dots over the fog, as the minimap shows its units over its own.
     if (dots)
         draw_far_view_dots(
@@ -2128,6 +2216,23 @@ void Runtime::render_match_surface() {
             static_cast<int32_t>(world_surface.height),
             far_dots
         );
+    // Magnified scenes must carry their effects through the same camera shift
+    // and sampling as their terrain, rather than becoming fixed opaque overlays.
+    if (!card_world && !live_renderer_active() && scaling.method == SceneMethod::magnify) {
+        const auto place = match_view_place();
+        const float zoom = match_zoom();
+        compose_match_effect_pixels(
+            world_surface.rgb,
+            world_surface.width,
+            world_surface.height,
+            world_surface.width * 3,
+            3,
+            static_cast<float>((camera_x - place[0]) * zoom),
+            static_cast<float>((camera_y - place[1]) * zoom),
+            draw_scale / zoom,
+            draw_scale / zoom
+        );
+    }
     // A scene drawn apart becomes the world layer's picture at the zoom, on
     // which everything after the fog is drawn in screen pixels.
     if (scaling.apart) {
@@ -2173,6 +2278,18 @@ void Runtime::render_match_surface() {
         };
         world_pixel_clip_ = {0, 0, bf_w, bf_h};
     }
+    if (!card_world && !live_renderer_active() && scaling.method != SceneMethod::magnify)
+        compose_match_effect_pixels(
+            world_surface.rgb,
+            world_surface.width,
+            world_surface.height,
+            world_surface.width * 3,
+            3,
+            0,
+            0,
+            1,
+            1
+        );
     // What the painters after the fog draw at places on the map goes where
     // the view shows those places: a view drawn between map pixels moves it
     // by the view's offset, to the nearest screen pixel.
@@ -2185,8 +2302,8 @@ void Runtime::render_match_surface() {
     // build site or the drag box. The fog's profile category takes the time
     // of both.
     if (!bare) {
-        if (control_key_down(oa::ui::gui_input::ControlKey::shift) ||
-            virtual_shift(ModifierUse::order))
+        if (!live_renderer_active() && (control_key_down(oa::ui::gui_input::ControlKey::shift) ||
+                                        virtual_shift(ModifierUse::order)))
             // What the pass drew is for the checks alone.
             std::ignore = draw_order_overlays(world_surface, painted);
         if (build_queue_drag_ && build_queue_drag_->moved)
@@ -2218,6 +2335,8 @@ void Runtime::render_match_surface() {
     // zoom 1 and in.
     const auto bar_size = oa::ui::hud::health_bar_size(match_zoom());
     for (const auto& slot : match_->world().slots) {
+        if (live_renderer_active())
+            break;
         if (slot.unit_index == 0 || slot.unit == nullptr || slot.record.type_index == 0 ||
             slot.unit->type == nullptr)
             continue;
@@ -2298,6 +2417,7 @@ void Runtime::render_match_surface() {
     draw_whiteboard(painted);
     draw_middle_pan_marks();
     draw_commander_placement();
+    render_live_match_surface();
     draw_match_kill_board();
     // Then the status strip over the bottom of the battlefield. The panels'
     // text keeps to the game fonts' size at most (PanelText).

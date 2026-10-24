@@ -3,6 +3,7 @@
 
 // Runtime construction, main loop and screen loading.
 #include "oa/app/runtime.hpp"
+#include "renderer_effect_events.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "map_picture_state.hpp"
@@ -613,6 +614,8 @@ int Runtime::run() {
                 flush_preferences();
                 return 0;
             }
+            if (options_.check_live_renderer)
+                return check_live_renderer();
             if (options_.check_unit_playout) {
                 check_unit_playout();
                 flush_preferences();
@@ -1153,9 +1156,10 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     note_window_activation(event);
     note_input_activity(event);
     // A hardware keyboard's Cmd alternates stand for their keys while touch
-    // controls are on; the app lifecycle's events, which the watch acted on,
-    // reach no screen; the touch controls take fingers and the presses on
-    // their controls, and the gamepads their own events.
+    // controls are on. On desktop Macs, Cmd+P also supplies Pause in a match.
+    // The app lifecycle's events, which the watch acted on, reach no screen;
+    // the touch controls take fingers and the presses on their controls,
+    // and the gamepads their own events.
     remap_command_key(event);
     // The keypad's Enter is Return to everything after this, as it is in
     // 3.1c: it opens and sends the chat line and answers dialogs.
@@ -1308,6 +1312,8 @@ void Runtime::move_match_camera() {
     if (screen_ != Screen::match || match_paused_)
         return;
     pan_match_camera();
+    if (live_renderer_active())
+        return;
     if (match_)
         follow_match_camera_unit();
     if (match_tracking_) {
@@ -1435,6 +1441,7 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
             const uint32_t tick_before = match_timing_.tick;
             // A step the extension fails to run is reported as a simulation
             // error, and the frame's remaining steps are dropped.
+            const auto effect_capture = capture_match_effect_events();
             HookError step_error;
             const bool stepped =
                 call_hook<&Extension::simulation_step>(extension_, step_error, *this);
@@ -1473,6 +1480,7 @@ void Runtime::advance_match_clock(uint32_t now_ms) {
             // players this machine does not simulate reads where they are.
             // It throws nothing, so it costs the match no step.
             observe_unit_playout();
+            observe_match_effect_tick();
         }
     } catch (const std::exception& error) {
         report_match_tick_error(error.what());

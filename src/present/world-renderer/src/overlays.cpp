@@ -452,13 +452,16 @@ void overlay_debug_grid(
     const auto camera_y = static_cast<int32_t>(game.camera_y);
     // A view left of or above the map starts the grid at the map's first
     // cell: there are no cells before it.
-    const int32_t first_column = std::max(camera_x, 0) / OA_MAP_CELL_PIXELS;
+    const int32_t first_column =
+        sources.project != nullptr ? 0 : std::max(camera_x, 0) / OA_MAP_CELL_PIXELS;
     int32_t end_column = game.view_cells_width + 1 + camera_x / OA_MAP_CELL_PIXELS;
-    if (game.map_width - 1 <= end_column)
+    if (sources.project != nullptr || game.map_width - 1 <= end_column)
         end_column = game.map_width - 1;
     const int32_t end_row = game.map_height - 1;
     uint8_t step_color = 0;
-    for (int32_t row = std::max(camera_y, 0) / OA_MAP_CELL_PIXELS; row < end_row; ++row) {
+    const int32_t first_row =
+        sources.project != nullptr ? 0 : std::max(camera_y, 0) / OA_MAP_CELL_PIXELS;
+    for (int32_t row = first_row; row < end_row; ++row) {
         if (first_column >= end_column)
             return;
         bool below_screen = true;
@@ -475,7 +478,7 @@ void overlay_debug_grid(
                 sources.plots[under].height,
             };
             // Corners clockwise from the top left, x,y pairs.
-            const int32_t p[debug_grid_corners * 2] = {
+            int32_t p[debug_grid_corners * 2] = {
                 left - camera_x,
                 top - (heights[0] >> 1) - camera_y,
                 left + OA_MAP_CELL_PIXELS - camera_x,
@@ -485,6 +488,38 @@ void overlay_debug_grid(
                 left - camera_x,
                 top + OA_MAP_CELL_PIXELS - (heights[3] >> 1) - camera_y,
             };
+            if (sources.project != nullptr) {
+                for (int corner = 0; corner < debug_grid_corners; ++corner) {
+                    const int32_t x = column * OA_MAP_CELL_PIXELS +
+                                      ((corner == 1 || corner == 2) ? OA_MAP_CELL_PIXELS : 0);
+                    const int32_t z =
+                        row * OA_MAP_CELL_PIXELS + (corner >= 2 ? OA_MAP_CELL_PIXELS : 0);
+                    sources.project(
+                        sources.projection_user,
+                        x,
+                        heights[corner],
+                        z,
+                        p[corner * 2],
+                        p[corner * 2 + 1]
+                    );
+                }
+                // A rotated row can enter the view again: cull cells, never whole rows.
+                const int32_t clip_right = surface != nullptr
+                                               ? surface->width + battlefield_origin_x
+                                               : static_cast<int32_t>(game.offscreen_width);
+                const int32_t clip_bottom = surface != nullptr
+                                                ? surface->height + battlefield_origin_y
+                                                : static_cast<int32_t>(game.offscreen_height);
+                bool left = true, right = true, above = true, below = true;
+                for (int corner = 0; corner < debug_grid_corners; ++corner) {
+                    left &= p[corner * 2] < battlefield_origin_x;
+                    right &= p[corner * 2] >= clip_right;
+                    above &= p[corner * 2 + 1] < battlefield_origin_y;
+                    below &= p[corner * 2 + 1] >= clip_bottom;
+                }
+                if (left || right || above || below)
+                    continue;
+            }
             if (p[1] < static_cast<int32_t>(game.offscreen_height))
                 below_screen = false;
             const auto edge_color = game_ui_color(
@@ -653,7 +688,7 @@ void overlay_debug_grid(
             if (contour.spacing != 0)
                 overlay_contour_quad(raster, surface, contour, p, heights);
         }
-        if (below_screen)
+        if (below_screen && sources.project == nullptr)
             return;
     }
 }

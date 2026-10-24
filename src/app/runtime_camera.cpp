@@ -875,6 +875,10 @@ void Runtime::pan_match_camera() {
 void Runtime::scroll_match_view_by(double screen_dx, double screen_dy) {
     if (!selected_tnt_ || (screen_dx == 0.0 && screen_dy == 0.0))
         return;
+    if (live_renderer_active()) {
+        std::ignore = scroll_live_match_view(screen_dx, screen_dy);
+        return;
+    }
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());
     const auto place = match_view_place();
     const auto [map_width, map_height] = shown_map_size();
@@ -908,6 +912,10 @@ void Runtime::scroll_match_view(int32_t way_x, int32_t way_z, double step) {
     way_z = std::clamp(way_z, -1, 1);
     if (!selected_tnt_ || !(step > 0.0) || (way_x == 0 && way_z == 0))
         return;
+    if (live_renderer_active()) {
+        std::ignore = scroll_live_match_view(way_x * step, way_z * step);
+        return;
+    }
     // Zoom keeps the on-screen rate constant; the view's exact place keeps
     // the world rate exact rather than rounding it every frame.
     const auto zoom = static_cast<double>(match_zoom() <= 0.0F ? 1.0F : match_zoom());

@@ -307,6 +307,17 @@ struct DebugGridSources {
     /// @param z cell row
     /// @return the cell's flags and direction
     DebugSearchCell (*search_cell)(void* user, int32_t x, int32_t z) = nullptr;
+    /// Optional projection of terrain corners in map pixels to overlay pixels.
+    /// @param user projection_user
+    /// @param x map horizontal coordinate
+    /// @param height terrain altitude
+    /// @param z map vertical coordinate
+    /// @param[out] screen_x horizontal overlay coordinate
+    /// @param[out] screen_y vertical overlay coordinate
+    void (*project)(
+        void* user, int32_t x, int32_t height, int32_t z, int32_t& screen_x, int32_t& screen_y
+    ) = nullptr;
+    void* projection_user = nullptr;
     RandomSource random{}; // goal mark colours
 };
 

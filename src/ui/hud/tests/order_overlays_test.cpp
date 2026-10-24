@@ -98,6 +98,35 @@ struct Scene {
     }
 };
 
+void test_world_projection() {
+    Scene scene;
+    auto context = scene.context();
+    context.view.project = [](void*, const FixedVec3& p) {
+        return ScreenPoint{
+            (static_cast<int32_t>(p.x) + static_cast<int32_t>(p.z)) / 65536,
+            (static_cast<int32_t>(p.z) - static_cast<int32_t>(p.x) - static_cast<int32_t>(p.y)) /
+                65536
+        };
+    };
+    const auto projected = overlay_project(context.view, {fx(10), fx(3), fx(20)});
+    CHECK(projected.x == 30 && projected.y == 7);
+    OrderOverlay order{};
+    order.parameter = 2;
+    order.position = {fx(100), 0, fx(100)};
+    FixedVec3 point{};
+    draw_build_site_overlay(context, order, point);
+    CHECK(scene.recorder.lines.size() == 4);
+    CHECK(scene.recorder.lines[0].x0 == 168 && scene.recorder.lines[0].y0 == 0);
+    CHECK(scene.recorder.lines[0].x1 == 200 && scene.recorder.lines[0].y1 == -32);
+    BuildSiteBounds bounds{};
+    build_site_overlay_bounds(
+        context.view, scene.match.world->unit_defs[2], order.position, bounds
+    );
+    CHECK(static_cast<int32_t>(bounds.left) == 168 && static_cast<int32_t>(bounds.top) == -32);
+    CHECK(static_cast<int32_t>(bounds.right) == 232 && static_cast<int32_t>(bounds.bottom) == 32);
+    CHECK(point.x == order.position.x && point.z == order.position.z);
+}
+
 void test_build_site() {
     Scene scene;
     auto& builder = scene.match.spawn(1, 1);
@@ -347,6 +376,7 @@ void test_mission_table() {
 } // namespace
 
 int main() {
+    test_world_projection();
     test_mission_table();
     test_build_site();
     test_range_circle();

@@ -38,10 +38,10 @@ namespace oa::app {
 
 namespace {
 
-/// Graphics' scroll limit in a game at Compact: its ten rows, Smooth motion
+/// Graphics' scroll limit in a game at Compact: its sixteen rows, Smooth motion
 /// among them, now that User Interface holds Menu scaling, Window frame, HUD
 /// scaling and Interface size.
-constexpr int32_t kMatchGraphicsEnd = 395;
+constexpr int32_t kMatchGraphicsEnd = 701;
 
 namespace fs = std::filesystem;
 namespace settings = oa::ui::engine_settings;

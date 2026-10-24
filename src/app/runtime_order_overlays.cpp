@@ -113,6 +113,8 @@ Runtime::OrderOverlayPass Runtime::draw_order_overlays(
         std::array<hud::SpriteSequence, Runtime::kCursorNames.size()> sequences{};
 
         [[nodiscard]] oa::present::world_renderer::ScreenPoint at(int32_t x, int32_t y) const {
+            if (runtime->live_renderer_active())
+                return {x - runtime->match_layout_.left, y - runtime->match_layout_.top};
             return {
                 viewport->destination_x +
                     static_cast<int32_t>(std::lround((x - hud::kBattlefieldLeft) * scale)),
@@ -137,6 +139,19 @@ Runtime::OrderOverlayPass Runtime::draw_order_overlays(
             : nullptr;
     context.view.camera_x = static_cast<int32_t>(viewport.source_x);
     context.view.camera_y = static_cast<int32_t>(viewport.source_y);
+    if (live_renderer_active()) {
+        context.view.projection_user = this;
+        context.view.project = [](void* user, const FixedVec3& point) {
+            const auto p = static_cast<Runtime*>(user)->live_project_world(
+                static_cast<int32_t>(point.x) / 65536.0F,
+                static_cast<int32_t>(point.y) / 65536.0F,
+                static_cast<int32_t>(point.z) / 65536.0F
+            );
+            return hud::ScreenPoint{p.x, p.y};
+        };
+        frame.scale = 1.0F;
+    }
+
     context.missions = hud::kMissionOverlays;
     context.path_pips = frame.sequences[kPathIconCursor];
     context.indicators = frame.sequences.data();
@@ -294,6 +309,8 @@ bool Runtime::build_queue_drag_pointer(const SDL_Event& event, float x, float y)
         align_order_overlay_viewport(viewport);
         const float scale = viewport.scale == 0.0F ? 1.0F : viewport.scale;
         const auto screen_of = [&](int32_t hx, int32_t hy) {
+            if (live_renderer_active())
+                return oa::present::world_renderer::ScreenPoint{hx, hy};
             return oa::present::world_renderer::ScreenPoint{
                 viewport.destination_x +
                     static_cast<int32_t>(std::lround((hx - hud::kBattlefieldLeft) * scale)),
@@ -322,6 +339,18 @@ bool Runtime::build_queue_drag_pointer(const SDL_Event& event, float x, float y)
             hud::OverlayView overlay_view;
             overlay_view.camera_x = viewport.source_x;
             overlay_view.camera_y = viewport.source_y;
+            if (live_renderer_active()) {
+                overlay_view.projection_user = this;
+                overlay_view.project = [](void* user, const FixedVec3& point) {
+                    const auto p = static_cast<Runtime*>(user)->live_project_world(
+                        static_cast<int32_t>(point.x) / 65536.0F,
+                        static_cast<int32_t>(point.y) / 65536.0F,
+                        static_cast<int32_t>(point.z) / 65536.0F
+                    );
+                    return hud::ScreenPoint{p.x, p.y};
+                };
+            }
+
             for (std::size_t index = 0; index < count; ++index) {
                 const auto& order = records[index];
                 if (!queued_build_draggable(order))

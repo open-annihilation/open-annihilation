@@ -451,24 +451,31 @@ struct SpriteFrame::Impl {
         const gpu::TexelRect& rect = found.record.rect;
         // The frame lies over the map pixels from its place less its
         // origin, where the terrain draws them at the zoom.
-        const float left = static_cast<float>(sprite.place.x - sprite.frame->origin_x) * zoom;
-        const float top = static_cast<float>(sprite.place.y - sprite.frame->origin_y) * zoom;
+        const float left =
+            static_cast<float>(sprite.place.x - sprite.frame->origin_x * sprite.effect_scale) *
+            zoom;
+        const float top =
+            static_cast<float>(sprite.place.y - sprite.frame->origin_y * sprite.effect_scale) *
+            zoom;
         // A feature's shadow frame draws as dark as the list's shadow
         // level: under the premultiplied blend, a vertex colour and alpha of
         // the level's strength mix that much of the frame (or of its blend)
         // into what is under it.
         const float strength =
             sprite.shadow ? oa::present::model::shadow_level_strength(inputs.list->shadow_level)
-                          : 1.0F;
+                          : sprite.effect_opacity;
         const card::Colour opaque{strength, strength, strength, strength};
         const float level = translucent_level * strength;
         const card::Colour translucent{level, level, level, level};
         emitter.quad(
-            {page, card::Blend::alpha_premultiplied, sampling, sprite.on_map},
+            {page,
+             card::Blend::alpha_premultiplied,
+             sprite.soft_effect ? card::Sampling::linear : sampling,
+             sprite.on_map},
             emitter.place_x(left),
             emitter.place_y(top),
-            static_cast<float>(sprite.frame->width) * zoom * view.scale,
-            static_cast<float>(sprite.frame->height) * zoom * view.scale,
+            static_cast<float>(sprite.frame->width) * sprite.effect_scale * zoom * view.scale,
+            static_cast<float>(sprite.frame->height) * sprite.effect_scale * zoom * view.scale,
             static_cast<float>(rect.x) / size,
             static_cast<float>(rect.y) / size,
             static_cast<float>(rect.x + rect.width) / size,
@@ -508,16 +515,20 @@ struct SpriteFrame::Impl {
         const gpu::TexelRect& rect = found.record.rect;
         // The frame lies over the map pixels from its place less its
         // origin, where the terrain draws them at the zoom.
-        const float left = static_cast<float>(sprite.place.x - sprite.frame->origin_x) * zoom;
-        const float top = static_cast<float>(sprite.place.y - sprite.frame->origin_y) * zoom;
+        const float left =
+            static_cast<float>(sprite.place.x - sprite.frame->origin_x * sprite.effect_scale) *
+            zoom;
+        const float top =
+            static_cast<float>(sprite.place.y - sprite.frame->origin_y * sprite.effect_scale) *
+            zoom;
         const float light =
             inputs.list->flash_strength == FlashStrength::reduced ? reduced_flash_light : 1.0F;
         emitter.quad(
             {page, card::Blend::lighten, sampling},
             emitter.place_x(left),
             emitter.place_y(top),
-            static_cast<float>(sprite.frame->width) * zoom * view.scale,
-            static_cast<float>(sprite.frame->height) * zoom * view.scale,
+            static_cast<float>(sprite.frame->width) * sprite.effect_scale * zoom * view.scale,
+            static_cast<float>(sprite.frame->height) * sprite.effect_scale * zoom * view.scale,
             static_cast<float>(rect.x) / size,
             static_cast<float>(rect.y) / size,
             static_cast<float>(rect.x + rect.width) / size,

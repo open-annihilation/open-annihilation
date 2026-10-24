@@ -176,6 +176,9 @@ Every document in the repository, by what you want to do.
 
 ## Developing
 
+- [Pluggable renderers](development/pluggable-renderers.md): a proposed
+  classic-first 3D renderer, constrained camera and three small proofs of concept.
+
 - [CONTRIBUTING.md](../CONTRIBUTING.md): the developer guide: what the engine
   does today, what it needs, how to build, test and run it from source, the
   layout of the tree, the checks and what to do when one fails, and how a

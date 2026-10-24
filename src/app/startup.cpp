@@ -312,6 +312,8 @@ void check_game_files_options(Options& options) {
         {options.check_library_update_question, "--check-library-update-question"},
         {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
+        {options.check_renderer_proof, "--check-renderer-proof"},
+        {options.check_live_renderer, "--check-live-renderer"},
         {options.check_briefing_narration, "--check-briefing-narration"},
         {options.check_match_layers, "--check-match-layers"},
         {options.check_render_tiers, "--check-render-tiers"},
@@ -420,8 +422,10 @@ void check_game_files_options(Options& options) {
         return Showcase::arm_first_mission;
     if (text == "skirmish-battle")
         return Showcase::skirmish_battle;
+    if (text == "base-construction")
+        return Showcase::base_construction;
     throw std::runtime_error(
-        "--showcase knows two showcases: arm-first-mission and skirmish-battle"
+        "--showcase knows arm-first-mission, skirmish-battle and base-construction"
     );
 }
 
@@ -614,6 +618,8 @@ void check_director_options(Options& options) {
         {options.check_library_update_question, "--check-library-update-question"},
         {!options.open_files.empty(), "--open"},
         {options.check_renderer_ladder, "--check-renderer-ladder"},
+        {options.check_renderer_proof, "--check-renderer-proof"},
+        {options.check_live_renderer, "--check-live-renderer"},
     };
     for (const auto& [given, name] : refused)
         if (given)
@@ -714,6 +720,8 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_library_content, "--check-library-content"},
             {options.check_library_update_question, "--check-library-update-question"},
             {options.check_renderer_ladder, "--check-renderer-ladder"},
+            {options.check_renderer_proof, "--check-renderer-proof"},
+            {options.check_live_renderer, "--check-live-renderer"},
         };
         for (const auto& [given, name] : checks)
             if (given)
@@ -870,6 +878,9 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-library-content", &Options::check_library_content},
     {"--check-library-update-question", &Options::check_library_update_question},
     {"--check-renderer-ladder", &Options::check_renderer_ladder},
+    {"--check-renderer-proof", &Options::check_renderer_proof},
+    {"--check-live-renderer", &Options::check_live_renderer},
+    {"--experimental-3d", &Options::experimental_3d},
     {"--check-briefing-narration", &Options::check_briefing_narration},
     {"--check-match-layers", &Options::check_match_layers},
     {"--check-render-tiers", &Options::check_render_tiers},
@@ -1509,6 +1520,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-library-map-previews] [--check-library-content] "
                      "[--check-library-update-question] "
                      "[--check-renderer-ladder [--render-fault POINT[@FRAME]]] "
+                     "[--check-renderer-proof] [--check-live-renderer] "
                      "[--check-briefing-narration] [--check-director-view] "
                      "[--check-director-render] [--check-interpolation] "
                      "[--check-unit-playout] [--check-running-while-inactive] "
@@ -1517,7 +1529,7 @@ void write_startup_line(std::string_view text) {
                   << "[--debug-order-lines] "
                      "[--max-fps N] "
                      "[--hardware-acceleration[=off|basic|full] | --no-hardware-acceleration] "
-                     "[--native-density] [--display-modes MODES] "
+                     "[--experimental-3d] [--native-density] [--display-modes MODES] "
                      "[--benchmark FRAMES] [--match-ticks N "
                      "[--frame-rate FPS [--frame-log FILE] [--scroll-camera] [--march] "
                      "[--follow] [--frame-clock MS]]] "
@@ -1537,7 +1549,8 @@ void write_startup_line(std::string_view text) {
                      "[--save-file PATH.sav] [--load PATH.sav] [--give-orders] [--seed N] "
                      "[--trace-digest FILE] [--trace-units FILE] [--trace-lookups FILE] "
                      "[--draw-threads N] "
-                     "[--capture-video PATH.mp4] [--showcase arm-first-mission|skirmish-battle] "
+                     "[--capture-video PATH.mp4] [--showcase "
+                     "arm-first-mission|skirmish-battle|base-construction] "
                      "[--open FILE]... [--install-mod FILE]... "
                      "[--generate-script RECORDING [--output PATH.oascript|PATH.oamovie] "
                      "[--resolution WxH]] "
@@ -1652,12 +1665,15 @@ void write_startup_line(std::string_view text) {
     if (const auto env = oa::platform::environment_value("OA_DRAW_THREADS");
         !result.draw_threads && env && !env->empty())
         result.draw_threads = parse_draw_threads(*env, "OA_DRAW_THREADS");
-    // The director view check runs headless, where SDL is never started.
+    // These checks skip the window and intro; an offscreen GPU check starts
+    // only the SDL subsystems it needs.
     if (result.check_director_view || result.check_director_render || result.check_interpolation ||
-        result.check_unit_playout) {
+        result.check_unit_playout || result.check_renderer_proof || result.check_live_renderer) {
         result.headless_check = true;
         result.skip_intro = true;
     }
+    if (result.check_live_renderer)
+        result.experimental_3d = true;
     check_director_options(result);
     if (result.busy_combat && result.combat_units == 0)
         throw std::runtime_error("--busy-combat needs --combat");

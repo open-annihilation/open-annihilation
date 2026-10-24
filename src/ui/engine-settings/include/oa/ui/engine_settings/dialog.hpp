@@ -301,7 +301,14 @@ enum class Setting : uint8_t {
     /// Skirmish players: a slider of how many player rows the skirmish setup
     /// shows, the same count the setup's key codes store.
     skirmish_players,
-    smooth_motion, ///< Smooth motion: a switch
+    smooth_motion,      ///< Smooth motion: a switch
+    weapon_lighting,    ///< Coloured weapon lighting: an intensity slider
+    nanolathe_lighting, ///< Nanolathe glow: an intensity slider
+    wreck_glow,         ///< Wreck glow: an intensity slider
+    heat_distortion,    ///< Heat distortion: an intensity slider
+
+    allow_full_3d,   ///< Allow Full 3D Mode: a switch
+    unlocked_camera, ///< Unrestricted camera angles: a switch
     /// Welcome setup: SHOW AGAIN walks through the language, online features
     /// and the OA buttons again. It changes no setting. During a game the
     /// button is locked, and the choice is made from the main menu.

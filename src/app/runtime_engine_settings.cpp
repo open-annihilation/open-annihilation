@@ -1206,6 +1206,9 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     auto& state = engine_settings_state();
     const settings::EngineSettings before = state.current;
     state.current = chosen;
+    if (before.allow_full_3d != chosen.allow_full_3d ||
+        before.unlocked_camera != chosen.unlocked_camera)
+        apply_live_camera_settings(chosen.allow_full_3d, chosen.unlocked_camera);
     // Turning the wheel zoom off brings the battlefield back to its own scale.
     if (before.wheel_zoom && !chosen.wheel_zoom && match_)
         EngineSettingsState::ease_zoom_about_centre(*this, kDefaultBattlefieldZoom);
@@ -1259,8 +1262,11 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
         show_frame_stats(chosen.frame_stats);
     // Off applies at once; so do Basic and Full, but in a shared game or a
     // replay, which keeps the tier it began with until it ends.
-    if (chosen.hardware_acceleration != before.hardware_acceleration)
+    if (chosen.hardware_acceleration != before.hardware_acceleration) {
         update_render_tier();
+        if (!full_presentation() && !options_.headless_check)
+            reset_live_renderer();
+    }
     apply_vertical_sync();
     // Menu scaling applies at once to a screen drawn as one frame, and to a
     // match drawn at a screen size and scaled to the screen: whole steps

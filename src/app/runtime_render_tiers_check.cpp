@@ -27,6 +27,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "engine_settings_menu_host.hpp"
+#include "engine_settings_state.hpp"
 #include "frame_stats_panel.hpp"
 #include "full_fog.hpp"
 #include "full_presentation.hpp"
@@ -737,7 +738,24 @@ std::vector<uint8_t> card_draw_mask(
             const auto& sprite = list.sprites[draw.index];
             if (sprite.frame == nullptr || (draw.kind == WorldDrawKind::lit_sprite && !flashes))
                 break;
-            const SceneRect rect = sprite_scene_rect(sprite, zoom);
+            SceneRect rect = sprite_scene_rect(sprite, zoom);
+            const bool effect_styled =
+                sprite.soft_effect || sprite.effect_scale != 1.0F || sprite.effect_opacity != 1.0F;
+            if (effect_styled) {
+                // The standard tier keeps the original cutout. Full may shrink,
+                // fade or filter it, so exclude precisely the union of both
+                // footprints from palette-exact and flash-only comparisons.
+                const float left =
+                    (sprite.place.x - sprite.frame->origin_x * sprite.effect_scale) * zoom;
+                const float top =
+                    (sprite.place.y - sprite.frame->origin_y * sprite.effect_scale) * zoom;
+                const float right = left + sprite.frame->width * sprite.effect_scale * zoom;
+                const float bottom = top + sprite.frame->height * sprite.effect_scale * zoom;
+                rect.left = std::min(rect.left, static_cast<int64_t>(std::floor(left)));
+                rect.top = std::min(rect.top, static_cast<int64_t>(std::floor(top)));
+                rect.right = std::max(rect.right, static_cast<int64_t>(std::ceil(right)));
+                rect.bottom = std::max(rect.bottom, static_cast<int64_t>(std::ceil(bottom)));
+            }
             const int left = field.x + static_cast<int>(rect.left);
             const int top = field.y + static_cast<int>(rect.top);
             const int w = std::max(1, static_cast<int>(rect.right - rect.left));
@@ -748,7 +766,7 @@ std::vector<uint8_t> card_draw_mask(
                 w + 2 * sprite_mask_margin,
                 h + 2 * sprite_mask_margin
             );
-            if (whole && draw.kind == WorldDrawKind::sprite && !fog_cut)
+            if (whole && draw.kind == WorldDrawKind::sprite && !fog_cut && !effect_styled)
                 break;
             mark_rect(mask, width, height, left, top, w, h, sprite_mask_margin);
             break;
@@ -1897,7 +1915,37 @@ int Runtime::check_render_tiers() {
     // It runs after the zoom ease: it switches the tier off and on, which
     // drops the prescale targets the frames before made, and the ease
     // counts on finding them made.
-    check_smooth_panning(switch_tier, at_zoom, anchor);
+    {
+        // Raw terrain references elsewhere keep optional effects off. Panning
+        // must also move illuminated and distorted scene pixels with the view.
+        if (!engine_settings_)
+            fail("smooth panning needs the current graphics settings");
+        auto& settings = engine_settings_->current;
+
+        struct RestoreEffects {
+            oa::ui::engine_settings::EngineSettings& settings;
+            std::array<uint32_t, 4> saved;
+
+            ~RestoreEffects() {
+                settings.weapon_lighting = saved[0];
+                settings.nanolathe_lighting = saved[1];
+                settings.wreck_glow = saved[2];
+                settings.heat_distortion = saved[3];
+            }
+        } restore{
+            settings,
+            {settings.weapon_lighting,
+             settings.nanolathe_lighting,
+             settings.wreck_glow,
+             settings.heat_distortion}
+        };
+
+        settings.weapon_lighting = 100;
+        settings.nanolathe_lighting = 100;
+        settings.wreck_glow = 100;
+        settings.heat_distortion = 100;
+        check_smooth_panning(switch_tier, at_zoom, anchor);
+    }
     // The overlays a profile's visual rules paint, where it turns them on,
     // in the standard and accelerated tiers; the Full tier's after its own
     // cases.
@@ -2265,6 +2313,10 @@ void Runtime::check_full_render_tier(
             full_->plan.passes[0].sampling != card::Sampling::nearest || full_->plan.through_target)
             fail("zoom " + zoom_text(zoom) + " was not drawn from level 0 NEAREST");
         const auto mask = card_mask(zoom, read);
+        // The standard reference rebuilds the list without Full's effect trails.
+        // Keep the Full frame's exclusions before that replaces its draw plan.
+        const auto single_flash_mask = flash_mask(zoom, read, false);
+        const auto stacked_flash_mask = flash_mask(zoom, read, true);
         const std::string full_cost = cost();
         const auto stage = full_->sprites;
         if (stage.pages_overflowed)
@@ -2286,9 +2338,9 @@ void Runtime::check_full_render_tier(
         // reaches a pixel; stacked flashes are reported, not held
         // (most_flash_difference).
         const auto flashes =
-            compare_masked(read, expected, battlefield(), cursor(), flash_mask(zoom, read, false));
+            compare_masked(read, expected, battlefield(), cursor(), single_flash_mask);
         const auto stacked =
-            compare_masked(read, expected, battlefield(), cursor(), flash_mask(zoom, read, true));
+            compare_masked(read, expected, battlefield(), cursor(), stacked_flash_mask);
         std::cout << "render tiers check: full tier zoom " << zoom_text(zoom) << ": " << stage.lit
                   << " explosion flashes; " << flashes.under.pixels
                   << " pixels one alone lights: most " << flashes.under.most << ", mean "

@@ -650,6 +650,8 @@ Locks shown_locks(const Dialog& dialog) noexcept {
     if (locks.zoomed_out_after == Lock::none &&
         dialog.chosen.zoomed_out_units != ZoomedOutUnits::dots)
         locks.zoomed_out_after = Lock::needs_dots;
+    if (locks.unlocked_camera == Lock::none && !dialog.chosen.allow_full_3d)
+        locks.unlocked_camera = Lock::needs_full_3d;
     // Only a sticky edge has a firmness: Capture never lets the pointer go,
     // and Free never holds it.
     if (locks.edge_stickiness == Lock::none && dialog.chosen.window_edge != WindowEdge::sticky)
@@ -1059,6 +1061,8 @@ std::string_view lock_text(Lock lock) noexcept {
         return "Needs Dots";
     case Lock::needs_sticky:
         return "Needs Sticky";
+    case Lock::needs_full_3d:
+        return "Needs Allow Full 3D Mode";
     case Lock::main_menu:
         return "Choose from the main menu.";
     }

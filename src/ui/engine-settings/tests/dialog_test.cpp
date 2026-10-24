@@ -720,7 +720,7 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::language)[0] == Setting::language);
     CHECK(settings::page_settings(Page::graphics)[0] == Setting::max_frame_rate);
     CHECK(settings::page_settings(Page::graphics)[1] == Setting::anti_aliasing);
-    CHECK(settings::page_settings(Page::graphics).size() == 10);
+    CHECK(settings::page_settings(Page::graphics).size() == 16);
     CHECK(settings::page_settings(Page::graphics)[2] == Setting::screen_size);
     CHECK(settings::page_settings(Page::graphics)[3] == Setting::hardware_acceleration);
     CHECK(settings::page_settings(Page::graphics)[4] == Setting::vertical_sync);
@@ -729,6 +729,11 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::graphics)[7] == Setting::explosion_flash);
     CHECK(settings::page_settings(Page::graphics)[8] == Setting::zoomed_out_units);
     CHECK(settings::page_settings(Page::graphics)[9] == Setting::zoomed_out_after);
+    CHECK(settings::page_settings(Page::graphics)[12] == Setting::weapon_lighting);
+    CHECK(settings::page_settings(Page::graphics)[13] == Setting::nanolathe_lighting);
+    CHECK(settings::page_settings(Page::graphics)[14] == Setting::wreck_glow);
+    CHECK(settings::page_settings(Page::graphics)[15] == Setting::heat_distortion);
+
     CHECK(settings::page_settings(Page::user_interface).size() == 5);
     CHECK(settings::page_settings(Page::user_interface)[0] == Setting::menu_scaling);
     CHECK(settings::page_settings(Page::user_interface)[1] == Setting::window_frame);
@@ -739,10 +744,10 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::developer)[0] == Setting::developer_mode);
     CHECK(settings::page_settings(Page::developer)[1] == Setting::frame_stats);
     CHECK(settings::page_settings(Page::developer)[2] == Setting::kit_gallery);
-    // Graphics' ten rows are taller than the view, by 395 rows.
+    // Graphics' sixteen rows are taller than the view, by 701 rows.
     const auto graphics = geometry::place_rows(Page::graphics, {});
-    CHECK(graphics.rows.size() == 10);
-    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 395);
+    CHECK(graphics.rows.size() == 16);
+    CHECK(geometry::scroll_limit(geometry::content_height(graphics, 0)) == 701);
 
     auto parts = settings::dialog_layout(opened(Page::controls));
     for (const std::string_view text :
@@ -2562,15 +2567,15 @@ void sections_that_fit_do_not_scroll() {
     // are 216, and fit; Controls' three switches, the zoom's two drop-downs, View
     // past the map's edge's strip, Window edge's strip and Edge stickiness's
     // slider are 491,
-    // Graphics' ten rows are 631, Language's drop-down, five switches and
+    // Graphics' sixteen rows are 937, Language's drop-down, five switches and
     // slider 424, and User Interface's four strips and switches with
     // Interface size's row are 324, and they scroll. Developer's list
     // scrolls in a view of its own (developer_*).
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{491, 216, 631, 424, 324};
-    const std::array<int32_t, 5> limits{255, 0, 395, 188, 88};
+    const std::array<int32_t, 5> content{491, 216, 937, 424, 324};
+    const std::array<int32_t, 5> limits{255, 0, 701, 188, 88};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -3311,23 +3316,27 @@ constexpr int32_t smooth_motion_in_view = 131;
 /// Graphics' offset at which Explosion flash shows whole with its hint.
 constexpr int32_t explosion_flash_in_view = 395;
 /// Graphics' offset at which Zoomed out units and After zoom show whole
-/// with their hints. The page's end is that offset.
+/// with their hints.
 constexpr int32_t zoomed_out_units_in_view = 395;
 
 void the_graphics_page_scrolls_its_rows() {
     settings::Dialog dialog = graphics_page();
     const auto open = geometry::open_rows(dialog);
-    CHECK(open.rows.rows.size() == 10);
-    const std::array<int32_t, 10> tops{54, 119, 178, 255, 314, 361, 420, 479, 538, 597};
-    const std::array<int32_t, 10> heights{65, 59, 77, 59, 47, 59, 59, 59, 59, 79};
+    CHECK(open.rows.rows.size() == 16);
+    const std::array<int32_t, 16> tops{
+        54, 119, 178, 255, 314, 361, 420, 479, 538, 597, 676, 723, 770, 823, 876, 929
+    };
+    const std::array<int32_t, 16> heights{
+        65, 59, 77, 59, 47, 59, 59, 59, 59, 79, 47, 47, 53, 53, 53, 53
+    };
     for (std::size_t index = 0; index < open.rows.rows.size() && index < tops.size(); ++index) {
         const auto& row = open.rows.rows[index];
         CHECK(row.top == tops[index]);
         CHECK(row.height == heights[index]);
         CHECK(row.control == settings::first_row_control + static_cast<int32_t>(index));
     }
-    CHECK(open.rows.bottom == 676);
-    CHECK(open.limit == 395);
+    CHECK(open.rows.bottom == 982);
+    CHECK(open.limit == 701);
     // Hardware acceleration: a strip of Off, Basic and Full, 34 columns a
     // level inside its border, with two status lines; Vertical sync a
     // switch with one hint line.
@@ -3372,7 +3381,7 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(flash.hints[0].y == 506 && flash.hints[1].y == 518);
     // Zoomed out units: a strip of Rendered, Dots and Icons, 56 columns a
     // level inside its border, with two hint lines; After zoom a drop-down
-    // under its label, with two, the last row.
+    // under its label, with two. The camera controls and four effect sliders follow it.
     const auto& zoomed_out = open.rows.rows[8];
     CHECK(zoomed_out.setting == Setting::zoomed_out_units);
     CHECK(same_rect(zoomed_out.label, {158, 547, 131, 16}));
@@ -3395,22 +3404,22 @@ void the_graphics_page_scrolls_its_rows() {
     CHECK(find_part(top, {}, settings::first_row_control + 3) != nullptr);
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 900;
     const auto end = geometry::open_rows(dialog);
-    CHECK(end.scroll == 395);
+    CHECK(end.scroll == 701);
     CHECK(end.rows.bottom == 281);
-    CHECK(end.rows.rows[1].control_area.y == -267);
-    CHECK(end.rows.rows[7].label.y == 93);
-    CHECK(end.rows.rows[8].label.y == 152);
-    CHECK(end.rows.rows[9].label.y == 211);
-    CHECK(end.rows.rows[9].control_area.y == 257);
-    // At the end, After zoom shows whole, with its field and its hint.
+    CHECK(end.rows.rows[1].control_area.y == -573);
+    CHECK(end.rows.rows[7].label.y == -213);
+    CHECK(end.rows.rows[8].label.y == -154);
+    CHECK(end.rows.rows[9].label.y == -95);
+    CHECK(end.rows.rows[9].control_area.y == -49);
+    // At the end, the four effect intensity sliders are visible.
     // Menu scaling, Window frame, HUD scaling and Interface size are on
     // User Interface.
     const auto last = settings::dialog_layout(dialog);
-    CHECK(find_part(last, "After zoom", settings::no_control) != nullptr);
+    CHECK(find_part(last, "After zoom", settings::no_control) == nullptr);
     CHECK(find_part(last, "Window frame", settings::no_control) == nullptr);
     CHECK(find_part(last, "Interface size", settings::no_control) == nullptr);
-    CHECK(find_part(last, "on a large map, needs a fast CPU.", settings::no_control) != nullptr);
-    CHECK(find_part(last, "Needs Dots", settings::no_control) != nullptr);
+    CHECK(find_part(last, "Heat distortion", settings::no_control) != nullptr);
+    CHECK(find_part(last, "Needs Dots", settings::no_control) == nullptr);
 
     // Tab from no focus: the first three rows at 0, Hardware acceleration at
     // 25, Vertical sync at 72, Smooth motion at 131, Native pixel density at
@@ -3455,7 +3464,7 @@ void the_graphics_page_scrolls_its_rows() {
     // Every part apart and in its place at every offset, under every lock.
     for (const auto& locks : lock_states()) {
         settings::Dialog locked = graphics_page({}, locks);
-        for (int32_t scroll = 0; scroll <= 395; scroll += 6)
+        for (int32_t scroll = 0; scroll <= 701; scroll += 6)
             check_dialog_layout_at(locked, scroll);
     }
 
@@ -3809,7 +3818,7 @@ void the_new_rows_lock_in_their_own_forms() {
     CHECK(same_rect(rows[4].control_area, {415, 341, 52, 16}));
     CHECK(same_rect(rows[4].lock_area, {259, 341, 148, 16}));
     CHECK(same_rect(rows[4].label, {158, 341, 93, 16}));
-    CHECK(geometry::open_rows(dialog).limit == 413);
+    CHECK(geometry::open_rows(dialog).limit == 719);
 
     // Scrolled down to Native pixel density: both lock texts, the status,
     // the strip's captions and the kept switch's, each with no control.
@@ -3843,6 +3852,12 @@ void the_new_rows_lock_in_their_own_forms() {
           settings::first_row_control + 6,
           settings::first_row_control + 7,
           settings::first_row_control + 8,
+          settings::first_row_control + 10,
+          settings::first_row_control + 11,
+          settings::first_row_control + 12,
+          settings::first_row_control + 13,
+          settings::first_row_control + 14,
+          settings::first_row_control + 15,
           settings::restore_control}) {
         CHECK(settings::dialog_key(dialog, DialogKey::tab) == DialogAction::redraw);
         CHECK(dialog.focused == expected);
@@ -7727,6 +7742,39 @@ void smooth_motion_shows_and_changes() {
     CHECK(dialog.chosen == dialog.opened);
 }
 
+/// Effect sliders have ten-percent stops, restore defaults and cancel edits.
+void visual_effects_show_and_change() {
+    const std::array<uint32_t settings::EngineSettings::*, 4> effects{
+        &settings::EngineSettings::weapon_lighting,
+        &settings::EngineSettings::nanolathe_lighting,
+        &settings::EngineSettings::wreck_glow,
+        &settings::EngineSettings::heat_distortion,
+    };
+    for (std::size_t index = 0; index < effects.size(); ++index) {
+        auto dialog = graphics_page();
+        dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 900;
+        dialog.focused = settings::first_row_control + 12 + index;
+        CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+        CHECK(dialog.chosen.*effects[index] == 110);
+        for (std::size_t other = 0; other < effects.size(); ++other)
+            CHECK(dialog.chosen.*effects[other] == (other == index ? 110 : 100));
+        CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+        CHECK(dialog.chosen.*effects[index] == 100);
+        dialog.focused = settings::first_row_control + 12 + index;
+        CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+        CHECK(dialog.chosen.*effects[index] == 90);
+        CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
+        CHECK(dialog.chosen == dialog.opened);
+    }
+    auto dialog = graphics_page();
+    CHECK(geometry::shown_locks(dialog).unlocked_camera == settings::Lock::none);
+    dialog.chosen.allow_full_3d = false;
+    CHECK(geometry::shown_locks(dialog).unlocked_camera == settings::Lock::needs_full_3d);
+    dialog.focused = settings::first_row_control + 11;
+    (void)settings::dialog_key(dialog, DialogKey::space);
+    CHECK(!dialog.chosen.unlocked_camera);
+}
+
 void explosion_flash_shows_and_changes() {
     CHECK(geometry::kind_of(Setting::explosion_flash) == geometry::RowKind::levels);
     CHECK(geometry::strip_of(Setting::explosion_flash).levels == 3);
@@ -9182,8 +9230,23 @@ void the_arrows_move_by_geometry() {
     );
     // Graphics: After zoom waits for Dots.
     CHECK(
-        tab_round(opened(Page::graphics)) ==
-        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7, row + 8})
+        tab_round(opened(Page::graphics)) == then_rest(
+                                                 {row,
+                                                  row + 1,
+                                                  row + 2,
+                                                  row + 3,
+                                                  row + 4,
+                                                  row + 5,
+                                                  row + 6,
+                                                  row + 7,
+                                                  row + 8,
+                                                  row + 10,
+                                                  row + 11,
+                                                  row + 12,
+                                                  row + 13,
+                                                  row + 14,
+                                                  row + 15}
+                                             )
     );
     // User Interface: every row takes a change, Interface size among them.
     CHECK(
@@ -10224,6 +10287,7 @@ int main(int argc, char** argv) {
         interface_size_offers_150_with_the_modern_fonts();
         menu_scaling_and_native_density_show_and_change();
         smooth_motion_shows_and_changes();
+        visual_effects_show_and_change();
         explosion_flash_shows_and_changes();
         zoomed_out_units_show_and_change();
         window_edge_and_edge_stickiness_show_and_change();

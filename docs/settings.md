@@ -487,6 +487,21 @@ the game draws its text and how the modern fonts draw it.
   with Full hardware acceleration, so choose a farther Maximum zoom out to
   see the dots.
 
+- **Allow Full 3D Mode**, On by default, enables camera rotation with Full
+  hardware acceleration on supported devices. Matches still start in the
+  classic top-down view. Turning it Off restores classic orientation.
+- **Unlocked Camera**, Off by default, allows angles outside the ideal range
+  for the original TA art. It is available while Allow Full 3D Mode is On.
+  Option+U also changes this setting; Option+R resets the camera orientation.
+- **Coloured weapon lighting**, **Nanolathe glow**, **Wreck glow** and
+  **Heat distortion** are independent intensity sliders, from 0% to 200%
+  in 10% steps, all 100% by default. Zero disables the effect; 100% preserves
+  its standard appearance. Lighting sliders change brightness without changing
+  the source radius or duration. Heat distortion changes shimmer displacement.
+  They apply in both the normal and 3D views and can be changed during a match.
+  Cancel restores the choices from before the dialog opened; OK saves them
+  for the next run. Existing saved Off/On choices migrate to 0%/100%.
+
 Some computers start with other defaults, which Restore defaults puts back
 and which a value you choose always replaces:
 

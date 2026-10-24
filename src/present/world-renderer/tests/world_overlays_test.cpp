@@ -58,6 +58,37 @@ std::unique_ptr<oa::Game> make_game() {
     return game;
 }
 
+void test_projected_debug_grid() {
+    auto game = make_game();
+    game->map_width = 2;
+    game->map_height = 2;
+    game->offscreen_width = 640;
+    game->offscreen_height = 480;
+    game->debug_overlay = wr::debug_view::terrain;
+    // The rotated view may show cells outside the classic camera bounds.
+    game->camera_x = 1000;
+    game->camera_y = 1000;
+    oa::MapPlot plots[4]{};
+    for (auto& plot : plots) {
+        plot.feature = 0xffff;
+        plot.height = 20;
+    }
+    wr::DebugGridSources sources;
+    sources.plots = plots;
+    sources.project = [](void*, int32_t x, int32_t h, int32_t z, int32_t& sx, int32_t& sy) {
+        sx = 200 + x + z;
+        sy = 100 + z - x - h;
+    };
+    Log log;
+    wr::overlay_debug_grid(*game, recorder(log), nullptr, sources);
+    OA_CHECK(log.calls.size() == 2);
+    if (log.calls.size() == 2) {
+        OA_CHECK(log.calls[0].x0 == 200 && log.calls[0].y0 == 80);
+        OA_CHECK(log.calls[0].x1 == 216 && log.calls[0].y1 == 64);
+        OA_CHECK(log.calls[1].x1 == 216 && log.calls[1].y1 == 96);
+    }
+}
+
 void test_traffic_and_meter() {
     auto game = make_game();
     Log log;
@@ -322,6 +353,7 @@ void test_profile_bar() {
 } // namespace
 
 int main() {
+    test_projected_debug_grid();
     test_debug_grid_terrain();
     test_profile_bar();
     test_present_binding();

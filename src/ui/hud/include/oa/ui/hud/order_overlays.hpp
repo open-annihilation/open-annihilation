@@ -174,11 +174,18 @@ struct OverlaySink {
     FixedVec3 (*place)(void* user, const Unit& unit){};
 };
 
+struct ScreenPoint {
+    int32_t x{}, y{};
+};
+
 /// The battlefield view the overlays are projected into.
 struct OverlayView {
     const Unit* focus_unit{}; // unit the cursor rests on in this view, or null
     int32_t camera_x{};       // map pixels
     int32_t camera_y{};
+    /// Optional world projection; null retains the classic HUD coordinates.
+    void* projection_user{};
+    ScreenPoint (*project)(void* user, const FixedVec3& point){};
 };
 
 struct OverlayContext {
@@ -195,10 +202,6 @@ struct OverlayContext {
     /// ui.interface-fixes radius-0: a circle too small for one segment draws
     /// its label alone instead of nothing.
     bool segmentless_circle_label{};
-};
-
-struct ScreenPoint {
-    int32_t x{}, y{};
 };
 
 /// Projects a world point onto the screen: x across, z up the screen lifted by half the height.

@@ -126,6 +126,57 @@ void Runtime::check_pause_key() {
     const auto resumed_ticks = ticks_in_one_second();
     require(resumed_ticks > 0, "Pause again did not resume the skirmish");
 
+    // Resume must release an explicit Pause, not only the menu's hold.
+    // Canceling a surrender dialog must leave that explicit pause intact.
+    key(SDLK_PAUSE, SDL_SCANCODE_PAUSE);
+    request_match_close();
+    key(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+    require(
+        !match_paused_ && (game.sim_run_flags & console::kSimRunPaused) != 0 &&
+            ticks_in_one_second() == 0,
+        "canceling surrender cleared the explicit pause"
+    );
+    key(SDLK_F2, SDL_SCANCODE_F2);
+    require(match_paused_, "F2 did not open the menu over an explicit pause");
+    activate_pause_gadget("OK");
+    require(
+        !match_paused_ && (game.sim_run_flags & console::kSimRunPaused) == 0 &&
+            ticks_in_one_second() > 0,
+        "Resume closed the menu but left the simulation paused"
+    );
+    key(SDLK_PAUSE, SDL_SCANCODE_PAUSE);
+    key(SDLK_F2, SDL_SCANCODE_F2);
+    key(SDLK_F2, SDL_SCANCODE_F2);
+    require(
+        !match_paused_ && (game.sim_run_flags & console::kSimRunPaused) == 0 &&
+            ticks_in_one_second() > 0,
+        "F2 closed the menu but left the simulation paused"
+    );
+#if defined(__APPLE__)
+    // A desktop Mac can reach the same pause control without a Pause key.
+    const auto command_pause = [&] {
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.key = SDLK_P;
+        event.key.scancode = SDL_SCANCODE_P;
+        event.key.mod = SDL_KMOD_GUI;
+        event.key.down = true;
+        dispatch_event(event, running);
+    };
+    command_pause();
+    require(
+        !match_paused_ && (game.sim_run_flags & console::kSimRunPaused) != 0 &&
+            ticks_in_one_second() == 0,
+        "Cmd+P did not pause the desktop match"
+    );
+    command_pause();
+    require(
+        !match_paused_ && (game.sim_run_flags & console::kSimRunPaused) == 0 &&
+            ticks_in_one_second() > 0,
+        "Cmd+P did not resume the desktop match"
+    );
+#endif
+
     // F2 opens the options menu, which holds a skirmish; Escape opens no menu.
     key(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
     require(!match_paused_, "Escape opened a menu");
@@ -576,6 +627,20 @@ void Runtime::check_team_panels() {
         );
         const auto pause_title = changed_pixels(before, title_pixels());
         require(pause_title >= kTextMinPixels, "a pause set elsewhere showed no paused title");
+        key(SDLK_F2, SDL_SCANCODE_F2);
+        key(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+        require(
+            !match_paused_ && (game.sim_run_flags & console::kSimRunPaused) != 0 &&
+                ticks_in_one_second() == 0,
+            "closing the shared game's menu cleared its synchronized pause"
+        );
+        key(SDLK_TAB, SDL_SCANCODE_TAB);
+        key(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE);
+        require(
+            !match_paused_ && (game.sim_run_flags & console::kSimRunPaused) != 0 &&
+                ticks_in_one_second() == 0,
+            "closing the team menu cleared the synchronized pause"
+        );
         game.sim_run_flags = static_cast<uint16_t>(game.sim_run_flags & ~console::kSimRunPaused);
         require(ticks_in_one_second() > 0, "the match did not resume when the pause bit cleared");
 

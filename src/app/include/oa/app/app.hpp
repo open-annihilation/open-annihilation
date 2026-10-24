@@ -151,7 +151,9 @@ enum class Showcase {
     arm_first_mission,
     // From the main menu into a two-player skirmish whose armies fight for a
     // minute, reporting the ticks and frames a second it played at.
-    skirmish_battle
+    skirmish_battle,
+    // A commander and construction Kbot build a defended base.
+    base_construction
 };
 
 /// The part of the navigation check --check-navigation runs. Each group
@@ -781,6 +783,10 @@ struct Options {
     // waits to be reset, a changed floating-point setting, and textures
     // beyond the renderer's limit.
     bool check_renderer_ladder = false;
+    /// Draws the fixed terrain proof offscreen and compares it with the classic view.
+    bool check_renderer_proof{};
+    /// Checks the live experimental renderer in an offscreen skirmish.
+    bool check_live_renderer{};
     // --render-fault POINT[@FRAME]: --check-renderer-ladder forces only that
     // failure, at that presented frame of its case; unset for every case.
     std::optional<RenderFault> render_fault;
@@ -820,6 +826,8 @@ struct Options {
     // setting for the run whatever the settings say, and is never saved;
     // empty when no flag was given.
     std::optional<oa::ui::engine_settings::HardwareAcceleration> hardware_acceleration;
+    /// Accepts the legacy 3D launch flag; Graphics settings now control camera access.
+    bool experimental_3d{};
     // --force-capable, which only --check-render-tiers, --check-build-preview,
     // --check-engine-settings and --check-kill-board take: the renderer
     // counts as one the graphics card could scale the frames on, so that the

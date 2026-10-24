@@ -488,6 +488,8 @@ bool Runtime::ready_build_preview(MatchModels& models) {
     unit.def = oa::oa_ref_from_index(pending_build_type_);
     unit.owner_index = match_local_player_;
     unit.position = {site->world[0], site->world[1], site->world[2]};
+    unit.footprint_x = site->footprint_x;
+    unit.footprint_z = site->footprint_z;
     // Facing the way the building is built: half a turn from heading 0,
     // then the facing's quarter turns. Its look comes from its pulse
     // (build_preview_bands); it counts as just begun.

@@ -5,6 +5,8 @@
 
 #include "oa/sim/unit_movement/movement.hpp"
 
+#include <algorithm>
+#include <initializer_list>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -100,6 +102,8 @@ FixedVec3 shown_place(const OverlayContext& context, const Unit& unit) {
 } // namespace
 
 ScreenPoint overlay_project(const OverlayView& view, const FixedVec3& point) noexcept {
+    if (view.project != nullptr)
+        return view.project(view.projection_user, point);
     return {
         high16(point.x) - view.camera_x + kBattlefieldLeft,
         high16(point.z) - (high16(point.y) >> 1) - view.camera_y + kBattlefieldTop,
@@ -109,6 +113,26 @@ ScreenPoint overlay_project(const OverlayView& view, const FixedVec3& point) noe
 void build_site_overlay_bounds(
     const OverlayView& view, const UnitDef& def, const FixedVec3& position, BuildSiteBounds& bounds
 ) noexcept {
+    if (view.project != nullptr) {
+        int32_t left = INT32_MAX, top = INT32_MAX, right = INT32_MIN, bottom = INT32_MIN;
+        for (const auto x : {def.bounds_min_x, def.bounds_max_x})
+            for (const auto z : {def.bounds_min_z, def.bounds_max_z}) {
+                const auto p = overlay_project(
+                    view, {position.x + x, position.y + def.bounds_min_y, position.z + z}
+                );
+                left = std::min(left, p.x);
+                right = std::max(right, p.x);
+                top = std::min(top, p.y);
+                bottom = std::max(bottom, p.y);
+            }
+        bounds = {
+            static_cast<uint32_t>(left),
+            static_cast<uint32_t>(top),
+            static_cast<uint32_t>(right),
+            static_cast<uint32_t>(bottom)
+        };
+        return;
+    }
     const int32_t lift = high16(position.y + def.bounds_min_y) >> 1;
     bounds.top = static_cast<uint32_t>(
         high16(position.z + def.bounds_min_z) - lift - view.camera_y + kBattlefieldTop
@@ -133,6 +157,33 @@ void draw_build_site_overlay(
     const auto* def = type_def(context, type);
     if (def == nullptr)
         return;
+    if (context.view.project != nullptr) {
+        const bool selected =
+            order.unit != nullptr && (order.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+        const auto color =
+            ui_color(context, selected ? kUiColorSiteInnerSelected : kUiColorSiteInner);
+        const FixedVec3 corners[] = {
+            {order.position.x + def->bounds_min_x,
+             order.position.y,
+             order.position.z + def->bounds_min_z},
+            {order.position.x + def->bounds_max_x,
+             order.position.y,
+             order.position.z + def->bounds_min_z},
+            {order.position.x + def->bounds_max_x,
+             order.position.y,
+             order.position.z + def->bounds_max_z},
+            {order.position.x + def->bounds_min_x,
+             order.position.y,
+             order.position.z + def->bounds_max_z}
+        };
+        for (int i = 0; i < 4; ++i) {
+            const auto a = overlay_project(context.view, corners[i]);
+            const auto b = overlay_project(context.view, corners[(i + 1) % 4]);
+            line(context, a.x, a.y, b.x, b.y, color);
+        }
+        point = order.position;
+        return;
+    }
     BuildSiteBounds bounds{};
     build_site_overlay_bounds(context.view, *def, order.position, bounds);
     const auto top = bounds.top;
@@ -448,6 +499,18 @@ void draw_target_ring(const OverlayContext& context, const OrderOverlay& order, 
         const auto* def = world_unit_def_of(context.world, order.target);
         radius = def != nullptr ? high16(def->size_x) : 0;
         center = shown_place(context, *order.target);
+    }
+    if (context.view.project != nullptr) {
+        draw_range_circle(
+            context,
+            center,
+            static_cast<uint32_t>(radius),
+            ui_color(context, kUiColorRange),
+            nullptr,
+            0
+        );
+        point = center;
+        return;
     }
     const auto squashed = static_cast<int32_t>(radius * kRingSquash);
     const auto origin = overlay_project(context.view, center);

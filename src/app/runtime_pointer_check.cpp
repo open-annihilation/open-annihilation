@@ -149,6 +149,14 @@ void Runtime::check_pointer_interfaces() {
         dispatch_event(focus, running);
     };
     system_pointer(false, "in play");
+    system_pointer_screen_open_ = true;
+    apply_system_pointer(false);
+    system_pointer(true, "over a native dialog");
+    require(!pointer_shows_cursor(), "the game cursor remained over a native dialog");
+    system_pointer_screen_open_ = false;
+    apply_system_pointer(true);
+    require(pointer_shows_cursor(), "the game cursor did not return from a native dialog");
+    system_pointer(false, "back from a native dialog");
     tap(SDLK_F2);
     require(match_paused_, "F2 did not open the in-game menu");
     system_pointer(false, "over the in-game menu");
@@ -222,6 +230,37 @@ void Runtime::check_pointer_interfaces() {
         press(button, x, y, mods);
         release(button, x, y, mods);
     };
+    // Camera drags consume motion before normal pointer handling. They must
+    // still move the custom cursor and leave the system cursor hidden, without
+    // creating a GPU device or drawing a rotated frame in this input check.
+    const bool saved_experimental = options_.experimental_3d;
+    const bool saved_headless = options_.headless_check;
+    options_.experimental_3d = true;
+    options_.headless_check = true;
+    const float camera_x = match_layout_.left + match_layout_.battlefield_width() * 0.5F;
+    const float camera_y = match_layout_.top + match_layout_.battlefield_height() * 0.5F;
+    for (const SDL_Keymod modifiers :
+         std::array<SDL_Keymod, 2>{SDL_KMOD_LALT, SDL_KMOD_LALT | SDL_KMOD_LSHIFT}) {
+        press(SDL_BUTTON_LEFT, camera_x, camera_y, modifiers);
+        SDL_ShowCursor();
+        move_to(camera_x + kPointOffset, camera_y + kPointOffset, modifiers);
+        require(
+            std::abs(pointer_x_ - (camera_x + kPointOffset)) < 1.0F &&
+                std::abs(pointer_y_ - (camera_y + kPointOffset)) < 1.0F,
+            "the custom cursor stopped following a camera drag"
+        );
+        require(pointer_shows_cursor(), "a camera drag hid the custom cursor");
+        system_pointer(false, "during a camera drag");
+        release(SDL_BUTTON_LEFT, camera_x, camera_y, modifiers);
+        require(
+            std::abs(pointer_x_ - camera_x) < 1.0F && std::abs(pointer_y_ - camera_y) < 1.0F,
+            "camera release kept the custom cursor at its old position"
+        );
+        system_pointer(false, "after a camera drag");
+    }
+    reset_live_renderer();
+    options_.experimental_3d = saved_experimental;
+    options_.headless_check = saved_headless;
     const auto set_interface = [&](int32_t type) { world.game.interface_type = type; };
     const auto viewport = [&] { return live_viewport(match_camera_x_, match_camera_z_); };
     const auto screen_of = [&](uint16_t id) {

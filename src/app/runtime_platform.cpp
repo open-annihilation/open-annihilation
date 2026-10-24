@@ -78,16 +78,23 @@ void Runtime::note_window_activation(const SDL_Event& event) {
     // so the system's pointer shows over its window until it is active again.
     // Every event applies the rule, not only a change of focus, so that a
     // pointer another part of the system showed is hidden again.
-    apply_system_pointer(false);
+    // Native cursor rectangles can change without changing SDL's cached
+    // visibility. Reassert the hidden cursor when the pointer or focus moves.
+    const bool redraw =
+        event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
+        event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_WINDOW_MOUSE_ENTER ||
+        event.type == SDL_EVENT_WINDOW_FOCUS_GAINED;
+    apply_system_pointer(redraw);
 }
 
 bool Runtime::pointer_shows_cursor() const {
-    return application_active_ && (sdl_.window == nullptr ||
-                                   (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_MOUSE_FOCUS) != 0);
+    return !system_pointer_wanted();
 }
 
 bool Runtime::system_pointer_wanted() const {
-    return !cursors_loaded_ || !application_active_ || system_pointer_screen_open_;
+    return !cursors_loaded_ || !application_active_ || system_pointer_screen_open_ ||
+           (sdl_.window != nullptr &&
+            (SDL_GetWindowFlags(sdl_.window) & SDL_WINDOW_MOUSE_FOCUS) == 0);
 }
 
 void Runtime::apply_system_pointer(bool redraw) {

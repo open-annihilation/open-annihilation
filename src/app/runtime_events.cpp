@@ -102,6 +102,8 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
     // still reaches the window.
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST)
         std::ignore = middle_pan_take(event);
+    if (live_renderer_take_event(event))
+        return;
     // The character a quick key types after its press answered a panel over
     // the match goes nowhere, though the panel is closed by then; while the
     // surrender confirmation is up, typing reaches neither the chat line nor

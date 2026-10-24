@@ -2082,6 +2082,14 @@
 	it=Chiude il menu aperto.;
 	}
 
+[Coloured weapon lighting]
+	{
+	de=Farbige Waffenbeleuchtung;
+	fr=Éclairage coloré des armes;
+	es=Iluminación de color de las armas;
+	it=Illuminazione colorata delle armi;
+	}
+
 [Commander Builder Limit]
 	{
 	de=Bauergrenze des Kommandanten;
@@ -3904,6 +3912,14 @@
 	fr=Accélération matérielle;
 	es=Aceleración por hardware;
 	it=Accelerazione hardware;
+	}
+
+[Heat distortion]
+	{
+	de=Hitzeflimmern;
+	fr=Distorsion thermique;
+	es=Distorsión térmica;
+	it=Distorsione termica;
 	}
 
 [Held, a build click lays a line or a ring.]
@@ -5952,6 +5968,14 @@
 	fr=MAINTENANT;
 	es=AHORA;
 	it=ORA;
+	}
+
+[Nanolathe glow]
+	{
+	de=Nanolathe-Leuchten;
+	fr=Lueur du nanolathe;
+	es=Brillo del nanoconstructor;
+	it=Bagliore del nanocostruttore;
 	}
 
 [Native pixel density]
@@ -11338,6 +11362,14 @@
 	it=Funziona con;
 	}
 
+[Wreck glow]
+	{
+	de=Glühen von Wracks;
+	fr=Lueur des épaves;
+	es=Resplandor de los restos;
+	it=Bagliore dei relitti;
+	}
+
 [Wreck snap radius]
 	{
 	de=Einrastradius für Wracks;
@@ -14688,4 +14720,44 @@
 	fr=Depuis {place}…;
 	es=Desde {place}…;
 	it=Da {place}…;
+	}
+
+[Allow Full 3D Mode]
+	{
+	de=Vollständigen 3D-Modus erlauben;
+	fr=Autoriser le mode 3D complet;
+	es=Permitir modo 3D completo;
+	it=Consenti modalità 3D completa;
+	}
+
+[Unlocked Camera]
+	{
+	de=Freie Kamera;
+	fr=Caméra déverrouillée;
+	es=Cámara desbloqueada;
+	it=Telecamera sbloccata;
+	}
+
+[Needs Allow Full 3D Mode]
+	{
+	de=Benötigt vollständigen 3D-Modus;
+	fr=Nécessite le mode 3D complet;
+	es=Requiere modo 3D completo;
+	it=Richiede la modalità 3D completa;
+	}
+
+[Requires Full hardware acceleration.]
+	{
+	de=Erfordert volle Hardwarebeschleunigung.;
+	fr=Nécessite une accélération matérielle complète.;
+	es=Requiere aceleración de hardware completa.;
+	it=Richiede accelerazione hardware completa.;
+	}
+
+[Allow angles outside the ideal range for TA art.]
+	{
+	de=Erlaubt Winkel außerhalb des idealen Bereichs für TA-Grafiken.;
+	fr=Autorise les angles hors de la plage idéale pour les graphismes de TA.;
+	es=Permite ángulos fuera del rango ideal para los gráficos de TA.;
+	it=Consenti angoli fuori dall’intervallo ideale per la grafica di TA.;
 	}
