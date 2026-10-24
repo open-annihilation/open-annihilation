@@ -418,9 +418,11 @@ every one of `start`, `schedule`, `sort`, `task1` to `task9`):
 - `start` compares the set-up record's draws with the brain's
   `setup_random` draws, whenever the brain makes them.
 
-One line is printed per seat at the end of the run. The logs kept are the
-set-up and, when the logs differ, the first differing tick and the two
-before it. Older ticks are dropped. `--brain-shadow-log DIR` writes
+Each time the built-in player acts, including the load's player pass, that
+turn is compared. One line is printed per seat at the end of the run. The
+logs kept are the set-up and, when the logs differ, the first differing
+tick and the two before it. Older ticks are dropped. `--brain-shadow-log
+DIR` writes
 `seat-<p>-start-builtin.log`, `seat-<p>-start-brain.log`, and
 `seat-<p>-tick-<t>-builtin.log` and `seat-<p>-tick-<t>-brain.log` for those
 ticks. `<p>` is the engine player index.

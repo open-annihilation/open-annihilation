@@ -619,10 +619,14 @@ are recorded and not applied.
 At the end of the run, one line is printed for each shadowed seat:
 
 ```text
-brain shadow: seat 1: start not compared, 600 ticks, no difference
-brain shadow: seat 1: start same, 600 ticks, first difference at tick 30 in sort, 20 ticks differ
+brain shadow: seat 1: start not compared, 601 ticks, no difference
+brain shadow: seat 1: start same, 601 ticks, first difference at tick 29 in sort, 20 ticks differ
 brain shadow: seat 1: stopped at tick 12: brain.lua:4: something failed
 ```
+
+The load's player pass is compared too, once, before the ticks
+`--match-ticks` runs. A run of 600 ticks compares 601, and the first squad
+sort is at tick 29.
 
 `start` is `same`, `differs` or `not compared`. The seat number is the
 engine's player index. A stopped brain prints only the stopped line.
