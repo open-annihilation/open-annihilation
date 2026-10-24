@@ -423,8 +423,86 @@ void start_stops_at_the_phase_allowance() {
     CHECK(outcome.result == brains::SeatResult::failed);
     CHECK(outcome.error.kind == host::ErrorKind::instruction_budget);
     CHECK(outcome.error.message == "the script ran past its budget of 50000000 instructions");
+    CHECK(outcome.start_instructions >= host::default_instruction_budget);
+    CHECK(
+        outcome.start_instructions <=
+        host::default_instruction_budget + static_cast<uint64_t>(host::budget_check_interval)
+    );
+    CHECK(outcome.fits_instructions == 0);
     CHECK(!brains::brain_seated(*fixture.match, computer));
     CHECK(brains::seat_sandbox(*fixture.match, computer) == nullptr);
+}
+
+void phase_counts_record_what_ran() {
+    {
+        Fixture fixture;
+        Package package;
+        package.entry = "missing.lua";
+        add_file(package, "nets/scout.oann", "scout");
+        const brains::SeatOutcome outcome = seat_it(fixture, package);
+        CHECK(outcome.result == brains::SeatResult::refused);
+        CHECK(!outcome.load_ran);
+        CHECK(!outcome.fits_ran);
+        CHECK(!outcome.start_ran);
+        CHECK(outcome.load_instructions == 0);
+        CHECK(outcome.fits_instructions == 0);
+        CHECK(outcome.start_instructions == 0);
+    }
+
+    {
+        Fixture fixture;
+        Package package;
+        add_file(
+            package,
+            "brain.lua",
+            "local n = 0\n"
+            "for i = 1, 4000 do n = n + i end\n"
+            "local hooks = {}\n"
+            "function hooks.start()\n"
+            "  local m = 0\n"
+            "  for i = 1, 4000 do m = m + i end\n"
+            "end\n"
+            "return hooks\n"
+        );
+        add_file(package, "nets/scout.oann", "scout");
+        const brains::SeatOutcome outcome = seat_it(fixture, package);
+        CHECK(outcome.result == brains::SeatResult::seated);
+        CHECK(outcome.load_ran);
+        CHECK(!outcome.fits_ran);
+        CHECK(outcome.start_ran);
+        CHECK(outcome.load_instructions > 0);
+        CHECK(outcome.load_instructions % 1000 == 0);
+        CHECK(outcome.fits_instructions == 0);
+        CHECK(outcome.start_instructions > 0);
+        CHECK(outcome.start_instructions % 1000 == 0);
+    }
+
+    {
+        Fixture fixture;
+        Package package;
+        add_file(
+            package,
+            "brain.lua",
+            "local hooks = {}\n"
+            "function hooks.fits(game)\n"
+            "  local n = 0\n"
+            "  for i = 1, 4000 do n = n + i end\n"
+            "  return 'no room'\n"
+            "end\n"
+            "function hooks.start() while true do end end\n"
+            "return hooks\n"
+        );
+        add_file(package, "nets/scout.oann", "scout");
+        const brains::SeatOutcome outcome = seat_it(fixture, package);
+        CHECK(outcome.result == brains::SeatResult::does_not_fit);
+        CHECK(outcome.load_ran);
+        CHECK(outcome.fits_ran);
+        CHECK(!outcome.start_ran);
+        CHECK(outcome.fits_instructions > 0);
+        CHECK(outcome.fits_instructions % 1000 == 0);
+        CHECK(outcome.start_instructions == 0);
+        CHECK(!brains::brain_seated(*fixture.match, computer));
+    }
 }
 
 void local_unused_and_a_second_seat_are_refused() {
@@ -717,6 +795,7 @@ int main() {
         missing_entry_is_refused();
         bad_digest_runs_no_lua();
         start_stops_at_the_phase_allowance();
+        phase_counts_record_what_ran();
         local_unused_and_a_second_seat_are_refused();
         seated_brain_skips_the_order_tick();
         save_returns_a_table();
