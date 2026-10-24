@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: steady-commander
+name: Steady Commander
+version: "1.0"
+author:
+  name: Ridge Workshop
+description: "Builds a little economy, then a factory, and sends a squad when it is ready."
+tags:
+  - economy
+  - teaching
+works-with:
+  - "*"
+levels:
+  - id: easy
+    name: Easy
+    difficulty: easy
+  - id: medium
+    name: Medium
+    difficulty: medium
+  - id: hard
+    name: Hard
+    difficulty: hard
+options:
+  attack:
+    type: choice
+    label: "How soon to attack"
+    values: ["soon", "steady", "late"]
+    default: "steady"
+    labels: ["Soon", "Steady", "Late"]
+entry: brain.lua
