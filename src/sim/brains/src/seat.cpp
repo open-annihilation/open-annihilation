@@ -35,6 +35,7 @@ Seat::Seat() = default;
 Seat::~Seat() {
     delete[] incoming.items;
     delete[] delivering.items;
+    shadow_release(*this);
 }
 
 void write_reason(std::array<char, 256>& reason, std::string_view text) {
@@ -542,12 +543,6 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         return false;
     }
     return true;
-}
-
-Seat::~Seat() {
-    delete[] incoming.items;
-    delete[] delivering.items;
-    shadow_release(*this);
 }
 
 void copy_sections(char* out, std::string_view text) noexcept {
