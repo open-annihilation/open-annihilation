@@ -411,6 +411,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the button's size and place, its badge and count, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
 | `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, as large as it, at 640x480 and 1280x720, its count, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
 | `--check-mutator-picker` | Checks the mutator picker at four window sizes, including a cancelled download, a check after an install, USE THESE fetching one, a download already under way, and the runtime's own feed. |
+| `--check-brain-picker` | Checks the brain picker at four window sizes: the row order, a locked brain, the level, USE THIS, every computer seat, CANCEL, the keys, the controller, and the runtime's own feed. |
 | `--check-mutator-prompts` | Checks the questions a stopped skirmish start, a crash and Get mutators ask: START WITHOUT IT, BACK, FORGET IT and RETRY. Then the host's "The game did not start" for a guest without its release and for one with it. |
 | `--check-mod-warning` | Checks the warning for a mod whose files are missing. |
 | `--check-mod-install` | Installs, rolls back and replaces made-up mod packages. |

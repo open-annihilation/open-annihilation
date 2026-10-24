@@ -70,6 +70,7 @@
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/mutator_picker/model.hpp"
+#include "oa/ui/brain_picker/model.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/dry_run.hpp"
@@ -469,6 +470,42 @@ struct MutatorPickerFeed {
     };
     /// Retries a download that stopped. Null leaves it stopped.
     void (*retry)(void* context, std::string_view registry, std::string_view key){nullptr};
+};
+
+/// What a caller hands the brain picker, and what the picker hands back.
+struct BrainPickerRequest {
+    /// Which setup opened the picker.
+    oa::data::brain_library::Setup setup{};
+    /// The seat, as a player reads it.
+    std::string seat_name{};
+    /// The seat's choice as the setup remembered it.
+    oa::ui::brain_picker::Choice current{};
+    /// The setup's difficulty. A new brain starts at the level of this
+    /// difficulty, and the built-in player uses it while the level is fixed.
+    oa::data::brain_library::Difficulty setup_difficulty{};
+    /// True in a skirmish or a campaign, where the Difficulty button sets
+    /// every built-in seat's level.
+    bool built_in_level_fixed{};
+    /// True when the picker offers to put the choice on every computer seat.
+    bool offer_every_seat{};
+    /// Called with the choice and whether it is for every computer seat,
+    /// when USE THIS closes the picker.
+    std::function<void(oa::ui::brain_picker::Choice, bool every_seat)> used{};
+    /// Called when the picker closes without handing a choice.
+    std::function<void()> cancelled{};
+};
+
+/// Where the brain picker reads the brains it lists.
+///
+/// The brains are in the order the picker lists them, the built-in player
+/// first. The generation moves on when that list would differ. The runtime's
+/// own feed is installed until a check replaces it.
+struct BrainPickerFeed {
+    void* context{nullptr};
+    /// The brains the picker can show. Null gives no list.
+    std::vector<oa::ui::brain_picker::Brain> (*brains)(void* context){nullptr};
+    /// A count that moves on when `brains` would give something else.
+    uint64_t (*generation)(void* context){nullptr};
 };
 
 /// One mutator that stopped a skirmish or a campaign mission from starting.
@@ -4518,7 +4555,8 @@ class Runtime final : public menu::Host,
 
     /// Reads the Brains folder again when a listing is already held.
     ///
-    /// A package change before the first read leaves the listing unmade.
+    /// The generation the brain picker watches moves either way. A package
+    /// change before the first read still leaves the listing unmade.
     void reload_installed_brains() const;
 
     /// Returns the default brain's id.
@@ -5847,6 +5885,29 @@ class Runtime final : public menu::Host,
     /// @return false when the picker cannot open
     bool open_mutator_picker(MutatorPickerRequest request);
 
+    /// Opens the brain picker on the OA layer, over the screen that asked.
+    ///
+    /// The list comes from the feed: the runtime's own feed lists the brains
+    /// installed in the player's Brains folder. That feed is installed the
+    /// first time, unless a check has replaced it. Refused during a match,
+    /// while a front-end dialog is up, while a modal OA screen is up, without
+    /// the layer's fonts, or while the picker is already open.
+    ///
+    /// @param request the setup, the seat, the choice it opens on, and what it hands back
+    /// @return false when the picker cannot open
+    bool open_brain_picker(BrainPickerRequest request);
+
+    /// Replaces the brain picker's feed.
+    ///
+    /// A check uses this. Restoring the runtime's own feed puts that feed
+    /// back. Badge pictures the own feed was holding are dropped.
+    ///
+    /// @param feed the feed
+    void set_brain_picker_feed(BrainPickerFeed feed);
+
+    /// Puts the runtime's own brain-picker feed back.
+    void restore_brain_picker_feed();
+
     /// Replaces the mutator picker's feed.
     ///
     /// A check uses this. Restoring the runtime's own feed puts that feed
@@ -6370,6 +6431,9 @@ class Runtime final : public menu::Host,
     /// The mutator picker, a screen of the OA layer named mutator-picker.
     struct MutatorPickerScreen;
 
+    /// The brain picker, a screen of the OA layer named brain-picker.
+    struct BrainPickerScreen;
+
     /// MUTATORS… on the skirmish setup and the campaign launch, a screen of
     /// the OA layer named mutators-button.
     struct MutatorButtonScreen;
@@ -6403,6 +6467,15 @@ class Runtime final : public menu::Host,
     ///
     /// @param state the state; null is allowed
     static void destroy_mutator_picker_state(MutatorPickerState* state) noexcept;
+
+    /// The brain picker's badge pictures, while it is open. Defined in
+    /// runtime_brain_picker.cpp.
+    struct BrainPickerState;
+
+    /// Frees the brain picker's state.
+    ///
+    /// @param state the state; null is allowed
+    static void destroy_brain_picker_state(BrainPickerState* state) noexcept;
 
     /// Keeps MORE MAPS… on the OA layer while the skirmish map list (SELMAP)
     /// shows, or the host's map dialog in the battle room: pushes it when the
@@ -6464,9 +6537,9 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_map_browser();
 
-    /// Writes --check-mutator-picker's registry list into the player's
-    /// folder, every built-in registry turned off, before the content
-    /// service reads it, so that the check fetches nothing.
+    /// Writes --check-mutator-picker's and --check-brain-picker's registry
+    /// list into the player's folder, every built-in registry turned off,
+    /// before the content service reads it, so that the check fetches nothing.
     void prepare_mutator_picker_check();
 
     /// Runs --check-mutator-picker: the picker over the main menu at
@@ -6476,6 +6549,17 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_mutator_picker();
+
+    /// Runs --check-brain-picker: the picker over the main menu at
+    /// 640x480, 1280x720, 1920x1080 and 2560x1440, over a feed of made-up
+    /// brains, then on the runtime's own feed. Writes each size's opening
+    /// frame as brain-picker-<w>x<h>.png in the working folder.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_brain_picker();
+
+    /// Installs the check's brain feed. The text-fit check opens the picker on it too.
+    void install_brain_picker_check_feed();
 
     /// Installs the check's feed. The text-fit check opens the picker on it too.
     void install_mutator_picker_check_feed();
@@ -18497,6 +18581,29 @@ class Runtime final : public menu::Host,
     MutatorPickerFeed mutator_picker_feed_{};
     /// True once a feed is installed. The own feed is installed on first open.
     bool mutator_picker_feed_set_{false};
+    // The brain picker's badge pictures, while the picker is open.
+    std::unique_ptr<BrainPickerState, void (*)(BrainPickerState*) noexcept> brain_picker_state_{
+        nullptr, destroy_brain_picker_state
+    };
+    /// Where the brain picker reads its list. The own feed until a check replaces it.
+    BrainPickerFeed brain_picker_feed_{};
+    /// True once a feed is installed. The own feed is installed on first open.
+    bool brain_picker_feed_set_{false};
+
+    /// The own feed's list of brains, the built-in player first.
+    ///
+    /// Reads the installed brains. Does not run a script. An icon is decoded
+    /// here and kept until the picker closes.
+    ///
+    /// @param context the runtime
+    /// @return the brains, in the order the picker lists them
+    static std::vector<oa::ui::brain_picker::Brain> own_brain_picker_brains(void* context);
+
+    /// The own feed's generation: it moves when a brain is installed or removed.
+    ///
+    /// @param context the runtime
+    /// @return the count
+    static uint64_t own_brain_picker_generation(void* context);
 
     /// The own feed's list of mutators.
     ///
@@ -18580,6 +18687,10 @@ class Runtime final : public menu::Host,
     // The installed brains; null until first read.
     mutable std::unique_ptr<BrainLibraryState, void (*)(BrainLibraryState*) noexcept>
         brain_library_state_{nullptr, destroy_brain_library_state};
+    /// Moves when a brain package is installed or removed, including a change
+    /// before the listing is first read. The brain picker's own feed reads it.
+    /// It starts at 1, so a generation of 0 still means a feed has not spoken.
+    mutable uint64_t installed_brains_generation_{1};
     // The mutators the next matches apply, and the running match's result;
     // null until a choice is stored.
     std::unique_ptr<MutatorState, void (*)(MutatorState*) noexcept> mutator_state_{

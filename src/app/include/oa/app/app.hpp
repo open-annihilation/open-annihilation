@@ -712,6 +712,10 @@ struct Options {
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.
     bool check_mutator_picker = false;
+    // Opens the brain picker over the main menu at four window sizes, on
+    // a feed of made-up brains, and requires the rows, the level, the
+    // handed choice and the runtime's own feed.
+    bool check_brain_picker = false;
     // A skirmish one made-up mutator stops, START WITHOUT IT and BACK, the
     // question after a crash, and Get mutators over the picker.
     bool check_mutator_prompts = false;

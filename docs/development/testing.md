@@ -1229,6 +1229,10 @@ reads `Checked with No Mod ✓`. It then opens that feed with a mutator
 whose check already stopped and an On mutator whose package cannot be
 resolved: the chip keeps the stopped verdict and does not read the
 checking words. The dry run is the Library worker's.
+`native-brain-picker` (`--check-brain-picker`) opens the brain picker over the
+main menu at four window sizes on a fixture feed of made-up brains, then
+on the runtime's own feed after two packages are written into the scratch
+Brains folder.
 `native-replay-loadout` starts the game with
 `--check-replay-loadout`
 and two installed mutators. It refuses a loadout that cannot be read or

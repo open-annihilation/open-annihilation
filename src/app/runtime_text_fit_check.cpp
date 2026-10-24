@@ -14,6 +14,8 @@
 // The Brains tab's details are painted too: one brain not installed and one
 // installed, at both sizes and at 960x540, Compact on its details page.
 // "Load with the built-in player?" is painted with two 64-byte names.
+// The brain picker is painted on its fixture feed: the list, the inline
+// details at Regular and Large, and Compact's details page.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
@@ -35,6 +37,7 @@
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/prerequisites.hpp"
+#include "oa/ui/brain_picker/screen.hpp"
 #include "oa/ui/brain_picker/prompts.hpp"
 #include "oa/ui/mutator_picker/prompts.hpp"
 #include "oa/ui/mutator_picker/screen.hpp"
@@ -64,6 +67,7 @@ namespace library = oa::ui::library;
 namespace first_run = oa::ui::first_run;
 namespace dialogs = oa::ui::frontend_dialogs;
 namespace picker = oa::ui::mutator_picker;
+namespace brains = oa::ui::brain_picker;
 namespace brain_prompts = oa::ui::brain_picker;
 namespace layout = oa::ui::display_layout;
 
@@ -597,10 +601,13 @@ void Runtime::check_text_fit() {
             oa_layer().close(question);
         if (LayerScreen* picker_open = oa_layer().find(picker::screen_name))
             oa_layer().close(picker_open);
+        if (LayerScreen* brain_open = oa_layer().find(brains::screen_name))
+            oa_layer().close(brain_open);
         if (LayerScreen* welcome = oa_layer().find("first-run"))
             oa_layer().close(welcome);
         close_library();
         restore_mutator_picker_feed();
+        restore_brain_picker_feed();
         if (engine_settings_dialog() != nullptr)
             take_settings_screen_action(settings::DialogAction::cancelled);
         else if (LayerScreen* settings_screen = oa_layer().find("settings"))
@@ -959,6 +966,90 @@ void Runtime::check_text_fit() {
                 restore_mutator_picker_feed();
             }
 
+            // The brain picker, on the check's feed: the list, and the
+            // details. Compact's details are their own page. Regular and
+            // Large show them beside the list, and 960x540 paints that
+            // inline pane once.
+            {
+                const auto named =
+                    [this](std::string_view name) -> std::optional<AutomationControl> {
+                    std::vector<AutomationControl> controls;
+                    oa_layer().automation_controls(controls);
+                    for (const AutomationControl& control : controls)
+                        if (control.name == name && control.visible && control.window_width > 0 &&
+                            control.window_height > 0)
+                            return control;
+                    return std::nullopt;
+                };
+                const auto click_named = [&](std::string_view name) {
+                    const std::optional<AutomationControl> control = named(name);
+                    require(control.has_value(), std::string(name) + " is not shown");
+                    const layout::Point pixel{
+                        control->window_x + control->window_width / 2,
+                        control->window_y + control->window_height / 2
+                    };
+                    bool going = true;
+                    for (const SDL_EventType type :
+                         {SDL_EVENT_MOUSE_MOTION,
+                          SDL_EVENT_MOUSE_BUTTON_DOWN,
+                          SDL_EVENT_MOUSE_BUTTON_UP}) {
+                        SDL_Event event = window_pointer_event(
+                            sdl_.window,
+                            sdl_.renderer,
+                            type,
+                            pixel,
+                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+                        );
+                        dispatch_event(event, going);
+                        require(going, std::string(name) + " ended the run");
+                    }
+                    going = true;
+                    run_frame(going);
+                    require(going, std::string(name) + " ended the run");
+                };
+                install_brain_picker_check_feed();
+                BrainPickerRequest request;
+                request.setup = oa::data::brain_library::Setup::skirmish;
+                request.seat_name = "North";
+                request.current.brain = "steady-commander";
+                request.current.level = "firm";
+                request.current.options.emplace_back("aggression", "high");
+                request.setup_difficulty = oa::data::brain_library::Difficulty::medium;
+                request.built_in_level_fixed = true;
+                request.offer_every_seat = true;
+                require(open_brain_picker(std::move(request)), "the brain picker did not open");
+                paint("brain-picker");
+                if (width <= 640)
+                    click_named("oa.brains.details");
+                paint("brain-picker/details");
+                if (width <= 640)
+                    click_named("oa.brains.back");
+                if (size_at == 0) {
+                    const int32_t saved_width = width;
+                    const int32_t saved_height = height;
+                    width = 960;
+                    height = 540;
+                    require(
+                        SDL_SetWindowSize(sdl_.window, width, height) &&
+                            SDL_SyncWindow(sdl_.window),
+                        "the window did not take 960x540"
+                    );
+                    apply_output_mode();
+                    paint("brain-picker/details");
+                    width = saved_width;
+                    height = saved_height;
+                    require(
+                        SDL_SetWindowSize(sdl_.window, width, height) &&
+                            SDL_SyncWindow(sdl_.window),
+                        "the window did not return to 640x480"
+                    );
+                    apply_output_mode();
+                }
+                if (LayerScreen* brain_open = oa_layer().find(brains::screen_name))
+                    oa_layer().close(brain_open);
+                restore_brain_picker_feed();
+            }
+
             // The four mutator questions, in this language. The mutators' names
             // are 64 bytes, the manifest's most. Reasons and problems stay a
             // long sentence, which wraps.
@@ -1147,6 +1238,8 @@ void Runtime::check_text_fit() {
         std::cout << "text-fit check: mutator details fit in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: mutator-picker fits in " << joined_languages(languages)
+                  << " at 640x480, 960x540 and 1280x720\n";
+        std::cout << "text-fit check: brain-picker fits in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
         return;
     }
