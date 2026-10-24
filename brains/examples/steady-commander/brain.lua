@@ -40,9 +40,13 @@ local function labelled(record, commander_words)
     return fresh or not any
 end
 
+local function land(record)
+    return real_of(record, "minwaterdepth") <= 0
+end
+
 local function land_combat(record)
     return record.canmove == true and record.canattack == true and record.builder ~= true
-        and record.canfly ~= true and real_of(record, "minwaterdepth") <= 0
+        and record.canfly ~= true and land(record)
 end
 
 local function energy_record(record)
@@ -60,12 +64,11 @@ local function classify(list, commander_words)
     for index = 1, #list do
         local record = list[index]
         if record.commander ~= true and labelled(record, commander_words) then
-            if positive(record, "extractsmetal") then
+            if positive(record, "extractsmetal") and land(record) then
                 metals[#metals + 1] = record
-            elseif energy_record(record) then
+            elseif energy_record(record) and land(record) then
                 energies[#energies + 1] = record
-            elseif record.builder == true and record.bmcode == 0
-                and real_of(record, "minwaterdepth") <= 0 then
+            elseif record.builder == true and record.bmcode == 0 and land(record) then
                 local built, fights = game.build_list(record), {}
                 if type(built) == "table" then
                     for slot = 1, #built do
@@ -106,9 +109,9 @@ local function free(unit)
 end
 
 local function place_build(builder, record)
-    if builder.position == nil then return false end
+    if builder.x == nil or builder.z == nil then return false end
     local facing = brain.random(4) - 1
-    local _, _, x, z = brain.place(record, builder.position, 2048, facing)
+    local _, _, x, z = brain.place(record, { x = builder.x, z = builder.z }, 200, facing)
     if x == nil then return false end
     return builder:build(record, { x = x, z = z }, facing) == true
 end
@@ -177,12 +180,15 @@ local function build_next()
     if commander == nil or commander.alive ~= true then commander = find_commander() end
     if commander == nil or not free(commander) then return end
     local metal_need, energy_need = plan_counts()
-    local record, factory = nil, false
-    if metal_type ~= nil and metal_done < metal_need then record = metal_type
-    elseif energy_type ~= nil and energy_done < energy_need then record = energy_type
-    elseif factory_type ~= nil and not factory_ordered then record, factory = factory_type, true
+    if metal_type ~= nil and metal_done < metal_need then
+        if place_build(commander, metal_type) then return end
     end
-    if record ~= nil and place_build(commander, record) and factory then factory_ordered = true end
+    if energy_type ~= nil and energy_done < energy_need then
+        if place_build(commander, energy_type) then return end
+    end
+    if factory_type ~= nil and not factory_ordered then
+        if place_build(commander, factory_type) then factory_ordered = true end
+    end
 end
 
 local function queue_plants()
