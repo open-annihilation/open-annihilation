@@ -103,12 +103,12 @@ void NetworkPlay::start_demo_playback() {
             session->playback.demo, oa::formats::tad::SectorType::brains
         )) {
         const std::string_view brains_view = oa::formats::tad::sector_text(*brains);
-        const std::optional<oa::data::brain_library::Seats> recorded =
+        const std::optional<oa::data::brain_library::Seats> parsed =
             oa::data::brain_library::parse_seats(brains_view);
-        if (recorded) {
+        if (parsed) {
             std::vector<const oa::data::brain_library::Seat*> order;
-            order.reserve(recorded->seats.size());
-            for (const oa::data::brain_library::Seat& recorded_seat : recorded->seats)
+            order.reserve(parsed->seats.size());
+            for (const oa::data::brain_library::Seat& recorded_seat : parsed->seats)
                 order.push_back(&recorded_seat);
             std::stable_sort(
                 order.begin(),
