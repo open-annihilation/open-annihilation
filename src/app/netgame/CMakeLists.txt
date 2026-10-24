@@ -259,6 +259,17 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
   # with no reason and exit status 0.
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    # The host seats one computer on Steady Commander at firm. A seated brain
+    # replaces the order tick, so this brain places four frames late in the
+    # build window and then stops, and the engine's computer player takes the
+    # strike. The log names that seat once, and the loopback's own pass line.
+    add_test(NAME native-net-loopback-brain COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_net_brain.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-net-loopback-brain PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      SKIP_RETURN_CODE 77)
     add_test(NAME native-host-not-found COMMAND ${Python3_EXECUTABLE}
       "${PROJECT_SOURCE_DIR}/tools/check_native_host_not_found.py"
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"

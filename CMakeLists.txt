@@ -1202,6 +1202,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_brain_picker.cpp
   src/app/oa_button_focus.cpp
   src/app/runtime_brain_seats_screen.cpp
+  src/app/runtime_brain_room.cpp
   src/app/runtime_mutator_prompts.cpp
   src/app/runtime_mutator_button.cpp
   src/app/runtime_mutator_room.cpp
@@ -1278,6 +1279,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_brain_saves_check.cpp
   src/app/runtime_mutator_button_check.cpp
   src/app/runtime_mutator_room_check.cpp
+  src/app/runtime_brain_room_check.cpp
   src/app/runtime_mod_warning_check.cpp src/app/runtime_mod_install_check.cpp
   src/app/runtime_language_install_check.cpp src/app/runtime_challenge_check.cpp
   src/app/runtime_registries_check.cpp
@@ -2231,6 +2233,9 @@ if(OA_BUILD_PLATFORM)
         "${oa_mutator_room_dir}/Open Annihilation" "${oa_mutator_room_dir}/files"
         "${oa_mutator_room_dir}/data" "${oa_mutator_room_dir}/mutator-room.conf")
       set_tests_properties(mutator-room-clean PROPERTIES FIXTURES_SETUP mutator-room-clean)
+      # The checks that host a game on the default DirectPlay port
+      # (mutator room, brain room, both text fits) share the lock
+      # dplay-enumeration-port, so a parallel ctest runs them one at a time.
       add_test(NAME native-mutator-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-mutator-room
         --host --player-name Steve --game-name Ridge
@@ -2240,7 +2245,29 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-mutator-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_mutator_room_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        FIXTURES_REQUIRED mutator-room-clean)
+        FIXTURES_REQUIRED mutator-room-clean RESOURCE_LOCK dplay-enumeration-port)
+      # A battle room hosted alone, at 640x480 and 1280x720: no seat button
+      # with no brain installed, Steady Commander remembered at firm, the
+      # built-in player at Medium, and Lantern Scout on every computer this
+      # machine runs. A scratch preferences file holds the remembered seat.
+      # It leaves each size's frame in its folder for review. Each run
+      # starts from a clean folder.
+      set(oa_brain_room_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/brain-room")
+      file(MAKE_DIRECTORY "${oa_brain_room_dir}")
+      add_test(NAME brain-room-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_brain_room_dir}/Open Annihilation" "${oa_brain_room_dir}/files"
+        "${oa_brain_room_dir}/data" "${oa_brain_room_dir}/brain-room.conf")
+      set_tests_properties(brain-room-clean PROPERTIES FIXTURES_SETUP brain-room-clean)
+      add_test(NAME native-brain-room COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-brain-room
+        --host --player-name Steve --game-name Ridge
+        --preferences-file "${oa_brain_room_dir}/brain-room.conf"
+        --user-folder "${oa_brain_room_dir}/Open Annihilation"
+        --data-dir "${oa_brain_room_dir}/data")
+      set_tests_properties(native-brain-room PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_brain_room_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED brain-room-clean RESOURCE_LOCK dplay-enumeration-port)
       # A two-map pack installed from the check's own registry after the
       # skirmish list has been shown and the battle room's list has been
       # read. One stem has a space, an apostrophe and parentheses and the
@@ -2997,7 +3024,8 @@ if(OA_BUILD_PLATFORM)
         --preferences-file "${oa_text_fit_check_dir}/text-fit.conf")
       set_tests_properties(native-text-fit PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_check_dir}"
-        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        RESOURCE_LOCK dplay-enumeration-port)
       # The same in only the language --check-language names, which an
       # installed pack shows: the Chinese fixture here, a translator's own
       # pack (uk) on their machine.
@@ -3010,7 +3038,8 @@ if(OA_BUILD_PLATFORM)
         --preferences-file "${oa_text_fit_language_check_dir}/text-fit.conf")
       set_tests_properties(native-text-fit-language PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_text_fit_language_check_dir}"
-        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        RESOURCE_LOCK dplay-enumeration-port)
       # The match dialog check in the Chinese fixture's language, which the
       # modern fonts draw: the briefing's rows and its MORE caption keep to
       # their boxes, and the dialogs' texts and quick keys are the ones the
@@ -3609,12 +3638,12 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-brain-shadow PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
-        # Classic beside the built-in player: schedule and sort, three skirmishes.
+        # Classic beside the built-in player: schedule, start and sort, three skirmishes.
         add_test(NAME native-brain-shadow-classic COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_shadow.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks"
-          --brain "${PROJECT_SOURCE_DIR}/brains/classic" --sections schedule,sort
+          --brain "${PROJECT_SOURCE_DIR}/brains/classic" --sections schedule,start,sort
           classic)
         set_tests_properties(native-brain-shadow-classic PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})

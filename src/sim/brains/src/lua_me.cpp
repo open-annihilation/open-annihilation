@@ -570,41 +570,33 @@ int knowledge_owned(lua_State* lua) {
 
 int getter_knowledge(lua_State* lua) {
     const Seat* seat = seat_of(lua);
-    if (seat == nullptr || seat->match == nullptr) {
+    if (seat == nullptr || seat->calls.knowledge == nullptr) {
         charge_one(lua);
         push_nil(lua);
         return 1;
     }
-    const auto& computer_slot = seat->match->computer_player_state();
-    if (!computer_slot) {
-        charge_one(lua);
-        push_nil(lua);
-        return 1;
-    }
-    auto* players = static_cast<sim::ai::ComputerPlayers*>(computer_slot.get());
-    sim::ai::ComputerKnowledge* knowledge =
-        sim::ai::computer_player_knowledge(players, seat->player);
-    if (knowledge == nullptr) {
-        charge_one(lua);
-        push_nil(lua);
-        return 1;
-    }
-    bool sight_ok = false;
     uint32_t refreshed = 0;
+    const sim::ai::ComputerKnowledge* knowledge = nullptr;
     try {
-        refreshed = seat->match->sightings(seat->player).refreshed_tick;
-        sight_ok = true;
+        knowledge = seat->calls.knowledge(
+            const_cast<sim::ai::ComputerHost*>(&seat->calls.host), seat->player, &refreshed
+        );
     } catch (const std::exception&) {
-        sight_ok = false;
+        knowledge = nullptr;
     }
-    if (!sight_ok) {
+    if (knowledge == nullptr) {
         charge_one(lua);
         push_nil(lua);
         return 1;
     }
     const int32_t builders = knowledge->builder_count;
     const oa::FixedVec3 base = knowledge->base_position;
-    const uint32_t type_count = players->type_count;
+    const oa::World* world = nullptr;
+    if (seat->match != nullptr)
+        world = &seat->match->state();
+    else
+        world = seat->calls.host.world;
+    const uint32_t type_count = world != nullptr ? world->unit_def_count : 0;
     const int16_t* counts = knowledge->owned_counts;
     charge_sequence(lua, counts == nullptr ? 0 : type_count);
     lua_createtable(lua, 0, 4);
@@ -680,12 +672,18 @@ int method_allies(lua_State* lua) {
 
 int method_players(lua_State* lua) {
     const Seat* seat = seat_of(lua);
+    const oa::World* world = nullptr;
+    if (seat != nullptr) {
+        if (seat->match != nullptr)
+            world = &seat->match->state();
+        else
+            world = seat->calls.host.world;
+    }
     std::array<uint8_t, OA_PLAYER_COUNT> listed{};
     std::size_t found = 0;
-    if (seat != nullptr && seat->match != nullptr) {
-        const oa::World& played = seat->match->state();
+    if (world != nullptr) {
         for (uint8_t which = 0; which < OA_PLAYER_COUNT; ++which) {
-            if (played.game.players[which].in_use == 0)
+            if (world->game.players[which].in_use == 0)
                 continue;
             listed[found] = which;
             ++found;
@@ -694,12 +692,11 @@ int method_players(lua_State* lua) {
     charge_sequence(lua, found);
     lua_createtable(lua, static_cast<int>(found), 0);
     const int sequence = lua_gettop(lua);
-    if (seat == nullptr || seat->match == nullptr)
+    if (seat == nullptr || world == nullptr)
         return 1;
-    const oa::World& world = seat->match->state();
     for (std::size_t row = 0; row < found; ++row) {
         const uint8_t which = listed[row];
-        const oa::Player& record = world.game.players[which];
+        const oa::Player& record = world->game.players[which];
         lua_createtable(lua, 0, 7);
         lua_pushinteger(lua, static_cast<lua_Integer>(which));
         lua_setfield(lua, -2, "player");
