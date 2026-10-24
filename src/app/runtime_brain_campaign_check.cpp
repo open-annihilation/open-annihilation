@@ -354,6 +354,16 @@ void Runtime::check_brain_campaign() {
         load(Screen::main_menu);
         frames(2);
         close_covering();
+        // SINGLE.GUI leaves AnyMsn inactive until every mission is unlocked,
+        // so a click on its rectangle never keeps a selection. Loading from
+        // the main menu still reads the remembered campaign seat.
+        if (which == Screen::any_mission) {
+            load(Screen::any_mission);
+            frames(2);
+            close_covering();
+            require(screen_ == which, "Any Mission did not open" + std::string(on));
+            return;
+        }
         exercise_click(menu::resource_name(menu::Button::single_player));
         frames(1);
         exercise_click(gadget);

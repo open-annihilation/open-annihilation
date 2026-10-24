@@ -235,12 +235,19 @@ struct LongBrainPackage {
 
 /// Writes ridge-long-beacon, a brain whose name does not fit a seat button.
 ///
+/// The name stays within the 64 bytes a manifest keeps. A longer name is
+/// not installed, and the campaign button then stays hidden.
+///
 /// @param folder the brain's folder
 void write_long_brain(const fs::path& folder) {
     oa::formats::oabrain::Manifest manifest;
     manifest.format = oa::formats::oabrain::format_version;
     manifest.id = "ridge-long-beacon";
-    manifest.name = "Ridge Long Beacon Watching The Far Western Hills Past The Lantern Line";
+    manifest.name = "Ridge Long Beacon Watching The Far Western Hills Past Nightfall";
+    require(
+        manifest.name.size() <= oa::formats::oabrain::most_name_bytes,
+        "the long brain's name is longer than a manifest allows"
+    );
     manifest.version.major = 1;
     manifest.version.parts = 1;
     manifest.author.name = "Ridge Testers";
@@ -835,6 +842,11 @@ void Runtime::check_text_fit() {
                                  "ridge-long-beacon";
                 write_long_brain(package.folder);
                 reload_installed_brains();
+                require(
+                    oa::data::brain_library::find(installed_brains(), "ridge-long-beacon") !=
+                        nullptr,
+                    "newgame/brain-seat: the long brain is not installed"
+                );
                 const oa::data::brain_library::Seats saved_seats =
                     setup_brain_seats(oa::data::brain_library::Setup::campaign);
                 oa::data::brain_library::Seat seat;
