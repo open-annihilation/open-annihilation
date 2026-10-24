@@ -770,6 +770,15 @@ void direct_stance_is_classics_alone(const std::string& script) {
     expect_raise(true);
 }
 
+// A05 reads a live enemy the seat can see. The fixture enemy stands inside
+// the vehicle's sight, so hide one with the cloak bit unit_visible refuses.
+void hide_from_sight(Fixture& fixture, uint16_t slot) {
+    sim::unit_spawn::Slot& hidden = fixture.match->spawn_slot(slot);
+    hidden.record.state_flags =
+        static_cast<uint8_t>(hidden.record.state_flags | OA_UNIT_STATE_CLOAKED);
+    CHECK(!fixture.match->unit_visible(computer, slot));
+}
+
 void refusals_are_counted(const std::string& script) {
     Fixture owned(0, true, {}, 1);
     const Cast cast = populate(owned);
@@ -787,6 +796,9 @@ void refusals_are_counted(const std::string& script) {
     CHECK(!flag_of(*sandbox, "gave"));
     CHECK(counts_of(*sandbox, false).dead == 1);
 
+    // `other` is in sight, so A05 would give this attack. Cloak it first: the
+    // seat cannot see a cloaked enemy, and the refusal is still counted.
+    hide_from_sight(owned, cast.enemy);
     run_chunk(*sandbox, "gave = unit:attack(other)\n");
     CHECK(!flag_of(*sandbox, "gave"));
     CHECK(counts_of(*sandbox, false).not_seen == 1);
@@ -803,6 +815,9 @@ void refusals_are_counted(const std::string& script) {
     const Cast seen_cast = populate(seen);
     host::Sandbox* aware = seat_giver(seen, script, SeatRequest{true, false});
     publish_cast(*aware, *seat_for(seen), seen_cast);
+    // The same cloaked enemy is not in sight. Full awareness is what gives
+    // the attack; line of sight would refuse it, as the case above counts.
+    hide_from_sight(seen, seen_cast.enemy);
     run_chunk(*aware, "gave = unit:attack(other)\n");
     CHECK(flag_of(*aware, "gave"));
     CHECK(counts_of(*aware, false).given == 1);
