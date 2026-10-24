@@ -411,7 +411,12 @@ void test_stamp_picture_grid() {
                     for (const uint16_t type : types)
                         for (const uint32_t seed : seeds) {
                             auto& unit = place(
-                                *w, enemy_first, type == 0 ? plain : type, distance, height, 0
+                                *w,
+                                enemy_first,
+                                type == 0 ? static_cast<uint16_t>(plain) : type,
+                                distance,
+                                height,
+                                0
                             );
                             unit.owner_index = owner;
                             unit.owner = oa_ref_from_index(owner);

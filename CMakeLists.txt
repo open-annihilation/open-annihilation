@@ -384,11 +384,27 @@ add_library(oa-app-mutators-memory src/app/mutators_memory.cpp)
 add_library(oa::app::mutators_memory ALIAS oa-app-mutators-memory)
 target_link_libraries(oa-app-mutators-memory PUBLIC oa-app-headers oa-platform-preferences
   oa-data-mutators PRIVATE oa-options)
+# A headless match between two brains: the seats the command names, when the
+# match ends, and the lines it prints (brain_match.hpp).
+add_library(oa-app-brain-match src/app/brain_match.cpp)
+add_library(oa::app::brain_match ALIAS oa-app-brain-match)
+target_link_libraries(oa-app-brain-match PUBLIC oa-app-headers
+  PRIVATE oa-formats-oabrain oa-options)
+target_link_libraries(oa-app-game-options PRIVATE oa-app-brain-match)
 # Brains seated on this machine's computer players (brain_seats.hpp).
 add_library(oa-app-brain-seats src/app/brain_seats.cpp)
 add_library(oa::app::brain_seats ALIAS oa-app-brain-seats)
 target_link_libraries(oa-app-brain-seats PUBLIC oa-app-headers oa-sim-brains oa-formats-oabrain
   oa-data-brain-library PRIVATE oa-base-sha256 oa-options)
+# A check match that seats one brain and does not tick (brain_check.hpp).
+add_library(oa-app-brain-check src/app/brain_check.cpp)
+add_library(oa::app::brain_check ALIAS oa-app-brain-check)
+target_link_libraries(oa-app-brain-check PUBLIC oa-app-headers oa-app-brain-seats
+  oa-app-game-directory oa-sim-brains oa-sim-match-runtime oa-sim-ai oa-sim-combat-state
+  oa-sim-map-runtime oa-sim-unit-spawn-runtime oa-data-defs oa-data-defs-assets
+  oa-data-unit-definitions oa-data-brain-facts oa-formats-hpi oa-formats-oamut oa-formats-tnt
+  PRIVATE oa-options)
+target_compile_definitions(oa-app-brain-check PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 # Chat a computer seat on this machine reads and sends (seat_chat.hpp).
 add_library(oa-app-seat-chat src/app/seat_chat.cpp)
 add_library(oa::app::seat_chat ALIAS oa-app-seat-chat)
@@ -867,6 +883,20 @@ if(BUILD_TESTING)
     oa-base-sha256 oa-options)
   add_test(NAME app-brain-seats COMMAND oa-app-brain-seats-test)
   set_tests_properties(app-brain-seats PROPERTIES TIMEOUT 60)
+  # Two seats, the tick a brain match ends on, and the report's lines.
+  add_executable(oa-app-brain-match-test src/app/brain_match_test.cpp)
+  target_link_libraries(oa-app-brain-match-test PRIVATE oa-app-brain-match oa-test-support
+    oa-options)
+  add_test(NAME app-brain-match COMMAND oa-app-brain-match-test)
+  set_tests_properties(app-brain-match PROPERTIES TIMEOUT 30)
+
+  # The check match: the game's unit types, the commander at the centre, and
+  # what the brain reads. It needs the installed game.
+  add_executable(oa-app-brain-check-test src/app/brain_check_test.cpp)
+  target_link_libraries(oa-app-brain-check-test PRIVATE oa-app-brain-check oa-app-brain-seats
+    oa-formats-hpi oa-data-defs oa-test-game-data oa-test-support oa-options)
+  oa_add_game_data_test(app-brain-check-data oa-app-brain-check-test --data)
+  set_tests_properties(app-brain-check-data PROPERTIES TIMEOUT 120)
   # Chat a computer seat reads and sends: what it may say, who hears it, and
   # the pace of one line per 30 ticks.
   add_executable(oa-app-seat-chat-test src/app/seat_chat_test.cpp)
@@ -1116,7 +1146,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_megamap.cpp
   src/app/runtime_skirmish_host.cpp
   src/app/runtime_skirmish_start.cpp src/app/runtime_map_units.cpp src/app/runtime_world_draw.cpp src/app/world_draws.cpp src/app/runtime_benchmark.cpp src/app/runtime_music.cpp
-  src/app/runtime_saveload.cpp src/app/runtime_saves.cpp src/app/runtime_recordings.cpp
+  src/app/runtime_saveload.cpp src/app/runtime_brain_saves.cpp src/app/runtime_saves.cpp
+  src/app/runtime_recordings.cpp
   src/app/runtime_recorded_mutators.cpp
   src/app/runtime_sides.cpp src/app/asset_files.cpp
   src/app/runtime_platform.cpp
@@ -1137,6 +1168,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_brain_library.cpp
   src/app/runtime_mutators.cpp
   src/app/runtime_brains.cpp
+  src/app/runtime_brain_match.cpp
   src/app/runtime_brain_facts.cpp
   src/app/runtime_mutators_check.cpp
   src/app/runtime_mutators_hacks.cpp
@@ -1236,6 +1268,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_mutator_picker_check.cpp
   src/app/runtime_mutator_prompts_check.cpp
+  src/app/runtime_brain_saves_check.cpp
   src/app/runtime_mutator_button_check.cpp
   src/app/runtime_mutator_room_check.cpp
   src/app/runtime_mod_warning_check.cpp src/app/runtime_mod_install_check.cpp
@@ -1285,6 +1318,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
+  oa-app-brain-match
   oa-app-brain-seats
   oa-app-seat-chat
   oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
@@ -2073,6 +2107,25 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_mutator_prompts_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED mutator-prompts-clean)
+      # A skirmish Steady Commander plays, saved and loaded with its state,
+      # a save with no brain, a newer brain that leaves the state out, and
+      # the missing-brain question. A scratch user folder holds the brain.
+      # Each run starts from a clean folder.
+      set(oa_saved_brains_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/saved-brains")
+      file(MAKE_DIRECTORY "${oa_saved_brains_dir}")
+      add_test(NAME saved-brains-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_saved_brains_dir}/Open Annihilation" "${oa_saved_brains_dir}/files"
+        "${oa_saved_brains_dir}/data" "${oa_saved_brains_dir}/saved-brains.conf")
+      set_tests_properties(saved-brains-clean PROPERTIES FIXTURES_SETUP saved-brains-clean)
+      add_test(NAME native-saved-brains COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-saved-brains
+        --preferences-file "${oa_saved_brains_dir}/saved-brains.conf"
+        --user-folder "${oa_saved_brains_dir}/Open Annihilation"
+        --data-dir "${oa_saved_brains_dir}/data")
+      set_tests_properties(native-saved-brains PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_saved_brains_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED saved-brains-clean)
       # MUTATORS… on the skirmish setup and on NEWGAME, at 640x480 and
       # 1280x720: the button and its line by the anchor rule, Tab and Down,
       # the remembered set, USE THESE, Y, SELMAP keeping the set, and START
@@ -3488,6 +3541,13 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --brain-match plays two computer seats, reports the same lines twice,
+        # and refuses a map or a brain it cannot seat.
+        add_test(NAME native-brain-match COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_brain_match.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-brain-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A stage's lines timed for later ticks place units, move a group,
         # send one on patrol and set one on another's nearest units, and stop
         # at a line that does not read; a director script that names the

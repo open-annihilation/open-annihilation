@@ -503,9 +503,11 @@ bool deliver_turn(void* context, match_runtime::Match&, uint8_t) {
     call.context = seat;
     call.push = push_tick;
     if (!sandbox.call_banked("tick", call, error)) {
+        note_call_instructions(*seat);
         hand_back(*seat, error);
         return true;
     }
+    note_call_instructions(*seat);
     note_prints(*seat);
     return true;
 }

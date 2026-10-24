@@ -208,6 +208,9 @@ struct Brains {
     ReportHooks reports{};
     /// How a seated brain says a line. A null `say` means chat is not connected.
     ChatHooks chat{};
+    /// Instructions each player's brain calls have used. This outlives the
+    /// seat, so a hand-over or a closed seat keeps the total.
+    std::array<uint64_t, OA_PLAYER_COUNT> instructions{};
 };
 
 /// Writes a refusal or a fits reason, cut to 255 bytes.
@@ -306,6 +309,15 @@ void note_prints(Seat& seat);
 /// @param seat the seat
 /// @param error the script error; it must stay alive for this call
 void hand_back(Seat& seat, const script_host::ScriptError& error);
+
+/// Adds the sandbox's instructions from the call that just returned.
+///
+/// A seat with no match, or no sandbox, adds nothing. The count saturates
+/// at the largest 64-bit value.
+///
+/// @param seat the seat whose call just returned
+void note_call_instructions(Seat& seat) noexcept;
+
 /// The seed of one brain's own xoshiro256** stream.
 ///
 /// The first eight bytes, little-endian, of the SHA-256 of the match seed as

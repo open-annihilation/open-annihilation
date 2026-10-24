@@ -5394,6 +5394,14 @@
 	it=CARICA;
 	}
 
+[LOAD WITH THE BUILT-IN PLAYER]
+	{
+	de=MIT DEM EINGEBAUTEN SPIELER LADEN;
+	fr=CHARGER AVEC LE JOUEUR INTÉGRÉ;
+	es=CARGAR CON EL JUGADOR INTEGRADO;
+	it=CARICA CON IL GIOCATORE INTEGRATO;
+	}
+
 [LOAD: tap to arm it, then tap the unit to load.]
 	{
 	de=VERLADEN: tippe, um ihn zu wählen, dann tippe die Einheit zum Verladen.;
@@ -5592,6 +5600,14 @@
 	fr=Les listes des nouveautés sont vérifiées au démarrage du jeu et à l'ouverture de la Bibliothèque.;
 	es=Las listas de lo nuevo se comprueban al iniciar el juego y al abrir la Biblioteca.;
 	it=Gli elenchi delle novità si controllano all'avvio del gioco e all'apertura della Biblioteca.;
+	}
+
+[Load with the built-in player?]
+	{
+	de=Mit dem eingebauten Spieler laden?;
+	fr=Charger avec le joueur intégré ?;
+	es=¿Cargar con el jugador integrado?;
+	it=Caricare con il giocatore integrato?;
 	}
 
 [Loading preview]
@@ -6560,6 +6576,14 @@
 	fr=Aucun mutateur ne correspond à ces filtres;
 	es=Ningún mutador coincide con estos filtros;
 	it=Nessun mutatore corrisponde a questi filtri;
+	}
+
+[No brains here yet. The Library on the main menu gets them.]
+	{
+	de=Hier sind noch keine Gehirne. Die Bibliothek im Hauptmenü holt sie.;
+	fr=Pas encore de cerveaux ici. La Bibliothèque du menu principal les récupère.;
+	es=Aquí todavía no hay cerebros. La Biblioteca del menú principal los trae.;
+	it=Qui non ci sono ancora cervelli. La Biblioteca del menu principale li scarica.;
 	}
 
 [No mutators here yet. The Library on the main menu gets them.]
@@ -9618,6 +9642,14 @@
 	it=La cartella di Total Annihilation su questo {device} non si può giocare: {problem};
 	}
 
+[The built-in player takes those seats from the units as they stand. GET the brain in the Library to load the game as it was saved.]
+	{
+	de=Der eingebaute Spieler übernimmt diese Plätze so, wie die Einheiten stehen. HOL das Gehirn in der Bibliothek, um das Spiel so zu laden, wie es gespeichert wurde.;
+	fr=Le joueur intégré prend ces sièges avec les unités telles qu'elles sont. PRENDS le cerveau dans la Bibliothèque pour charger la partie comme elle a été sauvegardée.;
+	es=El jugador integrado toma esos asientos con las unidades como están. CONSIGUE el cerebro en la Biblioteca para cargar la partida como se guardó.;
+	it=Il giocatore integrato prende quei posti con le unità come stanno. PRENDI il cervello nella Biblioteca per caricare la partita come è stata salvata.;
+	}
+
 [The button pictures the controls and rings show.]
 	{
 	de=Die Taste zeigt, was Steuerung und Ringe anzeigen.;
@@ -9656,6 +9688,14 @@
 	fr=La ligne de commande a choisi le mod de cette exécution.;
 	es=La línea de órdenes eligió el mod de esta ejecución.;
 	it=La riga di comando ha scelto il mod di questa esecuzione.;
+	}
+
+[The computer players this game was saved with cannot be read.]
+	{
+	de=Die Computerspieler, mit denen dieses Spiel gespeichert wurde, lassen sich nicht lesen.;
+	fr=Les joueurs ordinateur avec lesquels cette partie a été sauvegardée ne se lisent pas.;
+	es=Los jugadores del ordenador con los que se guardó esta partida no se pueden leer.;
+	it=I giocatori del computer con cui è stata salvata questa partita non si leggono.;
 	}
 
 [The copy could not start]
@@ -10530,6 +10570,14 @@
 	it=Questo gioco non include mappe di schermaglia, quindi la schermaglia non è disponibile.;
 	}
 
+[This game was saved with {name} {version} playing seat {n}, which is not installed here.]
+	{
+	de=Dieses Spiel wurde mit {name} {version} auf Platz {n} gespeichert, und der ist hier nicht installiert.;
+	fr=Cette partie a été sauvegardée avec {name} {version} au siège {n}, qui n'est pas installé ici.;
+	es=Esta partida se guardó con {name} {version} en el asiento {n}, que no está instalado aquí.;
+	it=Questa partita è stata salvata con {name} {version} al posto {n}, che non è installato qui.;
+	}
+
 [This is already the game folder.]
 	{
 	de=Das ist schon der Spielordner.;
@@ -10608,6 +10656,14 @@
 	fr=Cette sauvegarde a besoin d'un autre contenu;
 	es=Esta partida guardada necesita otro contenido;
 	it=Questo salvataggio ha bisogno di altri contenuti;
+	}
+
+[This saved game needs {name} {version}, which is not installed.]
+	{
+	de=Dieses gespeicherte Spiel braucht {name} {version}, und der ist nicht installiert.;
+	fr=Cette sauvegarde a besoin de {name} {version}, qui n'est pas installé.;
+	es=Esta partida guardada necesita {name} {version}, que no está instalado.;
+	it=Questa partita salvata ha bisogno di {name} {version}, che non è installato.;
 	}
 
 [This system reads HTTPS registries over HTTP.]
@@ -11008,6 +11064,14 @@
 	fr=VALIDER;
 	es=USAR ESTOS;
 	it=USA QUESTI;
+	}
+
+[USE THIS]
+	{
+	de=DIESES ÜBERNEHMEN;
+	fr=UTILISER CELUI-CI;
+	es=USAR ESTE;
+	it=USA QUESTO;
 	}
 
 [USE THIS GAME]

@@ -3,6 +3,7 @@
 
 // Command-line parsing for oa-game.
 #include "oa/app/app.hpp"
+#include "oa/app/brain_match.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/app/extension.hpp"
 #include "oa/app/game_directory.hpp"
@@ -333,6 +334,7 @@ void check_game_files_options(Options& options) {
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
+        {options.check_saved_brains, "--check-saved-brains"},
         {options.check_simulation_hash, "--check-simulation-hash"},
         {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
@@ -562,6 +564,7 @@ void check_director_options(Options& options) {
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
+        {options.check_saved_brains, "--check-saved-brains"},
         {options.check_simulation_hash, "--check-simulation-hash"},
         {options.check_zoom_memory, "--check-zoom-memory"},
         {!options.check_unit_language.empty(), "--check-unit-language"},
@@ -660,6 +663,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {!options.check_unit_pages.empty(), "--check-unit-pages"},
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
+            {options.check_saved_brains, "--check-saved-brains"},
             {options.check_simulation_hash, "--check-simulation-hash"},
             {options.check_zoom_memory, "--check-zoom-memory"},
             {!options.check_unit_language.empty(), "--check-unit-language"},
@@ -893,6 +897,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-match-bars", &Options::check_match_bars},
     {"--check-kill-board", &Options::check_kill_board},
     {"--check-paused-save", &Options::check_paused_save},
+    {"--check-saved-brains", &Options::check_saved_brains},
     {"--check-simulation-hash", &Options::check_simulation_hash},
     {"--check-zoom-memory", &Options::check_zoom_memory},
     {"--check-language-switch", &Options::check_language_switch},
@@ -1157,6 +1162,18 @@ take_match_option(std::string_view argument, ArgumentCursor& cursor, Options& op
     }
     if (argument == "--seed") {
         options.seed = parse_seed(option_value(cursor));
+        return true;
+    }
+    if (argument == "--brain-match") {
+        options.brain_match = option_value(cursor);
+        return true;
+    }
+    if (argument == "--brain-levels") {
+        options.brain_levels = option_value(cursor);
+        return true;
+    }
+    if (argument == "--brain-map") {
+        options.brain_map = option_value(cursor);
         return true;
     }
     return false;
@@ -1482,7 +1499,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-download-builds] [--check-stockpile-builds] "
                      "[--check-unit-page-memory] [--check-side-column] [--check-match-bars] "
                      "[--check-unit-pages whole|scaled:TYPE,...] "
-                     "[--check-kill-board] [--check-paused-save] [--check-simulation-hash] "
+                     "[--check-kill-board] [--check-paused-save] [--check-saved-brains] "
+                     "[--check-simulation-hash] "
                      "[--check-zoom-memory] "
                      "[--check-unit-language TAG] "
                      "[--check-language-switch [--check-language TAG]] "
@@ -1540,6 +1558,7 @@ void write_startup_line(std::string_view text) {
                   << extension_text(extension, ExtensionText::usage_runs, "")
                   << "[--save-after TICK] "
                      "[--save-file PATH.sav] [--load PATH.sav] [--give-orders] [--seed N] "
+                     "[--brain-match A,B] [--brain-levels L1,L2] [--brain-map NAME] "
                      "[--trace-digest FILE] [--trace-units FILE] [--trace-lookups FILE] "
                      "[--draw-threads N] "
                      "[--capture-video PATH.mp4] [--showcase arm-first-mission|skirmish-battle] "
@@ -1669,6 +1688,35 @@ void write_startup_line(std::string_view text) {
     if (!result.stage_file.empty() &&
         (!result.match_ticks || !result.load_file.empty() || !result.campaign.empty()))
         throw std::runtime_error("--stage stages a headless skirmish of --match-ticks ticks");
+    if (!result.brain_levels.empty() && result.brain_match.empty())
+        throw std::runtime_error("--brain-levels needs --brain-match");
+    if (!result.brain_map.empty() && result.brain_match.empty())
+        throw std::runtime_error("--brain-map needs --brain-match");
+    if (!result.brain_match.empty()) {
+        if (!result.headless_check)
+            throw std::runtime_error("--brain-match needs --headless-check");
+        if (!result.match_ticks)
+            throw std::runtime_error("--brain-match needs --match-ticks");
+        if (result.brain_map.empty())
+            throw std::runtime_error("--brain-match needs --brain-map");
+        if (!result.stage_file.empty())
+            throw std::runtime_error("--brain-match cannot be used with --stage");
+        if (result.combat_units != 0)
+            throw std::runtime_error("--brain-match cannot be used with --combat");
+        if (!result.load_file.empty())
+            throw std::runtime_error("--brain-match cannot be used with --load");
+        if (result.save_after)
+            throw std::runtime_error("--brain-match cannot be used with --save-after");
+        if (!result.campaign.empty())
+            throw std::runtime_error("--brain-match cannot be used with --campaign");
+        if (result.frame_rate)
+            throw std::runtime_error("--brain-match cannot be used with --frame-rate");
+        if (result.benchmark_frames)
+            throw std::runtime_error("--brain-match cannot be used with --benchmark");
+        std::string error;
+        if (!parse_brain_match(result.brain_match, result.brain_levels, error))
+            throw std::runtime_error(error);
+    }
     if (result.check_render_tiers && result.headless_check)
         throw std::runtime_error(
             "--check-render-tiers draws in a window and cannot be used with --headless-check"
@@ -1726,11 +1774,11 @@ void write_startup_line(std::string_view text) {
         result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
-        result.check_paused_save || result.check_simulation_hash || result.check_zoom_memory ||
-        result.check_map_packs || result.check_map_browser || result.check_mutator_button ||
-        result.check_mutator_room || result.check_mutator_picker || result.check_mutator_prompts ||
-        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
-        result.check_click_snap;
+        result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
+        result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
+        result.check_mutator_button || result.check_mutator_room || result.check_mutator_picker ||
+        result.check_mutator_prompts || result.check_map_pack_lists ||
+        result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

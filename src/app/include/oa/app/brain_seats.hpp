@@ -39,6 +39,9 @@ struct BrainSeatChoice {
     /// Option id and the player's text, in the order they were given.
     /// A later pair with the same id replaces an earlier one.
     std::vector<std::pair<std::string, std::string>> options;
+    /// The package folder, when the seat was named by a path. Empty means
+    /// `id` is a folder under the user folder's `brains_folder_name`.
+    std::filesystem::path folder;
 };
 
 /// One brain read from disk. `files` holds every package file except the
