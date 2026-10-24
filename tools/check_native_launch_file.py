@@ -584,7 +584,8 @@ def check_launch_brain(native, game_dir, workdir):
     logs.mkdir()
     game = Game(native, game_dir, workdir, "brain-host", [
         "--skip-intro", "--dplay-port", str(port), "--player-name", "Commander",
-        "--user-folder", str(user), "--log-dir", str(logs), "--host", "--map", "Acid Foursome",
+        "--user-folder", str(user), "--log-dir", str(logs), "--host",
+        "--game-name", "Example game", "--map", "Acid Foursome",
         "--computer-player", "core:2::hard:steady-commander",
     ], log_dir=logs)
     try:

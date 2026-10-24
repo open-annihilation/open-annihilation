@@ -5,11 +5,11 @@
 """PrintWeights and ReloadAIProfiles for a seated brain and for the built-in player.
 
 The brain's start counts its calls and its report returns "start count {n}".
-A stage file prints the report, reloads the profile and prints it again.
-With steady-commander seated on place 1, the first file holds start count 1
-and the second start count 2. With no brain key, both files are today's
-report, whose first line is the match clock. The script exits 77 when no
-game data is installed.
+A stage file opens the developer commands, prints the report, reloads the
+profile and prints it again. With steady-commander seated on place 1, the
+first file holds start count 1 and the second start count 2. With no brain
+key, both files are today's report, whose first line is the match clock.
+The script exits 77 when no game data is installed.
 """
 
 import argparse
@@ -52,9 +52,12 @@ end
 return hooks
 """
 
-STAGE = """console PrintWeights 1 before.txt
-console ReloadAIProfiles
-console PrintWeights 1 after.txt
+# PrintWeights and ReloadAIProfiles are developer commands. The passphrase
+# opens that class, and a chat command begins with '+'.
+STAGE = """console +Now Film Chris Include Reload Assert
+console +PrintWeights 1 before.txt
+console +ReloadAIProfiles
+console +PrintWeights 1 after.txt
 """
 
 
