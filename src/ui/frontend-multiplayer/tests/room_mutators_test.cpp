@@ -121,6 +121,47 @@ void operator delete[](void* block, std::size_t, std::align_val_t alignment) noe
     ::operator delete(block, alignment);
 }
 
+// The nothrow forms take their blocks the same way, so a nothrow new (the
+// buffer std::stable_sort borrows) and the delete that returns it match.
+void* operator new(std::size_t size, const std::nothrow_t&) noexcept {
+    note_allocation();
+    if (size == 0)
+        size = 1;
+    return std::malloc(size);
+}
+
+void* operator new(std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept {
+    try {
+        return ::operator new(size, alignment);
+    } catch (const std::bad_alloc&) {
+        return nullptr;
+    }
+}
+
+void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
+    return ::operator new(size, std::nothrow);
+}
+
+void* operator new[](std::size_t size, std::align_val_t alignment, const std::nothrow_t&) noexcept {
+    return ::operator new(size, alignment, std::nothrow);
+}
+
+void operator delete(void* block, const std::nothrow_t&) noexcept {
+    ::operator delete(block);
+}
+
+void operator delete(void* block, std::align_val_t alignment, const std::nothrow_t&) noexcept {
+    ::operator delete(block, alignment);
+}
+
+void operator delete[](void* block, const std::nothrow_t&) noexcept {
+    ::operator delete(block);
+}
+
+void operator delete[](void* block, std::align_val_t alignment, const std::nothrow_t&) noexcept {
+    ::operator delete(block, alignment);
+}
+
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
