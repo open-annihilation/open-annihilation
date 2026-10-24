@@ -1296,37 +1296,44 @@ bool text_line(TextBuf& buffer, const char* line) noexcept {
     return text_add(buffer, storage, static_cast<uint32_t>(wrote));
 }
 
-bool text_format(
-    TextBuf& buffer, const char* format, uint32_t tick, uint8_t player, bool brain
+int write_heading(
+    char* storage, std::size_t size, uint32_t tick, uint8_t player, bool brain
 ) noexcept {
-    char storage[128];
-    const int wrote = std::snprintf(
+    if (storage == nullptr || size == 0)
+        return -1;
+    return std::snprintf(
         storage,
-        sizeof storage,
-        format,
+        size,
+        "tick %u seat %u %s\n",
         tick,
         static_cast<unsigned>(player),
         brain ? "brain" : "builtin"
     );
+}
+
+bool text_heading(TextBuf& buffer, uint32_t tick, uint8_t player, bool brain) noexcept {
+    char storage[128];
+    const int wrote = write_heading(storage, sizeof storage, tick, player, brain);
     if (wrote < 0)
         return false;
     return text_add(buffer, storage, static_cast<uint32_t>(wrote));
 }
 
-bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
-    char storage[192];
+int write_entry_line(char* storage, std::size_t size, const LogEntry& entry) noexcept {
+    if (storage == nullptr || size == 0)
+        return -1;
     int wrote = 0;
     switch (entry.kind) {
     case LogKind::section:
-        wrote = std::snprintf(storage, sizeof storage, "section %s\n", entry.name);
+        wrote = std::snprintf(storage, size, "section %s\n", entry.name);
         break;
     case LogKind::draw:
-        wrote = std::snprintf(storage, sizeof storage, "draw %u %u\n", entry.bound, entry.value);
+        wrote = std::snprintf(storage, size, "draw %u %u\n", entry.bound, entry.value);
         break;
     case LogKind::assign:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "assign %u %u\n",
             static_cast<unsigned>(entry.slot),
             static_cast<unsigned>(entry.extra)
@@ -1335,7 +1342,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::move:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "move %u %d %d %d %u\n",
             static_cast<unsigned>(entry.slot),
             entry.x,
@@ -1347,7 +1354,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::patrol:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "patrol %u %d %d %d %u\n",
             static_cast<unsigned>(entry.slot),
             entry.x,
@@ -1359,7 +1366,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::attack:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "attack %u %u\n",
             static_cast<unsigned>(entry.slot),
             static_cast<unsigned>(entry.extra)
@@ -1368,7 +1375,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::build:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "build %u %u %d %d %d\n",
             static_cast<unsigned>(entry.slot),
             static_cast<unsigned>(entry.extra),
@@ -1380,7 +1387,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::queue_order:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "queue %u %u %d\n",
             static_cast<unsigned>(entry.slot),
             static_cast<unsigned>(entry.extra),
@@ -1390,7 +1397,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::on:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "on %u %u\n",
             static_cast<unsigned>(entry.slot),
             static_cast<unsigned>(entry.flag)
@@ -1399,7 +1406,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::attack_point:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "attack_point %u %d %d %d\n",
             static_cast<unsigned>(entry.slot),
             entry.x,
@@ -1410,7 +1417,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
     case LogKind::stance:
         wrote = std::snprintf(
             storage,
-            sizeof storage,
+            size,
             "stance %u %d %d\n",
             static_cast<unsigned>(entry.slot),
             entry.count,
@@ -1419,17 +1426,19 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
         break;
     case LogKind::refused:
         wrote = std::snprintf(
-            storage,
-            sizeof storage,
-            "refused %s %u\n",
-            entry.name,
-            static_cast<unsigned>(entry.slot)
+            storage, size, "refused %s %u\n", entry.name, static_cast<unsigned>(entry.slot)
         );
         break;
     case LogKind::resync:
-        wrote = std::snprintf(storage, sizeof storage, "resync %u\n", entry.state_before);
+        wrote = std::snprintf(storage, size, "resync %u\n", entry.state_before);
         break;
     }
+    return wrote;
+}
+
+bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
+    char storage[192];
+    const int wrote = write_entry_line(storage, sizeof storage, entry);
     if (wrote < 0)
         return false;
     return text_add(buffer, storage, static_cast<uint32_t>(wrote));
@@ -1437,7 +1446,7 @@ bool render_entry(TextBuf& buffer, const LogEntry& entry) noexcept {
 
 char* render_log(const CallLog& log, uint32_t tick, uint8_t player, bool brain) noexcept {
     TextBuf buffer;
-    if (!text_format(buffer, "tick %u seat %u %s\n", tick, player, brain))
+    if (!text_heading(buffer, tick, player, brain))
         return nullptr;
     for (uint32_t index = 0; index < log.count; ++index) {
         if (!render_entry(buffer, log.items[index]))
@@ -1454,7 +1463,7 @@ char* render_start_builtin(
     const match_runtime::SetUpRecord& record, uint32_t tick, uint8_t player
 ) noexcept {
     TextBuf buffer;
-    if (!text_format(buffer, "tick %u seat %u %s\n", tick, player, false))
+    if (!text_heading(buffer, tick, player, false))
         return nullptr;
     if (!text_line(buffer, "section start"))
         return nullptr;
@@ -1802,6 +1811,20 @@ void fill_report(ShadowBody& body, const Seat& seat) noexcept {
 
 } // namespace
 
+int format_call_log_entry(const LogEntry& entry, char* storage, uint32_t storage_size) noexcept {
+    return write_entry_line(storage, storage_size, entry);
+}
+
+int format_tick_heading(
+    uint32_t tick, uint8_t player, bool brain, char* storage, uint32_t storage_size
+) noexcept {
+    return write_heading(storage, storage_size, tick, player, brain);
+}
+
+char* render_call_log(const CallLog& log, uint32_t tick, uint8_t player, bool brain) noexcept {
+    return render_log(log, tick, player, brain);
+}
+
 CallLog::~CallLog() {
     delete[] items;
 }
@@ -2091,6 +2114,7 @@ bool shadow_play(void* context, Match& match, uint8_t player) {
         }
     } catch (const std::exception&) {
     }
+    publish_logged_shadow_turn(*seat, body.builtin_log, body.brain_log, tick);
     body.recording.turn_ready = false;
     return true;
 }

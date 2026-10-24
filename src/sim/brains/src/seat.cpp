@@ -26,6 +26,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <new>
@@ -41,6 +42,8 @@ Seat::Seat() = default;
 Seat::~Seat() {
     delete[] incoming.items;
     delete[] delivering.items;
+    std::free(log_text);
+    log_text = nullptr;
     shadow_release(*this);
 }
 
@@ -510,6 +513,15 @@ bool open_and_fit(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome) {
         }
 
         if (seat.has_fits && !seat.shadow) {
+            log_begin_turn(seat, 0, true);
+            log_call(seat, "fits", nullptr, 0);
+
+            struct EndLog {
+                Seat& held;
+
+                ~EndLog() { log_end_turn(held); }
+            } end_log{seat};
+
             FitsBox fits;
             fits.seat = &seat;
             fits.status = 2;
@@ -646,6 +658,7 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
         close_seat(*brains, player);
         return outcome;
     }
+    log_arm_seat(seat);
 
     if (!build_networks(seat, spec, outcome)) {
         close_seat(*brains, player);
@@ -660,6 +673,15 @@ SeatOutcome seat_brain(match_runtime::Match& match, const SeatSpec& spec) {
     try {
         script_host::ScriptError error;
         if (seat.has_start && !seat.shadow) {
+            log_begin_turn(seat, 0, true);
+            log_call(seat, "start", nullptr, 0);
+
+            struct EndLog {
+                Seat& held;
+
+                ~EndLog() { log_end_turn(held); }
+            } end_log{seat};
+
             StartBox starting;
             starting.seat = &seat;
             starting.saved = spec.saved.data();

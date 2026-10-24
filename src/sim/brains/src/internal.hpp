@@ -8,6 +8,7 @@
 #include "sight.hpp"
 
 #include "oa/sim/brains/events.hpp"
+#include "oa/sim/brains/logs.hpp"
 #include "oa/sim/brains/seat.hpp"
 #include "oa/sim/brains/seat_calls.hpp"
 
@@ -39,6 +40,8 @@ struct UnitDefinition;
 namespace oa::sim::brains {
 
 namespace script_host = oa::data::script_host;
+
+struct CallLog;
 
 /// Most bytes of an entry path, not counting the terminating NUL.
 inline constexpr std::size_t path_bytes = 256;
@@ -221,11 +224,23 @@ struct Seat {
     struct ShadowBody* shadow_body{};
     /// Sections to compare. Empty compares every section.
     char shadow_sections[256]{};
+    /// The calls before a brain log wrapped them. Empty until the log arms.
+    SeatCalls logged_inner{};
+    /// True once `calls` forwards through the logging wrappers.
+    bool calls_logged{};
+    /// Text of the tick being logged. Null until a line needs room.
+    char* log_text{};
+    /// Bytes used in `log_text`, not counting the terminating NUL.
+    uint32_t log_used{};
+    /// Bytes `log_text` can hold, including the NUL.
+    uint32_t log_capacity{};
+    /// True while this tick's lines are being collected.
+    bool log_open{};
 
     /// Defined with the load so `NetworkSet` can stay incomplete here.
     Seat();
-    /// Releases the event buffers and the shadow body. The networks die with
-    /// the seat.
+    /// Releases the event buffers, the log text and the shadow body. The
+    /// networks die with the seat.
     ~Seat();
 };
 
@@ -247,6 +262,10 @@ struct Brains {
     /// Instructions each player's brain calls have used. This outlives the
     /// seat, so a hand-over or a closed seat keeps the total.
     std::array<uint64_t, OA_PLAYER_COUNT> instructions{};
+    /// Where this match's brain log and samples go. Empty collects nothing.
+    LogHooks logs{};
+    /// True once `brain log 1` has been handed to `logs.lines`.
+    bool log_banner_sent{};
 };
 
 /// Writes a refusal or a fits reason, cut to 255 bytes.
@@ -382,10 +401,97 @@ void note_call_instructions(Seat& seat) noexcept;
     uint32_t match_seed, uint8_t player, std::string_view id, std::string_view version
 ) noexcept;
 
-/// Copies `math.random` onto `brain.random`, so both share one stream.
+/// The hooks stored for the seat's match. Empty when the seat has no match.
+///
+/// @param seat the seat
+/// @return the hooks, or empty hooks
+[[nodiscard]] LogHooks seat_log_hooks(const Seat& seat) noexcept;
+
+/// Points a playing seat's calls through the brain-log wrappers.
+///
+/// A shadow is left alone. A seat with no log, or with calls not yet filled,
+/// is left alone and can be armed later. A second call does nothing.
+///
+/// @param seat the seat
+void log_arm_seat(Seat& seat) noexcept;
+
+/// Starts one tick of the brain log. A seat with no log collects nothing.
+///
+/// @param seat the seat
+/// @param tick the tick number written on the heading
+/// @param brain true for a brain, false for the built-in player
+void log_begin_turn(Seat& seat, uint32_t tick, bool brain) noexcept;
+
+/// Hands the tick's text to the log and clears the buffer.
+///
+/// @param seat the seat
+void log_end_turn(Seat& seat) noexcept;
+
+/// Writes `call <name>` and the numeric arguments, when a tick is open.
+///
+/// @param seat the seat
+/// @param name the hook name
+/// @param numbers the numeric arguments; null when `count` is 0
+/// @param count how many numbers
+void log_call(Seat& seat, const char* name, const int64_t* numbers, uint32_t count) noexcept;
+
+/// Writes `own-draw <low> <high> <value>`.
+///
+/// @param seat the seat
+/// @param low the low end of the draw
+/// @param high the high end of the draw
+/// @param value the number drawn
+void log_own_integer(Seat& seat, int64_t low, int64_t high, int64_t value) noexcept;
+
+/// Writes `own-draw float` and 16 hex digits of a double's bits.
+///
+/// @param seat the seat
+/// @param bits the double's bits
+void log_own_float(Seat& seat, uint64_t bits) noexcept;
+
+/// Writes `order <name>` and the numeric arguments, when a tick is open.
+///
+/// @param seat the seat
+/// @param name the order name
+/// @param numbers the numeric arguments; null when `count` is 0
+/// @param count how many numbers
+void log_order(Seat& seat, const char* name, const int64_t* numbers, uint32_t count) noexcept;
+
+/// Writes a standing `stance` line, overlaying one field on the unit's flags.
+///
+/// @param seat the seat
+/// @param slot the unit
+/// @param fire_field true to overlay fire, false to overlay move
+/// @param value the field's new value
+void log_standing_order(Seat& seat, uint16_t slot, bool fire_field, int32_t value) noexcept;
+
+/// Hands a shadow turn's two call logs to the brain log, built-in then brain.
+///
+/// A match with no log does nothing. The caller still owns both logs.
+///
+/// @param seat the shadow seat
+/// @param builtin the built-in player's calls
+/// @param brain the brain's calls
+/// @param tick the tick
+void publish_logged_shadow_turn(
+    Seat& seat, const CallLog& builtin, const CallLog& brain, uint32_t tick
+) noexcept;
+
+/// Installs one function as both `math.random` and `brain.random`.
+///
+/// Both draw the stream `math.random` had when the profile installed. A
+/// script that replaces `math.random` still draws that stream through
+/// `brain.random`. An open brain log records each draw.
 ///
 /// @param state the sandbox state
-void install_random(lua_State* state);
+/// @param seat the seat being opened
+void install_random(lua_State* state, Seat& seat);
+
+/// Adds `brain.record`. Works when the seat has no match.
+///
+/// @param state the sandbox state
+/// @param seat the seat being opened
+void install_record(lua_State* state, Seat& seat);
 
 /// Installs `brain.after`, `brain.every` and `brain.cancel`.
 ///

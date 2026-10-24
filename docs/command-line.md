@@ -476,6 +476,8 @@ one, for the engine's developers.
 | `--brain-shadow BRAIN` | Runs BRAIN beside the built-in player on every computer seat of a skirmish, a campaign mission or a loaded game on this machine. BRAIN is an installed brain's id, or a brain folder. The built-in player still plays the seat. [Below](#--brain-shadow). |
 | `--brain-shadow-sections LIST` | Sections to compare, separated by commas: `start`, `schedule`, `sort`, `task1` to `task9`. Left out, every section is compared. It needs `--brain-shadow`. |
 | `--brain-shadow-log DIR` | Writes the shadow's call logs into DIR. It needs `--brain-shadow`. |
+| `--brain-trace FILE` | Writes a brain log of every computer seat's calls, orders and draws. It needs `--headless-check` and `--match-ticks`. [Below](#--brain-trace-and---brain-record). |
+| `--brain-record FILE` | Writes the features and decisions a brain records, and after a brain match each seat's result. It needs `--headless-check` and `--match-ticks`. [Below](#--brain-trace-and---brain-record). |
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
 | `--trace-lookups FILE` | Writes every game file and listing the run looks up, and, for a path a mutator serves or hides, which mutator. |
@@ -641,6 +643,85 @@ every section is compared. `--brain-shadow-sections` and
 `--brain-shadow-log DIR` writes `seat-<p>-start-builtin.log`,
 `seat-<p>-start-brain.log`, and, for the first differing tick and the two
 before it, `seat-<p>-tick-<t>-builtin.log` and `seat-<p>-tick-<t>-brain.log`.
+
+#### `--brain-trace` and `--brain-record`
+
+```sh
+open-annihilation --skip-intro --mute --headless-check --seed 4242 --match-ticks 1800 --brain-match tests/data/brains/steady-commander,builtin --brain-map "Ashap Plateau" --brain-trace log.txt --brain-record records.txt
+```
+
+Both need `--headless-check` and `--match-ticks`. They work in a brain
+match, a shadow run, and any headless skirmish where brains are seated.
+The files are created when the match starts. A file that cannot be
+created stops the run with status 1. Writing either file leaves the
+report, the digest and a `--trace-digest` stream unchanged, and a brain
+is charged the same instructions whether or not the record file is open.
+
+`--brain-trace FILE` writes a brain log for every computer seat this
+machine plays. The first line is `brain log 1`. Each tick then follows
+the call log: a brain's hook calls, orders and draws, and a built-in
+seat's orders and draws. A shadow run writes both sides. In the log,
+`<p>` is the engine's player index. A brain match's report numbers those
+same seats 1 and 2, so report seat 1 is log seat 0.
+
+```text
+brain log 1
+tick <t> seat <p> builtin|brain
+call <hook> <n>…
+own-draw <low> <high> <value>
+own-draw float <16 hex digits>
+order <name> <slot> <n>…
+section <name>
+draw <bound> <value>
+assign <slot> <squad>
+move <slot> <x> <y> <z> <queue>
+patrol <slot> <x> <y> <z> <queue>
+attack <slot> <target>
+build <slot> <type> <x> <y> <z>
+queue <slot> <type> <count>
+on <slot> <0|1>
+attack_point <slot> <x> <y> <z>
+stance <slot> <move> <fire>
+refused <name> <slot>
+resync <state>
+```
+
+Numbers are decimal. Coordinates are signed 16.16 integers. `call` is
+written before the hook runs. A unit is its slot, a player is its index,
+and an amount is the amount the hook receives. A timer is named `timer`.
+`fits` and `start` are logged under tick 0. `brain.random(n)` is
+`own-draw 1 n`, and `brain.random(0)` is `own-draw 0 0` with the raw word.
+`math.random(m, n)` is `own-draw m n`. `math.random()` is
+`own-draw float` and 16 lower-case hex digits of the value's bits.
+`brain.shared_random` is a `draw` line. An order the lines above already
+name is written as that line. Any other order is `order` and its numbers
+follow in the order the brain passed them.
+
+`--brain-record FILE` writes JSON lines, UTF-8, one record a line. Keys
+stay in the order shown. Numbers are whole. The same match writes the
+same bytes on every machine: the file holds no time, path, user or
+engine version. A record's seat number is the engine index plus one.
+
+```text
+{"kind":"header","format":1,"map":"Ashap Plateau","seed":4242,"seats":[{"seat":1,"brain":"learned-scout","version":"1.0","level":"rule"},{"seat":2,"brain":"builtin","level":"easy"}]}
+{"kind":"sample","tick":300,"seat":1,"features":{"sectors":{"shape":[2,8,8],"values":[0,65536]}},"decision":17}
+{"kind":"result","seat":1,"winner":false,"tick":1800,"units":4}
+```
+
+The header lists each computer seat this machine plays, in index order.
+A brain's seat names its id, version and level. A built-in seat names
+`builtin` and `easy`, `medium` or `hard`, and has no version. A sample is
+one `brain.record` call: features in byte order of their names, each
+value a tensor of counts of 65536ths (`65536` is 1), and a decision that
+is either an integer or a tensor of the same shape. An integer decision
+is that integer, not a count of 65536ths. After a brain match that
+played to its report, one result line follows for each of the two seats.
+`units` is how many units that seat still has. `winner` is true only for
+the seat that won. A match that does not play writes no result lines.
+
+The record file stops growing at 1 GiB. Its last line is
+`{"kind":"full"}`, standard error says `brain record is full`, and the
+match goes on.
 
 ## Ways to launch a game
 

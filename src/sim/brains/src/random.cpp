@@ -13,6 +13,7 @@
 #include "lua.hpp"
 
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <string_view>
 
@@ -29,6 +30,47 @@ void feed(oa::base::sha256::Hasher& hasher, std::string_view text) noexcept {
 
 void feed_byte(oa::base::sha256::Hasher& hasher, uint8_t byte) noexcept {
     oa::base::sha256::update(hasher, std::span<const uint8_t>(&byte, 1));
+}
+
+int logged_math_random(lua_State* state) {
+    auto* seat = static_cast<Seat*>(lua_touserdata(state, lua_upvalueindex(2)));
+    const int argc = lua_gettop(state);
+    int64_t low = 0;
+    int64_t high = 0;
+    if (argc == 1 && lua_isinteger(state, 1) != 0)
+        high = static_cast<int64_t>(lua_tointeger(state, 1));
+    else if (argc >= 2 && lua_isinteger(state, 1) != 0 && lua_isinteger(state, 2) != 0) {
+        low = static_cast<int64_t>(lua_tointeger(state, 1));
+        high = static_cast<int64_t>(lua_tointeger(state, 2));
+    }
+    lua_pushvalue(state, lua_upvalueindex(1));
+    lua_insert(state, 1);
+    lua_call(state, argc, 1);
+    if (seat == nullptr || !seat->log_open)
+        return 1;
+    if (argc <= 0) {
+        if (lua_type(state, -1) == LUA_TNUMBER) {
+            const double value = lua_tonumber(state, -1);
+            uint64_t bits = 0;
+            static_assert(sizeof(double) == sizeof(uint64_t), "a double is 64 bits");
+            std::memcpy(&bits, &value, sizeof bits);
+            log_own_float(*seat, bits);
+        }
+    } else if (argc == 1) {
+        const int64_t drawn = lua_isinteger(state, -1) != 0
+                                  ? static_cast<int64_t>(lua_tointeger(state, -1))
+                                  : int64_t{0};
+        if (high == 0)
+            log_own_integer(*seat, 0, 0, drawn);
+        else
+            log_own_integer(*seat, 1, high, drawn);
+    } else if (argc == 2) {
+        const int64_t drawn = lua_isinteger(state, -1) != 0
+                                  ? static_cast<int64_t>(lua_tointeger(state, -1))
+                                  : int64_t{0};
+        log_own_integer(*seat, low, high, drawn);
+    }
+    return 1;
 }
 
 } // namespace
@@ -53,7 +95,7 @@ uint64_t brain_random_seed(
     return mixed;
 }
 
-void install_random(lua_State* state) {
+void install_random(lua_State* state, Seat& seat) {
     if (state == nullptr)
         return;
     lua_getglobal(state, "math");
@@ -66,6 +108,10 @@ void install_random(lua_State* state) {
         lua_pop(state, 2);
         return;
     }
+    lua_pushlightuserdata(state, &seat);
+    lua_pushcclosure(state, logged_math_random, 2);
+    lua_pushvalue(state, -1);
+    lua_setfield(state, -3, "random");
     lua_getglobal(state, "brain");
     if (lua_type(state, -1) != LUA_TTABLE) {
         lua_pop(state, 3);
