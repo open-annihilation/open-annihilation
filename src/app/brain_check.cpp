@@ -354,7 +354,8 @@ std::string joined_ids(const std::vector<std::string>& ids) {
 
 /// Tells whether one works-with entry holds this game.
 ///
-/// `*` matches a mounted mod and does not match the base game.
+/// `*` matches any mounted mod and the base game played alone, as the
+/// works-with grammar has it.
 ///
 /// @param condition the entry
 /// @param request the check
@@ -365,13 +366,10 @@ bool condition_holds(
     const BrainCheckRequest& request,
     const data::mod_profile::ModProfile* profile
 ) {
-    if (request.mod_folder.empty()) {
-        if (condition.id == "*")
-            return false;
-        return oamut::condition_met(condition, base_game_id, base_game_version);
-    }
     if (condition.id == "*")
         return true;
+    if (request.mod_folder.empty())
+        return oamut::condition_met(condition, base_game_id, base_game_version);
     return oamut::condition_met(condition, profile->id, profile->version);
 }
 
