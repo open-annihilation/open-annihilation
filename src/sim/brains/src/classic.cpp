@@ -4,7 +4,8 @@
 // Recognising Classic. The fingerprint of brains/classic/ is baked in at
 // build time. A seat is Classic only when its files hash to that value and
 // the value is not empty. brain.shared_random is installed for a Classic
-// seat that has a match, and for a shadow. A shadow draws its turn's copy.
+// seat, including one opened with no match when its random stream is set,
+// and for a shadow. A shadow draws its turn's copy.
 
 #include "oa/sim/brains/classic.hpp"
 
@@ -65,7 +66,9 @@ bool same_text(const std::array<char, 65>& got, std::string_view expected) noexc
 
 extern "C" int brain_shared_random(lua_State* state) {
     auto* seat = static_cast<Seat*>(lua_touserdata(state, lua_upvalueindex(1)));
-    if (seat == nullptr || seat->match == nullptr)
+    if (seat == nullptr)
+        return luaL_error(state, "brain.shared_random: there is no match");
+    if (seat->match == nullptr && (!seat->classic || seat->calls.host.random == nullptr))
         return luaL_error(state, "brain.shared_random: there is no match");
     if (lua_gettop(state) != 1 || lua_isinteger(state, 1) == 0)
         return luaL_error(
@@ -76,7 +79,7 @@ extern "C" int brain_shared_random(lua_State* state) {
         return luaL_error(
             state, "brain.shared_random: argument 1 must be an integer from 0 to 4294967295"
         );
-    if (seat->shadow && !shadow_stream_ready(*seat))
+    if (seat->match != nullptr && seat->shadow && !shadow_stream_ready(*seat))
         return luaL_error(state, "brain.shared_random: the stream is not ready");
     if (seat->calls.host.random == nullptr)
         return luaL_error(state, "brain.shared_random: the stream is not ready");
@@ -134,7 +137,18 @@ extern "C" int brain_setup_random(lua_State* state) {
     if (!seat->setup_ready)
         return luaL_error(state, "brain.setup_random: the seat is not set up yet");
     const auto bound_value = static_cast<uint32_t>(bound);
-    const uint32_t drawn = seat->setup_copy.bounded(bound_value);
+    uint32_t drawn = 0;
+    // A tool seat replays the set-up draws it was handed, in order. A bound
+    // below 2 returns 0 and does not consume one, as the shared stream does.
+    // After the record, it draws the copy. A match seat only draws the copy.
+    if (seat->match == nullptr && static_cast<int32_t>(bound_value) < 2) {
+        drawn = 0;
+    } else if (seat->match == nullptr && seat->setup_cursor < seat->setup.draw_count) {
+        drawn = seat->setup.draws[seat->setup_cursor].value;
+        seat->setup_cursor = static_cast<uint8_t>(seat->setup_cursor + 1u);
+    } else {
+        drawn = seat->setup_copy.bounded(bound_value);
+    }
     if (seat->shadow)
         shadow_note_setup_draw(*seat, bound_value, drawn);
     lua_pushinteger(state, static_cast<lua_Integer>(drawn));
@@ -220,8 +234,13 @@ void install_named(lua_State* state, Seat& seat, const char* name, lua_CFunction
 }
 
 void install_shared_random(lua_State* state, Seat& seat) {
-    if (state == nullptr || seat.match == nullptr)
+    if (state == nullptr)
         return;
+    if (seat.match == nullptr) {
+        if (seat.classic && seat.calls.host.random != nullptr)
+            install_named(state, seat, "shared_random", brain_shared_random);
+        return;
+    }
     if (!seat.classic && !seat.shadow)
         return;
     install_named(state, seat, "shared_random", brain_shared_random);

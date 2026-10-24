@@ -32,6 +32,10 @@ namespace oa::data::neural {
 class NetworkSet;
 }
 
+namespace oa::data::unit_definitions {
+struct UnitDefinition;
+}
+
 namespace oa::sim::brains {
 
 namespace script_host = oa::data::script_host;
@@ -131,8 +135,14 @@ struct Seat {
     bool has_start{};
     /// Empty registry reference until the entry's table is stored.
     int hooks_ref{-2};
-    /// The match this seat plays in. Null for a load check.
+    /// The match this seat plays in. Null for a load check or a tool seat.
     match_runtime::Match* match{};
+    /// Unit definitions for a tool seat, indexed like the world's unit defs.
+    /// Null when the seat has a match or the caller passed none. The storage
+    /// outlives the seat.
+    const oa::data::unit_definitions::UnitDefinition* plain_definitions{};
+    /// How many `plain_definitions` entries are addressable.
+    std::size_t plain_definition_count{};
     /// The facts `game` is built from. Null reads a default game.
     const oa::data::brain_facts::GameFacts* facts{};
     /// Registry reference of `game`'s hidden table. -2 is LUA_NOREF.
@@ -205,6 +215,8 @@ struct Seat {
     bool setup_ready{};
     /// A copy of the stream at the set-up record. `brain.setup_random` draws it.
     match_runtime::SharedRandom setup_copy{1};
+    /// How many set-up draws a tool seat has replayed. A match seat leaves it 0.
+    uint8_t setup_cursor{};
     /// The shadow's logs and snapshot. Null when the seat is not a shadow.
     struct ShadowBody* shadow_body{};
     /// Sections to compare. Empty compares every section.
@@ -295,7 +307,8 @@ void install_libraries(lua_State* state, Seat& seat);
 /// @param state the sandbox state
 /// @param seat the seat being opened
 void install_chat(lua_State* state, Seat& seat);
-/// Installs `game.map`. With no match the field is nil.
+/// Installs `game.map`. With no match and no world the field is nil.
+/// A tool seat installs the map from the world its calls carry.
 ///
 /// @param state the sandbox state
 /// @param seat the seat being opened

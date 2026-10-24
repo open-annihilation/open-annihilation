@@ -83,7 +83,14 @@ void count(Seat& seat, uint32_t OrderTally::* field) noexcept {
 }
 
 ActorGate actor_gate(const Seat& seat, UnitRef actor) noexcept {
-    if (seat.match == nullptr || !unit_current(*seat.match, actor))
+    if (seat.match == nullptr) {
+        if (!unit_current_for_seat(seat, actor))
+            return ActorGate::dead;
+        if (!seat_owns(seat, actor))
+            return ActorGate::not_own;
+        return ActorGate::ok;
+    }
+    if (!unit_current(*seat.match, actor))
         return ActorGate::dead;
     if (!seat_owns(seat, actor))
         return ActorGate::not_own;
@@ -849,9 +856,11 @@ int method_stance(lua_State* state) {
         return luaL_error(state, "stance has no seat");
     // The privilege is checked before the unit, so a seat that is not
     // Classic is refused even when the unit would have been too. A shadow
-    // holds the same write, and the call records it.
+    // holds the same write, and the call records it. A seat with no match
+    // uses the same classic bit.
     const bool privileged =
-        seat->shadow || (seat->match != nullptr && seat_is_classic(*seat->match, seat->player));
+        seat->shadow ||
+        (seat->match != nullptr ? seat_is_classic(*seat->match, seat->player) : seat->classic);
     if (direct && !privileged)
         return luaL_error(state, "stance: direct writes are for the Classic brain only");
     script_host::charge_work(state, order_charge);
@@ -864,7 +873,11 @@ int method_stance(lua_State* state) {
             seat->calls.write_stance(&seat->calls.host, actor.slot, move, fire);
             return finish(state, true);
         }
-        oa::Unit* unit = oa::world_unit_at(&seat->match->state(), actor.slot);
+        oa::Unit* unit = nullptr;
+        if (seat->match != nullptr)
+            unit = oa::world_unit_at(&seat->match->state(), actor.slot);
+        else if (seat->calls.host.world != nullptr)
+            unit = oa::world_unit_at(seat->calls.host.world, actor.slot);
         if (unit == nullptr) {
             count(*seat, &OrderTally::by_engine);
             return finish(state, false);
