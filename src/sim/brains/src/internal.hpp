@@ -25,6 +25,10 @@
 
 struct lua_State;
 
+namespace oa::data::neural {
+class NetworkSet;
+}
+
 namespace oa::sim::brains {
 
 namespace script_host = oa::data::script_host;
@@ -117,6 +121,9 @@ struct Seat {
     /// Registry reference of `game`'s hidden table. -2 is LUA_NOREF.
     int game_hidden_ref{-2};
     script_host::MemorySources sources{};
+    /// Networks built from the manifest, under each network's id.
+    /// Null when the spec names none. Destroyed after the sandbox.
+    std::unique_ptr<oa::data::neural::NetworkSet> networks;
     std::optional<script_host::Sandbox> sandbox{};
     /// True when the seat was made after the built-in player's set-up had run.
     bool handed_over{};
@@ -165,11 +172,10 @@ struct Seat {
     /// One class is labelled at most once a tick.
     RegionCache regions{};
 
-    /// Releases the two event buffers.
-    ~Seat() {
-        delete[] incoming.items;
-        delete[] delivering.items;
-    }
+    /// Defined with the load so `NetworkSet` can stay incomplete here.
+    Seat();
+    /// Releases the event buffers. The networks die with the seat.
+    ~Seat();
 };
 
 /// The brains seated in one match, one slot per player.
@@ -208,6 +214,18 @@ bool package_acceptable(const SeatSpec& spec, SeatOutcome& outcome);
 /// @param spec the package, the level and the options
 /// @return false when the sources cannot be stored
 bool copy_spec_into(Seat& seat, const SeatSpec& spec);
+
+/// Builds each manifest network into the seat, after the digest check.
+///
+/// An empty list leaves `seat.networks` null. Each file is read and its
+/// memory is counted before it is built. A file, a build or a cap that fails
+/// refuses the seat. Nothing here runs Lua or checks a digest again.
+///
+/// @param seat the seat being loaded
+/// @param spec the package
+/// @param outcome set when a network is refused or cannot be stored
+/// @return false when the seat must not open
+bool build_networks(Seat& seat, const SeatSpec& spec, SeatOutcome& outcome);
 
 /// Opens the sandbox, loads the entry and runs fits.
 ///

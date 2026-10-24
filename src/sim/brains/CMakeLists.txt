@@ -38,8 +38,9 @@ target_include_directories(oa-sim-brains PUBLIC include PRIVATE "${oa_brains_gen
 target_compile_features(oa-sim-brains PUBLIC cxx_std_20)
 target_link_libraries(oa-sim-brains PUBLIC oa-sim-match-runtime oa-data-script-host
   oa-data-brain-facts)
-target_link_libraries(oa-sim-brains PRIVATE oa-base-sha256 oa-sim-unit-movement oa-options
-  oa-data-field-schema oa-data-mission-types oa-data-unit-definitions)
+target_link_libraries(oa-sim-brains PRIVATE oa-base-sha256 oa-data-neural oa-formats-oann
+  oa-sim-unit-movement oa-options oa-data-field-schema oa-data-mission-types
+  oa-data-unit-definitions)
 
 if(BUILD_TESTING)
   add_executable(oa-sim-brains-seat-test tests/seat_test.cpp)
