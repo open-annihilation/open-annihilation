@@ -361,17 +361,17 @@ Pack from outside the package folder. An existing `--out` without
 `oa-tool brain pack: the output already exists: ` and the path.
 
 ```sh
-build/oa-tool brain pack brains/examples/steady-commander --out /tmp/O02-scratch/O02-steady-commander.oabrain
+build/oa-tool brain pack brains/examples/steady-commander --out /tmp/brain-scratch/steady-commander.oabrain
 ```
 
 ```text
-packed /tmp/O02-scratch/O02-steady-commander.oabrain: 2 files, 2822 bytes, sha256 e691879fd12193d72b01d2465948da5698980fca37804dcb1bf5272570856969
+packed /tmp/brain-scratch/steady-commander.oabrain: 2 files, 2822 bytes, sha256 e691879fd12193d72b01d2465948da5698980fca37804dcb1bf5272570856969
 ```
 
 Check the package against the base game:
 
 ```sh
-build/oa-tool brain check /tmp/O02-scratch/O02-steady-commander.oabrain --game-dir "$OA_GAME_DIR"
+build/oa-tool brain check /tmp/brain-scratch/steady-commander.oabrain --game-dir "$OA_GAME_DIR"
 ```
 
 ```text
@@ -396,11 +396,11 @@ The first match seats the folder against Classic on Painted Desert:
 
 ```sh
 open-annihilation --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR" \
-  --user-folder /tmp/O02-user --data-dir /tmp/O02-scratch/O02-data \
+  --user-folder /tmp/brain-user --data-dir /tmp/brain-scratch/data \
   --brain-match brains/examples/steady-commander,brains/classic \
   --brain-levels medium,medium \
   --brain-map "Painted Desert" --seed 4242 --match-ticks 1800 \
-  --brain-record /tmp/O02-scratch/O02-record.txt
+  --brain-record /tmp/brain-scratch/record.txt
 ```
 
 It exits 0:
@@ -429,12 +429,12 @@ the `seat 0 brain` blocks.
 
 ```sh
 open-annihilation --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR" \
-  --user-folder /tmp/O02-user --data-dir /tmp/O02-scratch/O02-data \
+  --user-folder /tmp/brain-user --data-dir /tmp/brain-scratch/data \
   --brain-match brains/examples/steady-commander,builtin \
   --brain-levels medium,hard \
   --brain-map "Painted Desert" --seed 4242 --match-ticks 2400 \
-  --brain-trace /tmp/O02-scratch/O02-trace-play.txt \
-  --brain-record /tmp/O02-scratch/O02-record-play.txt
+  --brain-trace /tmp/brain-scratch/trace-play.txt \
+  --brain-record /tmp/brain-scratch/record-play.txt
 ```
 
 It exits 0:

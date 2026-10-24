@@ -75,11 +75,11 @@ network's weights.
 Run the commands from the repository root, with `OA_GAME_DIR` set to the
 3.1c game data. Scratch files stay under `/tmp`. Each match is 9,000
 ticks. The six record files, joined in the order below, are
-`/tmp/N05-scratch/N05-records.jsonl`.
+`/tmp/scout-scratch/records.jsonl`.
 
 ```sh
-scratch=/tmp/N05-scratch
-mkdir -p "$scratch" /tmp/N05-user
+scratch=/tmp/scout-scratch
+mkdir -p "$scratch" /tmp/scout-user
 game=build/open-annihilation.app/Contents/MacOS/open-annihilation
 maps=(
   "Ashap Plateau"
@@ -93,23 +93,23 @@ i=0
 for map in "${maps[@]}"; do
   seed=$((20261023 + i))
   "$game" --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR" \
-    --user-folder /tmp/N05-user \
+    --user-folder /tmp/scout-user \
     --brain-match brains/examples/learned-scout,builtin \
     --brain-levels rule,easy \
     --brain-map "$map" --seed "$seed" --match-ticks 9000 \
-    --brain-record "$scratch/N05-rec-$i.jsonl" \
-    > "$scratch/N05-rec-$i.out"
+    --brain-record "$scratch/rec-$i.jsonl" \
+    > "$scratch/rec-$i.out"
   i=$((i + 1))
 done
-cat "$scratch"/N05-rec-0.jsonl "$scratch"/N05-rec-1.jsonl \
-  "$scratch"/N05-rec-2.jsonl "$scratch"/N05-rec-3.jsonl \
-  "$scratch"/N05-rec-4.jsonl "$scratch"/N05-rec-5.jsonl \
-  > "$scratch/N05-records.jsonl"
-shasum -a 256 "$scratch/N05-records.jsonl"
+cat "$scratch"/rec-0.jsonl "$scratch"/rec-1.jsonl \
+  "$scratch"/rec-2.jsonl "$scratch"/rec-3.jsonl \
+  "$scratch"/rec-4.jsonl "$scratch"/rec-5.jsonl \
+  > "$scratch/records.jsonl"
+shasum -a 256 "$scratch/records.jsonl"
 ```
 
 ```
-d8cbe31964e8c00bea748ff46f8b9daa33407f3051481361c1761cdd86186859  N05-records.jsonl
+d8cbe31964e8c00bea748ff46f8b9daa33407f3051481361c1761cdd86186859  records.jsonl
 ```
 
 Each match records a choice every 30 ticks for each unit that can move.
@@ -195,12 +195,12 @@ brain match: digest 923c326f4f920edd
 ## Train and convert
 
 ```sh
-python3 -I tools/train_learned_scout.py "$scratch/N05-records.jsonl" \
-  --out "$scratch/N05-scout.onnx"
-shasum -a 256 "$scratch/N05-scout.onnx"
+python3 -I tools/train_learned_scout.py "$scratch/records.jsonl" \
+  --out "$scratch/scout.onnx"
+shasum -a 256 "$scratch/scout.onnx"
 rm -f brains/examples/learned-scout/nets/scout.oann
-build/oa-tool brain net "$scratch/N05-scout.onnx" \
-  --calibrate "$scratch/N05-records.jsonl" \
+build/oa-tool brain net "$scratch/scout.onnx" \
+  --calibrate "$scratch/records.jsonl" \
   --out brains/examples/learned-scout/nets/scout.oann
 shasum -a 256 brains/examples/learned-scout/nets/scout.oann
 ```
@@ -214,7 +214,7 @@ closed form agreement: 87.8% (317/361)
 ```
 
 ```
-036a4a855fa8641330299d026a3b2465d8082e90e6f22cafbf518ab29e764c53  N05-scout.onnx
+036a4a855fa8641330299d026a3b2465d8082e90e6f22cafbf518ab29e764c53  scout.onnx
 ```
 
 The converter prints `agreement: choice 99.8% (1802 of 1806)`. The network
@@ -230,10 +230,10 @@ data make the records, and the commands above make the same bytes again.
 ## Pack and check
 
 ```sh
-rm -f "$scratch/N05-learned-scout.oabrain"
+rm -f "$scratch/learned-scout.oabrain"
 build/oa-tool brain pack brains/examples/learned-scout \
-  --out "$scratch/N05-learned-scout.oabrain"
-build/oa-tool brain check "$scratch/N05-learned-scout.oabrain" \
+  --out "$scratch/learned-scout.oabrain"
+build/oa-tool brain check "$scratch/learned-scout.oabrain" \
   --game-dir "$OA_GAME_DIR"
 ```
 
@@ -253,7 +253,7 @@ the length is 9,000 ticks.
 
 ```sh
 "$game" --skip-intro --mute --headless-check --game-dir "$OA_GAME_DIR" \
-  --user-folder /tmp/N05-user \
+  --user-folder /tmp/scout-user \
   --brain-match brains/examples/learned-scout,builtin \
   --brain-levels learned,easy \
   --brain-map "Ashap Plateau" --seed 20261023 --match-ticks 9000
