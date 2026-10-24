@@ -358,6 +358,23 @@ int brain_strengths(lua_State* state) {
         lua_pushnil(state);
         return 1;
     }
+    if (seat->calls.host.strengths != nullptr) {
+        const uint8_t* triple = nullptr;
+        try {
+            triple = seat->calls.host.strengths(seat->calls.host.context, seat->player, unit_type);
+        } catch (...) {
+            triple = nullptr;
+        }
+        if (triple == nullptr) {
+            lua_pushnil(state);
+            return 1;
+        }
+        for (std::size_t index = 0; index < 3; ++index) {
+            const auto stored = static_cast<int8_t>(triple[index]);
+            lua_pushinteger(state, static_cast<lua_Integer>(stored));
+        }
+        return 3;
+    }
     const auto& table = seat->match->strategic_state(seat->player).strengths;
     if (unit_type >= table.size()) {
         lua_pushnil(state);

@@ -3,8 +3,8 @@
 
 // Recognising Classic. The fingerprint of brains/classic/ is baked in at
 // build time. A seat is Classic only when its files hash to that value and
-// the value is not empty. brain.shared_random is installed only then, and
-// only while the seat has a match.
+// the value is not empty. brain.shared_random is installed for a Classic
+// seat that has a match, and for a shadow. A shadow draws its turn's copy.
 
 #include "oa/sim/brains/classic.hpp"
 
@@ -76,7 +76,67 @@ extern "C" int brain_shared_random(lua_State* state) {
         return luaL_error(
             state, "brain.shared_random: argument 1 must be an integer from 0 to 4294967295"
         );
-    const uint32_t drawn = seat->match->random_bounded(static_cast<uint32_t>(bound));
+    if (seat->shadow && !shadow_stream_ready(*seat))
+        return luaL_error(state, "brain.shared_random: the stream is not ready");
+    if (seat->calls.host.random == nullptr)
+        return luaL_error(state, "brain.shared_random: the stream is not ready");
+    const uint32_t drawn =
+        seat->calls.host.random(seat->calls.host.context, static_cast<uint32_t>(bound));
+    lua_pushinteger(state, static_cast<lua_Integer>(drawn));
+    return 1;
+}
+
+bool section_characters(const char* text, std::size_t length) noexcept {
+    if (text == nullptr || length < 1 || length > 15)
+        return false;
+    for (std::size_t index = 0; index < length; ++index) {
+        const unsigned char byte = static_cast<unsigned char>(text[index]);
+        const bool letter = (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z');
+        const bool digit = byte >= '0' && byte <= '9';
+        if (!letter && !digit && byte != '-')
+            return false;
+    }
+    return true;
+}
+
+extern "C" int brain_section(lua_State* state) {
+    auto* seat = static_cast<Seat*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (seat == nullptr)
+        return luaL_error(
+            state, "brain.section: a section name is up to 15 letters, digits or hyphens"
+        );
+    std::size_t length = 0;
+    const char* text = nullptr;
+    if (lua_type(state, 1) == LUA_TSTRING)
+        text = lua_tolstring(state, 1, &length);
+    if (!section_characters(text, length))
+        return luaL_error(
+            state, "brain.section: a section name is up to 15 letters, digits or hyphens"
+        );
+    if (seat->calls.section != nullptr)
+        seat->calls.section(&seat->calls.host, text);
+    return 0;
+}
+
+extern "C" int brain_setup_random(lua_State* state) {
+    auto* seat = static_cast<Seat*>(lua_touserdata(state, lua_upvalueindex(1)));
+    if (seat == nullptr)
+        return luaL_error(state, "brain.setup_random: the seat is not set up yet");
+    if (lua_gettop(state) != 1 || lua_isinteger(state, 1) == 0)
+        return luaL_error(
+            state, "brain.setup_random: argument 1 must be an integer from 0 to 4294967295"
+        );
+    const lua_Integer bound = lua_tointeger(state, 1);
+    if (bound < 0 || static_cast<uint64_t>(bound) > uint64_t{4294967295u})
+        return luaL_error(
+            state, "brain.setup_random: argument 1 must be an integer from 0 to 4294967295"
+        );
+    if (!seat->setup_ready)
+        return luaL_error(state, "brain.setup_random: the seat is not set up yet");
+    const auto bound_value = static_cast<uint32_t>(bound);
+    const uint32_t drawn = seat->setup_copy.bounded(bound_value);
+    if (seat->shadow)
+        shadow_note_setup_draw(*seat, bound_value, drawn);
     lua_pushinteger(state, static_cast<lua_Integer>(drawn));
     return 1;
 }
@@ -145,8 +205,8 @@ bool seat_is_classic(const match_runtime::Match& match, uint8_t player) noexcept
     return seat != nullptr && seat->classic;
 }
 
-void install_shared_random(lua_State* state, Seat& seat) {
-    if (state == nullptr || !seat.classic || seat.match == nullptr)
+void install_named(lua_State* state, Seat& seat, const char* name, lua_CFunction function) {
+    if (state == nullptr || name == nullptr || function == nullptr)
         return;
     lua_getglobal(state, "brain");
     if (lua_type(state, -1) != LUA_TTABLE) {
@@ -154,9 +214,29 @@ void install_shared_random(lua_State* state, Seat& seat) {
         return;
     }
     lua_pushlightuserdata(state, &seat);
-    lua_pushcclosure(state, brain_shared_random, 1);
-    lua_setfield(state, -2, "shared_random");
+    lua_pushcclosure(state, function, 1);
+    lua_setfield(state, -2, name);
     lua_pop(state, 1);
+}
+
+void install_shared_random(lua_State* state, Seat& seat) {
+    if (state == nullptr || seat.match == nullptr)
+        return;
+    if (!seat.classic && !seat.shadow)
+        return;
+    install_named(state, seat, "shared_random", brain_shared_random);
+}
+
+void install_section(lua_State* state, Seat& seat) {
+    install_named(state, seat, "section", brain_section);
+}
+
+void install_setup_random(lua_State* state, Seat& seat) {
+    if (state == nullptr)
+        return;
+    if (!seat.classic && !seat.shadow)
+        return;
+    install_named(state, seat, "setup_random", brain_setup_random);
 }
 
 } // namespace oa::sim::brains

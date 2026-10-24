@@ -999,6 +999,7 @@ void Runtime::run_headless_frames(std::size_t ticks, uint32_t frames_per_second)
     if (!options_.snapshot.empty())
         write_ppm(options_.snapshot, surface_);
     print_memory_status();
+    print_shadow_reports();
 }
 
 void Runtime::run_headless_match(std::size_t ticks) {
@@ -1052,6 +1053,7 @@ void Runtime::run_headless_match(std::size_t ticks) {
     if (!options_.snapshot.empty())
         write_ppm(options_.snapshot, surface_);
     print_memory_status();
+    print_shadow_reports();
 }
 
 namespace {
@@ -1376,6 +1378,7 @@ int Runtime::run_headless_campaign(std::size_t ticks) {
         outcome_tick
     );
     std::fflush(stdout);
+    print_shadow_reports();
     return failed_ticks == 0 ? 0 : 1;
 }
 

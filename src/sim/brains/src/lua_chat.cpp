@@ -149,6 +149,11 @@ static int brain_say(lua_State* state) {
     Seat* seat = seat_of(state);
     if (seat == nullptr || seat->match == nullptr)
         return refuse_chat(state);
+    if (seat->calls.refuse != nullptr) {
+        seat->calls.refuse(&seat->calls.host, "say", 0);
+        lua_pushboolean(state, 1);
+        return 1;
+    }
     Brains* brains = brains_of(*seat->match);
     if (brains == nullptr || brains->chat.say == nullptr)
         return refuse_chat(state);
