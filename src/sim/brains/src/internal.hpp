@@ -5,6 +5,8 @@
 #pragma once
 
 #include "oa/sim/brains/chat.hpp"
+#include "sight.hpp"
+
 #include "oa/sim/brains/events.hpp"
 #include "oa/sim/brains/seat.hpp"
 
@@ -142,6 +144,17 @@ struct Seat {
     bool allied_with[OA_PLAYER_COUNT]{};
     /// Last delivered participation, one entry per player.
     bool participating[OA_PLAYER_COUNT]{};
+    /// Radar contacts delivered last. The next picture is written into the work list.
+    std::unique_ptr<ContactEntry[]> delivered_contacts;
+    std::unique_ptr<ContactEntry[]> contact_work;
+    /// How many contacts `delivered_contacts` holds.
+    uint32_t delivered_contact_count{};
+    /// Slots both lists can hold. Zero until the first picture is read.
+    uint32_t contact_capacity{};
+    /// `player_contacts_tick` of the delivered picture.
+    uint32_t delivered_contacts_tick{};
+    /// False until the first picture has been compared, even when that tick is 0.
+    bool contacts_compared{};
     /// True when this seat's files match the Classic fingerprint.
     bool classic{};
     /// Timers waiting to run on a later turn.
@@ -174,6 +187,9 @@ struct Brains {
     ReportHooks reports{};
     /// How a seated brain says a line. A null `say` means chat is not connected.
     ChatHooks chat{};
+    /// Instructions each player's brain calls have used. This outlives the
+    /// seat, so a hand-over or a closed seat keeps the total.
+    std::array<uint64_t, OA_PLAYER_COUNT> instructions{};
 };
 
 /// Writes a refusal or a fits reason, cut to 255 bytes.
@@ -272,6 +288,15 @@ void note_prints(Seat& seat);
 /// @param seat the seat
 /// @param error the script error; it must stay alive for this call
 void hand_back(Seat& seat, const script_host::ScriptError& error);
+
+/// Adds the sandbox's instructions from the call that just returned.
+///
+/// A seat with no match, or no sandbox, adds nothing. The count saturates
+/// at the largest 64-bit value.
+///
+/// @param seat the seat whose call just returned
+void note_call_instructions(Seat& seat) noexcept;
+
 /// The seed of one brain's own xoshiro256** stream.
 ///
 /// The first eight bytes, little-endian, of the SHA-256 of the match seed as

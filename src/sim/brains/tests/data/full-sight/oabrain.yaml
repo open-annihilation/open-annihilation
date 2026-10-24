@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: full-sight
+name: "Full Sight"
+version: "1.0"
+author:
+  name: "Ridge Testers"
+description: "Searches every unit."
+tags: ["teaching"]
+works-with: ["*"]
+levels:
+  - id: steady
+    name: "Steady"
+    difficulty: medium
+fullAwareness: true

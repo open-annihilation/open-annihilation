@@ -6578,6 +6578,14 @@
 	it=Nessun mutatore corrisponde a questi filtri;
 	}
 
+[No brains here yet. The Library on the main menu gets them.]
+	{
+	de=Hier sind noch keine Gehirne. Die Bibliothek im Hauptmenü holt sie.;
+	fr=Pas encore de cerveaux ici. La Bibliothèque du menu principal les récupère.;
+	es=Aquí todavía no hay cerebros. La Biblioteca del menú principal los trae.;
+	it=Qui non ci sono ancora cervelli. La Biblioteca del menu principale li scarica.;
+	}
+
 [No mutators here yet. The Library on the main menu gets them.]
 	{
 	de=Hier sind noch keine Mutatoren. Die Bibliothek im Hauptmenü holt sie.;
@@ -11056,6 +11064,14 @@
 	fr=VALIDER;
 	es=USAR ESTOS;
 	it=USA QUESTI;
+	}
+
+[USE THIS]
+	{
+	de=DIESES ÜBERNEHMEN;
+	fr=UTILISER CELUI-CI;
+	es=USAR ESTE;
+	it=USA QUESTO;
 	}
 
 [USE THIS GAME]

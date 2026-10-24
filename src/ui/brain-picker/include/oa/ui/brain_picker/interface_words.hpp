@@ -32,10 +32,17 @@ inline constexpr std::string_view interface_words[] = {
     words::use_every_seat,
     words::sees_every_unit,
     words::left_out,
+    words::cancel,
+    words::use_this,
+    words::details,
+    words::back,
+    words::close_button,
+    words::switch_off,
+    words::switch_on,
+    words::empty_brains,
     words::load_built_in_title,
     words::saved_with_missing,
     words::built_in_takes_seats,
-    words::back,
     words::load_built_in_button,
 };
 

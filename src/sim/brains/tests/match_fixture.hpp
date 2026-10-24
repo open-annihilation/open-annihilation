@@ -101,8 +101,9 @@ struct Fixture {
     /// @param random_seed the match seed. The shared stream starts from it,
     ///     and a seated brain mixes it into its own stream.
     /// @param limits the match's capacity limits. The default is 3.1c's.
-    /// @param visibility the match's visibility flags. The default is the
-    ///     value every existing caller built. A map test passes 3.
+    /// @param visibility the match's visibility flags. The default, 2, is
+    ///     line of sight without mapping; a map test passes 3, and the
+    ///     sight test passes mapping and line of sight.
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,

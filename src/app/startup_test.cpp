@@ -511,6 +511,21 @@ const std::vector<ValueCase>& value_cases() {
         {"--zoom", "2", {}},
         {"--camera", "10,20", {}},
         {"--seed", "5", {}},
+        {"--brain-match",
+         "builtin,builtin",
+         {"--headless-check", "--match-ticks", "60", "--brain-map", "Ashap Plateau"}},
+        {"--brain-levels",
+         "easy,hard",
+         {"--headless-check",
+          "--match-ticks",
+          "60",
+          "--brain-match",
+          "builtin,builtin",
+          "--brain-map",
+          "Ashap Plateau"}},
+        {"--brain-map",
+         "Ashap Plateau",
+         {"--headless-check", "--match-ticks", "60", "--brain-match", "builtin,builtin"}},
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
         {"--check-unit-language", "fr", {}},
@@ -1286,6 +1301,170 @@ int main() {
         rejection({"--headless-check", "--match-ticks", "60", "--frame-clock", "0"}) ==
             "--frame-log, --scroll-camera, --march, --follow and --frame-clock need --frame-rate",
         "--frame-clock needs --frame-rate"
+    );
+    const auto brain_match = parse(
+        {"--headless-check",
+         "--match-ticks",
+         "60",
+         "--brain-match",
+         "builtin,builtin",
+         "--brain-levels",
+         "easy,hard",
+         "--brain-map",
+         "Ashap Plateau"}
+    );
+    expect(
+        brain_match.brain_match == "builtin,builtin" && brain_match.brain_levels == "easy,hard" &&
+            brain_match.brain_map == "Ashap Plateau",
+        "a brain match stores its three options"
+    );
+    expect(
+        rejection({"--brain-levels", "easy,hard"}) == "--brain-levels needs --brain-match",
+        "--brain-levels needs --brain-match"
+    );
+    expect(
+        rejection({"--brain-map", "Ashap Plateau"}) == "--brain-map needs --brain-match",
+        "--brain-map needs --brain-match"
+    );
+    expect(
+        rejection({"--brain-match", "x,y"}) == "--brain-match needs --headless-check",
+        "--brain-match needs --headless-check"
+    );
+    expect(
+        rejection({"--headless-check", "--brain-match", "x,y", "--brain-map", "Ashap Plateau"}) ==
+            "--brain-match needs --match-ticks",
+        "--brain-match needs --match-ticks"
+    );
+    expect(
+        rejection({"--headless-check", "--match-ticks", "60", "--brain-match", "x,y"}) ==
+            "--brain-match needs --brain-map",
+        "--brain-match needs --brain-map"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin"}
+        ) == "--brain-match expects two seats",
+        "--brain-match expects two seats"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin",
+             "--brain-levels",
+             "silly,hard"}
+        ) == "--brain-levels: a built-in level is easy, medium or hard",
+        "a built-in level is easy, medium or hard"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--stage",
+             "s.stage",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --stage",
+        "--brain-match cannot be used with --stage"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--combat",
+             "4",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --combat",
+        "--brain-match cannot be used with --combat"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--load",
+             "a.sav",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --load",
+        "--brain-match cannot be used with --load"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--save-after",
+             "30",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --save-after",
+        "--brain-match cannot be used with --save-after"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--campaign",
+             "Arm Campaign",
+             "--mission",
+             "0",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --campaign",
+        "--brain-match cannot be used with --campaign"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--frame-rate",
+             "30",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --frame-rate",
+        "--brain-match cannot be used with --frame-rate"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--benchmark",
+             "10",
+             "--brain-map",
+             "Ashap Plateau",
+             "--brain-match",
+             "builtin,builtin"}
+        ) == "--brain-match cannot be used with --benchmark",
+        "--brain-match cannot be used with --benchmark"
     );
 
     // Without an extension the engine knows none of an extension's options.

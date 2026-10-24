@@ -351,6 +351,14 @@ struct Options {
     std::optional<std::size_t> benchmark_frames;
     // Headless in-match run: ticks to simulate, output size, per-side army.
     std::optional<std::size_t> match_ticks;
+    // Two seats of a headless brain match: installed ids, folders or builtin
+    // (--brain-match). Empty means this run is not a brain match.
+    std::string brain_match;
+    // Levels for those seats (--brain-levels). Empty selects each brain's
+    // first level, and hard for a built-in player.
+    std::string brain_levels;
+    // The map the brain match plays (--brain-map).
+    std::string brain_map;
     // Headless campaign run: the campaign's name and the mission index that
     // --headless-check starts through the briefing and ticks for match_ticks.
     std::string campaign;

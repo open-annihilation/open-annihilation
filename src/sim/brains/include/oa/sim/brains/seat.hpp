@@ -204,6 +204,19 @@ struct SaveHooks {
 [[nodiscard]] SaveOutcome
 save_brain_state(match_runtime::Match& match, uint8_t player, SaveHooks hooks);
 
+/// Returns how many instructions one player's brain calls have used.
+///
+/// The total covers the load, fits, start and every tick that ran, including
+/// a call that failed. It stays after the seat is handed back. Zero when
+/// `player` is outside 0 to 9, the match has no brains state, or that player
+/// never had a brain.
+///
+/// @param match the match
+/// @param player player index, 0 to 9
+/// @return the instruction total
+[[nodiscard]] uint64_t
+seat_instructions(const match_runtime::Match& match, uint8_t player) noexcept;
+
 /// Stores the facts every brain seated afterwards reads as `game`.
 ///
 /// A seat made before any facts were stored reads a default game: base

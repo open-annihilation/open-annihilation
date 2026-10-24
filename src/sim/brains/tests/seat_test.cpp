@@ -625,6 +625,61 @@ void start_receives_the_saved_state() {
     host::ScriptError error;
     CHECK(sandbox->run_host("read", &seen, read_held, error));
     CHECK(seen.starts == 4);
+
+void instruction_totals_cover_load_tick_and_a_stop() {
+    Fixture fixture;
+    arm(fixture);
+    Package quiet;
+    add_file(
+        quiet,
+        "brain.lua",
+        "local n = 0\n"
+        "for i = 1, 2000 do n = n + i end\n"
+        "return {\n"
+        "  onTick = function()\n"
+        "    local m = 0\n"
+        "    for i = 1, 2000 do m = m + i end\n"
+        "  end\n"
+        "}\n"
+    );
+    add_file(quiet, "nets/scout.oann", "scout");
+    CHECK(seat_it(fixture, quiet).result == brains::SeatResult::seated);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    const uint64_t loaded = brains::seat_instructions(*fixture.match, computer);
+    CHECK(loaded > 0);
+    CHECK(loaded == sandbox->instructions_used());
+    ++fixture.match->state().game.tick;
+    fixture.match->tick();
+    sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    const uint64_t ticked = sandbox->instructions_used();
+    CHECK(ticked > 0);
+    CHECK(brains::seat_instructions(*fixture.match, computer) == loaded + ticked);
+    CHECK(brains::seat_instructions(*fixture.match, 0) == 0);
+    CHECK(brains::seat_instructions(*fixture.match, 99) == 0);
+
+    Fixture stopping;
+    arm(stopping);
+    Package breaker;
+    add_file(
+        breaker,
+        "brain.lua",
+        "return {\n"
+        "  onTick = function()\n"
+        "    local n = 0\n"
+        "    for i = 1, 2000 do n = n + i end\n"
+        "    error(\"breaks\")\n"
+        "  end\n"
+        "}\n"
+    );
+    add_file(breaker, "nets/scout.oann", "scout");
+    CHECK(seat_it(stopping, breaker).result == brains::SeatResult::seated);
+    const uint64_t before = brains::seat_instructions(*stopping.match, computer);
+    ++stopping.match->state().game.tick;
+    stopping.match->tick();
+    CHECK(brains::seat_sandbox(*stopping.match, computer) == nullptr);
+    CHECK(brains::seat_instructions(*stopping.match, computer) > before);
 }
 
 void two_brains_end_with_the_match() {
@@ -668,6 +723,7 @@ int main() {
         save_that_raises_hands_the_seat_back();
         save_over_one_mebibyte_is_omitted();
         start_receives_the_saved_state();
+        instruction_totals_cover_load_tick_and_a_stop();
         two_brains_end_with_the_match();
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "sim-brains-seat: %s\n", ex.what());
