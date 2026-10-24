@@ -21,6 +21,13 @@ Output:
     That is how often the written model's argmax matches the recorded
     decision on the held-out samples.
 
+    The records are the learned scout's rule. That rule skips a centre the
+    unit cannot stand on. Both levels use that rule. The brain records the
+    choice every 30 ticks, and it sends the unit when the unit has no order
+    or is standing within its footprint of the centre it was last sent to.
+    The scores below rank explored share and distance only, then one small
+    descent step is applied.
+
 Reproducibility:
     The same records produce the same model bytes on any machine.
     random.Random(20261023) draws a starting weight for every value, at
