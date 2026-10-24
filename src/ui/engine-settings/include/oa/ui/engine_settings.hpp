@@ -114,6 +114,19 @@ inline constexpr std::string_view heat_distortion = "open-annihilation.heat-dist
 inline constexpr std::string_view heat_distortion_intensity =
     "open-annihilation.heat-distortion.intensity";
 
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view water_ripples_intensity =
+    "open-annihilation.water-ripples.intensity";
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view coastal_waves_intensity =
+    "open-annihilation.coastal-waves.intensity";
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view underwater_shimmer_intensity =
+    "open-annihilation.underwater-shimmer.intensity";
+/// Effect intensity in percent, from 0 to 200.
+inline constexpr std::string_view naval_reflections_intensity =
+    "open-annihilation.naval-reflections.intensity";
+
 /// "sharp", "whole-steps" or "unfiltered" (EngineSettings::menu_scaling).
 inline constexpr std::string_view menu_scaling = "open-annihilation.menu-scaling";
 /// 1 or 0 (EngineSettings::native_density).
@@ -1040,6 +1053,14 @@ struct EngineSettings {
     uint32_t wreck_glow{100};
     /// Heat distortion strength around hot weapons and wrecks, in percent.
     uint32_t heat_distortion{100};
+    /// Water ripples intensity, in percent.
+    uint32_t water_ripples{100};
+    /// Coastal waves intensity, in percent.
+    uint32_t coastal_waves{100};
+    /// Underwater shimmer intensity, in percent.
+    uint32_t underwater_shimmer{100};
+    /// Naval reflections intensity, in percent.
+    uint32_t naval_reflections{100};
 
     /// How the menus are enlarged to the window.
     MenuScaling menu_scaling{MenuScaling::sharp};
@@ -1527,7 +1548,8 @@ enum class Lock : uint8_t {
     needs_sticky,
     /// The welcome setup is walked through again only from the main menu.
     main_menu,
-    needs_full_3d, ///< Allow Full 3D Mode is off.
+    needs_full_acceleration, ///< Requires Full hardware acceleration.
+    needs_full_3d,           ///< Allow Full 3D Mode is off.
 };
 
 /// The game the dialog opens over.
@@ -1559,6 +1581,7 @@ struct GameState {
 
 /// What the dialog cannot change, and what its header says of the game.
 struct Locks {
+    Lock water_effects{};         ///< Requires Full hardware acceleration.
     Lock unlocked_camera{};       ///< Requires Allow Full 3D Mode.
     Lock path_search{};           ///< Pathfinding cycles
     Lock unit_limit{};            ///< Unit limit

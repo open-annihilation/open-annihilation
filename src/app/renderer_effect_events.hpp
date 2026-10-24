@@ -18,6 +18,11 @@ struct Event {
     bool impact{};
     uint8_t render_type{};
     bool emg{};
+    bool naval_source{};    ///< Floating source unit while the shot record is valid.
+    bool naval_target{};    ///< Floating target at the instant of impact.
+    bool hit_unit{};        ///< Detonation directly hit a unit rather than open terrain.
+    bool water_weapon{};    ///< Torpedo or another weapon that travels below the surface.
+    bool crossed_surface{}; ///< A detonating projectile crossed downward through sea level.
 };
 
 /// Bound storage so callbacks neither allocate nor call back into the match.
@@ -63,7 +68,9 @@ class Capture {
     bool (*alive_)(void*, const sim::match_runtime::EventHooks*) noexcept {};
 
     /// Append a shot without allocating, retaining its palette colour before retirement.
-    void note(const oa::World& world, const oa::Projectile& shot, bool impact) noexcept;
+    void note(
+        const oa::World& world, const oa::Projectile& shot, bool impact, uint16_t target = 0
+    ) noexcept;
     /// Forward a unit creation.
     static void unit_created(void* context, const oa::World& world, uint16_t unit);
     /// Forward a completed unit.

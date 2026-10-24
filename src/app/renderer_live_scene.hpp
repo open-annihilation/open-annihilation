@@ -4,6 +4,7 @@
 #pragma once
 
 #include "renderer_live_gpu.hpp"
+#include "renderer_water.hpp"
 #include "runtime_full.hpp"
 #include "oa/formats/tnt.hpp"
 
@@ -50,6 +51,8 @@ struct Scene {
     uint32_t row_height{};
     std::unordered_map<uint64_t, AtlasRect> materials{};
     std::unordered_map<uint64_t, TerrainMaterial> terrain_materials{};
+    std::unordered_map<uint64_t, AtlasRect>
+        aircraft_shadow_materials{}; ///< bounded blurred silhouettes
     PaletteBytes terrain_palette{};
     PaletteBytes terrain_grey_palette{};
     std::size_t terrain_vertex_count{};
@@ -69,10 +72,16 @@ struct Inputs {
     const WorldDrawList* draws{};
     full::SightView sight{};
     uint16_t graphics_flags{};
+    std::span<const uint8_t> shade_table{}; ///< classic indexed building shade rows
+    std::array<float, 3> light{};           ///< canonical model light, independent of camera
+    float light_scale{};                    ///< canonical normal-to-shade-row scale
     int32_t sea_level{};
     float detail_scale{
         1
     }; ///< pixels per world pixel; values below one enable distant detail reduction
+    renderer_live_gpu::WaterEffects water{};             ///< optional bounded water presentation
+    const renderer_water::SurfaceCache* water_surface{}; ///< cached local water fetch
+    std::span<const renderer_water::Disturbance> water_disturbances{}; ///< visible shot events
     bool nanolathe_lighting{true}; ///< construction emission, particle halos and stream lighting
     float nanolathe_intensity{
         1

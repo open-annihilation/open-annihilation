@@ -16,8 +16,13 @@ namespace oa::ui::engine_settings {
 inline constexpr std::string_view interface_words[] = {
     ". Choose it again to try again.",
     "Allow Full 3D Mode",
+    "Coastal waves",
+    "Naval reflections",
+    "Underwater shimmer",
+    "Water ripples",
     "Unlocked Camera",
     "Needs Allow Full 3D Mode",
+    "Needs Full acceleration",
     "Requires Full hardware acceleration.",
     "Allow angles outside the ideal range for TA art.",
 

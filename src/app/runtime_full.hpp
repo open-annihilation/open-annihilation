@@ -399,6 +399,10 @@ struct ModelFrameInputs {
     /// The models' display tables: the shade table gives the flat polygons
     /// of a lit building their colours. Null draws them unlit.
     const oa::present::model::ModelDisplay* display{};
+    /// Presentation-only underwater shading; zero preserves the classic palette exactly.
+    float water_shimmer{};
+    float water_sea_level{};
+    double water_seconds{};
     uint16_t graphics_flags{}; ///< Game.graphics_flags: shadows, vehicle shadows and shading
     /// The tick of the build effect's pulse, which the nanoframe's colours
     /// cycle by: the match's tick less ModelRenderer::build_pulse_lag.

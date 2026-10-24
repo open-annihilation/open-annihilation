@@ -17,6 +17,7 @@ struct Upload {
     SDL_Texture* texture{}; ///< RGBA streaming texture
     int width{};            ///< allocated columns
     int height{};           ///< allocated rows
+    /// Releases the reusable upload texture.
     ~Upload();
     Upload() = default;
     Upload(const Upload&) = delete;

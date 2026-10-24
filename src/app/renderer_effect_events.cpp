@@ -32,19 +32,37 @@ Capture::~Capture() {
         *installed_ = previous_;
 }
 
-void Capture::note(const oa::World& world, const oa::Projectile& shot, bool impact) noexcept {
+void Capture::note(
+    const oa::World& world, const oa::Projectile& shot, bool impact, uint16_t target
+) noexcept {
     if (log_->count >= Log::capacity)
         return;
     const auto* weapon = oa::world_weapon_def(&world, shot.def);
     if (!weapon)
         return;
+    const auto* source = oa::world_unit(&world, shot.source);
+    const auto* definition = source ? oa::world_unit_def_of(&world, source) : nullptr;
+    const bool naval = definition && (definition->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0;
+    const auto* victim = oa::world_unit_at(&world, target);
+    const auto* victim_def = target && victim ? oa::world_unit_def_of(&world, victim) : nullptr;
+    const bool naval_target = victim_def && (victim_def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0;
+    const bool water_weapon = (weapon->flags & OA_WEAPON_FLAG_WATER_WEAPON) != 0;
+    const int64_t sea = int64_t(world.game.sea_level) * 65536;
+    const bool crossed_surface = impact && target == 0 && shot.velocity.y < 0 &&
+                                 int64_t(shot.position.y) < sea &&
+                                 int64_t(shot.position.y) - shot.velocity.y >= sea;
     log_->events[log_->count++] = {
         impact ? shot.position : shot.origin,
         world.game.tick,
         static_cast<uint8_t>(weapon->color),
         impact,
         static_cast<uint8_t>(weapon->render_type),
-        renderer_weapon_style::is_emg(*weapon)
+        renderer_weapon_style::is_emg(*weapon),
+        naval,
+        naval_target,
+        target != 0,
+        water_weapon,
+        crossed_surface
     };
 }
 
@@ -81,7 +99,7 @@ void Capture::shot_detonated(
     void* context, const oa::World& world, const oa::Projectile& shot, uint16_t target
 ) {
     auto& self = *static_cast<Capture*>(context);
-    self.note(world, shot, true);
+    self.note(world, shot, true, target);
     if (self.previous_.shot_detonated)
         self.previous_.shot_detonated(self.previous_.context, world, shot, target);
 }

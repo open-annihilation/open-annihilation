@@ -4,6 +4,7 @@
 #include "oa/app/runtime.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_effects.hpp"
+#include "renderer_water_effects.hpp"
 #include "oa/sim/visibility_state.hpp"
 
 #include <algorithm>
@@ -112,7 +113,18 @@ void Runtime::compose_match_effect_pixels(
         const float heat_scale = std::min(settings.heat_distortion, 200U) / 100.0F;
         const float light = std::clamp(source.intensity, 0.0F, 1.0F) * detail[0] * light_scale;
         const float glow = std::clamp(source.glow, 0.0F, 1.0F) * detail[0] * light_scale;
-        const float heat = std::clamp(source.heat, 0.0F, 1.0F) * detail[1] * heat_scale;
+        const auto water = renderer_water_effects::source(
+            source.red,
+            source.green,
+            source.blue,
+            source.x,
+            source.z,
+            float(selected_tnt_->sea_level) - source.height,
+            match_->simulation().tick / 30.0,
+            std::min(settings.underwater_shimmer, 200U) / 100.0F *
+                std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+        );
+        const float heat = std::clamp(source.heat, 0.0F, 1.0F) * detail[1] * heat_scale * water[3];
         if (light < minimum_light_strength && glow < minimum_glow_strength &&
             heat < minimum_heat_strength)
             continue;
@@ -137,9 +149,9 @@ void Runtime::compose_match_effect_pixels(
              depth,
              radius,
              source.radius * depth_scale,
-             source.red,
-             source.green,
-             source.blue,
+             water[0],
+             water[1],
+             water[2],
              light,
              glow,
              heat,

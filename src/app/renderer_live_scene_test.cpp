@@ -3,6 +3,8 @@
 
 // Live terrain preserves painted coordinates, visibility and bounded atlas reuse.
 #include "renderer_live_scene.hpp"
+#include "renderer_aircraft_shadow.hpp"
+#include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
 #include "oa/present/rle.hpp"
 
@@ -91,7 +93,13 @@ std::array<uint8_t, 4> triangle_color(const live::Scene& scene, std::size_t firs
             value = std::lerp(
                 value, float(scene.texture_rgba.at(offset + tile_edge * 4 + channel)), grey
             );
-        result[channel] = static_cast<uint8_t>(std::lround(value * brightness));
+        const std::array modulation{
+            (a.red + b.red + c.red) / 3,
+            (a.green + b.green + c.green) / 3,
+            (a.blue + b.blue + c.blue) / 3
+        };
+        result[channel] =
+            static_cast<uint8_t>(std::lround(value * brightness * modulation[channel]));
     }
     result[3] = scene.texture_rgba.at(offset + 3);
     return result;
@@ -1347,6 +1355,59 @@ void cached_unit_shadows() {
     OA_CHECK(fixture.scene.shadow_count == 0);
 }
 
+/// Aircraft shadows broaden and fade with altitude, retain silhouette alpha and receive on water.
+void aircraft_shadow_altitude() {
+    namespace shadow = oa::app::renderer_aircraft_shadow;
+    auto previous = shadow::style(0);
+    for (const float height : {16.0F, 48.0F, 96.0F, 192.0F, 512.0F}) {
+        const auto current = shadow::style(height);
+        OA_CHECK(current.spread >= previous.spread && current.spread <= 1.45F);
+        OA_CHECK(current.opacity <= previous.opacity && current.opacity >= 0.29F);
+        OA_CHECK(current.radius >= previous.radius && current.radius <= 8);
+        previous = current;
+    }
+    const std::array<uint8_t, 9> mask{0, 1, 0, 1, 1, 1, 0, 1, 0};
+    const auto soft = shadow::soften(mask, 3, 3, 2);
+    OA_CHECK(soft.size() == 11 * 11);
+    OA_CHECK(std::any_of(soft.begin(), soft.end(), [](uint8_t alpha) {
+        return alpha > 0 && alpha < 255;
+    }));
+    OA_CHECK(soft.front() == 0 && soft.back() == 0);
+    Fixture fixture;
+    oa::present::model::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    state.image.sprite.key = 1;
+    std::fill(state.image.pixels.begin(), state.image.pixels.end(), 0);
+    constexpr int32_t fixed = 65536;
+    oa::Unit unit{};
+    unit.position = {16 * fixed, 104 * fixed, 16 * fixed};
+    oa::UnitDef definition{};
+    definition.flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.unit = &unit;
+    draw.model.def = &definition;
+    draw.model.state = &state;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.sea_level = 8;
+    fixture.inputs.graphics_flags =
+        oa::present::model::graphics_shadows | oa::present::model::graphics_vehicle_shadows;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.shadow_count == 1);
+    OA_CHECK(fixture.scene.aircraft_shadow_materials.size() == 1);
+    for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+         ++i) {
+        const auto& vertex = fixture.scene.vertices[i];
+        OA_CHECK(std::abs(vertex.height - 8.05F) < tolerance);
+        OA_CHECK(vertex.opacity < 0.5F && vertex.opacity > 0.1F);
+        OA_CHECK(vertex.terrain_size == -1);
+    }
+    const auto revision = fixture.scene.texture_revision;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.texture_revision == revision);
+}
+
 /// Crops cover their intersecting cells but never leave the map, and invalid inputs fail cleanly.
 void bounds_and_invalid_inputs() {
     Fixture fixture;
@@ -1383,9 +1444,389 @@ void bounds_and_invalid_inputs() {
     OA_CHECK(!live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.terrain_vertex_count == 0);
 }
+
+/// Surface effects follow sea height, clip beaches and vanish when disabled or distant.
+void water_surface_bounds() {
+    Fixture fixture;
+    fixture.inputs.sea_level = 8;
+    fixture.inputs.water.ripples = fixture.inputs.water.coastal_waves = 1;
+    fixture.map.attributes[1].height = fixture.map.attributes[3].height = 16;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    std::size_t water_vertices{};
+    bool coast{};
+    for (const auto& vertex : fixture.scene.vertices) {
+        if (vertex.terrain_size != -2)
+            continue;
+        ++water_vertices;
+        OA_CHECK(std::abs(vertex.height - 8.05F) < tolerance);
+        OA_CHECK(vertex.x <= 8 + tolerance);
+        OA_CHECK(vertex.terrain_x >= 0);
+        coast |= vertex.terrain_x == 0;
+    }
+    OA_CHECK(water_vertices > 0);
+    OA_CHECK(coast);
+    fixture.inputs.water.detail = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    fixture.inputs.water.detail = 1;
+    fixture.inputs.water.ripples = fixture.inputs.water.coastal_waves = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    fixture.inputs.water.ripples = 1;
+    fixture.mapped[0] = fixture.coverage[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    for (const auto& vertex : fixture.scene.vertices)
+        if (vertex.terrain_size == -2)
+            OA_CHECK(vertex.brightness == 0);
+}
+
+/// Shot disturbances stay on water, age with simulation ticks and obey current visibility.
+void water_disturbance_visibility() {
+    Fixture fixture;
+    fixture.inputs.sea_level = 8;
+    fixture.inputs.water.ripples = 1;
+    fixture.inputs.tick = 8;
+    const std::array events{oa::app::renderer_water::Disturbance{
+        16, 16, 0, 1, oa::app::renderer_water::Kind::water_impact
+    }};
+    fixture.inputs.water_disturbances = events;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    std::size_t disturbance_vertices{};
+    bool splash{};
+    for (const auto& vertex : fixture.scene.vertices) {
+        if (vertex.terrain_size != -4)
+            continue;
+        ++disturbance_vertices;
+        OA_CHECK(vertex.terrain_x >= 0);
+        OA_CHECK(vertex.height >= fixture.inputs.sea_level);
+        splash |= vertex.height > fixture.inputs.sea_level + 1;
+    }
+    OA_CHECK(disturbance_vertices > 0 && disturbance_vertices <= 306);
+    OA_CHECK(splash);
+    fixture.inputs.tick = 60;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(
+        std::none_of(
+            fixture.scene.vertices.begin(), fixture.scene.vertices.end(), [](const auto& vertex) {
+                return vertex.terrain_size == -4;
+            }
+        )
+    );
+    fixture.inputs.tick = 8;
+    fixture.coverage[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(
+        std::none_of(
+            fixture.scene.vertices.begin(), fixture.scene.vertices.end(), [](const auto& vertex) {
+                return vertex.terrain_size == -4;
+            }
+        )
+    );
+    fixture.coverage[0] = 1;
+    fixture.inputs.water.detail = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(
+        std::none_of(
+            fixture.scene.vertices.begin(), fixture.scene.vertices.end(), [](const auto& vertex) {
+                return vertex.terrain_size == -4;
+            }
+        )
+    );
+}
+
+/// Only visible floating models reflect, and reflected triangles never become picking targets.
+void naval_reflection_visibility() {
+    Fixture fixture;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {
+        {0, 0, 0},
+        {fixed, 0, 0},
+        {0, fixed, 0},
+        {0, fixed, 0},
+        {0, fixed, -4 * fixed},
+        {4 * fixed, fixed, 0}
+    };
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    drawing::PreparedModel prepared{};
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(1);
+    prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+    prepared.objects[0].primitives[0].color = ground_index;
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.position = {8 * fixed, 9 * fixed, 16 * fixed};
+    oa::UnitDef definition{};
+    definition.flags = OA_UNIT_DEF_FLAG_FLOATER;
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.unit = &unit;
+    draw.model.def = &definition;
+    draw.plan.linked.drawn = true;
+    fixture.inputs.sea_level = 8;
+    fixture.inputs.water.reflections = 1;
+    fixture.inputs.view_direction = {0, 1, 0.5F};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    std::size_t reflections{};
+    for (const auto& vertex : fixture.scene.vertices) {
+        if (vertex.terrain_size != -3)
+            continue;
+        ++reflections;
+        OA_CHECK(std::abs(vertex.height - 8.12F) < tolerance);
+        OA_CHECK(vertex.terrain_x > 0);
+        OA_CHECK(
+            vertex.opacity > oa::app::renderer_water_appearance::reflection_opacity * 0.97F &&
+            vertex.opacity <= oa::app::renderer_water_appearance::reflection_opacity
+        );
+    }
+    OA_CHECK(reflections == 3);
+    OA_CHECK(fixture.scene.unit_ranges.size() == 1);
+    OA_CHECK(fixture.scene.unit_ranges[0].vertex_count == 3);
+    const auto reflected_begin = fixture.scene.terrain_vertex_count + 3;
+    for (std::size_t i = 0; i < 3; ++i) {
+        const auto& original = fixture.scene.vertices[fixture.scene.terrain_vertex_count + i];
+        const auto& reflected = fixture.scene.vertices[reflected_begin + i];
+        const float mirrored_screen =
+            original.z - (2 * fixture.inputs.sea_level - original.height) * 0.5F;
+        OA_CHECK(
+            std::abs(reflected.z - reflected.height * 0.5F + 0.06F - mirrored_screen) < tolerance
+        );
+    }
+    // The former elevation cutoff must not remove reflections abruptly.
+    float previous_opacity{};
+    for (float elevation : {0.201F, 0.199F, 0.12F, 0.06F}) {
+        fixture.inputs.view_direction = {0, elevation, 0.5F};
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        float opacity{};
+        for (const auto& vertex : fixture.scene.vertices)
+            if (vertex.terrain_size == -3) {
+                opacity = std::max(opacity, vertex.opacity);
+                OA_CHECK(std::isfinite(vertex.x) && std::isfinite(vertex.z));
+            }
+        OA_CHECK(opacity > 0);
+        if (previous_opacity > 0)
+            OA_CHECK(opacity <= previous_opacity + tolerance);
+        if (elevation == 0.199F)
+            OA_CHECK(std::abs(opacity - previous_opacity) < tolerance);
+        previous_opacity = opacity;
+    }
+    fixture.inputs.view_direction = {0, 1, 0.5F};
+    // A hull face intersecting the waterline retains its above-water portion.
+    instance.pieces()[0].transformed_vertices[2].y = -2 * fixed;
+    source->objects[0].primitives[0].vertex_indices = {0, 2, 1};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(
+        std::count_if(
+            fixture.scene.vertices.begin(), fixture.scene.vertices.end(), [](const auto& vertex) {
+                return vertex.terrain_size == -3;
+            }
+        ) == 6
+    );
+    instance.pieces()[0].transformed_vertices[2].y = fixed;
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    // An underside is invisible to the direct camera but visible in the reflection.
+    source->objects[0].primitives.resize(2);
+    source->objects[0].primitives[1].vertex_indices = {3, 4, 5};
+    prepared.objects[0].primitives.resize(2);
+    prepared.objects[0].primitives[1] = prepared.objects[0].primitives[0];
+    prepared.objects[0].primitives[1].source_index = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges[0].vertex_count == 3);
+    OA_CHECK(
+        std::count_if(
+            fixture.scene.vertices.begin(), fixture.scene.vertices.end(), [](const auto& vertex) {
+                return vertex.terrain_size == -3;
+            }
+        ) == 6
+    );
+    definition.flags = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count + 3);
+    definition.flags = OA_UNIT_DEF_FLAG_FLOATER;
+    draw.plan.linked.drawn = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+}
+
+/// Building shade rows match classic bright textures and indexed palette remaps.
+void model_shade_parity() {
+    Fixture fixture;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {fixed, 0, 0}, {fixed, fixed, 0}, {0, fixed, 0}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2, 3};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    instance.pieces()[0].flags |= static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached) |
+                                  static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::shaded);
+    std::array<uint8_t, 1> pixel{ground_index};
+    drawing::TextureSequence texture;
+    texture.frames.resize(1);
+    texture.frames[0].width = texture.frames[0].height = 1;
+    texture.frames[0].encoding = OA_SPRITE_RAW;
+    texture.frames[0].data = pixel.data();
+    drawing::PreparedModel prepared{};
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(1);
+    prepared.objects[0].primitives[0].texture = &texture;
+    prepared.objects[0].primitives[0].frame = &texture.frames[0];
+    drawing::ModelState state{};
+    state.image.sprite.data = pixel.data();
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    unit.position = {8 * fixed, 0, 8 * fixed};
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.state = &state;
+    draw.model.unit = &unit;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    fixture.inputs.graphics_flags = drawing::graphics_shading;
+    fixture.inputs.light = {0, 0, 1};
+    fixture.inputs.light_scale = 20;
+    std::array<uint8_t, 32 * 256> shades{};
+    shades.fill(alternate_index);
+    fixture.inputs.shade_table = shades;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(!fixture.scene.unit_ranges.empty());
+    if (fixture.scene.unit_ranges.empty())
+        return;
+    const auto first = fixture.scene.unit_ranges[0].first_vertex;
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == 165);
+    OA_CHECK(std::abs(fixture.scene.vertices[first].brightness - 20 * 0.06875F / 2) < tolerance);
+    // Camera orientation changes visibility, never the baked model light direction.
+    fixture.inputs.view_direction = {0, 0, 1};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(std::abs(fixture.scene.vertices[first].brightness - 20 * 0.06875F / 2) < tolerance);
+    fixture.inputs.view_direction = {};
+    unit.flags = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == 120);
+    OA_CHECK(fixture.scene.vertices[first].brightness == 1);
+    unit.flags = OA_UNIT_FLAG_BUILDING;
+    fixture.inputs.graphics_flags = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == 120);
+    fixture.inputs.graphics_flags = drawing::graphics_shading;
+    prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
+    prepared.objects[0].primitives[0].color = ground_index;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto& vertex = fixture.scene.vertices[first];
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == 30);
+    OA_CHECK(std::abs(vertex.red - 30 / 255.0F) < tolerance);
+    OA_CHECK(std::abs(vertex.green - 120 / 255.0F) < tolerance);
+    OA_CHECK(std::abs(vertex.blue - 240 / 255.0F) < tolerance);
+    // Standalone callers without a complete classic lighting bundle keep source art.
+    fixture.inputs.shade_table = {};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == ground_color[0]);
+    fixture.inputs.shade_table = shades;
+    fixture.inputs.light_scale = 0;
+    prepared.objects[0].primitives[0].flags = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(triangle_color(fixture.scene, first)[0] == ground_color[0]);
+}
+
+/// Model shots and their children keep true depth, camera origin and current visibility.
+void projectile_world_depth() {
+    Fixture fixture;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    models::Object object{};
+    object.vertices = {{0, 0, 0}, {fixed, 0, 0}, {0, fixed, 0}};
+    object.primitives.resize(1);
+    object.primitives[0].vertex_indices = {0, 1, 2};
+    drawing::PreparedObject prepared{};
+    prepared.primitives.resize(1);
+    prepared.primitives[0].flags = drawing::primitive_colored;
+    prepared.primitives[0].color = ground_index;
+    oa::app::ProjectileDraw shot{};
+    shot.object = shot.child = &object;
+    shot.prepared = shot.child_prepared = &prepared;
+    shot.position = {4 * fixed, 4 * fixed, 12 * fixed};
+    fixture.draws.projectiles.push_back(shot);
+    fixture.inputs.camera_x = fixture.inputs.camera_y = 4;
+    fixture.inputs.sea_level = 16;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count + 6);
+    const auto first = fixture.scene.terrain_vertex_count;
+    OA_CHECK(fixture.scene.vertices[first].x == 8);
+    OA_CHECK(fixture.scene.vertices[first].height == 4);
+    OA_CHECK(fixture.scene.vertices[first].z == 16);
+    OA_CHECK(fixture.scene.unit_ranges.empty());
+    for (std::size_t i = first; i < fixture.scene.vertices.size(); ++i)
+        OA_CHECK(fixture.scene.vertices[i].height >= 4 && fixture.scene.vertices[i].height <= 5);
+    fixture.draws.projectiles[0].position.y = 20 * fixed;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices[first].height == 20);
+    fixture.coverage[0] = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+}
+
+/// Underwater flashes remain local billboards; impact art is never raised out of the water.
+void underwater_effect_altitude() {
+    Fixture fixture;
+    for (auto& attribute : fixture.map.attributes)
+        attribute.height = 3;
+    fixture.inputs.sea_level = 16;
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 8;
+    frame.origin_x = frame.origin_y = 4;
+    frame.pixels.assign(64, 110);
+    frame.coverage.assign(64, 1);
+    fixture.draws.sprites.push_back({&frame, {8, 14}});
+    auto& sprite = fixture.draws.sprites[0];
+    sprite.world_position = oa::FixedVec3{8 * 65536, 4 * 65536, 16 * 65536};
+    sprite.surface_effect = true;
+    fixture.draws.draws.push_back({oa::app::WorldDrawKind::lit_sprite, 0});
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.sprite_count == 1);
+    float minimum = 100, maximum = -100;
+    for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+         ++i) {
+        const auto& vertex = fixture.scene.vertices[i];
+        minimum = std::min(minimum, vertex.height);
+        maximum = std::max(maximum, vertex.height);
+        OA_CHECK(vertex.opacity == 1);
+        OA_CHECK(vertex.terrain_size == -5 && vertex.terrain_x == 12);
+    }
+    OA_CHECK(minimum < 3 && maximum < 16);
+    OA_CHECK(std::abs((minimum + maximum) / 2 - 4) < tolerance);
+    fixture.draws.draws[0].kind = oa::app::WorldDrawKind::sprite;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices[fixture.scene.terrain_vertex_count].height < 16);
+    fixture.coverage[0] = 0;
+    fixture.draws.draws[0].kind = oa::app::WorldDrawKind::lit_sprite;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.sprite_count == 0);
+}
+
 } // namespace
 
 int main() {
+    water_surface_bounds();
+    water_disturbance_visibility();
+    naval_reflection_visibility();
+    model_shade_parity();
+    projectile_world_depth();
+    underwater_effect_altitude();
     painted_projection();
     canonical_terrain_grid();
     clipped_texture_bounds();
@@ -1406,6 +1847,7 @@ int main() {
     building_foundations();
     foundation_candidates();
     cached_unit_shadows();
+    aircraft_shadow_altitude();
     flash_masks_and_effect_altitude();
     spatial_particles();
     particle_screen_bounds();

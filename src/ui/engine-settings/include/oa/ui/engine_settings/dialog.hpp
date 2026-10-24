@@ -307,6 +307,11 @@ enum class Setting : uint8_t {
     wreck_glow,         ///< Wreck glow: an intensity slider
     heat_distortion,    ///< Heat distortion: an intensity slider
 
+    water_ripples,      ///< Water ripples: an intensity slider
+    coastal_waves,      ///< Coastal waves: an intensity slider
+    underwater_shimmer, ///< Underwater shimmer: an intensity slider
+    naval_reflections,  ///< Naval reflections: an intensity slider
+
     allow_full_3d,   ///< Allow Full 3D Mode: a switch
     unlocked_camera, ///< Unrestricted camera angles: a switch
     /// Welcome setup: SHOW AGAIN walks through the language, online features

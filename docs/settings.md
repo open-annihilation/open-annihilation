@@ -501,6 +501,28 @@ the game draws its text and how the modern fonts draw it.
   They apply in both the normal and 3D views and can be changed during a match.
   Cancel restores the choices from before the dialog opened; OK saves them
   for the next run. Existing saved Off/On choices migrate to 0%/100%.
+- **Water ripples**, **Coastal waves**, **Underwater shimmer** and
+  **Naval reflections** are independent 0%–200% intensity sliders in 10%
+  steps, all 100% by default. They require Full hardware acceleration and
+  apply in the classic view as well as the supported 3D view. Zero disables
+  an effect. Ripples and waves add restrained movement to the original map
+  artwork. Surface ripples follow a stable, map-specific direction with
+  continuous motion, including after loading a saved match. Broad swells and
+  fine ripples move at different speeds along that direction. Finer surface
+  detail fades in at close range. Coastal waves move toward shore and are
+  gentler on small, sheltered bodies of water.
+  Ripples also add brief disturbances around visible naval shots and hits,
+  with splashes where shells strike water. Submerged torpedoes and their
+  impacts remain at their actual depth and do not create surface splashes. Shimmer adds depth tint, moving
+  light and depth attenuation only to submerged portions of scenery and units;
+  dry portions keep their original colours. Reflections add a faint, softened
+  image beneath visible surface ships and fade smoothly at grazing angles.
+  Fine detail fades as the camera zooms out, and reflection geometry is
+  bounded to keep distant fleets inexpensive. These effects change only
+  presentation, not water depth, movement or visibility.
+  With shadows enabled, aircraft shadows become wider, softer and fainter
+  as their height above the receiving ground or water increases. This applies
+  in Full acceleration in both the classic and supported 3D views.
 
 Some computers start with other defaults, which Restore defaults puts back
 and which a value you choose always replaces:

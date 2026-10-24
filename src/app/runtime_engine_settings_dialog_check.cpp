@@ -144,12 +144,12 @@ constexpr std::array<WindowLayout, 5> kWindowLayouts{{
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
-/// Graphics' scroll limit at Compact: its sixteen rows, Smooth motion among
+/// Graphics' scroll limit at Compact: its twenty rows, Smooth motion among
 /// them, after Menu scaling, Window frame, HUD scaling and Interface size
 /// left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 701;
+constexpr int32_t kGraphicsScrollLimit = 913;
 /// Graphics' scroll limit at Large, whose taller view all but holds its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 341;
+constexpr int32_t kGraphicsLargeScrollLimit = 553;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -429,6 +429,14 @@ std::string_view label_of(settings::Setting setting) {
         return "Nanolathe glow";
     case settings::Setting::wreck_glow:
         return "Wreck glow";
+    case settings::Setting::water_ripples:
+        return "Water ripples";
+    case settings::Setting::coastal_waves:
+        return "Coastal waves";
+    case settings::Setting::underwater_shimmer:
+        return "Underwater shimmer";
+    case settings::Setting::naval_reflections:
+        return "Naval reflections";
     case settings::Setting::heat_distortion:
         return "Heat distortion";
     case settings::Setting::allow_full_3d:

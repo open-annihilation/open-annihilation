@@ -113,7 +113,16 @@ int main() {
     world->game.weapon_defs[0].color = 17;
     world->game.weapon_defs[0].render_type = 4;
     std::strcpy(world->game.weapon_defs[0].key, "VTOL_EMG");
+    std::array<oa::Unit, 3> units{};
+    oa::UnitDef naval{};
+    naval.flags = OA_UNIT_DEF_FLAG_FLOATER;
+    world->units = units.data();
+    world->unit_slot_count = units.size();
+    world->unit_defs = &naval;
+    world->unit_def_count = 1;
+    units[1].def = units[2].def = 1;
     oa::Projectile shot{};
+    shot.source = 2;
     shot.def = 1;
     shot.origin = {10, 20, 30};
     shot.position = {40, 50, 60};
@@ -143,6 +152,8 @@ int main() {
         OA_CHECK(log->events[1].colour == 17 && log->events[1].tick == 42);
         OA_CHECK(log->events[0].emg && log->events[1].emg);
         OA_CHECK(log->events[1].render_type == 4);
+        OA_CHECK(log->events[0].naval_source && !log->events[0].hit_unit);
+        OA_CHECK(log->events[1].naval_target && log->events[1].hit_unit);
         for (std::size_t i = 0; i < Log::capacity + 10; ++i)
             hooks.shot_detonated(hooks.context, *world, shot, 2);
         OA_CHECK(log->count == Log::capacity);
@@ -171,5 +182,37 @@ int main() {
         owner.hooks = {}; // match destruction or replacement
     }
     OA_CHECK(owner.hooks.context == nullptr);
+    // Preserve actual underwater heights; weapon metadata distinguishes torpedoes from entry.
+    Owner water_owner;
+    auto water_log = std::make_shared<Log>();
+    world->game.sea_level = 30;
+    world->game.weapon_defs[0].flags |= OA_WEAPON_FLAG_WATER_WEAPON;
+    shot.origin = {10 * 65536, 20 * 65536, 30 * 65536};
+    shot.position = {40 * 65536, 25 * 65536, 60 * 65536};
+    shot.velocity = {0, -10 * 65536, 0};
+    {
+        Capture capture(water_owner.hooks, *water_log, water_log, &water_owner, alive);
+        water_owner.hooks.shot_placed(
+            water_owner.hooks.context,
+            *world,
+            shot,
+            oa::sim::match_runtime::ShotSource::weapon,
+            &aim,
+            2
+        );
+        water_owner.hooks.shot_detonated(water_owner.hooks.context, *world, shot, 2);
+        OA_CHECK(water_log->events[0].position.y == 20 * 65536);
+        OA_CHECK(water_log->events[1].position.y == 25 * 65536);
+        OA_CHECK(water_log->events[0].water_weapon && water_log->events[1].water_weapon);
+        OA_CHECK(!water_log->events[1].crossed_surface);
+        water_owner.hooks.shot_detonated(water_owner.hooks.context, *world, shot, 0);
+        OA_CHECK(water_log->events[2].water_weapon && water_log->events[2].crossed_surface);
+        world->game.weapon_defs[0].flags &= ~OA_WEAPON_FLAG_WATER_WEAPON;
+        water_owner.hooks.shot_detonated(water_owner.hooks.context, *world, shot, 0);
+        OA_CHECK(!water_log->events[3].water_weapon && water_log->events[3].crossed_surface);
+        shot.velocity.y = -1 * 65536;
+        water_owner.hooks.shot_detonated(water_owner.hooks.context, *world, shot, 0);
+        OA_CHECK(!water_log->events[4].crossed_surface);
+    }
     return oa::test::check_exit_status();
 }

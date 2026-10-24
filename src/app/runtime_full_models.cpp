@@ -27,6 +27,8 @@
 // colour as in a flat draw. Nothing here writes the match or the planner's
 // state.
 #include "runtime_full.hpp"
+#include "renderer_water_shading.hpp"
+#include "renderer_aircraft_shadow.hpp"
 
 #include "oa/base/game_math.hpp"
 #include "oa/present/palette_tables.hpp"
@@ -165,7 +167,8 @@ struct Corner {
     float u{};
     float v{};
     card::Colour colour{};
-    int32_t depth{}; ///< the depth plane's value at the corner; units' polygons alone
+    float world_height{}; ///< physical height, independent of cached piece depth bytes
+    int32_t depth{};      ///< the depth plane's value at the corner; units' polygons alone
 };
 
 /// One polygon to emit, in the order and the look the processor draws it.
@@ -173,8 +176,12 @@ struct Polygon {
     uint32_t first_corner{};
     uint16_t corner_count{};
     bool underwater{}; ///< tinted as the blue table tints: halved, then lifted
-    bool bright{};     ///< drawn from the bright page
-    bool flat_page{};  ///< the flat variant of its frame: the image key a colour
+    bool water_geometry{};
+    float height_x{};
+    float height_y{};
+    float height_origin{};
+    bool bright{};    ///< drawn from the bright page
+    bool flat_page{}; ///< the flat variant of its frame: the image key a colour
     /// The mesh whose fan splits the polygon, with the primitive; a null
     /// mesh fans from the first corner. A textured quad is drawn as strips
     /// across its rows instead where it is not a parallelogram on screen.
@@ -194,6 +201,29 @@ struct Polygon {
     uint32_t first_piece{};
     uint32_t piece_count{};
 };
+
+/// Recover physical height over a projected face for waterline clipping.
+void water_plane(Polygon& polygon, std::span<const Corner> corners) {
+    const auto& a = corners[0];
+    for (uint32_t k = 1; k + 1 < corners.size(); ++k) {
+        const auto& b = corners[k];
+        const auto& c = corners[k + 1];
+        const float bx = float(b.x) - a.x, by = float(b.y) - a.y;
+        const float cx = float(c.x) - a.x, cy = float(c.y) - a.y;
+        const float determinant = bx * cy - by * cx;
+        if (std::abs(determinant) < 0.01F)
+            continue;
+        polygon.height_x =
+            ((b.world_height - a.world_height) * cy - (c.world_height - a.world_height) * by) /
+            determinant;
+        polygon.height_y =
+            (bx * (c.world_height - a.world_height) - cx * (b.world_height - a.world_height)) /
+            determinant;
+        polygon.height_origin = a.world_height - polygon.height_x * a.x - polygon.height_y * a.y;
+        polygon.water_geometry = true;
+        break;
+    }
+}
 
 /// A run of one row's pixels of a nanoframe's outline, frame pixels at zoom 1.
 struct OutlineRun {
@@ -920,6 +950,15 @@ struct ModelStage::Impl {
     /// frame's address in the library.
     std::unordered_map<const void*, bool> keyed_texels;
     std::unordered_map<const Model*, MeshEntry> meshes;
+
+    /// Cached blurred aircraft silhouettes; at most 256 pages of 256 square texels.
+    struct AircraftShadow {
+        card::PageHandle page{};
+        uint32_t width{}, height{}, radius{}, image_builds{};
+        const void* image_data{};
+    };
+
+    std::unordered_map<uint16_t, AircraftShadow> aircraft_shadows;
     card::PageHandle solid_page{};
     card::TargetHandle shadow_target{};
     uint32_t shadow_width{};
@@ -1223,7 +1262,8 @@ class Emitter {
         const draw::PreparedObject& prepared,
         std::span<const gw::PixelPoint> projected,
         const Sprite* (*texture_of)(const draw::PreparedPrimitive&, uint8_t),
-        uint8_t team
+        uint8_t team,
+        std::span<const FixedVector3> world_points = {}
     );
 
     // Emitting.
@@ -1236,6 +1276,8 @@ class Emitter {
     );
     void emit_polygons(const Canvas& surface);
     void emit_polygon(const Canvas& surface, const Polygon& polygon);
+    /// Splits the finished face geometry at sea level before shading its wet part.
+    void append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page);
     void emit_cut_polygon(const Canvas& surface, const Polygon& polygon, const PlacedFrame& placed);
     [[nodiscard]] card::Vertex body_vertex(
         const Canvas& surface,
@@ -1262,6 +1304,15 @@ class Emitter {
         const ModelDraw& drawn, const Canvas& surface, card::Blend blend, bool unfinished_pass
     );
     void shadow_of_projectile(const ProjectileDraw& shot, const Canvas& surface);
+    /// Emits a cached, padded silhouette with altitude-dependent blur and opacity.
+    bool aircraft_shadow(
+        const Unit& unit,
+        const draw::ModelState& state,
+        const Canvas& surface,
+        int32_t x,
+        int32_t y,
+        float altitude
+    );
 
     /// Returns the alpha the frame's shadows draw at: the alpha table's half
     /// mix at the game's own darkness, less as the list's shadow level falls.
@@ -1297,6 +1348,8 @@ class Emitter {
     int32_t camera_z_{};
     std::vector<card::Vertex> vertices_;
     std::vector<card::Index> indices_;
+    std::vector<card::Vertex> wet_vertices_;
+    std::vector<card::Index> wet_indices_;
     /// A textured quad's strips, built beside its corners and triangles.
     std::vector<card::Vertex> strip_vertices_;
     std::vector<card::Index> strip_indices_;
@@ -1498,6 +1551,7 @@ void Emitter::add_piece_polygons(
         int64_t depth_sum = 0;
         int32_t highest_row = 0;
         bool valid = true;
+        bool submerged_corner = false;
         for (uint32_t k = 0; k < run.corner_count; ++k) {
             const uint32_t vertex_index = run.first_vertex + k;
             if (vertex_index >= mesh.vertices.size()) {
@@ -1515,6 +1569,11 @@ void Emitter::add_piece_polygons(
             corner.x = placed.x;
             corner.y = placed.y;
             corner.depth = placed.depth;
+            if (in_.water_shimmer > 0 && model.unit) {
+                corner.world_height =
+                    points[source].y / 65536.0F + model.unit->position.y / 65536.0F;
+                submerged_corner = submerged_corner || corner.world_height < in_.water_sea_level;
+            }
             corner.u = vertex.u;
             corner.v = vertex.v;
             depth_sum += placed.depth;
@@ -1547,6 +1606,11 @@ void Emitter::add_piece_polygons(
             continue;
         }
         polygon.depth = static_cast<int32_t>(depth_sum / run.corner_count);
+        if (in_.water_shimmer > 0 && model.unit && submerged_corner)
+            water_plane(
+                polygon,
+                std::span(impl_.corners.data() + polygon.first_corner, polygon.corner_count)
+            );
         if (textured) {
             polygon.bright = highest_row >= first_bright_row;
             for (uint32_t k = 0; k < run.corner_count; ++k) {
@@ -1731,12 +1795,10 @@ void Emitter::apply_water_and_digger(
         if (polygon.corner_count == 0)
             continue;
         const int32_t depth = static_cast<uint8_t>(polygon.depth);
-        if (lift_threshold >= 0 && depth <= lift_threshold) {
-            if (own)
-                polygon.underwater = true;
-            else
-                polygon.corner_count = 0;
-        }
+        // Visibility keeps the game's depth rule; water colour is applied later
+        // from physical height, never from the cached polygon's mean depth.
+        if (lift_threshold >= 0 && depth <= lift_threshold && !own)
+            polygon.corner_count = 0;
         if (digger && depth <= draw::digger_clip_depth)
             polygon.corner_count = 0;
     }
@@ -1841,7 +1903,8 @@ void Emitter::add_flat_object(
     const draw::PreparedObject& prepared,
     std::span<const gw::PixelPoint> projected,
     const Sprite* (*texture_of)(const draw::PreparedPrimitive&, uint8_t),
-    uint8_t team
+    uint8_t team,
+    std::span<const FixedVector3> world_points
 ) {
     constexpr std::array<std::pair<float, float>, 4> quad_corners{
         std::pair{0.0F, 0.0F}, std::pair{1.0F, 0.0F}, std::pair{1.0F, 1.0F}, std::pair{0.0F, 1.0F}
@@ -1869,6 +1932,7 @@ void Emitter::add_flat_object(
         polygon.texture = texture;
         polygon.flat_page = true;
         bool valid = true;
+        bool submerged = false;
         for (size_t k = 0; k < indices.size(); ++k) {
             if (indices[k] >= projected.size()) {
                 valid = false;
@@ -1878,6 +1942,10 @@ void Emitter::add_flat_object(
             Corner corner;
             corner.x = placed.x;
             corner.y = placed.y;
+            if (in_.water_shimmer > 0 && indices[k] < world_points.size()) {
+                corner.world_height = world_points[indices[k]].y / 65536.0F;
+                submerged = submerged || corner.world_height < in_.water_sea_level;
+            }
             if (texture != nullptr) {
                 corner.u = quad_corners[k].first;
                 corner.v = quad_corners[k].second;
@@ -1891,6 +1959,11 @@ void Emitter::add_flat_object(
             impl_.corners.resize(polygon.first_corner);
             continue;
         }
+        if (submerged)
+            water_plane(
+                polygon,
+                std::span(impl_.corners.data() + polygon.first_corner, polygon.corner_count)
+            );
         impl_.polygons.push_back(polygon);
     }
 }
@@ -2118,6 +2191,39 @@ bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners
     return true;
 }
 
+void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page) {
+    if (polygon.water_geometry && in_.water_shimmer > 0) {
+        const auto height_of = [&](const card::Vertex& vertex) {
+            const float x = (vertex.x - surface.origin_x) / scale_;
+            const float y = (vertex.y - surface.origin_y) / scale_;
+            return polygon.height_origin + polygon.height_x * x + polygon.height_y * y;
+        };
+        renderer_water_shading::split(
+            vertices_,
+            indices_,
+            wet_vertices_,
+            wet_indices_,
+            [&](const card::Vertex& vertex) { return in_.water_sea_level - height_of(vertex); },
+            [&](card::Vertex& vertex, float depth) {
+                const float x = (vertex.x - surface.origin_x) / scale_;
+                const float y = (vertex.y - surface.origin_y) / scale_;
+                renderer_water_shading::apply(
+                    vertex,
+                    x + camera_x_ / 65536.0F,
+                    y + camera_z_ / 65536.0F + (in_.water_sea_level - depth) * 0.5F,
+                    depth,
+                    in_.water_seconds,
+                    in_.water_shimmer,
+                    scale_
+                );
+            }
+        );
+        append(surface, page, card::Blend::alpha, wet_vertices_, wet_indices_);
+    } else {
+        append(surface, page, card::Blend::alpha, vertices_, indices_);
+    }
+}
+
 void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
     if (polygon.corner_count < 3)
         return;
@@ -2176,13 +2282,13 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
         const bool opaque = std::ranges::all_of(corners, opaque_corner) &&
                             (polygon.flat_page || !has_keyed_texels(*polygon.texture));
         if (opaque)
-            append(surface, placed.page, card::Blend::alpha, vertices_, indices_);
+            append_body(surface, polygon, placed.page);
         std::swap(vertices_, strip_vertices_);
         std::swap(indices_, strip_indices_);
     }
-    append(surface, placed.page, card::Blend::alpha, vertices_, indices_);
+    append_body(surface, polygon, placed.page);
     ++counts_.polygons;
-    if (polygon.underwater)
+    if (polygon.underwater && (in_.water_shimmer <= 0 || !polygon.water_geometry))
         lift_under_water(surface);
 }
 
@@ -2218,9 +2324,9 @@ void Emitter::emit_cut_polygon(
     }
     if (indices_.empty())
         return;
-    append(surface, placed.page, card::Blend::alpha, vertices_, indices_);
+    append_body(surface, polygon, placed.page);
     ++counts_.polygons;
-    if (polygon.underwater)
+    if (polygon.underwater && (in_.water_shimmer <= 0 || !polygon.water_geometry))
         lift_under_water(surface);
 }
 
@@ -2251,7 +2357,7 @@ card::Vertex Emitter::body_vertex(
     vertex.x = surface.origin_x + static_cast<float>(x) * scale_;
     vertex.y = surface.origin_y + static_cast<float>(y) * scale_;
     vertex.colour = colour;
-    if (polygon.underwater) {
+    if (polygon.underwater && (in_.water_shimmer <= 0 || !polygon.water_geometry)) {
         vertex.colour.red *= half_colour;
         vertex.colour.green *= half_colour;
         vertex.colour.blue *= half_colour;
@@ -2601,10 +2707,13 @@ void Emitter::draw_projectile(const ProjectileDraw& shot) {
                                   const draw::PreparedObject& prepared,
                                   oa::sim::model_runtime::RotationWords rotation) {
         impl_.projected.clear();
+        impl_.points.clear();
         for (const FixedVector3& v : object.vertices) {
             const FixedVector3 p = oa::sim::model_runtime::rotate_vector(
                 {wrap_sub(0, v.x), v.y, wrap_sub(0, v.z)}, rotation
             );
+            if (in_.water_shimmer > 0)
+                impl_.points.push_back({0, wrap_add(p.y, shot.position.y), 0});
             impl_.projected.push_back(
                 gw::pixel_of_model_point(
                     FixedVector3{
@@ -2616,7 +2725,7 @@ void Emitter::draw_projectile(const ProjectileDraw& shot) {
                 )
             );
         }
-        add_flat_object(object, prepared, impl_.projected, cursor_texture, 0);
+        add_flat_object(object, prepared, impl_.projected, cursor_texture, 0, impl_.points);
     };
     place_object(*shot.object, *shot.prepared, shot.rotation);
     if (shot.child != nullptr && shot.child_prepared != nullptr)
@@ -2712,6 +2821,77 @@ void Emitter::draw_fragment(const FragmentDraw& fragment) {
     emit_polygons(battlefield());
 }
 
+bool Emitter::aircraft_shadow(
+    const Unit& unit,
+    const draw::ModelState& state,
+    const Canvas& surface,
+    int32_t x,
+    int32_t y,
+    float altitude
+) {
+    const Sprite& image = state.image.sprite;
+    constexpr uint32_t edge = 256;
+    constexpr std::size_t capacity = 256;
+    const auto style = renderer_aircraft_shadow::style(altitude);
+    const uint32_t width = image.width, height = image.height;
+    const uint32_t padding = style.radius * 2;
+    if (width == 0 || height == 0 || width + padding * 2 > edge || height + padding * 2 > edge ||
+        image.data == nullptr)
+        return false;
+    auto found = impl_.aircraft_shadows.find(unit.id);
+    if (found == impl_.aircraft_shadows.end()) {
+        if (impl_.aircraft_shadows.size() >= capacity)
+            return false;
+        found = impl_.aircraft_shadows.try_emplace(unit.id).first;
+    }
+    auto& cached = found->second;
+    if (cached.page == card::PageHandle{} || cached.image_builds != state.image_builds ||
+        cached.image_data != image.data || cached.width != width || cached.height != height ||
+        cached.radius != style.radius) {
+        std::vector<uint8_t> mask(static_cast<std::size_t>(width) * height);
+        const auto* pixels = static_cast<const uint8_t*>(image.data);
+        for (std::size_t i = 0; i < mask.size(); ++i)
+            mask[i] = pixels[i] != draw::image_key;
+        if (cached.page == card::PageHandle{})
+            cached.page = executor_.create_page({edge, edge, 1});
+        if (cached.page == card::PageHandle{})
+            return false;
+        const auto alpha = renderer_aircraft_shadow::soften(mask, width, height, style.radius);
+        std::vector<uint8_t> rgba(edge * edge * card::texel_bytes);
+        const uint32_t columns = width + padding * 2, rows = height + padding * 2;
+        for (uint32_t row = 0; row < rows; ++row)
+            for (uint32_t col = 0; col < columns; ++col)
+                rgba[(row * edge + col) * card::texel_bytes + 3] = alpha[row * columns + col];
+        if (!executor_.update_page(cached.page, 0, nullptr, rgba.data(), edge * card::texel_bytes))
+            return false;
+        cached.width = width;
+        cached.height = height;
+        cached.radius = style.radius;
+        cached.image_builds = state.image_builds;
+        cached.image_data = image.data;
+        ++counts_.page_uploads;
+    }
+    const float centre_x = static_cast<float>(x - image.origin_x) + width * 0.5F;
+    const float centre_y = static_cast<float>(y - image.origin_y) + height * 0.5F;
+    const float half_width = (width * 0.5F + padding) * style.spread;
+    const float half_height = (height * 0.5F + padding) * style.spread;
+    vertices_.clear();
+    for (const auto& [sx, sy] : {std::pair{0, 0}, {1, 0}, {1, 1}, {0, 1}}) {
+        card::Vertex vertex;
+        vertex.x = surface.origin_x + (centre_x + (sx * 2 - 1) * half_width) * scale_;
+        vertex.y = surface.origin_y + (centre_y + (sy * 2 - 1) * half_height) * scale_;
+        vertex.u = static_cast<float>(sx * (width + padding * 2)) / edge;
+        vertex.v = static_cast<float>(sy * (height + padding * 2)) / edge;
+        vertex.colour = {1, 1, 1, shadow_alpha() * style.opacity};
+        vertices_.push_back(vertex);
+    }
+    constexpr std::array<card::Index, 6> quad{0, 1, 2, 0, 2, 3};
+    append(surface, cached.page, card::Blend::alpha, vertices_, quad);
+    frame_.batches.back().sampling = card::Sampling::linear;
+    ++counts_.shadows;
+    return true;
+}
+
 void Emitter::shadow_of_model(
     const ModelDraw& drawn, const Canvas& surface, card::Blend blend, bool unfinished_pass
 ) {
@@ -2754,6 +2934,11 @@ void Emitter::shadow_of_model(
     const int32_t dz = wrap_sub(unit.position.z, camera_z_);
     const int32_t shadow_x = hi(dx) + draw::shadow_offset_x;
     const int32_t shadow_y = hi(dz) - (plan.model.ground >> 1);
+    const int32_t receiver = std::max<int32_t>(plan.model.ground, game.sea_level);
+    const float altitude = static_cast<float>(unit_height - receiver);
+    if ((flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && vehicle_shadow && altitude > 0 &&
+        aircraft_shadow(unit, *model.state, surface, shadow_x, hi(dz) - (receiver >> 1), altitude))
+        return;
     const int32_t base = vertex_depth_base(model);
     const uint8_t team = in_.team_colors[unit.owner_index % team_colour_players];
     impl_.corners.clear();
@@ -3052,6 +3237,12 @@ void ModelStage::close(card::Executor& executor) noexcept {
     if (impl_->solid_page != card::PageHandle{})
         executor.destroy_page(impl_->solid_page);
     impl_->solid_page = {};
+    for (auto& [id, shadow] : impl_->aircraft_shadows) {
+        (void)id;
+        if (shadow.page != card::PageHandle{})
+            executor.destroy_page(shadow.page);
+    }
+    impl_->aircraft_shadows.clear();
     if (impl_->shadow_target != card::TargetHandle{})
         executor.destroy_target(impl_->shadow_target);
     impl_->shadow_target = {};

@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 #include "renderer_live_gpu.hpp"
+#include "renderer_water_appearance.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -36,6 +37,7 @@ struct Input {
     float3 emission [[attribute(3)]];
     float3 terrain [[attribute(4)]];
     float2 terrain_fog [[attribute(5)]];
+    float3 modulation [[attribute(6)]];
 };
 struct Output {
     float4 position [[position]];
@@ -45,8 +47,21 @@ struct Output {
     float3 terrain;
     float2 terrain_fog;
     float filter_scale [[flat]];
+    float3 world;
+    float3 modulation;
+    float4 water [[flat]];
+    float4 water_scene [[flat]];
+    float4 water_wind [[flat]];
+    float4 water_drift [[flat]];
+    float4 appearance0 [[flat]];
+    float4 appearance1 [[flat]];
+    float4 appearance2 [[flat]];
+    float4 appearance3 [[flat]];
+    float4 appearance4 [[flat]];
+    float4 appearance5 [[flat]];
+
 };
-struct Camera { float4 horizontal; float4 vertical; float4 depth; float4 viewport; };
+struct Camera { float4 horizontal; float4 vertical; float4 depth; float4 viewport; float4 water; float4 water_scene; float4 water_wind; float4 water_drift; float4 appearance0; float4 appearance1; float4 appearance2; float4 appearance3; float4 appearance4; float4 appearance5; };
 vertex Output vertex_main(Input input [[stage_in]], constant Camera& camera [[buffer(0)]]) {
     const float depth_limit = 65536.0;
     float4 world = float4(input.world, 1.0);
@@ -58,9 +73,22 @@ vertex Output vertex_main(Input input [[stage_in]], constant Camera& camera [[bu
     output.uv = input.uv;
     output.attenuation = input.attenuation;
     output.emission = input.emission;
+    output.modulation = input.modulation;
     output.terrain = input.terrain;
     output.terrain_fog = input.terrain_fog;
     output.filter_scale = camera.viewport.z;
+    output.world = input.world;
+    output.water = camera.water;
+    output.water_scene = camera.water_scene;
+    output.water_wind = camera.water_wind;
+    output.water_drift = camera.water_drift;
+    output.appearance0 = camera.appearance0;
+    output.appearance1 = camera.appearance1;
+    output.appearance2 = camera.appearance2;
+    output.appearance3 = camera.appearance3;
+    output.appearance4 = camera.appearance4;
+    output.appearance5 = camera.appearance5;
+
     return output;
 }
 // Mip levels occupy vertically stacked squares in a 32 by 64 chain.
@@ -74,10 +102,47 @@ float4 terrain_level(texture2d<float> atlas, float2 origin, float2 local, uint m
     return atlas.sample(linear_sampler,
         position / float2(atlas.get_width(), atlas.get_height()));
 }
+float water_hash(int2 cell) {
+    uint hash = uint(cell.x) * 0x8da6b343u ^ uint(cell.y) * 0xd8163841u;
+    hash ^= hash >> 13;
+    hash *= 0x85ebca6bu;
+    hash ^= hash >> 16;
+    return float(hash & 65535u) / 65535.0;
+}
+float water_noise(float2 point) {
+    const int2 cell = int2(floor(point));
+    float2 weight = fract(point);
+    weight = weight * weight * (3.0 - 2.0 * weight);
+    return mix(mix(water_hash(cell), water_hash(cell + int2(1, 0)), weight.x),
+               mix(water_hash(cell + int2(0, 1)), water_hash(cell + int2(1, 1)), weight.x), weight.y);
+}
 fragment float4 fragment_main(Output input [[stage_in]],
     texture2d<float> atlas [[texture(0)]], sampler nearest [[sampler(0)]]) {
     float4 colour;
-    if (input.terrain.z > 0.0) {
+    const float time = input.water_scene.y;
+    const float detail = input.water_scene.z;
+    if (input.terrain.z == -4.0) {
+        colour = float4(0.66, 0.85, 0.92, 1.0);
+    } else if (input.terrain.z == -2.0) {
+        const float depth = input.terrain.x;
+        const float2 medium = input.world.xz - input.water_drift.xy * 0.65;
+        const float2 long_wave = input.world.xz - input.water_drift.xy * 0.28;
+        const float2 fine_point = input.world.xz - input.water_drift.xy * 1.35;
+        const float broad = 0.65 * water_noise(medium / float2(34.0, 22.0)) +
+            0.35 * water_noise((long_wave + float2(37.0, -19.0)) / float2(79.0, 53.0));
+        const float fine = water_noise((fine_point + float2(11.0, -7.0)) / float2(8.0, 11.0));
+        const float ripple = mix(smoothstep(0.48, 0.82, broad),
+            smoothstep(0.48, 0.82, fine), input.water_scene.w * 0.4);
+        const float wind_strength = 0.12 + 0.88 * input.water_wind.z;
+        const float shore = (1.0 - smoothstep(3.0, 24.0, depth)) * smoothstep(0.0, 1.0, depth);
+        const float crest = pow(max(0.0, sin(depth * 0.9 + time * 1.1)), 8.0);
+        const float following = pow(max(0.0, sin(depth * 0.67 + time * 0.83 + 1.4)), 8.0);
+        const float foam = shore * (crest * 0.7 + following * 0.3) * input.water.y *
+            input.terrain.y * 0.090;
+        const float sheen = ripple * input.water.x * 0.14 * wind_strength;
+        const float visibility = input.attenuation.x;
+        colour = float4(float3(0.72, 0.86, 0.90), (foam + sheen) * visibility * detail);
+    } else if (input.terrain.z > 0.0) {
         const float2 local = input.uv * float2(atlas.get_width(), atlas.get_height()) -
             input.terrain.xy;
         const float footprint = max(length(dfdx(local)), length(dfdy(local))) * input.filter_scale;
@@ -114,8 +179,47 @@ fragment float4 fragment_main(Output input [[stage_in]],
     } else {
         colour = atlas.sample(nearest, input.uv);
     }
-    const float brightness = input.terrain.z > 0.0 ? input.terrain_fog.x : input.attenuation.x;
-    colour.rgb = colour.rgb * brightness + input.emission;
+    const float brightness = input.terrain.z == -2.0 ? 1.0 :
+        (input.terrain.z > 0.0 ? input.terrain_fog.x : input.attenuation.x);
+    colour.rgb = colour.rgb * input.modulation * brightness + input.emission;
+    // Optical underwater billboards share their event depth across the complete sprite.
+    // Physical models retain their actual per-fragment water intersection.
+    const float depth = input.terrain.z == -5.0 ? input.terrain.x : input.water_scene.x - input.world.y;
+    if (depth > 0.5 && input.terrain.z != -2.0 && input.terrain.z != -3.0 && input.water.z > 0.0 && detail > 0.0) {
+        const float shallow = 1.0 - smoothstep(input.appearance3.z, input.appearance3.z + input.appearance3.w, depth);
+        // Fine, restrained seabed patterns sit beneath the map's baked water art.
+        // Submerged objects retain stronger highlights so their depth remains legible.
+        const bool terrain = input.terrain.z > 0.0;
+        const float frequency = terrain ? 3.0 : 1.0;
+        const float wave = sin(input.world.x * 0.11 * frequency + time * 0.9 +
+            sin(input.world.z * 0.07 * frequency - time * 0.5) * 1.6);
+        const float crossing = sin(input.world.z * 0.1 * frequency - time * 0.7 +
+            sin(input.world.x * 0.065 * frequency + time * 0.4));
+        const float caustic = smoothstep(0.45, 0.96, max(wave, crossing));
+        const float intensity = input.water.z * detail * smoothstep(0.5, input.appearance0.x, depth);
+        if (input.terrain.z <= 0.0) {
+            const float depth_fraction = clamp(depth / input.appearance0.y, 0.0, 1.0);
+            const float tint = clamp((input.appearance0.z + input.appearance0.w * depth_fraction) *
+                intensity, 0.0, input.appearance1.w);
+            colour.rgb = mix(colour.rgb, colour.rgb * input.appearance1.xyz, tint);
+            colour.rgb *= 1.0 - min(input.appearance2.z, (input.appearance2.x + input.appearance2.y * depth_fraction) * intensity);
+        }
+        const float modulation = terrain ? caustic * 0.06 - 0.01 : caustic * input.appearance3.x + input.appearance3.y;
+        colour.rgb *= 1.0 + modulation * intensity * shallow;
+    }
+    // Actual interpolated surface intersection, confined to covered model fragments.
+    // Geometry stays fixed so crossing triangles cannot displace their dry portion.
+    if (depth > 0.0 && depth < input.appearance4.y && input.terrain.z <= 0.0 &&
+        input.terrain.z >= -1.0 && input.water.z > 0.0 && detail > 0.0) {
+        const float rim = depth < input.appearance4.x ? depth / input.appearance4.x :
+            (input.appearance4.y - depth) / (input.appearance4.y - input.appearance4.x);
+        colour.rgb = mix(colour.rgb, input.appearance5.xyz * brightness,
+            clamp(rim * input.water.z * detail * input.appearance4.z, 0.0, 0.48));
+    }
+    if (input.terrain.z == -3.0) {
+        const float bands = 0.82 + 0.18 * sin(input.world.z * 0.35 + time * 1.5);
+        colour.a *= bands * smoothstep(0.0, 2.0, input.terrain.x);
+    }
     colour.a *= input.attenuation.y;
     if (colour.a == 0.0) discard_fragment();
     return colour;
@@ -268,7 +372,8 @@ Result render(
     std::vector<uint8_t>& output_rgba,
     std::string& error,
     uint32_t requested_supersample,
-    const AtlasUpdate* atlas_update
+    const AtlasUpdate* atlas_update,
+    const WaterEffects* water
 ) {
     output_rgba.clear();
     error.clear();
@@ -292,6 +397,16 @@ Result render(
             return Result::failed;
         }
     }
+    if (water && (!std::isfinite(water->ripples) || !std::isfinite(water->coastal_waves) ||
+                  !std::isfinite(water->shimmer) || !std::isfinite(water->reflections) ||
+                  !std::isfinite(water->sea_level) || !std::isfinite(water->seconds) ||
+                  !std::isfinite(water->fine_detail) || !std::isfinite(water->detail) ||
+                  !std::isfinite(water->wind.x) || !std::isfinite(water->wind.z) ||
+                  !std::isfinite(water->wind.strength) || !std::isfinite(water->wind.drift_x) ||
+                  !std::isfinite(water->wind.drift_z))) {
+        error = "Invalid live GPU water parameters";
+        return Result::failed;
+    }
     // Ordered bounds also reject NaN and infinities. Accumulate without short-circuiting
     // so independent vertex checks can run in parallel.
     bool vertices_valid = true;
@@ -302,11 +417,15 @@ Result render(
             (std::abs(vertex.z) <= coordinate_limit) & (vertex.u >= 0) & (vertex.u <= 1) &
             (vertex.v >= 0) & (vertex.v <= 1) & (vertex.brightness >= 0) &
             (vertex.brightness <= 1) & (vertex.opacity >= 0) & (vertex.opacity <= 1) &
-            (vertex.emission_r >= 0) & (vertex.emission_r <= 1) & (vertex.emission_g >= 0) &
-            (vertex.emission_g <= 1) & (vertex.emission_b >= 0) & (vertex.emission_b <= 1) &
-            (vertex.terrain_x >= 0) & (vertex.terrain_x <= texture_width) &
+            (vertex.red >= 0) & (vertex.red <= 1) & (vertex.green >= 0) & (vertex.green <= 1) &
+            (vertex.blue >= 0) & (vertex.blue <= 1) & (vertex.emission_r >= 0) &
+            (vertex.emission_r <= 1) & (vertex.emission_g >= 0) & (vertex.emission_g <= 1) &
+            (vertex.emission_b >= 0) & (vertex.emission_b <= 1) & (vertex.terrain_x >= 0) &
+            (vertex.terrain_x <= (vertex.terrain_size <= -2 ? coordinate_limit : texture_width)) &
             (vertex.terrain_y >= 0) & (vertex.terrain_y <= texture_height) &
-            ((vertex.terrain_size == -1) | (vertex.terrain_size == 0) |
+            ((vertex.terrain_size == -5) | (vertex.terrain_size == -4) |
+             (vertex.terrain_size == -3) | (vertex.terrain_size == -2) |
+             (vertex.terrain_size == -1) | (vertex.terrain_size == 0) |
              (vertex.terrain_size == 32)) &
             (vertex.terrain_grey >= 0) & (vertex.terrain_grey <= 1) & (vertex.terrain_known >= 0) &
             (vertex.terrain_known <= 1);
@@ -321,6 +440,7 @@ Result render(
 #if !defined(__APPLE__)
     (void)context;
     (void)atlas_revision;
+    (void)water;
     error = "Live GPU shaders currently require Metal";
     return Result::unavailable;
 #else
@@ -360,7 +480,7 @@ Result render(
 
         SDL_GPUVertexBufferDescription vertex_description{};
         vertex_description.pitch = sizeof(Vertex);
-        SDL_GPUVertexAttribute attributes[6]{};
+        SDL_GPUVertexAttribute attributes[7]{};
         attributes[0].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
         attributes[1].location = 1;
         attributes[1].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
@@ -377,6 +497,9 @@ Result render(
         attributes[5].location = 5;
         attributes[5].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2;
         attributes[5].offset = offsetof(Vertex, terrain_known);
+        attributes[6].location = 6;
+        attributes[6].format = SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3;
+        attributes[6].offset = offsetof(Vertex, red);
         SDL_GPUColorTargetDescription colour_description{};
         colour_description.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
         auto& blend = colour_description.blend_state;
@@ -390,7 +513,7 @@ Result render(
         SDL_GPUGraphicsPipelineCreateInfo pipeline_info{};
         pipeline_info.vertex_shader = resources.vertex_shader;
         pipeline_info.fragment_shader = resources.fragment_shader;
-        pipeline_info.vertex_input_state = {&vertex_description, 1, attributes, 6};
+        pipeline_info.vertex_input_state = {&vertex_description, 1, attributes, 7};
         pipeline_info.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
         pipeline_info.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
         pipeline_info.depth_stencil_state.enable_depth_test = true;
@@ -548,11 +671,54 @@ Result render(
     depth_target.store_op = SDL_GPU_STOREOP_DONT_CARE;
     depth_target.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depth_target.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-    std::array<float, 16> camera{};
+    std::array<float, 56> camera{};
+    namespace appearance = renderer_water_appearance;
+    const std::array coefficients{
+        appearance::immersion_distance,
+        appearance::tint_distance,
+        appearance::tint_base,
+        appearance::tint_depth,
+        appearance::tint_red,
+        appearance::tint_green,
+        appearance::tint_blue,
+        appearance::tint_max,
+        appearance::absorption_base,
+        appearance::absorption_depth,
+        appearance::absorption_max,
+        0.0F,
+        appearance::caustic_gain,
+        appearance::caustic_bias,
+        appearance::caustic_fade_start,
+        appearance::caustic_fade_range,
+        appearance::rim_peak_depth,
+        appearance::rim_width,
+        appearance::rim_strength,
+        0.0F,
+        appearance::rim_red,
+        appearance::rim_green,
+        appearance::rim_blue,
+        0.0F
+    };
+    std::copy(coefficients.begin(), coefficients.end(), camera.begin() + 32);
     std::copy(projection.begin(), projection.end(), camera.begin());
     camera[12] = float(output_width);
     camera[13] = float(output_height);
     camera[14] = float(supersample);
+    if (water) {
+        camera[16] = std::clamp(water->ripples, 0.0F, 2.0F);
+        camera[17] = std::clamp(water->coastal_waves, 0.0F, 2.0F);
+        camera[18] = std::clamp(water->shimmer, 0.0F, 2.0F);
+        camera[19] = std::clamp(water->reflections, 0.0F, 2.0F);
+        camera[20] = water->sea_level;
+        camera[21] = water->seconds;
+        camera[22] = std::clamp(water->detail, 0.0F, 1.0F);
+        camera[23] = std::clamp(water->fine_detail, 0.0F, 1.0F);
+        camera[24] = water->wind.x;
+        camera[25] = water->wind.z;
+        camera[26] = std::clamp(water->wind.strength, 0.0F, 1.0F);
+        camera[28] = water->wind.drift_x;
+        camera[29] = water->wind.drift_z;
+    }
     SDL_PushGPUVertexUniformData(resources.command, 0, camera.data(), sizeof(camera));
     SDL_GPURenderPass* pass =
         SDL_BeginGPURenderPass(resources.command, &colour_target, 1, &depth_target);

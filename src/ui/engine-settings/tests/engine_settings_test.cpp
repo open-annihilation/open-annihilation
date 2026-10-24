@@ -2436,6 +2436,40 @@ void visual_effect_switches_round_trip() {
     CHECK(values.empty());
 }
 
+/// Water effect intensity persists independently, clamps and restores defaults.
+void water_effects_round_trip() {
+    const auto defaults = settings::default_settings(players_own_on_linux);
+
+    struct Effect {
+        std::string_view key;
+        uint32_t settings::EngineSettings::* field;
+    };
+
+    const std::array<Effect, 4> effects{{
+        {settings::key::water_ripples_intensity, &settings::EngineSettings::water_ripples},
+        {settings::key::coastal_waves_intensity, &settings::EngineSettings::coastal_waves},
+        {settings::key::underwater_shimmer_intensity,
+         &settings::EngineSettings::underwater_shimmer},
+        {settings::key::naval_reflections_intensity, &settings::EngineSettings::naval_reflections},
+    }};
+    for (const auto& [key, field] : effects) {
+        CHECK(defaults.*field == 100);
+        CHECK(read_one(key, "invalid").*field == 100);
+        CHECK(read_one(key, "-10").*field == 0);
+        CHECK(read_one(key, "999").*field == 200);
+        CHECK(read_one(key, "143").*field == 140);
+        CHECK(read_one(key, "146").*field == 150);
+        Values values;
+        auto chosen = defaults;
+        chosen.*field = 0;
+        settings::write_settings(values, defaults, chosen, defaults, false);
+        CHECK(values.size() == 1);
+        CHECK(settings::read_settings(values, players_own_on_linux, false) == chosen);
+        settings::write_settings(values, chosen, defaults, defaults, true);
+        CHECK(values.empty());
+    }
+}
+
 /// Smooth motion: On everywhere by default, a light machine and a Steam
 /// Deck included; a file written before it reads On; a number above 0 reads
 /// On and any other number Off; Off written alone and read back, On chosen
@@ -2812,6 +2846,7 @@ int main() {
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
     visual_effect_switches_round_trip();
+    water_effects_round_trip();
     the_interface_size_default_read_and_round_trip();
     the_zoom_limits_default_read_and_round_trip();
     the_view_past_the_map_edge_defaults_reads_and_round_trips();

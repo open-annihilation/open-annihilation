@@ -305,8 +305,27 @@ void Runtime::render_live_match_surface() {
         inputs.palette = &match_palette_;
         inputs.draws = &models.draws;
         inputs.graphics_flags = models.renderer.graphics_flags;
+        inputs.shade_table = models.display.shade;
+        inputs.light = {
+            models.renderer.light[0], models.renderer.light[1], models.renderer.light[2]
+        };
+        inputs.light_scale = models.renderer.light_scale;
         inputs.sea_level = map.sea_level;
         inputs.detail_scale = zoom;
+        inputs.water = {
+            engine_settings().water_ripples / 100.0F,
+            engine_settings().coastal_waves / 100.0F,
+            engine_settings().underwater_shimmer / 100.0F,
+            engine_settings().naval_reflections / 100.0F,
+            float(map.sea_level),
+            float(match_->simulation().tick % 108000U) / 30.0F,
+            std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+        };
+        inputs.water.wind = water_wind();
+        const float fine = std::clamp((zoom - 0.5F) / 0.75F, 0.0F, 1.0F);
+        inputs.water.fine_detail = fine * fine * (3.0F - 2.0F * fine);
+        inputs.water_surface = water_surface();
+        inputs.water_disturbances = water_disturbances();
         inputs.nanolathe_lighting = engine_settings().nanolathe_lighting > 0;
         inputs.nanolathe_intensity = engine_settings().nanolathe_lighting / 100.0F;
         inputs.tick = match_->simulation().tick;
@@ -367,7 +386,8 @@ void Runtime::render_live_match_surface() {
                                         live.rgba,
                                         error,
                                         static_cast<uint32_t>(engine_settings().anti_aliasing),
-                                        &live.scene.atlas_update
+                                        &live.scene.atlas_update,
+                                        &inputs.water
                                     )
                                   : renderer_live_gpu::Result::failed;
         if (result == renderer_live_gpu::Result::success) {

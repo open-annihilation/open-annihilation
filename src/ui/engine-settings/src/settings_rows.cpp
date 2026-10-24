@@ -74,23 +74,15 @@ constexpr std::array<Setting, 3> kEngineLimitsRows{
 /// Graphics' rows: how the frames are drawn, Smooth motion right under
 /// Vertical sync, then how units look zoomed out, and the zoom they look so
 /// from right under the way. Local lighting, glow and heat effects follow.
-constexpr std::array<Setting, 16> kGraphicsRows{
-    Setting::max_frame_rate,
-    Setting::anti_aliasing,
-    Setting::screen_size,
-    Setting::hardware_acceleration,
-    Setting::vertical_sync,
-    Setting::smooth_motion,
-    Setting::native_density,
-    Setting::explosion_flash,
-    Setting::zoomed_out_units,
-    Setting::zoomed_out_after,
-    Setting::allow_full_3d,
-    Setting::unlocked_camera,
-    Setting::weapon_lighting,
-    Setting::nanolathe_lighting,
-    Setting::wreck_glow,
-    Setting::heat_distortion,
+constexpr std::array<Setting, 20> kGraphicsRows{
+    Setting::max_frame_rate,        Setting::anti_aliasing,      Setting::screen_size,
+    Setting::hardware_acceleration, Setting::vertical_sync,      Setting::smooth_motion,
+    Setting::native_density,        Setting::explosion_flash,    Setting::zoomed_out_units,
+    Setting::zoomed_out_after,      Setting::allow_full_3d,      Setting::unlocked_camera,
+    Setting::weapon_lighting,       Setting::nanolathe_lighting, Setting::wreck_glow,
+    Setting::heat_distortion,       Setting::water_ripples,      Setting::coastal_waves,
+    Setting::underwater_shimmer,    Setting::naval_reflections,
+
 };
 /// User Interface's rows: how the menus scale, the window's frame, the
 /// HUD's scaling, the size Open Annihilation's own screens are drawn at,
@@ -2479,6 +2471,18 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      .spec = effect_slider<&E::wreck_glow>("wreck-glow", "Wreck glow")},
     {.setting = S::heat_distortion,
      .spec = effect_slider<&E::heat_distortion>("heat-distortion", "Heat distortion")},
+    {.setting = S::water_ripples,
+     .spec = effect_slider<&E::water_ripples>("water-ripples", "Water ripples"),
+     .lock = &Locks::water_effects},
+    {.setting = S::coastal_waves,
+     .spec = effect_slider<&E::coastal_waves>("coastal-waves", "Coastal waves"),
+     .lock = &Locks::water_effects},
+    {.setting = S::underwater_shimmer,
+     .spec = effect_slider<&E::underwater_shimmer>("underwater-shimmer", "Underwater shimmer"),
+     .lock = &Locks::water_effects},
+    {.setting = S::naval_reflections,
+     .spec = effect_slider<&E::naval_reflections>("naval-reflections", "Naval reflections"),
+     .lock = &Locks::water_effects},
     {.setting = S::allow_full_3d,
      .spec = engine_switch<&E::allow_full_3d>("allow-full-3d", "Allow Full 3D Mode", {"Requires Full hardware acceleration."})},
     {.setting = S::unlocked_camera,
@@ -2579,6 +2583,11 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "nanolathe-lighting",
     "wreck-glow",
     "heat-distortion",
+    "water-ripples",
+    "coastal-waves",
+    "underwater-shimmer",
+    "naval-reflections",
+
     "allow-full-3d",
     "unlocked-camera",
     "first-run",

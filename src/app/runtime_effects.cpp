@@ -6,6 +6,7 @@
 #include "renderer_effect_sources.hpp"
 #include "renderer_effect_events.hpp"
 #include "renderer_weapon_style.hpp"
+#include "renderer_water.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -29,7 +30,7 @@ constexpr std::size_t maximum_nano_lights = 24;
 constexpr uint32_t impact_sprite_retention_ticks = 30;
 
 struct Pulse {
-    Source source;
+    Source source{};
     uint32_t birth{};
     uint32_t duration{renderer_effect_sources::muzzle_flash_ticks};
     bool emg{};
@@ -47,7 +48,7 @@ struct WreckIdentity {
 
 /// Place a light at a canonical fixed-point location.
 Source at(const oa::FixedVec3& point, Kind kind, float radius) {
-    Source source;
+    Source source{};
     source.x = static_cast<float>(point.x) / fixed_scale;
     source.height = static_cast<float>(point.y) / fixed_scale;
     source.z = static_cast<float>(point.z) / fixed_scale;
@@ -95,6 +96,9 @@ struct Runtime::MatchEffects {
     std::vector<Source> sources;
     renderer_effect_events::Log events;
     std::vector<renderer_effect_events::Event> emg_impacts;
+    renderer_water::SurfaceCache water;
+    renderer_water::History disturbances;
+    renderer_water::WindState wind;
 };
 
 void Runtime::reset_match_effect_sources() {
@@ -107,9 +111,15 @@ void Runtime::observe_match_effect_tick() noexcept try {
     if (!match_effects_ || match_effects_->match != match_.get()) {
         match_effects_ = std::make_shared<MatchEffects>();
         match_effects_->match = match_.get();
+        if (selected_tnt_) {
+            match_effects_->water.reset(*selected_tnt_);
+            match_effects_->wind.reset(*selected_tnt_);
+        }
     }
     auto& state = *match_effects_;
     const uint32_t tick = match_->simulation().tick;
+    state.disturbances.advance(tick);
+    state.wind.advance(tick);
     const bool seen = state.timeline.seen;
     const auto previous_tick = state.timeline.tick;
     if (seen && tick == previous_tick && state.events.count == 0)
@@ -163,6 +173,34 @@ void Runtime::observe_match_effect_tick() noexcept try {
         }
         if (!match_->point_shown(viewer, position(source)))
             continue;
+        if (selected_tnt_ && (event.impact || event.naval_source) &&
+            (!event.hit_unit || event.naval_target)) {
+            const auto& map = *selected_tnt_;
+            const float sea = float(map.sea_level);
+            constexpr float cell = 16;
+            const auto kind = !event.impact    ? renderer_water::Kind::firing
+                              : event.hit_unit ? renderer_water::Kind::hit
+                                               : renderer_water::Kind::water_impact;
+            const float strength = renderer_water::surface_strength(
+                kind, source.height, sea, event.water_weapon, event.crossed_surface
+            );
+            if (strength > 0 && source.x >= 0 && source.z >= 0 &&
+                source.x < map.attribute_width * cell && source.z < map.attribute_height * cell) {
+                const auto index = std::size_t(source.z / cell) * map.attribute_width +
+                                   std::size_t(source.x / cell);
+                if (index < map.attributes.size() && map.attributes[index].height < sea) {
+                    const auto surface = std::array<uint32_t, 3>{
+                        static_cast<uint32_t>(event.position.x),
+                        static_cast<uint32_t>(map.sea_level * 65536U),
+                        static_cast<uint32_t>(event.position.z)
+                    };
+                    state.disturbances.add(
+                        {source.x, source.z, event.tick, strength, kind},
+                        match_->point_shown(viewer, surface)
+                    );
+                }
+            }
+        }
         if (event.emg && event.impact) {
             constexpr std::size_t maximum_retained_impacts = 1024;
             if (state.emg_impacts.size() == maximum_retained_impacts)
@@ -313,6 +351,24 @@ bool Runtime::emg_smoke_at(const oa::FixedVec3& point) const noexcept {
                    height >= -ground_tolerance && height <= smoke_height;
         }
     );
+}
+
+renderer_water::Wind Runtime::water_wind() const noexcept {
+    return match_ && match_effects_ && match_effects_->match == match_.get()
+               ? match_effects_->wind.value
+               : renderer_water::Wind{};
+}
+
+const renderer_water::SurfaceCache* Runtime::water_surface() const noexcept {
+    return match_ && match_effects_ && match_effects_->match == match_.get()
+               ? &match_effects_->water
+               : nullptr;
+}
+
+std::span<const renderer_water::Disturbance> Runtime::water_disturbances() const noexcept {
+    return match_ && match_effects_ && match_effects_->match == match_.get()
+               ? match_effects_->disturbances.active()
+               : std::span<const renderer_water::Disturbance>{};
 }
 
 std::span<const renderer_effect_sources::Source> Runtime::match_effect_sources() const noexcept {

@@ -5,13 +5,18 @@
 // picking and orders, camera reset, render target resizing and advancing simulation.
 #include "oa/app/runtime.hpp"
 #include "engine_settings_state.hpp"
+#include "full_presentation.hpp"
 #include "match_models.hpp"
 #include "device_state.hpp"
 #include "renderer_effect_sources.hpp"
 #include "renderer_live_scene.hpp"
+#include "renderer_live_camera.hpp"
+#include "oa/present/model/shadow_fade.hpp"
+#include "renderer_water.hpp"
 #include "presentation_interpolation.hpp"
 #include "oa/formats/png.hpp"
 #include "oa/data/defs/layout.hpp"
+#include "oa/core/weapon_def.h"
 #include "oa/sim/messages.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 
@@ -19,6 +24,8 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -105,7 +112,7 @@ int Runtime::check_live_renderer() {
         event.key.mod = modifiers;
         return live_renderer_take_event(event);
     };
-    const auto orbit = [&](uint8_t button = SDL_BUTTON_MIDDLE) {
+    const auto orbit = [&](uint8_t button = SDL_BUTTON_MIDDLE, float travel = orbit_travel) {
         const float x = static_cast<float>(match_layout_.left) +
                         static_cast<float>(match_layout_.battlefield_width()) * 0.5F;
         const float y = static_cast<float>(match_layout_.top) +
@@ -124,16 +131,16 @@ int Runtime::check_live_renderer() {
         event = {};
         event.type = SDL_EVENT_MOUSE_MOTION;
         event.motion.state = SDL_BUTTON_MASK(button);
-        event.motion.x = x + orbit_travel;
-        event.motion.y = y + orbit_travel;
-        event.motion.xrel = orbit_travel;
-        event.motion.yrel = orbit_travel;
+        event.motion.x = x + travel;
+        event.motion.y = y + travel;
+        event.motion.xrel = travel;
+        event.motion.yrel = travel;
         require(live_renderer_take_event(event), "orbit motion was not consumed");
         event = {};
         event.type = SDL_EVENT_MOUSE_BUTTON_UP;
         event.button.button = button;
-        event.button.x = x + orbit_travel;
-        event.button.y = y + orbit_travel;
+        event.button.x = x + travel;
+        event.button.y = y + travel;
         require(live_renderer_take_event(event), "orbit release was not consumed");
         require(live_renderer_active(), "orbit left the camera at classic orientation");
     };
@@ -1312,6 +1319,1030 @@ int Runtime::check_live_renderer() {
         "the same wreck did not cool as simulation time advanced"
     );
     engine_settings_->current = saved_effect_settings;
+    reset_live_renderer();
+    return_to_skirmish_menu();
+    // Installed coast terrain exercises water boundaries and actual naval models.
+    skirmish_settings_.map_name = "Coast to Coast";
+    require(select_map("Coast to Coast"), "the water fixture map is missing");
+    state_.player_count = 2;
+    exercise_click(skirmish::resource_name(skirmish::Button::start));
+    require(match_ && selected_tnt_, "the water Skirmish did not start");
+    enter_console_check_line("+nowisee");
+    clear_local_selection();
+    const auto& water_map = *selected_tnt_;
+    constexpr int cell_edge = 16;
+    constexpr int minimum_depth = 32;
+    constexpr int shore_distance_cells = 16;
+    constexpr int submarine_offset_cells = 6;
+    int water_x = -1;
+    int water_z = -1;
+    const auto sea = static_cast<int>(water_map.sea_level);
+    for (int row = shore_distance_cells;
+         water_x < 0 && row + shore_distance_cells < static_cast<int>(water_map.attribute_height);
+         ++row) {
+        for (int column = shore_distance_cells;
+             column + shore_distance_cells < static_cast<int>(water_map.attribute_width);
+             ++column) {
+            const auto height_at = [&](int x, int z) {
+                return static_cast<int>(
+                    water_map
+                        .attributes[static_cast<std::size_t>(z) * water_map.attribute_width + x]
+                        .height
+                );
+            };
+            if (height_at(column, row) > sea - minimum_depth ||
+                height_at(column + submarine_offset_cells, row) > sea - minimum_depth)
+                continue;
+            if (height_at(column + shore_distance_cells, row) < sea &&
+                height_at(column - shore_distance_cells, row) < sea &&
+                height_at(column, row + shore_distance_cells) < sea &&
+                height_at(column, row - shore_distance_cells) < sea)
+                continue;
+            water_x = column * cell_edge;
+            water_z = row * cell_edge;
+            break;
+        }
+    }
+    require(water_x >= 0, "the installed map has no deep water near a shore");
+    const auto place_naval = [&](const char* name, int x_offset, int height, bool enemy = false) {
+        oa::sim::unit_spawn::Request request;
+        request.player = enemy ? (match_local_player_ == 0 ? 1 : 0) : match_local_player_;
+        request.type = oa::sim::unit_spawn::find_type_index(spawn_type_names_, name);
+        require(request.type != 0, "the water fixture naval type is missing");
+        request.finished = true;
+        request.state = kGroundOccupancyState;
+        request.position = {
+            static_cast<uint32_t>((water_x + x_offset) * 65536),
+            static_cast<uint32_t>(height * 65536),
+            static_cast<uint32_t>(water_z * 65536)
+        };
+        auto* placed = match_->create(request);
+        require(placed && placed->unit, "a naval fixture unit did not spawn");
+        placed->unit->object_present = true;
+        return placed->unit_index;
+    };
+    const auto battleship = place_naval("ARMBATS", 0, sea);
+    const auto submarine =
+        place_naval("ARMSUB", submarine_offset_cells * cell_edge, sea - minimum_depth / 2);
+    require(
+        match_->world().record.units[submarine].position.y < sea * 65536,
+        "the submarine fixture is not submerged"
+    );
+    match_layout_ = lay_out_match(1280, 800);
+    match_zoom_ = match_zoom_target_ = 1.0F;
+    center_camera_on_unit(battleship);
+    orbit();
+    const auto water_settings_saved = engine_settings_->current;
+    const auto water_level = [&](uint32_t level) {
+        auto& settings = engine_settings_->current;
+        settings.water_ripples = settings.coastal_waves = settings.underwater_shimmer =
+            settings.naval_reflections = level;
+    };
+    water_level(0);
+    const auto water_plain = snapshot();
+    const auto* naval_draws = drawn_match_models();
+    require(naval_draws != nullptr, "the water fixture has no world draws");
+    const auto submerged_draw = std::find_if(
+        naval_draws->draws.models.begin(), naval_draws->draws.models.end(), [&](const auto& draw) {
+            return draw.model.unit && draw.model.unit->id == submarine;
+        }
+    );
+    require(submerged_draw != naval_draws->draws.models.end(), "the submarine is not drawn");
+    const auto sub_position =
+        submerged_draw->shown_position.value_or(submerged_draw->model.unit->position);
+    int32_t sub_bottom = std::numeric_limits<int32_t>::max();
+    int32_t sub_top = std::numeric_limits<int32_t>::min();
+    std::size_t sub_pieces{};
+    for (const auto& piece : submerged_draw->shown_vertices) {
+        if (!piece.empty())
+            ++sub_pieces;
+        for (const auto& point : piece) {
+            sub_bottom = std::min(sub_bottom, sub_position.y + point.y);
+            sub_top = std::max(sub_top, sub_position.y + point.y);
+        }
+    }
+    const auto sub_floor = match_->map_height(sub_position.x, sub_position.z);
+    std::cout << "water submarine: pieces=" << sub_pieces << " bottom=" << sub_bottom / 65536.0F
+              << " top=" << sub_top / 65536.0F << " seabed=" << sub_floor << " sea=" << sea << '\n';
+    require(
+        sub_pieces > 1 && sub_top < sea * 65536 && sub_bottom >= sub_floor * 65536,
+        "the multi-piece submarine is not wholly between seabed and waterline"
+    );
+    save_picture("water-disabled.png", water_plain);
+    require(snapshot().rgb == water_plain.rgb, "disabled water changed a frozen frame");
+    const std::array<const char*, 4> water_names{
+        "water-ripples.png", "water-coast.png", "water-submerged.png", "water-reflections.png"
+    };
+    for (std::size_t effect = 0; effect < water_names.size(); ++effect) {
+        water_level(0);
+        auto& settings = engine_settings_->current;
+        const std::array<uint32_t*, 4> levels{
+            &settings.water_ripples,
+            &settings.coastal_waves,
+            &settings.underwater_shimmer,
+            &settings.naval_reflections
+        };
+        *levels[effect] = 100;
+        const auto picture = snapshot();
+        require(!live_renderer_failed(), "the water GPU frame failed");
+        require(picture.rgb != water_plain.rgb, water_names[effect]);
+        require(snapshot().rgb == picture.rgb, "paused water effects changed between frames");
+        save_picture(water_names[effect], picture);
+    }
+    // Timings include CPU preparation and synchronous GPU readback. They are
+    // diagnostic costs, not the displayed game's frame rate.
+    constexpr std::size_t timing_samples = 7;
+    for (const float zoom : {1.0F, 0.25F}) {
+        match_zoom_ = match_zoom_target_ = zoom;
+        center_camera_on_unit(battleship);
+        std::size_t disabled_water_vertices{};
+        renderer::Surface disabled_water_picture;
+        for (const uint32_t level : {0U, 100U}) {
+            water_level(level);
+            const auto water_picture = snapshot();
+            if (level == 0) {
+                disabled_water_vertices = live_renderer_vertex_count();
+                disabled_water_picture = water_picture;
+            } else if (zoom == 0.25F) {
+                require(
+                    live_renderer_vertex_count() == disabled_water_vertices,
+                    "distant water effects added imperceptible geometry"
+                );
+                require(
+                    water_picture.rgb == disabled_water_picture.rgb,
+                    "distant water effects did not fade completely"
+                );
+            }
+            std::array<double, timing_samples> timings{};
+            for (auto& elapsed : timings) {
+                const auto begin = std::chrono::steady_clock::now();
+                snapshot();
+                elapsed = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - begin
+                )
+                              .count();
+            }
+            std::sort(timings.begin(), timings.end());
+            std::cout << "water diagnostic: zoom=" << zoom << " intensity=" << level
+                      << " median render/readback ms=" << timings[timing_samples / 2]
+                      << " vertices=" << live_renderer_vertex_count() << '\n';
+        }
+        save_picture(zoom == 1.0F ? "water-all.png" : "water-distant.png", snapshot());
+    }
+    if (!options_.snapshot.empty()) {
+        // Canonical wind changes must not turn or restart stable map water flow.
+        // The following motion sequence advances continuously without resetting it.
+        const auto capture_flow = [&](const char* backend, const auto& picture) {
+            auto& game = match_->state().game;
+            const auto saved_vector = game.wind_vector;
+            const auto saved_factor = game.wind_factor;
+            water_level(100);
+            const auto still = picture();
+            for (int direction = 0; direction < 4; ++direction) {
+                game.wind_vector =
+                    direction == 0
+                        ? oa::FixedVec3{}
+                        : oa::FixedVec3{direction == 2 ? 0 : 10000, 0, direction == 2 ? -10000 : 0};
+                game.wind_factor = direction == 0 ? 0 : (direction == 3 ? 1.0F : 0.5F);
+                require(
+                    picture().rgb == still.rgb,
+                    "canonical wind changed stable map water flow at a frozen tick"
+                );
+            }
+            game.wind_vector = saved_vector;
+            game.wind_factor = saved_factor;
+            save_picture((std::string(backend) + "-flow-start.png").c_str(), still);
+            for (int frame = 0; frame < 60; ++frame) {
+                for (int tick = 0; tick < 2; ++tick)
+                    step_match_simulation();
+                const auto name = std::string(backend) + "-flow-motion-" + (frame < 10 ? "0" : "") +
+                                  std::to_string(frame) + ".png";
+                save_picture(name.c_str(), picture());
+            }
+        };
+        match_zoom_ = match_zoom_target_ = 1.0F;
+        water_level(100);
+        constexpr int wreck_offset = -96;
+        const auto wreck_floor = match_->map_height(
+            static_cast<uint32_t>((water_x + wreck_offset) * 65536),
+            static_cast<uint32_t>(water_z * 65536)
+        );
+        const auto sunk_tank = place_naval("ARMSTUMP", wreck_offset, wreck_floor);
+        auto& sunk = match_->world().slots[sunk_tank];
+        sunk.unit->health = 1;
+        sunk.unit->previous_health_percent = 0;
+        const auto water_wreck_count = match_->wrecks().size();
+        match_->apply_damage_event(sunk, nullptr, 2, 1, 0);
+        constexpr int wreck_wait_ticks = 180;
+        for (int elapsed = 0;
+             elapsed < wreck_wait_ticks && match_->wrecks().size() == water_wreck_count;
+             ++elapsed)
+            step_match_simulation();
+        require(
+            match_->wrecks().size() > water_wreck_count,
+            "the underwater capture did not produce a wreck"
+        );
+        const auto enemy_ship = place_naval("CORROY", 320, sea, true);
+        constexpr int shot_offset = 240;
+        constexpr int shot_z_offset = -128;
+        const oa::sim::ground_orders::Point water_aim{
+            (water_x + shot_offset) * 65536, sea * 65536, (water_z + shot_z_offset) * 65536
+        };
+        require(
+            match_->issue_attack_ground(battleship, water_aim, false) != nullptr,
+            "the battleship did not accept an attack-water order"
+        );
+        constexpr int aim_warmup_ticks = 90;
+        for (int frame = 0; frame < aim_warmup_ticks; ++frame)
+            step_match_simulation();
+        bool saw_firing{};
+        bool saw_water_hit{};
+        bool saw_target_hit{};
+        constexpr int animation_frames = 120;
+        constexpr int ticks_per_animation_frame = 2;
+        for (int frame = 0; frame < animation_frames; ++frame) {
+            // Keep the target available for several real volleys in this capture.
+            match_->world().slots[enemy_ship].unit->health = 30000;
+            if (frame == 45)
+                require(
+                    match_->issue_attack(battleship, enemy_ship, false),
+                    "the battleship did not accept an attack-ship order"
+                );
+            if (frame == animation_frames / 2)
+                orbit();
+            for (int step = 0; step < ticks_per_animation_frame; ++step)
+                step_match_simulation();
+            require(!match_->fault(), "the water animation raised a simulation fault");
+            center_camera_on_unit(battleship);
+            const auto name = std::string("water-animation-") + (frame < 10 ? "0" : "") +
+                              std::to_string(frame) + ".png";
+            save_picture(name.c_str(), snapshot());
+            for (const auto& disturbance : water_disturbances()) {
+                saw_firing |= disturbance.kind == renderer_water::Kind::firing;
+                saw_water_hit |= disturbance.kind == renderer_water::Kind::water_impact;
+                saw_target_hit |= disturbance.kind == renderer_water::Kind::hit;
+            }
+        }
+        capture_flow("live-metal", snapshot);
+        match_zoom_ = match_zoom_target_ = 2.0F;
+        center_camera_on_unit(submarine);
+        for (int angle = 0; angle < 2; ++angle) {
+            const auto prefix = "water-sub-close-" + std::to_string(angle);
+            water_level(0);
+            save_picture((prefix + "-off.png").c_str(), snapshot());
+            water_level(100);
+            save_picture((prefix + "-on.png").c_str(), snapshot());
+            orbit();
+        }
+        // Render actual planned models through the production GPU backend with
+        // explicit camera matrices, including the exact default orientation.
+        // Isolated draw lists make the hull and shadow masks independent of
+        // the reflection/shadow algorithms being checked.
+        const auto aircraft = place_naval("ARMBRAWL", 0, sea);
+        const auto water_commander = place_naval("ARMCOM", 160, sea - 24);
+        const auto shipyard = place_naval("ARMSY", 224, sea - 24);
+        snapshot();
+        const auto& planned = match_models();
+        const auto model_for = [&](uint16_t unit) {
+            const auto found = std::find_if(
+                planned.draws.models.begin(), planned.draws.models.end(), [&](const auto& draw) {
+                    return draw.model.unit && draw.model.unit->id == unit;
+                }
+            );
+            require(found != planned.draws.models.end(), "the GPU fixture model is missing");
+            return *found;
+        };
+        const auto boat_model = model_for(battleship);
+        const auto aircraft_model = model_for(aircraft);
+        auto commander_water_model = model_for(water_commander);
+        auto shipyard_water_model = model_for(shipyard);
+        const auto half_submerge = [&](auto& model) {
+            int32_t low = std::numeric_limits<int32_t>::max();
+            int32_t high = std::numeric_limits<int32_t>::min();
+            for (const auto& piece : model.shown_vertices)
+                for (const auto& vertex : piece) {
+                    low = std::min(low, vertex.y);
+                    high = std::max(high, vertex.y);
+                }
+            require(low < high, "the waterline fixture has no vertical model extent");
+            auto position = model.shown_position.value_or(model.model.unit->position);
+            position.y = sea * 65536 - (low + high) / 2;
+            model.shown_position = position;
+            match_->world().record.units[model.model.unit->id].position.y = position.y;
+            std::cout << "controlled waterline model: unit=" << model.model.unit->id
+                      << " below=" << (position.y + low) / 65536.0F
+                      << " above=" << (position.y + high) / 65536.0F << " sea=" << sea << '\n';
+            return position.y;
+        };
+        const auto commander_water_height = half_submerge(commander_water_model);
+        const auto shipyard_water_height = half_submerge(shipyard_water_model);
+        renderer_live_scene::Scene diagnostic_scene;
+        renderer_live_gpu::Context diagnostic_gpu;
+        constexpr uint32_t diagnostic_width = 800;
+        constexpr uint32_t diagnostic_height = 600;
+        constexpr float diagnostic_zoom = 2;
+        const std::array<renderer_live_camera::State, 3> diagnostic_angles{
+            {{}, {18, 12}, {38, -18}}
+        };
+        const auto render_diagnostic = [&](WorldDrawList& draws,
+                                           const renderer_live_camera::State& camera,
+                                           float x,
+                                           float height,
+                                           float z,
+                                           bool reflections,
+                                           float shimmer = 0.0F,
+                                           bool dry_triangles_only = false) {
+            renderer_live_camera::Matrix projection{};
+            require(
+                renderer_live_camera::projection(
+                    camera,
+                    {x,
+                     height,
+                     z,
+                     diagnostic_width / 2.0F,
+                     diagnostic_height / 2.0F,
+                     diagnostic_zoom},
+                    projection
+                ),
+                "the diagnostic camera is invalid"
+            );
+            renderer_live_scene::Inputs inputs{};
+            inputs.map = &water_map;
+            inputs.palette = &match_palette_;
+            inputs.draws = &draws;
+            inputs.graphics_flags = planned.renderer.graphics_flags;
+            inputs.shade_table = planned.display.shade;
+            inputs.light = {
+                planned.renderer.light[0], planned.renderer.light[1], planned.renderer.light[2]
+            };
+            inputs.light_scale = planned.renderer.light_scale;
+            inputs.sea_level = sea;
+            inputs.detail_scale = diagnostic_zoom;
+            inputs.clip_projection = projection;
+            inputs.clip_width = diagnostic_width;
+            inputs.clip_height = diagnostic_height;
+            inputs.view_direction = {projection[8], projection[9], projection[10]};
+            inputs.camera_x = planned.renderer.camera_x;
+            inputs.camera_y = planned.renderer.camera_y;
+            inputs.sight.mapping = false;
+            inputs.sight.line_of_sight = false;
+            std::copy_n(
+                planned.renderer.team_colors, full::team_colour_players, inputs.team_colors.begin()
+            );
+            inputs.tick = match_->simulation().tick;
+            inputs.water.sea_level = static_cast<float>(sea);
+            inputs.water.seconds = inputs.tick / 30.0F;
+            inputs.water.reflections = reflections ? 1 : 0;
+            inputs.water.shimmer = shimmer;
+            renderer_live_camera::TerrainBounds bounds{};
+            require(
+                renderer_live_camera::visible_terrain_bounds(
+                    projection, diagnostic_width, diagnostic_height, 32, bounds
+                ),
+                "the diagnostic terrain bounds are invalid"
+            );
+            inputs.left = std::max(0, static_cast<int>(std::floor(bounds.min_x)));
+            inputs.top = std::max(0, static_cast<int>(std::floor(bounds.min_y)));
+            inputs.right = std::min(
+                static_cast<int>(water_map.attribute_width) * cell_edge,
+                static_cast<int>(std::ceil(bounds.max_x))
+            );
+            inputs.bottom = std::min(
+                static_cast<int>(water_map.attribute_height) * cell_edge,
+                static_cast<int>(std::ceil(bounds.max_y))
+            );
+            std::string error;
+            require(renderer_live_scene::build(inputs, diagnostic_scene, error), error.c_str());
+            if (dry_triangles_only) {
+                std::vector<renderer_live_gpu::Vertex> dry;
+                for (std::size_t i = 0; i + 2 < diagnostic_scene.vertices.size(); i += 3)
+                    if (diagnostic_scene.vertices[i].height > sea + 1 &&
+                        diagnostic_scene.vertices[i + 1].height > sea + 1 &&
+                        diagnostic_scene.vertices[i + 2].height > sea + 1)
+                        dry.insert(
+                            dry.end(),
+                            diagnostic_scene.vertices.begin() + i,
+                            diagnostic_scene.vertices.begin() + i + 3
+                        );
+                diagnostic_scene.vertices = std::move(dry);
+            }
+            std::vector<uint8_t> rgba;
+            require(
+                renderer_live_gpu::render(
+                    diagnostic_gpu,
+                    diagnostic_scene.vertices,
+                    diagnostic_scene.texture_rgba,
+                    diagnostic_scene.texture_width,
+                    diagnostic_scene.texture_height,
+                    diagnostic_scene.texture_revision,
+                    diagnostic_width,
+                    diagnostic_height,
+                    projection,
+                    rgba,
+                    error,
+                    1,
+                    &diagnostic_scene.atlas_update,
+                    &inputs.water
+                ) == renderer_live_gpu::Result::success,
+                error.c_str()
+            );
+            renderer::Surface picture;
+            picture.width = diagnostic_width;
+            picture.height = diagnostic_height;
+            picture.rgb.resize(static_cast<std::size_t>(diagnostic_width) * diagnostic_height * 3);
+            for (std::size_t pixel = 0; pixel < picture.rgb.size() / 3; ++pixel)
+                std::copy_n(rgba.data() + pixel * 4, 3, picture.rgb.data() + pixel * 3);
+            return picture;
+        };
+        const auto differs = [](const renderer::Surface& a,
+                                const renderer::Surface& b,
+                                std::size_t pixel) {
+            return !std::equal(
+                a.rgb.begin() + pixel * 3, a.rgb.begin() + pixel * 3 + 3, b.rgb.begin() + pixel * 3
+            );
+        };
+        const auto boat_position =
+            boat_model.shown_position.value_or(boat_model.model.unit->position);
+        for (std::size_t angle = 0; angle < diagnostic_angles.size(); ++angle) {
+            WorldDrawList draws;
+            draws.shadow_level = 0;
+            const auto empty = render_diagnostic(
+                draws,
+                diagnostic_angles[angle],
+                boat_position.x / 65536.0F,
+                static_cast<float>(sea),
+                boat_position.z / 65536.0F,
+                false
+            );
+            draws.models.push_back(boat_model);
+            const auto plain = render_diagnostic(
+                draws,
+                diagnostic_angles[angle],
+                boat_position.x / 65536.0F,
+                static_cast<float>(sea),
+                boat_position.z / 65536.0F,
+                false
+            );
+            const auto reflected = render_diagnostic(
+                draws,
+                diagnostic_angles[angle],
+                boat_position.x / 65536.0F,
+                static_cast<float>(sea),
+                boat_position.z / 65536.0F,
+                true
+            );
+            std::vector<bool> hull(diagnostic_width * diagnostic_height);
+            for (std::size_t pixel = 0; pixel < hull.size(); ++pixel)
+                if (differs(plain, empty, pixel)) {
+                    const int x = static_cast<int>(pixel % diagnostic_width);
+                    const int y = static_cast<int>(pixel / diagnostic_width);
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx)
+                            if (x + dx >= 0 && y + dy >= 0 &&
+                                x + dx < static_cast<int>(diagnostic_width) &&
+                                y + dy < static_cast<int>(diagnostic_height))
+                                hull[(y + dy) * diagnostic_width + x + dx] = true;
+                }
+            std::size_t reflection_outside_hull{};
+            for (std::size_t pixel = 0; pixel < hull.size(); ++pixel)
+                reflection_outside_hull += !hull[pixel] && differs(reflected, plain, pixel);
+            std::cout << "naval reflection proof: angle=" << angle
+                      << " changed pixels outside independent hull=" << reflection_outside_hull
+                      << '\n';
+            const auto prefix = "naval-reflection-" + std::to_string(angle);
+            save_picture((prefix + "-off.png").c_str(), plain);
+            save_picture((prefix + "-on.png").c_str(), reflected);
+            require(
+                reflection_outside_hull > 8, "the naval reflection stays hidden beneath its hull"
+            );
+        }
+        int dry_x = water_x;
+        int dry_z = water_z;
+        bool found_dry{};
+        for (int row = 24; !found_dry && row + 24 < static_cast<int>(water_map.attribute_height);
+             ++row)
+            for (int column = 24; column + 24 < static_cast<int>(water_map.attribute_width);
+                 ++column)
+                if (water_map
+                        .attributes
+                            [static_cast<std::size_t>(row) * water_map.attribute_width + column]
+                        .height > sea + 8) {
+                    dry_x = column * cell_edge;
+                    dry_z = row * cell_edge;
+                    found_dry = true;
+                    break;
+                }
+        require(found_dry, "the aircraft fixture lacks dry ground");
+        // Frozen simulation and continuous camera movement straddle the former
+        // reflection cutoff at abs(view_direction.y)==0.2.
+        for (int frame = 0; frame < 24; ++frame) {
+            const renderer_live_camera::State camera{-150, -49.0F - frame * 0.19F, true};
+            WorldDrawList draws;
+            draws.shadow_level = 0;
+            draws.models.push_back(boat_model);
+            const auto off = render_diagnostic(
+                draws,
+                camera,
+                boat_position.x / 65536.0F,
+                float(sea),
+                boat_position.z / 65536.0F,
+                false
+            );
+            const auto on = render_diagnostic(
+                draws,
+                camera,
+                boat_position.x / 65536.0F,
+                float(sea),
+                boat_position.z / 65536.0F,
+                true
+            );
+            uint64_t energy{};
+            for (std::size_t i = 0; i < on.rgb.size(); ++i)
+                energy += std::abs(int(on.rgb[i]) - int(off.rgb[i]));
+            std::cout << "reflection sweep: frame=" << frame << " pitch=" << camera.pitch_degrees
+                      << " energy=" << energy << '\n';
+            const auto prefix =
+                std::string("reflection-sweep-") + (frame < 10 ? "0" : "") + std::to_string(frame);
+            save_picture((prefix + "-off.png").c_str(), off);
+            save_picture((prefix + "-on.png").c_str(), on);
+        }
+
+        for (const bool yard : {false, true}) {
+            const auto& model = yard ? shipyard_water_model : commander_water_model;
+            const auto position = *model.shown_position;
+            for (std::size_t angle = 0; angle < diagnostic_angles.size(); ++angle) {
+                WorldDrawList draws;
+                draws.shadow_level = 0;
+                const auto empty = render_diagnostic(
+                    draws,
+                    diagnostic_angles[angle],
+                    position.x / 65536.0F,
+                    float(sea),
+                    position.z / 65536.0F,
+                    false
+                );
+                draws.models.push_back(model);
+                const auto off = render_diagnostic(
+                    draws,
+                    diagnostic_angles[angle],
+                    position.x / 65536.0F,
+                    float(sea),
+                    position.z / 65536.0F,
+                    false
+                );
+                const auto on = render_diagnostic(
+                    draws,
+                    diagnostic_angles[angle],
+                    position.x / 65536.0F,
+                    float(sea),
+                    position.z / 65536.0F,
+                    false,
+                    1
+                );
+                const auto dry_model = render_diagnostic(
+                    draws,
+                    diagnostic_angles[angle],
+                    position.x / 65536.0F,
+                    float(sea),
+                    position.z / 65536.0F,
+                    false,
+                    0,
+                    true
+                );
+                draws.models.clear();
+                const auto dry_empty = render_diagnostic(
+                    draws,
+                    diagnostic_angles[angle],
+                    position.x / 65536.0F,
+                    float(sea),
+                    position.z / 65536.0F,
+                    false,
+                    0,
+                    true
+                );
+                std::size_t above{}, above_changed{}, changed{};
+                for (std::size_t pixel = 0; pixel < off.rgb.size() / 3; ++pixel)
+                    if (differs(empty, off, pixel)) {
+                        changed += differs(off, on, pixel);
+                        // Only full triangles physically above sea, still visible
+                        // in the unfiltered image, form this independent dry mask.
+                        if (differs(dry_empty, dry_model, pixel) &&
+                            !differs(dry_model, off, pixel)) {
+                            ++above;
+                            above_changed += differs(off, on, pixel);
+                        }
+                    }
+                std::cout << "waterline proof: " << (yard ? "shipyard" : "commander")
+                          << " angle=" << angle << " changed hull=" << changed
+                          << " upper hull=" << above << " upper changed=" << above_changed << '\n';
+                const auto prefix = std::string("waterline-") +
+                                    (yard ? "shipyard-" : "commander-") + std::to_string(angle);
+                save_picture((prefix + "-off.png").c_str(), off);
+                save_picture((prefix + "-on.png").c_str(), on);
+                require(
+                    changed > 0 && above > 0 && above_changed == 0,
+                    "partial immersion must affect submerged hull and preserve upper hull"
+                );
+            }
+        }
+
+        constexpr std::array<int, 3> flight_heights{32, 112, 224};
+        for (const bool water_receiver : {false, true}) {
+            const int x = water_receiver ? water_x : dry_x;
+            const int z = water_receiver ? water_z : dry_z;
+            const int receiver = std::max(sea, match_->map_height(x * 65536, z * 65536));
+            for (std::size_t angle = 0; angle < diagnostic_angles.size(); ++angle) {
+                std::size_t previous_area{};
+                int previous_darkness = 256;
+                for (const int altitude : flight_heights) {
+                    WorldDrawList draws;
+                    draws.shadow_level = 0;
+                    draws.models.push_back(aircraft_model);
+                    draws.models.back().shown_position =
+                        oa::FixedVec3{x * 65536, (receiver + altitude) * 65536, z * 65536};
+                    const auto plain = render_diagnostic(
+                        draws,
+                        diagnostic_angles[angle],
+                        static_cast<float>(x),
+                        static_cast<float>(receiver),
+                        static_cast<float>(z),
+                        false
+                    );
+                    draws.shadow_level = oa::present::model::shadow_full_level;
+                    const auto shadowed = render_diagnostic(
+                        draws,
+                        diagnostic_angles[angle],
+                        static_cast<float>(x),
+                        static_cast<float>(receiver),
+                        static_cast<float>(z),
+                        false
+                    );
+                    std::size_t area{};
+                    int darkest{};
+                    for (std::size_t pixel = 0; pixel < plain.rgb.size() / 3; ++pixel) {
+                        if (!differs(plain, shadowed, pixel))
+                            continue;
+                        ++area;
+                        for (std::size_t channel = 0; channel < 3; ++channel)
+                            darkest = std::max(
+                                darkest,
+                                static_cast<int>(plain.rgb[pixel * 3 + channel]) -
+                                    shadowed.rgb[pixel * 3 + channel]
+                            );
+                    }
+                    std::cout << "aircraft shadow proof: water=" << water_receiver
+                              << " angle=" << angle << " altitude=" << altitude
+                              << " pixels=" << area << " maximum darkening=" << darkest << '\n';
+                    const auto prefix = "aircraft-shadow-" +
+                                        std::string(water_receiver ? "water-" : "land-") +
+                                        std::to_string(angle) + "-" + std::to_string(altitude);
+                    save_picture((prefix + "-off.png").c_str(), plain);
+                    save_picture((prefix + "-on.png").c_str(), shadowed);
+                    require(area > 0, "an aircraft has no visible terrain/water shadow");
+                    require(
+                        area >= previous_area && darkest <= previous_darkness,
+                        "aircraft shadows do not widen and soften with altitude"
+                    );
+                    previous_area = area;
+                    previous_darkness = darkest;
+                }
+            }
+        }
+        // The Brawler belongs only to the isolated aircraft-shadow proof.
+        // Relocate it away from the naval showcase before any classic capture.
+        match_->world().record.units[aircraft].position.x = 16 * 65536;
+        match_->world().record.units[aircraft].position.z = 16 * 65536;
+        match_zoom_ = match_zoom_target_ = 1.0F;
+        center_camera_on_unit(battleship);
+        capture_flow("live-metal-naval", [&] {
+            match_->world().record.units[water_commander].position.y = commander_water_height;
+            match_->world().record.units[shipyard].position.y = shipyard_water_height;
+            return snapshot();
+        });
+        // Exercise the actual classic Full presenter, including its water
+        // hooks and AA resolve, on an SDL software surface with no window.
+        require(
+            sdl_.renderer == nullptr && sdl_.window == nullptr,
+            "the classic Full capture must not borrow a user renderer"
+        );
+        const auto classic_settings = engine_settings_->current;
+        const auto classic_rung = accelerated_.rung;
+        const bool was_headless = options_.headless_check;
+        auto classic_capture_settings = classic_settings;
+        classic_capture_settings.anti_aliasing = oa::ui::engine_settings::AntiAliasing::x2;
+        classic_capture_settings.weapon_lighting = 0;
+        classic_capture_settings.nanolathe_lighting = 0;
+        classic_capture_settings.wreck_glow = 0;
+        classic_capture_settings.heat_distortion = 0;
+        apply_engine_settings(classic_capture_settings);
+        constexpr int classic_width = 1280;
+        constexpr int classic_height = 800;
+        SDL_Surface* classic_canvas =
+            SDL_CreateSurface(classic_width, classic_height, SDL_PIXELFORMAT_XRGB8888);
+        require(classic_canvas != nullptr, "the classic Full canvas allocation failed");
+        sdl_.renderer = SDL_CreateSoftwareRenderer(classic_canvas);
+        require(sdl_.renderer != nullptr, "the windowless classic Full renderer failed");
+        const auto release_classic = [&] {
+            set_full_presentation(false);
+            free_accelerated_presentation();
+            destroy_match_layer_textures();
+            accelerated_.on = false;
+            SDL_DestroyRenderer(sdl_.renderer);
+            sdl_.renderer = nullptr;
+            SDL_DestroySurface(classic_canvas);
+            options_.headless_check = was_headless;
+            apply_engine_settings(classic_settings);
+        };
+        try {
+            options_.headless_check = false;
+            switch_accelerated_presentation(true, classic_rung);
+            set_full_presentation(true);
+            reset_live_renderer();
+            match_layout_ = lay_out_match(classic_width, classic_height);
+            match_zoom_ = match_zoom_target_ = 1.0F;
+            center_camera_on_unit(battleship);
+            bool dry_colour_fixture = false;
+            bool maintain_waterline_fixture = true;
+            const auto classic_picture = [&] {
+                if (maintain_waterline_fixture) {
+                    match_->world().record.units[water_commander].position.y =
+                        dry_colour_fixture ? (sea + 64) * 65536 : commander_water_height;
+                    match_->world().record.units[shipyard].position.y =
+                        dry_colour_fixture ? (sea + 64) * 65536 : shipyard_water_height;
+                }
+                oa::sim::messages::clear_messages(match_->state().game);
+                render_match_surface();
+                require(
+                    full_presentation() && full_frame_drawn() && !live_renderer_active(),
+                    "the actual classic Full draw path was not selected"
+                );
+                require(
+                    present_full_match_layers(false) && full_->drawn,
+                    "the actual classic Full card presenter failed or fell back"
+                );
+                require(
+                    full_supersample() == 2, "the classic Full capture did not use requested 2x2 AA"
+                );
+                const SDL_Rect area{
+                    match_layout_.left,
+                    match_layout_.top,
+                    match_layout_.battlefield_width(),
+                    match_layout_.battlefield_height()
+                };
+                SDL_Surface* readback = SDL_RenderReadPixels(sdl_.renderer, &area);
+                require(readback != nullptr, "the classic Full readback failed");
+                SDL_Surface* rgb = SDL_ConvertSurface(readback, SDL_PIXELFORMAT_RGB24);
+                SDL_DestroySurface(readback);
+                require(rgb != nullptr, "the classic Full RGB conversion failed");
+                renderer::Surface picture;
+                picture.width = static_cast<uint32_t>(rgb->w);
+                picture.height = static_cast<uint32_t>(rgb->h);
+                picture.rgb.resize(static_cast<std::size_t>(rgb->w) * rgb->h * 3);
+                for (int row = 0; row < rgb->h; ++row)
+                    std::copy_n(
+                        static_cast<const uint8_t*>(rgb->pixels) + row * rgb->pitch,
+                        rgb->w * 3,
+                        picture.rgb.data() + row * rgb->w * 3
+                    );
+                SDL_DestroySurface(rgb);
+                return picture;
+            };
+            for (const float zoom : {1.0F, 1.31F}) {
+                match_zoom_ = match_zoom_target_ = zoom;
+                center_camera_on_unit(battleship);
+                water_level(0);
+                const auto off = classic_picture();
+                const auto prefix = zoom == 1.0F ? "classic-full-zoom1" : "classic-full-zoom131";
+                save_picture((std::string(prefix) + "-off.png").c_str(), off);
+                for (const bool reflection : {false, true}) {
+                    water_level(0);
+                    if (reflection)
+                        engine_settings_->current.naval_reflections = 100;
+                    else
+                        engine_settings_->current.water_ripples = 100;
+                    const auto on = classic_picture();
+                    std::size_t changed{};
+                    unsigned maximum{};
+                    uint64_t total{};
+                    for (std::size_t pixel = 0; pixel < off.rgb.size() / 3; ++pixel) {
+                        changed += differs(off, on, pixel);
+                        for (std::size_t channel = 0; channel < 3; ++channel) {
+                            const auto delta = static_cast<unsigned>(std::abs(
+                                int(off.rgb[pixel * 3 + channel]) - int(on.rgb[pixel * 3 + channel])
+                            ));
+                            maximum = std::max(maximum, delta);
+                            total += delta;
+                        }
+                    }
+                    const auto name =
+                        std::string(prefix) + (reflection ? "-reflection.png" : "-ripples.png");
+                    save_picture(name.c_str(), on);
+                    std::cout << "actual classic Full: zoom=" << zoom
+                              << " AA=2x2 effect=" << (reflection ? "reflection" : "ripples")
+                              << " changed=" << changed << " max=" << maximum << " total=" << total
+                              << '\n';
+                    require(
+                        changed > 0, "the actual classic Full water effect has no visible pixels"
+                    );
+                    require(
+                        classic_picture().rgb == on.rgb,
+                        "the classic Full water effect changed at a frozen tick"
+                    );
+                }
+            }
+            match_zoom_ = match_zoom_target_ = 1.0F;
+            center_camera_on_unit(battleship);
+            for (const bool dry : {false, true}) {
+                dry_colour_fixture = dry;
+                for (const uint32_t effects : {0U, 100U}) {
+                    water_level(effects);
+                    const auto classic = classic_picture();
+                    set_full_presentation(false);
+                    options_.headless_check = true;
+                    orbit(SDL_BUTTON_MIDDLE, 0.001F);
+                    const auto live = snapshot();
+                    require(
+                        live.width == classic.width && live.height == classic.height,
+                        "near-default live/classic comparison dimensions differ"
+                    );
+                    const auto prefix = std::string("view-colour-") + (dry ? "dry-" : "half-") +
+                                        std::to_string(effects);
+                    save_picture((prefix + "-classic-full.png").c_str(), classic);
+                    save_picture((prefix + "-near-default-live.png").c_str(), live);
+                    std::array<uint64_t, 3> classic_sum{}, live_sum{};
+                    std::size_t count{};
+                    // Stable dry coastal patch in this fixed showcase framing.
+                    for (uint32_t y = 200; y < std::min(400U, classic.height); ++y)
+                        for (uint32_t x = 10; x < std::min(90U, classic.width); ++x) {
+                            const auto pixel = (y * classic.width + x) * 3;
+                            for (std::size_t channel = 0; channel < 3; ++channel) {
+                                classic_sum[channel] += classic.rgb[pixel + channel];
+                                live_sum[channel] += live.rgb[pixel + channel];
+                            }
+                            ++count;
+                        }
+                    std::cout << "near-default colour: dry=" << dry << " effects=" << effects;
+                    for (std::size_t channel = 0; channel < 3; ++channel)
+                        std::cout << " channel" << channel
+                                  << " classic=" << double(classic_sum[channel]) / count
+                                  << " live=" << double(live_sum[channel]) / count;
+                    std::cout << '\n';
+                    reset_live_renderer();
+                    options_.headless_check = false;
+                    set_full_presentation(true);
+                }
+            }
+            dry_colour_fixture = false;
+            for (const auto unit : {water_commander, shipyard}) {
+                match_zoom_ = match_zoom_target_ = 2.0F;
+                center_camera_on_unit(unit);
+                water_level(0);
+                const auto off = classic_picture();
+                engine_settings_->current.underwater_shimmer = 100;
+                const auto on = classic_picture();
+                const auto prefix = std::string("classic-waterline-") +
+                                    (unit == water_commander ? "commander" : "shipyard");
+                save_picture((prefix + "-off.png").c_str(), off);
+                save_picture((prefix + "-on.png").c_str(), on);
+                require(off.rgb != on.rgb, "classic partially submerged models show no shimmer");
+            }
+            match_zoom_ = match_zoom_target_ = 1.0F;
+            center_camera_on_unit(battleship);
+            std::vector<int16_t> previous_ripple_delta;
+            bool ripple_moved{};
+            constexpr int classic_frames = 30;
+            for (int frame = 0; frame < classic_frames; ++frame) {
+                step_match_simulation();
+                step_match_simulation();
+                water_level(0);
+                const auto off = classic_picture();
+                engine_settings_->current.water_ripples = 100;
+                const auto on = classic_picture();
+                std::vector<int16_t> delta(off.rgb.size());
+                for (std::size_t index = 0; index < delta.size(); ++index)
+                    delta[index] = int16_t(on.rgb[index]) - int16_t(off.rgb[index]);
+                if (!previous_ripple_delta.empty())
+                    ripple_moved |= delta != previous_ripple_delta;
+                previous_ripple_delta = std::move(delta);
+                const auto name = "classic-full-motion-" + std::string(frame < 10 ? "0" : "") +
+                                  std::to_string(frame) + ".png";
+                save_picture(name.c_str(), on);
+            }
+            require(ripple_moved, "actual classic Full ripples did not animate as ticks advanced");
+            capture_flow("classic-full", classic_picture);
+            // Fresh canonical combat separates underwater torpedoes from the
+            // earlier battleship surface-shell fixture. No injected shots,
+            // damage, altered weapon definitions or target health replenishment.
+            maintain_waterline_fixture = false;
+            reset_live_renderer();
+            options_.headless_check = true;
+            return_to_skirmish_menu();
+            skirmish_settings_.map_name = "Coast to Coast";
+            require(select_map("Coast to Coast"), "the torpedo fixture map is missing");
+            state_.player_count = 2;
+            exercise_click(skirmish::resource_name(skirmish::Button::start));
+            require(match_ && selected_tnt_, "the torpedo Skirmish did not start");
+            enter_console_check_line("+nowisee");
+            clear_local_selection();
+            const auto torpedo_sub = place_naval("ARMSUB", 96, sea - 16);
+            const auto torpedo_target = place_naval("CORSUB", 352, sea - 16, true);
+            require(
+                match_->world().record.units[torpedo_sub].position.y < sea * 65536 &&
+                    match_->world().record.units[torpedo_target].position.y < sea * 65536,
+                "torpedo combat participants must actually be submerged"
+            );
+            require(
+                match_->issue_attack(torpedo_sub, torpedo_target, false),
+                "the actual submarine did not accept its attack order"
+            );
+            const auto initial_target_health = match_->world().record.units[torpedo_target].health;
+            match_layout_ = lay_out_match(classic_width, classic_height);
+            match_zoom_ = match_zoom_target_ = 1.5F;
+            center_camera_on_unit(torpedo_sub);
+            water_level(100);
+            engine_settings_->current.weapon_lighting = 100;
+            bool torpedo_seen{}, torpedo_hit{}, underwater_impact{}, torpedo_model{};
+            bool hit_saved{};
+            float torpedo_low = float(sea), torpedo_high = -10000;
+            int torpedo_frames{};
+            for (int tick = 0; tick < 480 && torpedo_frames < 90; ++tick) {
+                step_match_simulation();
+                require(!match_->fault(), "actual torpedo combat raised a simulation fault");
+                auto& world = match_->world().record;
+                for (int32_t shot = 0; shot < world.game.projectile_count; ++shot) {
+                    const auto& projectile = world.projectiles[shot];
+                    if (projectile.source != oa::oa_unit_ref_from_slot(torpedo_sub))
+                        continue;
+                    const auto* definition = oa::world_weapon_def(&world, projectile.def);
+                    require(
+                        definition && (definition->flags & OA_WEAPON_FLAG_WATER_WEAPON) != 0,
+                        "the installed submarine emitted a non-water weapon"
+                    );
+                    const float height = projectile.position.y / 65536.0F;
+                    require(height < sea, "the real torpedo trajectory left the water");
+                    torpedo_low = std::min(torpedo_low, height);
+                    torpedo_high = std::max(torpedo_high, height);
+                    torpedo_seen = true;
+                }
+                torpedo_hit |= world.units[torpedo_target].health < initial_target_health;
+                for (const auto& source : collect_match_effect_sources())
+                    underwater_impact |= source.origin == renderer_effect_sources::Origin::impact &&
+                                         source.height < sea;
+                require(
+                    water_disturbances().empty(),
+                    "actual underwater torpedoes incorrectly emitted surface rings"
+                );
+                if (!torpedo_seen || tick % 2 != 0)
+                    continue;
+                reset_live_renderer();
+                options_.headless_check = false;
+                set_full_presentation(true);
+                const auto classic = classic_picture();
+                if (const auto* draws = drawn_match_models())
+                    for (const auto& shot : draws->draws.projectiles)
+                        torpedo_model |= shot.object != nullptr && shot.prepared != nullptr;
+                // Headless mode bypasses Full without destroying its cached
+                // targets between paired captures of the same simulation tick.
+                options_.headless_check = true;
+                orbit();
+                const auto live = snapshot();
+                const auto number =
+                    (torpedo_frames < 10 ? "0" : "") + std::to_string(torpedo_frames);
+                save_picture(("torpedo-classic-" + number + ".png").c_str(), classic);
+                save_picture(("torpedo-live-" + number + ".png").c_str(), live);
+                if (torpedo_hit && underwater_impact && !hit_saved) {
+                    save_picture("torpedo-hit-classic.png", classic);
+                    save_picture("torpedo-hit-live.png", live);
+                    hit_saved = true;
+                }
+                ++torpedo_frames;
+            }
+            std::cout << "actual torpedo proof: frames=" << torpedo_frames
+                      << " projectile=" << torpedo_seen << " model=" << torpedo_model
+                      << " height=" << torpedo_low << ".." << torpedo_high << " sea=" << sea
+                      << " target-damaged=" << torpedo_hit
+                      << " underwater-impact=" << underwater_impact
+                      << " surface-rings=" << water_disturbances().size() << '\n';
+            require(
+                torpedo_seen && torpedo_model && torpedo_hit && underwater_impact && hit_saved,
+                "the actual torpedo fixture lacks trajectory/model/underwater-hit evidence"
+            );
+            reset_live_renderer();
+            options_.headless_check = false;
+            require(sdl_.window == nullptr, "the classic Full fixture created a visible window");
+        } catch (...) {
+            release_classic();
+            throw;
+        }
+        release_classic();
+        std::cout << "water weapon events: firing=" << saw_firing
+                  << " water-impact=" << saw_water_hit << " target-hit=" << saw_target_hit << '\n';
+        require(
+            saw_firing && saw_water_hit && saw_target_hit,
+            "the naval capture lacks actual firing, water impact or target hit events"
+        );
+    }
+    engine_settings_->current = water_settings_saved;
     reset_live_renderer();
     return_to_skirmish_menu();
     std::cout

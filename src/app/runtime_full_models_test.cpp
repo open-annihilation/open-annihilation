@@ -24,6 +24,7 @@
 // as a lit building, held to the bounds of runtime_full.hpp and the figures
 // printed.
 #include "runtime_full.hpp"
+#include "renderer_water_shading.hpp"
 
 #include "oa/formats/objects3d.hpp"
 #include "oa/formats/tdf.hpp"
@@ -578,6 +579,7 @@ struct Scene {
     oa::formats::gaf::RenderedFrame shadow_frame;
     std::array<uint8_t, full::team_colour_players> team_colors{};
     uint32_t tick{};
+    float water_shimmer{};
     uint32_t build_pulse_lag{};
 
     explicit Scene(
@@ -811,6 +813,9 @@ struct Scene {
         in.library = &library;
         in.display = &display;
         in.graphics_flags = world->game.graphics_flags;
+        in.water_shimmer = water_shimmer;
+        in.water_sea_level = world->game.sea_level;
+        in.water_seconds = tick / 30.0;
         in.build_pulse_tick = tick - build_pulse_lag;
         in.moving_pieces_once_built = renderer.moving_pieces_once_built;
         in.team_colors = team_colors;
@@ -1507,8 +1512,8 @@ void test_mobile_nanoframe_once_built() {
     }
 }
 
-// Units under the water line: the viewpoint's own tinted, halved with the
-// blue lift; another player's not drawn at all.
+// Full uses optional physical water shading, with no legacy polygon-wide tint.
+// The existing visibility rule still hides another player's submerged unit.
 void test_underwater() {
     Scene scene;
     scene.world->game.sea_level = 10;
@@ -1522,17 +1527,16 @@ void test_underwater() {
     scene.plan_unit(own);
     scene.raster_processor(processor);
     const CardPicture tinted = card.raster(scene);
-    // The gray palette's nearest entry to the halved and lifted colour is
-    // a gray, so the colours differ by design; the coverage holds.
+    // With effects off, Full stays untinted while preserving the coverage.
     const auto c = compare(tinted, processor, scene);
-    print("underwater, own", c);
+    print("underwater, own, effects off", c);
     OA_CHECK(c.drawn == 16 * 16 && c.far_coverage == 0 && c.edge_coverage == 0);
     const uint8_t* pixel = tinted.at(unit_x, unit_z);
     OA_CHECK(pixel[3] == 255);
-    OA_CHECK(std::abs(int{pixel[0]} - ink / 2) <= 2);
-    OA_CHECK(std::abs(int{pixel[1]} - ink / 2) <= 2);
-    OA_CHECK(std::abs(int{pixel[2]} - (ink / 2 + 0x32)) <= 2);
-    // The processor's pixel is tinted too: not the ink.
+    OA_CHECK(std::abs(int{pixel[0]} - ink) <= 2);
+    OA_CHECK(std::abs(int{pixel[1]} - ink) <= 2);
+    OA_CHECK(std::abs(int{pixel[2]} - ink) <= 2);
+    // The software renderer keeps its original palette-based tint.
     OA_CHECK(processor.at(unit_x, unit_z)[0] != ink);
     // Another player's unit under the line is not drawn by either.
     SceneUnit& other = scene.add_unit(square_model(), 2, unit_x, unit_z);
@@ -1550,6 +1554,139 @@ void test_underwater() {
     scene.plan_unit(other);
     scene.raster_processor(processor);
     check_exact("above the water", compare(card.raster(scene), processor, scene));
+}
+
+/// Every submerged piece receives water shading, while the dry upper piece stays exact.
+void test_water_shimmer() {
+    Scene scene;
+    scene.world->game.sea_level = 10;
+    SceneUnit& own = scene.add_unit(stacked_model(), 1, unit_x, unit_z);
+    own.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    own.unit->owner_index = 0;
+    Card card(scene);
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(own);
+    const auto classic = card.raster(scene);
+    scene.water_shimmer = 1;
+    const auto wet = card.raster(scene);
+    const auto frozen = card.raster(scene);
+    OA_CHECK(wet.rgba == frozen.rgba);
+    OA_CHECK(wet.rgba != classic.rgba);
+    // Top square is at height 12, above sea level 10.
+    for (int channel = 0; channel < 4; ++channel)
+        OA_CHECK(wet.at(unit_x, unit_z - 6)[channel] == classic.at(unit_x, unit_z - 6)[channel]);
+    scene.water_shimmer = 0;
+    OA_CHECK(card.raster(scene).rgba == classic.rgba);
+}
+
+/// A sloping face crosses sea level; its dry end stays unchanged in Full.
+void test_partial_water_model() {
+    Scene scene;
+    SceneUnit& own = scene.add_unit(resting_model(), 1, unit_x, unit_z);
+    own.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+    Card card(scene);
+    ProcessorPicture processor;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(own);
+    const auto dry = card.raster(scene);
+    scene.world->game.sea_level = 8;
+    scene.begin_frame(processor, 0);
+    scene.plan_unit(own);
+    const auto disabled = card.raster(scene);
+    OA_CHECK(disabled.rgba == dry.rgba);
+    scene.water_shimmer = 1;
+    const auto enabled = card.raster(scene);
+    const auto* dry_tip = disabled.at(unit_x, unit_z + 30);
+    OA_CHECK(dry_tip[3] == 255);
+    for (int channel = 0; channel < 4; ++channel)
+        OA_CHECK(enabled.at(unit_x, unit_z + 30)[channel] == dry_tip[channel]);
+    const auto* wet_foot = disabled.at(unit_x, unit_z + 10);
+    OA_CHECK(wet_foot[3] == 255);
+    OA_CHECK(enabled.at(unit_x, unit_z + 10)[0] != wet_foot[0]);
+}
+
+/// A face crossing the sea is cut before shading, so its dry half cannot inherit tint.
+void test_waterline_face_split() {
+    namespace water = oa::app::renderer_water_shading;
+    const std::array<card::Vertex, 3> face{
+        {{.x = -12, .y = 0, .colour = {0.5F, 0.5F, 0.5F, 1}},
+         {.x = 12, .y = 0, .colour = {0.5F, 0.5F, 0.5F, 1}},
+         {.x = 12, .y = 20, .colour = {0.5F, 0.5F, 0.5F, 1}}}
+    };
+    constexpr std::array<card::Index, 3> source{0, 1, 2};
+    std::vector<card::Vertex> vertices;
+    std::vector<card::Index> indices;
+    water::split(
+        face,
+        source,
+        vertices,
+        indices,
+        [](const card::Vertex& vertex) { return vertex.x; },
+        [](card::Vertex& vertex, float depth) { vertex.colour.blue += depth / 100; }
+    );
+    bool sea_edge = false, wet = false;
+    for (const auto& vertex : vertices) {
+        OA_CHECK(vertex.x >= -12 && vertex.x <= 12 && vertex.y >= 0 && vertex.y <= 20);
+        if (vertex.x <= 0)
+            OA_CHECK(vertex.colour.blue == 0.5F);
+        if (vertex.x == 0)
+            sea_edge = true;
+        if (vertex.x > 0)
+            wet = wet || vertex.colour.blue > 0.5F;
+    }
+    OA_CHECK(sea_edge && wet);
+    for (std::size_t i = 0; i < indices.size(); i += 3) {
+        float low = 100, high = -100;
+        for (std::size_t k = 0; k < 3; ++k) {
+            low = std::min(low, vertices[indices[i + k]].x);
+            high = std::max(high, vertices[indices[i + k]].x);
+        }
+        OA_CHECK(low >= 0 || high <= 0);
+    }
+    OA_CHECK(indices.size() <= 3 * 24);
+    water::split(
+        face,
+        source,
+        vertices,
+        indices,
+        [](const card::Vertex&) { return 0.0F; },
+        [](card::Vertex&, float) { OA_CHECK(false); }
+    );
+    OA_CHECK(indices.size() == 3 && vertices.size() == 3);
+    auto dry = face[0];
+    water::apply(dry, 1, 2, -1, 1, 1, 1);
+    OA_CHECK(dry.x == face[0].x && dry.colour.blue == face[0].colour.blue);
+}
+
+/// Deep submerged geometry stays darker and cooler even at a caustic peak.
+void test_water_attenuation_and_contact() {
+    namespace water = oa::app::renderer_water_shading;
+    for (int frame = 0; frame < 40; ++frame) {
+        card::Vertex dry;
+        dry.colour = {0.5F, 0.5F, 0.5F, 1};
+        auto deep = dry;
+        water::apply(deep, 12, 19, 64, frame / 10.0, 1, 1);
+        OA_CHECK(deep.colour.red < dry.colour.red);
+        OA_CHECK(deep.colour.green < dry.colour.green);
+        OA_CHECK(deep.colour.blue < dry.colour.blue);
+        OA_CHECK(deep.colour.blue > deep.colour.red);
+        card::Vertex dark;
+        dark.colour = {0.05F, 0.05F, 0.05F, 1};
+        water::apply(dark, 12, 19, 64, frame / 10.0, 1, 1);
+        OA_CHECK(dark.colour.red >= 0.02F && dark.colour.blue > 0.03F);
+        water::apply(dry, 12, 19, -0.1F, frame / 10.0, 2, 1);
+        OA_CHECK(dry.colour.red == 0.5F && dry.colour.blue == 0.5F);
+        OA_CHECK(dry.x == 0 && dry.y == 0);
+    }
+    card::Vertex contact, below, above;
+    contact.colour = below.colour = above.colour = {0, 0, 0, 1};
+    water::apply(contact, 0, 0, 0.75F, 0, 1, 1);
+    water::apply(below, 0, 0, 2, 0, 1, 1);
+    water::apply(above, 0, 0, 0, 0, 1, 1);
+    OA_CHECK(contact.colour.blue > 0.15F);
+    OA_CHECK(below.colour.blue == 0 && above.colour.blue == 0);
+    OA_CHECK(contact.colour.alpha == 1);
 }
 
 // A digger's polygons below the ground are clipped on both sides.
@@ -1718,6 +1855,68 @@ void test_shadows() {
     OA_CHECK(d.far == 0 && d.far_coverage == 0 && d.shadowed > 0);
 }
 
+// Aircraft retain their silhouette as altitude broadens its transparent blur.
+// Terrain and water heights determine clearance, and stable poses reuse uploads.
+void test_aircraft_shadows() {
+    Scene scene;
+    SceneUnit& aircraft = scene.add_unit(square_model(), 1, unit_x, 128);
+    scene.world->unit_defs[1].flags = OA_UNIT_DEF_FLAG_CAN_FLY;
+    constexpr uint16_t flags = draw::graphics_shadows | draw::graphics_vehicle_shadows;
+    Card card(scene);
+    ProcessorPicture processor;
+    const auto render = [&](int altitude, int ground, int sea) {
+        scene.ground = ground;
+        scene.world->game.sea_level = static_cast<int16_t>(sea);
+        aircraft.unit->position.y = (std::max(ground, sea) + altitude) * unit;
+        scene.begin_frame(processor, flags);
+        scene.plan_unit(aircraft);
+        return card.raster(scene);
+    };
+
+    struct Extent {
+        int left{frame_width}, right{}, peak{}, soft{};
+    };
+
+    const auto extent = [](const CardPicture& picture) {
+        Extent result;
+        for (int y = 0; y < frame_height; ++y)
+            for (int x = 0; x < frame_width; ++x) {
+                const auto* pixel = picture.at(x, y);
+                if (pixel[0] != 0 || pixel[1] != 0 || pixel[2] != 0 || pixel[3] == 0)
+                    continue;
+                result.left = std::min(result.left, x);
+                result.right = std::max(result.right, x);
+                result.peak = std::max(result.peak, int{pixel[3]});
+                result.soft += pixel[3] < 40;
+            }
+        return result;
+    };
+    const auto low = extent(render(48, 0, 0));
+    const auto high = extent(render(192, 0, 0));
+    OA_CHECK(high.right - high.left > low.right - low.left);
+    OA_CHECK(high.peak > 0 && high.peak < low.peak);
+    OA_CHECK(high.soft > low.soft);
+    std::size_t shadow_indices = 0;
+    for (const auto& batch : card.frame.batches)
+        if (batch.operation == card::Operation::draw && batch.target != card::TargetHandle{})
+            shadow_indices += batch.index_count;
+    OA_CHECK(shadow_indices == 6);
+    const auto uploads = card.stage.counts().page_uploads;
+    const auto again = extent(render(192, 0, 0));
+    OA_CHECK(card.stage.counts().page_uploads == uploads);
+    OA_CHECK(again.peak == high.peak);
+    const auto plateau = extent(render(192, 32, 0));
+    OA_CHECK(plateau.peak == high.peak);
+    OA_CHECK(plateau.right - plateau.left == high.right - high.left);
+    const auto water = extent(render(192, 0, 32));
+    OA_CHECK(water.peak == plateau.peak);
+    OA_CHECK(water.right - water.left == plateau.right - plateau.left);
+    std::ignore = render(0, 0, 0);
+    scene.raster_processor(processor);
+    const auto grounded = compare(card.raster(scene), processor, scene);
+    OA_CHECK(grounded.far == 0 && grounded.far_coverage == 0);
+}
+
 // An unfinished building near the start of building: the bands clear its
 // image, and its shadow, cut by the image's place as the processor cuts it,
 // lies only past the building, so that the ground shows unshaded through
@@ -1835,6 +2034,34 @@ void test_faded_shadows() {
     const CardPicture again = frame_at(1.0F);
     OA_CHECK(again.rgba == full.rgba);
     OA_CHECK(processor.rgb == full_processor.rgb);
+}
+
+/// Model projectiles use their true vertex heights rather than sitting on the surface.
+void test_underwater_projectile() {
+    Scene scene;
+    scene.world->game.sea_level = 20;
+    const auto model = square_model(third_ink);
+    const auto& prepared = draw::prepare_model(scene.library, model);
+    Card card(scene);
+    ProcessorPicture processor;
+    const auto frame = [&](int height, float shimmer) {
+        scene.water_shimmer = shimmer;
+        scene.begin_frame(processor, 0);
+        ProjectileDraw shot;
+        shot.position = {30 * unit, height * unit, 30 * unit};
+        shot.object = &model->objects[0];
+        shot.prepared = &prepared.objects[0];
+        shot.region = {0, 0, scene.width - 1, scene.height - 1};
+        scene.list.projectiles.push_back(shot);
+        oa::app::add_world_draw(scene.list, WorldDrawKind::projectile, 0);
+        return card.raster(scene);
+    };
+    const auto plain = frame(10, 0);
+    const auto submerged = frame(10, 1);
+    OA_CHECK(plain.at(30, 25)[3] == 255 && submerged.at(30, 25)[3] == 255);
+    OA_CHECK(plain.at(30, 25)[0] != submerged.at(30, 25)[0]);
+    const auto dry = frame(30, 0);
+    OA_CHECK(frame(30, 1).rgba == dry.rgba);
 }
 
 // A projectile and its shadow sprite, a debris piece and a shatter
@@ -2339,12 +2566,18 @@ int main(int argc, char** argv) {
         test_nanoframe_pulse_lag();
         test_mobile_nanoframe_once_built();
         test_underwater();
+        test_water_shimmer();
+        test_partial_water_model();
+        test_waterline_face_split();
+        test_water_attenuation_and_contact();
         test_digger();
         test_clearing();
         test_carried();
         test_shadows();
+        test_aircraft_shadows();
         test_unfinished_building_shadow();
         test_faded_shadows();
+        test_underwater_projectile();
         test_flat_objects();
         test_pages_and_gamma();
         test_zoom();

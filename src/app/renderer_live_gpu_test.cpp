@@ -7,6 +7,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <limits>
@@ -23,9 +24,9 @@ constexpr std::array<float, 12> classic_projection{1, 0, 0, 0, 0, -0.5f, 1, 0, 0
 
 /// Associate every vertex component with its inclusive accepted bounds.
 struct VertexBound {
-    float Vertex::* member;
-    float low;
-    float high;
+    float Vertex::* member{};
+    float low{};
+    float high{};
 };
 
 constexpr float coordinate_limit = 32768;
@@ -41,7 +42,10 @@ constexpr VertexBound vertex_bounds[]{
     {&Vertex::emission_g, 0, 1},
     {&Vertex::emission_b, 0, 1},
     {&Vertex::terrain_known, 0, 1},
-    {&Vertex::terrain_grey, 0, 1}
+    {&Vertex::terrain_grey, 0, 1},
+    {&Vertex::red, 0, 1},
+    {&Vertex::green, 0, 1},
+    {&Vertex::blue, 0, 1}
 };
 
 /// Hold one triangle, one atlas texel and the state reused between frames.
@@ -520,6 +524,409 @@ int persistent_frames() {
     OA_CHECK(scene.pixel(0, 0, small_target, 0, 0));
     return oa::test::check_exit_status();
 }
+
+/// Water animation remains deterministic, optional and unable to illuminate unknown ground.
+void water_frames() {
+    Scene scene;
+    WaterEffects water{1, 1, 1, 1, 8, 0, 1};
+    water.wind.strength = 1;
+    const auto frame = [&] {
+        return render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            small_target,
+            small_target,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            &water
+        );
+    };
+    for (auto& vertex : scene.vertices) {
+        vertex.terrain_size = -2;
+        vertex.terrain_x = 2;
+        vertex.terrain_y = 1;
+    }
+    OA_CHECK(frame() == Result::success);
+    const auto first = scene.pixels;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(first == scene.pixels);
+    water.seconds = 1.25F;
+    water.wind.drift_x = 12;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(first != scene.pixels);
+    for (auto& vertex : scene.vertices)
+        vertex.brightness = 0;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(scene.pixel(0, 0, small_target, 0, 0));
+    water.detail = 0;
+    for (auto& vertex : scene.vertices)
+        vertex.brightness = 1;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(scene.pixel(0, 0, small_target, 0, 0));
+    water.detail = 1;
+    water.ripples = water.coastal_waves = 0;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(scene.pixel(0, 0, small_target, 0, 0));
+    for (auto& vertex : scene.vertices) {
+        vertex.terrain_size = 0;
+        vertex.terrain_x = 0;
+    }
+    water.shimmer = 0;
+    OA_CHECK(frame() == Result::success);
+    const auto unshimmered = scene.pixels;
+    water.shimmer = 1;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(unshimmered != scene.pixels);
+    water.seconds = std::numeric_limits<float>::quiet_NaN();
+    OA_CHECK(frame() == Result::failed);
+    OA_CHECK(scene.pixels.empty());
+}
+
+/// Diffuse highlights follow integrated wind without moving calm water or grading dry pixels.
+void ripple_visible_contrast() {
+    Context context;
+    constexpr uint32_t size = 192;
+    const std::array<uint8_t, 4> atlas{20, 60, 100, full_channel};
+    std::vector<Vertex> vertices;
+    const auto quad = [&](float right, float height, bool water_surface) {
+        std::array<Vertex, 6> faces{
+            Vertex{0, height, 0},
+            Vertex{right, height, 0},
+            Vertex{0, height, size},
+            Vertex{right, height, 0},
+            Vertex{right, height, size},
+            Vertex{0, height, size}
+        };
+        for (auto& vertex : faces) {
+            vertex.terrain_size = water_surface ? -2 : 0;
+            vertex.terrain_x = water_surface ? 20 : 0;
+        }
+        vertices.insert(vertices.end(), faces.begin(), faces.end());
+    };
+    quad(size, 0, false);
+    quad(size / 2, 0.05F, true);
+    WaterEffects water{};
+    std::vector<uint8_t> pixels;
+    std::string error;
+    const auto frame = [&] {
+        return render(
+            context,
+            vertices,
+            atlas,
+            1,
+            1,
+            1,
+            size,
+            size,
+            classic_projection,
+            pixels,
+            error,
+            1,
+            nullptr,
+            &water
+        );
+    };
+    OA_CHECK(frame() == Result::success);
+    const auto disabled = pixels;
+    water.ripples = 1;
+    water.wind.strength = 1;
+    OA_CHECK(frame() == Result::success);
+    const auto first = pixels;
+    uint32_t contrast_sum{}, pronounced{}, peak{};
+    for (uint32_t y = 0; y < size; ++y)
+        for (uint32_t x = 0; x < size; ++x) {
+            const auto offset = (y * size + x) * channels;
+            if (x >= size / 2) {
+                for (uint32_t channel = 0; channel < channels; ++channel)
+                    OA_CHECK(pixels[offset + channel] == disabled[offset + channel]);
+                continue;
+            }
+            const auto delta =
+                static_cast<uint32_t>(std::abs(int(pixels[offset]) - int(disabled[offset])));
+            contrast_sum += delta;
+            pronounced += delta >= 4;
+            peak = std::max(peak, delta);
+        }
+    constexpr uint32_t water_pixels = size * size / 2;
+    OA_CHECK(contrast_sum >= water_pixels * 3 / 2);
+    OA_CHECK(pronounced >= water_pixels / 6);
+    OA_CHECK(peak >= 15);
+    water.fine_detail = 1;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(pixels != first);
+    for (uint32_t y = 0; y < size; ++y)
+        for (uint32_t x = size / 2; x < size; ++x)
+            for (uint32_t channel = 0; channel < channels; ++channel)
+                OA_CHECK(
+                    pixels[(y * size + x) * channels + channel] ==
+                    disabled[(y * size + x) * channels + channel]
+                );
+    water.fine_detail = 0;
+    // Turning wind must not rotate the entire noise field around the map origin.
+    water.wind.x = 0;
+    water.wind.z = 1;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(pixels == first);
+    water.wind.drift_z = 18;
+    OA_CHECK(frame() == Result::success);
+    const auto northward = pixels;
+    OA_CHECK(northward != first);
+    water.wind.x = 1;
+    water.wind.z = 0;
+    water.wind.drift_z = 0;
+    water.wind.drift_x = 18;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(pixels != first && pixels != northward);
+    const auto fast = pixels;
+    water.wind.drift_x = 6;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(pixels != fast);
+    water.wind = {};
+    water.wind.strength = 0; // Explicit calm fixture; default map flow remains moderate.
+    OA_CHECK(frame() == Result::success);
+    const auto calm = pixels;
+    water.seconds = 100;
+    OA_CHECK(frame() == Result::success);
+    OA_CHECK(pixels == calm);
+    uint32_t calm_contrast{};
+    for (std::size_t offset = 0; offset < pixels.size(); offset += channels)
+        calm_contrast +=
+            static_cast<uint32_t>(std::abs(int(pixels[offset]) - int(disabled[offset])));
+    OA_CHECK(calm_contrast < contrast_sum / 4);
+}
+
+/// Seabed shimmer stays below a subtle contrast budget over the map's baked artwork.
+void terrain_shimmer_contrast() {
+    Context context;
+    constexpr uint32_t atlas_size = 64;
+    constexpr uint32_t output_size = 32;
+    std::vector<uint8_t> atlas(atlas_size * atlas_size * channels, 160);
+    for (std::size_t offset = 3; offset < atlas.size(); offset += channels)
+        atlas[offset] = full_channel;
+    std::array<Vertex, 6> vertices{
+        Vertex{0, 0, 0, 0, 0},
+        Vertex{32, 0, 0, .5F, 0},
+        Vertex{0, 0, 32, 0, .5F},
+        Vertex{32, 0, 0, .5F, 0},
+        Vertex{32, 0, 32, .5F, .5F},
+        Vertex{0, 0, 32, 0, .5F}
+    };
+    for (auto& vertex : vertices)
+        vertex.terrain_size = 32;
+    WaterEffects water{0, 0, 1, 0, 12, 1.25F, 1};
+    std::vector<uint8_t> pixels;
+    std::string error;
+    OA_CHECK(
+        render(
+            context,
+            vertices,
+            atlas,
+            atlas_size,
+            atlas_size,
+            1,
+            output_size,
+            output_size,
+            classic_projection,
+            pixels,
+            error,
+            1,
+            nullptr,
+            &water
+        ) == Result::success
+    );
+    bool changed{};
+    for (std::size_t offset = 0; offset < pixels.size(); offset += channels) {
+        OA_CHECK(pixels[offset] >= 158 && pixels[offset] <= 168);
+        changed |= pixels[offset] != 160;
+    }
+    OA_CHECK(changed);
+}
+
+/// Every submerged face is tinted at either viewing direction; dry faces retain their palette.
+void submerged_faces() {
+    Scene scene;
+    scene.atlas = {160, 160, 160, full_channel};
+    scene.vertices.clear();
+    const auto quad = [&](float x, float bottom, float top, float z) {
+        const Vertex a{x, bottom, z};
+        const Vertex b{x + 8, bottom, z};
+        const Vertex c{x + 8, top, z};
+        const Vertex d{x, top, z};
+        scene.vertices.insert(scene.vertices.end(), {a, b, c, a, c, d});
+    };
+    quad(0, 0, 4, 8);
+    quad(0, 4, 8, 8);
+    quad(8, 20, 28, 20);
+    WaterEffects water{0, 0, 0, 0, 16, 1.25F, 1};
+    const auto frame = [&] {
+        return render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            large_target,
+            large_target,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            &water
+        );
+    };
+    for (const float facing : {1.0F, -1.0F}) {
+        scene.projection = classic_projection;
+        scene.projection[0] = facing;
+        scene.projection[3] = facing < 0 ? large_target : 0;
+        water.shimmer = 0;
+        OA_CHECK(frame() == Result::success);
+        const auto ordinary = scene.pixels;
+        water.shimmer = 1;
+        OA_CHECK(frame() == Result::success);
+        const uint32_t wet_x = facing > 0 ? 3 : 12;
+        const uint32_t dry_x = facing > 0 ? 12 : 3;
+        for (const uint32_t row : {5U, 7U}) {
+            const auto offset = (row * large_target + wet_x) * channels;
+            OA_CHECK(ordinary[offset] == 160);
+            OA_CHECK(scene.pixels[offset] < scene.pixels[offset + 2]);
+        }
+        const auto dry_offset = (8 * large_target + dry_x) * channels;
+        OA_CHECK(ordinary[dry_offset] == 160);
+        OA_CHECK(scene.pixels[dry_offset] == ordinary[dry_offset]);
+    }
+}
+
+/// Crossing faces retain exactly their dry pixels and show a submerged contact on every piece.
+void crossing_waterline() {
+    Scene scene;
+    scene.atlas = {160, 160, 160, full_channel};
+    scene.vertices.clear();
+    for (float x : {0.0F, 4.0F}) {
+        const Vertex a{x, 0, 16}, b{x + 4, 0, 16};
+        const Vertex c{x + 4, 32, 16}, d{x, 32, 16};
+        scene.vertices.insert(scene.vertices.end(), {a, b, c, a, c, d});
+    }
+    WaterEffects water{0, 0, 0, 0, 16, 1.25F, 1};
+    const auto frame = [&] {
+        return render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            large_target,
+            large_target,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            &water
+        );
+    };
+    for (float facing : {1.0F, -1.0F}) {
+        scene.projection = classic_projection;
+        scene.projection[0] = facing;
+        scene.projection[3] = facing < 0 ? large_target : 0;
+        water.shimmer = 0;
+        OA_CHECK(frame() == Result::success);
+        const auto baseline = scene.pixels;
+        water.shimmer = 1;
+        OA_CHECK(frame() == Result::success);
+        for (uint32_t y = 0; y < 8; ++y)
+            for (uint32_t x = 0; x < large_target; ++x)
+                for (uint32_t channel = 0; channel < channels; ++channel)
+                    OA_CHECK(
+                        scene.pixels[(y * large_target + x) * channels + channel] ==
+                        baseline[(y * large_target + x) * channels + channel]
+                    );
+        for (uint32_t x : {1U, 5U}) {
+            const uint32_t column = facing > 0 ? x : large_target - 1 - x;
+            for (uint32_t y : {8U, 13U}) {
+                const auto offset = (y * large_target + column) * channels;
+                OA_CHECK(baseline[offset] == 160);
+                OA_CHECK(scene.pixels[offset] < scene.pixels[offset + 2]);
+            }
+        }
+    }
+}
+
+/// Palette-remapped model corners multiply RGB without changing alpha coverage.
+void material_modulation() {
+    Scene scene;
+    scene.atlas = {255, 255, 255, 255};
+    for (auto& vertex : scene.vertices) {
+        vertex.red = 0.25F;
+        vertex.green = 0.5F;
+        vertex.blue = 0.75F;
+    }
+    OA_CHECK(scene.frame() == Result::success);
+    OA_CHECK(std::abs(int(scene.pixels[0]) - 64) <= 1);
+    OA_CHECK(std::abs(int(scene.pixels[1]) - 128) <= 1);
+    OA_CHECK(std::abs(int(scene.pixels[2]) - 191) <= 1);
+    OA_CHECK(scene.pixels[3] == 255);
+}
+
+/// Tall underwater optical sprites use event depth even where the card crosses the surface.
+void underwater_billboard_depth() {
+    Scene scene;
+    scene.atlas = {160, 160, 160, 255};
+    scene.vertices.clear();
+    for (float x : {0.0F, 8.0F}) {
+        Vertex a{x, 0, 16}, b{x + 8, 0, 16};
+        Vertex c{x + 8, 32, 16}, d{x, 32, 16};
+        for (auto* vertex : {&a, &b, &c, &d}) {
+            vertex->terrain_size = x == 0 ? -5 : -1;
+            vertex->terrain_x = x == 0 ? 8 : 0;
+        }
+        scene.vertices.insert(scene.vertices.end(), {a, b, c, a, c, d});
+    }
+    WaterEffects water{0, 0, 0, 0, 16, 1.25F, 1};
+    const auto frame = [&] {
+        return render(
+            scene.context,
+            scene.vertices,
+            scene.atlas,
+            1,
+            1,
+            1,
+            large_target,
+            large_target,
+            scene.projection,
+            scene.pixels,
+            scene.error,
+            1,
+            nullptr,
+            &water
+        );
+    };
+    OA_CHECK(frame() == Result::success);
+    const auto baseline = scene.pixels;
+    water.shimmer = 1;
+    OA_CHECK(frame() == Result::success);
+    for (uint32_t row : {1U, 7U, 12U}) {
+        const auto offset = (row * large_target + 3) * channels;
+        OA_CHECK(scene.pixels[offset] < scene.pixels[offset + 2]);
+        OA_CHECK(scene.pixels[offset] < baseline[offset]);
+    }
+    for (uint32_t row = 0; row < 8; ++row)
+        for (uint32_t column = 8; column < large_target; ++column)
+            for (uint32_t channel = 0; channel < channels; ++channel) {
+                const auto offset = (row * large_target + column) * channels + channel;
+                OA_CHECK(scene.pixels[offset] == baseline[offset]);
+            }
+}
+
 } // namespace
 
 /// Run validation on every platform and skip real rendering only when no device is available.
@@ -532,6 +939,15 @@ int main() {
         return skipped;
     }
     const int result = persistent_frames();
+    if (result == 0) {
+        material_modulation();
+        water_frames();
+        submerged_faces();
+        crossing_waterline();
+        underwater_billboard_depth();
+        terrain_shimmer_contrast();
+        ripple_visible_contrast();
+    }
     SDL_Quit();
-    return result;
+    return result != 0 ? result : oa::test::check_exit_status();
 }

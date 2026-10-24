@@ -10,6 +10,38 @@
 
 
 
+[Coastal waves]
+	{
+	de=Küstenwellen;
+	fr=Vagues côtières;
+	es=Olas costeras;
+	it=Onde costiere;
+	}
+
+[Naval reflections]
+	{
+	de=Schiffsreflexionen;
+	fr=Reflets des navires;
+	es=Reflejos de los barcos;
+	it=Riflessi delle navi;
+	}
+
+[Underwater shimmer]
+	{
+	de=Unterwasserflimmern;
+	fr=Scintillement sous-marin;
+	es=Destellos submarinos;
+	it=Scintillio subacqueo;
+	}
+
+[Water ripples]
+	{
+	de=Wasserkräuselung;
+	fr=Ondulations de l’eau;
+	es=Ondulaciones del agua;
+	it=Increspature dell’acqua;
+	}
+
 [· from {registry}]
 	{
 	de=· von {registry};
@@ -6024,6 +6056,14 @@
 	fr=Requiert des variantes que cet OA n'a pas : {hacks};
 	es=Necesita variantes que este OA no tiene: {hacks};
 	it=Richiede varianti che questo OA non ha: {hacks};
+	}
+
+[Needs Full acceleration]
+	{
+	de=Benötigt volle Beschleunigung;
+	fr=Nécessite l’accélération complète;
+	es=Requiere aceleración completa;
+	it=Richiede accelerazione completa;
 	}
 
 [Needs modern fonts]

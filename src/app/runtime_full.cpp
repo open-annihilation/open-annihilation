@@ -37,6 +37,8 @@
 #include "render_host.hpp"
 #include "render_run.hpp"
 #include "runtime_full.hpp"
+#include "renderer_water_classic.hpp"
+#include "oa/sim/visibility_state.hpp"
 #include "xrgb_conversion.hpp"
 
 #include "oa/app/renderer_records.hpp"
@@ -1788,6 +1790,47 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 scene.camera_y = static_cast<int32_t>(full.frame_camera_y);
                 scene.target = target;
                 sprite_inputs.view = scene;
+                renderer_water_classic::Inputs water;
+                water.map = &*selected_tnt_;
+                water.view = scene;
+                water.seconds = double(match_->simulation().tick) / 30.0;
+                const auto& water_settings = engine_settings();
+                water.ripples = water_settings.water_ripples / 100.0F;
+                water.coast = water_settings.coastal_waves / 100.0F;
+                water.shimmer = water_settings.underwater_shimmer / 100.0F;
+                water.reflections = water_settings.naval_reflections / 100.0F;
+                water.water_surface = water_surface();
+                water.disturbances = water_disturbances();
+                water.wind = water_wind();
+                model_inputs.water_shimmer =
+                    selected_tnt_->sea_level > 0
+                        ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
+                        : 0;
+                model_inputs.water_sea_level = selected_tnt_->sea_level;
+                model_inputs.water_seconds = water.seconds;
+                const auto water_coverage = match_->player_coverage(match_view_player());
+                const auto& water_sight = match_->sight();
+                const auto water_bit = uint16_t(1U << (match_view_player() & 0x1fU));
+                const bool water_mapping = match_mapping_on();
+                const bool water_los = match_line_of_sight_on();
+                water.visible = [&](float x, float y) {
+                    constexpr float edge = present::world_renderer::fog_cell_pixels;
+                    const int column = int(std::floor(x / edge));
+                    const int row = int(std::floor(y / edge));
+                    if (column < 0 || row < 0 || column >= water_sight.width ||
+                        row >= water_sight.height)
+                        return false;
+                    const auto index = std::size_t(row) * water_sight.width + column;
+                    if (water_mapping && (index >= water_sight.player_bits.size() ||
+                                          (water_sight.player_bits[index] & water_bit) == 0))
+                        return false;
+                    return !water_los ||
+                           (index < water_coverage.size() &&
+                            sim::visibility_state::count_in_sight(
+                                water_coverage[index], sim::visibility_state::SightReading::player
+                            ));
+                };
+                renderer_water_classic::surface(frame, water);
                 {
                     full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
                     std::size_t before = frame.vertices.size();
@@ -1795,6 +1838,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     full.frame_vertices.shadows += frame.vertices.size() - before;
                     for (const WorldDraw& draw : models.draws.draws) {
                         before = frame.vertices.size();
+                        const auto first_water_index = frame.indices.size();
                         if (full::sprite_kind(draw.kind)) {
                             sprites.emit(draw);
                             full.frame_vertices.sprites += frame.vertices.size() - before;
@@ -1802,6 +1846,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                             full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
                             full.frame_vertices.models += frame.vertices.size() - before;
                         }
+                        renderer_water_classic::objects(
+                            frame, water, models.draws, draw, before, first_water_index
+                        );
                     }
                     full.sprites = sprites.finish();
                 }

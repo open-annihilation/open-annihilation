@@ -116,6 +116,12 @@ namespace oa::app::renderer_effect_sources {
 struct Source;
 } // namespace oa::app::renderer_effect_sources
 
+namespace oa::app::renderer_water {
+struct Wind;
+class SurfaceCache;
+struct Disturbance;
+} // namespace oa::app::renderer_water
+
 namespace oa::app::renderer_effect_events {
 class Capture;
 } // namespace oa::app::renderer_effect_events
@@ -6397,6 +6403,12 @@ class Runtime final : public menu::Host,
     std::span<const renderer_effect_sources::Source> collect_match_effect_sources();
     /// Returns the current frame's collected sources.
     std::span<const renderer_effect_sources::Source> match_effect_sources() const noexcept;
+    /// Stable map-derived surface flow and absolute-tick texture drift.
+    renderer_water::Wind water_wind() const noexcept;
+    /// Cached water-body fetch for the current match; no per-frame map traversal.
+    const renderer_water::SurfaceCache* water_surface() const noexcept;
+    /// Recent visible naval firing and water impacts; recheck sight when drawing.
+    std::span<const renderer_water::Disturbance> water_disturbances() const noexcept;
     /// Match a visible impact sprite to a recent EMG hit, independent of merged light centres.
     /// @param point canonical world location in fixed-point units
     /// @return true within six world pixels of an EMG hit in the last game second

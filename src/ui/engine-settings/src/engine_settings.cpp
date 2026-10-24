@@ -644,6 +644,16 @@ EngineSettings read_settings(
         settings.wreck_glow = static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
     else if (const auto number = stored_number(values, key::wreck_glow))
         settings.wreck_glow = *number > 0 ? 100 : 0;
+    if (const auto number = stored_number(values, key::water_ripples_intensity))
+        settings.water_ripples = static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    if (const auto number = stored_number(values, key::coastal_waves_intensity))
+        settings.coastal_waves = static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    if (const auto number = stored_number(values, key::underwater_shimmer_intensity))
+        settings.underwater_shimmer =
+            static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
+    if (const auto number = stored_number(values, key::naval_reflections_intensity))
+        settings.naval_reflections =
+            static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
     if (const auto number = stored_number(values, key::heat_distortion_intensity))
         settings.heat_distortion = static_cast<uint32_t>((clamped(*number, 0, 200) + 5) / 10 * 10);
     else if (const auto number = stored_number(values, key::heat_distortion))
@@ -924,6 +934,38 @@ void write_settings(
         std::to_string(chosen.wreck_glow),
         chosen.wreck_glow != opened.wreck_glow,
         chosen.wreck_glow == defaults.wreck_glow,
+        restored
+    );
+    store(
+        values,
+        key::water_ripples_intensity,
+        std::to_string(chosen.water_ripples),
+        chosen.water_ripples != opened.water_ripples,
+        chosen.water_ripples == defaults.water_ripples,
+        restored
+    );
+    store(
+        values,
+        key::coastal_waves_intensity,
+        std::to_string(chosen.coastal_waves),
+        chosen.coastal_waves != opened.coastal_waves,
+        chosen.coastal_waves == defaults.coastal_waves,
+        restored
+    );
+    store(
+        values,
+        key::underwater_shimmer_intensity,
+        std::to_string(chosen.underwater_shimmer),
+        chosen.underwater_shimmer != opened.underwater_shimmer,
+        chosen.underwater_shimmer == defaults.underwater_shimmer,
+        restored
+    );
+    store(
+        values,
+        key::naval_reflections_intensity,
+        std::to_string(chosen.naval_reflections),
+        chosen.naval_reflections != opened.naval_reflections,
+        chosen.naval_reflections == defaults.naval_reflections,
         restored
     );
     if (restored || chosen.heat_distortion != opened.heat_distortion)

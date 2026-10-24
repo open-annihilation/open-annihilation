@@ -67,7 +67,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 90> kExpected{{
+constexpr std::array<Expected, 94> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -159,6 +159,10 @@ constexpr std::array<Expected, 90> kExpected{{
     {Setting::nanolathe_lighting, RowKind::slider, "Nanolathe glow", 0, 0, 21, 0, 0, false, Lock::none, nullptr},
     {Setting::wreck_glow, RowKind::slider, "Wreck glow", 0, 0, 21, 0, 0, false, Lock::none, nullptr},
     {Setting::heat_distortion, RowKind::slider, "Heat distortion", 0, 0, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::water_ripples, RowKind::slider, "Water ripples", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
+    {Setting::coastal_waves, RowKind::slider, "Coastal waves", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
+    {Setting::underwater_shimmer, RowKind::slider, "Underwater shimmer", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
+    {Setting::naval_reflections, RowKind::slider, "Naval reflections", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
     {Setting::allow_full_3d, RowKind::toggle, "Allow Full 3D Mode", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::unlocked_camera, RowKind::toggle, "Unlocked Camera", 1, 1, 0, 0, 0, false, Lock::none, &Locks::unlocked_camera},
     {Setting::welcome_setup, RowKind::value_and_button, "Welcome setup", 2, 2, 0, 0, 0, false, Lock::main_menu, &Locks::welcome_setup},
@@ -171,7 +175,7 @@ static_assert(
 );
 
 /// Every field of the dialog's locks that locks a row.
-constexpr std::array<Lock Locks::*, 17> kLockFields{
+constexpr std::array<Lock Locks::*, 18> kLockFields{
     &Locks::path_search,
     &Locks::unit_limit,
     &Locks::skirmish_players,
@@ -188,6 +192,7 @@ constexpr std::array<Lock Locks::*, 17> kLockFields{
     &Locks::zoomed_out_after,
     &Locks::edge_stickiness,
     &Locks::unlocked_camera,
+    &Locks::water_effects,
     &Locks::welcome_setup,
 };
 

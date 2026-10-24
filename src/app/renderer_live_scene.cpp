@@ -3,12 +3,16 @@
 
 #include "renderer_live_scene.hpp"
 #include "renderer_effect_sources.hpp"
+#include "renderer_aircraft_shadow.hpp"
+#include "renderer_water_appearance.hpp"
 
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
 #include "oa/present/rle.hpp"
+#include "oa/present/gpu_world/model_meshes.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <array>
 #include <exception>
 #include <cstring>
@@ -147,7 +151,8 @@ AtlasRect material(
     int32_t transparent,
     Fog fog,
     bool light_mask = false,
-    FlashStrength flash_strength = FlashStrength::full
+    FlashStrength flash_strength = FlashStrength::full,
+    bool alpha_coverage = false
 ) {
     const std::size_t count = static_cast<std::size_t>(width) * height;
     if (width == 0 || height == 0 || pixels.size() < count ||
@@ -160,6 +165,7 @@ AtlasRect material(
     hash(static_cast<uint64_t>(transparent + 1));
     hash(static_cast<uint64_t>(fog));
     hash(light_mask);
+    hash(alpha_coverage);
     if (light_mask)
         hash(static_cast<uint64_t>(flash_strength));
     for (const auto value : pixels.first(count))
@@ -200,7 +206,8 @@ AtlasRect material(
                     value = 0;
                 scene.texture_rgba[target + channel] = value;
             }
-            scene.texture_rgba[target + 3] = covered ? 255 : 0;
+            scene.texture_rgba[target + 3] =
+                alpha_coverage && !coverage.empty() ? coverage[source] : (covered ? 255 : 0);
             // Transparent texels carry zero RGB so filtered effect edges interpolate premultiplied colour.
             if (!covered)
                 std::fill_n(scene.texture_rgba.data() + target, 3, 0);
@@ -427,6 +434,7 @@ void terrain(const Inputs& in, Scene& scene) {
                     terrain_material(scene, *in.palette, scene.terrain_grey_palette, pixels, fog);
                 if (scene.terrain_materials.size() >= maximum_cached_tiles)
                     scene.terrain_materials.clear();
+                scene.aircraft_shadow_materials.clear();
                 auto& entry = scene.terrain_materials[key];
                 std::copy(pixels.begin(), pixels.end(), entry.pixels.begin());
                 entry.rectangle = rectangle;
@@ -669,17 +677,21 @@ void decal(
     float top,
     float opacity,
     bool shadow,
-    const FixedVec3* anchor = nullptr
+    const FixedVec3* anchor = nullptr,
+    float footprint_scale = 1,
+    bool water_receiver = false,
+    bool soft_edges = false
 ) {
     constexpr float surface_lift = 0.05F;
     if (in.detail_scale > 0 && in.detail_scale < 1) {
-        const float diameter = std::min(rect.width, rect.height) * in.detail_scale;
+        const float diameter =
+            std::min(rect.width, rect.height) * in.detail_scale * footprint_scale;
         opacity *= std::clamp((diameter - 0.25F) / 0.75F, 0.0F, 1.0F);
         if (opacity == 0)
             return;
     }
-    const float right = left + rect.width;
-    const float bottom = top + rect.height;
+    const float right = left + rect.width * footprint_scale;
+    const float bottom = top + rect.height * footprint_scale;
     const auto& map = *in.map;
     // A canonical feature anchor selects its world footprint even where two
     // surfaces overlap in the original painted projection. Shadow images without
@@ -710,7 +722,9 @@ void decal(
     for (int32_t y = first_y; y < last_y; y += cell_edge)
         for (int32_t x = first_x; x < last_x; x += cell_edge) {
             const auto point = [&](int32_t dx, int32_t dy) {
-                const float height = height_at(map, x + dx, y + dy);
+                const float ground_height = height_at(map, x + dx, y + dy);
+                const float height =
+                    water_receiver ? std::max(ground_height, float(in.sea_level)) : ground_height;
                 return GroundPoint{
                     static_cast<float>(x + dx),
                     y + dy - (anchor ? anchor_lift : height * height_lift),
@@ -741,8 +755,8 @@ void decal(
                         p.x,
                         h,
                         p.y + (anchor ? anchor_lift : p.height * height_lift),
-                        (rect.x + p.x - left) / scene.texture_width,
-                        (rect.y + p.y - top) / scene.texture_height,
+                        (rect.x + (p.x - left) / footprint_scale) / scene.texture_width,
+                        (rect.y + (p.y - top) / footprint_scale) / scene.texture_height,
                         shadow ? 1.0F
                                : brightness_at(
                                      in.sight,
@@ -751,6 +765,8 @@ void decal(
                                  ),
                         opacity
                     };
+                    if (soft_edges)
+                        corners[corner].terrain_size = -1;
                 }
                 polygon(scene, std::span(corners).first(clipped.count));
             }
@@ -820,10 +836,69 @@ void unit_shadows(const Inputs& in, Scene& scene) {
             coverage[pixel] = pixels[pixel] != image.key &&
                               (building || depth == nullptr || (!digger && lift == 0) ||
                                depth[pixel] > static_cast<uint8_t>(threshold));
-        const auto rect = material(
-            scene, *in.palette, image.width, image.height, pixels, coverage, -1, Fog::black
+        const float receiver = std::max(
+            height_at(*in.map, position.x / 65536, position.z / 65536), float(in.sea_level)
         );
-        decal(in, scene, rect, shadow_x, shadow_y, opacity, true);
+        const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
+        const bool aircraft = (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
+        if (aircraft && image.width <= 256 && image.height <= 256) {
+            const auto style = renderer_aircraft_shadow::style(altitude);
+            uint64_t key = hash_start;
+            const auto hash = [&](uint64_t value) { key = (key ^ value) * hash_multiplier; };
+            hash(image.width);
+            hash(image.height);
+            hash(style.radius);
+            for (const auto value : coverage)
+                hash(value);
+            auto cached = scene.aircraft_shadow_materials.find(key);
+            if (cached == scene.aircraft_shadow_materials.end()) {
+                auto alpha = renderer_aircraft_shadow::soften(
+                    coverage, image.width, image.height, style.radius
+                );
+                const uint32_t width = image.width + style.radius * 4;
+                const uint32_t height = image.height + style.radius * 4;
+                std::vector<uint8_t> black(alpha.size());
+                const auto rectangle = material(
+                    scene,
+                    *in.palette,
+                    width,
+                    height,
+                    black,
+                    alpha,
+                    -1,
+                    Fog::black,
+                    false,
+                    FlashStrength::full,
+                    true
+                );
+                if (scene.aircraft_shadow_materials.size() >= 256)
+                    scene.aircraft_shadow_materials.clear();
+                cached = scene.aircraft_shadow_materials.emplace(key, rectangle).first;
+            }
+            const float padding = style.radius * 2;
+            const float left = position.x / fixed_scale + model::shadow_offset_x -
+                               (image.origin_x + padding) * style.spread;
+            const float top = position.z / fixed_scale - receiver * height_lift -
+                              (image.origin_y + padding) * style.spread;
+            decal(
+                in,
+                scene,
+                cached->second,
+                left,
+                top,
+                opacity * style.opacity,
+                true,
+                nullptr,
+                style.spread,
+                true,
+                style.radius > 0
+            );
+        } else {
+            const auto rect = material(
+                scene, *in.palette, image.width, image.height, pixels, coverage, -1, Fog::black
+            );
+            decal(in, scene, rect, shadow_x, shadow_y, opacity, true);
+        }
         ++scene.shadow_count;
     }
 }
@@ -1211,6 +1286,7 @@ void nanoframe(
             result.u = (rect.x + 0.5F) / scene.texture_width;
             result.v = (rect.y + 0.5F) / scene.texture_height;
             result.opacity = std::min(1.0F, remaining * 4);
+            result.red = result.green = result.blue = 1;
             return result;
         };
         const std::array ribbon{point(a, -1), point(b, -1), point(b, 1), point(a, 1)};
@@ -1218,10 +1294,180 @@ void nanoframe(
     }
 }
 
+/// Interpolates a water cutout edge while retaining its atlas material.
+Vertex water_edge(const Vertex& a, const Vertex& b, float t) {
+    auto out = a;
+    out.x = std::lerp(a.x, b.x, t);
+    out.height = std::lerp(a.height, b.height, t);
+    out.z = std::lerp(a.z, b.z, t);
+    out.u = std::lerp(a.u, b.u, t);
+    out.v = std::lerp(a.v, b.v, t);
+    out.brightness = std::lerp(a.brightness, b.brightness, t);
+    out.red = std::lerp(a.red, b.red, t);
+    out.green = std::lerp(a.green, b.green, t);
+    out.blue = std::lerp(a.blue, b.blue, t);
+    out.opacity = std::lerp(a.opacity, b.opacity, t);
+    out.terrain_x = std::lerp(a.terrain_x, b.terrain_x, t);
+    out.terrain_y = std::lerp(a.terrain_y, b.terrain_y, t);
+    return out;
+}
+
+/// Clips a triangle to positive water depth, including the shoreline intersection.
+void wet_polygon(Scene& scene, const std::array<Vertex, 3>& triangle) {
+    std::array<Vertex, 6> clipped{};
+    std::size_t count{};
+    auto previous = triangle.back();
+    for (const auto& current : triangle) {
+        const bool inside = current.terrain_x > 0;
+        if (inside != (previous.terrain_x > 0)) {
+            const float t = previous.terrain_x / (previous.terrain_x - current.terrain_x);
+            clipped[count] = water_edge(previous, current, t);
+            clipped[count++].terrain_x = 0;
+        }
+        if (inside)
+            clipped[count++] = current;
+        previous = current;
+    }
+    polygon(scene, {clipped.data(), count});
+}
+
+/// Samples the height grid continuously so reflected triangles cannot bridge a beach.
+float water_depth(const Inputs& in, float x, float z) {
+    if (x < 0 || z < 0 || x >= in.map->attribute_width * cell_edge ||
+        z >= in.map->attribute_height * cell_edge)
+        return 0;
+    const float left = std::floor(x / cell_edge) * cell_edge;
+    const float top = std::floor(z / cell_edge) * cell_edge;
+    const float tx = (x - left) / cell_edge;
+    const float tz = (z - top) / cell_edge;
+    const auto sample = [&](int dx, int dz) {
+        return height_at(*in.map, static_cast<int32_t>(left) + dx, static_cast<int32_t>(top) + dz);
+    };
+    return in.sea_level - std::lerp(
+                              std::lerp(sample(0, 0), sample(cell_edge, 0), tx),
+                              std::lerp(sample(0, cell_edge), sample(cell_edge, cell_edge), tx),
+                              tz
+                          );
+}
+
+/// Subdivides only large reflected faces before clipping against shallow coast relief.
+void reflection_triangle(
+    const Inputs& in,
+    Scene& scene,
+    std::array<Vertex, 3> triangle,
+    uint32_t depth,
+    std::size_t& remaining
+) {
+    if (remaining < 6)
+        return;
+    float longest{};
+    std::size_t edge{};
+    for (std::size_t i = 0; i < 3; ++i) {
+        const auto& a = triangle[i];
+        const auto& b = triangle[(i + 1) % 3];
+        const float length = std::hypot(a.x - b.x, a.z - b.z);
+        if (length > longest) {
+            longest = length;
+            edge = i;
+        }
+    }
+    if (longest > cell_edge && depth < 5) {
+        const auto middle = water_edge(triangle[edge], triangle[(edge + 1) % 3], 0.5F);
+        auto first = triangle;
+        auto second = triangle;
+        first[edge] = middle;
+        second[(edge + 1) % 3] = middle;
+        reflection_triangle(in, scene, first, depth + 1, remaining);
+        reflection_triangle(in, scene, second, depth + 1, remaining);
+        return;
+    }
+    for (auto& vertex : triangle) {
+        vertex.terrain_x = water_depth(in, vertex.x, vertex.z);
+        vertex.brightness *=
+            brightness_at(in.sight, vertex.x, vertex.z - in.sea_level * height_lift);
+    }
+    const auto begin = scene.vertices.size();
+    wet_polygon(scene, triangle);
+    remaining -= scene.vertices.size() - begin;
+}
+
+/// Mirrors visible floating hulls onto water without a second scene render pass.
+void naval_reflection(
+    const Inputs& in, Scene& scene, std::span<const Vertex> source, std::size_t& budget
+) {
+    const float elevation = std::abs(in.view_direction[1]);
+    const float horizon = std::clamp((elevation - 0.01F) / 0.14F, 0.0F, 1.0F);
+    const float angle_fade = horizon * horizon * (3 - 2 * horizon);
+    if (in.water.reflections <= 0 || in.water.detail <= 0 || angle_fade <= 0)
+        return;
+    const float dx = in.view_direction[0] / in.view_direction[1];
+    const float dz = in.view_direction[2] / in.view_direction[1];
+    for (std::size_t index = 0; index + 2 < source.size() && budget >= 6; index += 3) {
+        const auto triangle = source.subspan(index, 3);
+        std::array<Vertex, 6> clipped{};
+        std::size_t count{};
+        auto previous = triangle.back();
+        for (const auto& current : triangle) {
+            const bool inside = current.height >= in.sea_level;
+            if (inside != (previous.height >= in.sea_level)) {
+                const float t =
+                    (in.sea_level - previous.height) / (current.height - previous.height);
+                clipped[count++] = water_edge(previous, current, t);
+            }
+            if (inside)
+                clipped[count++] = current;
+            previous = current;
+        }
+        for (std::size_t corner = 0; corner < count; ++corner) {
+            auto& vertex = clipped[corner];
+            const float altitude = std::max(0.0F, vertex.height - in.sea_level);
+            // Intersect the ray from the mirrored point with the water plane.
+            // One world-space altitude shift gives the full doubled screen displacement.
+            const float travel = std::hypot(dx, dz) * altitude;
+            const float travel_fade = std::clamp((384.0F - travel) / 128.0F, 0.0F, 1.0F);
+            const float bounded_altitude = travel > 384 ? altitude * 384 / travel : altitude;
+            vertex.x += dx * bounded_altitude;
+            vertex.z += dz * bounded_altitude;
+            vertex.x += std::sin(vertex.z * 0.12F + in.water.seconds * 1.3F) * 0.65F;
+            vertex.height = in.sea_level + 0.12F;
+            vertex.opacity *=
+                std::min(
+                    renderer_water_appearance::reflection_cap,
+                    renderer_water_appearance::reflection_opacity * in.water.reflections
+                ) *
+                in.water.detail * angle_fade * travel_fade *
+                std::clamp(1 - altitude / 100, 0.0F, 1.0F);
+            vertex.brightness *= renderer_water_appearance::reflection_brightness;
+            vertex.emission_r = vertex.emission_g = vertex.emission_b = 0;
+            vertex.terrain_size = -3;
+            vertex.terrain_x = vertex.terrain_y = 0;
+        }
+        for (std::size_t corner = 1; corner + 1 < count; ++corner)
+            reflection_triangle(
+                in, scene, {clipped[0], clipped[corner], clipped[corner + 1]}, 0, budget
+            );
+    }
+}
+
 /// Uses the actual animated, rotated model vertices prepared for this frame.
 void models(const Inputs& in, Scene& scene) {
+    std::size_t reflection_budget = 24576;
     std::array<std::optional<AtlasRect>, 256> colors;
     std::unordered_map<const Sprite*, AtlasRect> textures;
+    std::unordered_map<const Sprite*, AtlasRect> bright_textures;
+    PaletteBytes bright_palette = *in.palette;
+    for (auto& channel : bright_palette)
+        channel = static_cast<uint8_t>(std::min(255, 2 * int(channel)));
+    PaletteBytes white_palette{};
+    white_palette[0] = white_palette[1] = white_palette[2] = 255;
+    std::optional<AtlasRect> white_material;
+    std::vector<present::gpu_world::VertexNormal> normals;
+    const bool shade_ready =
+        in.shade_table.size() >= 32 * 256 && std::isfinite(in.light_scale) && in.light_scale > 0 &&
+        std::all_of(
+            in.light.begin(), in.light.end(), [](float value) { return std::isfinite(value); }
+        ) &&
+        std::any_of(in.light.begin(), in.light.end(), [](float value) { return value != 0; });
     std::optional<AtlasRect> frame_material;
     const auto& projection = in.clip_projection;
     const bool screen_bounds = in.clip_width > 0 && in.clip_height > 0 &&
@@ -1247,6 +1493,12 @@ void models(const Inputs& in, Scene& scene) {
             fog_at(in.sight, static_cast<int32_t>(x), static_cast<int32_t>(z - h * height_lift));
         if (fog == Fog::black)
             continue;
+        const bool reflects =
+            !draw.on_map && reference.def &&
+            (reference.def->flags & OA_UNIT_DEF_FLAG_FLOATER) != 0 &&
+            (reference.def->flags & (OA_UNIT_DEF_FLAG_CAN_FLY | OA_UNIT_DEF_FLAG_CAN_HOVER)) == 0 &&
+            water_depth(in, x, z) > 1 && unit->build_remaining == 0 && in.water.reflections > 0 &&
+            in.water.detail > 0 && reflection_budget >= 6;
         // Bound the actual animated geometry in the same screen space as the GPU.
         // Without a projection the painted crop only guarantees heights 0..255.
         float min_x = std::numeric_limits<float>::infinity();
@@ -1285,6 +1537,22 @@ void models(const Inputs& in, Scene& scene) {
                 max_x = std::max(max_x, bound_x);
                 min_y = std::min(min_y, bound_y);
                 max_y = std::max(max_y, bound_y);
+                // A hull outside the viewport can still cast an on-screen reflection.
+                if (reflects && height >= in.sea_level) {
+                    const float mirrored_height = 2 * in.sea_level - height;
+                    const float reflected_x =
+                        screen_bounds ? projection[0] * world_x + projection[1] * mirrored_height +
+                                            projection[2] * world_z + projection[3]
+                                      : world_x;
+                    const float reflected_y =
+                        screen_bounds ? projection[4] * world_x + projection[5] * mirrored_height +
+                                            projection[6] * world_z + projection[7]
+                                      : world_z - mirrored_height * height_lift;
+                    min_x = std::min(min_x, reflected_x);
+                    max_x = std::max(max_x, reflected_x);
+                    min_y = std::min(min_y, reflected_y);
+                    max_y = std::max(max_y, reflected_y);
+                }
             }
             if (!bounded)
                 break;
@@ -1306,6 +1574,10 @@ void models(const Inputs& in, Scene& scene) {
                         max_y + margin_y < top || min_y - margin_y > bottom))
             continue;
         const float brightness = brightness_at(in.sight, x, z - h * height_lift);
+        const std::array reflected_view{
+            in.view_direction[0], -in.view_direction[1], in.view_direction[2]
+        };
+        std::vector<Vertex> reflected_faces;
         std::size_t piece_index = 0;
         for (const auto& piece : reference.instance->pieces()) {
             const auto& points = piece_index < draw.shown_vertices.size()
@@ -1316,6 +1588,19 @@ void models(const Inputs& in, Scene& scene) {
                 continue;
             const auto& object = reference.instance->model().objects.at(piece.object_index);
             const auto& prepared = reference.prepared->objects.at(piece.object_index);
+            const bool image =
+                draw.plan.model.from_image && reference.state && reference.state->image.sprite.data;
+            const bool rows =
+                shade_ready && image && (unit->flags & OA_UNIT_FLAG_BUILDING) != 0 &&
+                (in.graphics_flags & model::graphics_shading) != 0 &&
+                (unit->build_remaining > 0 ||
+                 (piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::cached)) != 0);
+            const bool lit =
+                rows &&
+                (piece.flags & static_cast<uint16_t>(sim::model_runtime::PieceFlag::shaded)) != 0;
+            if (lit)
+                present::gpu_world::vertex_normals(object, prepared, points, normals);
+
             for (const auto& primitive : prepared.primitives) {
                 if (static_cast<int32_t>(primitive.source_index) == object.selection_primitive)
                     continue;
@@ -1323,8 +1608,29 @@ void models(const Inputs& in, Scene& scene) {
                 if (source.vertex_indices.size() < 3)
                     continue;
                 const bool colored = (primitive.flags & model::primitive_colored) != 0;
+                std::vector<int32_t> shade_rows(source.vertex_indices.size(), model::unlit_shade);
+                if (lit)
+                    for (std::size_t i = 0; i < source.vertex_indices.size(); ++i) {
+                        const auto vertex = source.vertex_indices[i];
+                        if (vertex < normals.size()) {
+                            const auto& normal = normals[vertex];
+                            shade_rows[i] = present::gpu_world::shade_row(
+                                normal.x, normal.y, normal.z, in.light.data(), in.light_scale
+                            );
+                        }
+                    }
+                const bool bright = !colored && rows &&
+                                    *std::max_element(shade_rows.begin(), shade_rows.end()) >= 16;
+                const bool shaded_color = colored && rows && in.shade_table.size() >= 32 * 256;
                 AtlasRect rect{};
-                if (colored) {
+                if (shaded_color) {
+                    if (!white_material) {
+                        const std::array<uint8_t, 1> pixel{0};
+                        white_material =
+                            material(scene, white_palette, 1, 1, pixel, {}, -1, Fog::seen);
+                    }
+                    rect = *white_material;
+                } else if (colored) {
                     auto& cached = colors[primitive.color];
                     if (!cached) {
                         const std::array pixel{primitive.color};
@@ -1342,15 +1648,16 @@ void models(const Inputs& in, Scene& scene) {
                         continue;
                     // primitive_texture already selects animation and team colour.
                     // Its frame pointer is stable only for this build's read-only pass.
-                    auto found = textures.find(frame);
-                    if (found == textures.end())
+                    auto& texture_cache = bright ? bright_textures : textures;
+                    auto found = texture_cache.find(frame);
+                    if (found == texture_cache.end())
                         found =
-                            textures
+                            texture_cache
                                 .emplace(
                                     frame,
                                     material(
                                         scene,
-                                        *in.palette,
+                                        bright ? bright_palette : *in.palette,
                                         frame->width,
                                         frame->height,
                                         {static_cast<const uint8_t*>(frame->data),
@@ -1379,9 +1686,32 @@ void models(const Inputs& in, Scene& scene) {
                              scene.texture_height,
                          brightness}
                     );
+                    auto& corner = corners.back();
+                    if (shaded_color) {
+                        const auto palette_index =
+                            in.shade_table[shade_rows[index] * 256 + primitive.color];
+                        corner.red = (*in.palette)[palette_index * palette_entry_bytes] / 255.0F;
+                        corner.green =
+                            (*in.palette)[palette_index * palette_entry_bytes + 1] / 255.0F;
+                        corner.blue =
+                            (*in.palette)[palette_index * palette_entry_bytes + 2] / 255.0F;
+                    } else if (!colored && rows) {
+                        corner.brightness *= std::clamp(
+                            shade_rows[index] * 0.06875F * (bright ? 0.5F : 1.0F), 0.0F, 1.0F
+                        );
+                    }
                 }
                 const float remaining = std::clamp(unit->build_remaining, 0.0F, 1.0F);
                 const float detail = 1 - remaining;
+                if (reflects && !back_facing(corners, reflected_view)) {
+                    for (std::size_t corner = 1; corner + 1 < corners.size() &&
+                                                 reflected_faces.size() + 3 <= reflection_budget;
+                         ++corner)
+                        reflected_faces.insert(
+                            reflected_faces.end(),
+                            {corners[0], corners[corner], corners[corner + 1]}
+                        );
+                }
                 if (remaining == 0 && back_facing(corners, in.view_direction))
                     continue;
                 for (auto& vertex : corners) {
@@ -1432,6 +1762,108 @@ void models(const Inputs& in, Scene& scene) {
             scene.unit_ranges.push_back(
                 {unit->id, first_vertex, scene.vertices.size() - first_vertex}
             );
+        if (!reflected_faces.empty())
+            naval_reflection(in, scene, reflected_faces, reflection_budget);
+    }
+}
+
+/// Draws canonical 3DO shots and their child pieces at their presented simulation depth.
+void projectiles(const Inputs& in, Scene& scene) {
+    std::array<std::optional<AtlasRect>, 256> colors;
+    std::unordered_map<const Sprite*, AtlasRect> textures;
+    for (const auto& shot : in.draws->projectiles) {
+        const float x = in.camera_x + shot.position.x / fixed_scale;
+        const float height = shot.position.y / fixed_scale;
+        const float z = in.camera_y + shot.position.z / fixed_scale;
+        if (fog_at(
+                in.sight, static_cast<int32_t>(x), static_cast<int32_t>(z - height * height_lift)
+            ) != Fog::seen)
+            continue;
+        const auto object = [&](const formats::objects3d::Object* source,
+                                const model::PreparedObject* prepared,
+                                sim::model_runtime::RotationWords rotation) {
+            if (!source || !prepared)
+                return;
+            std::vector<formats::objects3d::FixedVector3> points;
+            points.reserve(source->vertices.size());
+            for (const auto& point : source->vertices)
+                points.push_back(
+                    sim::model_runtime::rotate_vector(
+                        {std::bit_cast<int32_t>(0U - static_cast<uint32_t>(point.x)),
+                         point.y,
+                         std::bit_cast<int32_t>(0U - static_cast<uint32_t>(point.z))},
+                        rotation
+                    )
+                );
+            for (const auto& primitive : prepared->primitives) {
+                if (primitive.source_index >= source->primitives.size() ||
+                    static_cast<int32_t>(primitive.source_index) == source->selection_primitive)
+                    continue;
+                const auto& face = source->primitives[primitive.source_index];
+                const bool colored = (primitive.flags & model::primitive_colored) != 0;
+                if (face.vertex_indices.size() < 3 ||
+                    (!colored && face.vertex_indices.size() != 4) ||
+                    std::any_of(
+                        face.vertex_indices.begin(),
+                        face.vertex_indices.end(),
+                        [&](uint16_t index) { return index >= points.size(); }
+                    ))
+                    continue;
+                AtlasRect rect{};
+                if (colored) {
+                    auto& cached = colors[primitive.color];
+                    if (!cached) {
+                        const std::array pixel{primitive.color};
+                        cached = material(scene, *in.palette, 1, 1, pixel, {}, -1, Fog::seen);
+                    }
+                    rect = *cached;
+                } else {
+                    const auto* frame = model::primitive_texture(primitive, false, 0);
+                    if (!frame || !frame->data || frame->encoding != OA_SPRITE_RAW)
+                        continue;
+                    auto found = textures.find(frame);
+                    if (found == textures.end())
+                        found =
+                            textures
+                                .emplace(
+                                    frame,
+                                    material(
+                                        scene,
+                                        *in.palette,
+                                        frame->width,
+                                        frame->height,
+                                        {static_cast<const uint8_t*>(frame->data),
+                                         static_cast<std::size_t>(frame->width) * frame->height},
+                                        {},
+                                        -1,
+                                        Fog::seen
+                                    )
+                                )
+                                .first;
+                    rect = found->second;
+                }
+                constexpr std::array<float, 4> u{0, 1, 1, 0}, v{0, 0, 1, 1};
+                std::vector<Vertex> corners;
+                corners.reserve(face.vertex_indices.size());
+                for (std::size_t index = 0; index < face.vertex_indices.size(); ++index) {
+                    const auto& point = points[face.vertex_indices[index]];
+                    corners.push_back(
+                        {x + point.x / fixed_scale,
+                         height + point.y / fixed_scale,
+                         z - point.z / fixed_scale,
+                         (rect.x + 0.5F + (colored ? 0 : u[index] * (rect.width - 1))) /
+                             scene.texture_width,
+                         (rect.y + 0.5F + (colored ? 0 : v[index] * (rect.height - 1))) /
+                             scene.texture_height,
+                         brightness_at(in.sight, x, z - height * height_lift)}
+                    );
+                }
+                // Small weapon faces are two-sided in the classic projectile pass.
+                polygon(scene, corners);
+            }
+        };
+        object(shot.object, shot.prepared, shot.rotation);
+        object(shot.child, shot.child_prepared, shot.child_rotation);
     }
 }
 
@@ -1639,14 +2071,16 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
     for (std::size_t index = 0; index < in.draws->sprites.size(); ++index) {
         const auto& sprite = in.draws->sprites[index];
         const bool light_mask = light_masks[index];
-        if (sprite.frame == nullptr ||
-            (sprite.terrain_decal || sprite.shadow || light_mask) != ground_pass)
+        const bool submerged_effect = sprite.world_position && !sprite.on_map &&
+                                      sprite.world_position->y / fixed_scale < in.sea_level;
+        if (sprite.frame == nullptr || (sprite.terrain_decal || sprite.shadow ||
+                                        (light_mask && !submerged_effect)) != ground_pass)
             continue;
         const auto& frame = *sprite.frame;
         const int32_t x = in.camera_x + sprite.place.x;
         const int32_t y = in.camera_y + sprite.place.y;
         const auto fog = fog_at(in.sight, x, y);
-        if (fog == Fog::black && !ground_pass)
+        if ((fog == Fog::black || (light_mask && fog != Fog::seen)) && !ground_pass)
             continue;
         if (ground_pass) {
             if (sprite.shadow && in.draws->shadow_level == 0)
@@ -1750,7 +2184,7 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
             -direction[1] * right[0] / length / vertical_scale
         };
         const float surface_lift =
-            sprite.surface_effect && sprite.world_position
+            sprite.surface_effect && sprite.world_position && !submerged_effect
                 ? surface_effect_lift(scene, frame, origin_x, origin_h, origin_z, right, up)
                 : 0;
         const auto vertex = [&](float dx, float dy) {
@@ -1766,12 +2200,16 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
                 brightness_at(in.sight, static_cast<float>(x), static_cast<float>(y)),
                 sprite.effect_opacity
             };
-            if (sprite.soft_effect) {
+            if (sprite.soft_effect || submerged_effect) {
                 result.u =
                     (rect.x + std::clamp(dx, 0.5F, float(rect.width) - 0.5F)) / scene.texture_width;
                 result.v = (rect.y + std::clamp(dy, 0.5F, float(rect.height) - 0.5F)) /
                            scene.texture_height;
                 result.terrain_size = -1;
+            }
+            if (submerged_effect) {
+                result.terrain_size = -5;
+                result.terrain_x = in.sea_level - origin_h;
             }
             return result;
         };
@@ -1783,6 +2221,120 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
         };
         polygon(scene, corners);
         ++scene.sprite_count;
+    }
+}
+
+/// Draws expanding rings and brief droplets from already visibility-gated weapon events.
+void water_disturbances(const Inputs& in, Scene& scene) {
+    if (in.water.detail <= 0 || in.water.ripples <= 0)
+        return;
+    constexpr uint32_t lifetime = renderer_water::lifetime_ticks;
+    constexpr uint32_t segments = 24;
+    constexpr float circle = 6.283185307F;
+    std::size_t emitted{};
+    const float intensity = std::clamp(in.water.ripples, 0.0F, 2.0F) * in.water.detail;
+    for (auto event = in.water_disturbances.rbegin();
+         event != in.water_disturbances.rend() && emitted < 32;
+         ++event) {
+        const auto age = in.tick - event->birth;
+        if (age >= lifetime || water_depth(in, event->x, event->z) <= 0 ||
+            fog_at(
+                in.sight,
+                static_cast<int32_t>(event->x),
+                static_cast<int32_t>(event->z - in.sea_level * height_lift)
+            ) != Fog::seen)
+            continue;
+        ++emitted;
+        const float strength = std::clamp(event->strength, 0.2F, 2.0F);
+        const float remaining = 1 - static_cast<float>(age) / lifetime;
+        const float opacity = std::min(0.7F, 0.32F * strength * intensity * remaining * remaining);
+        const float radius = 2 + age * (0.45F + strength * 0.15F);
+        const float width = 1.1F + strength * 0.55F;
+        const auto point = [&](float x, float z, float height, float alpha) {
+            Vertex vertex{};
+            vertex.x = x;
+            vertex.z = z;
+            vertex.height = height;
+            vertex.opacity = alpha;
+            vertex.brightness = brightness_at(in.sight, x, z - in.sea_level * height_lift);
+            vertex.terrain_size = -4;
+            vertex.terrain_x = water_depth(in, x, z);
+            return vertex;
+        };
+        const auto ring_point = [&](float angle, float distance, float alpha) {
+            return point(
+                event->x + std::cos(angle) * distance,
+                event->z + std::sin(angle) * distance,
+                in.sea_level + 0.2F,
+                alpha
+            );
+        };
+        for (uint32_t segment = 0; segment < segments; ++segment) {
+            const float a = circle * segment / segments;
+            const float b = circle * (segment + 1) / segments;
+            for (const float side : {-1.0F, 1.0F}) {
+                const auto inner_a = ring_point(a, radius, opacity);
+                const auto inner_b = ring_point(b, radius, opacity);
+                const auto outer_a = ring_point(a, std::max(0.0F, radius + side * width), 0);
+                const auto outer_b = ring_point(b, std::max(0.0F, radius + side * width), 0);
+                wet_polygon(scene, {inner_a, inner_b, outer_a});
+                wet_polygon(scene, {outer_a, inner_b, outer_b});
+            }
+        }
+        if (age >= 16 || event->kind == renderer_water::Kind::firing)
+            continue;
+        const float time = age / 16.0F;
+        const float right_length = std::hypot(in.clip_projection[0], in.clip_projection[2]);
+        const float right_x = right_length > 0.001F ? in.clip_projection[0] / right_length : 1;
+        const float right_z = right_length > 0.001F ? in.clip_projection[2] / right_length : 0;
+        const float height = std::sin(time * 3.141592654F) * (8 + strength * 8);
+        for (uint32_t drop = 0; drop < 6; ++drop) {
+            const float angle = circle * drop / 6;
+            const float x = event->x + std::cos(angle) * (1 + time * 7 * strength);
+            const float z = event->z + std::sin(angle) * (1 + time * 7 * strength);
+            const float half_width = 0.45F + strength * 0.2F;
+            const float bottom = in.sea_level + std::max(0.3F, height - 3);
+            const float top = in.sea_level + height + 0.5F;
+            const float alpha = opacity * (1 - time);
+            const auto a =
+                point(x - half_width * right_x, z - half_width * right_z, bottom, alpha * 0.5F);
+            const auto b =
+                point(x + half_width * right_x, z + half_width * right_z, bottom, alpha * 0.5F);
+            const auto c = point(x, z, top, alpha);
+            wet_polygon(scene, {a, b, c});
+        }
+    }
+}
+
+/// Adds a transparent water sheet only over the already visible wet ground triangles.
+void water_surface(const Inputs& in, Scene& scene) {
+    if (in.water.detail <= 0 || (in.water.ripples <= 0 && in.water.coastal_waves <= 0))
+        return;
+    constexpr std::size_t vertex_budget = 196608;
+    const auto begin = scene.vertices.size();
+    for (std::size_t index = 0; index + 2 < scene.terrain_vertex_count &&
+                                scene.vertices.size() - begin + 6 <= vertex_budget;
+         index += 3) {
+        std::array<Vertex, 3> triangle{
+            scene.vertices[index], scene.vertices[index + 1], scene.vertices[index + 2]
+        };
+        if (std::all_of(
+                triangle.begin(),
+                triangle.end(),
+                [&](const Vertex& vertex) { return vertex.height >= in.sea_level; }
+            ) ||
+            std::all_of(triangle.begin(), triangle.end(), [](const Vertex& vertex) {
+                return vertex.brightness == 0;
+            }))
+            continue;
+        for (auto& vertex : triangle) {
+            vertex.terrain_x = in.sea_level - vertex.height;
+            vertex.terrain_y = in.water_surface ? in.water_surface->fetch(vertex.x, vertex.z) : 1;
+            vertex.terrain_size = -2;
+            vertex.height = in.sea_level + 0.05F;
+            vertex.emission_r = vertex.emission_g = vertex.emission_b = 0;
+        }
+        wet_polygon(scene, triangle);
     }
 }
 } // namespace
@@ -1827,9 +2379,12 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 unit_shadows(inputs, scene);
                 foundations(inputs, scene);
                 models(inputs, scene);
+                projectiles(inputs, scene);
                 sprites(inputs, scene, false);
                 if (!inputs.draws->spatial_particles.empty())
                     particles(inputs, scene);
+                water_surface(inputs, scene);
+                water_disturbances(inputs, scene);
                 break;
             } catch (const AtlasFull&) {
                 if (attempt != 0)
@@ -1843,6 +2398,7 @@ bool build(const Inputs& inputs, Scene& scene, std::string& error) {
                 scene.atlas_update.end_row = scene.texture_height;
                 scene.materials.clear();
                 scene.terrain_materials.clear();
+                scene.aircraft_shadow_materials.clear();
                 scene.next_x = 0;
                 scene.next_y = 0;
                 scene.row_height = 0;
