@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+oabrain: 1
+id: learned-scout
+name: "Learned Scout"
+version: "1.0"
+author:
+  name: "Open Annihilation"
+description: "Sends idle units that can move to a sector of the map. Learned follows a small network. Rule follows the written rule and records each choice."
+tags: ["learned", "teaching", "experimental"]
+works-with: ["ta-3.1c"]
+levels:
+  - id: learned
+    name: "Learned"
+    difficulty: easy
+  - id: rule
+    name: "Rule"
+    difficulty: easy
+networks:
+  - id: scout
+    file: "nets/scout.oann"
+    sha256: "49c1902a2ced00d0a010ed3e6def535bb087d74a6ab9d7cf7bd8ce753175a85f"
