@@ -529,6 +529,11 @@ const std::vector<ValueCase>& value_cases() {
         {"--brain-map",
          "Ashap Plateau",
          {"--headless-check", "--match-ticks", "60", "--brain-match", "builtin,builtin"}},
+        {"--brain-record", "records.txt", {"--headless-check", "--match-ticks", "60"}},
+        {"--brain-shadow", "steady-commander", {}},
+        {"--brain-shadow-log", "shadow-logs", {"--brain-shadow", "steady-commander"}},
+        {"--brain-shadow-sections", "build,attack", {"--brain-shadow", "steady-commander"}},
+        {"--brain-trace", "log.txt", {"--headless-check", "--match-ticks", "60"}},
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
         {"--check-unit-language", "fr", {}},
@@ -1329,6 +1334,44 @@ int main() {
         rejection({"--brain-map", "Ashap Plateau"}) == "--brain-map needs --brain-match",
         "--brain-map needs --brain-match"
     );
+    expect(
+        rejection({"--brain-shadow-sections", "build,attack"}) ==
+            "--brain-shadow-sections needs --brain-shadow",
+        "--brain-shadow-sections needs --brain-shadow"
+    );
+    expect(
+        rejection({"--brain-shadow-log", "shadow-logs"}) ==
+            "--brain-shadow-log needs --brain-shadow",
+        "--brain-shadow-log needs --brain-shadow"
+    );
+    expect(
+        rejection({"--brain-shadow", ""}) == "--brain-shadow requires a value",
+        "an empty shadow brain is refused"
+    );
+    expect(
+        rejection({"--brain-shadow-sections", ""}) == "--brain-shadow-sections requires a value",
+        "an empty shadow section list is refused"
+    );
+    expect(
+        rejection({"--brain-shadow-log", ""}) == "--brain-shadow-log requires a value",
+        "an empty shadow log folder is refused"
+    );
+    {
+        const auto shadow = parse(
+            {"--brain-shadow",
+             "steady-commander",
+             "--brain-shadow-sections",
+             "build,attack",
+             "--brain-shadow-log",
+             "shadow-logs"}
+        );
+        expect(
+            shadow.brain_shadow == "steady-commander" &&
+                shadow.brain_shadow_sections == "build,attack" &&
+                shadow.brain_shadow_log == "shadow-logs",
+            "a shadow run stores its three options"
+        );
+    }
     expect(
         rejection({"--brain-trace", "log.txt"}) == "--brain-trace needs --headless-check",
         "--brain-trace needs --headless-check"

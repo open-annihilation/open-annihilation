@@ -55,7 +55,8 @@ levels:
     difficulty: hard
 """
 
-# The record sits inside the 150-tick move, on every 300th tick.
+# The record sits inside the 150-tick move, on every 300th tick of the
+# match. Tick 0 is the load pass, before those ticks, so it is not recorded.
 SCRIPT = """local spent = 0
 for i = 1, 4000 do
   spent = spent + i
@@ -67,7 +68,7 @@ function hooks.onTick(tick)
   if tick % 150 == 0 then
     local dx = brain.random(1201) - 601
     local dz = brain.random(1201) - 601
-    if tick % 300 == 0 then
+    if tick > 0 and tick % 300 == 0 then
       local grid = brain.grid({"own", "explored"}, 8)
       brain.record{features = {sectors = grid}, decision = dx}
     end
@@ -181,13 +182,22 @@ def match_command(package, extra):
     ]
 
 
+def digest_of(lines):
+    """The match report's digest, or None when that line is absent."""
+    for line in lines:
+        found = DIGEST.match(line)
+        if found:
+            return found.group(1)
+    return None
+
+
 def steady_report(lines, output):
     """The played report: calm against hard."""
     require(lines, output, "the report is empty")
     require(HEADING.match(lines[0]) is not None, output, f"heading was {lines[0]!r}")
     require(STEADY.match(lines[1]) is not None, output, f"seat 1 was {lines[1]!r}")
     require(BUILTIN_HARD.match(lines[2]) is not None, output, f"seat 2 was {lines[2]!r}")
-    require(DIGEST.search("\n".join(lines)) is not None, output, "the digest is missing")
+    require(digest_of(lines) is not None, output, "the digest is missing")
 
 
 def tick_seats(text):

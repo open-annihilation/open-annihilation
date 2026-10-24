@@ -300,15 +300,43 @@ int push_chunk(void* context, lua_State* state) {
     return 0;
 }
 
+struct ProbeNote {
+    std::string text;
+    bool found{};
+};
+
+void read_probe_note(void* context, lua_State* state) {
+    auto* note = static_cast<ProbeNote*>(context);
+    lua_getglobal(state, "probe_note");
+    note->found = lua_type(state, -1) == LUA_TSTRING;
+    if (note->found) {
+        std::size_t length = 0;
+        const char* text = lua_tolstring(state, -1, &length);
+        note->text.assign(text != nullptr ? text : "", length);
+    }
+    lua_pop(state, 1);
+}
+
+// A raised error fails the sandbox, and a later call would repeat that
+// first message. The probe catches the error so the next check still runs.
 bool probe_fails(host::Sandbox& sandbox, const char* source, const char* sentence) {
-    Chunk chunk{source};
+    const std::string wrapped = std::string("local ok, err = pcall(function()\n") + source +
+                                "end)\nprobe_note = ok and 'succeeded' or tostring(err)\n";
+    Chunk chunk{wrapped.c_str()};
     host::CallHooks hooks;
     hooks.context = &chunk;
     hooks.push = push_chunk;
     host::ScriptError error;
-    if (sandbox.call("probe", hooks, error))
-        return false;
-    return error.message.find(sentence) != std::string::npos;
+    if (!sandbox.call("probe", hooks, error))
+        throw std::runtime_error(error.message.empty() ? "probe failed" : error.message);
+    ProbeNote note;
+    if (!sandbox.run_host("read", &note, read_probe_note, error))
+        throw std::runtime_error(error.message.empty() ? "probe note failed" : error.message);
+    if (!note.found)
+        throw std::runtime_error("probe left no note");
+    if (note.text.find(sentence) == std::string::npos)
+        throw std::runtime_error(std::string(source) + " raised " + note.text);
+    return true;
 }
 
 void record_refusals_and_the_same_charge() {
