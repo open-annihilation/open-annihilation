@@ -1085,6 +1085,13 @@ rec_knowledge(void* context, uint8_t player, uint32_t* refreshed_tick) {
     return recorded.live.knowledge(&recorded.live.host, player, refreshed_tick);
 }
 
+uint32_t rec_builds_held_until(void* context, uint8_t player) {
+    Recording& recorded = recording_from_host(context);
+    if (recorded.live.builds_held_until == nullptr)
+        return 0;
+    return recorded.live.builds_held_until(&recorded.live.host, player);
+}
+
 void arm_recording(Recording& recorded) noexcept {
     SeatCalls& calls = recorded.calls;
     calls.host.context = &recorded;
@@ -1128,6 +1135,8 @@ void arm_recording(Recording& recorded) noexcept {
     calls.weapon_reaches_slot = rec_weapon_slot;
     calls.refuse = rec_refuse;
     calls.knowledge = recorded.live.knowledge != nullptr ? rec_knowledge : nullptr;
+    calls.builds_held_until =
+        recorded.live.builds_held_until != nullptr ? rec_builds_held_until : nullptr;
 }
 
 uint32_t bit_of(const char* name) noexcept {

@@ -215,7 +215,10 @@ def check_classic(native, game_dir, workdir, brain, sections):
         "--match-ticks", CLASSIC_TICKS, "--seed", "4242", "--mod", ridge, *shadow,
     )
     require_start_same(ridge_run, "classic-ridge")
-    print("native brain shadow classic: schedule,start,sort on three skirmishes, no difference")
+    print(
+        "native brain shadow classic: schedule,start,sort,task1,task4,task5"
+        " on three skirmishes, no difference"
+    )
 
 
 def main():

@@ -527,19 +527,26 @@ static int method_wind(lua_State* lua) {
 static int method_height(lua_State* lua) {
     if (!map_self(lua, "height"))
         return 0;
+    // The cell count and the corner height share one key. Called with no
+    // cell, this is the height in cells. Called with a column and a row, it
+    // is that cell's corner height. With no cell, a seat whose host has a
+    // world reports that world's cell count and does not need a match.
+    if (lua_gettop(lua) == 1) {
+        Seat* seat = seat_of(lua);
+        if (seat == nullptr)
+            return 0;
+        if (seat->calls.host.world != nullptr) {
+            lua_pushinteger(lua, static_cast<lua_Integer>(seat->calls.host.map_cells_z));
+            return 1;
+        }
+        if (seat->match == nullptr)
+            return 0;
+        lua_pushinteger(lua, static_cast<lua_Integer>(seat->match->state().game.map_height));
+        return 1;
+    }
     Seat* seat = live_seat(lua);
     if (seat == nullptr)
         return 0;
-    // The cell count and the corner height share one key. Called with no
-    // cell, this is the height in cells. Called with a column and a row, it
-    // is that cell's corner height.
-    if (lua_gettop(lua) == 1) {
-        const int32_t cells = seat->calls.host.world != nullptr
-                                  ? seat->calls.host.map_cells_z
-                                  : seat->match->state().game.map_height;
-        lua_pushinteger(lua, static_cast<lua_Integer>(cells));
-        return 1;
-    }
     int32_t x = 0;
     int32_t z = 0;
     if (!read_cell(lua, 2, "height", &x) || !read_cell(lua, 3, "height", &z))
@@ -596,7 +603,7 @@ static int method_metal(lua_State* lua) {
     int32_t z = 0;
     if (!read_cell(lua, 2, "metal", &x) || !read_cell(lua, 3, "metal", &z))
         return 0;
-    Seat* seat = live_seat(lua);
+    Seat* seat = seat_of(lua);
     if (seat == nullptr)
         return 0;
     if (seat->calls.host.cell_metal != nullptr) {
@@ -609,6 +616,8 @@ static int method_metal(lua_State* lua) {
         lua_pushinteger(lua, static_cast<lua_Integer>(metal));
         return 1;
     }
+    if (seat->match == nullptr)
+        return 0;
     const sim::spatial_state::Plot* plot = plot_at(*seat->match, x, z);
     lua_pushinteger(lua, plot == nullptr ? lua_Integer{0} : static_cast<lua_Integer>(plot->metal));
     return 1;

@@ -12,6 +12,7 @@
 #include "oa/sim/brains/classic.hpp"
 
 #include "oa/core/unit.h"
+#include "oa/core/unit_def.h"
 #include "oa/core/world.h"
 #include "oa/data/mission_types.hpp"
 #include "oa/data/script_host/script_host.hpp"
@@ -144,6 +145,39 @@ bool type_on_build_list(match_runtime::Match& match, uint16_t builder, uint16_t 
     return false;
 }
 
+/// A builder's list on a seat that has no match, walked the way `collect_run_ids` walks it.
+bool type_on_host_list(const Seat& seat, uint16_t slot, uint16_t want) noexcept {
+    const oa::World* world = seat.calls.host.world;
+    const uint16_t* runs = seat.calls.build_runs;
+    if (world == nullptr || world->unit_defs == nullptr || runs == nullptr)
+        return false;
+    const oa::Unit* unit = oa::world_unit_at(world, slot);
+    if (unit == nullptr)
+        return false;
+    const uint16_t builder = unit->type_index;
+    if (builder == 0 || builder >= world->unit_def_count || want == 0 ||
+        want >= world->unit_def_count)
+        return false;
+    if ((world->unit_defs[builder].flags & OA_UNIT_DEF_FLAG_BUILDER) == 0)
+        return false;
+    const uint16_t* run = runs;
+    const uint16_t* const end = run + seat.calls.build_run_length;
+    for (uint32_t type_index = 0; type_index < world->unit_def_count && run < end; ++type_index) {
+        const uint32_t listed = *run++;
+        const auto present = static_cast<uint32_t>(end - run);
+        const uint32_t length = listed < present ? listed : present;
+        if (type_index == builder) {
+            for (uint32_t entry = 0; entry < length; ++entry) {
+                if (run[entry] == want)
+                    return true;
+            }
+            return false;
+        }
+        run += length;
+    }
+    return false;
+}
+
 /// Gives one order. The first failing check wins: dead, not owned, the turn's
 /// limit, the target, the type, then the match. A match refusal, a null, a
 /// false or an exception is `by_engine`. This does not charge.
@@ -161,9 +195,15 @@ bool give_order(Seat& seat, const Give& give) {
         return false;
     }
     if (give.check_type) {
-        const oa::Unit* unit = oa::world_unit_at(&seat.match->state(), give.actor.slot);
-        const uint16_t builder = unit != nullptr ? unit->type_index : static_cast<uint16_t>(0);
-        if (!type_on_build_list(*seat.match, builder, give.type)) {
+        bool listed = false;
+        if (seat.match != nullptr) {
+            const oa::Unit* unit = oa::world_unit_at(&seat.match->state(), give.actor.slot);
+            const uint16_t builder = unit != nullptr ? unit->type_index : static_cast<uint16_t>(0);
+            listed = type_on_build_list(*seat.match, builder, give.type);
+        } else {
+            listed = type_on_host_list(seat, give.actor.slot, give.type);
+        }
+        if (!listed) {
             count(seat, &OrderTally::not_buildable);
             return false;
         }
@@ -535,12 +575,24 @@ bool engine_state(Seat& seat, uint16_t slot, void* context) {
 }
 
 /// True when the active bit is already the value `on` asks for, so `on` is not an order.
+///
+/// The host is still told. An absolute host leaves the bit as it is, so the
+/// call is not a second order and does not flip the unit.
 bool activation_already(Seat& seat, uint16_t slot, void* context) {
     const auto* want = static_cast<const bool*>(context);
-    const oa::Unit* unit = oa::world_unit_at(&seat.match->state(), slot);
+    const oa::World* world = seat.match != nullptr ? &seat.match->state() : seat.calls.host.world;
+    if (world == nullptr)
+        return false;
+    const oa::Unit* unit = oa::world_unit_at(world, slot);
     if (unit == nullptr)
         return false;
     const bool active = (unit->state_flags & OA_UNIT_STATE_ACTIVE) != 0;
+    if (active == *want && seat.calls.host.set_active != nullptr) {
+        try {
+            seat.calls.host.set_active(seat.calls.host.context, slot, *want);
+        } catch (...) {
+        }
+    }
     return active == *want;
 }
 

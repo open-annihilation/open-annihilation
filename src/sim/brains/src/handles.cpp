@@ -624,7 +624,7 @@ int method_head_order(lua_State* lua) {
         bool idle{};
     } head{};
 
-    if (seat == nullptr || seat->match == nullptr) {
+    if (seat == nullptr) {
         head.failed = true;
     } else if (seat->calls.host.primary_order != nullptr && seat->calls.primary_kind != nullptr) {
         try {
@@ -643,6 +643,8 @@ int method_head_order(lua_State* lua) {
         } catch (const std::exception&) {
             head.failed = true;
         }
+    } else if (seat->match == nullptr) {
+        head.failed = true;
     } else {
         try {
             const match_runtime::Match& played = *seat->match;
@@ -676,7 +678,7 @@ int method_has_background_order(lua_State* lua) {
     Seat* seat = seat_of(lua);
     bool failed = false;
     bool held = false;
-    if (seat == nullptr || seat->match == nullptr) {
+    if (seat == nullptr) {
         failed = true;
     } else if (seat->calls.host.secondary_order != nullptr) {
         try {
@@ -684,6 +686,8 @@ int method_has_background_order(lua_State* lua) {
         } catch (const std::exception&) {
             failed = true;
         }
+    } else if (seat->match == nullptr) {
+        failed = true;
     } else {
         try {
             const match_runtime::Match& played = *seat->match;

@@ -618,6 +618,31 @@ int getter_knowledge(lua_State* lua) {
     return 1;
 }
 
+int getter_builds_held_until(lua_State* lua) {
+    const Seat* seat = seat_of(lua);
+    if (seat == nullptr || seat->calls.builds_held_until == nullptr) {
+        charge_one(lua);
+        push_nil(lua);
+        return 1;
+    }
+    uint32_t held = 0;
+    bool failed = false;
+    try {
+        held = seat->calls.builds_held_until(
+            const_cast<sim::ai::ComputerHost*>(&seat->calls.host), seat->player
+        );
+    } catch (const std::exception&) {
+        failed = true;
+    }
+    charge_one(lua);
+    if (failed) {
+        push_nil(lua);
+        return 1;
+    }
+    lua_pushinteger(lua, static_cast<lua_Integer>(held));
+    return 1;
+}
+
 int method_allied(lua_State* lua) {
     if (lua_isinteger(lua, 2) == 0)
         return luaL_error(lua, "allied expects a player from 0 to 9");
@@ -1086,6 +1111,7 @@ void install_me(lua_State* lua, Seat& seat) {
     add_me_getter(lua, "handed_over", getter_handed_over);
     add_me_getter(lua, "refused_assignments", getter_refused);
     add_me_getter(lua, "knowledge", getter_knowledge);
+    add_me_getter(lua, "builds_held_until", getter_builds_held_until);
     add_me_method(lua, "allied", method_allied);
     add_me_method(lua, "allies", method_allies);
     add_me_method(lua, "players", method_players);

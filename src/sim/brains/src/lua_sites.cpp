@@ -133,6 +133,29 @@ bool add_cell(int32_t base, int32_t delta, int32_t* out) noexcept {
 bool cell_clear(
     Seat& seat, uint16_t type, int32_t cell_x, int32_t cell_z, uint8_t facing, bool yard
 ) noexcept {
+    if (seat.match == nullptr) {
+        if (!seat.full_awareness)
+            return false;
+        bool clear = false;
+        try {
+            if (facing == 0) {
+                if (yard && seat.calls.host.building_site != nullptr)
+                    clear = seat.calls.host.building_site(
+                        seat.calls.host.context, type, cell_x, cell_z
+                    );
+                else if (!yard && seat.calls.host.site_clear != nullptr)
+                    clear =
+                        seat.calls.host.site_clear(seat.calls.host.context, type, cell_x, cell_z);
+            } else if (seat.calls.site_facing != nullptr) {
+                clear = seat.calls.site_facing(
+                    &seat.calls.host, type, cell_x, cell_z, static_cast<int32_t>(facing), yard
+                );
+            }
+        } catch (...) {
+            clear = false;
+        }
+        return clear;
+    }
     match_runtime::Match& match = *seat.match;
     bool clear = false;
     try {
@@ -234,9 +257,13 @@ int brain_site(lua_State* state) {
     Seat* seat = seat_of(state);
     if (seat == nullptr)
         return luaL_error(state, "site has no seat");
-    // A null match is a load check. Return before any argument is read, so an
-    // empty type table cannot raise here.
-    if (seat->match == nullptr) {
+    // A null match with no fog-free check is a load check. Return before any
+    // argument is read, so an empty type table cannot raise here. A seat with
+    // full awareness and a host check answers that check and does not touch
+    // the match.
+    if (seat->match == nullptr &&
+        (!seat->full_awareness ||
+         (seat->calls.host.site_clear == nullptr && seat->calls.host.building_site == nullptr))) {
         lua_pushnil(state);
         return 1;
     }

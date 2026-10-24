@@ -26,6 +26,7 @@ function knowledge.create(seat)
     seat.water_grid = blank_grid()
     seat.metal = {}
     knowledge.reset(seat)
+    seat.placement_radius = 0
 end
 
 function knowledge.reset(seat)

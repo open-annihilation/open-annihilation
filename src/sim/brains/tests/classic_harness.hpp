@@ -19,6 +19,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -50,6 +51,41 @@ inline TickLog* active_builtin = nullptr;
 inline TickLog* active_classic = nullptr;
 /// The set-up record the scripted stream copies draws into. Null records nothing.
 inline oa::sim::match_runtime::SetUpRecord* recording_setup = nullptr;
+
+/// One task section's place in this tick's draws and orders.
+struct SectionCut {
+    /// True when this section was marked on this tick.
+    bool marked{};
+    /// Shared-stream index when the section was marked, before a resync.
+    std::size_t arrived_roll{};
+    /// Orders already logged when the section was marked.
+    std::size_t order_index{};
+    /// Shared-stream index the section body draws from.
+    std::size_t body_roll{};
+};
+
+/// Resyncs Classic's shared stream to the built-in player at tasks 1, 4 and 5.
+///
+/// The built-in player ticks first. Those three tasks then draw the values
+/// the built-in player draws in that section, the copy a shadow keeps at
+/// each section mark. Other tasks keep their own place in the stream. A
+/// null sync leaves every section where it was.
+struct RollSync {
+    /// The built-in player's fake.
+    computer_fake::Fake* builtin{};
+    /// Classic's fake.
+    computer_fake::Fake* classic{};
+    /// Cuts for sections 0 to 9 on the built-in player.
+    SectionCut builtin_cuts[10]{};
+    /// Cuts for sections 0 to 9 on Classic.
+    SectionCut classic_cuts[10]{};
+};
+
+/// The sync the section callbacks write. Null records markers only.
+inline RollSync* active_sync = nullptr;
+
+/// The hold tick a tool seat reports for each fake. 0 is a real hold of tick 0.
+inline std::map<const computer_fake::Fake*, uint32_t> builds_held;
 
 /// The section name a marker index stands for.
 inline const char* section_word(uint8_t section) noexcept {
@@ -89,14 +125,75 @@ inline void remember_marker(TickLog* log, const char* name) {
     log->markers.emplace_back(name);
 }
 
-/// Records a section marker from the built-in player.
-inline void note_builtin_section(void*, uint8_t, uint8_t section) {
-    remember_marker(active_builtin, section_word(section));
+/// The task index of a section name, or -1 when the name is not a task.
+inline int named_section(const char* name) noexcept {
+    if (name == nullptr)
+        return -1;
+    if (std::strcmp(name, "sort") == 0)
+        return 0;
+    if (std::strncmp(name, "task", 4) != 0)
+        return -1;
+    if (name[4] < '1' || name[4] > '9' || name[5] != '\0')
+        return -1;
+    return name[4] - '0';
 }
 
-/// Records a section marker from Classic.
-inline void note_classic_section(void*, const char* name) {
+/// Writes one section's place before its body runs.
+inline void record_cut(SectionCut& cut, const computer_fake::Fake& fake) {
+    cut.marked = true;
+    cut.arrived_roll = fake.roll;
+    cut.order_index = fake.orders.size();
+    cut.body_roll = fake.roll;
+}
+
+/// Records a section marker from the built-in player.
+inline void note_builtin_section(void* context, uint8_t, uint8_t section) {
+    remember_marker(active_builtin, section_word(section));
+    if (active_sync == nullptr || context == nullptr || section > 9)
+        return;
+    auto* fake = computer_fake::fake_of(context);
+    if (fake != active_sync->builtin)
+        return;
+    record_cut(active_sync->builtin_cuts[section], *fake);
+}
+
+/// Records a section marker from Classic, and resyncs tasks 1, 4 and 5.
+inline void note_classic_section(void* context, const char* name) {
     remember_marker(active_classic, name);
+    if (active_sync == nullptr || context == nullptr)
+        return;
+    const int index = named_section(name);
+    if (index < 0)
+        return;
+    auto* host = static_cast<oa::sim::ai::ComputerHost*>(context);
+    if (host->context == nullptr)
+        return;
+    auto* fake = computer_fake::fake_of(host->context);
+    if (fake != active_sync->classic)
+        return;
+    SectionCut& cut = active_sync->classic_cuts[index];
+    record_cut(cut, *fake);
+    if (index != 1 && index != 4 && index != 5)
+        return;
+    const SectionCut& builtin = active_sync->builtin_cuts[index];
+    if (!builtin.marked)
+        return;
+    fake->roll = builtin.body_roll;
+    cut.body_roll = fake->roll;
+}
+
+/// The hold tick stored for the fake this host plays, or 0 when none was stored.
+inline uint32_t fake_builds_held_until(void* context, uint8_t) {
+    if (context == nullptr)
+        return 0;
+    const auto* host = static_cast<const oa::sim::ai::ComputerHost*>(context);
+    if (host->context == nullptr)
+        return 0;
+    const auto* fake = computer_fake::fake_of(host->context);
+    const auto found = builds_held.find(fake);
+    if (found == builds_held.end())
+        return 0;
+    return found->second;
 }
 
 /// Assigns a squad on the built-in player's fake, and records it during a sort.
@@ -529,6 +626,8 @@ struct ClassicBind {
     computer_fake::Fake* knowledge_fake{};
     /// The built-in players whose record `me.knowledge` reads. Null leaves it nil.
     oa::sim::ai::ComputerPlayers* knowledge_players{};
+    /// When set, `me.builds_held_until` reads `builds_held` for this fake.
+    bool install_builds_held{};
 };
 
 /// The fake and the built-in players one knowledge callback reads.
@@ -607,6 +706,8 @@ inline oa::sim::brains::ToolSeat open_classic(
             knowledge_link.players = bind->knowledge_players;
             spec.calls.knowledge = fake_knowledge;
         }
+        if (bind->install_builds_held)
+            spec.calls.builds_held_until = fake_builds_held_until;
     }
     spec.facts = facts;
     if (!definitions.empty()) {

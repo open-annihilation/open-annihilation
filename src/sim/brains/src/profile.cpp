@@ -16,14 +16,17 @@
 #include "orders.hpp"
 #include "sight.hpp"
 
+#include "oa/base/game_math.hpp"
 #include "oa/data/script_host/f32.hpp"
 #include "oa/data/script_host/fixed.hpp"
 #include "oa/data/script_host/geometry.hpp"
+#include "oa/data/script_host/script_host.hpp"
 #include "oa/sim/unit_movement/movement.hpp"
 
 #include "lua.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 
 namespace oa::sim::brains {
 namespace {
@@ -84,6 +87,72 @@ static int geometry_sine_scaled(lua_State* state) {
 
 static int geometry_cosine_scaled(lua_State* state) {
     return call_scaled(state, "cosine_scaled", sim::unit_movement::cosine_scaled);
+}
+
+/// Indices of integer distances, nearest first, in the order a metal search visits them.
+///
+/// The key of each distance is the float of its negation. Equal keys keep the
+/// later entry, the same way the engine's float heap does. The list is 1-based.
+/// An empty list returns an empty table. One distance returns that index and
+/// does not build a heap. The call reads no match.
+static int brain_float_heap_order(lua_State* state) {
+    if (lua_type(state, 1) != LUA_TTABLE)
+        return luaL_error(state, "float_heap_order expects a table of integer distances");
+    const lua_Integer length = luaL_len(state, 1);
+    if (length < 0 || length > static_cast<lua_Integer>(INT32_MAX))
+        return luaL_error(state, "float_heap_order expects a table of integer distances");
+    script_host::charge_work(state, static_cast<uint64_t>(length) * script_host::element_charge);
+    if (length == 0) {
+        lua_newtable(state);
+        return 1;
+    }
+    const auto count = static_cast<std::size_t>(length);
+    if (count > SIZE_MAX / sizeof(base::game_math::FloatHeapPair))
+        return luaL_error(state, "float_heap_order: out of memory");
+    for (lua_Integer index = 1; index <= length; ++index) {
+        lua_rawgeti(state, 1, index);
+        const int integer = lua_isinteger(state, -1);
+        lua_pop(state, 1);
+        if (integer == 0)
+            return luaL_error(state, "float_heap_order expects a table of integer distances");
+    }
+    auto* heap = static_cast<base::game_math::FloatHeapPair*>(
+        std::malloc(count * sizeof(base::game_math::FloatHeapPair))
+    );
+    if (heap == nullptr)
+        return luaL_error(state, "float_heap_order: out of memory");
+    for (lua_Integer index = 1; index <= length; ++index) {
+        lua_rawgeti(state, 1, index);
+        const lua_Integer distance = lua_tointeger(state, -1);
+        lua_pop(state, 1);
+        auto& pair = heap[static_cast<std::size_t>(index - 1)];
+        pair.value = static_cast<uint32_t>(index);
+        pair.key = static_cast<float>(-static_cast<double>(distance));
+    }
+    const auto size_all = static_cast<int32_t>(length);
+    if (size_all >= 2)
+        base::game_math::float_heap_make(heap, size_all);
+    auto* order = static_cast<uint32_t*>(std::malloc(count * sizeof(uint32_t)));
+    if (order == nullptr) {
+        std::free(heap);
+        return luaL_error(state, "float_heap_order: out of memory");
+    }
+    int32_t size = size_all;
+    std::size_t written = 0;
+    while (size > 0) {
+        order[written] = heap[0].value;
+        ++written;
+        base::game_math::float_heap_pop(heap, size);
+        --size;
+    }
+    std::free(heap);
+    lua_createtable(state, size_all, 0);
+    for (std::size_t index = 0; index < written; ++index) {
+        lua_pushinteger(state, static_cast<lua_Integer>(order[index]));
+        lua_rawseti(state, -2, static_cast<lua_Integer>(index + 1));
+    }
+    std::free(order);
+    return 1;
 }
 
 } // extern "C"
@@ -162,6 +231,14 @@ void install_libraries(lua_State* state, Seat& seat) {
     install_networks(state, seat);
     install_grids(state, seat);
     install_record(state, seat);
+    lua_getglobal(state, "brain");
+    if (lua_type(state, -1) != LUA_TTABLE) {
+        lua_pop(state, 1);
+        lua_newtable(state);
+    }
+    lua_pushcfunction(state, brain_float_heap_order);
+    lua_setfield(state, -2, "float_heap_order");
+    lua_setglobal(state, "brain");
 }
 
 script_host::Profile brain_profile(Seat& seat, const script_host::Bank& bank) {
