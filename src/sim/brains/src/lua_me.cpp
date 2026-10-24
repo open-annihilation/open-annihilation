@@ -78,8 +78,13 @@ void ensure_table(lua_State* lua, const void* token) {
 
 const oa::Player* seat_record(lua_State* lua) {
     const Seat* seat = seat_of(lua);
-    if (seat == nullptr || seat->match == nullptr || seat->player >= OA_PLAYER_COUNT)
+    if (seat == nullptr || seat->player >= OA_PLAYER_COUNT)
         return nullptr;
+    if (seat->match == nullptr) {
+        if (seat->calls.host.world == nullptr)
+            return nullptr;
+        return &seat->calls.host.world->game.players[seat->player];
+    }
     return &seat->match->state().game.players[seat->player];
 }
 
@@ -111,9 +116,14 @@ bool read_squad(lua_State* lua, int index, const char* method, uint32_t* squad_n
 bool kept_in_squad(const Seat& seat, uint32_t squad_number, uint16_t slot) noexcept {
     if (squad_number != 0)
         return true;
+    oa::World* world = nullptr;
     if (seat.match == nullptr)
+        world = seat.calls.host.world;
+    else
+        world = &seat.match->state();
+    if (world == nullptr)
         return false;
-    const oa::Unit* unit = oa::world_unit_at(&seat.match->state(), slot);
+    const oa::Unit* unit = oa::world_unit_at(world, slot);
     if (unit == nullptr || unit->type_index == 0 || !oa::unit_is_live_target(unit->flags))
         return false;
     if (seat.calls.unit_squad == nullptr)
@@ -135,8 +145,27 @@ bool copy_members(
     std::size_t* used
 ) {
     *used = 0;
-    if (seat.match == nullptr)
-        return true;
+    if (seat.match == nullptr) {
+        if (seat.calls.host.squad_size == nullptr || seat.calls.host.squad_member == nullptr)
+            return true;
+        try {
+            const auto squad = static_cast<sim::ai::Squad>(squad_number);
+            const uint32_t count =
+                seat.calls.host.squad_size(seat.calls.host.context, seat.player, squad);
+            for (uint32_t index = 0; index < count && *used < room; ++index) {
+                const uint16_t member = seat.calls.host.squad_member(
+                    seat.calls.host.context, seat.player, squad, index
+                );
+                if (filter_squad_zero && !kept_in_squad(seat, squad_number, member))
+                    continue;
+                out[*used] = member;
+                *used += 1;
+            }
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
     try {
         if (seat.calls.host.squad_size != nullptr && seat.calls.host.squad_member != nullptr) {
             const auto squad = static_cast<sim::ai::Squad>(squad_number);
@@ -171,15 +200,24 @@ bool copy_members(
 bool players_allied(const Seat& seat, uint8_t other) {
     if (seat.calls.host.allied != nullptr)
         return seat.calls.host.allied(seat.calls.host.context, seat.player, other);
+    if (seat.match == nullptr)
+        return false;
     return seat.match->allied(seat.player, other);
 }
 
 std::size_t occupied_count(const Seat& seat) noexcept {
-    if (seat.match == nullptr || seat.player >= OA_PLAYER_COUNT)
+    if (seat.player >= OA_PLAYER_COUNT)
         return 0;
-    const oa::Player& record = seat.match->state().game.players[seat.player];
+    oa::World* world = nullptr;
+    if (seat.match == nullptr)
+        world = seat.calls.host.world;
+    else
+        world = &seat.match->state();
+    if (world == nullptr)
+        return 0;
+    const oa::Player& record = world->game.players[seat.player];
     uint32_t span = 0;
-    const oa::Unit* first = oa::world_player_units(&seat.match->state(), &record, &span);
+    const oa::Unit* first = oa::world_player_units(world, &record, &span);
     if (first == nullptr)
         return 0;
     std::size_t found = 0;
@@ -477,8 +515,16 @@ int getter_metal_surplus(lua_State* lua) {
 int getter_tick(lua_State* lua) {
     charge_one(lua);
     const Seat* seat = seat_of(lua);
-    if (seat == nullptr || seat->match == nullptr) {
+    if (seat == nullptr) {
         push_nil(lua);
+        return 1;
+    }
+    if (seat->match == nullptr) {
+        if (seat->calls.host.world == nullptr) {
+            push_nil(lua);
+            return 1;
+        }
+        lua_pushinteger(lua, static_cast<lua_Integer>(seat->calls.host.world->game.tick));
         return 1;
     }
     lua_pushinteger(lua, static_cast<lua_Integer>(seat->match->state().game.tick));
@@ -685,11 +731,18 @@ int method_units(lua_State* lua) {
     const std::size_t found = seat == nullptr ? 0 : occupied_count(*seat);
     charge_sequence(lua, found);
     lua_createtable(lua, static_cast<int>(found), 0);
-    if (seat == nullptr || seat->match == nullptr || found == 0)
+    if (seat == nullptr || found == 0)
         return 1;
-    const oa::Player& record = seat->match->state().game.players[seat->player];
+    oa::World* world = nullptr;
+    if (seat->match != nullptr)
+        world = &seat->match->state();
+    else
+        world = seat->calls.host.world;
+    if (world == nullptr || seat->player >= OA_PLAYER_COUNT)
+        return 1;
+    const oa::Player& record = world->game.players[seat->player];
     uint32_t span = 0;
-    const oa::Unit* first = oa::world_player_units(&seat->match->state(), &record, &span);
+    const oa::Unit* first = oa::world_player_units(world, &record, &span);
     if (first == nullptr)
         return 1;
     lua_Integer row = 0;
@@ -697,7 +750,7 @@ int method_units(lua_State* lua) {
     for (uint32_t step = 0; step < span && static_cast<std::size_t>(row) < found; ++step) {
         if (first[step].type_index == 0)
             continue;
-        push_unit(lua, *seat, unit_ref(*seat->match, first[step].id));
+        push_unit(lua, *seat, seat_unit_ref(*seat, first[step].id));
         lua_rawseti(lua, sequence, ++row);
     }
     return 1;
@@ -709,16 +762,23 @@ int method_each_unit(lua_State* lua) {
     Seat* seat = seat_of(lua);
     std::array<UnitRef, most_members> held{};
     std::size_t found = 0;
-    if (seat != nullptr && seat->match != nullptr && seat->player < OA_PLAYER_COUNT) {
-        const oa::Player& record = seat->match->state().game.players[seat->player];
-        uint32_t span = 0;
-        const oa::Unit* first = oa::world_player_units(&seat->match->state(), &record, &span);
-        if (first != nullptr) {
-            for (uint32_t step = 0; step < span && found < held.size(); ++step) {
-                if (first[step].type_index == 0)
-                    continue;
-                held[found] = unit_ref(*seat->match, first[step].id);
-                ++found;
+    if (seat != nullptr && seat->player < OA_PLAYER_COUNT) {
+        oa::World* world = nullptr;
+        if (seat->match != nullptr)
+            world = &seat->match->state();
+        else
+            world = seat->calls.host.world;
+        if (world != nullptr) {
+            const oa::Player& record = world->game.players[seat->player];
+            uint32_t span = 0;
+            const oa::Unit* first = oa::world_player_units(world, &record, &span);
+            if (first != nullptr) {
+                for (uint32_t step = 0; step < span && found < held.size(); ++step) {
+                    if (first[step].type_index == 0)
+                        continue;
+                    held[found] = seat_unit_ref(*seat, first[step].id);
+                    ++found;
+                }
             }
         }
     }
@@ -747,7 +807,19 @@ int method_squad_size(lua_State* lua) {
     const Seat* seat = seat_of(lua);
     std::size_t used = 0;
     bool failed = false;
-    if (seat != nullptr && seat->match != nullptr) {
+    if (seat != nullptr && seat->match == nullptr) {
+        if (seat->calls.host.squad_size != nullptr) {
+            try {
+                used = seat->calls.host.squad_size(
+                    seat->calls.host.context,
+                    seat->player,
+                    static_cast<sim::ai::Squad>(squad_number)
+                );
+            } catch (const std::exception&) {
+                failed = true;
+            }
+        }
+    } else if (seat != nullptr && seat->match != nullptr) {
         try {
             if (seat->calls.host.squad_size != nullptr) {
                 used = seat->calls.host.squad_size(
@@ -794,11 +866,11 @@ int method_squad_member(lua_State* lua) {
         push_nil(lua);
         return 1;
     }
-    if (seat == nullptr || seat->match == nullptr) {
+    if (seat == nullptr) {
         push_nil(lua);
         return 1;
     }
-    push_unit(lua, *seat, unit_ref(*seat->match, slots[static_cast<std::size_t>(at - 1)]));
+    push_unit(lua, *seat, seat_unit_ref(*seat, slots[static_cast<std::size_t>(at - 1)]));
     return 1;
 }
 
@@ -818,11 +890,11 @@ int method_squad(lua_State* lua) {
     }
     charge_sequence(lua, used);
     lua_createtable(lua, static_cast<int>(used), 0);
-    if (seat == nullptr || seat->match == nullptr)
+    if (seat == nullptr)
         return 1;
     const int sequence = lua_gettop(lua);
     for (std::size_t row = 0; row < used; ++row) {
-        push_unit(lua, *seat, unit_ref(*seat->match, slots[row]));
+        push_unit(lua, *seat, seat_unit_ref(*seat, slots[row]));
         lua_rawseti(lua, sequence, static_cast<lua_Integer>(row + 1));
     }
     return 1;
@@ -849,8 +921,10 @@ int method_assign(lua_State* lua) {
             seat->calls.host.set_squad(
                 seat->calls.host.context, ref.slot, static_cast<sim::ai::Squad>(squad_number)
             );
-        } else {
+        } else if (seat->match != nullptr) {
             seat->match->set_unit_squad(ref.slot, squad_number);
+        } else {
+            failed = true;
         }
     } catch (const std::exception&) {
         failed = true;

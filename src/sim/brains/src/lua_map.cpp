@@ -859,12 +859,20 @@ static int map_index(lua_State* lua) {
         lua_pushcfunction(lua, method_reachable);
         return 1;
     }
-    Seat* seat = live_seat(lua);
+    Seat* seat = seat_of(lua);
     if (seat == nullptr) {
         lua_pushnil(lua);
         return 1;
     }
-    const oa::Game& game = seat->match->state().game;
+    const oa::Game* game = nullptr;
+    if (seat->match != nullptr)
+        game = &seat->match->state().game;
+    else if (seat->calls.host.world != nullptr)
+        game = &seat->calls.host.world->game;
+    if (game == nullptr) {
+        lua_pushnil(lua);
+        return 1;
+    }
     if (same_text(key, length, "name"))
         return map_name(lua, *seat);
     if (same_text(key, length, "path"))
@@ -875,41 +883,56 @@ static int map_index(lua_State* lua) {
     }
     if (same_text(key, length, "width")) {
         const int32_t cells =
-            seat->calls.host.world != nullptr ? seat->calls.host.map_cells_x : game.map_width;
+            seat->calls.host.world != nullptr ? seat->calls.host.map_cells_x : game->map_width;
         lua_pushinteger(lua, static_cast<lua_Integer>(cells));
         return 1;
     }
     if (same_text(key, length, "world_width")) {
-        lua_pushinteger(lua, static_cast<lua_Integer>(game.map_width_world));
+        lua_pushinteger(lua, static_cast<lua_Integer>(game->map_width_world));
         return 1;
     }
     if (same_text(key, length, "world_height")) {
-        lua_pushinteger(lua, static_cast<lua_Integer>(game.map_height_world));
+        lua_pushinteger(lua, static_cast<lua_Integer>(game->map_height_world));
         return 1;
     }
     if (same_text(key, length, "sea_level")) {
-        lua_pushinteger(lua, static_cast<lua_Integer>(game.sea_level));
+        lua_pushinteger(lua, static_cast<lua_Integer>(game->sea_level));
         return 1;
     }
     if (same_text(key, length, "tide")) {
-        script_host::push_f32(lua, game.tidal_strength);
+        script_host::push_f32(lua, game->tidal_strength);
         return 1;
     }
     if (same_text(key, length, "wind_min")) {
+        if (seat->match == nullptr) {
+            lua_pushnil(lua);
+            return 1;
+        }
         lua_pushinteger(
             lua, static_cast<lua_Integer>(seat->match->environment_wind().minimum_strength)
         );
         return 1;
     }
     if (same_text(key, length, "wind_max")) {
+        if (seat->match == nullptr) {
+            lua_pushnil(lua);
+            return 1;
+        }
         lua_pushinteger(
             lua, static_cast<lua_Integer>(seat->match->environment_wind().maximum_strength)
         );
         return 1;
     }
     if (same_text(key, length, "surface_metal")) {
-        const int32_t metal = seat->calls.host.world != nullptr ? seat->calls.host.surface_metal
-                                                                : surface_metal(*seat->match);
+        int32_t metal = 0;
+        if (seat->calls.host.world != nullptr)
+            metal = seat->calls.host.surface_metal;
+        else if (seat->match != nullptr)
+            metal = surface_metal(*seat->match);
+        else {
+            lua_pushnil(lua);
+            return 1;
+        }
         lua_pushinteger(lua, static_cast<lua_Integer>(metal));
         return 1;
     }
@@ -936,7 +959,7 @@ void ensure_meta(lua_State* lua) {
 } // namespace
 
 void install_map(lua_State* lua, Seat& seat) {
-    if (seat.match == nullptr) {
+    if (seat.match == nullptr && seat.calls.host.world == nullptr) {
         lua_pushnil(lua);
         set_game_field(lua, seat, "map");
         return;

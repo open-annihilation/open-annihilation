@@ -16,6 +16,10 @@
 
 struct lua_State;
 
+namespace oa {
+struct World;
+}
+
 namespace oa::sim::brains {
 
 /// Who may read one unit field.
@@ -156,5 +160,32 @@ int check_unit(lua_State* state, int index, const char* function, UnitRef* ref);
 /// @param text the characters
 /// @param room how many bytes `text` may hold
 void push_text(lua_State* state, const char* text, std::size_t room);
+
+/// The world a seat reads. A match seat uses the match. A tool seat uses the
+/// world its calls carry.
+///
+/// @param seat the seat
+/// @return the world, or null when the seat has neither
+[[nodiscard]] oa::World* seat_world(const Seat& seat) noexcept;
+
+/// A handle for `slot` in this seat's world.
+///
+/// A match seat keeps the match's generation. A tool seat's units are
+/// generation 0.
+///
+/// @param seat the seat
+/// @param slot unit slot
+/// @return the handle
+[[nodiscard]] UnitRef seat_unit_ref(const Seat& seat, uint16_t slot) noexcept;
+
+/// Whether `ref` names a unit that is still in this seat's world.
+///
+/// A match seat uses the match's generation. A tool seat treats a filled
+/// slot of generation 0 as current, including a dying unit.
+///
+/// @param seat the seat
+/// @param ref handle identity
+/// @return true when the unit is current
+[[nodiscard]] bool unit_current_for_seat(const Seat& seat, UnitRef ref) noexcept;
 
 } // namespace oa::sim::brains

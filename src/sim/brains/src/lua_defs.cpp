@@ -90,8 +90,10 @@ const char* name_registry(uint8_t kind) noexcept {
 
 const oa::World* world_of(lua_State* lua) noexcept {
     Seat* seat = seat_of(lua);
-    if (seat == nullptr || seat->match == nullptr)
+    if (seat == nullptr)
         return nullptr;
+    if (seat->match == nullptr)
+        return seat->calls.host.world;
     return &seat->match->state();
 }
 
@@ -150,9 +152,15 @@ bool read_box(
     if (box.kind == static_cast<uint8_t>(Kind::unit)) {
         if (world->unit_defs == nullptr || box.index >= world->unit_def_count)
             return false;
-        return read_unit_field(
-            world->unit_defs[box.index], seat->match->unit_definition(box.index), key, out
-        );
+        const data::unit_definitions::UnitDefinition* definition = nullptr;
+        if (seat->match == nullptr) {
+            if (seat->plain_definitions != nullptr &&
+                static_cast<std::size_t>(box.index) < seat->plain_definition_count)
+                definition = &seat->plain_definitions[box.index];
+        } else {
+            definition = seat->match->unit_definition(box.index);
+        }
+        return read_unit_field(world->unit_defs[box.index], definition, key, out);
     }
     if (box.kind == static_cast<uint8_t>(Kind::weapon)) {
         if (box.index >= OA_WEAPON_DEF_COUNT)

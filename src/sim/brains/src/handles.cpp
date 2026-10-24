@@ -85,15 +85,25 @@ const oa::Unit* arg_unit(lua_State* lua) {
     if (!to_unit(lua, 1, &ref))
         return nullptr;
     const Seat* seat = seat_of(lua);
-    if (seat == nullptr || seat->match == nullptr)
+    if (seat == nullptr)
         return nullptr;
+    if (seat->match == nullptr) {
+        if (seat->calls.host.world == nullptr)
+            return nullptr;
+        return oa::world_unit_at(seat->calls.host.world, ref.slot);
+    }
     return oa::world_unit_at(&seat->match->state(), ref.slot);
 }
 
 const oa::UnitDef* arg_def(lua_State* lua, const oa::Unit* unit) {
     const Seat* seat = seat_of(lua);
-    if (seat == nullptr || seat->match == nullptr || unit == nullptr)
+    if (seat == nullptr || unit == nullptr)
         return nullptr;
+    if (seat->match == nullptr) {
+        if (seat->calls.host.world == nullptr)
+            return nullptr;
+        return oa::world_unit_def_of(seat->calls.host.world, unit);
+    }
     return oa::world_unit_def_of(&seat->match->state(), unit);
 }
 
@@ -150,11 +160,19 @@ const char* fire_order_name(uint32_t flags) noexcept {
 }
 
 bool slot_in_range(const Seat& seat, uint16_t slot) noexcept {
-    if (seat.match == nullptr || seat.player >= OA_PLAYER_COUNT)
+    if (seat.player >= OA_PLAYER_COUNT)
         return false;
-    const oa::Player& record = seat.match->state().game.players[seat.player];
+    oa::World* world = nullptr;
+    if (seat.match == nullptr) {
+        world = seat.calls.host.world;
+        if (world == nullptr)
+            return false;
+    } else {
+        world = &seat.match->state();
+    }
+    const oa::Player& record = world->game.players[seat.player];
     uint32_t span = 0;
-    const oa::Unit* first = oa::world_player_units(&seat.match->state(), &record, &span);
+    const oa::Unit* first = oa::world_player_units(world, &record, &span);
     if (first == nullptr || span == 0)
         return false;
     const auto begin = static_cast<uint32_t>(first->id);
@@ -841,9 +859,44 @@ bool unit_current(match_runtime::Match& match, UnitRef ref) noexcept {
     return unit_generation(match, ref.slot) == ref.generation;
 }
 
-bool seat_owns(const Seat& seat, UnitRef ref) noexcept {
-    if (seat.match == nullptr || seat.player >= OA_PLAYER_COUNT)
+oa::World* seat_world(const Seat& seat) noexcept {
+    if (seat.match == nullptr)
+        return seat.calls.host.world;
+    return &seat.match->state();
+}
+
+UnitRef seat_unit_ref(const Seat& seat, uint16_t slot) noexcept {
+    if (seat.match == nullptr)
+        return UnitRef{slot, 0};
+    return unit_ref(*seat.match, slot);
+}
+
+bool unit_current_for_seat(const Seat& seat, UnitRef ref) noexcept {
+    if (seat.match != nullptr)
+        return unit_current(*seat.match, ref);
+    oa::World* world = seat.calls.host.world;
+    if (world == nullptr)
         return false;
+    if (static_cast<uint32_t>(ref.slot) >= world->unit_slot_count)
+        return false;
+    const oa::Unit* unit = oa::world_unit_at(world, ref.slot);
+    if (unit == nullptr || unit->type_index == 0)
+        return false;
+    return ref.generation == 0;
+}
+
+bool seat_owns(const Seat& seat, UnitRef ref) noexcept {
+    if (seat.player >= OA_PLAYER_COUNT)
+        return false;
+    if (seat.match == nullptr) {
+        if (!unit_current_for_seat(seat, ref))
+            return false;
+        oa::World* world = seat.calls.host.world;
+        if (world == nullptr)
+            return false;
+        const oa::Unit* unit = oa::world_unit_at(world, ref.slot);
+        return unit != nullptr && unit->owner_index == seat.player;
+    }
     if (!unit_current(*seat.match, ref))
         return false;
     const oa::Unit* unit = oa::world_unit_at(&seat.match->state(), ref.slot);
@@ -861,8 +914,18 @@ bool (*seat_may_see)(const Seat&, UnitRef) = see_none;
 Read unit_access(const Seat& seat, UnitRef ref, Access access) noexcept {
     if (access == Access::always)
         return Read::allow;
-    if (seat.match == nullptr)
+    if (seat.match == nullptr) {
+        if (unit_current_for_seat(seat, ref)) {
+            if (seat_owns(seat, ref))
+                return Read::allow;
+            if (access == Access::seen && seat_may_see != nullptr && seat_may_see(seat, ref))
+                return Read::allow;
+            return Read::none;
+        }
+        if (access == Access::seen && slot_in_range(seat, ref.slot))
+            return Read::dead;
         return Read::none;
+    }
     if (unit_current(*seat.match, ref)) {
         if (seat_owns(seat, ref))
             return Read::allow;
