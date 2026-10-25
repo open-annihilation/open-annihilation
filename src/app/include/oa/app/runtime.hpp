@@ -1462,6 +1462,12 @@ class Runtime final : public menu::Host,
     /// @param message what it threw
     void report_hook_error(const char* hook, const char* message) noexcept;
 
+    /// Logs a fault of the game data on stderr the first time the run meets
+    /// it; the game plays on as 3.1c does.
+    ///
+    /// @param line what is wrong, without a newline
+    void report_data_fault(const std::string& line);
+
     /// Returns the report call_hook_or_report takes for report_hook_error.
     ///
     /// @return a callable taking the hook's name and the message
@@ -17955,8 +17961,8 @@ class Runtime final : public menu::Host,
     // any, as without a profile. The match copies them as it is built.
     std::vector<oa::data::match_rules::UnitTypeRules> unit_type_rules_;
     // Each weapon's own rules from the data keys the mod profile binds,
-    // indexed by weapon ID; empty when no weapon has any. The match copies
-    // them as it is built.
+    // indexed by slot, which is the weapon id; empty when no weapon has any.
+    // The match copies them as it is built.
     std::vector<oa::data::match_rules::WeaponTypeRules> weapon_rules_;
 
     // The map's placed units in this match (setup.map-scripted-units).
@@ -17978,7 +17984,7 @@ class Runtime final : public menu::Host,
     oa::sim::combat_state::WeaponRegistry weapon_registry_;
     // The 3DO model each weapon registry slot draws its shots with (TDF
     // `model`), read with the weapon definitions as the match starts.
-    std::map<uint8_t, std::string> weapon_model_names_;
+    std::map<uint16_t, std::string> weapon_model_names_;
     // Each unit type's target-category masks, by type id.
     std::vector<oa::data::unit_definitions::UnitTargetCategoryMasks> unit_target_masks_;
     // Each unit type's build-cursor preview keys, by type id; empty when the
@@ -18800,6 +18806,9 @@ class Runtime final : public menu::Host,
     std::set<std::string> missing_sounds_{};
     /// The sounds whose failure to play the run has reported, by the same key.
     std::set<std::string> reported_sounds_{};
+    /// The faults of the game data the run has logged, by their lines
+    /// (report_data_fault).
+    std::set<std::string> reported_data_faults_{};
     // The GUI context's cursor and pointer, with the picture the software
     // cursor shows and the cursor table index of the animation shown; the
     // runtime keeps them in place of the Game block's gui_context_block and

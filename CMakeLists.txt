@@ -3766,6 +3766,16 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-trace PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A mod whose profile raises weapon-types keeps ids up to that limit
+        # and logs, once, each section the limit leaves out.
+        add_test(NAME native-limits-weapon-table COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_weapon_table.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --fixture-dir "${CMAKE_BINARY_DIR}/limits-fixture"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-limits-weapon-table PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # --brain-shadow seats a brain beside every computer seat. The inert
         # leg plays the trace skirmish with and without a shadow.
         add_test(NAME native-brain-shadow COMMAND ${Python3_EXECUTABLE}
