@@ -251,12 +251,13 @@ number only you hold", three lines, and the install ID as
   that registry.
 
 **Turn on online features** is selected to start with. **Next** then leaves
-Check for content updates at Automatically and leaves Core Prime's install
-ID on. It does not make an ID: the next download does.
-**Not now** sets Check for content updates to Never and turns Core Prime's
-install ID off, which forgets an ID a language pack made on the first
-step. Built-in languages, and files you open yourself, keep working either
-way.
+Check for content updates at Automatically, sets Check for updates to
+Automatically, and leaves Core Prime's install ID on. It does not make an
+ID: the next download does.
+**Not now** sets Check for content updates to Never, sets Check for updates
+to Never, and turns Core Prime's install ID off, which forgets an ID a
+language pack made on the first step. Built-in languages, and files you
+open yourself, keep working either way.
 
 **Back** returns to the language on the welcome, and to the copy on the
 five-step walk. Choosing again and pressing **Next**

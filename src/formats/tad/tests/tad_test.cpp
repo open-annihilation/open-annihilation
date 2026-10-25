@@ -430,6 +430,73 @@ void test_recording_without_brains_sector() {
     );
 }
 
+void test_limits_sector_round_trips() {
+    Fixture fixture;
+    const auto body = tad::encode_limits_sector(tad::RecordedLimits{1024, 10});
+    fixture.demo.sectors.push_back({static_cast<uint32_t>(tad::SectorType::limits), body});
+    const Bytes bytes = encoded(fixture.demo);
+    const auto result = tad::parse(bytes);
+    require(result.ok(), "limits sector parses");
+    const auto* sector = tad::find_sector(*result.demo, tad::SectorType::limits);
+    require(sector != nullptr, "limits sector present");
+    const auto decoded = sector != nullptr ? tad::decode_limits_sector(*sector) : std::nullopt;
+    require(decoded && *decoded == tad::RecordedLimits{1024, 10}, "limits sector values");
+    require(encoded(*result.demo) == bytes, "limits sector round trip");
+
+    const auto accept = [](tad::RecordedLimits limits) {
+        const auto stored = tad::encode_limits_sector(limits);
+        const tad::Sector sector{static_cast<uint32_t>(tad::SectorType::limits), stored};
+        const auto back = tad::decode_limits_sector(sector);
+        return back && *back == limits;
+    };
+    require(accept({tad::recorded_base_weapon_types, tad::recorded_base_sides}), "256 and 5");
+    require(
+        accept({tad::recorded_highest_weapon_types, tad::recorded_highest_sides}), "65536 and 32"
+    );
+}
+
+void test_limits_sector_refuses() {
+    const auto reject = [](Bytes body) {
+        const tad::Sector sector{static_cast<uint32_t>(tad::SectorType::limits), body};
+        return !tad::decode_limits_sector(sector).has_value();
+    };
+    require(reject(Bytes(7, 0)), "7 bytes");
+    require(reject(Bytes(9, 0)), "9 bytes");
+    const auto weapons = tad::encode_limits_sector({255, tad::recorded_base_sides});
+    require(reject(Bytes(weapons.begin(), weapons.end())), "255 weapon types");
+    const auto sides = tad::encode_limits_sector({tad::recorded_base_weapon_types, 33});
+    require(reject(Bytes(sides.begin(), sides.end())), "33 sides");
+    const auto over = tad::encode_limits_sector({tad::recorded_highest_weapon_types + 1, 5});
+    require(reject(Bytes(over.begin(), over.end())), "65537 weapon types");
+}
+
+void test_recording_without_limits_sector() {
+    const Fixture fixture;
+    const auto result = tad::parse(encoded(fixture.demo));
+    require(result.ok(), "recording without the limits sector parses");
+    require(result.demo->sectors.size() == 3, "no extra sector");
+    require(
+        tad::find_sector(*result.demo, tad::SectorType::limits) == nullptr, "limits sector absent"
+    );
+}
+
+void test_wide_records_split_only_when_asked() {
+    Bytes payload{tad::payload_marker, 0x06, 0xE0};
+    payload.insert(payload.end(), 36, 0);
+    const auto stopped = tad::split_records(payload);
+    require(
+        stopped.error && stopped.error->code == tad::ErrorCode::unknown_record &&
+            stopped.error->offset == 2 && stopped.records.size() == 1,
+        "narrow stops at 0xE0"
+    );
+    const auto sized = tad::split_records(payload, tad::RecordForms::wide);
+    require(
+        !sized.error && sized.records.size() == 2 && sized.records[1].type == 0xE0 &&
+            sized.records[1].bytes.size() == tad::wide_record_lengths[0],
+        "wide sizes 0xE0"
+    );
+}
+
 void test_unknown_sector_is_kept() {
     Fixture fixture;
     const Bytes extra{0x10, 0x20, 0x30};
@@ -465,6 +532,10 @@ int main() {
         test_recording_without_mutators_sector();
         test_brains_sector_round_trips();
         test_recording_without_brains_sector();
+        test_limits_sector_round_trips();
+        test_limits_sector_refuses();
+        test_recording_without_limits_sector();
+        test_wide_records_split_only_when_asked();
         test_unknown_sector_is_kept();
         std::cout << "tad-format: ok\n";
         return 0;

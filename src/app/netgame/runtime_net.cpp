@@ -1650,6 +1650,14 @@ struct NetworkPlay::NetHost {
         } else {
             setup.brains_text = brains_text;
         }
+        // A match only OA machines can play records both limits. Any other
+        // match writes no sector, so its recording stays as it is.
+        if (oa::netgame::oa_only(state.net->rules)) {
+            oa::formats::tad::RecordedLimits recorded;
+            recorded.weapon_types = state.net->rules.weapon_types;
+            recorded.sides = state.net->rules.sides;
+            setup.limits = recorded;
+        }
         const auto add_player = [&](uint8_t slot) {
             const auto& player = world.game.players[slot];
             oa::session::demo::RecordingPlayer entry{};

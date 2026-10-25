@@ -17,6 +17,7 @@
 #include "oa/app/content/downloads.hpp"
 #include "oa/app/content/service.hpp"
 #include "oa/app/content/settings.hpp"
+#include "oa/app/update/check.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/setup_before_game.hpp"
@@ -1267,6 +1268,10 @@ void FirstRunHost::apply_online(Runtime& runtime, bool online_on) {
         runtime.content_install_ids_changed();
         runtime.content_service().set_check_for_updates(content::CheckForUpdates::never);
     }
+    oa::app::update::write_check_mode(
+        runtime.preference_values_,
+        online_on ? oa::app::update::CheckMode::automatically : oa::app::update::CheckMode::never
+    );
     flush(runtime);
 }
 

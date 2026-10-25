@@ -48,3 +48,19 @@ before saving does not land after loading, and its silo does not get it
 back: the round left the silo's stockpile at launch, and the save holds the
 stockpile as it was after the launch. Save before you launch, or after the
 missile lands.
+
+## Mods with more weapon types or sides
+
+A game played under a mod that numbers more weapon types, or loads more
+sides, saves and loads like any other game, and only under that mod.
+
+Its recording keeps the mod's two limits. It plays back only under a mod
+with the same weapon types and the same sides. Under any other it says
+"This recording needs a mod with {n} weapon types and {m} sides."
+
+A recording made without those limits (one from 3.1c, or one Open
+Annihilation made of a game under 3.1c's limits) does not play under a mod
+that raises either. It says "This recording was made with 256 weapon types
+and five sides. The mod you are playing has more."
+
+Other replayers stop at the first of Open Annihilation's wide weapon records.

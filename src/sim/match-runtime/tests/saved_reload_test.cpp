@@ -97,7 +97,8 @@ void reload_survives_a_save() {
             &loaded.match->state(),
             record.data() + data::persist::unit_record::weapons +
                 slot * data::persist::unit_record::weapon_bytes,
-            restored.record.weapons[slot]
+            restored.record.weapons[slot],
+            data::persist::WeaponIdWidth::byte
         );
     saved_game::restore_orders(*loaded.match, restored, bank.get(), order_count);
     CHECK(restored.record.weapons[0].reload == gun_reload_ticks);
