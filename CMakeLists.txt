@@ -4364,6 +4364,11 @@ if(BUILD_TESTING)
     add_test(NAME doc-links-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_links.py --self-test)
     set_tests_properties(doc-links doc-links-selftest PROPERTIES TIMEOUT 60)
+    # Narrowing and sign warnings on lines changed since a merge base
+    # (tools/check_conversions.py). The self-test needs no compiler.
+    add_test(NAME conversion-check-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_conversions.py --self-test)
+    set_tests_properties(conversion-check-selftest PROPERTIES TIMEOUT 60)
     # The engine's C, C++ and Objective-C sources are laid out as
     # .clang-format says, by the clang-format release that
     # tools/format/requirements.txt pins (tools/format_sources.py, whose
