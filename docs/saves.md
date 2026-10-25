@@ -42,12 +42,12 @@ quotes the question.
 ## What a saved game keeps
 
 A saved game keeps what a 3.1c saved game keeps. Shots in flight are not
-among them: shells, rockets, beams and missiles, nuclear missiles included,
-are gone when the game loads, as in 3.1c. A nuclear missile launched just
-before saving does not land after loading, and its silo does not get it
-back: the round left the silo's stockpile at launch, and the save holds the
-stockpile as it was after the launch. Save before you launch, or after the
-missile lands.
+among them, as in 3.1c: shells, rockets, beams and missiles are gone when
+the game loads. A stockpiled round that is still in flight, a nuclear
+missile or an anti-nuke missile, is written back into its weapon's
+stockpile, up to 200. After loading, the silo holds the round and can
+launch it again. The missile does not land. A save made with nothing of
+the kind in flight is the same file 3.1c writes.
 
 ## Mods with more weapon types or sides
 
