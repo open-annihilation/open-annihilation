@@ -1245,6 +1245,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_full.cpp src/app/runtime_full_sprites.cpp src/app/runtime_full_overlays.cpp
   src/app/runtime_terrain_filter.cpp src/app/runtime_fog.cpp
   src/app/runtime_pointer_press.cpp
+  src/app/runtime_pointer_roles.cpp
   src/app/runtime_selection.cpp src/app/runtime_selection_shortcuts.cpp
   src/app/runtime_view_panels.cpp src/app/runtime_whiteboard.cpp src/app/runtime_commander_placement.cpp
   src/app/runtime_megamap.cpp

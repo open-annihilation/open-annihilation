@@ -307,6 +307,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     state.scheme = scheme;
     state.number_keys = number_keys;
     state.ready = true;
+    rebuild_pointer_roles(state.resolved);
 }
 
 keys::Contexts Runtime::input_contexts() {

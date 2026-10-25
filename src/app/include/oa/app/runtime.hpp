@@ -2494,6 +2494,120 @@ class Runtime final : public menu::Host,
     /// @param use what the read is for
     void apply_binding_roles(uint32_t& modifiers, ModifierUse use) const;
 
+    /// One mouse or wheel chord copied out of the bindings in use.
+    struct PointerRoleChord {
+        uint8_t modifiers{}; ///< binding modifier bits
+        uint8_t button{};    ///< mouse button, 1 to 8, or 0 for a wheel
+        int8_t wheel{};      ///< 1 up, -1 down, or 0 for a button
+        uint8_t kind{};      ///< TriggerKind
+        uint8_t gesture{};   ///< Gesture
+    };
+
+    /// How many pointer roles the match asks, and how many chords each keeps.
+    static constexpr std::size_t kPointerRoleCount = 14;
+    static constexpr std::size_t kPointerRoleChordLimit = 4;
+
+    /// The chords of those roles, copied whenever the bindings are resolved.
+    struct PointerRoleTable {
+        std::array<std::array<PointerRoleChord, kPointerRoleChordLimit>, kPointerRoleCount>
+            chords{};
+        std::array<uint8_t, kPointerRoleCount> counts{};
+        bool ready{};
+    };
+
+    /// What a camera drag on the battlefield does.
+    enum class PointerCameraDrag : uint8_t { none, orbit, pan };
+
+    /// Copies the pointer roles out of the bindings just resolved. [runtime_pointer_roles.cpp]
+    ///
+    /// @param resolved the bindings in use
+    void rebuild_pointer_roles(const oa::ui::key_bindings::Resolved& resolved);
+
+    /// The chords a role holds: the copy from the bindings, or the scheme's defaults.
+    /// [runtime_pointer_roles.cpp]
+    ///
+    /// @param action the action id
+    /// @param[out] out the chords
+    /// @param[out] count how many were written
+    void copy_role_chords(
+        std::string_view action,
+        std::array<PointerRoleChord, kPointerRoleChordLimit>& out,
+        uint8_t& count
+    ) const;
+
+    /// The mouse button a pointer role holds, or the scheme's default when it holds none.
+    ///
+    /// A double-click role reports that button. The left-click scheme's defaults stand in until
+    /// the bindings have been resolved, and whenever a role kept no mouse chord.
+    /// [runtime_pointer_roles.cpp]
+    ///
+    /// @param action the action id
+    /// @return the button, 1 to 8
+    [[nodiscard]] uint8_t pointer_role_button(std::string_view action) const;
+
+    /// The button that selects, boxes and gives the order the left button gives today.
+    ///
+    /// That is `pointer.select`. While select and command share a button, this is that button.
+    /// [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t match_select_button() const;
+
+    /// The button that commands, looks and clears as the right button does today.
+    ///
+    /// That is `pointer.command` when it is a different button from select, and otherwise
+    /// `pointer.mouse-look`. [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t match_command_button() const;
+
+    /// The button that starts and ends the minimap scroll in the current interface.
+    ///
+    /// The right-click interface scrolls with the select button. The left-click interface scrolls
+    /// with the command button. [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t pointer_radar_scroll_button() const;
+
+    /// Whether the match's interface is the left-click one. [runtime_pointer_roles.cpp]
+    [[nodiscard]] bool pointer_interface_is_left_click() const;
+
+    /// The signed wheel amount `camera.zoom-in` and `camera.zoom-out` give one turn.
+    ///
+    /// The magnitude is the turn's, including a fraction. The sign follows those roles, so the
+    /// stock bindings pass the turn through. [runtime_pointer_roles.cpp]
+    ///
+    /// @param turn the wheel's y, as the event gave it
+    /// @return the amount to zoom by; positive zooms in
+    [[nodiscard]] float pointer_zoom_amount(float turn) const;
+
+    /// The camera drag this button starts for the modifiers held now.
+    ///
+    /// The matching orbit or pan chord with the most modifiers wins. A plain pan chord pans only
+    /// while Middle-click pans is on and the rotated view is showing. [runtime_pointer_roles.cpp]
+    ///
+    /// @param button the mouse button
+    /// @param modifiers the binding modifier bits held now
+    /// @return orbit, pan, or none
+    [[nodiscard]] PointerCameraDrag pointer_camera_drag(uint8_t button, uint8_t modifiers);
+
+    /// The binding modifier bits held now, including the check's synthetic Shift.
+    /// [runtime_pointer_roles.cpp]
+    [[nodiscard]] uint8_t pointer_modifier_bits() const;
+
+    /// Whether a pointer role's modifier keys are held, ignoring its button.
+    ///
+    /// A pointer chord is invisible to `role_active`. [runtime_pointer_roles.cpp]
+    ///
+    /// @param action the action id
+    /// @param modifiers the binding modifier bits held now
+    /// @return true while every modifier of one of its mouse chords is held
+    [[nodiscard]] bool
+    pointer_role_modifiers_held(std::string_view action, uint8_t modifiers) const;
+
+    /// Whether a modifier role is held, from `role_active`, counting the check's synthetic Shift.
+    ///
+    /// The pad's FORCE is not included. A pointer chord is judged from its modifiers.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @return true while that role is held
+    [[nodiscard]] bool modifier_role_active(std::string_view action) const;
+
     /// Returns whether the touch latch for a use gives Shift now (false for keyboard).
     /// [runtime_input_modifiers.cpp]
     ///
@@ -15838,6 +15952,12 @@ class Runtime final : public menu::Host,
     [[nodiscard]] std::array<oa::present::world_renderer::ScreenPoint, 2>
     match_drag_corners(const oa::present::world_renderer::BattlefieldViewport& viewport) const;
 
+    /// The box a drag must stay inside, in screen pixels, to count as a click. [runtime_hotkeys.cpp]
+    [[nodiscard]] int32_t drag_click_pixels() const;
+
+    /// The ticks a drag must finish within to count as a click. [runtime_hotkeys.cpp]
+    [[nodiscard]] uint32_t drag_click_ticks() const;
+
     /// Tests whether the release ends a click rather than a box selection: soon after the press and
     /// with the box small in x and z.
     ///
@@ -19364,6 +19484,8 @@ class Runtime final : public menu::Host,
     // The key bindings' dispatcher; null until the first event or frame that feeds it.
     mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
         key_bindings_state_{nullptr, destroy_key_bindings_state};
+    /// The pointer roles copied from those bindings. Empty until the first resolution.
+    PointerRoleTable pointer_roles_{};
     // The installed brains; null until first read.
     mutable std::unique_ptr<BrainLibraryState, void (*)(BrainLibraryState*) noexcept>
         brain_library_state_{nullptr, destroy_brain_library_state};
