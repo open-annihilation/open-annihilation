@@ -108,9 +108,9 @@ oa::Unit& place(
 
 /// Builds the world: two fighting players and a watcher, red's commander,
 /// blue's tank and solar collector.
-oa::World* make_world() {
+oa::World* make_world(uint32_t extra_weapons = 0) {
     oa::World* world{oa::world_create()};
-    const oa::WorldCapacity capacity{slot_count, type_count, 0};
+    const oa::WorldCapacity capacity{slot_count, type_count, 0, extra_weapons};
     if (world == nullptr || oa::world_alloc_tables(world, &capacity) == 0)
         std::abort();
     world->game.map_pixel_width = 2048;
@@ -457,6 +457,44 @@ void test_samples() {
     oa::world_destroy(world);
 }
 
+void test_wide_weapon() {
+    constexpr uint16_t wide = 300;
+    oa::World* world{make_world(45)};
+    oa::WeaponDef* definition{oa::world_weapon_def(world, oa::oa_ref_from_index(wide))};
+    expect(definition != nullptr, "weapon 300 has a record");
+    if (definition != nullptr)
+        set_text(definition->name, "Wide gun");
+    director::TimelineRecorder recorder{};
+    recorder.begin(*world, watcher, "Map");
+    const oa::sim::match_runtime::EventHooks hooks{recorder.event_hooks()};
+    oa::Projectile shot{};
+    shot.def = oa::oa_ref_from_index(wide);
+    shot.origin = {fixed(510), fixed(30), fixed(410)};
+    shot.position = {fixed(1490), fixed(2), fixed(598)};
+    shot.source = oa::oa_unit_ref_from_slot(red_commander);
+    shot.owner_index = red;
+    hooks.shot_placed(hooks.context, *world, shot, ShotSource::weapon, nullptr, 0);
+    recorder.finish(*world, director::ReplayVerdict{});
+    const director::Timeline timeline{recorder.take()};
+    expect(timeline.header.weapons.size() == 3, "weapon 300 after the stock ones");
+    if (timeline.header.weapons.size() == 3) {
+        expect(timeline.header.weapons[0].weapon_id == laser, "laser first");
+        expect(timeline.header.weapons[1].weapon_id == cannon, "cannon second");
+        expect(
+            timeline.header.weapons[2].weapon_id == wide &&
+                timeline.header.weapons[2].name == "Wide gun",
+            "weapon 300 last"
+        );
+    }
+    bool recorded{false};
+    for (const director::TimelineEvent& event : timeline.events) {
+        if (event.kind == director::EventKind::shot && event.weapon == wide)
+            recorded = true;
+    }
+    expect(recorded, "the shot records weapon 300");
+    oa::world_destroy(world);
+}
+
 void test_null_visibility() {
     oa::World* world{make_world()};
     director::TimelineRecorder recorder{};
@@ -477,6 +515,7 @@ int main() {
     test_begin();
     test_water();
     test_events();
+    test_wide_weapon();
     test_samples();
     test_null_visibility();
     if (failures != 0) {

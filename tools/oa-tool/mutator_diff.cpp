@@ -398,6 +398,7 @@ Side apply_loadout(
     input.layout = &layout;
     input.limits.weapon_types =
         install.profile != nullptr ? install.profile->limits.weapon_types.types : 256;
+    input.limits.sides = install.profile != nullptr ? install.profile->limits.sides.count : 5;
     input.check_integrity = false;
     input.seed = seed;
     input.map = map;

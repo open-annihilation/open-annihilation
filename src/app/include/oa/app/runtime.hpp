@@ -2248,6 +2248,18 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error when the check did not start.
     void finish_reclaim_check();
 
+    /// Starts --weapon-fire-check: places the named type, orders it to fire
+    /// its first weapon at a unit and a feature, and listens to those shots.
+    ///
+    /// Throws std::runtime_error when the type, its weapon or a place for the
+    /// units and the feature is missing.
+    void begin_weapon_fire_check();
+
+    /// Ends --weapon-fire-check: prints the shots, the damage, the feature
+    /// hit and the world digest, and throws std::runtime_error when one is
+    /// missing or does not come from the type's weapon.
+    void finish_weapon_fire_check();
+
     /// Times a benchmark scene and prints its phase times.
     ///
     /// Each frame drains the events, scrolls the camera back and forth when asked,
@@ -17991,6 +18003,87 @@ class Runtime final : public menu::Host,
     };
 
     std::optional<ReclaimCheck> reclaim_check_;
+
+    /// One shot, detonation or hit the weapon-fire check heard. The listener
+    /// copies these out of the event; the projectile pool does not keep them.
+    struct WeaponFireNote {
+        uint16_t source{};
+        uint16_t target{};
+        oa_ref32 def{};
+        int32_t cell_x{};
+        int32_t cell_z{};
+        int16_t amount{};
+        uint8_t kind{};
+        bool after_a_detonation{};
+    };
+
+    /// The units, feature and events --weapon-fire-check watches.
+    struct WeaponFireCheck {
+        std::string type;
+        uint16_t fired{}; ///< the first weapon's whole id
+        oa_ref32 weapon_ref{};
+        int32_t weapon_damage{};
+        uint16_t unit_a{};
+        uint16_t unit_t{};
+        uint16_t unit_b{};
+        int32_t feature_x{};
+        int32_t feature_z{};
+        int32_t footprint_x{1};
+        int32_t footprint_z{1};
+        uint16_t feature_word{};
+        std::size_t feature_plot{};
+        oa::sim::match_runtime::EventListenerId listener{};
+        bool a_detonated{};
+        std::vector<WeaponFireNote> shots;
+        std::vector<WeaponFireNote> detonations;
+        std::vector<WeaponFireNote> damage;
+    };
+
+    /// Copies a placed shot into the weapon-fire check.
+    ///
+    /// @param context the runtime
+    /// @param world the match's world
+    /// @param shot the shot, valid for this call only
+    /// @param source how the shot was placed
+    /// @param aim the aim point, or null
+    /// @param target_unit the unit aimed at, or 0
+    static void weapon_fire_shot_placed(
+        void* context,
+        const oa::World& world,
+        const oa::Projectile& shot,
+        oa::sim::match_runtime::ShotSource source,
+        const oa::FixedVec3* aim,
+        uint16_t target_unit
+    );
+
+    /// Copies a detonation into the weapon-fire check.
+    ///
+    /// @param context the runtime
+    /// @param world the match's world
+    /// @param shot the shot at the point it detonates
+    /// @param direct_unit the unit it struck, or 0
+    static void weapon_fire_shot_detonated(
+        void* context, const oa::World& world, const oa::Projectile& shot, uint16_t direct_unit
+    );
+
+    /// Copies a health event into the weapon-fire check.
+    ///
+    /// @param context the runtime
+    /// @param world the match's world
+    /// @param target the unit hit
+    /// @param source the attacker, or 0
+    /// @param amount health points taken
+    /// @param kind 1 for weapon damage
+    static void weapon_fire_unit_damaged(
+        void* context,
+        const oa::World& world,
+        uint16_t target,
+        uint16_t source,
+        int16_t amount,
+        uint8_t kind
+    );
+
+    std::optional<WeaponFireCheck> weapon_fire_check_;
     std::size_t wrecks_drawn_{};
     int32_t configured_map_metal_ = 0;
     std::vector<oa::sim::unit_spawn::Type> spawn_types_;

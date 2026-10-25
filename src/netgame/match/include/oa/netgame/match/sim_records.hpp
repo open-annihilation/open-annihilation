@@ -103,7 +103,7 @@ struct FeatureRecordLink {
 /// @param cell_x Plot column.
 /// @param cell_z Plot row.
 /// @return True when the hit was handed to the authority and must not be applied here.
-bool feature_hit_elsewhere(void* link, uint8_t weapon_id, int32_t cell_x, int32_t cell_z);
+bool feature_hit_elsewhere(void* link, uint16_t weapon_id, int32_t cell_x, int32_t cell_z);
 
 /// Implements FeatureHost::feature_changed over a FeatureRecordLink.
 ///

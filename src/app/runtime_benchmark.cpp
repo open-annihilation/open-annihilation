@@ -805,9 +805,12 @@ void Runtime::prepare_headless_match() {
         spawn_combat_armies(options_.combat_units);
     if (!options_.stage_file.empty())
         apply_stage();
-    if constexpr (self_checks_built)
+    if constexpr (self_checks_built) {
         if (options_.reclaim_check)
             begin_reclaim_check();
+        if (!options_.weapon_fire_check.empty())
+            begin_weapon_fire_check();
+    }
     if (options_.camera) {
         match_camera_x_ = options_.camera->first;
         match_camera_z_ = options_.camera->second;
@@ -1050,9 +1053,12 @@ void Runtime::run_headless_match(std::size_t ticks) {
             worst_ns = 0;
         }
     }
-    if constexpr (self_checks_built)
+    if constexpr (self_checks_built) {
         if (options_.reclaim_check)
             finish_reclaim_check();
+        if (!options_.weapon_fire_check.empty())
+            finish_weapon_fire_check();
+    }
     if (!options_.snapshot.empty())
         write_ppm(options_.snapshot, surface_);
     print_memory_status();

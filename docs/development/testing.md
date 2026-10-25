@@ -1162,6 +1162,28 @@ The installation of Total Annihilation 3.1c is not CI's to download: the
 game-data tests and the native checks over it run only on contributors'
 machines, so run them before asking for review.
 
+### Before a push: other compilers' warnings
+
+Clang on macOS does not turn on the narrowing warnings Visual Studio's
+compiler reports, or GCC's `-Wsign-compare`, so a push can be the first
+time those builds see them. `tools/check_conversions.py` compiles the C
+and C++ sources that changed since a merge base, with Clang and
+`-fsyntax-only`, and reports only the warnings that fall on changed
+lines. The three flags are:
+
+- `-Wimplicit-int-float-conversion` and `-Wshorten-64-to-32`, for the
+  narrowing Visual Studio's compiler reports as C4244 and C4267;
+- `-Wsign-compare`, the same warning GCC reports under that name.
+
+```sh
+python3 tools/check_conversions.py --base origin/main
+```
+
+The report names changed lines only. `--whole-files` reports every
+warning of those three flags in a changed file. The check needs Clang.
+Fix a finding with an explicit cast or a wider type. Do not turn the
+warning off.
+
 ## Start-up and screen timing
 
 A run writes `open-annihilation: timing:` lines. Each line ends with a

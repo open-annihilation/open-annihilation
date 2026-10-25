@@ -1787,12 +1787,13 @@ bool Runtime::draw_match_surface() {
     // Resolve only the installed EMG impact art; unrelated explosions keep their presentation.
     std::vector<const oa::formats::gaf::Sequence*> emg_impacts;
     if (full_presentation() || live_renderer_active()) {
-        for (uint32_t index = 0; index < OA_WEAPON_DEF_COUNT; ++index) {
-            const auto& definition = world_record.game.weapon_defs[index];
-            if (!renderer_weapon_style::is_emg(definition))
+        for (uint32_t index = 0; index < oa::world_weapon_def_count(&world_record); ++index) {
+            const oa::WeaponDef* definition =
+                oa::world_weapon_def(&world_record, oa::oa_ref_from_index(index));
+            if (definition == nullptr || !renderer_weapon_style::is_emg(*definition))
                 continue;
             oa::Projectile reference{};
-            reference.def = index + 1;
+            reference.def = oa::oa_ref_from_index(index);
             const auto* weapon = match_->projectile_weapon(reference);
             if (weapon == nullptr)
                 continue;

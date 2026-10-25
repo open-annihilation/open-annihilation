@@ -118,11 +118,15 @@ uint32_t build_left_of(float build_remaining) noexcept {
 
 /// Returns the weapon id a weapon-type reference names.
 ///
+/// @param world the world
 /// @param reference a WeaponDef reference; 0 is none
-/// @return the weapon's index in Game.weapon_defs, or 0 for none
-uint8_t weapon_id_of(oa_ref32 reference) noexcept {
-    return reference != 0 && reference <= OA_WEAPON_DEF_COUNT ? static_cast<uint8_t>(reference - 1u)
-                                                              : uint8_t{0};
+/// @return the weapon's id, or 0 for none or one past the weapon table
+uint16_t weapon_id_of(const oa::World& world, oa_ref32 reference) noexcept {
+    const uint32_t count{oa::world_weapon_def_count(&world)};
+    if (reference == 0 || static_cast<uint32_t>(reference) > count)
+        return 0;
+    const uint32_t id{reference - 1u};
+    return id <= std::numeric_limits<uint16_t>::max() ? static_cast<uint16_t>(id) : uint16_t{0};
 }
 
 /// Returns the unit slot a unit reference names.
@@ -167,12 +171,12 @@ std::string text_of(const char* text, size_t capacity) {
 /// @param[in,out] timeline the timeline
 /// @param world the world
 /// @param weapon_id the weapon's id; 0 adds nothing
-void note_weapon(Timeline& timeline, const oa::World& world, uint8_t weapon_id) {
+void note_weapon(Timeline& timeline, const oa::World& world, uint16_t weapon_id) {
     if (weapon_id == 0)
         return;
     auto& weapons{timeline.header.weapons};
     const auto at{std::lower_bound(
-        weapons.begin(), weapons.end(), weapon_id, [](const TimelineWeapon& weapon, uint8_t id) {
+        weapons.begin(), weapons.end(), weapon_id, [](const TimelineWeapon& weapon, uint16_t id) {
             return weapon.weapon_id < id;
         }
     )};
@@ -223,14 +227,14 @@ void note_unit_type(Timeline& timeline, const oa::World& world, const oa::Unit& 
         type.max_damage = definition->max_damage;
         type.build_distance = count_of(definition->build_distance);
         type.weapons = {
-            weapon_id_of(definition->weapon1),
-            weapon_id_of(definition->weapon2),
-            weapon_id_of(definition->weapon3),
+            weapon_id_of(world, definition->weapon1),
+            weapon_id_of(world, definition->weapon2),
+            weapon_id_of(world, definition->weapon3),
         };
     }
-    const std::array<uint8_t, unit_weapon_slots> weapons{type.weapons};
+    const std::array<uint16_t, unit_weapon_slots> weapons{type.weapons};
     types.insert(at, std::move(type));
-    for (const uint8_t weapon_id : weapons)
+    for (const uint16_t weapon_id : weapons)
         note_weapon(timeline, world, weapon_id);
 }
 
@@ -546,7 +550,7 @@ void TimelineRecorder::shot_placed(
         event.kind = EventKind::shot;
         event.unit = source == ShotSource::meteor ? uint16_t{0} : slot_of(world, shot.source);
         event.owner = player_of(shot.owner_index);
-        event.weapon = weapon_id_of(shot.def);
+        event.weapon = weapon_id_of(world, shot.def);
         event.other_unit = target_unit;
         event.at = point_of(shot.origin);
         if (aim != nullptr) {
@@ -573,7 +577,7 @@ void TimelineRecorder::shot_detonated(
         event.kind = EventKind::detonation;
         event.unit = slot_of(world, shot.source);
         event.owner = player_of(shot.owner_index);
-        event.weapon = weapon_id_of(shot.def);
+        event.weapon = weapon_id_of(world, shot.def);
         event.other_unit = direct_unit;
         event.at = point_of(shot.position);
         note_weapon(recorder.timeline_, world, event.weapon);

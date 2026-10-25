@@ -53,7 +53,7 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
             const auto* definition = match.weapons_[source.unit_index].definitions[index];
             const auto* mover = match.ground_runtime(target.unit_index);
             if (definition) {
-                const auto& weapon = match.state().game.weapon_defs[definition->registry_index];
+                const auto& weapon = match.weapon_record(*definition);
                 if (sim::weapon_execution::lead_applies(
                         weapon, source.record, mover != nullptr, rules
                     )) {
@@ -205,7 +205,7 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
         if (!definition)
             return false;
         const auto& def = match_unit_def(match, source.record);
-        const auto& record = match.state().game.weapon_defs[definition->registry_index];
+        const auto& record = match.weapon_record(*definition);
         return sim::ballistics::fire_can_reach(
             {definition->flags,
              definition->range_world_units,
@@ -215,7 +215,7 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
                  match.state().game.gravity,
                  rules.rules()
              ),
-             sim::weapon_execution::reach_keys(rules.weapon(record.weapon_id))},
+             sim::weapon_execution::reach_keys(rules.weapon(oa::oa_weapon_def_id(&record)))},
             {from.fixed, high_word(static_cast<uint32_t>(def.model_height)), 0, 0},
             target.point.fixed,
             match.simulation_.sea_level
@@ -254,7 +254,7 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
         };
         auto& world = match.state();
         const auto plan = sim::weapon_execution::plan_weapon_shot(
-            world.game.weapon_defs[definition->registry_index],
+            match.weapon_record(*definition),
             source.record,
             *oa::world_unit_def_of(&world, &source.record),
             index,
@@ -298,8 +298,8 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
                            ? source.record.position
                            : muzzle_point;
         shared.target = target_point;
-        const auto& weapon = world.game.weapon_defs[definition->registry_index];
-        shared.weapon_id = weapon.weapon_id;
+        const auto& weapon = match.weapon_record(*definition);
+        shared.weapon_id = oa::oa_weapon_def_id(&weapon);
         shared.interceptor = (weapon.flags & OA_WEAPON_FLAG_INTERCEPTOR) != 0;
         shared.aim_heading = slot.aim_heading;
         shared.aim_pitch = slot.aim_pitch;
@@ -426,7 +426,7 @@ void Match::apply_shot(const ShotEvent& shot) {
     if (definition == nullptr)
         return;
     // The constructors launch the slot's weapon; the carried one only picks them.
-    const auto& slot_weapon = world.game.weapon_defs[definition->registry_index];
+    const auto& slot_weapon = weapon_record(*definition);
     const uint16_t target_unit = shot.target_unit < slots_.size() ? shot.target_unit : 0;
     const sim::weapon_execution::FixedVector start{shot.start.x, shot.start.y, shot.start.z};
     const sim::weapon_execution::FixedVector target{shot.target.x, shot.target.y, shot.target.z};

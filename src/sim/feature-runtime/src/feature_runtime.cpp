@@ -798,7 +798,7 @@ void damage_feature(
     if (def == nullptr || (def->flags & OA_FEATURE_FLAG_INDESTRUCTIBLE) != 0)
         return;
     if (host.feature_hit_elsewhere != nullptr &&
-        host.feature_hit_elsewhere(host.context, weapon.weapon_id, cell_x, cell_z))
+        host.feature_hit_elsewhere(host.context, oa_weapon_def_id(&weapon), cell_x, cell_z))
         return;
     const auto hit_points = static_cast<uint16_t>(def->damage);
     const bool burns = (def->flags & OA_FEATURE_FLAG_FLAMABLE) != 0 && weapon.fire_starter != 0;
