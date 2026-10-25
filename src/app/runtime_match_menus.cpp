@@ -26,6 +26,7 @@
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/screen_registry.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/console/hotkeys.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/app/runtime.hpp"
 #include "panel_first_draw.hpp"
@@ -2024,10 +2025,7 @@ void Runtime::resume_match_pause() {
     if (match_ && match_hud_panel_ == oa::data::defs::gui_path("ARMOPT.GUI") &&
         (current_extension_state() & extension_state::shared_match) == 0 &&
         (match_->state().game.sim_run_flags & oa::ui::console::kSimRunPaused) != 0) {
-        SDL_KeyboardEvent pause{};
-        pause.key = SDLK_PAUSE;
-        pause.scancode = SDL_SCANCODE_PAUSE;
-        std::ignore = handle_console_hotkey(pause);
+        run_console_hotkey(oa::ui::console::hotkey::pause);
     }
     // Resuming over the preferences keeps what they set, as leaving them does.
     if (match_preferences_open())
