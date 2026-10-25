@@ -87,6 +87,10 @@ Every document in the repository, by what you want to do.
   battle room: the host chooses, a guest sees the list and **GET
   MUTATORS**, **START** waits, and a room with mutators is Open
   Annihilation only and unranked.
+- [multiplayer/limits.md](multiplayer/limits.md): a mod with more than
+  256 weapon types, or more than five sides, is played only on Open
+  Annihilation. **START** stays grey, and the room says why a player
+  cannot be in it.
 - [typing.md](typing.md): typing in any script, Chinese among them, in
   the chat lines, a saved game's name and the whiteboard: input methods,
   commands, saves and recordings named in any script, the iPhone and iPad
