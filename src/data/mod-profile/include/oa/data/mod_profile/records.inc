@@ -515,6 +515,10 @@ struct Identity {
     /// spare side kept only to line up its SIDEx art. The skirmish, launch files and the side's own
     /// data are unchanged. 3.1c: [].
     FixedList<int32_t, 31> battle_room_hidden_sides{};
+    /// identity.computer-player-sides: SIDEDATA sides, by number, that computer players may take in
+    /// the skirmish and the battle room; empty lets them take every side. Sides below the profile's
+    /// limits.sides; a human player still chooses any side offered. 3.1c: [].
+    FixedList<int32_t, 31> computer_player_sides{};
     /// Compares every field.
     bool operator==(const Identity&) const = default;
 };

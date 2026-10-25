@@ -110,6 +110,7 @@ void base_layout_is_the_games() {
         defs::data_layout().build_version[0] == 3 && defs::data_layout().build_version[1] == 1,
         "units are checked against build 3.1"
     );
+    check(defs::computer_player_sides() == 0, "a computer player may take every side");
 }
 
 void renamed_directories_replace_the_base_ones() {

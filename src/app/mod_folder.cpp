@@ -424,6 +424,7 @@ data::defs::DataLayout data_layout_of(const mod_profile::ModProfile* profile) {
     };
     layout.skirmish_hidden_sides = side_bits(profile->identity.skirmish_hidden_sides);
     layout.battle_room_hidden_sides = side_bits(profile->identity.battle_room_hidden_sides);
+    layout.computer_player_sides = side_bits(profile->identity.computer_player_sides);
     return layout;
 }
 
