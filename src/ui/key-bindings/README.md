@@ -36,6 +36,20 @@ gesture is recorded but not timed.
 - `on_keyboard` is false for a character no key's events carry.
 - `KeyboardMap::us` is the US layout. `set` records, for one position, the
   key code events carry and the character the key prints.
+- `resolve` turns the base, the chosen layout, the mod's quick keys and the
+  player's own changes into the bindings in use. Each chord records the step
+  that set it. A name neither the registry nor a family makes is kept, with
+  its chords. A chord that loses records why, and which action kept it.
+- `find_clashes` lists pairs that share a key on one layer. A hack's
+  precedence, an overlay and a stricter set of conditions are not clashes;
+  `shadows` lists those pairs for the editor. Two modifier roles on one
+  modifier, select and command on the left button, and the resource panel's
+  view and lock on one double-click are not clashes either: the screen
+  decides which, and both chords stay. `clashes_with` answers what one more
+  chord on an action would clash with.
+- `layers_meet`, `conditions_meet` and `same_key` are that rule in pieces.
+  `same_key` treats a letter and a place as one key when the keyboard map
+  prints that letter on that place.
 - `key_positions` names every position a keyboard report can carry that the
   UI Events code list names. `scancodes_without_code` lists the rest, which
   no chord can name.
@@ -57,6 +71,11 @@ table and the named keys are fixed.
   An F-key is one label (`F1`), not a word. A digit in a name (`Numpad` and
   `1`, `Button` and `6`) is its own keycap. `display_text` puts `+` between
   keycaps and the gesture after a space.
+- Resolution reads its input and the registry, and does not read a clock.
+  The number-key swap is applied to the result only: the layout and the
+  player's own changes are left as they were given. An action keeps at most
+  four chords. Escape stays on `chat.cancel` whatever a step said. Every
+  other action, `ui.settings` included, takes the chords the steps give it.
 
 ## Tests
 
@@ -70,6 +89,15 @@ Primary is the command key on one platform and Ctrl on the other. On an
 AZERTY map, `A` matches the key whose events carry `a`, `@KeyA` matches the
 A key's place, and `@Digit1` is labelled `&`. It checks keycaps for each
 form, and `on_keyboard` for a backtick the map does not carry.
+
+`ui-key-bindings-layouts` (`tests/layout_test.cpp`) resolves `oa-default`
+with no clash for no hack, for each hack alone and for all of them, in both
+pointer schemes and with the number-key swap off and on. It checks a chosen
+layout, a mod letter, a player's own change, a hack's default and its
+replacement, the left-click scheme, the swap, fixed Escape, and the pairs
+that share a key without clashing: modifiers, the left button, a stricter
+condition, chat's Enter, a hack's Tab, and a pointer aimed at a different
+place.
 
 `ui-key-bindings-sdl` (`tests/sdl_numbers_test.cpp`) links SDL and checks the
 numbers the library holds: every scancode SDL names is in the position table
