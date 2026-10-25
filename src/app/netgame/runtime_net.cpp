@@ -56,6 +56,7 @@
 #include "oa/ui/hud/team_panels.hpp"
 #include "oa/ui/hud/whiteboard.hpp"
 #include "oa/ui/frontend_multiplayer/connect.hpp"
+#include "oa/ui/frontend_multiplayer/room_limits.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include <algorithm>
@@ -3015,6 +3016,8 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             "a presence record did not name this build's limits"
         );
     }
+    require(mp::lobby_limits_allow_start(*host.lobby), "the host's room held START for limits");
+    std::cout << "net loopback check: limits allow START\n";
     std::cout << "net loopback check: presence records exchanged\n";
     // The host seats a computer player in the first open slot, as a click on
     // a closed slot does: a player of the host's session, playing Core. It

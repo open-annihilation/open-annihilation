@@ -3,6 +3,7 @@
 
 // Battleroom (LOUNGE2.GUI): slot rules, rows, options, start checks.
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
+#include "oa/ui/frontend_multiplayer/room_limits.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 
 #include "oa/base/game_loop.hpp"
@@ -1378,6 +1379,18 @@ bool presence_keep(Lobby& lobby, const LobbyEvent& event) noexcept {
     // the records have brought it, including a part that continues the head.
     feed_host_assembly(lobby);
     lobby_note_classic_room(lobby);
+    // An OA joiner is judged when its record arrives, not on its block. A
+    // build that sends no record is never refused. A later record from a
+    // player already named does not post the line again.
+    if (host_is_local(lobby) && lobby_room_oa_only(lobby) && lobby_limits_remote_oa(lobby, slot) &&
+        !lobby_limits_covered(lobby, slot)) {
+        if (!lobby.limits_older_refused[slot]) {
+            lobby.limits_older_refused[slot] = true;
+            lobby_post_limits_line(lobby, lobby_limits_newer_line(), slot);
+        }
+        lobby_reject(lobby, event.player_id, kRejectVersion);
+        flush(lobby);
+    }
     return true;
 }
 
@@ -2199,11 +2212,13 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
     lobby.presence_records.part_refused_digest.reset();
     lobby.mutators_hold_seen = false;
     lobby.classic_lines_posted = false;
+    lobby.leave_line = nullptr;
     std::fill(
         std::begin(lobby.side_past_table_posted),
         std::end(lobby.side_past_table_posted),
         static_cast<int16_t>(-1)
     );
+    std::fill(std::begin(lobby.limits_older_refused), std::end(lobby.limits_older_refused), false);
     // The recorder's session starts again; the line it answers with stays.
     char program[sizeof lobby.recorder.program];
     std::memcpy(program, lobby.recorder.program, sizeof program);
@@ -2467,6 +2482,7 @@ void lobby_swap_slots(Lobby& lobby, int32_t first, int32_t second) noexcept {
         lobby.computer_launch_brain[static_cast<std::size_t>(second)]
     );
     std::swap(lobby.side_past_table_posted[first], lobby.side_past_table_posted[second]);
+    std::swap(lobby.limits_older_refused[first], lobby.limits_older_refused[second]);
     slot_set_status(lobby, a, kSlotOpen);
     a.in_use = 0;
     // The game renumbers eleven records; the eleventh lies past the table.
@@ -3152,7 +3168,8 @@ void lobby_enter_battleroom(Lobby& lobby, Panel& panel) noexcept {
         panel,
         "START",
         !(host && lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-          lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby) && synced)
+          lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
+          lobby_sides_allow_start(lobby) && synced)
     );
     panel_set_grayed(panel, "RESTRICTIONS", false);
     panel_set_text(panel, "METALTEXT", "0");
@@ -3619,8 +3636,10 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
     }
     if (panel_selected_is(panel, "START")) {
         const bool mutators_allow = lobby_mutators_allow_start(lobby);
+        const bool limits_allow = lobby_limits_allow_start(lobby);
         const bool sides_allow = lobby_sides_allow_start(lobby);
-        if (!lobby_content_allows_start(lobby) || !mutators_allow || !sides_allow) {
+        if (!lobby_content_allows_start(lobby) || !mutators_allow || !limits_allow ||
+            !sides_allow) {
             if (!mutators_allow)
                 lobby_note_refused_start(lobby_mutators_block(lobby));
             panel.selected = kNoControl;
@@ -3811,7 +3830,8 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
                 const bool synced = unit_sync_complete(lobby);
                 const bool ready =
                     lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-                    lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby);
+                    lobby_mutators_allow_start(lobby) && lobby_limits_allow_start(lobby) &&
+                    lobby_sides_allow_start(lobby);
                 const auto tick = now(lobby);
                 panel_set_grayed(panel, "SYNCHING", true);
                 if (lobby.start_frame > 0 && lobby_clock_passed(tick, lobby.start_frame_tick)) {
@@ -4701,6 +4721,7 @@ bool lobby_add_player(Lobby& lobby, uint32_t player_id, const char* name) noexce
     auto& player = game.players[slot];
     // Its block may still hold an earlier player's bytes until its own comes.
     presence_forget(lobby.presence_records, slot);
+    lobby.limits_older_refused[slot] = false;
     copy_text(
         player.name,
         sizeof(player.name),
@@ -4761,6 +4782,7 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         if (slot < 0)
             return false;
         presence_forget(lobby.presence_records, slot);
+        lobby.limits_older_refused[slot] = false;
         auto& player = slot_player(lobby, slot);
         // The creator leaving before the start ends the game here: its
         // player and this machine's leave with reason 10.
@@ -4831,6 +4853,9 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         const auto slot = slot_for_player_id(lobby, record.player_id);
         if (slot < 0 || slot_player(lobby, slot).status != kSlotRemote)
             return false;
+        // Read before the block is copied: a later block may not repeat the
+        // host bit, and the copy replaces the setup info.
+        const auto known_host = lobby_host_slot(lobby);
         auto* bytes = reinterpret_cast<uint8_t*>(slot_info(lobby, slot));
         std::memcpy(bytes, record.info_head, sizeof(record.info_head));
         std::memcpy(
@@ -4853,6 +4878,42 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
             lobby_reject(lobby, record.player_id, kRejectVersion);
             flush(lobby);
             return true;
+        }
+        // A 3.1c joiner cannot play a mod past 3.1c's limits. The mutator
+        // line keeps its place when both apply. An OA block is seated: its
+        // record has not arrived, so it is not refused here.
+        if (arriving && host_is_local(lobby) && lobby_room_oa_only(lobby)) {
+            const auto* arrived = slot_info(lobby, slot);
+            if (arrived != nullptr &&
+                !netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(arrived))) {
+                lobby_post_limits_line(lobby, lobby_limits_classic_line(lobby), slot);
+                lobby_reject(lobby, record.player_id, kRejectVersion);
+                flush(lobby);
+                return true;
+            }
+        }
+        // This machine's mod is OA-only and the host plays 3.1c. Leave with
+        // the ordinary reason, and send no presence record to that host.
+        if (!host_is_local(lobby) && lobby_room_oa_only(lobby)) {
+            const auto host_now = lobby_host_slot(lobby);
+            const bool from_host =
+                (known_host != kNoSlot && slot == static_cast<int32_t>(known_host)) ||
+                (host_now != kNoSlot && slot == static_cast<int32_t>(host_now));
+            const auto* host_info = slot_info(lobby, slot);
+            if (from_host && host_info != nullptr &&
+                !netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(host_info))) {
+                if (lobby.leave_line == nullptr) {
+                    lobby.leave_line = lobby_limits_leave_line();
+                    lobby_post_limits_line(lobby, lobby.leave_line, -1);
+                }
+                for (int32_t mine = 0; mine < kSlotCount; ++mine) {
+                    auto& seated = slot_player(lobby, mine);
+                    if (local_or_computer(seated))
+                        lobby_reject(lobby, seated.player_id, kRejectLeaving);
+                }
+                flush(lobby);
+                return true;
+            }
         }
         if (const auto* echoed = slot_info(lobby, slot)) {
             note_computer_command_echo(lobby, record.player_id, kComputerEditSide, echoed->side);
@@ -4962,10 +5023,30 @@ bool lobby_apply_event(Lobby& lobby, const LobbyEvent& event) noexcept {
         // The host refused a 3.1c joiner from its room with mutators: a
         // guest names it too, once, from the joiner's own block. A guest
         // never refuses anyone itself.
+        bool mutator_named = false;
         if (record.reason == kRejectVersion && !host_is_local(lobby) &&
             lobby.presence_records.block_player[slot] == record.player_id &&
-            classic_in_mutator_room(lobby, slot))
+            classic_in_mutator_room(lobby, slot)) {
             lobby_post_classic_line(lobby, kClassicRefusedLine, slot);
+            mutator_named = true;
+        }
+        // The host refused a player this mod cannot include. A guest names
+        // that player and does not refuse anyone itself. The mutator line
+        // keeps its place when both apply.
+        if (!mutator_named && record.reason == kRejectVersion && !host_is_local(lobby) &&
+            lobby.presence_records.block_player[slot] == record.player_id &&
+            lobby_room_oa_only(lobby)) {
+            const auto* named = slot_info(lobby, slot);
+            if (named != nullptr &&
+                !netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(named)))
+                lobby_post_limits_line(lobby, lobby_limits_classic_line(lobby), slot);
+            else if (
+                named != nullptr &&
+                netgame::sent_by_open_annihilation(reinterpret_cast<const uint8_t*>(named)) &&
+                !lobby_limits_covered(lobby, slot)
+            )
+                lobby_post_limits_line(lobby, lobby_limits_newer_line(), slot);
+        }
         // Passed on once, as for a rejection made here.
         lobby_reject(lobby, record.player_id, record.reason);
         flush(lobby);

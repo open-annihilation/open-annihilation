@@ -528,6 +528,12 @@ struct Lobby {
     /// The side last named for this slot in the line about a side this game
     /// does not have, or -1 when nothing was posted.
     int16_t side_past_table_posted[kSlotCount]{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    /// A catalogue line the game list shows once after this machine leaves a
+    /// room by itself. Empty when it did not.
+    const char* leave_line{};
+    /// Set once this host has posted the newer-build line for the player in
+    /// this slot. A later record from that player does not post it again.
+    bool limits_older_refused[kSlotCount]{};
 };
 
 // ---------------------------------------------------------------------------
