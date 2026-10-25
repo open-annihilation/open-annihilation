@@ -361,6 +361,7 @@ void check_game_files_options(Options& options) {
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
+        {options.check_single_player_offers, "--check-single-player-offers"},
         {options.check_radar_orders, "--check-radar-orders"},
         {options.check_touch_controls, "--check-touch-controls"},
         {options.check_pad_controls, "--check-pad-controls"},
@@ -657,6 +658,7 @@ void check_director_options(Options& options) {
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
+        {options.check_single_player_offers, "--check-single-player-offers"},
         {options.check_radar_orders, "--check-radar-orders"},
         {options.check_touch_controls, "--check-touch-controls"},
         {options.check_pad_controls, "--check-pad-controls"},
@@ -764,6 +766,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_build_preview, "--check-build-preview"},
             {options.check_pointer_interfaces, "--check-pointer-interfaces"},
             {options.check_megamap_clicks, "--check-megamap-clicks"},
+            {options.check_single_player_offers, "--check-single-player-offers"},
             {options.check_radar_orders, "--check-radar-orders"},
             {options.check_touch_controls, "--check-touch-controls"},
             {options.check_pad_controls, "--check-pad-controls"},
@@ -1010,6 +1013,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-build-preview", &Options::check_build_preview},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
     {"--check-megamap-clicks", &Options::check_megamap_clicks},
+    {"--check-single-player-offers", &Options::check_single_player_offers},
     {"--check-radar-orders", &Options::check_radar_orders},
     {"--check-touch-controls", &Options::check_touch_controls},
     {"--check-pad-controls", &Options::check_pad_controls},
@@ -1634,7 +1638,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
                      "[--check-click-snap] "
                      "[--check-build-preview] "
-                     "[--check-megamap-clicks] [--check-radar-orders] "
+                     "[--check-megamap-clicks] [--check-single-player-offers] "
+                     "[--check-radar-orders] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
                      "[--check-installer FILE] "
@@ -1925,7 +1930,8 @@ void write_startup_line(std::string_view text) {
         result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
         result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
         result.check_pointer_interfaces || result.check_megamap_clicks ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
+        result.check_single_player_offers || result.check_radar_orders ||
+        result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||

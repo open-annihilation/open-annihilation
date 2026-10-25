@@ -1351,6 +1351,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_zoom_memory_check.cpp
   src/app/runtime_match_panel_keys_check.cpp src/app/runtime_turret_draw_check.cpp
   src/app/runtime_megamap_check.cpp src/app/runtime_radar_orders_check.cpp
+  src/app/runtime_single_player_offers_check.cpp
   src/app/runtime_inactive_loop_check.cpp src/app/runtime_factory_check.cpp
   src/app/runtime_unit_speech_check.cpp src/app/runtime_mutator_layer_check.cpp
   src/app/runtime_mutator_verdicts_check.cpp
@@ -2119,6 +2120,48 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-gadget-art-per-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_gadget_art_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # SINGLE.GUI when a side has a campaign, and when a folder hides every
+      # campaign file with an empty file of the same name. New Campaign stays
+      # shown and is greyed only when neither side has a campaign; Any Mission
+      # is hidden then.
+      set(oa_single_player_offers_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers")
+      file(MAKE_DIRECTORY "${oa_single_player_offers_dir}")
+      add_test(NAME native-single-player-offers COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-single-player-offers
+        --preferences-file "${oa_single_player_offers_dir}/offers.conf")
+      set_tests_properties(native-single-player-offers PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_single_player_offers_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "campaigns yes, new campaign offered")
+      set(oa_hidden_campaigns_mod
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers/hidden/mod")
+      file(MAKE_DIRECTORY "${oa_hidden_campaigns_mod}/camps")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Arm Campaign.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Core Campaign.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Arm Campaign - Core Contingency .tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Core Campaign - Core Contingency .tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Krogoth Encounter.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Example.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Very Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Medium.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Long.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Very Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Medium.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Long.tdf" "")
+      set(oa_hidden_campaigns_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers/hidden")
+      add_test(NAME native-single-player-offers-hidden COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-single-player-offers
+        --mod-dir "${oa_hidden_campaigns_mod}"
+        --preferences-file "${oa_hidden_campaigns_dir}/offers.conf")
+      set_tests_properties(native-single-player-offers-hidden PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_hidden_campaigns_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "campaigns no, new campaign greyed, any mission hidden")
       # The progress dialog: a short job shows nothing, a long spinner and a
       # long bar animate and close with no input, the four languages have
       # the lines, and pictures of both states are written at three sizes.

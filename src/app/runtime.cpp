@@ -1040,6 +1040,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_single_player_offers) {
+            check_single_player_offers();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_radar_orders) {
             check_radar_orders();
             flush_preferences();

@@ -27,7 +27,10 @@ expansion. Nothing that needs 3.1c is offered while the demo is the base
 game. On Single Player, Skirmish is greyed out: it takes no press and
 its key does nothing. Load Game stays greyed and Any Mission stays
 hidden. New Campaign, Options and Previous Menu stay available. The
-full game leaves Skirmish available.
+full game leaves Skirmish available. When no side has a campaign (the
+Campaign expansion is off, or a mod hides every campaign file with an
+empty file of the same name), New Campaign is greyed and Any Mission
+is hidden. The demo keeps New Campaign.
 
 ## Expansions
 
