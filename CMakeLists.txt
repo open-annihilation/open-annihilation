@@ -272,6 +272,8 @@ add_subdirectory(src/ui/paint)
 # The touch controls' gesture recogniser and model (docs/touch-controls.md).
 add_subdirectory(src/ui/touch-gestures)
 add_subdirectory(src/ui/touch-hud)
+# Chords: letters, key positions, names and how an event matches.
+add_subdirectory(src/ui/key-bindings)
 add_subdirectory(src/ui/game-files)
 # The in-engine game folder chooser's model.
 add_subdirectory(src/ui/folder-chooser)
