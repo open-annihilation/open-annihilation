@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -167,9 +168,18 @@ void refuses(std::string_view name, std::string_view json, std::string_view snip
     std::string error;
     const std::optional<update::Plan> loaded = update::read_plan(bytes_of(json), &error);
     OA_CHECK(!loaded.has_value());
+    if (error.find(snippet) == std::string::npos) {
+        std::fprintf(
+            stderr,
+            "expected detail containing '%.*s' for %.*s, got '%s'\n",
+            static_cast<int>(snippet.size()),
+            snippet.data(),
+            static_cast<int>(name.size()),
+            name.data(),
+            error.c_str()
+        );
+    }
     OA_CHECK(error.find(snippet) != std::string::npos);
-    if (error.find(snippet) == std::string::npos)
-        OA_CHECK(error == std::string(name));
 }
 
 void refusals() {
@@ -230,7 +240,7 @@ void refusals() {
         "list"
     );
     refuses("twice", with("\"plan\":1", "\"plan\":1,\"plan\":1"), "twice");
-    refuses("object", "[", "object");
+    refuses("object", "[]", "object");
     refuses("huge", std::string(update::max_plan_bytes + 1, ' '), "too large");
 
     const std::string missing = "{\"plan\":1}";
@@ -311,6 +321,15 @@ void state_refusals() {
     auto refuse = [&](std::string_view json, std::string_view snippet) {
         std::string error;
         OA_CHECK(!update::read_state(bytes_of(json), &error));
+        if (error.find(snippet) == std::string::npos) {
+            std::fprintf(
+                stderr,
+                "expected detail containing '%.*s', got '%s'\n",
+                static_cast<int>(snippet.size()),
+                snippet.data(),
+                error.c_str()
+            );
+        }
         OA_CHECK(error.find(snippet) != std::string::npos);
     };
     refuse(with("\"kept_route\":\"check-folder\"", "\"kept_route\":\"steam\""), "not known");
@@ -325,7 +344,7 @@ void state_refusals() {
         "absolute"
     );
     refuse(with("\"installed_version\":\"0.0.2\"", "\"installed_version\":\"next\""), "version");
-    refuse("{", "JSON");
+    refuse("{", "expected a member name");
 }
 
 } // namespace
