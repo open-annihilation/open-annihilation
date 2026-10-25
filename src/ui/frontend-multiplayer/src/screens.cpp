@@ -157,6 +157,9 @@ struct Ui {
     // survives multiplayer_reset. 0 until bound: the battle room then assumes
     // 3.1c's two.
     int32_t side_count{};
+    // Those sides' SIDEDATA names, by side number (multiplayer_bind_side_names).
+    // It survives multiplayer_reset.
+    std::vector<std::string> side_names;
     // The line this machine says of its engine in the battle room; it
     // survives multiplayer_reset.
     EngineBanner engine_banner{};
@@ -1112,6 +1115,7 @@ void bind_boundaries() {
         lobby.recorder.program, sizeof lobby.recorder.program, "%s", state.program_line.c_str()
     );
     lobby.launch_link = state.launch_link;
+    lobby.side_names = state.side_names;
     lobby.rules = state.rules;
     lobby.lobby_buttons = state.lobby_buttons;
     // A tournament lock is the host's. A joiner takes a seat, not the host's rules.
@@ -2131,6 +2135,64 @@ picture_presentation(const Resources& res, const Control& control, ui::gui_layou
     return presentation;
 }
 
+/// The slot a SIDE button names, or -1 when the name is not SIDE and one digit.
+///
+/// @param name control name
+/// @return the slot, 0 to 9, or -1
+int32_t side_button_slot(std::string_view name) {
+    constexpr std::string_view prefix = "SIDE";
+    if (name.size() != prefix.size() + 1 || !starts_with_nocase(name, prefix))
+        return -1;
+    const char digit = name.back();
+    if (digit < '0' || digit > '9')
+        return -1;
+    return digit - '0';
+}
+
+/// A side past its art shows that side's name on the plain face.
+///
+/// A SIDE slot copied from SIDEx, not a watcher, whose stage names a loaded
+/// side and is past the button's art, takes that name as its caption. The
+/// presentation draws the bevel and the name, and no frame.
+///
+/// @param res screen resources
+/// @param control the button
+/// @param[in,out] gadget the composed gadget
+/// @param with_sprites false to leave out the art the renderer must be told of
+/// @param[in,out] presentation the button's presentation
+void name_side_past_art(
+    const Resources& res,
+    const Control& control,
+    ui::gui_layout::Gadget& gadget,
+    bool with_sprites,
+    renderer::ButtonPresentation& presentation
+) {
+    const int32_t slot = side_button_slot(gadget.common.name);
+    if (slot < 0)
+        return;
+    const auto source = template_name(res, control);
+    if (source.size() != 5 || !starts_with_nocase(source, "SIDEx"))
+        return;
+    auto& lobby = ui().lobby;
+    if (lobby.game == nullptr || static_cast<std::size_t>(control.stage) >= lobby.side_names.size())
+        return;
+    const auto& player = slot_player(lobby, slot);
+    const auto* info = player_info(lobby, player);
+    if (info != nullptr && player.in_use != 0 && (info->options & option::watcher) != 0)
+        return;
+    const auto art = button_art(res, gadget, source, with_sprites);
+    const std::size_t frames = art.sequence != nullptr ? art.sequence->frames.size() : 0;
+    if (static_cast<std::size_t>(control.stage) < frames)
+        return;
+    auto* fields = std::get_if<ui::gui_layout::ButtonFields>(&gadget.fields);
+    if (fields == nullptr)
+        return;
+    fields->text = lobby.side_names[static_cast<std::size_t>(control.stage)];
+    presentation.caption_only = true;
+    presentation.game_text = true;
+    presentation.text_stage.reset();
+}
+
 /// Composes the front panel's layout and presentations for the renderer.
 ///
 /// @param[in,out] res screen resources; the composed layout replaces the last
@@ -2178,10 +2240,12 @@ void compose_layout(
             // A list is drawn at the pitch its rows are picked and scrolled by.
             list->item_height = control.list_item_height;
         }
-        if (index > 0 && control.type == ControlType::button && control.active != 0)
+        if (index > 0 && control.type == ControlType::button && control.active != 0) {
             buttons.push_back(
                 button_presentation(res, index, gadget, layout.gadgets.size(), with_sprites, grayed)
             );
+            name_side_past_art(res, control, gadget, with_sprites, buttons.back());
+        }
         if (index > 0 && with_sprites && control.active != 0 &&
             (control.type == ControlType::hot_surface || control.type == ControlType::image))
             if (auto picture = picture_presentation(res, control, gadget))
@@ -4070,6 +4134,12 @@ void multiplayer_bind_side_count(int32_t side_count) noexcept {
     ui().side_count = side_count > 0 ? side_count : 0;
 }
 
+void multiplayer_bind_side_names(std::span<const std::string> names) noexcept {
+    auto& state = ui();
+    state.side_names.assign(names.begin(), names.end());
+    state.lobby.side_names = state.side_names;
+}
+
 bool multiplayer_showing() noexcept {
     return ui().showing;
 }
@@ -4785,6 +4855,7 @@ void multiplayer_reset() noexcept {
     state.game = std::make_unique<Game>();
     state.lobby = Lobby{};
     state.lobby.launch_link = state.launch_link;
+    state.lobby.side_names = state.side_names;
     state.lobby.rules = state.rules;
     state.lobby.chat_measure = state.chat_measure;
     state.connect = ConnectState{};

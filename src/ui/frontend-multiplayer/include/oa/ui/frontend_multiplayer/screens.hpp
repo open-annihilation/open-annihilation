@@ -347,6 +347,14 @@ void multiplayer_bind_translation(const TextTranslation& translation) noexcept;
 /// @param side_count the loaded sides, 0 for unknown
 void multiplayer_bind_side_count(int32_t side_count) noexcept;
 
+/// Binds the SIDEDATA names of the loaded sides, one per side number.
+///
+/// The binding survives multiplayer_reset, as the side count does. A side
+/// the battle room's art has no frame for shows its name on the plain face.
+///
+/// @param names the names, side 0 first
+void multiplayer_bind_side_names(std::span<const std::string> names) noexcept;
+
 // The line this machine says of its engine in the battle room's chat, which
 // the engine gives (multiplayer_bind_engine_banner).
 struct EngineBanner {

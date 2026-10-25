@@ -23,6 +23,7 @@
 #include "oa/sim/messages.hpp"
 #include "oa/sim/mission_units/map_units.hpp"
 #include "oa/base/text.hpp"
+#include "oa/core/side.h"
 
 #include <algorithm>
 #include <cctype>
@@ -2123,6 +2124,19 @@ uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept {
     return static_cast<uint8_t>(std::min(side, count));
 }
 
+uint8_t lobby_offered_side_before(const Game& game, uint32_t side) noexcept {
+    const uint32_t count = lobby_side_count(game);
+    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides();
+    uint32_t at = side < count ? side : count;
+    while (at > 0) {
+        --at;
+        if (at < 32 && (hidden & (1U << at)) != 0)
+            continue;
+        return static_cast<uint8_t>(at);
+    }
+    return static_cast<uint8_t>(count);
+}
+
 StartedOptions lobby_started_options(Game& game) noexcept {
     const auto load = [&](std::size_t offset) {
         uint32_t value = 0;
@@ -3398,23 +3412,44 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
             if (!lobby_launch_locked(lobby)) {
                 play(lobby, "Multi");
                 // The button steps past a side the mod keeps out of the
-                // battle room, and wraps to the first side offered.
+                // battle room, and wraps to the first side offered. Past
+                // 3.1c's five sides a right click walks that cycle backwards.
+                const uint8_t count = lobby_side_count(game);
                 const auto first_offered = [&] {
                     const uint8_t first = lobby_offered_side(game, 0);
-                    return first < lobby_side_count(game) ? first : uint8_t{0};
+                    return first < count ? first : uint8_t{0};
                 };
-                if (player.in_use != 0 && (info.options & option::watcher) != 0) {
+                const auto host = lobby_host_slot(lobby);
+                const auto host_options =
+                    host == kNoSlot ? 0 : info_of(lobby, slot_player(lobby, host)).options;
+                const bool may_watch = (host_options & option::watching_allowed) != 0 &&
+                                       player.in_use != 0 && player.status == kSlotLocal;
+                const bool watching = player.in_use != 0 && (info.options & option::watcher) != 0;
+                if (panel.button == 2 && count > OA_SIDE_COUNT) {
+                    const uint8_t earlier = lobby_offered_side_before(game, count);
+                    const uint8_t last = earlier < count ? earlier : uint8_t{0};
+                    if (watching) {
+                        info.options &= static_cast<uint16_t>(~option::watcher);
+                        info.side = last;
+                    } else {
+                        const uint8_t previous = lobby_offered_side_before(game, info.side);
+                        if (previous < count) {
+                            info.side = previous;
+                        } else if (may_watch) {
+                            info.options |= option::watcher;
+                        } else {
+                            info.side = last;
+                            panel_set_stage(panel, name, info.side);
+                        }
+                    }
+                } else if (watching) {
                     info.options &= static_cast<uint16_t>(~option::watcher);
                     info.side = first_offered();
                 } else {
                     info.side = lobby_offered_side(game, info.side + 1U);
-                    if (info.side >= lobby_side_count(game)) {
+                    if (info.side >= count) {
                         info.side = first_offered();
-                        const auto host = lobby_host_slot(lobby);
-                        const auto host_options =
-                            host == kNoSlot ? 0 : info_of(lobby, slot_player(lobby, host)).options;
-                        if ((host_options & option::watching_allowed) == 0 || player.in_use == 0 ||
-                            player.status != kSlotLocal)
+                        if (!may_watch)
                             panel_set_stage(panel, name, info.side);
                         else
                             info.options |= option::watcher;

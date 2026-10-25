@@ -405,6 +405,70 @@ void test_three_sides(const oa::ui::gui_layout::Layout& lounge) {
     );
 }
 
+// Past 3.1c's five sides a right click walks the SIDE cycle backwards.
+// Within five it still steps forward.
+void test_side_steps_back(const oa::ui::gui_layout::Layout& lounge) {
+    Fixture forward(lounge);
+    forward.game->side_count = 7;
+    auto& watched = mp::local_info(forward.lobby);
+    watched.options |= mp::option::watching_allowed;
+    expect(watched.side == 0, "seven sides start at the first");
+    expect(forward.press("SIDE0", 2), "right click from the first side");
+    expect(
+        (watched.options & mp::option::watcher) != 0, "a right click from the first side watches"
+    );
+    expect(forward.press("SIDE0", 2), "right click from the watcher");
+    expect(
+        (watched.options & mp::option::watcher) == 0 && watched.side == 6,
+        "a right click from the watcher lands on the last side"
+    );
+    expect(forward.press("SIDE0", 2), "right click steps back");
+    expect(watched.side == 5, "a right click steps back one side");
+
+    Fixture plain(lounge);
+    plain.game->side_count = 7;
+    auto& unwatched = mp::local_info(plain.lobby);
+    unwatched.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
+    expect(plain.press("SIDE0", 2), "right click where watching is off");
+    expect(
+        (unwatched.options & mp::option::watcher) == 0 && unwatched.side == 6,
+        "without watching a right click wraps to the last side"
+    );
+    expect(plain.press("SIDE0", 2), "right click back again");
+    expect(unwatched.side == 5, "without watching a right click steps back");
+
+    const oa::data::defs::DataLayout base = oa::data::defs::data_layout();
+    oa::data::defs::DataLayout hidden = base;
+    hidden.battle_room_hidden_sides = 1U << 5;
+    oa::data::defs::use_data_layout(hidden);
+    {
+        Fixture skipped(lounge);
+        skipped.game->side_count = 7;
+        auto& info = mp::local_info(skipped.lobby);
+        info.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
+        info.side = 4;
+        expect(skipped.press("SIDE0"), "left click toward the hidden side");
+        expect(info.side == 6, "a left click skips the hidden side");
+        expect(skipped.press("SIDE0", 2), "right click toward the hidden side");
+        expect(info.side == 4, "a right click skips the hidden side");
+        expect(
+            mp::lobby_offered_side_before(*skipped.game, 6) == 4,
+            "the side before a hidden one is the one it skipped"
+        );
+    }
+    oa::data::defs::use_data_layout(base);
+
+    Fixture few(lounge);
+    few.game->side_count = 4;
+    auto& within = mp::local_info(few.lobby);
+    within.options &= static_cast<uint16_t>(~mp::option::watching_allowed);
+    expect(few.press("SIDE0", 2), "right click within five sides");
+    expect(
+        within.side == 1 && (within.options & mp::option::watcher) == 0,
+        "within five sides a right click steps forward"
+    );
+}
+
 void test_teams_and_alliances(const oa::ui::gui_layout::Layout& lounge) {
     Fixture f(lounge);
     f.join(0x200, "Guest");
@@ -7057,6 +7121,7 @@ int main(int argc, char** argv) {
             test_rows_and_colors(*lounge.layout);
             test_side_and_watch(*lounge.layout);
             test_three_sides(*lounge.layout);
+            test_side_steps_back(*lounge.layout);
             test_hidden_side(*lounge.layout);
             test_teams_and_alliances(*lounge.layout);
             test_options_and_sliders(*lounge.layout);

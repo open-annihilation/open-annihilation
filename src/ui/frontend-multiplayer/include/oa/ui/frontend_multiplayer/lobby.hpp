@@ -31,6 +31,7 @@
 #include <cstring>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace oa::ui::frontend_multiplayer {
 
@@ -474,6 +475,8 @@ struct Lobby {
     uint32_t refused_joiner{};
     /// The launch and its service.
     LaunchLink launch_link;
+    /// SIDEDATA names by side number. A side past the battle room's art shows its name.
+    std::vector<std::string> side_names;
     /// The mod profile's rules the battle room keeps; null keeps 3.1c's.
     const data::match_rules::MatchRules* rules{};
     /// Whether map-placed units are on (+spawnon, +spawnoff) while the
@@ -610,6 +613,15 @@ struct FieldRef {
 /// @param side The side to start from.
 /// @return the side offered; the side count when none is left after `side`
 [[nodiscard]] uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept;
+
+/// Returns the nearest side the SIDE button offers below `side`.
+///
+/// A side the mod's profile keeps out of the battle room is passed over.
+///
+/// @param game Game whose side count bounds the search.
+/// @param side The side to step back from.
+/// @return the side offered below `side`; the side count when none is
+uint8_t lobby_offered_side_before(const Game& game, uint32_t side) noexcept;
 
 // Game options copied from the host's option word when a game starts.
 struct StartedOptions {
