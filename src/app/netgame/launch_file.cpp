@@ -343,6 +343,70 @@ constexpr Word kPlayerSideWords[] = {
 constexpr Word kComputerSideWords[] = {
     {"arm", launch::faction::arm}, {"core", launch::faction::core}
 };
+constexpr int64_t kLastSideNumber = 31;
+constexpr std::string_view kPlayerSideExpected =
+    "arm, core, watcher, a side's number from 0 to 31 or its name";
+constexpr std::string_view kComputerSideExpected =
+    "arm, core, a side's number from 0 to 31 or its name";
+
+/// A side a launch named: a faction, watching, or a SIDEDATA name.
+struct ChosenSide {
+    int32_t faction = launch::faction::none;
+    uint32_t watcher = 0;
+    std::string name;
+};
+
+/// Writes a side's name into a launch field, or clears the field.
+///
+/// @param field the name field
+/// @param bytes its size, the terminating NUL included
+/// @param name the name; empty clears the field
+void write_faction_name(char* field, std::size_t bytes, std::string_view name) {
+    std::fill_n(field, bytes, '\0');
+    if (!name.empty())
+        oa::base::text::copy_terminated(std::span<char>(field, bytes), name);
+}
+
+/// Reads a side: arm, core, watcher for a player, a number 0 to 31, or a name.
+///
+/// A number N is faction N + 1, side N. A name of 1 to 29 characters leaves
+/// faction none and is copied into the launch. A word or a number clears the
+/// name.
+///
+/// @param value the value
+/// @param place where a refusal points
+/// @param words arm, core and, for a player, watcher
+/// @param expected what the setting takes, for a refusal
+/// @return the side
+ChosenSide read_chosen_side(
+    const LaunchValue& value,
+    const LaunchPlace& place,
+    std::span<const Word> words,
+    std::string_view expected
+) {
+    const std::string_view text = read_text(value, place);
+    for (const Word& word : words) {
+        if (text != word.word)
+            continue;
+        ChosenSide chosen;
+        chosen.faction = word.code;
+        chosen.watcher = word.word == "watcher" ? 1U : 0U;
+        return chosen;
+    }
+    if (const auto number = whole_number(text)) {
+        if (*number < 0 || *number > kLastSideNumber)
+            refuse(place, "expected " + std::string(expected));
+        ChosenSide chosen;
+        chosen.faction = static_cast<int32_t>(*number + 1);
+        return chosen;
+    }
+    if (text.empty() || text.size() >= launch::kLaunchSideNameBytes)
+        refuse(place, "expected " + std::string(expected));
+    ChosenSide chosen;
+    chosen.name = std::string(text);
+    return chosen;
+}
+
 constexpr Word kDifficultyWords[] = {
     {"easy", launch::difficulty::easy},
     {"medium", launch::difficulty::medium},
@@ -483,9 +547,10 @@ void store_player_name(LaunchPlan& plan, const LaunchValue& value, const LaunchP
 /// @param value the value
 /// @param place where a refusal points
 void store_side(LaunchPlan& plan, const LaunchValue& value, const LaunchPlace& place) {
-    const int32_t side = read_word(value, place, kPlayerSideWords, "arm, core or watcher");
-    plan.block.faction = side;
-    plan.block.watcher = side == 0 ? 1U : 0U;
+    const ChosenSide chosen = read_chosen_side(value, place, kPlayerSideWords, kPlayerSideExpected);
+    plan.block.faction = chosen.faction;
+    plan.block.watcher = chosen.watcher;
+    write_faction_name(plan.block.faction_name, sizeof plan.block.faction_name, chosen.name);
 }
 
 /// Stores player.team.
@@ -752,9 +817,12 @@ launch::LaunchComputer read_computer_group(const oamod::Node& item, const Launch
         const LaunchValue value{&entry, {}};
         if (entry.key.kind != oamod::KeyKind::string)
             refuse(place, "a key is not text");
-        if (entry.key.text == "side")
-            computer.faction = read_word(value, at, kComputerSideWords, "arm or core");
-        else if (entry.key.text == "team")
+        if (entry.key.text == "side") {
+            const ChosenSide chosen =
+                read_chosen_side(value, at, kComputerSideWords, kComputerSideExpected);
+            computer.faction = chosen.faction;
+            write_faction_name(computer.faction_name, sizeof computer.faction_name, chosen.name);
+        } else if (entry.key.text == "team")
             computer.team = read_team(value, at);
         else if (entry.key.text == "colour")
             computer.color =
@@ -800,8 +868,11 @@ launch::LaunchComputer read_computer_text(std::string_view text, const LaunchPla
     };
     {
         const auto [value, name] = part(0, "side");
-        computer.faction =
-            read_word(value, LaunchPlace{{}, name}, kComputerSideWords, "arm or core");
+        const ChosenSide chosen = read_chosen_side(
+            value, LaunchPlace{{}, name}, kComputerSideWords, kComputerSideExpected
+        );
+        computer.faction = chosen.faction;
+        write_faction_name(computer.faction_name, sizeof computer.faction_name, chosen.name);
     }
     if (count > 1 && !parts[1].empty()) {
         const auto [value, name] = part(1, "team");
@@ -1137,8 +1208,11 @@ constexpr LaunchField kFields[] = {
      Reader::direct_game,
      store_player_name},
     {"player.side",
-     "--side arm|core|watcher",
-     "The player's side, or `watcher` to watch instead of play.",
+     "--side arm|core|watcher|0-31|NAME",
+     "The player's side: `arm`, `core` or `watcher` to watch instead of play, a side's number "
+     "from 0 through 31 (SIDEDATA's sections, counting from 0) or its name, 1 to 29 characters, "
+     "matched without regard to case. A side this game does not have leaves the battle room's "
+     "own choice.",
      Reader::network_play,
      store_side},
     {"player.team",
@@ -1222,11 +1296,13 @@ constexpr LaunchField kFields[] = {
      Reader::network_play,
      store_restrictions},
     {"computer-players",
-     "--computer-player arm|core[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]",
-     "The computer players this machine seats, at most 9, each with a side, and a team, colour "
-     "and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a "
-     "brain's id. A brain that is not installed refuses the launch; one that does not fit plays "
-     "the built-in player. Give the option once for each.",
+     "--computer-player arm|core|0-31|NAME[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]",
+     "The computer players this machine seats, at most 9, each with a side (`arm`, `core`, a "
+     "number from 0 through 31 or a name of 1 to 29 characters, matched without regard to case; "
+     "a side this game does not have leaves the room's own choice), and a team, colour and "
+     "difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a brain's "
+     "id. A brain that is not installed refuses the launch; one that does not fit plays the "
+     "built-in player. Give the option once for each.",
      Reader::network_play,
      store_computers},
     {"content.base-game",
