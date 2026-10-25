@@ -236,6 +236,67 @@ void test_full_table_writes_nothing() {
     OA_CHECK(id_text(documents, "weapons/full.tdf", "BASE255") == "255");
 }
 
+/// Bases hold 1 to 253, so three weapons with no request take 254, 255 and 256.
+void test_wide_limit_gives_256_to_the_third_weapon() {
+    rules::DocumentSet documents;
+    add_doc(
+        documents, "weapons/wide.tdf", bases_through_253() + "[A]\n{\n}\n[B]\n{\n}\n[C]\n{\n}\n"
+    );
+    std::vector<mutators::BroughtWeapon> brought;
+    brought.push_back(brought_of("A", 0, "weapons/wide.tdf"));
+    brought.push_back(brought_of("B", 0, "weapons/wide.tdf"));
+    brought.push_back(brought_of("C", 0, "weapons/wide.tdf"));
+    mutators::WeaponIdResult result;
+    OA_CHECK(mutators::assign_weapon_ids(documents, defs::data_layout(), brought, result, 1024));
+    OA_CHECK(result.ok);
+    OA_CHECK(brought[0].assigned_id == 254);
+    OA_CHECK(brought[1].assigned_id == 255);
+    OA_CHECK(brought[2].assigned_id == 256);
+    OA_CHECK(id_text(documents, "weapons/wide.tdf", "C") == "256");
+}
+
+/// 1,000 is inside 1,024 types and is kept. 1,024 is not a request, so that
+/// weapon takes the lowest free id instead.
+void test_wide_limit_keeps_1000_and_skips_1024() {
+    rules::DocumentSet documents;
+    add_doc(documents, "weapons/wide.tdf", "[KEEP]\n{\nID=1000;\n}\n[PAST]\n{\nID=1024;\n}\n");
+    std::vector<mutators::BroughtWeapon> brought;
+    brought.push_back(brought_of("KEEP", 0, "weapons/wide.tdf"));
+    brought.push_back(brought_of("PAST", 0, "weapons/wide.tdf"));
+    mutators::WeaponIdResult result;
+    OA_CHECK(mutators::assign_weapon_ids(documents, defs::data_layout(), brought, result, 1024));
+    OA_CHECK(result.ok);
+    OA_CHECK(brought[0].assigned_id == 1000);
+    OA_CHECK(brought[1].assigned_id == 1);
+    OA_CHECK(id_text(documents, "weapons/wide.tdf", "KEEP") == "1000");
+    OA_CHECK(id_text(documents, "weapons/wide.tdf", "PAST") == "1");
+}
+
+/// Every id from 1 to 1,023 is taken, so the next weapon is refused by name.
+void test_wide_table_full_through_1023_refuses() {
+    std::string text;
+    for (int id = 1; id <= 1023; ++id) {
+        text += "[BASE";
+        text += std::to_string(id);
+        text += "]\n{\nID=";
+        text += std::to_string(id);
+        text += ";\n}\n";
+    }
+    text += "[RGMORE]\n{\n}\n";
+    rules::DocumentSet documents;
+    add_doc(documents, "weapons/full.tdf", text);
+    std::vector<mutators::BroughtWeapon> brought;
+    brought.push_back(brought_of("RGMORE", 2, "weapons/full.tdf"));
+    mutators::WeaponIdResult result;
+    OA_CHECK(!mutators::assign_weapon_ids(documents, defs::data_layout(), brought, result, 1024));
+    OA_CHECK(!result.ok);
+    OA_CHECK(result.mutator == 2);
+    OA_CHECK(result.weapon == "RGMORE");
+    OA_CHECK(brought[0].assigned_id == 0);
+    OA_CHECK(id_text(documents, "weapons/full.tdf", "RGMORE") == "");
+    OA_CHECK(id_text(documents, "weapons/full.tdf", "BASE1023") == "1023");
+}
+
 } // namespace
 
 int main() {
@@ -247,5 +308,8 @@ int main() {
     test_later_requests_overflow_after_an_earlier_mutator();
     test_earlier_requests_leave_the_later_mutator_to_overflow();
     test_full_table_writes_nothing();
+    test_wide_limit_gives_256_to_the_third_weapon();
+    test_wide_limit_keeps_1000_and_skips_1024();
+    test_wide_table_full_through_1023_refuses();
     return oa::test::check_exit_status();
 }

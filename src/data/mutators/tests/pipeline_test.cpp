@@ -1603,6 +1603,117 @@ void test_brought_weapon_keeps_its_requested_id() {
     release(store);
 }
 
+/// Ids 1 to 255 are already taken, so a record-file weapon is numbered 256.
+void test_wide_limit_numbers_a_record_weapon_256() {
+    const fs::path scratch = oa::test::make_scratch_directory("T05-wide-record");
+    const fs::path copy = scratch / "ridge";
+    fs::copy(k_data / "ridge", copy, fs::copy_options::recursive);
+    std::string full;
+    for (int id = 1; id <= 255; ++id) {
+        full += "[BASE";
+        full += std::to_string(id);
+        full += "]\n{\nID=";
+        full += std::to_string(id);
+        full += ";\n}\n";
+    }
+    write_bytes(copy / "weapons" / "full.tdf", full);
+    const fs::path package = scratch / "ridge-wide";
+    write_bytes(package / "files" / "weapons" / "extra.tdf", "[RGMORE]\n{\n}\n");
+    std::vector<mutators::PipelineMutator> list;
+    list.push_back(scratch_mutator(package, "ridge-wide"));
+    mutators::PipelineInput input = make_input(std::move(list));
+    input.limits.weapon_types = 1024;
+    oa::AssetStore store(copy);
+    const mutators::PipelineResult result = mutators::run_pipeline(store, input);
+    OA_CHECK(result.playable());
+    OA_CHECK(result.mutators.size() == 1);
+    if (result.mutators.size() == 1)
+        OA_CHECK(result.mutators[0].outcome == mutators::Outcome::applied);
+    OA_CHECK(text_of(store.read("weapons/extra.tdf").bytes).find("ID=256") != std::string::npos);
+    release(store);
+    fs::remove_all(scratch);
+}
+
+/// A rule or a hook package that brings RGWIDE and writes its id, shaped as
+/// ridge-id-rule and ridge-id-hook do for a weapon the game already numbered.
+mutators::PipelineMutator brought_id_package(const fs::path& package, std::string_view id, bool hook) {
+    const std::string yaml =
+        "oamut: 1\nid: " + std::string{id} + "\nname: \"Ridge " + std::string{id} +
+        "\"\nversion: \"1.0\"\nauthor:\n  name: \"Ridge Maker\"\ntags: [\"gameplay\"]\n"
+        "works-with: [\"*\"]\nlayers: [\"files\", \"weapons\"]\n";
+    write_bytes(package / "oamut.yaml", yaml);
+    if (hook) {
+        write_bytes(
+            package / "mutator.lua",
+            "function mutate(ctx)\n"
+            "  return {\n"
+            "    files = { add = { \"files\" } },\n"
+            "    weapons = function(weapons, ctx)\n"
+            "      weapons.RGWIDE.id = 300\n"
+            "    end\n"
+            "  }\n"
+            "end\n"
+        );
+    } else {
+        write_bytes(
+            package / "mutator.lua",
+            "function mutate(ctx)\n"
+            "  return {\n"
+            "    files = { add = { \"files\" } },\n"
+            "    rules = { named(\"RGWIDE\"):on(\"weapons\", \"tdf\"):change { id = 300 } }\n"
+            "  }\n"
+            "end\n"
+        );
+    }
+    write_bytes(package / "files" / "weapons" / "extra.tdf", "[RGWIDE]\n{\nRange=4;\n}\n");
+    return load_mutator(package);
+}
+
+void expect_brought_id_300(const fs::path& package, std::string_view id, bool hook, uint32_t types) {
+    std::vector<mutators::PipelineMutator> list;
+    list.push_back(brought_id_package(package, id, hook));
+    mutators::PipelineInput input = make_input(std::move(list));
+    input.limits.weapon_types = types;
+    oa::AssetStore store = open_ridge();
+    const mutators::PipelineResult result = mutators::run_pipeline(store, input);
+    if (types == 1024) {
+        OA_CHECK(result.playable());
+        OA_CHECK(result.mutators.size() == 1);
+        if (result.mutators.size() == 1)
+            OA_CHECK(result.mutators[0].outcome == mutators::Outcome::applied);
+        OA_CHECK(count_kind(result, mutators::ConflictKind::write_refused) == 0);
+        OA_CHECK(text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") != std::string::npos);
+    } else if (hook) {
+        OA_CHECK(!result.playable());
+        OA_CHECK(result.mutators.size() == 1);
+        if (result.mutators.size() == 1) {
+            OA_CHECK(result.mutators[0].outcome == mutators::Outcome::failed);
+            OA_CHECK(result.mutators[0].message.find("255") != std::string::npos);
+        }
+    } else {
+        OA_CHECK(result.playable());
+        OA_CHECK(count_kind(result, mutators::ConflictKind::write_refused) == 1);
+        const std::vector<std::string> ids{std::string{id}};
+        const mutators::Conflict* refused = conflict_of(result, mutators::ConflictKind::write_refused);
+        OA_CHECK(refused != nullptr);
+        if (refused != nullptr)
+            OA_CHECK(mutators::describe(*refused, ids).find("255") != std::string::npos);
+        OA_CHECK(text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") == std::string::npos);
+    }
+    release(store);
+}
+
+/// id = 300 on a weapon the mutator brought is kept at 1,024 types and
+/// refused at 256, and that refusal names 255.
+void test_brought_weapon_id_300_follows_the_limit() {
+    const fs::path scratch = oa::test::make_scratch_directory("T05-id-300");
+    expect_brought_id_300(scratch / "rule-wide", "ridge-id-wide-rule", false, 1024);
+    expect_brought_id_300(scratch / "rule-base", "ridge-id-wide-rule", false, 256);
+    expect_brought_id_300(scratch / "hook-wide", "ridge-id-wide-hook", true, 1024);
+    expect_brought_id_300(scratch / "hook-base", "ridge-id-wide-hook", true, 256);
+    fs::remove_all(scratch);
+}
+
 /// `count` sections named with `prefix` and `digits` digits. A request uses
 /// ID = index + 3, which is free once the base weapons hold 1 and 2.
 std::string numbered_weapons(char prefix, int count, int digits, bool request) {
@@ -3747,6 +3858,8 @@ int main() {
     test_rule_cannot_renumber_a_base_weapon();
     test_hook_cannot_renumber_a_base_weapon();
     test_brought_weapon_keeps_its_requested_id();
+    test_wide_limit_numbers_a_record_weapon_256();
+    test_brought_weapon_id_300_follows_the_limit();
     test_request_overflow_follows_list_order();
     test_removed_record_file_comes_back();
     test_removed_weapon_file_comes_back();

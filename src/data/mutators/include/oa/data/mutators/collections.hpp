@@ -104,7 +104,7 @@ struct CloneRecord {
     bool weapon{};        ///< true for a weapon section, false for a unit
     std::string name;     ///< the stored name: the private name, or the name replaced
     std::string source;   ///< the record it was copied from, as the script wrote it
-    int weapon_id{};      ///< free weapon id, from 1 to 255; 0 for a unit or a replacement
+    int weapon_id{}; ///< free weapon id, from 1 to weapon_types - 1; 0 for a unit or a replacement
     std::string path;     ///< document path the copy was written to
     std::string sentence; ///< the journal line for this clone
     /// The name the script asked for when Add stored a different one. Empty
@@ -308,6 +308,20 @@ class Collections {
     ///
     /// @param store the layered store, or null
     void bind_store(oa::AssetStore* store) { store_ = store; }
+
+    /// Remembers how many weapon ids the mod numbers.
+    ///
+    /// Ids 0 to `count` - 1 take a slot. A clone takes a free id from 1 to
+    /// `count` - 1, and a hook's write of a weapon `id` is held to that
+    /// count. 256 unless the pipeline read the profile's `limits.weapon-types`.
+    ///
+    /// @param count weapon types the mod numbers
+    void set_weapon_types(uint32_t count) noexcept { weapon_types_ = count; }
+
+    /// How many weapon ids the mod numbers.
+    ///
+    /// @return the count last given to `set_weapon_types`, or 256
+    [[nodiscard]] uint32_t weapon_types() const noexcept { return weapon_types_; }
 
     /// Remembers weapon sections whose ids the game already assigned.
     ///
@@ -570,7 +584,9 @@ class Collections {
     std::vector<RecordRemoval> removals_;
     std::vector<HookNote> notes_;
     std::unique_ptr<CollectionsState> state_;
-    oa::AssetStore* store_{};         ///< store a clone reads; not owned
+    oa::AssetStore* store_{}; ///< store a clone reads; not owned
+    /// Weapon ids the mod numbers, 0 to one less. 256 until `set_weapon_types`.
+    uint32_t weapon_types_{256};
     std::vector<CloneRecord> clones_; ///< clones made during the hooks
     std::vector<ServedCopy> served_;  ///< binary copies those clones serve
     /// Folded weapon section names whose ids stay as the game assigned them.
