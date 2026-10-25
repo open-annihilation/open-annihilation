@@ -1331,7 +1331,8 @@ constexpr FieldSpec k_fields[] = {
         .refuse_below = 0.0,
         .refuse_above = 255.0,
         .default_number = -1.0,
-        .why = "an id outside 0 to 255 is dropped, and every unit armed with that weapon loses it",
+        .why = "an id past the weapon types the game numbers is dropped, and every unit armed with "
+               "that weapon loses it",
         .read_at = "weapons.cpp:310",
     },
     {

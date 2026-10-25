@@ -5,6 +5,7 @@
 #include "oa/data/defs/layout.hpp"
 #include "oa/base/game_math.hpp"
 #include "oa/base/text.hpp"
+#include "oa/data/limits.hpp"
 
 #include <cstdint>
 #include <cstdlib>
@@ -219,10 +220,10 @@ char* model_name(WeaponDef* weapon) noexcept {
 /// @param name model name, matched case-insensitively
 /// @param resolver asset resolver; null, or a null model callback, gives model 0
 void share_or_load_model(
-    WeaponTable* table, uint8_t id, const char* name, const WeaponResolver* resolver
+    WeaponTable* table, uint32_t id, const char* name, const WeaponResolver* resolver
 ) noexcept {
     WeaponDef* weapon = &table->defs[id];
-    for (uint8_t lower = 0; lower < id; ++lower) {
+    for (uint32_t lower = 0; lower < id; ++lower) {
         if (formats::tdf::compare_nocase(name, model_name(&table->defs[lower])) == 0) {
             model_name(weapon)[0] = '\0';
             weapon->model = table->defs[lower].model;
@@ -265,8 +266,8 @@ const char* weapon_model_name(const WeaponDef* weapon) noexcept {
     return weapon->model_name;
 }
 
-uint8_t weapon_id(const WeaponDef* weapon) noexcept {
-    return weapon->weapon_id;
+uint16_t weapon_id(const WeaponDef* weapon) noexcept {
+    return oa_weapon_def_id(weapon);
 }
 
 uint32_t weapon_damage_handle(const WeaponDef* weapon) noexcept {
@@ -277,7 +278,7 @@ int32_t weapon_damage_for(
     const WeaponTable* table, const WeaponDef* weapon, const char* unit_name
 ) noexcept {
     const uint32_t handle = weapon_damage_handle(weapon);
-    if (handle != 0 && handle <= OA_WEAPON_DEF_COUNT) {
+    if (handle != 0 && handle <= table->damage.size()) {
         const WeaponDamageTable* damage = &table->damage[handle - 1];
         for (uint32_t index = 0; index < damage->count; ++index)
             if (formats::tdf::compare_nocase(damage->entries[index].unit, unit_name) == 0)
@@ -286,14 +287,52 @@ int32_t weapon_damage_for(
     return weapon->damage_default;
 }
 
+namespace {
+
+/// Holds a weapon-type limit to 256..65536.
+///
+/// @param options load options; null means 3.1c's 256
+/// @return the limit weapon_load accepts IDs below
+uint32_t weapon_type_limit(const WeaponLoadOptions* options) noexcept {
+    uint32_t types = options != nullptr ? options->weapon_types : OA_WEAPON_DEF_COUNT;
+    if (types < oa::data::limits::base_weapon_types)
+        types = oa::data::limits::base_weapon_types;
+    if (types > oa::data::limits::highest_weapon_types)
+        types = oa::data::limits::highest_weapon_types;
+    return types;
+}
+
+/// Grows every weapon vector to `slots` and numbers the new records.
+///
+/// @param[in,out] table table to grow
+/// @param slots new length; ignored when the table is already that long
+void grow_weapon_table(WeaponTable* table, uint32_t slots) noexcept {
+    if (slots <= table->defs.size())
+        return;
+    const uint32_t first = static_cast<uint32_t>(table->defs.size());
+    table->defs.resize(slots);
+    table->damage.resize(slots);
+    table->assets.resize(slots);
+    table->rule_data.resize(slots);
+    for (uint32_t slot = first; slot < slots; ++slot)
+        oa_weapon_def_set_id(&table->defs[slot], static_cast<uint16_t>(slot));
+}
+
+} // namespace
+
 void weapon_table_init(WeaponTable* table) noexcept {
-    std::memset(static_cast<void*>(table), 0, sizeof *table);
-    for (uint32_t slot = 0; slot < OA_WEAPON_DEF_COUNT; ++slot)
-        table->defs[slot].weapon_id = static_cast<uint8_t>(slot);
+    table->defs.clear();
+    table->damage.clear();
+    table->assets.clear();
+    table->rule_data.clear();
+    table->rejected_ids = 0;
+    table->past_limit = 0;
+    table->highest_past_limit = -1;
+    grow_weapon_table(table, OA_WEAPON_DEF_COUNT);
 }
 
 void weapon_table_free(WeaponTable* table) noexcept {
-    for (uint32_t slot = 0; slot < OA_WEAPON_DEF_COUNT; ++slot) {
+    for (uint32_t slot = 0; slot < table->defs.size(); ++slot) {
         if (model_name(&table->defs[slot])[0] != '\0') {
             table->defs[slot].model = 0;
             model_name(&table->defs[slot])[0] = '\0';
@@ -308,11 +347,21 @@ bool weapon_load(
     WeaponTable* table, const formats::tdf::Block* section, const WeaponLoadOptions* options
 ) noexcept {
     const int32_t id = formats::tdf::get_int(section, "ID", -1);
-    if (id < 0 || id >= static_cast<int32_t>(OA_WEAPON_DEF_COUNT)) {
-        ++table->rejected_ids; // an ID outside the table
+    const uint32_t limit = weapon_type_limit(options);
+    if (id < 0) {
+        ++table->rejected_ids; // a negative or missing ID
         return false;
     }
-    WeaponDef* weapon = &table->defs[id];
+    if (static_cast<uint32_t>(id) >= limit) {
+        ++table->rejected_ids;
+        ++table->past_limit;
+        if (id > table->highest_past_limit)
+            table->highest_past_limit = id;
+        return false;
+    }
+    const uint32_t slot = static_cast<uint32_t>(id);
+    grow_weapon_table(table, slot + 1u);
+    WeaponDef* weapon = &table->defs[slot];
     const WeaponResolver* resolver = options != nullptr ? options->resolver : nullptr;
     oa::base::text::copy_padded(weapon->key, section->name, sizeof weapon->key - 1);
     weapon->key[sizeof weapon->key - 1] = '\0';
@@ -370,13 +419,13 @@ bool weapon_load(
         static_cast<int32_t>(scaled(section, "shakeduration", weapon_ticks_per_second));
 
     if (options != nullptr && options->data_keys != nullptr)
-        read_weapon_rule_keys(section, *options->data_keys, table->rule_data[id]);
+        read_weapon_rule_keys(section, *options->data_keys, table->rule_data[slot]);
 
-    WeaponAssetNames& names = table->assets[id];
+    WeaponAssetNames& names = table->assets[slot];
     keep_name(names.model, section, "model");
     char model[asset_name_capacity];
     if (formats::tdf::get_string(section, "model", model, sizeof model, ""))
-        share_or_load_model(table, static_cast<uint8_t>(id), model, resolver);
+        share_or_load_model(table, slot, model, resolver);
     else
         weapon->model = 0;
     weapon->explosion_art = animation_of(
@@ -408,9 +457,9 @@ bool weapon_load(
         if (formats::tdf::compare_nocase(unit, "default") == 0)
             continue;
         const int32_t value = formats::tdf::get_int(damage, unit, 0);
-        if (!set_damage(&table->damage[id], unit, value))
+        if (!set_damage(&table->damage[slot], unit, value))
             return false;
-        weapon->damage_overrides = static_cast<uint32_t>(id) + 1u;
+        weapon->damage_overrides = slot + 1u;
     }
     return true;
 }

@@ -1172,7 +1172,7 @@ void Runtime::render_match_surface() {
     sync_dead_feature_draws();
     // The model of a weapon registry slot's shots, loaded on first use.
     const auto weapon_model = [&](
-                                  MatchModels& models, uint8_t index
+                                  MatchModels& models, uint16_t index
                               ) -> const std::shared_ptr<const oa::formats::objects3d::Model>& {
         if (const auto found = models.weapon_models.find(index);
             found != models.weapon_models.end())

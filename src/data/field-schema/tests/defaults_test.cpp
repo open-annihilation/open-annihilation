@@ -708,7 +708,7 @@ struct Hold {
     Hold& operator=(const Hold&) = delete;
 
     oa::data::defs::UnitDefSources sources() {
-        return {"", &moves, weapon_defs.data(), &sounds, &categories, &blocks, nullptr};
+        return {"", &moves, weapon_defs, &sounds, &categories, &blocks, nullptr};
     }
 
     oa::data::defs::UnitHeaderSources header_sources() {

@@ -701,7 +701,9 @@ bool load_units(
         problem = "the weapon files do not list";
         return false;
     }
-    static_cast<void>(sim::combat_state::install_weapon_files(weapons, files));
+    const uint32_t weapon_types = profile != nullptr ? profile->limits.weapon_types.types
+                                                     : data::limits::Limits{}.weapon_types.types;
+    static_cast<void>(sim::combat_state::install_weapon_files(weapons, files, false, weapon_types));
 
     const char* units_directory = defs::directory_name(defs::DataDirectory::units);
     std::vector<std::string> paths =
@@ -756,7 +758,7 @@ bool load_units(
     const defs::UnitDefSources unit_sources{
         "",
         movement.get(),
-        weapons.records().data(),
+        weapons.records(),
         &tables.sounds,
         &tables.units.categories,
         &tables.units.blocks,
@@ -764,7 +766,7 @@ bool load_units(
         yard_maps
     };
     const data::unit_definitions::UnitDefinitionSources definition_sources{
-        movement.get(), weapons.records().data(), &tables.sounds, &tables.units.categories
+        movement.get(), weapons.records(), &tables.sounds, &tables.units.categories
     };
     StoreReader reader(store);
 

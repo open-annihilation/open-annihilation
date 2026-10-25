@@ -92,14 +92,7 @@ struct Tables {
             [](void*, const char*, const char*, void (*)(void*, const char*), void*) {}
         };
         const defs::UnitDefSources sources{
-            "",
-            &classes,
-            weapons.data(),
-            &sounds,
-            &units.categories,
-            &units.blocks,
-            nullptr,
-            yard_maps
+            "", &classes, weapons, &sounds, &units.categories, &units.blocks, nullptr, yard_maps
         };
         auto& record = units.records[type_id];
         record.type_id = type_id;
@@ -113,7 +106,7 @@ struct Tables {
     /// @param record a record load() filled
     /// @return the fields
     UnitDefinition definition(const oa::UnitDef& record) const {
-        return unit_definition_from(record, {&classes, weapons.data(), &sounds, &units.categories});
+        return unit_definition_from(record, {&classes, weapons, &sounds, &units.categories});
     }
 };
 
@@ -214,10 +207,24 @@ void yard_maps_follow_the_unit_rules() {
     );
 }
 
+/// A weapon reference past 255 names the slot in the whole table, and one past
+/// the table is empty.
+void weapon_names_follow_the_whole_table() {
+    std::vector<oa::WeaponDef> weapons(1001);
+    oa::base::text::copy_terminated(weapons[300].key, "WIDE");
+    oa::UnitDef unit{};
+    unit.weapon1 = 301;
+    unit.weapon2 = 1002;
+    const auto named = unit_definition_from(unit, {nullptr, weapons, nullptr, nullptr});
+    OA_CHECK(named.weapon1 == "WIDE");
+    OA_CHECK(named.weapon2.empty());
+}
+
 } // namespace
 
 int main() {
     target_masks_follow_the_category_width();
+    weapon_names_follow_the_whole_table();
     yard_maps_follow_the_unit_rules();
     Tables tables;
     const auto& specimen = tables.load(1, R"(

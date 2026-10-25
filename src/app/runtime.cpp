@@ -1558,6 +1558,11 @@ void Runtime::report_match_tick_error(std::string_view message) {
     console_post_message("Simulation error: " + line);
 }
 
+void Runtime::report_data_fault(const std::string& line) {
+    if (reported_data_faults_.insert(line).second)
+        std::cerr << line << '\n';
+}
+
 void Runtime::report_hook_error(const char* hook, const char* message) noexcept {
     try {
         std::string line = std::string(hook) + ": " + message;

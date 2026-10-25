@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -173,7 +174,7 @@ struct RuntimeDefinitionMetadata {
 // The tables a loaded UnitDef's references point into.
 struct UnitDefinitionSources {
     const defs::MoveClassTable* move_classes{};         // UnitDef.move_class
-    const WeaponDef* weapon_defs{};                     // UnitDef.weapon1..3, explode_as, ...
+    std::span<const WeaponDef> weapon_defs{};           // UnitDef.weapon1..3, explode_as, ...
     const defs::SoundCategoryTable* sound_categories{}; // UnitDef.sound_category
     const defs::CategoryRegistry* categories{};         // the categories that hold the type
 };

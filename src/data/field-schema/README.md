@@ -116,9 +116,10 @@ below is the `why` stored on that key.
 - `transportsize` below 0 (`unit_def_loader.cpp:239`) and
   `transportcapacity` below 0 (`unit_def_loader.cpp:240`). A negative count
   breaks boarding.
-- Weapon `id` outside 0 to 255 (`weapons.cpp:310`). The loader drops the
-  section, and every unit armed with it loses the weapon. 0 and 255 are
-  kept. The left-out value −1 is refused.
+- Weapon `id` past the weapon types the caller numbers (`weapons.cpp:310`),
+  255 unless that caller read a profile's `limits.weapon-types`. The loader
+  drops the section, and every unit armed with it loses the weapon. 0 and the
+  last numbered id are kept. The left-out value −1 is refused.
 - `burst` below 0 (`weapons.cpp:342`).
 - On a key the schema holds, text that contains `;`, a line break, a zero
   byte, `//` or `/*`. That text cannot be written back as one property.
@@ -264,7 +265,8 @@ Wraps, by the width the loader keeps. `parse_int` wraps modulo 2^32
   (`unit_def_loader.cpp:270`), `standingmoveorder`
   (`unit_def_loader.cpp:266`); weapon `coverage` (`weapons.cpp:327`),
   `shakemagnitude` (`weapons.cpp:368`). `buildtime` warns above 600000
-  first. Weapon `id` is refused outside 0 to 255. `range` warns above 32000
+  first. Weapon `id` is refused past the weapon types the caller numbers
+  (255 unless that caller read a profile). `range` warns above 32000
   first. `maxdamage` warns outside 1 to 32767 before its unsigned 32-bit
   wrap (0 to 4294967295).
 - 16.16, outside ±32767.99998: unit `acceleration`
