@@ -388,6 +388,9 @@ Network play's own checks, the last rows, are in every build.
 | `--check-setup-window` | Walks the window before the game: the language, the game and the copy. |
 | `--check-window-place` | Checks the next start opens the window at the same size and place. |
 | `--check-progress` | Shows the progress dialog for a slow piece of work. |
+| `--update-feed URL` | For one run, looks for a new release at this feed instead of the published one. A self-check. |
+| `--update-key ID=ed25519:KEY` | A key that may sign the `--update-feed` feed. Give it once for each key. Needs `--update-feed`. A self-check. |
+| `--check-engine-feed` | Checks looking for a new release against a feed the check serves. |
 | `--check-icloud-wait` | On macOS, holds one evicted archive's read and checks the window keeps drawing the iCloud line, then continues. Elsewhere, checks the line never names iCloud. |
 | `--check-text-fit` | Opens every Open Annihilation screen in each built-in language and Simplified Chinese at two sizes, and fails when a text does not fit. |
 | `--check-language TAG` | With `--check-text-fit`, the language to check in place of those, such as an installed pack's (`uk`); give it once for each. With `--check-language-switch`, the language it starts in. The language must be one the game shows. |

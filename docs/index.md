@@ -39,6 +39,8 @@ Every document in the repository, by what you want to do.
 - [first-run.md](first-run.md): the welcome at the first main menu, which
   chooses a language, explains online features and points out the Library
   and Settings buttons.
+- [updates.md](updates.md): looking for a new release of Open Annihilation,
+  when the check runs, what it sends, and that a release is only offered.
 - [library.md](library.md): the Library, where mods, map packs, mutators
   and language packs are found, installed, updated and rolled back from
   inside the game: opening it, its tabs and states, the Mutators tab,
