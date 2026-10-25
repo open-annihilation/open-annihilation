@@ -330,7 +330,13 @@ alone: `screens`, `orders`, `outcomes`, `zoom` (the zoom's limits and the
 first view of a match on the game's own screen), `zoom-1366x768`,
 `zoom-1920x1080` and `zoom-2560x1440` (the same on that window) and
 `campaign`. `--check-navigation` without a group runs every group in one
-game. The side commanders check runs
+game. `native-single-player-offers` (`--check-single-player-offers`) opens
+Single Player over the installed game, where a side has a campaign, and
+checks New Campaign opens the campaign screen and Previous Menu returns.
+`native-single-player-offers-hidden` runs the same check over a mod folder
+that hides every campaign file with an empty file of the same name: New
+Campaign stays shown and greyed, a press and its key stay on Single Player
+with no notice, and Any Mission is hidden. The side commanders check runs
 as one test for each part (`--part`): `art`, `rule`, `loopback`, `give`, and
 `records-GROUP`, the navigation group over its mod folder.
 
@@ -429,6 +435,10 @@ files in the tree, and `mod-docs-sync` while a generated block of the
 [standard hack and script extension pages](../mods/README.md) or their
 tables differs from what `tools/gen_mod_docs.py` writes, or a page names no
 hack or extension; running the script brings each back in step.
+`input-actions-sync` fails while the action table
+`tools/gen_input_actions.py` writes differs from the tree or the registry
+breaks a rule, and `input-actions-sync-selftest` while the self-test
+reports a failure.
 
 `OA_MOD_GAME_DIR` names a mod's copied install: an `OA_GAME_DIR`
 installation with the mod's files copied over it. With it and
@@ -1161,6 +1171,28 @@ C libraries lack: engine code copies text into fixed-size fields with
 The installation of Total Annihilation 3.1c is not CI's to download: the
 game-data tests and the native checks over it run only on contributors'
 machines, so run them before asking for review.
+
+### Before a push: other compilers' warnings
+
+Clang on macOS does not turn on the narrowing warnings Visual Studio's
+compiler reports, or GCC's `-Wsign-compare`, so a push can be the first
+time those builds see them. `tools/check_conversions.py` compiles the C
+and C++ sources that changed since a merge base, with Clang and
+`-fsyntax-only`, and reports only the warnings that fall on changed
+lines. The three flags are:
+
+- `-Wimplicit-int-float-conversion` and `-Wshorten-64-to-32`, for the
+  narrowing Visual Studio's compiler reports as C4244 and C4267;
+- `-Wsign-compare`, the same warning GCC reports under that name.
+
+```sh
+python3 tools/check_conversions.py --base origin/main
+```
+
+The report names changed lines only. `--whole-files` reports every
+warning of those three flags in a changed file. The check needs Clang.
+Fix a finding with an explicit cast or a wider type. Do not turn the
+warning off.
 
 ## Start-up and screen timing
 

@@ -297,7 +297,7 @@ void Match::projectile_trail_effects(oa::Projectile& shot, int16_t previous_heig
 bool Match::spawn_weapon_explosion(
     const oa::WeaponDef& weapon, const std::array<uint32_t, 3>& position, bool struck_unit
 ) {
-    const auto& art = input_.weapons.definition(weapon.weapon_id);
+    const auto& art = input_.weapons.definition(oa::oa_weapon_def_id(&weapon));
     const auto point = fixed_point(position);
     // MapPlot.high_height below sea level under the burst.
     const auto* plot = plot_at(point.x, point.z);

@@ -343,7 +343,8 @@ The checks drive the game by themselves, with no player, and end with
 status 0 when they pass and 1 when they fail; one that cannot run on this
 machine, such as one that needs 2 GiB of memory, ends with 77. The engine's
 tests run them ([testing](development/testing.md)). Check and Debug builds
-hold the self-checks, the `--check-` options and `--reclaim-check`; the
+hold the self-checks, the `--check-` options, `--reclaim-check` and
+`--weapon-fire-check`; the
 release packages leave them out and refuse them with a line that says so.
 Network play's own checks, the last rows, are in every build.
 
@@ -397,6 +398,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-click-snap` | Checks the cursor RECLAIM shows beside a wreck, and where a RECLAIM click there and a metal extractor's build click beside a deposit land, with `ui.click-snap` on or off. |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
 | `--check-megamap-clicks` | Checks clicks on the megamap. |
+| `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
 | `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
@@ -453,6 +455,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-interpolation` | Checks the frames drawn between ticks, and the frames at whole ticks with Smooth motion Off. |
 | `--check-unit-playout` | Checks another machine's units move evenly. |
 | `--reclaim-check` | Has the commander reclaim the nearest feature in a headless skirmish. |
+| `--weapon-fire-check TYPE` | In a headless skirmish of `--match-ticks` ticks, places `TYPE` and checks its first weapon fires at a unit and a feature. |
 | `--net-loopback-check TICKS` | Hosts and joins a match in one process over 127.0.0.1 and compares both worlds after `TICKS` ticks. |
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |

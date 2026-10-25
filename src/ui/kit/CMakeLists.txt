@@ -6,11 +6,13 @@
 # include/oa/ui/kit/layout.hpp, include/oa/ui/kit/input.hpp,
 # include/oa/ui/kit/looks.hpp, include/oa/ui/kit/canvas.hpp, include/oa/ui/kit/components.hpp,
 # include/oa/ui/kit/chrome.hpp, include/oa/ui/kit/controls.hpp,
-# include/oa/ui/kit/components_more.hpp, include/oa/ui/kit/first_run.hpp), and the
+# include/oa/ui/kit/components_more.hpp, include/oa/ui/kit/first_run.hpp,
+# include/oa/ui/kit/keys.hpp), and the
 # gallery of every component (include/oa/ui/kit/gallery.hpp). Provisional until
 # the kit is declared stable.
 add_library(oa-ui-kit src/text.cpp src/wrap.cpp src/layout.cpp src/input.cpp src/canvas.cpp src/components.cpp
-  src/chrome.cpp src/controls.cpp src/components_more.cpp src/first_run.cpp src/gallery.cpp)
+  src/chrome.cpp src/controls.cpp src/components_more.cpp src/first_run.cpp src/gallery.cpp
+  src/keys.cpp)
 # Declared rows: a settings page as a table (include/oa/ui/kit/rows.hpp).
 target_sources(oa-ui-kit PRIVATE src/rows.cpp)
 add_library(oa::ui::kit ALIAS oa-ui-kit)
@@ -69,6 +71,12 @@ if(BUILD_TESTING)
     oa-ui-paint oa-base-sha256)
   add_test(NAME ui-kit-tag-icons COMMAND oa-ui-kit-tag-icons-test)
   set_tests_properties(ui-kit-tag-icons PROPERTIES TIMEOUT 30)
+
+  add_executable(oa-ui-kit-keys-test tests/keys_test.cpp)
+  target_link_libraries(oa-ui-kit-keys-test PRIVATE oa-ui-kit oa-test-support oa-options
+    oa-ui-paint)
+  add_test(NAME ui-kit-keys COMMAND oa-ui-kit-keys-test)
+  set_tests_properties(ui-kit-keys PROPERTIES TIMEOUT 30)
 
   add_executable(oa-ui-kit-notices-test tests/notices_test.cpp)
   target_link_libraries(oa-ui-kit-notices-test PRIVATE oa-ui-kit oa-test-support oa-options)

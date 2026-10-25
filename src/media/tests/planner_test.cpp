@@ -115,7 +115,7 @@ class Builder {
                             bool builder,
                             uint32_t metal,
                             uint32_t health,
-                            uint8_t weapon) {
+                            uint16_t weapon) {
             director::TimelineUnitType unit{};
             unit.type_index = index;
             unit.unit_name = "TYPE" + std::to_string(index);
@@ -155,6 +155,21 @@ class Builder {
         weapon(blast, 0, 0, 400, 20, 10);
         weapon(bertha, 4000, OA_WEAPON_FLAG_BALLISTIC, 80, 2000, 0);
         weapon(missile, 32000, OA_WEAPON_FLAG_VLAUNCH | OA_WEAPON_FLAG_STOCKPILE, 512, 5500, 24);
+    }
+
+    /// Adds a weapon the timeline names, after the ones the constructor listed.
+    void add_weapon(
+        uint16_t id, int32_t range, uint32_t flags, int32_t area, int32_t damage, int32_t shake
+    ) {
+        director::TimelineWeapon record{};
+        record.weapon_id = id;
+        record.name = "WEAPON" + std::to_string(id);
+        record.range = range;
+        record.flags = flags;
+        record.area_of_effect = area;
+        record.damage = damage;
+        record.shake_magnitude = shake;
+        timeline_.header.weapons.push_back(record);
     }
 
     /// Adds a player that fights, with its start and allies.
@@ -293,7 +308,7 @@ class Builder {
     }
 
     /// Adds a shot.
-    void shot(uint32_t tick, uint16_t shooter, uint8_t owner, uint8_t weapon, Spot from) {
+    void shot(uint32_t tick, uint16_t shooter, uint8_t owner, uint16_t weapon, Spot from) {
         director::TimelineEvent event{};
         event.tick = tick;
         event.kind = director::EventKind::shot;
@@ -305,7 +320,7 @@ class Builder {
     }
 
     /// Adds a detonation.
-    void detonation(uint32_t tick, uint16_t shooter, uint8_t owner, uint8_t weapon, Spot at) {
+    void detonation(uint32_t tick, uint16_t shooter, uint8_t owner, uint16_t weapon, Spot at) {
         director::TimelineEvent event{};
         event.tick = tick;
         event.kind = director::EventKind::detonation;
@@ -1252,6 +1267,40 @@ void test_long_range() {
     }
 }
 
+// A long-range shot of a weapon past 255 is matched with its detonation.
+void test_wide_weapon_long_range() {
+    Builder large{16384, 16384, 3000};
+    large.add_weapon(300, 32000, OA_WEAPON_FLAG_VLAUNCH | OA_WEAPON_FLAG_STOCKPILE, 512, 5500, 24);
+    large.player(0, Spot{1000, 1000});
+    large.player(1, Spot{15000, 15000});
+    large.unit(1, commander_type, 0, 0, Spot{1000, 1000}, true);
+    large.unit(2, commander_type, 1, 0, Spot{15000, 15000}, true);
+    large.unit(50, launcher_type, 0, 0, Spot{4000, 1000});
+    large.shot(2000, 50, 0, 300, Spot{4000, 1000});
+    large.detonation(2300, 50, 0, 300, Spot{15000, 14800});
+    const director::Timeline far{large.done()};
+    const director::Plan plan{planned(far, "wide weapon")};
+    const std::vector<Switch> switches{switches_of(plan)};
+    const auto has{[&](uint32_t tick, const std::string& key) {
+        return std::any_of(switches.begin(), switches.end(), [&](const Switch& entry) {
+            return entry.tick == tick && entry.key == key;
+        });
+    }};
+    expect(has(1940, "moment:2000"), "the launch of weapon 300");
+    const auto impact{std::find_if(switches.begin(), switches.end(), [](const Switch& entry) {
+        return entry.tick >= 2300 - director::arrive_early_ticks && entry.tick <= 2300 - 60 &&
+               (entry.key == "moment:2300" || entry.key.rfind("hot:", 0) == 0);
+    })};
+    expect(impact != switches.end(), "the impact of weapon 300");
+    if (impact != switches.end()) {
+        const oascript::Shot* shot{shot_at(plan, impact->tick)};
+        expect(
+            shot != nullptr && shot->camera_start && holds(*shot->camera_start, Spot{15000, 14800}),
+            "weapon 300's impact in view"
+        );
+    }
+}
+
 // An army advancing on the enemy start is framed with lead room ahead of it.
 void test_army_lead() {
     Builder builder{8192, 8192, 2400};
@@ -1846,6 +1895,7 @@ int main() {
     test_single_player();
     test_switch_ratio();
     test_long_range();
+    test_wide_weapon_long_range();
     test_army_lead();
     test_quiet_turns();
     test_army_advance();

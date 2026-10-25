@@ -414,6 +414,9 @@ struct Options {
     // (src/app/README.md).
     fs::path stage_file;
     bool reclaim_check = false;
+    // --weapon-fire-check TYPE: a headless skirmish places that unit type and
+    // checks its first weapon fires at a unit and a feature. Empty runs none.
+    std::string weapon_fire_check;
     // Headless camera placement: map pixel at the view's top-left.
     std::optional<std::pair<int, int>> camera;
     // Headless savegames: save once the tick reaches save_after (to save_file),
@@ -624,6 +627,9 @@ struct Options {
     /// --check-megamap-clicks: the megamap's clicks (ui.megamap) against the
     /// battlefield's in both interface types, on a skirmish.
     bool check_megamap_clicks = false;
+    /// --check-single-player-offers: New Campaign and Any Mission on SINGLE.GUI
+    /// when a side has a campaign, and when neither side has one.
+    bool check_single_player_offers = false;
     /// --check-radar-orders: presses on the minimap (the radar) in both
     /// interface types, for every armed command and the default order, on a
     /// skirmish.

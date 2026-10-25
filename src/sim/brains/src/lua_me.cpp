@@ -409,16 +409,14 @@ int getter_side_name(lua_State* lua) {
         push_nil(lua);
         return 1;
     }
-    const oa::PlayerSetupInfo* info = oa::world_player_info(&seat->match->state(), record);
-    if (info == nullptr || info->side >= 5) {
+    const oa::World& world = seat->match->state();
+    const oa::PlayerSetupInfo* info = oa::world_player_info(&world, record);
+    const oa::Side* side = info != nullptr ? oa::world_side(&world, info->side) : nullptr;
+    if (side == nullptr) {
         push_nil(lua);
         return 1;
     }
-    push_text(
-        lua,
-        seat->match->state().game.sides[info->side].name,
-        sizeof seat->match->state().game.sides[info->side].name
-    );
+    push_text(lua, side->name, sizeof side->name);
     return 1;
 }
 

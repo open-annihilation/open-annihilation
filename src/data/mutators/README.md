@@ -1533,7 +1533,8 @@ weapon types takes no slot: 255 unless the profile raises
 baseline. The number follows the limit. A weapon
 section with no `ID` says so. `corpse` names a feature section under
 `features`. `movementclass` names the `Name` of `CLASS0` to `CLASS31`. A later
-class or side section is `too_many_movement_classes` or `too_many_sides`. Each
+class section is `too_many_movement_classes`. A side section past the
+profile's `limits.sides` (five without a profile) is `too_many_sides`. Each
 side from `SIDE0` up to the first gap must name a live commander.
 `objectname`, or the unit's name when that field is empty, must be a model the
 store holds. `scripts/<unit>.COB` is optional. A download file's first five

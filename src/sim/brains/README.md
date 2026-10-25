@@ -756,7 +756,7 @@ index, the weapon id, or the feature's index from 0.
 
 `units[i]` is type index `i`, from 1. Index 0 is the reserved empty type and
 is not a record. `#units` is that count. `weapons[id]` is the weapon id from
-0 to 255, or nil when that slot was not loaded. `#weapons` is how many slots
+0 to the mod's weapon types minus one (255 without a limit), or nil when that slot was not loaded. `#weapons` is how many slots
 are loaded, so it matches `each` and `pairs`; the id is still the key, and a
 gap stays a gap. `features[i]` is the feature type at index `i - 1`.
 

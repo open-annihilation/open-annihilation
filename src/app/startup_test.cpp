@@ -456,6 +456,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-build-preview", &Options::check_build_preview, {}},
         {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
         {"--check-megamap-clicks", &Options::check_megamap_clicks, {}},
+        {"--check-single-player-offers", &Options::check_single_player_offers, {}},
         {"--check-radar-orders", &Options::check_radar_orders, {}},
         {"--check-touch-controls", &Options::check_touch_controls, {}},
         {"--check-pad-controls", &Options::check_pad_controls, {}},
@@ -513,6 +514,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--restart-at", "30", {"--campaign", "Arm Campaign", "--mission", "0"}},
         {"--combat", "4", {}},
         {"--stage", "s.stage", {"--headless-check", "--match-ticks", "60"}},
+        {"--weapon-fire-check", "WIDE", {"--headless-check", "--match-ticks", "60"}},
         {"--save-after", "30", {}},
         {"--save-file", "a.sav", {}},
         {"--load", "a.sav", {}},
@@ -1305,6 +1307,33 @@ int main() {
             {"--headless-check", "--match-ticks", "60", "--load", "a.sav", "--stage", "s.stage"}
         ) == "--stage stages a headless skirmish of --match-ticks ticks",
         "--stage does not stage a loaded game"
+    );
+    expect(
+        parse({"--headless-check", "--match-ticks", "60", "--weapon-fire-check", "WIDE"})
+                .weapon_fire_check == "WIDE",
+        "--weapon-fire-check names the type"
+    );
+    expect(
+        rejection({"--headless-check", "--weapon-fire-check", "WIDE"}) ==
+            "--weapon-fire-check fires in a headless skirmish of --match-ticks ticks",
+        "--weapon-fire-check needs --match-ticks"
+    );
+    expect(
+        rejection({"--match-ticks", "60", "--weapon-fire-check", "WIDE"}) ==
+            "--weapon-fire-check fires in a headless skirmish of --match-ticks ticks",
+        "--weapon-fire-check needs --headless-check"
+    );
+    expect(
+        rejection(
+            {"--headless-check",
+             "--match-ticks",
+             "60",
+             "--load",
+             "a.sav",
+             "--weapon-fire-check",
+             "WIDE"}
+        ) == "--weapon-fire-check fires in a headless skirmish of --match-ticks ticks",
+        "--weapon-fire-check does not fire a loaded game"
     );
     expect(
         rejection({"--headless-check", "--match-ticks", "60", "--march"}) ==

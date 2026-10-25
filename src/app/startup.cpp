@@ -362,6 +362,7 @@ void check_game_files_options(Options& options) {
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
+        {options.check_single_player_offers, "--check-single-player-offers"},
         {options.check_radar_orders, "--check-radar-orders"},
         {options.check_touch_controls, "--check-touch-controls"},
         {options.check_pad_controls, "--check-pad-controls"},
@@ -609,6 +610,7 @@ void check_director_options(Options& options) {
         {options.busy_combat, "--busy-combat"},
         {!options.stage_file.empty(), "--stage"},
         {options.reclaim_check, "--reclaim-check"},
+        {!options.weapon_fire_check.empty(), "--weapon-fire-check"},
         {options.give_orders, "--give-orders"},
         {options.check_navigation, "--check-navigation"},
         {options.check_match_dialogs, "--check-match-dialogs"},
@@ -658,6 +660,7 @@ void check_director_options(Options& options) {
         {options.check_build_preview, "--check-build-preview"},
         {options.check_pointer_interfaces, "--check-pointer-interfaces"},
         {options.check_megamap_clicks, "--check-megamap-clicks"},
+        {options.check_single_player_offers, "--check-single-player-offers"},
         {options.check_radar_orders, "--check-radar-orders"},
         {options.check_touch_controls, "--check-touch-controls"},
         {options.check_pad_controls, "--check-pad-controls"},
@@ -706,8 +709,8 @@ void check_director_options(Options& options) {
     options.skip_intro = true;
 }
 
-/// Refuses the self-checks, a --check-* option or --reclaim-check, in a build
-/// that leaves them out (self_checks_built).
+/// Refuses the self-checks, a --check-* option, --reclaim-check or
+/// --weapon-fire-check, in a build that leaves them out (self_checks_built).
 ///
 /// Throws std::runtime_error naming the first one the options ask for.
 ///
@@ -716,6 +719,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
     if constexpr (!self_checks_built) {
         const std::pair<bool, const char*> checks[] = {
             {options.reclaim_check, "--reclaim-check"},
+            {!options.weapon_fire_check.empty(), "--weapon-fire-check"},
             {options.check_navigation, "--check-navigation"},
             {options.check_match_dialogs, "--check-match-dialogs"},
             {options.check_load_save, "--check-load-save"},
@@ -765,6 +769,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_build_preview, "--check-build-preview"},
             {options.check_pointer_interfaces, "--check-pointer-interfaces"},
             {options.check_megamap_clicks, "--check-megamap-clicks"},
+            {options.check_single_player_offers, "--check-single-player-offers"},
             {options.check_radar_orders, "--check-radar-orders"},
             {options.check_touch_controls, "--check-touch-controls"},
             {options.check_pad_controls, "--check-pad-controls"},
@@ -1011,6 +1016,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-build-preview", &Options::check_build_preview},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
     {"--check-megamap-clicks", &Options::check_megamap_clicks},
+    {"--check-single-player-offers", &Options::check_single_player_offers},
     {"--check-radar-orders", &Options::check_radar_orders},
     {"--check-touch-controls", &Options::check_touch_controls},
     {"--check-pad-controls", &Options::check_pad_controls},
@@ -1221,6 +1227,10 @@ take_match_option(std::string_view argument, ArgumentCursor& cursor, Options& op
     }
     if (argument == "--stage") {
         options.stage_file = path_from_utf8(option_value(cursor));
+        return true;
+    }
+    if (argument == "--weapon-fire-check") {
+        options.weapon_fire_check = std::string(option_value(cursor));
         return true;
     }
     if (argument == "--save-after") {
@@ -1635,7 +1645,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
                      "[--check-click-snap] "
                      "[--check-build-preview] "
-                     "[--check-megamap-clicks] [--check-radar-orders] "
+                     "[--check-megamap-clicks] [--check-single-player-offers] "
+                     "[--check-radar-orders] "
                      "[--check-key-table FILE] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
@@ -1680,7 +1691,7 @@ void write_startup_line(std::string_view text) {
                      "[--game-files-copy-rate BYTES] [--game-files-stop-after BYTES] "
                      "[--no-game-files-screen] "
                      "[--zoom FACTOR] [--combat UNITS [--busy-combat]] [--stage FILE] "
-                     "[--reclaim-check] "
+                     "[--reclaim-check] [--weapon-fire-check TYPE] "
                      "[--camera X,Z] "
                   << extension_text(extension, ExtensionText::usage_runs, "")
                   << "[--save-after TICK] "
@@ -1822,6 +1833,12 @@ void write_startup_line(std::string_view text) {
     if (!result.stage_file.empty() &&
         (!result.match_ticks || !result.load_file.empty() || !result.campaign.empty()))
         throw std::runtime_error("--stage stages a headless skirmish of --match-ticks ticks");
+    if (!result.weapon_fire_check.empty() &&
+        (!result.headless_check || !result.match_ticks || !result.load_file.empty() ||
+         !result.campaign.empty()))
+        throw std::runtime_error(
+            "--weapon-fire-check fires in a headless skirmish of --match-ticks ticks"
+        );
     if (!result.brain_levels.empty() && result.brain_match.empty())
         throw std::runtime_error("--brain-levels needs --brain-match");
     if (!result.brain_map.empty() && result.brain_match.empty())
@@ -1921,13 +1938,14 @@ void write_startup_line(std::string_view text) {
         result.check_window_place || result.check_progress || result.check_text_fit ||
         result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
         result.check_wreck_pick || result.check_build_preview || result.check_pointer_interfaces ||
-        result.check_megamap_clicks || result.check_radar_orders || result.check_touch_controls ||
-        result.check_pad_controls || result.check_running_while_inactive ||
-        result.check_director_view || result.check_director_render || result.check_interpolation ||
-        result.check_unit_playout || result.check_paused_save || result.check_saved_brains ||
-        result.check_simulation_hash || result.check_zoom_memory || result.check_map_packs ||
-        result.check_map_browser || result.check_mutator_button || result.check_mutator_room ||
-        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
+        result.check_megamap_clicks || result.check_single_player_offers ||
+        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
+        result.check_running_while_inactive || result.check_director_view ||
+        result.check_director_render || result.check_interpolation || result.check_unit_playout ||
+        result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
+        result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
+        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
+        result.check_mutator_picker || result.check_brain_picker ||
         result.check_brain_seat_buttons || result.check_brain_campaign ||
         result.check_mutator_prompts || result.check_map_pack_lists ||
         result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;

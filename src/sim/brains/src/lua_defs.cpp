@@ -40,6 +40,14 @@ constexpr const char* unit_names = "oa.brain.unit_names";
 constexpr const char* weapon_names = "oa.brain.weapon_names";
 constexpr const char* feature_names = "oa.brain.feature_names";
 
+// The weapon record at a slot, including one past the first 256. Null when
+// the slot is past the table.
+const oa::WeaponDef* weapon_slot(const oa::World& world, uint32_t slot) noexcept {
+    if (slot >= oa::world_weapon_def_count(&world))
+        return nullptr;
+    return oa::world_weapon_def(&world, oa::oa_ref_from_index(slot));
+}
+
 enum class Kind : uint8_t { unit = 1, weapon = 2, feature = 3 };
 
 struct CollectionBox {
@@ -163,9 +171,10 @@ bool read_box(
         return read_unit_field(world->unit_defs[box.index], definition, key, out);
     }
     if (box.kind == static_cast<uint8_t>(Kind::weapon)) {
-        if (box.index >= OA_WEAPON_DEF_COUNT)
+        const oa::WeaponDef* weapon = weapon_slot(*world, box.index);
+        if (weapon == nullptr)
             return false;
-        return read_weapon_field(world->game.weapon_defs[box.index], key, out);
+        return read_weapon_field(*weapon, key, out);
     }
     if (world->feature_defs == nullptr || box.index >= world->feature_def_count)
         return false;
@@ -432,11 +441,13 @@ bool record_at(lua_State* lua, uint8_t kind, lua_Integer number, uint16_t* index
         *index = static_cast<uint16_t>(number - 1);
         return true;
     }
-    if (number < 0 || number >= OA_WEAPON_DEF_COUNT)
+    if (number < 0 || number > static_cast<lua_Integer>(0xffff))
         return false;
-    if (world->game.weapon_defs[static_cast<std::size_t>(number)].key[0] == '\0')
+    const auto slot = static_cast<uint32_t>(number);
+    const oa::WeaponDef* weapon = weapon_slot(*world, slot);
+    if (weapon == nullptr || weapon->key[0] == '\0')
         return false;
-    *index = static_cast<uint16_t>(number);
+    *index = static_cast<uint16_t>(slot);
     return true;
 }
 
@@ -447,9 +458,13 @@ bool next_record(
     if (world == nullptr || key == nullptr || index == nullptr)
         return false;
     if (kind == static_cast<uint8_t>(Kind::weapon)) {
-        const int start = static_cast<int>(cursor) + 1;
-        for (int slot = start; slot < OA_WEAPON_DEF_COUNT; ++slot) {
-            if (world->game.weapon_defs[slot].key[0] == '\0')
+        const uint32_t count = oa::world_weapon_def_count(world);
+        if (cursor >= static_cast<lua_Integer>(count))
+            return false;
+        const lua_Integer start = cursor < 0 ? lua_Integer{0} : cursor + 1;
+        for (lua_Integer slot = start; slot < static_cast<lua_Integer>(count); ++slot) {
+            const oa::WeaponDef* weapon = weapon_slot(*world, static_cast<uint32_t>(slot));
+            if (weapon == nullptr || weapon->key[0] == '\0')
                 continue;
             *key = slot;
             *index = static_cast<uint16_t>(slot);
@@ -481,8 +496,10 @@ lua_Integer collection_length(lua_State* lua, uint8_t kind) noexcept {
         return static_cast<lua_Integer>(world->feature_def_count);
     }
     lua_Integer used = 0;
-    for (int slot = 0; slot < OA_WEAPON_DEF_COUNT; ++slot) {
-        if (world->game.weapon_defs[slot].key[0] != '\0')
+    const uint32_t count = oa::world_weapon_def_count(world);
+    for (uint32_t slot = 0; slot < count; ++slot) {
+        const oa::WeaponDef* weapon = weapon_slot(*world, slot);
+        if (weapon != nullptr && weapon->key[0] != '\0')
             ++used;
     }
     return used;
@@ -642,11 +659,12 @@ void build_names(lua_State* lua, Seat& seat) {
         }
     }
     if (world != nullptr) {
-        for (int slot = 0; slot < OA_WEAPON_DEF_COUNT; ++slot) {
-            const oa::WeaponDef& weapon = world->game.weapon_defs[slot];
-            if (weapon.key[0] == '\0')
+        const uint32_t count = oa::world_weapon_def_count(world);
+        for (uint32_t slot = 0; slot < count; ++slot) {
+            const oa::WeaponDef* weapon = weapon_slot(*world, slot);
+            if (weapon == nullptr || weapon->key[0] == '\0')
                 continue;
-            remember_name(lua, -2, chars_of(weapon.key, sizeof weapon.key), slot);
+            remember_name(lua, -2, chars_of(weapon->key, sizeof weapon->key), slot);
         }
     }
     if (world != nullptr && world->feature_defs != nullptr) {

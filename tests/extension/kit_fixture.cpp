@@ -55,7 +55,8 @@
 // screen, open_kit_screen, ask_prompt and the overlay's kit calls.
 // Version 16 adds run_mutators, which this extension does not call.
 // Version 17 adds hear_remote_seat_chat, which this extension does not call.
-constexpr uint32_t kExtensionApiVersionFollowed = 17;
+// Version 18 adds the kit's key pictures, which this extension does not use.
+constexpr uint32_t kExtensionApiVersionFollowed = 18;
 static_assert(
     oa::app::extension_api_version == kExtensionApiVersionFollowed,
     "the engine's extension table changed: follow its change, then raise "

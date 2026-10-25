@@ -1307,7 +1307,7 @@ entries:
       dither: {type: bool, baseline: false, default: false, adjustable: fixed, scope: view}
       feature-blobs: {type: bool, baseline: false, default: true, adjustable: fixed, scope: view}
       ring-minimums: {type: list<int>, min: 0, max: 65535, length: 5, unit: pixels, baseline: [0, 0, 0, 0, 512], default: [128, 128, 64, 64, 512], adjustable: fixed, scope: view}
-      icon-categories: {type: int, min: 0, max: 64, unit: categories, baseline: 0, default: 9, adjustable: fixed, scope: view}
+      icon-categories: {type: int, min: 0, max: 128, unit: categories, baseline: 0, default: 9, adjustable: fixed, scope: view}
   ui.whiteboard:
     kind: hack
     title: Whiteboard

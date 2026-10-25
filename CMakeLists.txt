@@ -212,6 +212,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/input-actions)
 add_subdirectory(src/data/brain-facts)
 add_subdirectory(src/data/brain-library)
 add_subdirectory(src/data/map-fit)
@@ -1340,7 +1341,8 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
-  src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
+  src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
+  src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
@@ -1350,6 +1352,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_zoom_memory_check.cpp
   src/app/runtime_match_panel_keys_check.cpp src/app/runtime_turret_draw_check.cpp
   src/app/runtime_megamap_check.cpp src/app/runtime_radar_orders_check.cpp
+  src/app/runtime_single_player_offers_check.cpp
   src/app/runtime_inactive_loop_check.cpp src/app/runtime_factory_check.cpp
   src/app/runtime_unit_speech_check.cpp src/app/runtime_mutator_layer_check.cpp
   src/app/runtime_mutator_verdicts_check.cpp
@@ -2118,6 +2121,48 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-gadget-art-per-match PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_gadget_art_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # SINGLE.GUI when a side has a campaign, and when a folder hides every
+      # campaign file with an empty file of the same name. New Campaign stays
+      # shown and is greyed only when neither side has a campaign; Any Mission
+      # is hidden then.
+      set(oa_single_player_offers_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers")
+      file(MAKE_DIRECTORY "${oa_single_player_offers_dir}")
+      add_test(NAME native-single-player-offers COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-single-player-offers
+        --preferences-file "${oa_single_player_offers_dir}/offers.conf")
+      set_tests_properties(native-single-player-offers PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_single_player_offers_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "campaigns yes, new campaign offered")
+      set(oa_hidden_campaigns_mod
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers/hidden/mod")
+      file(MAKE_DIRECTORY "${oa_hidden_campaigns_mod}/camps")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Arm Campaign.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Core Campaign.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Arm Campaign - Core Contingency .tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Core Campaign - Core Contingency .tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Krogoth Encounter.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Example.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Very Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Medium.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Arm Long.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Very Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Short.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Medium.tdf" "")
+      file(WRITE "${oa_hidden_campaigns_mod}/camps/Battle Tactics - Core Long.tdf" "")
+      set(oa_hidden_campaigns_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/single-player-offers/hidden")
+      add_test(NAME native-single-player-offers-hidden COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-single-player-offers
+        --mod-dir "${oa_hidden_campaigns_mod}"
+        --preferences-file "${oa_hidden_campaigns_dir}/offers.conf")
+      set_tests_properties(native-single-player-offers-hidden PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_hidden_campaigns_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "campaigns no, new campaign greyed, any mission hidden")
       # The progress dialog: a short job shows nothing, a long spinner and a
       # long bar animate and close with no input, the four languages have
       # the lines, and pictures of both states are written at three sizes.
@@ -3845,6 +3890,17 @@ endforeach()
         set_tests_properties(native-limits-weapon-table PROPERTIES
           FIXTURES_REQUIRED limits-fixture
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A unit armed past 255 fires that weapon at a unit and a feature.
+        # Two seeded runs print the same lines and the same trace.
+        add_test(NAME native-limits-weapon-fire COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_weapon_fire.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+          --type RIDGEW300 --weapon 300
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-limits-weapon-fire PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # --brain-shadow seats a brain beside every computer seat. The inert
         # leg plays the trace skirmish with and without a shadow.
         add_test(NAME native-brain-shadow COMMAND ${Python3_EXECUTABLE}
@@ -4125,6 +4181,13 @@ endforeach()
         set_tests_properties(limits-fixture PROPERTIES
           FIXTURES_SETUP limits-fixture
           TIMEOUT 300)
+        add_test(NAME app-brain-check-sides
+          COMMAND oa-app-brain-check-test --data --sides-fixture
+            "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides")
+        oa_game_data_tests(app-brain-check-sides)
+        set_tests_properties(app-brain-check-sides PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT 120)
         add_test(NAME limits-fixture-repeatable COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py"
           --game-dir "${OA_GAME_DIR}" --oa-tool $<TARGET_FILE:oa-tool>
@@ -4381,6 +4444,14 @@ if(BUILD_TESTING)
     add_test(NAME mod-registry-sync-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_mod_registry.py --self-test)
     set_tests_properties(mod-registry-sync mod-registry-sync-selftest PROPERTIES TIMEOUT 60)
+    # The action table generated from the action registry
+    # (tools/gen_input_actions.py) is what the registry gives, and the
+    # registry is consistent.
+    add_test(NAME input-actions-sync COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_input_actions.py --check)
+    add_test(NAME input-actions-sync-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_input_actions.py --self-test)
+    set_tests_properties(input-actions-sync input-actions-sync-selftest PROPERTIES TIMEOUT 60)
     # The homepage, tag and engine-requirement rules (tools/oamod_yaml.py)
     # agree with the table the C++ reader checks.
     add_test(NAME oamod-yaml-selftest COMMAND ${Python3_EXECUTABLE}
@@ -4408,6 +4479,11 @@ if(BUILD_TESTING)
     add_test(NAME doc-links-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_links.py --self-test)
     set_tests_properties(doc-links doc-links-selftest PROPERTIES TIMEOUT 60)
+    # Narrowing and sign warnings on lines changed since a merge base
+    # (tools/check_conversions.py). The self-test needs no compiler.
+    add_test(NAME conversion-check-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_conversions.py --self-test)
+    set_tests_properties(conversion-check-selftest PROPERTIES TIMEOUT 60)
     # The engine's C, C++ and Objective-C sources are laid out as
     # .clang-format says, by the clang-format release that
     # tools/format/requirements.txt pins (tools/format_sources.py, whose

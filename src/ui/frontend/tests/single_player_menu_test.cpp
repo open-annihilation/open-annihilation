@@ -66,4 +66,25 @@ OA_GAME_DATA_TEST(single_player_menu_hides_what_the_demo_cannot_play) {
     OA_CHECK(prepared("PrevMenu", demo)->grayed == 0);
 }
 
+// Neither side has a campaign: New Campaign stays on the menu, greyed, and
+// Any Mission is hidden. The other entries stay as the full game leaves them.
+OA_GAME_DATA_TEST(single_player_menu_greys_new_campaign_without_campaigns) {
+    const SinglePlayerOffers none{.campaigns = false};
+    const Control* campaign = prepared("NewCamp", none);
+    if (campaign == nullptr)
+        return;
+    OA_CHECK(campaign->grayed == 1);
+    OA_CHECK(campaign->active != 0);
+    OA_CHECK(campaign->quick_key != 0);
+    OA_CHECK(prepared("AnyMsn", none)->active == 0);
+    OA_CHECK(prepared("LoadGame", none)->grayed == 0);
+    OA_CHECK(prepared("LoadGame", none)->active != 0);
+    OA_CHECK(prepared("Skirmish", none)->grayed == 0);
+    OA_CHECK(prepared("Skirmish", none)->active != 0);
+    OA_CHECK(prepared("Options", none)->grayed == 0);
+    OA_CHECK(prepared("Options", none)->active != 0);
+    OA_CHECK(prepared("PrevMenu", none)->grayed == 0);
+    OA_CHECK(prepared("PrevMenu", none)->active != 0);
+}
+
 } // namespace oa::ui::frontend::test

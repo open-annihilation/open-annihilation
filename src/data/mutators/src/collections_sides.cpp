@@ -78,7 +78,6 @@ struct SideCollectionsAccess {
 
 namespace {
 
-constexpr uint32_t k_side_slots = 5;
 constexpr uint32_t k_list_kept = 30;
 constexpr uint32_t k_list_cap = 1024;
 constexpr std::size_t k_name_limit = 29;
@@ -541,10 +540,11 @@ tdf::Block* side_block(Collections& collections, rules::LoadedDocument& loaded, 
 }
 
 uint32_t count_loaded_sides(Collections& collections, rules::LoadedDocument& loaded) {
+    const uint32_t limit = collections.side_limit();
     uint32_t count = 0;
-    while (count < k_side_slots && side_block(collections, loaded, count) != nullptr)
+    while (count < limit && side_block(collections, loaded, count) != nullptr)
         ++count;
-    if (count < k_side_slots)
+    if (count < limit)
         note_visit(scratch_of(collections), 1);
     return count;
 }

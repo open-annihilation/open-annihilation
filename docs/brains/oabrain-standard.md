@@ -752,8 +752,8 @@ the mod and the mutators. They are read-only. Assigning a field raises
 Replacing the global `units` itself is ordinary Lua.
 
 `units[i]` is type index `i`, from 1. Index 0 is not a record.
-`weapons[id]` is the weapon id from 0 to 255, or nil when that slot was
-not loaded. `features[i]` is the feature type at index `i - 1`. Names are
+`weapons[id]` is the weapon id from 0 to the mod's weapon types minus one
+(255 without a limit), or nil when that slot was not loaded. `features[i]` is the feature type at index `i - 1`. Names are
 matched without regard to ASCII case. `pairs` and `each` walk type index,
 then weapon id, then feature index.
 
