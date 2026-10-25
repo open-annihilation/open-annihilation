@@ -27,6 +27,10 @@ RUN_TIMEOUT = 600
 PREFERENCES_HEADER = "open-annihilation-preferences 1"
 USER_FOLDER = "Open Annihilation"
 ATTACK_LINE = "input action pressed order.attack chord=A context=play"
+KEY_TABLE_LINE = "rows match"
+MISSING_LINE = "open-annihilation: keys: --keys: no-such-layout: it is not installed"
+MATCH_TICK = "tick    30:"
+IMPORT_LINE = "open-annihilation: keys: imported build.line from KeyCode as @KeyQ"
 MOD_ID = "ridge-build-keys"
 LAYOUT_TEXT = """oakeys: 1
 id: ridge-attack
@@ -55,7 +59,7 @@ class ScriptFailure(Exception):
 
 
 def run(native, game_dir, work, args):
-    """Runs one headless start. Returns the status and the combined output."""
+    """Runs one start. Returns the status and the combined output."""
     environment = dict(os.environ)
     environment["SDL_VIDEO_DRIVER"] = "dummy"
     environment["SDL_AUDIO_DRIVER"] = "dummy"
@@ -116,12 +120,13 @@ def main():
 
     layout = work / "ridge-attack"
     write(layout / "oakeys.yaml", LAYOUT_TEXT)
+    # --headless-check returns from the menu before --check-key-table runs.
+    # This start is the one native-key-table uses, plus the layout and the trace.
     status, output = run(
         parsed.native,
         parsed.game_dir,
         work,
         [
-            "--headless-check",
             "--keys",
             str(layout),
             "--check-key-table",
@@ -131,10 +136,12 @@ def main():
             str(work / "attack.conf"),
         ],
     )
-    if status != 0 or ATTACK_LINE not in output:
+    if status != 0 or ATTACK_LINE not in output or KEY_TABLE_LINE not in output:
         show("attack", output)
         raise ScriptFailure(f"--keys layout exited {status}")
 
+    # The unknown id is refused while the game is built, before the menu check
+    # this flag would otherwise run. The line below is that refusal.
     status, output = run(
         parsed.native,
         parsed.game_dir,
@@ -147,7 +154,7 @@ def main():
             str(work / "missing.conf"),
         ],
     )
-    if status != 2 or "no-such-layout" not in output:
+    if status != 2 or MISSING_LINE not in output or "native check:" in output:
         show("missing", output)
         raise ScriptFailure(f"--keys no-such-layout exited {status}")
 
@@ -157,6 +164,8 @@ def main():
         preferences([("open-annihilation.keys.layout", "no-such-layout")]),
     )
     before = reset_prefs.read_bytes()
+    # --match-ticks plays the skirmish. Without it the menu check returns
+    # and never prints a tick line.
     status, output = run(
         parsed.native,
         parsed.game_dir,
@@ -171,7 +180,7 @@ def main():
         ],
     )
     own = work / USER_FOLDER / "Keys" / "own-oa-default" / "oakeys.yaml"
-    if status != 0 or own.exists():
+    if status != 0 or MATCH_TICK not in output or own.exists():
         show("reset", output)
         raise ScriptFailure(f"--keys-reset exited {status}")
     if b"open-annihilation.keys.imported" in reset_prefs.read_bytes():
@@ -198,6 +207,8 @@ def main():
     imported_text = imported_prefs.read_text(encoding="utf-8")
     if (
         status != 0
+        or MATCH_TICK not in output
+        or IMPORT_LINE not in output
         or 'build.line: ["@KeyQ"]' not in own_text
         or "open-annihilation.keys.imported" not in imported_text
         or MOD_ID not in imported_text
@@ -207,7 +218,13 @@ def main():
     own_bytes = own.read_bytes()
     prefs_bytes = imported_prefs.read_bytes()
     status, output = run(parsed.native, parsed.game_dir, work, import_args)
-    if status != 0 or own.read_bytes() != own_bytes or imported_prefs.read_bytes() != prefs_bytes:
+    if (
+        status != 0
+        or MATCH_TICK not in output
+        or IMPORT_LINE in output
+        or own.read_bytes() != own_bytes
+        or imported_prefs.read_bytes() != prefs_bytes
+    ):
         show("import again", output)
         raise ScriptFailure(f"a second run exited {status} or changed a file")
     return 0
