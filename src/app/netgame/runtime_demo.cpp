@@ -108,9 +108,8 @@ void NetworkPlay::start_demo_playback() {
     const std::string needs = runtime_.content_switch_sentence(recorded);
     if (!needs.empty())
         throw std::runtime_error(needs);
-    switch (demo::demo_limits_verdict(
-        session->playback, runtime_.limits_.weapon_types.types, runtime_.limits_.sides.count
-    )) {
+    const auto rules = oa::app::netgame::wire_rules_of(runtime_.mod_profile());
+    switch (demo::demo_limits_verdict(session->playback, rules.weapon_types, rules.sides)) {
     case demo::DemoLimitsVerdict::plays:
         break;
     case demo::DemoLimitsVerdict::other_limits: {
