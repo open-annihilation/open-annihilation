@@ -10,7 +10,8 @@ add_library(oa-ui-key-bindings
   src/chord.cpp
   src/key_names.cpp
   src/resolve.cpp
-  src/clashes.cpp)
+  src/clashes.cpp
+  src/dispatcher.cpp)
 add_library(oa::ui::key_bindings ALIAS oa-ui-key-bindings)
 target_include_directories(oa-ui-key-bindings PUBLIC include)
 target_compile_features(oa-ui-key-bindings PUBLIC cxx_std_20)
@@ -28,6 +29,12 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-key-bindings-layouts-exe PRIVATE oa-ui-key-bindings oa-test-support
     oa-options)
   add_test(NAME ui-key-bindings-layouts COMMAND oa-ui-key-bindings-layouts-exe)
+
+  # One binding per event, the gestures, and a modifier role read from the keys held now.
+  add_executable(oa-ui-key-bindings-dispatcher-exe tests/dispatcher_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-dispatcher-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-dispatcher COMMAND oa-ui-key-bindings-dispatcher-exe)
 
   # The position numbers and the named keys' key codes, against SDL.
   add_executable(oa-ui-key-bindings-sdl-exe tests/sdl_numbers_test.cpp)
