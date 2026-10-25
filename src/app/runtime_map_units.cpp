@@ -89,15 +89,14 @@ bool Runtime::place_map_units(uint8_t player, int32_t start_position) {
     if (!neutral && (!runs_here(owner) || watching(world, owner)))
         return false;
     std::vector<map_units::MapUnitPick> picks(static_cast<std::size_t>(map->unit_count));
+    const std::vector<Side> loaded_sides = oa::data::defs::side_records(side_table_);
     picks.resize(
         static_cast<std::size_t>(map_units::pick_start_map_units(
             map->units,
             map->unit_count,
             start_position,
             neutral,
-            std::span<const Side>(
-                side_table_.sides, std::max<uint32_t>(OA_SIDE_COUNT, side_table_.count)
-            ),
+            std::span<const Side>(loaded_sides),
             picks
         ))
     );
