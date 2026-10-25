@@ -66,6 +66,8 @@ in
     # The fonts cmake/OaTextFonts.cmake copies beside the game.
     cmakeFlags = [
       "-DOA_TEXT_FONTS_DIR=${textFonts}"
+      "-DOA_SELF_UPDATE=OFF"
+      "-DOA_PACKAGER_NAME=Nix"
     ];
 
     buildFlags = [

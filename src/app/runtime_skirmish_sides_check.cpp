@@ -5,6 +5,7 @@
 // every offered side and, with more than five sides, right back through them.
 #include "oa/app/runtime.hpp"
 #include "oa/core/side.h"
+#include "oa/data/defs/layout.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -133,8 +134,8 @@ void Runtime::check_skirmish_sides() {
         park_pointer();
         return frame_without_cursor();
     };
-    const auto click = [&](uint8_t button) {
-        const auto box = box_of("Side0");
+    const auto click = [&](std::string_view name, uint8_t button) {
+        const auto box = box_of(name);
         const auto x = box.x + box.width / 2;
         const auto y = box.y + box.height / 2;
         send(SDL_EVENT_MOUSE_MOTION, x, y, 0);
@@ -234,7 +235,7 @@ void Runtime::check_skirmish_sides() {
         const int32_t before_side = skirmish_settings_.slots[0].side;
         const int32_t expected = stepped(before_side, direction);
         auto before = frame();
-        click(button);
+        click("Side0", button);
         require(
             skirmish_settings_.slots[0].side == expected,
             "Side0 went to side " + std::to_string(skirmish_settings_.slots[0].side) +
@@ -273,8 +274,57 @@ void Runtime::check_skirmish_sides() {
         step_button(kRight, 1, false, false);
     }
 
+    const uint32_t computer_sides = oa::data::defs::computer_player_sides();
+    int computer_shown = 0;
+    if (computer_sides != 0) {
+        require(skirmish_settings_.slots.size() > 1, "the skirmish has no second slot");
+        auto& computer = skirmish_settings_.slots[1];
+        int became = 0;
+        while (computer.controller != entry::controller::computer && became < 3) {
+            exercise_click("Player1");
+            ++became;
+        }
+        require(
+            computer.controller == entry::controller::computer,
+            "the second slot did not become a computer"
+        );
+        const auto side_ok = [&](int32_t shown_side) {
+            return shown_side >= 0 && shown_side < table_count && shown_side < 32 &&
+                   (computer_sides & (1U << static_cast<uint32_t>(shown_side))) != 0 &&
+                   !hidden(shown_side);
+        };
+        int acceptable = 0;
+        for (int32_t candidate = 0; candidate < table_count && candidate < 32; ++candidate)
+            if (side_ok(candidate))
+                ++acceptable;
+        require(acceptable > 0, "no loaded side is both allowed and offered");
+        for (int32_t nudge = 0; nudge < table_count && !side_ok(computer.side); ++nudge)
+            click("Side1", kLeft);
+        require(side_ok(computer.side), "the computer slot never reached an allowed side");
+        const int32_t computer_start = computer.side;
+        bool seen[32]{};
+        do {
+            require(side_ok(computer.side), "the computer slot showed a side it may not take");
+            const auto seen_at = static_cast<std::size_t>(computer.side);
+            if (!seen[seen_at]) {
+                seen[seen_at] = true;
+                ++computer_shown;
+            }
+            click("Side1", kLeft);
+        } while (computer.side != computer_start && computer_shown < 32);
+        require(computer.side == computer_start, "the computer slot did not finish its cycle");
+        require(computer_shown == acceptable, "the computer slot missed an allowed side");
+        if (table_count > OA_SIDE_COUNT) {
+            click("Side1", kRight);
+            require(side_ok(computer.side), "a right click left the sides a computer may take");
+        }
+    }
+
     std::cout << "skirmish sides check: " << offered << " sides, " << by_art << " by art, "
-              << by_name << " by name, back " << (back ? "yes" : "no") << '\n';
+              << by_name << " by name, back " << (back ? "yes" : "no");
+    if (computer_sides != 0)
+        std::cout << ", computer " << computer_shown << " of " << table_count;
+    std::cout << '\n';
 }
 
 } // namespace oa::app

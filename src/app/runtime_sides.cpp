@@ -175,6 +175,8 @@ void Runtime::load_side_table() {
     log_sides_left_out(side_table_);
     skirmish_ui_.side_count = static_cast<int32_t>(side_table_.count);
     skirmish_ui_.hidden_sides = oa::data::defs::skirmish_hidden_sides();
+    const uint32_t allowed = oa::data::defs::computer_player_sides();
+    skirmish_ui_.computer_hidden_sides = allowed == 0 ? 0U : ~allowed;
     // The battle room's SIDE button cycles the same sides and shows a name
     // the art has no frame for.
     oa::ui::frontend_multiplayer::multiplayer_bind_side_count(

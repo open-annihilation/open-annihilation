@@ -55,8 +55,7 @@ void Runtime::draw_live_overlays() {
                 );
         }
     }
-    if (control_key_down(oa::ui::gui_input::ControlKey::shift) ||
-        virtual_shift(ModifierUse::order)) {
+    if (modifier_role_active("order.queue-modifier") || virtual_shift(ModifierUse::order)) {
         oa::present::world_renderer::Surface surface{
             match_world_cpu_.width, match_world_cpu_.height, std::move(match_world_cpu_.rgb)
         };

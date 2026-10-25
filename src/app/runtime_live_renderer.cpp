@@ -227,30 +227,27 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         update_pointer(x, y);
         return true;
     }
-    const auto modifiers = input_modifiers(ModifierUse::keyboard);
-    // While an order or a building is armed, Alt is the click snap's
-    // override key (ClickSnapOverrideKey): that click places it unsnapped.
+    // While an order or a building is armed, Alt on the select button is the
+    // click snap's override: that click places it unsnapped. The pan button
+    // still orbits or pans.
     const bool order_armed = match_command_ != MatchCommand::none || pending_build_type_ != 0;
-    const bool primary_camera_drag = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-                                     event.button.button == SDL_BUTTON_LEFT &&
-                                     (modifiers & SDL_KMOD_ALT) != 0 && !order_armed;
-    const bool middle_camera_drag =
-        event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_MIDDLE &&
-        ((modifiers & SDL_KMOD_ALT) != 0 ||
-         (live_renderer_active() && engine_settings().middle_click_pan));
-    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && battlefield &&
-        (middle_camera_drag || primary_camera_drag)) {
-        // An explicit camera gesture retries after a failed frame.
-        live.failed = false;
-        live.unavailable = false;
-        renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
-        live.dragging = true;
-        live.drag_button = event.button.button;
-        live.orbiting = primary_camera_drag ? (modifiers & SDL_KMOD_SHIFT) == 0
-                                            : (modifiers & SDL_KMOD_ALT) != 0;
-        match_drag_.reset();
-        update_pointer(x, y);
-        return true;
+    ensure_key_bindings(false);
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && battlefield) {
+        const uint8_t button = event.button.button;
+        const PointerCameraDrag drag = pointer_camera_drag(button, pointer_modifier_bits());
+        const bool blocked = order_armed && button == match_select_button();
+        if (drag != PointerCameraDrag::none && !blocked) {
+            // An explicit camera gesture retries after a failed frame.
+            live.failed = false;
+            live.unavailable = false;
+            renderer_live_camera::set_unlocked(live.camera, engine_settings().unlocked_camera);
+            live.dragging = true;
+            live.drag_button = button;
+            live.orbiting = drag == PointerCameraDrag::orbit;
+            match_drag_.reset();
+            update_pointer(x, y);
+            return true;
+        }
     }
     if (event.type == SDL_EVENT_MOUSE_MOTION && live.dragging) {
         // Camera gestures consume the event before normal pointer handling.
@@ -282,8 +279,9 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         return true;
     if (!engine_settings().wheel_zoom || live.failed)
         return true;
-    const float turned =
+    const float turned_raw =
         event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
+    const float turned = pointer_zoom_amount(turned_raw);
     if (!std::isfinite(turned) || turned == 0)
         return true;
     const auto anchor = live_ground_hit(x, y);

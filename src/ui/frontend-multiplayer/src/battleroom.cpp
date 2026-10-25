@@ -470,6 +470,23 @@ void post_launch_side(Lobby& lobby, std::string_view side) {
     lobby_post_chat(lobby, line.c_str());
 }
 
+/// Posts that a launch gave a computer player a side it may not take.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param side The number or name as the launch wrote it.
+void post_computer_launch_side(Lobby& lobby, std::string_view side) {
+    std::string line(
+        oa::data::languages::interface_text(
+            "*** The launch gives a computer player side {side}, which computer players cannot "
+            "take in this game."
+        )
+    );
+    const auto mark = line.find("{side}");
+    if (mark != std::string::npos)
+        line.replace(mark, std::string_view("{side}").size(), side);
+    lobby_post_chat(lobby, line.c_str());
+}
+
 /// Seats a launch faction or SIDEDATA name, or leaves the room's side.
 ///
 /// A faction N from 1 is side N - 1 when the room has it. With no faction, a
@@ -2194,17 +2211,17 @@ uint8_t lobby_side_count(const Game& game) noexcept {
     return static_cast<uint8_t>(std::min<uint32_t>(count, 0xff));
 }
 
-uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept {
+uint8_t lobby_offered_side(const Game& game, uint32_t side, uint32_t also_hidden) noexcept {
     const uint32_t count = lobby_side_count(game);
-    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides();
+    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides() | also_hidden;
     while (side < count && side < 32 && (hidden & (1U << side)) != 0)
         ++side;
     return static_cast<uint8_t>(std::min(side, count));
 }
 
-uint8_t lobby_offered_side_before(const Game& game, uint32_t side) noexcept {
+uint8_t lobby_offered_side_before(const Game& game, uint32_t side, uint32_t also_hidden) noexcept {
     const uint32_t count = lobby_side_count(game);
-    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides();
+    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides() | also_hidden;
     uint32_t at = side < count ? side : count;
     while (at > 0) {
         --at;
@@ -2213,6 +2230,11 @@ uint8_t lobby_offered_side_before(const Game& game, uint32_t side) noexcept {
         return static_cast<uint8_t>(at);
     }
     return static_cast<uint8_t>(count);
+}
+
+uint32_t lobby_computer_hidden_sides() noexcept {
+    const uint32_t allowed = oa::data::defs::computer_player_sides();
+    return allowed == 0 ? 0U : ~allowed;
 }
 
 StartedOptions lobby_started_options(Game& game) noexcept {
@@ -3159,6 +3181,19 @@ bool seat_launch_computers(Lobby& lobby) noexcept {
             computer.faction,
             text_view(computer.faction_name, sizeof computer.faction_name)
         );
+        const uint32_t computer_hidden = lobby_computer_hidden_sides();
+        if (computer_hidden != 0 && info.side < 32 && (computer_hidden & (1U << info.side)) != 0) {
+            const uint8_t count = lobby_side_count(*lobby.game);
+            const uint8_t offered = lobby_offered_side(*lobby.game, 0, computer_hidden);
+            if (offered < count)
+                info.side = offered;
+            if (computer.faction != nl::faction::none)
+                post_computer_launch_side(lobby, std::to_string(computer.faction - 1));
+            else
+                post_computer_launch_side(
+                    lobby, text_view(computer.faction_name, sizeof computer.faction_name)
+                );
+        }
         if (computer.team >= nl::kLaunchTeamFirst && computer.team <= nl::kLaunchTeamLast)
             lobby_player_team(player) = static_cast<uint8_t>(computer.team - nl::kLaunchTeamFirst);
         if (computer.difficulty >= nl::difficulty::easy &&
@@ -3497,8 +3532,10 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
                 // battle room, and wraps to the first side offered. Past
                 // 3.1c's five sides a right click walks that cycle backwards.
                 const uint8_t count = lobby_side_count(game);
+                const uint32_t computer_hidden =
+                    player.status == kSlotComputer ? lobby_computer_hidden_sides() : 0U;
                 const auto first_offered = [&] {
-                    const uint8_t first = lobby_offered_side(game, 0);
+                    const uint8_t first = lobby_offered_side(game, 0, computer_hidden);
                     return first < count ? first : uint8_t{0};
                 };
                 const auto host = lobby_host_slot(lobby);
@@ -3508,13 +3545,14 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
                                        player.in_use != 0 && player.status == kSlotLocal;
                 const bool watching = player.in_use != 0 && (info.options & option::watcher) != 0;
                 if (panel.button == 2 && count > OA_SIDE_COUNT) {
-                    const uint8_t earlier = lobby_offered_side_before(game, count);
+                    const uint8_t earlier = lobby_offered_side_before(game, count, computer_hidden);
                     const uint8_t last = earlier < count ? earlier : uint8_t{0};
                     if (watching) {
                         info.options &= static_cast<uint16_t>(~option::watcher);
                         info.side = last;
                     } else {
-                        const uint8_t previous = lobby_offered_side_before(game, info.side);
+                        const uint8_t previous =
+                            lobby_offered_side_before(game, info.side, computer_hidden);
                         if (previous < count) {
                             info.side = previous;
                         } else if (may_watch) {
@@ -3528,7 +3566,7 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
                     info.options &= static_cast<uint16_t>(~option::watcher);
                     info.side = first_offered();
                 } else {
-                    info.side = lobby_offered_side(game, info.side + 1U);
+                    info.side = lobby_offered_side(game, info.side + 1U, computer_hidden);
                     if (info.side >= count) {
                         info.side = first_offered();
                         if (!may_watch)
@@ -4666,6 +4704,12 @@ void lobby_add_computer(Lobby& lobby, int32_t slot) noexcept {
         player.second_name, sizeof(player.second_name), text_view(player.name, sizeof(player.name))
     );
     note_computer_difficulty(lobby, slot, kDifficultyHard);
+    const uint32_t computer_hidden = lobby_computer_hidden_sides();
+    if (computer_hidden != 0 && info.side < 32 && (computer_hidden & (1U << info.side)) != 0) {
+        const uint8_t offered = lobby_offered_side(game, 0, computer_hidden);
+        if (offered < lobby_side_count(game))
+            info.side = offered;
+    }
 }
 
 // ---------------------------------------------------------------------------

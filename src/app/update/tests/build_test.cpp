@@ -17,6 +17,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace {
 
@@ -117,11 +118,114 @@ void steam_deck_folder_follows_the_platform() {
     );
 }
 
+/// The words a notice looked up, and the marked translation it was given.
+struct LookedUp {
+    std::vector<std::string> words;
+    std::string held;
+};
+
+/// Wraps the English in «» and records it. The command must never arrive.
+///
+/// @param context the LookedUp
+/// @param english the word
+/// @return the marked word; valid until the next call
+std::string_view mark_word(void* context, std::string_view english) {
+    auto* seen = static_cast<LookedUp*>(context);
+    seen->words.emplace_back(english);
+    seen->held = "«";
+    seen->held += english;
+    seen->held += "»";
+    return seen->held;
+}
+
+/// True when the recorded words include this English text.
+///
+/// @param seen the lookup
+/// @param english the word
+/// @return true when it was looked up
+bool looked_for(const LookedUp& seen, std::string_view english) {
+    for (const std::string& word : seen.words) {
+        if (word == english)
+            return true;
+    }
+    return false;
+}
+
+void this_build_replaces_itself() {
+    OA_CHECK(update::self_update_built);
+    OA_CHECK(update::replaces_itself());
+    OA_CHECK(update::packager_name().empty());
+    OA_CHECK(update::packager_update_command().empty());
+}
+
+void packager_notice_names_a_command() {
+    LookedUp seen;
+    const update::PackagerNotice notice =
+        update::packager_notice("0.8.7", "Ridge", "flatpak update", mark_word, &seen);
+    OA_CHECK(notice.title == "«0.8.7 is out»");
+    OA_CHECK(notice.paragraphs.size() == 3);
+    OA_CHECK(notice.paragraphs[0] == "«This copy came from Ridge, which updates it.»");
+    OA_CHECK(notice.paragraphs[1] == "«Open your software centre, or run:»");
+    OA_CHECK(notice.paragraphs[2] == "flatpak update");
+    OA_CHECK(!notice.open_the_page);
+    OA_CHECK(looked_for(seen, update::version_is_out));
+    OA_CHECK(looked_for(seen, update::copy_from_packager));
+    OA_CHECK(looked_for(seen, update::open_centre_or_run));
+    OA_CHECK(!looked_for(seen, "flatpak update"));
+    OA_CHECK(!looked_for(seen, "Ridge"));
+
+    LookedUp command_is_ok;
+    const update::PackagerNotice same_as_button =
+        update::packager_notice("0.8.7", "Ridge", "OK", mark_word, &command_is_ok);
+    OA_CHECK(same_as_button.paragraphs.size() == 3);
+    OA_CHECK(same_as_button.paragraphs[2] == "OK");
+    OA_CHECK(!looked_for(command_is_ok, "OK"));
+}
+
+void packager_notice_names_no_command() {
+    LookedUp seen;
+    const update::PackagerNotice notice =
+        update::packager_notice("0.8.7", "Nix", {}, mark_word, &seen);
+    OA_CHECK(notice.title == "«0.8.7 is out»");
+    OA_CHECK(notice.paragraphs.size() == 2);
+    OA_CHECK(notice.paragraphs[0] == "«This copy came from Nix, which updates it.»");
+    OA_CHECK(notice.paragraphs[1] == "«Open your software centre to update it.»");
+    OA_CHECK(!notice.open_the_page);
+    OA_CHECK(looked_for(seen, update::open_centre));
+    OA_CHECK(!looked_for(seen, update::open_centre_or_run));
+}
+
+void packager_notice_names_nobody() {
+    LookedUp seen;
+    const update::PackagerNotice notice =
+        update::packager_notice("0.8.7", {}, "flatpak update", mark_word, &seen);
+    OA_CHECK(notice.title == "«0.8.7 is out»");
+    OA_CHECK(notice.paragraphs.size() == 1);
+    OA_CHECK(
+        notice.paragraphs[0] ==
+        "«This copy cannot replace itself. Get the new release from its page.»"
+    );
+    OA_CHECK(notice.open_the_page);
+    OA_CHECK(looked_for(seen, update::cannot_replace));
+    OA_CHECK(!looked_for(seen, "flatpak update"));
+    OA_CHECK(!looked_for(seen, update::copy_from_packager));
+
+    const update::PackagerNotice plain =
+        update::packager_notice("0.8.7", "Ridge", "flatpak update", nullptr, nullptr);
+    OA_CHECK(plain.title == "0.8.7 is out");
+    OA_CHECK(plain.paragraphs.size() == 3);
+    OA_CHECK(plain.paragraphs[2] == "flatpak update");
+}
+
 } // namespace
 
 int main() {
     package_ids();
     this_build_matches_the_compiled_version();
     steam_deck_folder_follows_the_platform();
+    this_build_replaces_itself();
+    packager_notice_names_a_command();
+    packager_notice_names_no_command();
+    packager_notice_names_nobody();
     return oa::test::check_exit_status();
 }
