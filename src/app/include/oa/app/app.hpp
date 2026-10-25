@@ -621,6 +621,9 @@ struct Options {
     /// --check-megamap-clicks: the megamap's clicks (ui.megamap) against the
     /// battlefield's in both interface types, on a skirmish.
     bool check_megamap_clicks = false;
+    /// --check-single-player-offers: New Campaign and Any Mission on SINGLE.GUI
+    /// when a side has a campaign, and when neither side has one.
+    bool check_single_player_offers = false;
     /// --check-radar-orders: presses on the minimap (the radar) in both
     /// interface types, for every armed command and the default order, on a
     /// skirmish.
