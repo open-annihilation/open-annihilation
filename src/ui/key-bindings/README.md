@@ -50,6 +50,17 @@ dispatcher times a double press and a hold from that time.
 - `layers_meet`, `conditions_meet` and `same_key` are that rule in pieces.
   `same_key` treats a letter and a place as one key when the keyboard map
   prints that letter on that place.
+- `layout_from_manifest` parses each chord of a manifest. A chord that does
+  not parse, and a modifier on its own on an action whose kind is not a
+  modifier, are errors at that chord's own line and column. An action this
+  build does not know, a binding that leaves Escape out of a fixed action
+  or gives Escape to another action in a context that meets it, a second
+  binding of one chord, and a character the keyboard does not type, are
+  warnings. The layout is left unchanged when any chord is an error. A
+  warning keeps the binding.
+- `manifest_from_layout` writes the layout back into a manifest. Each chord
+  uses its canonical text. An action this build does not know is written
+  back, and the other keys come from the manifest that was passed in.
 - `key_positions` names every position a keyboard report can carry that the
   UI Events code list names. `scancodes_without_code` lists the rest, which
   no chord can name.
@@ -90,6 +101,9 @@ active.
   player's own changes are left as they were given. An action keeps at most
   four chords. Escape stays on `chat.cancel` whatever a step said. Every
   other action, `ui.settings` included, takes the chords the steps give it.
+- `layout_from_manifest` reports a bad chord at the chord, not at the list.
+  It keeps an unknown action and its chords. It does not change the layout
+  when a chord is an error.
 
 ## Tests
 
@@ -103,6 +117,14 @@ Primary is the command key on one platform and Ctrl on the other. On an
 AZERTY map, `A` matches the key whose events carry `a`, `@KeyA` matches the
 A key's place, and `@Digit1` is labelled `&`. It checks keycaps for each
 form, and `on_keyboard` for a backtick the map does not carry.
+
+`ui-key-bindings-files` (`tests/layout_file_test.cpp`) reads a manifest into
+a layout. A chord `Ctrl+Q:sometimes` is an error at the chord's column. An
+unknown action is a warning and is written back. `chat.cancel` without
+Escape, and `chat.send` on Escape, are warnings; `ui.settings` on F9 is
+not. A repeated chord, and a backtick the keyboard does not type, are
+warnings. Every registry action's defaults round-trip through the paste
+back to the same layout.
 
 `ui-key-bindings-layouts` (`tests/layout_test.cpp`) resolves `oa-default`
 with no clash for no hack, for each hack alone and for all of them, in both

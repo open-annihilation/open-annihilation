@@ -24,7 +24,12 @@ inline constexpr std::string_view interface_words[] = {
     "*** {list}",
     "*** {player} chose a side this game does not have.",
     "*** {player} does not have {name}.",
+    "*** {player} needs a newer Open Annihilation for this mod.",
     "*** {player} plays Total Annihilation 3.1c and cannot join a game with mutators.",
+    "*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than 256 weapon "
+    "types.",
+    "*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than five "
+    "sides.",
     "*** {player} plays Total Annihilation 3.1c, which cannot play with mutators.",
     "Add {registry} to get {pack}",
     "CANCEL",
@@ -67,6 +72,7 @@ inline constexpr std::string_view interface_words[] = {
     "The game cannot start until {player} gets it, or the host turns it off.",
     "The game cannot start until {player} turns it on, or the host turns it off.",
     "The host's release of {pack} is no longer offered by {registry}.",
+    "This mod needs every player on Open Annihilation. The host plays Total Annihilation 3.1c.",
     "Total Annihilation 3.1c",
     "UPDATE",
     "View",

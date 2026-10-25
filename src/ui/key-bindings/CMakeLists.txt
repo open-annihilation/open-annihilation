@@ -11,11 +11,13 @@ add_library(oa-ui-key-bindings
   src/key_names.cpp
   src/resolve.cpp
   src/clashes.cpp
-  src/dispatcher.cpp)
+  src/dispatcher.cpp
+  src/layout_file.cpp)
 add_library(oa::ui::key_bindings ALIAS oa-ui-key-bindings)
 target_include_directories(oa-ui-key-bindings PUBLIC include)
 target_compile_features(oa-ui-key-bindings PUBLIC cxx_std_20)
-target_link_libraries(oa-ui-key-bindings PUBLIC oa-data-input-actions PRIVATE oa-options)
+target_link_libraries(oa-ui-key-bindings PUBLIC oa-data-input-actions oa-formats-oakeys
+  PRIVATE oa-options)
 
 if(BUILD_TESTING)
   # Parse, write, name and match, including every registry default.
@@ -35,6 +37,11 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-key-bindings-dispatcher-exe PRIVATE oa-ui-key-bindings oa-test-support
     oa-options)
   add_test(NAME ui-key-bindings-dispatcher COMMAND oa-ui-key-bindings-dispatcher-exe)
+  # A manifest's chords, warnings and the text form, against a layout.
+  add_executable(oa-ui-key-bindings-files-exe tests/layout_file_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-files-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-files COMMAND oa-ui-key-bindings-files-exe)
 
   # The position numbers and the named keys' key codes, against SDL.
   add_executable(oa-ui-key-bindings-sdl-exe tests/sdl_numbers_test.cpp)

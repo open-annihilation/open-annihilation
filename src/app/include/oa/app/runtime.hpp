@@ -6070,6 +6070,16 @@ class Runtime final : public menu::Host,
     /// the server.
     void tick_update_check();
 
+    /// Queues the update question when a verified check offers a release the
+    /// player has not skipped and the main menu is up. A match, Settings or
+    /// a message box keeps it waiting. A match that starts while it is open
+    /// closes it, and the next settled menu of this run asks again.
+    void offer_update();
+
+    /// Opens the page of the release the question offered. A machine with no
+    /// browser names the page instead of opening it.
+    void open_release_page();
+
     /// Asks a running check to stop. A match start calls this.
     void cancel_update_check() noexcept;
 
@@ -14425,6 +14435,11 @@ class Runtime final : public menu::Host,
     /// release: once a day, never during a match, and not in an unattended
     /// run that named no feed. Throws std::runtime_error naming what differed.
     void check_engine_feed();
+
+    /// Serves a signed feed and checks the update question: its notes, that
+    /// it waits out a match, a message and Settings, and what its three
+    /// buttons do. Throws std::runtime_error naming what differed.
+    void check_update_offer();
 
     /// Opens every Open Annihilation screen in English, German, French,
     /// Spanish, Italian and Simplified Chinese, or in the languages

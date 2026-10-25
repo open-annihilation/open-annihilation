@@ -68,7 +68,7 @@ A recorder peer may send the records of its first game frame twice. The engine d
 - The engine runs no cheat scanner and never sends a cheat report of its own; it only reads its peers' reports.
 - `header-version` is accepted and hashed, but the engine always writes version 5.
 - `registry-root`, where the recorder keeps its own settings, is accepted and not used.
-- `weapon-id-patch` (wider weapon ids in the recorder's records) is not supported. When it is set, the engine says so on the console and keeps protocol 6.
+- `weapon-id-patch` (wider weapon ids in the recorder's records) is not supported. A mod that numbers weapons past 255 raises [`limits.weapon-types`](../oamod-standard.md#63-limits) instead. The patch is still accepted, hashed and noted on the console, nothing more.
 
 ## Full configuration schema
 

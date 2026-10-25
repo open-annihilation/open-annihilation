@@ -6,8 +6,9 @@ kept under the data folder. The main thread reads a snapshot. Nothing is
 downloaded or installed here.
 
 [build.hpp](include/oa/app/update/build.hpp),
-[check.hpp](include/oa/app/update/check.hpp) and
-[checker.hpp](include/oa/app/update/checker.hpp) are the entry points
+[check.hpp](include/oa/app/update/check.hpp),
+[checker.hpp](include/oa/app/update/checker.hpp) and
+[offer.hpp](include/oa/app/update/offer.hpp) are the entry points
 (`oa::app::update`).
 
 ## Entry points
@@ -21,6 +22,10 @@ downloaded or installed here.
   are the preference values. `check_due` is true only for Automatically,
   when the last check that reached the server is absent, at least a day
   old, or in the future.
+- `offer_text` writes the question's title, the size of the offered
+  package's zip, and the reassurance. The notes are the release's own
+  lines and are not looked up. `offer_wanted` is false at or below the
+  release `read_skipped` names. `write_skipped` remembers that number.
 - `Checker` fetches one feed and its signature on a worker thread. `start`
   does nothing while a check is running. `cancel` asks it to stop, and a
   cancelled check is not a finished one. `snapshot` is the latest result.

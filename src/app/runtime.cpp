@@ -1000,6 +1000,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_update_offer) {
+            check_update_offer();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_text_fit) {
             check_text_fit();
             flush_preferences();

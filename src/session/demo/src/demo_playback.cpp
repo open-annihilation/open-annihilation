@@ -65,6 +65,7 @@ bool append_empty_unit_state(uint32_t tick, unsigned def_bits, std::vector<uint8
 bool rebuild_frame(
     const formats::tad::Packet& packet,
     unsigned def_bits,
+    formats::tad::RecordForms forms,
     std::vector<uint8_t>* frame,
     uint32_t* last_tick,
     PlaybackStats* stats
@@ -77,12 +78,16 @@ bool rebuild_frame(
         ++stats->bad_packets;
         return false;
     }
-    const auto split = formats::tad::split_records(decoded.bytes);
+    const auto split = formats::tad::split_records(decoded.bytes, forms);
     if (split.error)
         ++stats->bad_packets;
     for (const auto& record : split.records) {
-        if (netgame::is_record_type(record.type)) {
+        const bool wide =
+            forms == formats::tad::RecordForms::wide && netgame::is_wide_record_type(record.type);
+        if (netgame::is_record_type(record.type) || wide) {
             frame->insert(frame->end(), record.bytes.begin(), record.bytes.end());
+            if (wide)
+                ++stats->wide_records;
             if (record.tick)
                 *last_tick = std::max(*last_tick, *record.tick);
             ++game_records;
@@ -399,6 +404,13 @@ bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* 
                 parsed.error->message
         );
     playback->demo = std::move(*parsed.demo);
+    if (const auto* sector =
+            formats::tad::find_sector(playback->demo, formats::tad::SectorType::limits)) {
+        if (const auto decoded = formats::tad::decode_limits_sector(*sector))
+            playback->limits = *decoded;
+        else
+            playback->limits_unreadable = true;
+    }
     if (playback->demo.players.empty())
         return fail(error, "demo has no players");
     if (!bind_recorded_players(playback, error))
@@ -415,6 +427,10 @@ bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* 
     std::array<int32_t, sender_count> sequence{};
     sequence.fill(netgame::first_broadcast_frame_sequence);
     std::vector<uint8_t> frame;
+    const auto forms = playback->limits && playback->limits->weapon_types >
+                                               formats::tad::recorded_base_weapon_types
+                           ? formats::tad::RecordForms::wide
+                           : formats::tad::RecordForms::narrow;
     // A frame is due once the local tick reaches the last sender tick it
     // carries; frames without unit states follow the one before them.
     uint32_t due_tick = 0;
@@ -425,7 +441,9 @@ bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* 
             continue;
         }
         uint32_t last_tick = 0;
-        if (!rebuild_frame(packet, playback->unit_def_bits, &frame, &last_tick, &playback->stats)) {
+        if (!rebuild_frame(
+                packet, playback->unit_def_bits, forms, &frame, &last_tick, &playback->stats
+            )) {
             ++playback->stats.empty_packets;
             continue;
         }
@@ -448,6 +466,21 @@ bool demo_load(DemoPlayback* playback, std::vector<uint8_t> bytes, std::string* 
         ++playback->stats.frames;
     }
     return true;
+}
+
+DemoLimitsVerdict
+demo_limits_verdict(const DemoPlayback& playback, uint32_t weapon_types, uint32_t sides) noexcept {
+    if (playback.limits_unreadable)
+        return DemoLimitsVerdict::unreadable;
+    if (playback.limits) {
+        return playback.limits->weapon_types == weapon_types && playback.limits->sides == sides
+                   ? DemoLimitsVerdict::plays
+                   : DemoLimitsVerdict::other_limits;
+    }
+    if (weapon_types == formats::tad::recorded_base_weapon_types &&
+        sides == formats::tad::recorded_base_sides)
+        return DemoLimitsVerdict::plays;
+    return DemoLimitsVerdict::base_limits;
 }
 
 netgame::NetTransport demo_transport(DemoPlayback* playback) noexcept {
@@ -638,6 +671,10 @@ bool demo_session_begin(
     netgame::match::packet_layer_start(
         session->connection.packets, demo_transport(&session->playback)
     );
+    const bool play_wide =
+        session->playback.limits.has_value() &&
+        session->playback.limits->weapon_types > formats::tad::recorded_base_weapon_types;
+    session->connection.packets->receiver.wide_records = play_wide;
     netgame::match::match_binding_init(&session->binding, match, &session->net);
     session->binding.full_record_probe = {session, note_full_record};
     session->full_records = {};

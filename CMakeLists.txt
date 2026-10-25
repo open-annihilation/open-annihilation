@@ -206,6 +206,7 @@ add_subdirectory(src/formats/oascript)
 add_subdirectory(src/formats/oamod)
 add_subdirectory(src/formats/oamut)
 add_subdirectory(src/formats/oabrain)
+add_subdirectory(src/formats/oakeys)
 add_subdirectory(src/formats/oann)
 add_subdirectory(src/data/neural)
 add_subdirectory(src/formats/json)
@@ -1265,6 +1266,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_mod_warning.cpp
   src/app/runtime_presence_card.cpp
   src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_update.cpp
+  src/app/runtime_update_offer.cpp
   src/app/runtime_challenge.cpp
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
@@ -1372,6 +1374,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_first_run_check.cpp
   src/app/runtime_progress_check.cpp
   src/app/runtime_update_check.cpp
+  src/app/runtime_update_offer_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -2193,6 +2196,20 @@ if(OA_BUILD_PLATFORM)
         --preferences-file "${oa_engine_feed_dir}/engine-feed.conf")
       set_tests_properties(native-engine-feed PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_engine_feed_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The question a verified release asks: notes in the language shown,
+      # waiting out a match, a message and Settings, and the three buttons.
+      set(oa_update_offer_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-offer")
+      file(MAKE_DIRECTORY "${oa_update_offer_dir}")
+      file(WRITE "${oa_update_offer_dir}/update-offer.conf"
+        "open-annihilation-preferences 1\n\"open-annihilation.language\" \"de\"\n")
+      add_test(NAME native-update-offer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-update-offer
+        --user-folder "${oa_update_offer_dir}/Open Annihilation"
+        --data-dir "${oa_update_offer_dir}/data"
+        --preferences-file "${oa_update_offer_dir}/update-offer.conf")
+      set_tests_properties(native-update-offer PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_update_offer_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # One evicted archive's read is held. The window keeps drawing the iCloud
       # line in the stored language, and the folder step then continues. Off
@@ -3790,6 +3807,18 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-saveload PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A skirmish under a mod that raises weapon types or sides saves and
+        # loads under that mod, and is refused without it
+        # (tools/check_native_saveload_limits.py).
+        add_test(NAME native-saveload-limits COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_saveload_limits.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-saveload-limits PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          SKIP_RETURN_CODE ${OA_GAME_DATA_SKIP_CODE})
         # A headless skirmish seats a remembered brain, the default brain, or
         # the built-in player, and writes no seats key when none was named
         # (tools/check_native_brain_seats.py).
