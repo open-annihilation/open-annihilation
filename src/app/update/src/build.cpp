@@ -11,9 +11,46 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
+#include <vector>
+
+#ifndef OA_PACKAGER_NAME
+#error "OA_PACKAGER_NAME is who updates this copy when it cannot replace itself"
+#endif
+#ifndef OA_PACKAGER_UPDATE_COMMAND
+#error "OA_PACKAGER_UPDATE_COMMAND is a command a player can type, or empty"
+#endif
 
 namespace oa::app::update {
 namespace {
+
+/// Copies one looked-up word before the next lookup replaces it.
+///
+/// @param lookup the words, or null for the English
+/// @param context what lookup is called with
+/// @param english the word
+/// @return the word, copied
+[[nodiscard]] std::string
+looked_up(PackagerLookup lookup, void* context, std::string_view english) {
+    if (lookup == nullptr)
+        return std::string(english);
+    const std::string_view translated = lookup(context, english);
+    return std::string(translated);
+}
+
+/// Fills one {place} in a copied word. The value is not looked up.
+///
+/// @param[in,out] text the word
+/// @param place the place's name, without braces
+/// @param value what replaces {place}
+void fill_place(std::string& text, std::string_view place, std::string_view value) {
+    const std::string token = std::string("{") + std::string(place) + "}";
+    std::string::size_type at = 0;
+    while ((at = text.find(token, at)) != std::string::npos) {
+        text.replace(at, token.size(), value.data(), value.size());
+        at += value.size();
+    }
+}
 
 /// True when this translation unit was built for Windows 95.
 ///
@@ -86,6 +123,45 @@ ThisBuild this_build(const std::filesystem::path& program_folder) {
     const bool deck = folder_exists(program_folder / "steam-deck");
     built.package = package_id(release_platform_name(), windows_95_build(), deck);
     return built;
+}
+
+std::string_view packager_name() noexcept {
+    return OA_PACKAGER_NAME;
+}
+
+std::string_view packager_update_command() noexcept {
+    return OA_PACKAGER_UPDATE_COMMAND;
+}
+
+bool replaces_itself() noexcept {
+    return self_update_built;
+}
+
+PackagerNotice packager_notice(
+    std::string_view version,
+    std::string_view name,
+    std::string_view command,
+    PackagerLookup lookup,
+    void* context
+) {
+    PackagerNotice notice;
+    notice.title = looked_up(lookup, context, version_is_out);
+    fill_place(notice.title, "version", version);
+    if (name.empty()) {
+        notice.paragraphs.push_back(looked_up(lookup, context, cannot_replace));
+        notice.open_the_page = true;
+        return notice;
+    }
+    std::string from = looked_up(lookup, context, copy_from_packager);
+    fill_place(from, "name", name);
+    notice.paragraphs.push_back(std::move(from));
+    if (command.empty()) {
+        notice.paragraphs.push_back(looked_up(lookup, context, open_centre));
+        return notice;
+    }
+    notice.paragraphs.push_back(looked_up(lookup, context, open_centre_or_run));
+    notice.paragraphs.emplace_back(command);
+    return notice;
 }
 
 } // namespace oa::app::update

@@ -77,8 +77,8 @@ target_link_libraries(oa-test-match INTERFACE oa-test-support oa-sim-match-runti
 # links (cmake/OaOptions.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaOptions.cmake")
 # What the platform the game is built for can do: OA_PROCESS_SPAWNING,
-# OA_NATIVE_FOLDER_DIALOG, OA_NATIVE_DENSITY_WINDOWS and OA_TOUCH_FIRST
-# (cmake/OaPlatformCapabilities.cmake).
+# OA_NATIVE_FOLDER_DIALOG, OA_NATIVE_DENSITY_WINDOWS, OA_TOUCH_FIRST and
+# OA_SELF_UPDATE (cmake/OaPlatformCapabilities.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaPlatformCapabilities.cmake")
 # The sanitizers instrument every target in this tree, not only those that
 # link oa-options, and stop at the first report so the test that made it
@@ -4475,11 +4475,12 @@ if(BUILD_TESTING)
     TIMEOUT 60)
 endif()
 # The update helper. Its library and tests are built with the platform.
-# The program itself is built only where this build may start another program.
+# The program itself is built only where this build may start another program
+# and may replace itself.
 if(OA_BUILD_PLATFORM)
   add_subdirectory(tools/oa-update)
 endif()
-if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING)
+if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING AND OA_SELF_UPDATE)
   add_executable(oa-update tools/oa-update/main.cpp)
   target_link_libraries(oa-update PRIVATE oa-update-core oa-options SDL3::SDL3)
   # The same version line as the game. A build without the engine-build
@@ -4551,6 +4552,12 @@ if(BUILD_TESTING)
         $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
       set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
     endif()
+    # A configure with self-update off builds oa-game and not oa-update, and
+    # self-update on with process spawning off is refused. Configure only.
+    add_test(NAME cmake-self-update-off COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_self_update_off.py
+      ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(cmake-self-update-off PROPERTIES TIMEOUT 300)
     if(UNIX)
       find_program(OA_BASH_EXECUTABLE bash)
       if(OA_BASH_EXECUTABLE)
@@ -4694,7 +4701,7 @@ endif()
 
 if(WIN32)
   set(oa_executables oa-tool)
-  if(TARGET oa-update)
+  if(TARGET oa-update AND OA_SELF_UPDATE)
     list(APPEND oa_executables oa-update)
   endif()
   if(OA_BUILD_PLATFORM)
@@ -4900,7 +4907,11 @@ endif()
 file(GLOB oa_notice_licenses CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/licenses/*")
 set(oa_notice_files "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/ATTRIBUTIONS.md"
   ${oa_notice_licenses} "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake")
-foreach(target IN ITEMS oa-game oa-intro oa-tool oa-update)
+set(oa_shipped_programs oa-game oa-intro oa-tool)
+if(OA_SELF_UPDATE)
+  list(APPEND oa_shipped_programs oa-update)
+endif()
+foreach(target IN LISTS oa_shipped_programs)
   if(NOT TARGET ${target})
     continue()
   endif()

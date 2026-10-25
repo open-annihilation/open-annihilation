@@ -14,9 +14,19 @@ target_link_libraries(oa-app-update
   PRIVATE oa-app-headers oa-netgame-http oa-base-threads oa-platform-shims oa-base-sha256
     oa-formats-json oa-ui-engine-settings)
 # The root's per-source definitions do not reach a subdirectory target.
+# OA_SELF_UPDATE is public: every target that includes build.hpp reads it.
+# The packager strings are private to this file. \ and " are escaped so a
+# quoted definition stays one definition.
+target_compile_definitions(oa-app-update PUBLIC "OA_SELF_UPDATE=${oa_OA_SELF_UPDATE_value}")
+string(REPLACE "\\" "\\\\" oa_packager_name_quoted "${OA_PACKAGER_NAME}")
+string(REPLACE "\"" "\\\"" oa_packager_name_quoted "${oa_packager_name_quoted}")
+string(REPLACE "\\" "\\\\" oa_packager_command_quoted "${OA_PACKAGER_UPDATE_COMMAND}")
+string(REPLACE "\"" "\\\"" oa_packager_command_quoted "${oa_packager_command_quoted}")
 set_property(SOURCE src/build.cpp APPEND PROPERTY COMPILE_DEFINITIONS
   "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
-  "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
+  "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\""
+  "OA_PACKAGER_NAME=\"${oa_packager_name_quoted}\""
+  "OA_PACKAGER_UPDATE_COMMAND=\"${oa_packager_command_quoted}\"")
 
 if(BUILD_TESTING)
   add_executable(oa-app-update-build-test tests/build_test.cpp)
