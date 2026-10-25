@@ -197,6 +197,7 @@ centre would land on the line between Off and On.
 | A slider | `oa.settings.<row>` | slider; its text the value shown |
 | A row's own button (MANAGE…) | `oa.settings.<row>.<button>`, as `oa.settings.game-files-summary.manage` | button |
 | Game Content's buttons | `oa.settings.content-check.check-again`, `oa.settings.content-copy.copy-again`, `oa.settings.content-open.open-folder` | button. The section's entry is `oa.settings.nav.game-content`. While a bundle is being copied, that bundle's row offers Cancel as `oa.settings.<id>.cancel-copy` |
+| Updates' buttons | `oa.settings.update-status.check-now`, `oa.settings.update-status.update` | button. CHECK NOW while the section can check, greyed while a check is running; UPDATE… while a release is offered, in that button's place. Absent while Check for updates is Never. The section's entry is `oa.settings.nav.updates`. The choice is `oa.settings.update-check` (`automatically`, `when-asked`, `never`) |
 | Your files' buttons, on System | `oa.settings.user-folder.saves`, `.screenshots`, `.mods` | button |
 | File Type Registration, on System on Windows, Linux and macOS | `oa.settings.file-type-registration` (the heading); `oa.settings.file-type-oamod`, `oa.settings.file-type-oamap`, `oa.settings.file-type-oalang`, `oa.settings.file-type-oareg`, `oa.settings.file-type-oamut`, `oa.settings.file-type-oabrain`, `oa.settings.file-type-oalaunch` | the heading a label; each switch as a switch |
 | File types, on System on iOS | `oa.settings.file-types` | label |
@@ -219,7 +220,7 @@ centre would land on the line between Off and On.
 | The Add registry window, in dialog `oa.add-registry` | `oa.add-registry.url`, `oa.add-registry.key-field` (the Signing key field, under the address, for an address add only; absent for an `.oareg` file and for a mirror), `oa.add-registry.check`, `oa.add-registry.add`, `oa.add-registry.cancel`, and the labels `oa.add-registry.name`, `oa.add-registry.address`, `oa.add-registry.key` (the fingerprints), `oa.add-registry.refusal` | the fields are text fields; the buttons are buttons; the labels are labels. The names of the controls that were already there are unchanged |
 
 `<page>` is the section's word (`controls`, `engine-limits`, `language`,
-`graphics`, `user-interface`, `downloads`, `system`, `mod-keys`). A stage
+`graphics`, `user-interface`, `downloads`, `updates`, `system`, `mod-keys`). A stage
 file's `settings system` opens System, and `settings engine-limits` opens
 Engine Limits. A stage file may still say `common-tweaks` for that
 section. Language & Text keeps the word

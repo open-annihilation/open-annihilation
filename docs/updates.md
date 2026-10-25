@@ -31,6 +31,25 @@ given a feed to read.
 Check for updates at Only when I ask does not run on its own. Never never
 makes a request.
 
+## Settings
+
+Settings › Updates shows the version you are running and where the last
+check stands: up to date, checking, a release out, could not check, or not
+checked yet. The line names Stable, and when the check last reached the
+server. CHECK NOW runs a check at once. While a release is offered the
+button is UPDATE…, which opens that release's page the way the prompt's
+UPDATE does. The button is greyed while a check is running.
+
+Check for updates is Automatically, Only when I ask, or Never. It takes
+effect when you press OK. Cancel leaves the choice the dialog opened with.
+Automatically is the check described above. Only when I ask runs a check
+only from CHECK NOW. Never shows "OA never checks", hides the button, and
+makes no request, including from CHECK NOW.
+
+The hint under the choice says OA looks for a newer Open Annihilation once
+a day when it starts, and that it never installs one until you say so.
+[Settings › Updates](settings.md#updates) lists the rows.
+
 ## What is sent
 
 Two requests, and nothing else. One asks for the feed and one for its
@@ -75,6 +94,7 @@ Nothing is downloaded.
 ## Turning it off
 
 On the welcome's online step, **Not now** sets Check for updates to Never.
-**Next** on Turn on online features sets it to Automatically. Never makes
-no request. The setting is `open-annihilation.update-check` in the
-[preferences](../src/platform/preferences/README.md).
+**Next** on Turn on online features sets it to Automatically. Settings ›
+Updates sets the same choice, and it takes effect when you press OK.
+Never makes no request. The setting is `open-annihilation.update-check` in
+the [preferences](../src/platform/preferences/README.md).
