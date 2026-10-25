@@ -45,7 +45,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::fog_of_war) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::sides) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -65,11 +65,15 @@ constexpr std::array<Setting, 8> kControlsRows{
     Setting::window_edge_stickiness,
 };
 /// Engine Limits' rows: the unit limit, pathfinding, then how many player
-/// rows the skirmish setup shows.
-constexpr std::array<Setting, 3> kEngineLimitsRows{
+/// rows the skirmish setup shows, then the heading and the two rows for the
+/// limits the mod fixes.
+constexpr std::array<Setting, 6> kEngineLimitsRows{
     Setting::unit_limit,
     Setting::path_search,
     Setting::skirmish_players,
+    Setting::mod_limits_heading,
+    Setting::weapon_types,
+    Setting::sides,
 };
 /// Graphics' rows: how the frames are drawn, Smooth motion right under
 /// Vertical sync, the fog's edges under the explosions' flash, then how
@@ -808,6 +812,64 @@ using SkirmishPlayers = Linear<
 /// Returns the skirmish player count as the slider shows it.
 std::string skirmish_players_text(const SettingsModel& model) {
     return std::to_string(model.settings->skirmish_players);
+}
+
+/// The limits Engine Limits shows. No dialog is the base game.
+ModLimitsShown limits_shown(const SettingsModel& model) {
+    return model.dialog != nullptr ? model.dialog->mod_limits : ModLimitsShown{};
+}
+
+/// The limit as plain digits, or "{count} of {limit}" once a mod's match
+/// has loaded a count. The base game never shows "of".
+std::string plain_or_of(uint32_t limit, bool mod, const std::optional<uint32_t>& loaded) {
+    if (!mod || !loaded)
+        return std::to_string(limit);
+    std::string text(shown_text("{count} of {limit}"));
+    const std::string count_text = std::to_string(*loaded);
+    const std::string limit_text = std::to_string(limit);
+    constexpr std::string_view count_field = "{count}";
+    constexpr std::string_view limit_field = "{limit}";
+    for (std::size_t at = text.find(count_field); at != std::string::npos;
+         at = text.find(count_field, at + count_text.size()))
+        text.replace(at, count_field.size(), count_text);
+    for (std::size_t at = text.find(limit_field); at != std::string::npos;
+         at = text.find(limit_field, at + limit_text.size()))
+        text.replace(at, limit_field.size(), limit_text);
+    return text;
+}
+
+/// Weapon types: the mod's limit, or how many of it the match loaded.
+std::string weapon_types_text(const SettingsModel& model) {
+    const ModLimitsShown limits = limits_shown(model);
+    return plain_or_of(limits.weapon_types, limits.mod, limits.loaded_weapon_types);
+}
+
+/// Sides: the mod's limit, or how many of it the match loaded.
+std::string sides_text(const SettingsModel& model) {
+    const ModLimitsShown limits = limits_shown(model);
+    return plain_or_of(limits.sides, limits.mod, limits.loaded_sides);
+}
+
+/// The hint under Weapon types and under Sides.
+constexpr std::string_view kModLimitsHint = "Set by the mod. Every player in a game has the same.";
+
+/// The heading over the limits the mod fixes. It keeps no setting.
+constexpr Spec mod_limits_heading_row() noexcept {
+    return kit::text<SettingsModel>("set-by-the-mod", "Set by the mod", nullptr);
+}
+
+/// Weapon types, read from the dialog's mod limits. It keeps no setting.
+constexpr Spec weapon_types_row() noexcept {
+    Spec spec = kit::text<SettingsModel>("weapon-types", "Weapon types", &weapon_types_text);
+    spec.hint = {kModLimitsHint, {}};
+    return spec;
+}
+
+/// Sides, read from the dialog's mod limits. It keeps no setting.
+constexpr Spec sides_row() noexcept {
+    Spec spec = kit::text<SettingsModel>("sides", "Sides", &sides_text);
+    spec.hint = {kModLimitsHint, {}};
+    return spec;
 }
 
 // Maximum frame rate, Text size, Hold delay, Pointer speed and Gyro speed.
@@ -2510,9 +2572,9 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
      .spec = effect_slider<&E::naval_reflections>("naval-reflections", "Naval reflections"),
      .lock = &Locks::water_effects},
     {.setting = S::allow_full_3d,
-     .spec = engine_switch<&E::allow_full_3d>("allow-full-3d", "Allow Full 3D Mode", {"Requires Full hardware acceleration."})},
+     .spec = engine_switch<&E::allow_full_3d>("allow-full-3d", "Allow full 3D mode", {"Requires Full hardware acceleration."})},
     {.setting = S::unlocked_camera,
-     .spec = engine_switch<&E::unlocked_camera>("unlocked-camera", "Unlocked Camera", {"Allow angles outside the ideal range for TA art."}),
+     .spec = engine_switch<&E::unlocked_camera>("unlocked-camera", "Unlocked camera", {"Allow angles outside the ideal range for TA art."}),
      .lock = &Locks::unlocked_camera},
     {.setting = S::welcome_setup,
      .spec = welcome_setup_row(),
@@ -2523,6 +2585,9 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                                   fog_of_war_level_width),
                       &fog_of_war_hint, &lines<1>),
      .copy = &copy_field<&E::fog_of_war>},
+    {.setting = S::mod_limits_heading, .spec = mod_limits_heading_row()},
+    {.setting = S::weapon_types, .spec = weapon_types_row()},
+    {.setting = S::sides, .spec = sides_row()},
 }};
 // clang-format on
 
@@ -2625,6 +2690,9 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "unlocked-camera",
     "first-run",
     "fog-of-war",
+    "set-by-the-mod",
+    "weapon-types",
+    "sides",
 };
 
 /// Tells whether every row stands at its setting's place and is named by
