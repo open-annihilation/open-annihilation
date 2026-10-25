@@ -368,7 +368,8 @@ void test_caption_only_skips_art() {
     glyph.height = 4;
     glyph.pixels.assign(12, glyph_colour);
     glyph.coverage.assign(12, 1);
-    for (const char character : {'R', 'i', 'd', 'g', 'e', '6'})
+    // 'I' is the font's height reference, so the line is this glyph's height plus 2.
+    for (const char character : {'R', 'i', 'd', 'g', 'e', '6', 'I'})
         resources.font.glyphs[static_cast<unsigned char>(character)] = glyph;
     auto side = button("SIDE", origin, origin, width, height);
     side.common.attributes = 2; // centred caption
@@ -403,8 +404,9 @@ void test_caption_only_skips_art() {
     );
     state.caption_only = true;
     const auto plain = renderer::render_screen(resources, {&state, 1});
-    // Raised bevel: map 17 on the top and left, map 0 on the bottom and right,
-    // fill 20 inside. "Ridge6" is 18 wide and 6 high, so its first glyph is at
+    // The raised bevel is two pixels thick: map 17 on the top and left, map 0
+    // on the bottom and right, fill 20 inside that rim. "Ridge6" is 18 wide.
+    // The line is the height of 'I' plus 2, so 6, and the first glyph is at
     // x = 5 + (39 - 18) / 2 + 1 = 16, y = 5 + (15 - 6) / 2 = 9.
     CHECK(red_at(plain, origin, origin) == 17);
     CHECK(
@@ -414,7 +416,8 @@ void test_caption_only_skips_art() {
             static_cast<std::size_t>(origin + height - 1)
         ) == 0
     );
-    CHECK(red_at(plain, 6, 6) == 20);
+    CHECK(red_at(plain, 6, 6) == 17);
+    CHECK(red_at(plain, 7, 7) == 20);
     CHECK(red_at(plain, 16, 9) == glyph_colour);
     bool art_pixel = false;
     for (std::size_t y = 0; y < plain.height && !art_pixel; ++y) {
