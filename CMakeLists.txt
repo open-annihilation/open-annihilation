@@ -4035,6 +4035,42 @@ endforeach()
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-side-panels PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Weapon ids past 255 and seven sides, made from the installed game
+        # into the build tree so a later check can read real game data.
+        # Nothing of the folders is committed. A second run writes the same
+        # bytes, and --print-profile resolves each folder's limits.
+        add_test(NAME limits-fixture COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py"
+          --game-dir "${OA_GAME_DIR}" --oa-tool $<TARGET_FILE:oa-tool>
+          --out "${CMAKE_BINARY_DIR}/limits-fixture")
+        set_tests_properties(limits-fixture PROPERTIES
+          FIXTURES_SETUP limits-fixture
+          TIMEOUT 300)
+        add_test(NAME limits-fixture-repeatable COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py"
+          --game-dir "${OA_GAME_DIR}" --oa-tool $<TARGET_FILE:oa-tool>
+          --verify "${CMAKE_BINARY_DIR}/limits-fixture")
+        set_tests_properties(limits-fixture-repeatable PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT 300)
+        foreach(oa_limits_profile wide sides)
+          if(oa_limits_profile STREQUAL "wide")
+            set(oa_limits_side_count 10)
+            set(oa_limits_weapon_types 1024)
+          else()
+            set(oa_limits_side_count 7)
+            set(oa_limits_weapon_types 256)
+          endif()
+          add_test(NAME native-limits-fixture-profile-${oa_limits_profile}
+            COMMAND oa-game --print-profile
+            --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-${oa_limits_profile}")
+          set_tests_properties(native-limits-fixture-profile-${oa_limits_profile} PROPERTIES
+            FIXTURES_REQUIRED limits-fixture
+            TIMEOUT 60
+            FAIL_REGULAR_EXPRESSION "(error|warning): "
+            PASS_REGULAR_EXPRESSION
+              "\"sides\": \\{[^}]*\"count\": ${oa_limits_side_count}[^}]*\\}.*\"weapon-types\": \\{[^}]*\"types\": ${oa_limits_weapon_types}[^}]*\\}")
+        endforeach()
         # The game folder, the preferences file beside the saved games and a
         # mod folder more than 256 characters deep, and as deep as the system
         # opens, with a user name of 200 characters: the main menu opens and
@@ -4271,6 +4307,11 @@ if(BUILD_TESTING)
     add_test(NAME oamod-yaml-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/oamod_yaml.py --self-test)
     set_tests_properties(oamod-yaml-selftest PROPERTIES TIMEOUT 60)
+    # The limits fixture's text edits, on text built into the tool, with no
+    # game data (tools/make_limits_fixture.py).
+    add_test(NAME limits-fixture-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py --self-test)
+    set_tests_properties(limits-fixture-selftest PROPERTIES TIMEOUT 60)
     # The standard hack and script extension pages in docs/mods, their
     # tables in the README and table 7.2 of the OAMOD standard hold what the
     # OAMOD registry gives (tools/gen_mod_docs.py), and the tool still keeps
