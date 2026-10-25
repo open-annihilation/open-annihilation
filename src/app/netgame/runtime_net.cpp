@@ -3386,6 +3386,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     }
     const auto& host_world = runtime_.match_->state();
     const auto& client_world = joiner.match_->state();
+    // The match the binding holds is the host's. The shooter is made and
+    // ordered through it, on the world this check already reads.
+    auto& host_match = *net_->binding.match;
     // The setup blocks each machine holds of the other machine's players, a
     // computer player's among them, came from that machine and carry the
     // five bytes after the engine signature as zero, as 0.7 sent them:
@@ -3656,8 +3659,8 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         const auto shooter_type = unit_type_named(host_world, shooter_name);
         require(shooter_type != 0, "the loopback shooter type is not in the match");
         shooter_slot = make_unit(
-            *runtime_.match_,
-            runtime_.match_->state(),
+            host_match,
+            host_match.state(),
             host_world.units[host_commander].owner_index,
             shooter_type,
             host_commander,
@@ -3838,7 +3841,7 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
                 const int32_t beside = unit.position.x + (1 << 16) < map_width
                                            ? static_cast<int32_t>(1 << 16)
                                            : -(1 << 16);
-                (void)runtime_.match_->issue_attack_ground(
+                (void)host_match.issue_attack_ground(
                     shooter_slot,
                     {unit.position.x + beside, unit.position.y, unit.position.z + ahead},
                     false
@@ -3848,7 +3851,7 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
         if (tick == kLoopbackFireUntil) {
             (void)runtime_.match_->issue_stop(host_commander);
             if (shooter_slot != 0)
-                runtime_.match_->kill_unit(shooter_slot, 0);
+                host_match.kill_unit(shooter_slot, 0);
         }
         net_frame();
         joiner_play.net_frame();
