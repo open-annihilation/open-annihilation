@@ -42,6 +42,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <iterator>
 #include <memory>
@@ -171,9 +172,8 @@ struct CampaignRuntime {
     missions::CampaignFiles dialog_files{};
     Runtime* dialog_owner = nullptr;
     // `files` with the campaign list's reports also written to the log
-    // (campaign_list_env), and the reports the run has logged.
+    // (campaign_list_env).
     missions::CampaignFiles list_files{};
-    std::set<std::string> logged_list_messages;
     PackageEvents events;
     const oa::formats::fnt::Font* font = nullptr;
 };
@@ -267,13 +267,30 @@ void package_message(void*, const char* text) {
     campaign_runtime().events.message = text;
 }
 
+// The campaign-list reports already written this run. The list is built again
+// for each side and each visit, and a report is written once.
+std::set<std::string>& logged_campaign_list_messages() {
+    static std::set<std::string> logged;
+    return logged;
+}
+
+void write_campaign_list_message(const char* text) {
+    if (text != nullptr && logged_campaign_list_messages().insert(text).second)
+        std::cerr << "open-annihilation: " << text << '\n';
+}
+
 // package_message, with each text also written to the log the first time the
 // run sees it: the campaign list reports every file it leaves out each time
 // it is built, once per side and per visit to the panel.
 void list_message(void* context, const char* text) {
     package_message(context, text);
-    if (campaign_runtime().logged_list_messages.insert(text).second)
-        std::cerr << "open-annihilation: " << text << '\n';
+    write_campaign_list_message(text);
+}
+
+// The same log line, without the campaign screens' message. Asking whether a
+// side has a campaign must not build those screens.
+void presence_message(void*, const char* text) {
+    write_campaign_list_message(text);
 }
 
 // Measures a briefing's text as draw_briefing_overlays draws it: in its FNT
@@ -560,12 +577,48 @@ bool Runtime::offers_any_mission() const {
            assets_.file_size("bitmaps/playanygame4.pcx") != 0;
 }
 
+// The mounted folders and archives, the language and its packs: a change of
+// any of them is a different set of campaign files, and the remembered
+// answers no longer apply. A mod switch builds a new runtime, whose answers
+// start unread.
+std::string Runtime::side_campaign_mount_key() const {
+    std::string key;
+    const auto append = [&key](const auto& paths) {
+        for (const auto& path : paths) {
+            key.push_back('\n');
+            key.append(path.string());
+        }
+    };
+    append(assets_.loose_roots());
+    key.push_back('|');
+    append(assets_.mount_paths());
+    key.push_back('|');
+    if (const char* word = game_language())
+        key.append(word);
+    key.push_back('|');
+    append(language_pack_folders());
+    return key;
+}
+
 bool Runtime::side_has_campaign(uint32_t side) {
-    const auto env = campaign_list_env(assets_, preferences_.difficulty, difficulty_names());
-    std::vector<char> names(64 * 1024);
-    return missions::campaign_load_names(
-               env.files, side == 0 ? "ARM" : "CORE", names.data(), names.size()
-           ) > 0;
+    const std::string key = side_campaign_mount_key();
+    if (!side_campaign_known_ || key != side_campaign_key_) {
+        missions::CampaignFiles files{
+            &assets_,
+            asset_size,
+            asset_read,
+            asset_list,
+            oa::data::languages::installed_translation,
+            presence_message,
+            oa::data::languages::installed_word(),
+            asset_count,
+            asset_find
+        };
+        missions::campaign_sides_present(&files, &side_campaign_arm_, &side_campaign_core_);
+        side_campaign_key_ = key;
+        side_campaign_known_ = true;
+    }
+    return side == 0 ? side_campaign_arm_ : side_campaign_core_;
 }
 
 void Runtime::enter_new_game_panel(bool any_mission) {
