@@ -541,6 +541,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--brain-trace", "log.txt", {"--headless-check", "--match-ticks", "60"}},
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
+        {"--check-key-table", "table.tsv", {}},
         {"--check-unit-language", "fr", {}},
         {"--check-language", "uk", {"--check-text-fit"}},
         {"--game-files-route", "demo", {"--check-game-files"}},
@@ -717,6 +718,11 @@ void value_options() {
         unit_checks.check_unit_pages == "whole:ARMCOM,CORCOM" &&
             unit_checks.check_unit_language == "fr" && unit_checks.fixed_clock,
         "--check-unit-pages and --check-unit-language take their pages and language"
+    );
+    const auto key_table = parse({"--check-key-table", "table.tsv"});
+    expect(
+        key_table.check_key_table == "table.tsv" && key_table.fixed_clock,
+        "--check-key-table takes its file"
     );
     // The text-fit and language switch checks take the languages they check,
     // such as an installed pack's, in place of their own.

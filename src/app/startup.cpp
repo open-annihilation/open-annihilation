@@ -338,6 +338,7 @@ void check_game_files_options(Options& options) {
         {options.check_side_column, "--check-side-column"},
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
+        {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -633,6 +634,7 @@ void check_director_options(Options& options) {
         {options.check_side_column, "--check-side-column"},
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
+        {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -738,6 +740,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_side_column, "--check-side-column"},
             {options.check_match_bars, "--check-match-bars"},
             {!options.check_unit_pages.empty(), "--check-unit-pages"},
+            {!options.check_key_table.empty(), "--check-key-table"},
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
             {options.check_saved_brains, "--check-saved-brains"},
@@ -1319,6 +1322,10 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.check_unit_pages = option_value(cursor);
         return true;
     }
+    if (argument == "--check-key-table") {
+        options.check_key_table = option_value(cursor);
+        return true;
+    }
     if (argument == "--check-unit-language") {
         options.check_unit_language = option_value(cursor);
         return true;
@@ -1629,6 +1636,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-click-snap] "
                      "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-radar-orders] "
+                     "[--check-key-table FILE] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
                      "[--check-installer FILE] "
@@ -1906,20 +1914,20 @@ void write_startup_line(std::string_view text) {
         result.check_side_data_per_match || result.check_gadget_art_per_match ||
         result.check_download_builds || result.check_stockpile_builds ||
         result.check_unit_page_memory || result.check_side_column || result.check_match_bars ||
-        !result.check_unit_pages.empty() || result.check_kill_board ||
-        !result.check_unit_language.empty() || result.check_language_switch ||
-        result.check_language_registry || result.check_language_notice || result.check_first_run ||
-        result.check_setup_window || result.check_window_place || result.check_progress ||
-        result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
-        result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
-        result.check_pointer_interfaces || result.check_megamap_clicks ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
-        result.check_running_while_inactive || result.check_director_view ||
-        result.check_director_render || result.check_interpolation || result.check_unit_playout ||
-        result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
-        result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
-        result.check_mutator_picker || result.check_brain_picker ||
+        !result.check_unit_pages.empty() || !result.check_key_table.empty() ||
+        result.check_kill_board || !result.check_unit_language.empty() ||
+        result.check_language_switch || result.check_language_registry ||
+        result.check_language_notice || result.check_first_run || result.check_setup_window ||
+        result.check_window_place || result.check_progress || result.check_text_fit ||
+        result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
+        result.check_wreck_pick || result.check_build_preview || result.check_pointer_interfaces ||
+        result.check_megamap_clicks || result.check_radar_orders || result.check_touch_controls ||
+        result.check_pad_controls || result.check_running_while_inactive ||
+        result.check_director_view || result.check_director_render || result.check_interpolation ||
+        result.check_unit_playout || result.check_paused_save || result.check_saved_brains ||
+        result.check_simulation_hash || result.check_zoom_memory || result.check_map_packs ||
+        result.check_map_browser || result.check_mutator_button || result.check_mutator_room ||
+        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
         result.check_brain_seat_buttons || result.check_brain_campaign ||
         result.check_mutator_prompts || result.check_map_pack_lists ||
         result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;

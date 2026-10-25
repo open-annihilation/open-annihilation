@@ -526,6 +526,9 @@ struct Options {
     // so that the game's tallest unit page ends on the window's last row;
     // empty for no check.
     std::string check_unit_pages;
+    // Drives every key, click and wheel the match answers and compares what
+    // each did with the named table; empty for no check.
+    std::string check_key_table;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
