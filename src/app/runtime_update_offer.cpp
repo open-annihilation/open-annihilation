@@ -79,14 +79,30 @@ bool is_update_question(const LayerScreen* screen) {
     return !asked.buttons.empty() && asked.buttons.front().id == "skip";
 }
 
-/// The update question on the layer or waiting to be shown.
+/// The notice a build that cannot replace itself shows. Its word is its
+/// screen name, so it is not the update question and not another prompt.
+constexpr std::string_view kPackagerNotice = "update-notice";
+
+/// The packager notice on the layer or waiting to be shown.
 ///
 /// @param layer the layer
-/// @return true when the question is up or waiting
+/// @return true when the notice is up or waiting
+bool packager_notice_queued(OaLayer& layer) {
+    return layer.find(kPackagerNotice) != nullptr || layer.waiting(kPackagerNotice) != nullptr;
+}
+
+/// The update question or the packager notice, up or waiting.
+///
+/// @param layer the layer
+/// @return true when either is up or waiting
 bool update_question_queued(OaLayer& layer) {
     return is_update_question(layer.find(QuestionScreen::screen_name)) ||
-           is_update_question(layer.waiting(QuestionScreen::screen_name));
+           is_update_question(layer.waiting(QuestionScreen::screen_name)) ||
+           packager_notice_queued(layer);
 }
+
+/// The button OPEN THE PAGE answers, when the notice offers it.
+constexpr int32_t kPageButton = 0;
 
 /// One bullet of the release's notes.
 ///
@@ -128,6 +144,62 @@ void Runtime::offer_update() {
     OaLayer& layer = oa_layer();
     if (update_question_queued(layer))
         return;
+    // A build that cannot replace itself tells the player who updates it.
+    // OK asks again next start and does not remember a skip. With no
+    // packager, OPEN THE PAGE opens the release's page.
+    if (!update::replaces_itself()) {
+        const std::string offered_version = held.offer.release->version_text;
+        const update::PackagerNotice notice = update::packager_notice(
+            offered_version,
+            update::packager_name(),
+            update::packager_update_command(),
+            shown_word,
+            nullptr
+        );
+        kit::Question asked;
+        asked.word = std::string(kPackagerNotice);
+        asked.title = notice.title;
+        for (const std::string& paragraph : notice.paragraphs)
+            asked.paragraphs.push_back({paragraph, false});
+        const std::string open_page{oa::data::languages::interface_text("OPEN THE PAGE")};
+        const std::string ok{oa::data::languages::interface_text("OK")};
+        if (notice.open_the_page) {
+            asked.buttons.push_back({open_page, true, "page"});
+            asked.buttons.push_back({ok, false, "ok"});
+            asked.cancel_button = 1;
+            asked.primary_button = kPageButton;
+            asked.marked = kPageButton;
+        } else {
+            asked.buttons.push_back({ok, true, "ok"});
+            asked.cancel_button = 0;
+            asked.primary_button = 0;
+            asked.marked = 0;
+        }
+        update_->offered_page = held.offer.release->page;
+        update_->offered_release = release_number;
+        Runtime* runtime = this;
+        const bool open_the_page = notice.open_the_page;
+        QuestionScreen::Host host;
+        host.answer = [runtime, open_the_page](int32_t button) {
+            if (open_the_page && button == kPageButton)
+                runtime->open_release_page();
+            return true;
+        };
+        // A match closes the notice without an answer, and the next settled
+        // menu of this run asks again. OK leaves the number set.
+        host.tick = [runtime]() {
+            const bool in_match = runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+            if (in_match && runtime->update_)
+                runtime->update_->offered_release.reset();
+            return in_match;
+        };
+        auto question = std::make_unique<QuestionScreen>(
+            layer, Screen::main_menu, std::move(asked), std::move(host)
+        );
+        question->show_on_any_menu();
+        layer.show_when_free(std::move(question));
+        return;
+    }
     const library::TextHooks hooks = text_hooks();
     const update::OfferText told =
         update::offer_text(held.offer, running_build(), shown_language().tag, hooks);

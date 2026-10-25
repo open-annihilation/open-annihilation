@@ -7378,6 +7378,14 @@
 	it=APRI CARTELLA DEI MOD;
 	}
 
+[OPEN THE PAGE]
+	{
+	de=SEITE ÖFFNEN;
+	fr=OUVRIR LA PAGE;
+	es=ABRIR LA PÁGINA;
+	it=APRI LA PAGINA;
+	}
+
 [ORDERS]
 	{
 	de=BEFEHLE;
@@ -7648,6 +7656,22 @@
 	fr=Ouvrir ces fichiers avec le jeu depuis ton gestionnaire de fichiers.;
 	es=Abrir estos archivos con el juego desde tu gestor de archivos.;
 	it=Apri questi file con il gioco dal tuo gestore di file.;
+	}
+
+[Open your software centre to update it.]
+	{
+	de=Öffne dein Software-Zentrum, um sie zu aktualisieren.;
+	fr=Ouvre ton centre logiciel pour la mettre à jour.;
+	es=Abre tu centro de software para actualizarla.;
+	it=Apri il tuo centro software per aggiornarla.;
+	}
+
+[Open your software centre, or run:]
+	{
+	de=Öffne dein Software-Zentrum, oder führe aus:;
+	fr=Ouvre ton centre logiciel, ou lance :;
+	es=Abre tu centro de software, o ejecuta:;
+	it=Apri il tuo centro software, oppure esegui:;
 	}
 
 [Open {page} in a browser on another computer, or in Desktop Mode.]
@@ -10906,6 +10930,22 @@
 	it=Questo gioco di base si usa quando la Biblioteca si chiude.;
 	}
 
+[This copy came from {name}, which updates it.]
+	{
+	de=Diese Kopie stammt von {name}, das sie aktualisiert.;
+	fr=Cette copie vient de {name}, qui la met à jour.;
+	es=Esta copia viene de {name}, que la actualiza.;
+	it=Questa copia viene da {name}, che la aggiorna.;
+	}
+
+[This copy cannot replace itself. Get the new release from its page.]
+	{
+	de=Diese Kopie kann sich nicht selbst ersetzen. Hol die neue Version von ihrer Seite.;
+	fr=Cette copie ne peut pas se remplacer elle-même. Prends la nouvelle version sur sa page.;
+	es=Esta copia no puede reemplazarse a sí misma. Consigue la nueva versión en su página.;
+	it=Questa copia non può sostituirsi da sola. Prendi la nuova versione dalla sua pagina.;
+	}
+
 [This file]
 	{
 	de=Diese Datei;
@@ -11776,6 +11816,14 @@
 	fr=Mettre à jour {name};
 	es=Actualizar {name};
 	it=Aggiorna {name};
+	}
+
+[Updated by {name}]
+	{
+	de=Aktualisiert von {name};
+	fr=Mise à jour par {name};
+	es=Actualizada por {name};
+	it=Aggiornata da {name};
 	}
 
 [Updated {name} · {new} changes the game's rules · ROLL BACK restores {old}]
@@ -15536,6 +15584,14 @@
 	fr={used} · {free} libres sur ce {device};
 	es={used} · {free} libres en este {device};
 	it={used} · {free} liberi su questo {device};
+	}
+
+[{version} is out]
+	{
+	de={version} ist da;
+	fr={version} est sorti;
+	es={version} ya está;
+	it={version} è uscito;
 	}
 
 [{version} is out · Stable · checked {when}]

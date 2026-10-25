@@ -1331,10 +1331,6 @@ void Runtime::draw_risen_chat_line() {
 
 namespace {
 
-// A release this many game ticks or fewer after the
-// press, over a box under this many map pixels across in x and z, counts as a click.
-constexpr uint32_t kDragClickTicks = 0x19;
-constexpr int32_t kDragClickPixels = 0x20;
 // UI colours of the drag box's outer and inset outlines.
 constexpr uint8_t kDragBoxOuterColor = 15;
 constexpr uint8_t kDragBoxInnerColor = 0;
@@ -1422,18 +1418,27 @@ std::array<oa::present::world_renderer::ScreenPoint, 2> Runtime::match_drag_corn
     return {project(match_drag_->start), project(match_drag_->end)};
 }
 
+int32_t Runtime::drag_click_pixels() const {
+    return 0x20;
+}
+
+uint32_t Runtime::drag_click_ticks() const {
+    return 0x19;
+}
+
 bool Runtime::match_drag_is_click() const {
     if (!match_drag_)
         return true;
+    const int32_t pixels = drag_click_pixels();
     if (live_renderer_active()) {
         const auto corners = match_drag_corners(live_viewport(match_camera_x_, match_camera_z_));
-        return std::abs(corners[0].x - corners[1].x) < kDragClickPixels &&
-               std::abs(corners[0].y - corners[1].y) < kDragClickPixels;
+        return std::abs(corners[0].x - corners[1].x) < pixels &&
+               std::abs(corners[0].y - corners[1].y) < pixels;
     }
     const auto released = static_cast<int32_t>(frontend_tick());
-    return released < static_cast<int32_t>(match_drag_->pressed_tick + kDragClickTicks) &&
-           std::abs(match_drag_->start[0] - match_drag_->end[0]) < kDragClickPixels &&
-           std::abs(match_drag_->start[2] - match_drag_->end[2]) < kDragClickPixels;
+    return released < static_cast<int32_t>(match_drag_->pressed_tick + drag_click_ticks()) &&
+           std::abs(match_drag_->start[0] - match_drag_->end[0]) < pixels &&
+           std::abs(match_drag_->start[2] - match_drag_->end[2]) < pixels;
 }
 
 void Runtime::draw_selection_band(

@@ -1043,6 +1043,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     state.scheme = scheme;
     state.number_keys = number_keys;
     state.ready = true;
+    rebuild_pointer_roles(state.resolved);
 }
 
 keys::Contexts Runtime::input_contexts() {
@@ -1168,6 +1169,25 @@ void Runtime::apply_binding_roles(uint32_t& modifiers, ModifierUse use) const {
         adjust("build.queue-modifier", SDL_KMOD_SHIFT, SDL_KMOD_LSHIFT);
     if (use == ModifierUse::order)
         adjust("order.force-modifier", SDL_KMOD_CTRL, SDL_KMOD_LCTRL);
+}
+
+bool Runtime::modifier_role_active(std::string_view action) const {
+    const uint8_t mods = pointer_modifier_bits();
+    if (key_bindings_state_ != nullptr && key_bindings_state_->ready) {
+        keys::HeldKeys held_keys;
+        held_keys.down = key_is_down;
+        if (key_bindings_state_->dispatcher.role_active(action, mods, held_keys))
+            return true;
+        // A pointer chord's button is someone else's check. Its modifiers are
+        // the role role_active cannot see.
+        return pointer_role_modifiers_held(action, mods);
+    }
+    if (action == "order.force-modifier" || action == "build.hundred-modifier")
+        return (mods & keys::ctrl) != 0;
+    if (action == "order.queue-modifier" || action == "select.add-modifier" ||
+        action == "build.queue-modifier" || action == "build.move-queued-site")
+        return (mods & keys::shift) != 0;
+    return false;
 }
 
 } // namespace oa::app

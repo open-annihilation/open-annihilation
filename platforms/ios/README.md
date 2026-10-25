@@ -224,6 +224,7 @@ capability that any other platform can set the same way:
 |---|---|---|
 | `OA_NATIVE_APP_MENU` | OFF | no macOS menu bar item |
 | `OA_PROCESS_SPAWNING` | OFF | the video capture and the director's encoder, which start another program, say this build starts none |
+| `OA_SELF_UPDATE` | OFF | the game does not replace itself; a newer release is a notice with the release page, and the player builds it the same way |
 | `OA_NATIVE_FOLDER_DIALOG` | OFF | no folder dialog; the game says where its folder goes |
 | `OA_NATIVE_DENSITY_WINDOWS` | ON | the window opens at the screen's own pixel density |
 | `OA_TOUCH_FIRST` | ON | the touch controls are on from the start |

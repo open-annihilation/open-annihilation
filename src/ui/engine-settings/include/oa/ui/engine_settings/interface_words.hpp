@@ -548,6 +548,7 @@ inline constexpr std::string_view interface_words[] = {
     "Up to a quarter of the battlefield past the map's edges, however the view moves.",
     "Up to date · Stable · checked {when}",
     "Up to half the battlefield past the map's edges; a zoom keeps the ground under the pointer.",
+    "Updated by {name}",
     "Updates",
     "Use English",
     "Use modern fonts for game text",

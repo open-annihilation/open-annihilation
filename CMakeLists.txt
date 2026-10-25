@@ -77,8 +77,8 @@ target_link_libraries(oa-test-match INTERFACE oa-test-support oa-sim-match-runti
 # links (cmake/OaOptions.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaOptions.cmake")
 # What the platform the game is built for can do: OA_PROCESS_SPAWNING,
-# OA_NATIVE_FOLDER_DIALOG, OA_NATIVE_DENSITY_WINDOWS and OA_TOUCH_FIRST
-# (cmake/OaPlatformCapabilities.cmake).
+# OA_NATIVE_FOLDER_DIALOG, OA_NATIVE_DENSITY_WINDOWS, OA_TOUCH_FIRST and
+# OA_SELF_UPDATE (cmake/OaPlatformCapabilities.cmake).
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaPlatformCapabilities.cmake")
 # The sanitizers instrument every target in this tree, not only those that
 # link oa-options, and stop at the first report so the test that made it
@@ -1246,6 +1246,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_full.cpp src/app/runtime_full_sprites.cpp src/app/runtime_full_overlays.cpp
   src/app/runtime_terrain_filter.cpp src/app/runtime_fog.cpp
   src/app/runtime_pointer_press.cpp
+  src/app/runtime_pointer_roles.cpp
   src/app/runtime_selection.cpp src/app/runtime_selection_shortcuts.cpp
   src/app/runtime_view_panels.cpp src/app/runtime_whiteboard.cpp src/app/runtime_commander_placement.cpp
   src/app/runtime_megamap.cpp
@@ -3678,6 +3679,21 @@ endforeach()
       set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows with the left and right mouse buttons exchanged, under
+      # a layout that exchanges those roles.
+      set(oa_key_table_swapped_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-swapped-buttons")
+      file(MAKE_DIRECTORY "${oa_key_table_swapped_dir}")
+      add_test(NAME native-key-table-swapped-buttons COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons/swapped-buttons.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons"
+        --preferences-file "${oa_key_table_swapped_dir}/key-table.conf")
+      set_tests_properties(native-key-table-swapped-buttons PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_swapped_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same rows again, plus the ones that exist only with the twelve
       # catalogue hacks turned on.
       set(oa_key_table_hacks_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-hacks")
@@ -4486,11 +4502,12 @@ if(BUILD_TESTING)
     TIMEOUT 60)
 endif()
 # The update helper. Its library and tests are built with the platform.
-# The program itself is built only where this build may start another program.
+# The program itself is built only where this build may start another program
+# and may replace itself.
 if(OA_BUILD_PLATFORM)
   add_subdirectory(tools/oa-update)
 endif()
-if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING)
+if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING AND OA_SELF_UPDATE)
   add_executable(oa-update tools/oa-update/main.cpp)
   target_link_libraries(oa-update PRIVATE oa-update-core oa-options SDL3::SDL3)
   # The same version line as the game. A build without the engine-build
@@ -4562,6 +4579,12 @@ if(BUILD_TESTING)
         $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
       set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
     endif()
+    # A configure with self-update off builds oa-game and not oa-update, and
+    # self-update on with process spawning off is refused. Configure only.
+    add_test(NAME cmake-self-update-off COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_self_update_off.py
+      ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
+    set_tests_properties(cmake-self-update-off PROPERTIES TIMEOUT 300)
     if(UNIX)
       find_program(OA_BASH_EXECUTABLE bash)
       if(OA_BASH_EXECUTABLE)
@@ -4705,7 +4728,7 @@ endif()
 
 if(WIN32)
   set(oa_executables oa-tool)
-  if(TARGET oa-update)
+  if(TARGET oa-update AND OA_SELF_UPDATE)
     list(APPEND oa_executables oa-update)
   endif()
   if(OA_BUILD_PLATFORM)
@@ -4911,7 +4934,11 @@ endif()
 file(GLOB oa_notice_licenses CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/licenses/*")
 set(oa_notice_files "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/ATTRIBUTIONS.md"
   ${oa_notice_licenses} "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake")
-foreach(target IN ITEMS oa-game oa-intro oa-tool oa-update)
+set(oa_shipped_programs oa-game oa-intro oa-tool)
+if(OA_SELF_UPDATE)
+  list(APPEND oa_shipped_programs oa-update)
+endif()
+foreach(target IN LISTS oa_shipped_programs)
   if(NOT TARGET ${target})
     continue()
   endif()
