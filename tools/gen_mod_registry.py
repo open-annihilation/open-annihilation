@@ -73,6 +73,8 @@ LIMIT_FIELDS = {
                                "clamp-oversize": "model_composite.clamp_oversize"},
     "limits.build-list-entries": {"copy": "build_lists.copy", "overflow": "build_lists.overflow"},
     "limits.category-mask-types": {"types": "category_masks.types"},
+    "limits.weapon-types": {"types": "weapon_types.types"},
+    "limits.sides": {"count": "sides.count"},
 }
 # Hack areas whose rules the simulation reads; the others are read outside it.
 SIM_AREAS = ["ai", "orders", "air", "weapons", "repair", "veterancy", "economy", "intel", "setup",
