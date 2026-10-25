@@ -15,6 +15,7 @@
 #include "oa/app/package_install/inbox.hpp"
 #include "oa/platform/display_modes.hpp"
 #include "oa/platform/job_pool.hpp"
+#include "oa/base/signing/ed25519.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/platform/system.hpp"
 #include <algorithm>
@@ -761,6 +762,9 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_setup_window, "--check-setup-window"},
             {options.check_window_place, "--check-window-place"},
             {options.check_progress, "--check-progress"},
+            {options.update_feed.has_value(), "--update-feed"},
+            {!options.update_keys.empty(), "--update-key"},
+            {options.check_engine_feed, "--check-engine-feed"},
             {options.check_icloud_wait, "--check-icloud-wait"},
             {options.check_text_fit, "--check-text-fit"},
             {!options.check_languages.empty(), "--check-language"},
@@ -1010,6 +1014,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-setup-window", &Options::check_setup_window},
     {"--check-window-place", &Options::check_window_place},
     {"--check-progress", &Options::check_progress},
+    {"--check-engine-feed", &Options::check_engine_feed},
     {"--check-icloud-wait", &Options::check_icloud_wait},
     {"--check-text-fit", &Options::check_text_fit},
     {"--check-folder-chooser", &Options::check_folder_chooser},
@@ -1348,6 +1353,29 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.check_languages.emplace_back(option_value(cursor));
         return true;
     }
+    if (argument == "--update-feed") {
+        options.update_feed = std::string(option_value(cursor));
+        return true;
+    }
+    if (argument == "--update-key") {
+        const std::string_view text = option_value(cursor);
+        const std::size_t split = text.find('=');
+        bool accepted = split != std::string_view::npos && split != 0;
+        if (accepted) {
+            const std::string_view ident = text.substr(0, split);
+            for (const char byte : ident) {
+                const auto byte_value = static_cast<unsigned char>(byte);
+                if (byte_value <= static_cast<unsigned char>(' ') || byte_value == 0x7F)
+                    accepted = false;
+            }
+            accepted =
+                accepted && oa::base::signing::parse_public_key(text.substr(split + 1)).has_value();
+        }
+        if (!accepted)
+            throw std::runtime_error("--update-key must be ID=ed25519:KEY");
+        options.update_keys.emplace_back(text);
+        return true;
+    }
     return false;
 }
 
@@ -1644,7 +1672,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-language-registry] "
                      "[--check-language-notice] [--check-first-run] [--check-setup-window] "
                      "[--check-window-place] "
-                     "[--check-progress] [--check-icloud-wait] "
+                     "[--check-progress] [--update-feed URL] [--update-key ID=ed25519:KEY] "
+                     "[--check-engine-feed] [--check-icloud-wait] "
                      "[--check-text-fit [--check-language TAG]...] "
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
@@ -1779,6 +1808,8 @@ void write_startup_line(std::string_view text) {
         );
     }
     refuse_left_out_self_checks(result);
+    if (!result.update_keys.empty() && !result.update_feed.has_value())
+        throw std::runtime_error("--update-key needs --update-feed");
     if (acceleration_differing) {
         // Named in one order whichever came first.
         const std::string& first = acceleration_first->text;
@@ -1897,6 +1928,10 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error(
             "--check-progress draws in a window and cannot be used with --headless-check"
         );
+    if (result.check_engine_feed && result.headless_check)
+        throw std::runtime_error(
+            "--check-engine-feed draws in a window and cannot be used with --headless-check"
+        );
     if (result.check_icloud_wait && result.headless_check)
         throw std::runtime_error(
             "--check-icloud-wait draws in a window and cannot be used with --headless-check"
@@ -1940,11 +1975,12 @@ void write_startup_line(std::string_view text) {
         result.check_kill_board || !result.check_unit_language.empty() ||
         result.check_language_switch || result.check_language_registry ||
         result.check_language_notice || result.check_first_run || result.check_setup_window ||
-        result.check_window_place || result.check_progress || result.check_text_fit ||
-        result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
-        result.check_wreck_pick || result.check_build_preview || result.check_pointer_interfaces ||
-        result.check_megamap_clicks || result.check_single_player_offers ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
+        result.check_window_place || result.check_progress || result.check_engine_feed ||
+        result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
+        result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
+        result.check_pointer_interfaces || result.check_megamap_clicks ||
+        result.check_single_player_offers || result.check_radar_orders ||
+        result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||

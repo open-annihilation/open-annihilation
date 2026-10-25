@@ -537,6 +537,10 @@ struct MutatorStartStop {
     std::string reason{}; ///< why it stopped, as the player reads it
 };
 
+namespace update {
+struct CheckSnapshot;
+} // namespace update
+
 class Runtime final : public menu::Host,
                       public entry::SinglePlayerHost,
                       public frontend::Host,
@@ -5989,6 +5993,39 @@ class Runtime final : public menu::Host,
 
     /// Passes Developer mode on when it changed, and notes a catalogue that moved on.
     void tick_content();
+
+    /// The background check for a new release (runtime_update.cpp).
+    struct UpdateState;
+
+    /// Frees the update check, joining its worker.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_update_state(UpdateState* state) noexcept;
+
+    /// Starts one check for a new release.
+    ///
+    /// `asked` ignores the day and Only when I ask. Never, a match, a run
+    /// whose welcome is not finished, and an unattended or headless run
+    /// without a named feed do not start one.
+    ///
+    /// @param asked true when the player asked
+    void start_update_check(bool asked);
+
+    /// Starts the automatic check once the settled main menu has shown it is
+    /// due, stops one when a match starts, and remembers a check that reached
+    /// the server.
+    void tick_update_check();
+
+    /// Asks a running check to stop. A match start calls this.
+    void cancel_update_check() noexcept;
+
+    /// The latest check the main thread has been shown.
+    ///
+    /// The reference stays valid until the next tick_update_check. An empty
+    /// snapshot is returned when no check has run.
+    ///
+    /// @return the snapshot
+    [[nodiscard]] const update::CheckSnapshot& update_snapshot() const;
 
     /// Returns the generation of the content service's snapshot.
     ///
@@ -14330,6 +14367,11 @@ class Runtime final : public menu::Host,
     /// sizes. Throws std::runtime_error naming what differed.
     void check_progress();
 
+    /// Serves a signed feed and checks the background check for a new
+    /// release: once a day, never during a match, and not in an unattended
+    /// run that named no feed. Throws std::runtime_error naming what differed.
+    void check_engine_feed();
+
     /// Opens every Open Annihilation screen in English, German, French,
     /// Spanish, Italian and Simplified Chinese, or in the languages
     /// --check-language names, at 640x480 and 1280x720. Throws
@@ -19463,6 +19505,10 @@ class Runtime final : public menu::Host,
     // The registries and their catalogues; null until start_content.
     std::unique_ptr<ContentState, void (*)(ContentState*) noexcept> content_{
         nullptr, destroy_content_state
+    };
+    // The background check for a new release; null until the first tick.
+    std::unique_ptr<UpdateState, void (*)(UpdateState*) noexcept> update_{
+        nullptr, destroy_update_state
     };
     // The state of the renderer borrowed with its host; null without one,
     // as in a headless run, on a window of the runtime's own or in the

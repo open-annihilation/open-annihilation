@@ -593,6 +593,13 @@ struct Options {
     // Shows the progress dialog for a slow fixture, checks it animates and
     // closes with no input, writes pictures, and checks the four languages.
     bool check_progress = false;
+    /// The feed a self-check looks at instead of the published one.
+    /// Empty uses the published feed.
+    std::optional<std::string> update_feed;
+    /// Keys that may sign `update_feed`, each `ID=ed25519:KEY`.
+    std::vector<std::string> update_keys;
+    /// Serves a feed and checks the background check for a new release.
+    bool check_engine_feed = false;
     // Holds one evicted archive's read, checks the window keeps drawing the
     // iCloud line, then continues the folder step.
     bool check_icloud_wait = false;
