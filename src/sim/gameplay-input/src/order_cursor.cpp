@@ -664,7 +664,7 @@ UnitOrder unit_order(
             // A primary weapon with the surface-fire key lets a hovering
             // unit's water weapons attack above sea level.
             const bool primary_surface_fire =
-                primary != nullptr && hooks.rules.weapon(primary->weapon_id).surface_fire;
+                primary != nullptr && hooks.rules.weapon(oa_weapon_def_id(primary)).surface_fire;
             if (sea_level <= top && (def->flags & OA_UNIT_DEF_FLAG_CAN_HOVER) != 0 &&
                 !primary_surface_fire && (primary_water || secondary_water))
                 return UnitOrder::none;

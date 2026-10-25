@@ -119,7 +119,7 @@ uint8_t TickHost::AttackAdapter::morph_attack_command(sim::simulation_state::Uni
     if (const auto* primary = weapons.definitions[0])
         projected.primary_surface_fire =
             host.match.rules_view()
-                .weapon(host.match.state().game.weapon_defs[primary->registry_index].weapon_id)
+                .weapon(oa::oa_weapon_def_id(&host.match.weapon_record(*primary)))
                 .surface_fire;
     std::optional<CommandTarget> other;
     if (target) {

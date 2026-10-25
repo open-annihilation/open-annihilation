@@ -182,6 +182,10 @@ struct Options {
     uint16_t per_player_limit = 4;
     // The type's maximum health (MaxDamage); 0 makes a type with none.
     uint32_t maximum_health = 1000;
+    // Weapon slots the registry accepts, from 0. 256 is 3.1c's table.
+    uint32_t weapon_types = 256;
+    // Id of the fixture's TESTGUN. 1 is today's gun.
+    uint16_t gun_id = 1;
 };
 
 /// Returns the fixture's TESTGUN section (slot 1): a 400-range turret gun
@@ -190,10 +194,15 @@ struct Options {
 /// @param reload_time its reloadtime text, in seconds
 /// @param extra further keys, each with its ';', placed before the [DAMAGE] block
 /// @param damage its [DAMAGE] default
+/// @param id its weapon id
 /// @return the weapon TDF text
-inline std::string
-test_gun_tdf(std::string_view reload_time = "0.1", std::string_view extra = {}, int damage = 10) {
-    return "[TESTGUN]{id=1; reloadtime=" + std::string(reload_time) +
+inline std::string test_gun_tdf(
+    std::string_view reload_time = "0.1",
+    std::string_view extra = {},
+    int damage = 10,
+    uint16_t id = 1
+) {
+    return "[TESTGUN]{id=" + std::to_string(id) + "; reloadtime=" + std::string(reload_time) +
            "; range=400; lineofsight=1; weaponvelocity=100; turret=1; " + std::string(extra) +
            " [DAMAGE]{default=" + std::to_string(damage) + ";}}";
 }
@@ -380,7 +389,10 @@ struct Fixture {
         fields[1].target_masks = &target_masks;
         fields[1].movement_class = 0;
         (void)sim::combat_state::install_weapon_text(
-            weapons, test_gun_tdf(options.gun_reload_time)
+            weapons,
+            test_gun_tdf(options.gun_reload_time, {}, 10, options.gun_id),
+            false,
+            options.weapon_types
         );
         if (options.dgun) {
             def.weapon3 = "TESTDGUN";

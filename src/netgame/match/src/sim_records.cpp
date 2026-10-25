@@ -91,7 +91,7 @@ encode_feature_record(uint8_t action, int32_t cell_x, int32_t cell_z) noexcept {
     return bytes;
 }
 
-bool feature_hit_elsewhere(void* context, uint8_t weapon_id, int32_t cell_x, int32_t cell_z) {
+bool feature_hit_elsewhere(void* context, uint16_t weapon_id, int32_t cell_x, int32_t cell_z) {
     auto& link = link_of(context);
     if (!networked(link))
         return false;
@@ -100,7 +100,10 @@ bool feature_hit_elsewhere(void* context, uint8_t weapon_id, int32_t cell_x, int
     const auto* info = viewpoint != nullptr ? world_player_info(world, viewpoint) : nullptr;
     if (info != nullptr && (info->role & lobby_role_feature_authority) != 0)
         return false;
-    send_feature_record(link, weapon_id, cell_x, cell_z, true, no_player_slot);
+    // 3.1c's record holds one byte, so a weapon past 255 goes out as its low byte.
+    send_feature_record(
+        link, static_cast<uint8_t>(weapon_id), cell_x, cell_z, true, no_player_slot
+    );
     return true;
 }
 

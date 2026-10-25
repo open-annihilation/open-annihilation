@@ -547,7 +547,7 @@ void feature_hits_and_changes_reach_the_multiplayer_hooks() {
     allow_feature_damage(f);
 
     struct Hit {
-        uint8_t weapon_id{};
+        uint16_t weapon_id{};
         int32_t cell_x{}, cell_z{};
     };
 
@@ -565,7 +565,7 @@ void feature_hits_and_changes_reach_the_multiplayer_hooks() {
 
     auto& hooks = f.match->multiplayer;
     hooks.context = &forwarded;
-    hooks.feature_hit_elsewhere = [](void* context, uint8_t weapon_id, int32_t x, int32_t z) {
+    hooks.feature_hit_elsewhere = [](void* context, uint16_t weapon_id, int32_t x, int32_t z) {
         auto& self = *static_cast<Forwarded*>(context);
         self.hits.push_back({weapon_id, x, z});
         return self.elsewhere;
@@ -574,7 +574,7 @@ void feature_hits_and_changes_reach_the_multiplayer_hooks() {
         [](
             void* context, features::FeatureChange change, int32_t x, int32_t z, uint16_t reclaimer
         ) { static_cast<Forwarded*>(context)->changes.push_back({change, x, z, reclaimer}); };
-    const auto hit_at = [&forwarded](std::size_t index, uint8_t weapon_id, int32_t x, int32_t z) {
+    const auto hit_at = [&forwarded](std::size_t index, uint16_t weapon_id, int32_t x, int32_t z) {
         const auto& hit = forwarded.hits.at(index);
         return hit.weapon_id == weapon_id && hit.cell_x == x && hit.cell_z == z;
     };
@@ -625,6 +625,37 @@ void feature_hits_and_changes_reach_the_multiplayer_hooks() {
     std::cout << "feature hits and changes reach the multiplayer hooks passed\n";
 }
 
+// A hit by weapon 300 is forwarded as 300, not as the low byte 44.
+void wide_weapon_hit_forwards_its_whole_id() {
+    Options options = feature_options();
+    options.gun_id = 300;
+    options.weapon_types = 1024;
+    Fixture f(options);
+    allow_feature_damage(f);
+
+    struct Hit {
+        uint16_t weapon_id{};
+        int32_t cell_x{}, cell_z{};
+    };
+
+    struct Forwarded {
+        std::vector<Hit> hits;
+    } forwarded;
+
+    auto& hooks = f.match->multiplayer;
+    hooks.context = &forwarded;
+    hooks.feature_hit_elsewhere = [](void* context, uint16_t weapon_id, int32_t x, int32_t z) {
+        static_cast<Forwarded*>(context)->hits.push_back({weapon_id, x, z});
+        return true;
+    };
+    const auto* gun = oa::world_weapon_def(&f.match->state(), oa::oa_ref_from_index(300));
+    CHECK(gun != nullptr && oa::oa_weapon_def_id(gun) == 300);
+    features::damage_feature(f.match->state(), f.match->feature_host(), plot(3, 12), 3, 12, *gun);
+    CHECK(forwarded.hits.size() == 1 && forwarded.hits[0].weapon_id == 300);
+    CHECK(forwarded.hits[0].cell_x == 3 && forwarded.hits[0].cell_z == 12);
+    std::cout << "wide weapon hit forwards its whole id passed\n";
+}
+
 } // namespace
 
 int main() {
@@ -639,6 +670,7 @@ int main() {
         meteor_storm_steps_every_tick();
         edge_hits_leave_a_wreck_whole();
         feature_hits_and_changes_reach_the_multiplayer_hooks();
+        wide_weapon_hit_forwards_its_whole_id();
     } catch (const std::exception& error) {
         std::cerr << "FAIL: " << error.what() << '\n';
         return 1;

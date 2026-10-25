@@ -766,7 +766,8 @@ void shot_fired(void* context, const sim::match_runtime::ShotEvent& shot) {
     record.target[0] = shot.target.x;
     record.target[1] = shot.target.y;
     record.target[2] = shot.target.z;
-    record.weapon_id = shot.weapon_id;
+    // 3.1c's record holds one byte, so a weapon past 255 goes out as its low byte.
+    record.weapon_id = static_cast<uint8_t>(shot.weapon_id);
     record.flags = shot.interceptor ? weapon_fire_interceptor : uint8_t{};
     record.aim_heading = shot.aim_heading;
     record.aim_pitch = shot.aim_pitch;
@@ -835,11 +836,11 @@ bool session_live(void* context) {
 /// Hands a weapon hit on a feature to the host through the binding's FeatureRecordLink, as the match's hook.
 ///
 /// @param context The MatchBinding.
-/// @param weapon_id The hitting weapon's WeaponDef.weapon_id.
+/// @param weapon_id The hitting weapon's id.
 /// @param cell_x Hit plot column.
 /// @param cell_z Hit plot row.
 /// @return True when the hit went to the host and is not applied here.
-bool feature_hit_hook(void* context, uint8_t weapon_id, int32_t cell_x, int32_t cell_z) {
+bool feature_hit_hook(void* context, uint16_t weapon_id, int32_t cell_x, int32_t cell_z) {
     return feature_hit_elsewhere(&self(context).features, weapon_id, cell_x, cell_z);
 }
 
