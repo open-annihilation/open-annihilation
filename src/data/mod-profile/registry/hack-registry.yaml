@@ -1568,35 +1568,35 @@ entries:
   identity.side-names:
     kind: identity
     area: sides
-    summary: "Names of the side slots that the game itself uses for AI player names, elimination messages and side-button gadget names (SIDEDATA keeps its own copies for everything else): one a side, two to five; every side past the last name takes the last."
+    summary: "Names of the side slots that the game itself uses for AI player names, elimination messages and side-button gadget names (SIDEDATA keeps its own copies for everything else): one a side, two or more, and no more than the profile's limits.sides; every side past the last name takes the last."
     ownership: all-machines
     scope: sim
     key: side-names
-    value: {type: list<string>, length: [2, 5], max-length: 16, baseline: [Arm, Core], scope: sim}
+    value: {type: list<string>, length: [2, 32], max-length: 16, baseline: [Arm, Core], scope: sim}
   identity.watcher-side-frame:
     kind: identity
     area: sides
-    summary: "Frame of the battle room's SIDEx art that a watching player's side button shows. 3.1c draws frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides draws its watcher art further on."
+    summary: "Frame of the battle room's SIDEx art that a watching player's side button shows, 0 to 63. 3.1c draws frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides draws its watcher art further on."
     ownership: local-view
     scope: view
     key: watcher-side-frame
-    value: {type: int, min: 0, max: 15, baseline: 2, scope: view}
+    value: {type: int, min: 0, max: 63, baseline: 2, scope: view}
   identity.skirmish-hidden-sides:
     kind: identity
     area: sides
-    summary: "SIDEDATA sides, by number, that the skirmish Side button never offers: a mod's spare side kept only to line up its SIDEx art. The battle room and the side's own data are unchanged."
+    summary: "SIDEDATA sides, by number, that the skirmish Side button never offers: sides below the profile's limits.sides; at least one stays offered. A spare side kept only to line up its SIDEx art. The battle room and the side's own data are unchanged."
     ownership: local-view
     scope: view
     key: skirmish-hidden-sides
-    value: {type: list<int>, length: [0, 4], min: 0, max: 4, distinct: true, baseline: [], scope: view}
+    value: {type: list<int>, length: [0, 31], min: 0, max: 31, distinct: true, baseline: [], scope: view}
   identity.battle-room-hidden-sides:
     kind: identity
     area: sides
-    summary: "SIDEDATA sides, by number, that the battle room's SIDE button never offers: a mod's spare side kept only to line up its SIDEx art. The skirmish, launch files and the side's own data are unchanged."
+    summary: "SIDEDATA sides, by number, that the battle room's SIDE button never offers: sides below the profile's limits.sides; at least one stays offered. A spare side kept only to line up its SIDEx art. The skirmish, launch files and the side's own data are unchanged."
     ownership: local-view
     scope: view
     key: battle-room-hidden-sides
-    value: {type: list<int>, length: [0, 4], min: 0, max: 4, distinct: true, baseline: [], scope: view}
+    value: {type: list<int>, length: [0, 31], min: 0, max: 31, distinct: true, baseline: [], scope: view}
   layout.archive-patterns.ccx:
     kind: layout
     area: paths

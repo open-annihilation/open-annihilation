@@ -743,17 +743,61 @@ void test_blocks() {
         const auto& hidden = room_other.resolution->profile.identity.battle_room_hidden_sides;
         OA_CHECK(hidden.count == 1 && hidden.items[0] == 3);
     }
+    // At five sides, side 5 is past the limit. With seven sides, 5 and 6 are
+    // hidden: view scope, so the full hash moves and the sim hash does not.
     OA_CHECK(refused_with(
         profile_text("hidden-side-past", "identity:\n  skirmish-hidden-sides: [5]\n"),
-        "is outside [0, 4]"
+        "past the 5 sides of limits.sides"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("room-side-past", "identity:\n  battle-room-hidden-sides: [5]\n"),
+        "past the 5 sides of limits.sides"
+    ));
+    const ResolveResult wide_hidden = resolve(profile_text(
+        "wide-hidden", "limits: {sides: 7}\nidentity:\n  skirmish-hidden-sides: [5, 6]\n"
+    ));
+    const ResolveResult wide_plain = resolve(profile_text("wide-hidden", "limits: {sides: 7}\n"));
+    OA_CHECK(wide_hidden.resolution && wide_plain.resolution);
+    if (wide_hidden.resolution && wide_plain.resolution) {
+        const auto& hidden = wide_hidden.resolution->profile.identity.skirmish_hidden_sides;
+        OA_CHECK(hidden.count == 2 && hidden.items[0] == 5 && hidden.items[1] == 6);
+        OA_CHECK(
+            wide_hidden.resolution->profile.sim_hash == wide_plain.resolution->profile.sim_hash
+        );
+        OA_CHECK(
+            wide_hidden.resolution->profile.full_hash != wide_plain.resolution->profile.full_hash
+        );
+    }
+    OA_CHECK(refused_with(
+        profile_text("hidden-side-ceiling", "identity:\n  skirmish-hidden-sides: [32]\n"),
+        "is outside [0, 31]"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("hidden-every-side", "identity:\n  skirmish-hidden-sides: [0, 1, 2, 3, 4]\n"),
+        "hides every one of the 5 sides"
     ));
     OA_CHECK(refused_with(
         profile_text("hidden-side-twice", "identity:\n  skirmish-hidden-sides: [2, 2]\n"),
         "repeated items"
     ));
+    // Frames 16 and 63 are view scope: the sim hash stays, the full hash moves.
+    const ResolveResult frame_16 =
+        resolve(profile_text("minimal", "identity:\n  watcher-side-frame: 16\n"));
+    const ResolveResult frame_63 =
+        resolve(profile_text("minimal", "identity:\n  watcher-side-frame: 63\n"));
+    OA_CHECK(frame_16.resolution && frame_63.resolution);
+    if (frame_16.resolution && frame_63.resolution && left_out.resolution) {
+        const auto& base = left_out.resolution->profile;
+        OA_CHECK(frame_16.resolution->profile.identity.watcher_side_frame == 16);
+        OA_CHECK(frame_63.resolution->profile.identity.watcher_side_frame == 63);
+        OA_CHECK(frame_16.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(frame_63.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(frame_16.resolution->profile.full_hash != base.full_hash);
+        OA_CHECK(frame_63.resolution->profile.full_hash != base.full_hash);
+    }
     OA_CHECK(refused_with(
-        profile_text("watcher-frame-past", "identity:\n  watcher-side-frame: 16\n"),
-        "is outside [0, 15]"
+        profile_text("watcher-frame-past", "identity:\n  watcher-side-frame: 64\n"),
+        "is outside [0, 63]"
     ));
     OA_CHECK(refused_with(
         profile_text("archives-slash", "layout:\n  installation-archives: [\"dir/addon.ccx\"]\n"),
@@ -805,7 +849,8 @@ void test_blocks() {
     );
 }
 
-/// A profile names one side a name, up to five sides; three names give three.
+/// A profile names one side a name, two or more and no more than limits.sides;
+/// three names give three.
 void test_side_names() {
     const ResolveResult result =
         resolve(profile_text("sides", "identity:\n  side-names: [North, South, East]\n"));
@@ -818,6 +863,22 @@ void test_side_names() {
         text_of(at(*result.resolution, {"identity", "side-names"})) ==
         "[\"North\",\"South\",\"East\"]"
     );
+    OA_CHECK(refused_with(
+        profile_text("six-names", "identity:\n  side-names: [A, B, C, D, E, F]\n"),
+        "6 names, more than the 5 sides"
+    ));
+    const ResolveResult six = resolve(profile_text(
+        "six-sides", "limits: {sides: 7}\nidentity:\n  side-names: [A, B, C, D, E, F]\n"
+    ));
+    OA_CHECK(six.resolution && six.resolution->profile.identity.side_names.size() == 6);
+    std::string many = "identity:\n  side-names: [";
+    for (int name = 0; name < 33; ++name) {
+        if (name != 0)
+            many += ", ";
+        many += "S" + std::to_string(name);
+    }
+    many += "]\n";
+    OA_CHECK(refused_with(profile_text("too-many-names", many), "2-32 items"));
 }
 
 void test_comments_and_true() {
@@ -929,7 +990,7 @@ void test_refusals() {
         {"settings: {registry-seeds: {UnitLimit: true}}", "integers or strings"},
         {"identity: {network-version: [3, 1, 0]}", "2 items"},
         {"identity: {side-names: [Arm]}", "items"},
-        {"identity: {side-names: [A, B, C, D, E, F]}", "items"},
+        {"identity: {side-names: [A, B, C, D, E, F]}", "6 names, more than the 5 sides"},
         {"identity: {display-version: 3.1}", "expected a string"},
         {"layout: {directories: {maps: maps}}", "unknown key"},
         {"layout: {archive-patterns: {ufo: SWX}}", "does not match"},

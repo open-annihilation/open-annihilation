@@ -414,7 +414,7 @@ data::defs::DataLayout data_layout_of(const mod_profile::ModProfile* profile) {
     };
     layout.side_names = profile->identity.side_names;
     layout.watcher_side_frame =
-        static_cast<uint8_t>(std::clamp(profile->identity.watcher_side_frame, 0, 15));
+        static_cast<uint8_t>(std::clamp(profile->identity.watcher_side_frame, 0, 63));
     const auto side_bits = [](const auto& sides) {
         uint32_t bits = 0;
         for (uint16_t at = 0; at < sides.count; ++at)

@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
 #include <map>
 #include <set>
 #include <optional>
@@ -1755,6 +1756,50 @@ class Resolver {
 
     // -------------------------------------------------------------- the effective profile
 
+    /// Refuses side keys that reach past the profile's own side limit.
+    ///
+    /// A registry constraint cannot name another entry's parameter: it
+    /// compares two parameters of the one entry. Identity keys have no
+    /// parameters, so nothing in the registry can name limits.sides.count.
+    /// The check is here, after the limits have resolved into the profile.
+    ///
+    /// @param profile the resolved records
+    void check_side_keys(const ModProfile& profile) {
+        const auto side_count = profile.limits.sides.count;
+        const auto& names = profile.identity.side_names;
+        if (names.size() > side_count) {
+            error(
+                {},
+                "identity.side-names",
+                std::to_string(names.size()) + " names, more than the " +
+                    std::to_string(side_count) + " sides of limits.sides"
+            );
+            return;
+        }
+        // The first problem wins: a side the profile does not have, then a
+        // list that offers nothing.
+        const auto hidden_problem = [&](const auto& hidden) -> std::string {
+            for (uint16_t index = 0; index < hidden.count; ++index) {
+                const auto side = hidden.items[index];
+                if (side >= 0 && static_cast<uint64_t>(side) >= side_count)
+                    return "side " + std::to_string(side) + " is past the " +
+                           std::to_string(side_count) + " sides of limits.sides";
+            }
+            if (hidden.count >= side_count)
+                return "hides every one of the " + std::to_string(side_count) +
+                       " sides of limits.sides";
+            return {};
+        };
+        const std::string skirmish = hidden_problem(profile.identity.skirmish_hidden_sides);
+        if (!skirmish.empty()) {
+            error({}, "identity.skirmish-hidden-sides", skirmish);
+            return;
+        }
+        const std::string battle_room = hidden_problem(profile.identity.battle_room_hidden_sides);
+        if (!battle_room.empty())
+            error({}, "identity.battle-room-hidden-sides", battle_room);
+    }
+
     void finish() {
         Value effective = make_map();
         for (const Member& member : meta_.members)
@@ -1957,6 +2002,9 @@ class Resolver {
             );
             return;
         }
+        check_side_keys(resolution.profile);
+        if (!result_.errors.empty())
+            return;
         for (const auto& [path, source] : provenance_)
             resolution.provenance.push_back(Provenance{path, source});
         resolution.effective = std::move(effective);

@@ -288,6 +288,24 @@ void test_layout(const fs::path& scratch) {
     const auto plan = discovery_plan_of(&profile);
     OA_CHECK(plan.revision_archive == "modrev.gp4" && plan.ufo_pattern == "*.SWX");
     OA_CHECK(plan.ccx_pattern == "*.CCX" && plan.hpi_pattern == "*.HPI");
+
+    // Thirty-two sides: frame 63, and hidden sides 30, 31 and 5.
+    const fs::path wide = scratch / "wide-sides.oamod";
+    write(
+        wide,
+        std::string{base_profile} +
+            "limits: {sides: 32}\n"
+            "identity: {watcher-side-frame: 63, skirmish-hidden-sides: [31, 30],\n"
+            "           battle-room-hidden-sides: [5]}\n"
+    );
+    const auto wide_result = load_mod_profile(wide, false);
+    OA_CHECK(wide_result.resolution.has_value());
+    if (wide_result.resolution) {
+        const auto wide_layout = data_layout_of(&wide_result.resolution->profile);
+        OA_CHECK(wide_layout.watcher_side_frame == 63);
+        OA_CHECK(wide_layout.skirmish_hidden_sides == ((1U << 31) | (1U << 30)));
+        OA_CHECK(wide_layout.battle_room_hidden_sides == (1U << 5));
+    }
 }
 
 /// Checks the file each of the game's movies plays from: 3.1c's without a
