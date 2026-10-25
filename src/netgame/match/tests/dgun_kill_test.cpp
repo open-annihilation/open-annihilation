@@ -181,7 +181,7 @@ struct Catalog {
         const data::defs::UnitDefSources unit_sources{
             "",
             movement.get(),
-            weapons.records().data(),
+            weapons.records(),
             &sounds,
             &tables.categories,
             &tables.blocks,
@@ -202,7 +202,7 @@ struct Catalog {
                 throw std::runtime_error(std::string("fbi ") + fbi + " " + corpses.error);
             LoadedUnit unit;
             unit.def = data::unit_definitions::unit_definition_from(
-                record, {movement.get(), weapons.records().data(), &sounds, &tables.categories}
+                record, {movement.get(), weapons.records(), &sounds, &tables.categories}
             );
             auto meta =
                 data::unit_definitions::resolve_runtime_metadata(record, *movement, tables.blocks);

@@ -397,11 +397,21 @@ Match::Match(const OfflineInputs& input, OfflineServices& services)
         static_cast<uint32_t>(input.scenario_definitions->integer("waterdoesdamage", 0));
     state().environment_damage = input.scenario_definitions->integer("waterdamage", 0);
     state().game.gravity = sim::ballistics::simulation_gravity(false, 0, scenario_gravity_);
-    std::copy(
-        input.weapons.records().begin(),
-        input.weapons.records().end(),
-        std::begin(state().game.weapon_defs)
-    );
+    const auto weapon_records = input.weapons.records();
+    const std::size_t inline_slots =
+        std::min(weapon_records.size(), static_cast<std::size_t>(OA_WEAPON_DEF_COUNT));
+    std::copy_n(weapon_records.begin(), inline_slots, std::begin(state().game.weapon_defs));
+    if (weapon_records.size() > OA_WEAPON_DEF_COUNT) {
+        const std::size_t extra = weapon_records.size() - OA_WEAPON_DEF_COUNT;
+        state_.extra_weapon_defs = std::make_unique<oa::WeaponDef[]>(extra);
+        std::copy_n(
+            weapon_records.begin() + static_cast<std::ptrdiff_t>(OA_WEAPON_DEF_COUNT),
+            extra,
+            state_.extra_weapon_defs.get()
+        );
+        state().extra_weapon_defs = state_.extra_weapon_defs.get();
+        state().extra_weapon_def_count = static_cast<uint32_t>(extra);
+    }
     state().game.sea_level = terrain_.sea_level();
     // The map's cell counts and its size in world units.
     state().game.map_width = static_cast<int32_t>(input.map.attribute_width);

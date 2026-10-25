@@ -3,8 +3,9 @@
 Weapon definitions, a unit's three weapon slots, automatic targeting, attack
 orders and the strength estimates computer players build from unit types.
 
-`WeaponRegistry` holds the 256 weapon records of a game, indexed by each
-`Weapons/*.tdf` section's `ID`. The weapon files are read once, by
+`WeaponRegistry` holds one weapon record per slot, from 0 to the table's
+last, indexed by each `Weapons/*.tdf` section's `ID`. A new registry holds
+256. The weapon files are read once, by
 `src/data/defs` (`load_weapon_defs`), into the `WeaponDef` table the game state
 holds; `install_weapon_table` then installs each loaded slot, keeping its
 `WeaponDef` record for `Game.weapon_defs` and the explosion and sound names its

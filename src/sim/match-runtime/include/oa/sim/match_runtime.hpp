@@ -3639,6 +3639,8 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         std::vector<oa::UnitDef> unit_defs;
         std::vector<oa::FeatureDef> feature_defs;
         std::unique_ptr<oa::MapPlot[]> plots;
+        // Weapon slots from 256 on. Null when the registry holds 256.
+        std::unique_ptr<oa::WeaponDef[]> extra_weapon_defs;
         std::unique_ptr<sim::feature_runtime::PlacedFeature[]> placed_features;
         std::vector<oa::Projectile> projectiles;
         std::vector<sim::unit_spawn::SlotAssets> assets;
