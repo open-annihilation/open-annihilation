@@ -19,6 +19,7 @@
 #include "oa/base/signing/ed25519.hpp"
 #include "oa/data/catalogue/check.hpp"
 #include "oa/netgame/http_fixture/server.hpp"
+#include "oa/ui/engine_settings.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/kit/components_more.hpp"
@@ -139,10 +140,18 @@ bool paragraph_has(const kit::Question& asked, std::string_view line) {
 void Runtime::check_update_offer() {
     require(options_.data_dir.has_value(), "the run has no --data-dir");
     require(web_links_ != nullptr, "the run is not recording web links");
+    // Step 1 starts from German, with no skipped release and no recorded
+    // check time. An earlier run of this check stores both in the same file.
+    namespace settings = oa::ui::engine_settings;
+    preference_values_.erase(std::string(settings::key::update_skipped));
+    preference_values_.erase(std::string(settings::key::update_checked));
+    preference_values_[std::string(settings::key::language)] = "de";
     preference_values_[std::string(oa::ui::first_run::preference_key)] =
         std::string(oa::ui::first_run::preference_done);
     preferences_dirty_ = true;
     flush_preferences();
+    if (shown_language().tag != "de")
+        set_language_choice("de");
 
     const update::ThisBuild built = running_build();
     const int64_t first_release = built.release + 1;
