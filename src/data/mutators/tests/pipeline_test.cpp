@@ -1685,8 +1685,11 @@ void expect_brought_id_300(
         if (result.mutators.size() == 1)
             OA_CHECK(result.mutators[0].outcome == mutators::Outcome::applied);
         OA_CHECK(count_kind(result, mutators::ConflictKind::write_refused) == 0);
+        // The section has no ID key, so the rule and the hook store the key
+        // they wrote (`id`). Numbering sees that the value is already 300 and
+        // leaves that spelling. The writer then emits `id=300;`.
         OA_CHECK(
-            text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") != std::string::npos
+            text_of(store.read("weapons/extra.tdf").bytes).find("id=300;") != std::string::npos
         );
     } else if (hook) {
         OA_CHECK(!result.playable());
@@ -1705,7 +1708,7 @@ void expect_brought_id_300(
         if (refused != nullptr)
             OA_CHECK(mutators::describe(*refused, ids).find("255") != std::string::npos);
         OA_CHECK(
-            text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") == std::string::npos
+            text_of(store.read("weapons/extra.tdf").bytes).find("id=300;") == std::string::npos
         );
     }
     release(store);
