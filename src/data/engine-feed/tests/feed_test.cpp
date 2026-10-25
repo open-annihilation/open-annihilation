@@ -591,9 +591,7 @@ void structure_refusals() {
         "size is not a whole number from 1 to 2^40"
     );
     expect_refused(
-        replaced(std::string("\"sha256\":\"") + std::string(kSha), "\"sha256\":\"ABCDEF\""),
-        feed::Verdict::malformed,
-        "sha256 is not 64 lower-case hex digits"
+        replaced(kSha, "ABCDEF"), feed::Verdict::malformed, "sha256 is not 64 lower-case hex digits"
     );
     std::string upper(kSha);
     upper[0] = 'A';
