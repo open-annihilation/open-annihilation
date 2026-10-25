@@ -12,7 +12,7 @@
 # (engine_settings/language_notice.hpp), and System's file-type switches as the file types
 # they choose (engine_settings/file_types.hpp).
 add_library(oa-ui-engine-settings src/engine_settings.cpp src/dialog.cpp src/dialog_draw.cpp
-  src/developer.cpp src/downloads_page.cpp src/content_page.cpp src/language_page.cpp
+  src/developer.cpp src/downloads_page.cpp src/updates_page.cpp src/content_page.cpp src/language_page.cpp
   src/language_notice.cpp src/notice.cpp src/prompt.cpp src/challenge.cpp
   src/add_registry.cpp src/registered.cpp src/settings_rows.cpp src/file_types.cpp)
 add_library(oa::ui::engine_settings ALIAS oa-ui-engine-settings)

@@ -659,6 +659,8 @@ struct Row {
     Setting setting{}; ///< what it changes
     /// Its place among Downloads' rows, from 0; -1 for every other section's row.
     int16_t downloads{-1};
+    /// Its place among Updates' rows, from 0; -1 for every other section's row.
+    int16_t updates{-1};
     /// Its place among Game Content's rows, from 0; -1 for every other section's row.
     int16_t content{-1};
     int32_t control{no_control}; ///< its control's number
@@ -1359,9 +1361,38 @@ scroll_thumb(int32_t scroll, int32_t limit, int32_t content_height) noexcept;
     const ScrollArea& area, int32_t thumb_top, int32_t limit, int32_t content_height
 ) noexcept;
 
+/// How the engine's section list is stepped, and whether Compact scrolls it.
+/// A list that does not end in Developer keeps a gap and does not scroll.
+struct EngineNav {
+    int32_t stride{list_item_height + list_item_gap}; ///< one entry and the gap it keeps, or none
+    bool scrolls{};                                   ///< the flowing entries pass the divider
+    int32_t limit{}; ///< the furthest nav_scroll, 0 when it does not scroll
+    /// The room above the divider. Entries other than Developer are clipped to it.
+    SourceRect viewport{};
+};
+
+/// Returns how a list of sections is stepped. The engine's own list drops
+/// the gap once the gapped entries would cross the divider, and scrolls once
+/// the gapless entries pass it. Developer stays pinned and is not one of the
+/// flowing entries. Any other list keeps the gap and does not scroll.
+///
+/// @param listed the sections, in the list's order
+/// @param size_class the size class the dialog is laid out at
+/// @return the stride, whether it scrolls, the limit and the viewport
+[[nodiscard]] EngineNav
+engine_nav(std::span<const Page> listed, oa::ui::kit::SizeClass size_class) noexcept;
+
+/// Scrolls the engine's section list the least that shows the open entry, or
+/// the focused entry when that focus is one. A row's focus leaves the scroll.
+/// A list that does not scroll is put back at the top. Nothing moves while a
+/// press is held, and a registered list is left to its own scroll.
+///
+/// @param[in,out] dialog the dialog
+void reveal_engine_nav(Dialog& dialog) noexcept;
+
 /// Returns a section's entry in the list: at its place among the sections
 /// its kind of dialog lists (dialog_pages), Developer under the line before
-/// it.
+/// it. The place is the content's, before nav_scroll.
 ///
 /// @param page the section
 /// @param touch the dialog lists Touch (Dialog::touch)

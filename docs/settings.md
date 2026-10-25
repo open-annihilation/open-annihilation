@@ -3,8 +3,9 @@
 Open Annihilation adds settings of its own to the game: a few controls, the
 unit limit, the language and fonts of the game's text, graphics and the
 size of Open Annihilation's own screens, touch and gamepad controls,
-downloads, where the game keeps your files and which of its file types it
-opens, and Developer Mode. The registries packages come from are a tab
+downloads, whether Open Annihilation looks for a new release, where the
+game keeps your files and which of its file types it opens, and Developer
+Mode. The registries packages come from are a tab
 of the Library. They live in one dialog, apart from the game's own
 options, which stay in 3.1c's Options menu. This page shows each section
 of the dialog and says what every setting does, its default, when it takes
@@ -34,6 +35,7 @@ picture of their end.
 - [Controller](#controller)
 - [Game files](#game-files)
 - [Downloads](#downloads)
+- [Updates](#updates)
 - [Game Content](#game-content)
 - [System](#system)
 - [Developer](#developer)
@@ -63,9 +65,12 @@ multiplayer game keeps running, and the dialog's header says so in amber:
 The column on the left lists the sections: Controls, Engine Limits,
 Language & Text, Graphics and User Interface, then Touch while the game
 has touch controls, Controller once a gamepad has been used, and Game
-files in the main menu on an iPhone or an iPad, then Downloads, Game
-Content, then System, and Developer at its foot under a divider. A
-section taller than the dialog, such as Graphics, scrolls with the mouse
+files in the main menu on an iPhone or an iPad, then Downloads, Updates,
+Game Content, then System, and Developer at its foot under a divider.
+When Touch, Controller and Game files are all listed, that list of
+thirteen sections scrolls so every section can be reached, and Developer
+stays under the line. A shorter list is laid out as before. A section
+taller than the dialog, such as Graphics, scrolls with the mouse
 wheel, its scroll bar, Page Up, Page Down, Home and End.
 
 A mod's own options are not here: where a mod's profile turns them on,
@@ -800,6 +805,37 @@ download sends and records.
 During a game RESET and EMPTY are locked ("Locked during a game", as every
 other locked row says). The check and the install-ID switch can still
 change.
+
+## Updates
+
+![The Updates section: Open Annihilation 0.8.0 up to date on Stable, CHECK NOW, and Check for updates at Automatically.](images/settings/updates-1.png)
+
+![The Updates section while a release is offered: that release's version, Stable, when it was checked, and UPDATE….](images/settings/updates-2.png)
+
+Updates says whether a newer Open Annihilation is out, and when the game
+looks for one. The line names the stable channel. Nothing is downloaded
+from this section.
+
+- **Open Annihilation** and the version you are running, with a line under
+  it: up to date, checking, a release out, could not check, or not checked
+  yet. The line names Stable and when the last check reached the server:
+  today at a time, yesterday at a time, or on a date. **CHECK NOW** asks at
+  once. While a release is offered the button is **UPDATE…**, which opens
+  that release's page, as the question on the main menu does. The button
+  is greyed while a check is running. With Check for updates at Never the
+  button is not shown, and the line says OA never checks.
+- **Check for updates**, Automatically, Only when I ask, or Never,
+  Automatically by default. Automatically looks once a day when the game
+  starts, after the main menu has settled. Only when I ask waits for
+  CHECK NOW. Never makes no request, and CHECK NOW is not offered. It
+  takes effect when you press OK. Cancel puts back the choice the dialog
+  opened with.
+
+The hint says OA looks for a newer Open Annihilation once a day when it
+starts, and never installs one until you say so.
+
+[Updates](updates.md) says what the check reads, what it sends, and what
+it keeps.
 
 ## Game Content
 
