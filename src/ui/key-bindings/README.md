@@ -7,8 +7,8 @@ module reads a chord, writes it back as one text, names its parts in English
 for keycaps, and says how well it matches one event on a keyboard map.
 
 It is the model the dispatcher, the reader, the layouts and the editor share.
-It knows nothing of a window or a clock: an event carries its own time, and a
-gesture is recorded but not timed.
+It knows nothing of a window or a clock: an event carries its own time. The
+dispatcher times a double press and a hold from that time.
 
 ## Entry points
 
@@ -64,15 +64,29 @@ gesture is recorded but not timed.
 - `key_positions` names every position a keyboard report can carry that the
   UI Events code list names. `scancodes_without_code` lists the rest, which
   no chord can name.
+- `Dispatcher` turns one event into action events. `set_contexts` says which
+  contexts are open for the next `feed`. A plain chord gives `pressed` on
+  the down and `released` on that key's or button's up. `:double` gives
+  `double_press`, `:release` gives `pressed` on the up, and `:hold` gives
+  `held` from `advance` once it has been down for `long_press_ms`. A repeat
+  action gives `repeated`; any other action ignores a repeat. A modifier
+  role gives `active` and `inactive` as its own key goes down and up.
+  `release_all` releases every held action and role. `role_active` reads
+  the modifiers and the keys the caller reports now, not the events `feed`
+  saw. The caller passes the time.
 
 ## State
 
-None. A chord, a map and an event are values the caller keeps. The position
-table and the named keys are fixed.
+A chord, a map and an event are values the caller keeps. The position
+table and the named keys are fixed. A `Dispatcher` keeps the bindings, the
+keyboard map, the open contexts, the keys and buttons that are down, the
+actions each down started, the hold timers and the modifier roles that are
+active.
 
 ## Invariants
 
 - The library does not include or link SDL, and it does not read a clock.
+  `feed` and `advance` take the time the caller counted.
 - `chord_text` of a parsed chord is the canonical text, and parsing that
   text gives the same chord. Every registry default is already canonical.
 - A letter matches a key code and a place matches a position number. Shift
@@ -121,6 +135,17 @@ that share a key without clashing: modifiers, the left button, a stricter
 condition, chat's Enter, a hack's Tab, and a pointer aimed at a different
 place.
 
+`ui-key-bindings-dispatcher` (`tests/dispatcher_test.cpp`) resolves
+`oa-default` and walks synthetic timelines: Attack on A, including with
+Shift or Alt; Ctrl+M matches nothing; Tab across the megamap, the next
+primary and the previous primary; Enter in chat and in play; `=` for speed
+and, with the debug keys, refill; text entry keeping only Escape; Cmd+/
+reaching the keys overlay in global; a repeating pan and a press that does
+not repeat; the status strip's press and release around a Shift; a
+double-click selecting the type; a hold that fires once after 500 ms; a
+key-up never seen down; `release_all`; and the queue role following Shift
+whether or not a Shift event was fed.
+
 `ui-key-bindings-sdl` (`tests/sdl_numbers_test.cpp`) links SDL and checks the
 numbers the library holds: every scancode SDL names is in the position table
 or in `scancodes_without_code`, every table entry equals SDL's scancode for
@@ -134,5 +159,6 @@ on that list have no position in a keyboard report and are not in the table:
 Fn, FnLock, Hyper, Super, Turbo, Abort, Resume, Suspend, Hiragana, Katakana,
 LaunchApp1, LaunchApp2, LaunchMail, Unidentified, NumpadStar, Open and Props.
 The words on the keycaps are English; drawing them, and translating them, is
-left to the screens that show them. Matching does not time a double press, a
-hold or a release, and a pad chord matches no event.
+left to the screens that show them. Matching one chord does not time a
+double press, a hold or a release. The dispatcher does, from the time the
+caller passes. A pad chord matches no event.
