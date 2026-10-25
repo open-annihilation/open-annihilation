@@ -15,6 +15,7 @@
 #include "oa/netgame/match/net_match.hpp"
 #include "oa/session/demo.hpp"
 #include "oa/data/brain_library/seats.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mutators/choice.hpp"
 
 #include <SDL3/SDL.h>
@@ -40,6 +41,28 @@ namespace demo = oa::session::demo;
 constexpr std::size_t kReportedExtraDefinitions = 8;
 constexpr int32_t kFixedOne = 1 << 16;
 constexpr uint64_t kMillisecondsPerSecond = 1000;
+constexpr std::string_view kNeedsMod =
+    "This recording needs a mod with {n} weapon types and {m} sides.";
+constexpr std::string_view kBaseLimits = "This recording was made with 256 weapon types and five "
+                                         "sides. The mod you are playing has more.";
+
+/// The catalogue sentence with the sector's two counts in place of {n} and {m}.
+///
+/// @param english the catalogue key
+/// @param weapon_types weapon types the recording names
+/// @param sides sides the recording names
+/// @return the sentence
+std::string limits_sentence(std::string_view english, uint32_t weapon_types, uint32_t sides) {
+    std::string sentence{oa::data::languages::interface_text(english)};
+    const auto put = [&](std::string_view token, uint32_t value) {
+        const std::size_t at = sentence.find(token);
+        if (at != std::string::npos)
+            sentence.replace(at, token.size(), std::to_string(value));
+    };
+    put("{n}", weapon_types);
+    put("{m}", sides);
+    return sentence;
+}
 
 // FBI hash of every definition of the match's table in definition-index
 // order, as the 0x1a handshake keys it (UnitDef.fbi_hash).
@@ -85,6 +108,23 @@ void NetworkPlay::start_demo_playback() {
     const std::string needs = runtime_.content_switch_sentence(recorded);
     if (!needs.empty())
         throw std::runtime_error(needs);
+    switch (demo::demo_limits_verdict(
+        session->playback, runtime_.limits_.weapon_types.types, runtime_.limits_.sides.count
+    )) {
+    case demo::DemoLimitsVerdict::plays:
+        break;
+    case demo::DemoLimitsVerdict::other_limits: {
+        const auto recorded_limits =
+            session->playback.limits.value_or(oa::formats::tad::RecordedLimits{});
+        throw std::runtime_error(
+            limits_sentence(kNeedsMod, recorded_limits.weapon_types, recorded_limits.sides)
+        );
+    }
+    case demo::DemoLimitsVerdict::base_limits:
+        throw std::runtime_error(std::string{oa::data::languages::interface_text(kBaseLimits)});
+    case demo::DemoLimitsVerdict::unreadable:
+        throw std::runtime_error("demo playback: the recording's limits cannot be read");
+    }
     std::vector<oa::data::mutators::ResolvedMutator> playback_mutators;
     if (const oa::formats::tad::Sector* sector = oa::formats::tad::find_sector(
             session->playback.demo, oa::formats::tad::SectorType::mutators
