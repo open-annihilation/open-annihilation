@@ -427,6 +427,10 @@ void retreat_side(Settings& s, int32_t index, int32_t side_count, uint32_t hidde
             return;
         }
     }
+    // Nothing earlier is offered. Stay on the one side that is. When this
+    // side is hidden too, step back one, as when every side is hidden.
+    if (value.side >= 0 && value.side < side_count && !hidden(value.side))
+        return;
     value.side = wrapped_before(1);
 }
 

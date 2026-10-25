@@ -6860,6 +6860,31 @@ void test_computer_player_sides(const oa::ui::gui_layout::Layout& lounge) {
             "leaving watch returns a human to side 0"
         );
     }
+    {
+        // Sides 0 and 5 are allowed, and 5 is kept out of the room, so 0 is
+        // the only side offered. A right click stays there.
+        oa::data::defs::DataLayout one_left = limited;
+        one_left.computer_player_sides = (1U << 0) | (1U << 5);
+        one_left.battle_room_hidden_sides = 1U << 5;
+        oa::data::defs::use_data_layout(one_left);
+        Fixture room(lounge, nullptr, true, 0, 7);
+        expect(room.press("PLAYER1") && room.press("PLAYER1"), "an open slot seats a computer");
+        const auto arrived = arrive_computer(room);
+        const auto* computer = mp::slot_info(room.lobby, 1);
+        expect(
+            arrived != 0 && computer != nullptr && computer->side == 0,
+            "a computer opens on the one side the room offers"
+        );
+        expect(room.press("SIDE1"), "that computer's SIDE button clicks");
+        expect(mp::slot_info(room.lobby, 1)->side == 0, "a forward click stays on that one side");
+        expect(room.press("SIDE1", 2), "that computer's SIDE button takes a right click");
+        expect(
+            mp::slot_info(room.lobby, 1)->side == 0 &&
+                (mp::slot_info(room.lobby, 1)->options & mp::option::watcher) == 0,
+            "a back click stays on the one side the room offers"
+        );
+        oa::data::defs::use_data_layout(limited);
+    }
     reset_launch();
     active_launch = true;
     launch_block.computer_count = 1;
@@ -6873,8 +6898,10 @@ void test_computer_player_sides(const oa::ui::gui_layout::Layout& lounge) {
                 info->side == 1,
             "a launch computer on arm moves to the side computer players may take"
         );
+        // The room keeps 71 characters of a chat line, so this matches the
+        // start of the word, which is what the room shows.
         expect(
-            lines_holding(*host.game, "computer players cannot take") == 1,
+            lines_holding(*host.game, "gives a computer player side") == 1,
             "the launch posts that line once"
         );
         expect(lines_holding(*host.game, "side 0,") == 1, "the line names the side as written");
@@ -6888,7 +6915,7 @@ void test_computer_player_sides(const oa::ui::gui_layout::Layout& lounge) {
             "with no key a launch computer on arm stays on side 0"
         );
         expect(
-            lines_holding(*host.game, "computer players cannot take") == 0,
+            lines_holding(*host.game, "gives a computer player side") == 0,
             "with no key the launch posts no such line"
         );
     }

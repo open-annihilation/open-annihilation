@@ -330,7 +330,8 @@ void cycle_color(Settings& settings, int32_t slot, bool reverse, Host& h);
 void advance_side(Settings& settings, int32_t slot, int32_t side_count, uint32_t hidden_sides = 0);
 
 /// Steps a slot to the previous loaded side, wrapping to the last, past the
-/// hidden ones; when every side is hidden, to the previous side.
+/// hidden ones. When only the current side is offered, it stays. When every
+/// side is hidden, it steps to the previous side.
 ///
 /// @param[in,out] settings Skirmish settings.
 /// @param slot Slot index.
