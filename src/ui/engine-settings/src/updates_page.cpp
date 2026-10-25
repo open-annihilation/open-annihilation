@@ -431,8 +431,8 @@ bool broken_utc(std::time_t seconds, std::tm& broken) noexcept {
 std::optional<std::time_t> as_time(int64_t seconds) noexcept {
     if (seconds < 0)
         return std::nullopt;
-    const auto wide = static_cast<std::uintmax_t>(seconds);
-    if (wide > static_cast<std::uintmax_t>(std::numeric_limits<std::time_t>::max()))
+    const auto wide = static_cast<uintmax_t>(seconds);
+    if (wide > static_cast<uintmax_t>(std::numeric_limits<std::time_t>::max()))
         return std::nullopt;
     return static_cast<std::time_t>(seconds);
 }
