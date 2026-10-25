@@ -457,6 +457,7 @@ Network play's own checks, the last rows, are in every build.
 | `--net-loopback-check TICKS` | Hosts and joins a match in one process over 127.0.0.1 and compares both worlds after `TICKS` ticks. |
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
+| `--net-loopback-shooter TYPE` | The loopback check's host makes one finished `TYPE` beside its commander, and that unit fires at the ground beside the commander's aim point. |
 | `--net-loopback-each-ai` | The loopback check's host and joiner each seat a computer player. |
 | `--net-loopback-fixed-starts` | The loopback check's host fixes the start positions. |
 | `--check-host-not-found` | Checks a joiner whose host is never found. |

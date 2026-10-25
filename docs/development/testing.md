@@ -538,6 +538,16 @@ names, these run the game headless:
   machines once, and gives up only after 200 rounds and 15 s with no
   progress (the unit sync shows its records as progress), so a machine
   under load takes longer over the checks without failing them;
+- `native-net-loopback-wide` (`--net-loopback-check 300 --mod-dir` of
+  `ridge-wide` and `--net-loopback-shooter RIDGEW300`) runs that check under
+  a profile with more than 256 weapon types. The host makes one `RIDGEW300`
+  beside its commander. That unit fires at the ground beside the commander's
+  aim point, its shots cross as the wide weapon records, both worlds digest
+  the same, and the joiner receives no 0x0d, 0x0e or 0x0f. It needs the
+  `limits-fixture` fixture;
+- `native-net-loopback-sides` runs the plain check on `ridge-sides`, whose
+  profile raises only the side limit, so weapon records stay the narrow ones
+  (`wide records applied 0 / 0`). It needs the `limits-fixture` fixture;
 - `native-multiplayer-menu` (`--check-multiplayer-menu`) clicks MULTI and
   checks the multiplayer screens;
 - `native-recording-hook` (`--check-recording-hook`) checks that the game
