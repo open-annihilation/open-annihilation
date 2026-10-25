@@ -13950,6 +13950,20 @@ class Runtime final : public menu::Host,
     /// on a failure.
     void check_side_orders();
 
+    /// Checks the skirmish Side button through the SDL presenter.
+    ///
+    /// From the main menu the skirmish opens, and Side0 is clicked with the
+    /// left button through every offered side and back to the first. With
+    /// more than five sides it is also clicked with the right button back
+    /// through them; with five or fewer a right click steps forward. After
+    /// each click the slot's side is the one the click should reach, the
+    /// button shows the SIDEx frame when the art has one and the side's
+    /// SIDEDATA name on the plain face otherwise, and the button's rectangle
+    /// was repainted. Prints `skirmish sides check: <n> sides, <k> by art,
+    /// <m> by name, back <yes|no>` and writes a snapshot per side when
+    /// --snapshot is given. Throws std::runtime_error on a failure.
+    void check_skirmish_sides();
+
     /// Checks Engine Limits' weapon-type and side rows at the menu and in a match.
     ///
     /// At the main menu the rows show 256 and 5 without a mod profile, or the

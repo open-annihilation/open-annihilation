@@ -361,6 +361,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-render-tiers` | Checks the accelerated drawing of the main menu and a skirmish against the processor's. |
 | `--check-match-orders` | Clicks the order page's buttons and checks what the units do. |
 | `--check-side-orders` | Clicks each side's order page buttons, whatever prefix their names carry, and checks what the units do. |
+| `--check-skirmish-sides` | Clicks the skirmish Side button through every offered side, and back when the game has more than five, and checks the face each side shows. |
 | `--check-mod-limits` | Opens Settings on Engine Limits at the menu and in a two-slot skirmish and checks the weapon-type and side rows. |
 | `--check-side-data-per-match` | Plays skirmishes and checks each match reads side data again when `gamedata/sidedata.tdf` has changed. |
 | `--check-gadget-art-per-match` | Plays three skirmishes and checks a download button's picture appears only in the match whose mod folder holds it. |

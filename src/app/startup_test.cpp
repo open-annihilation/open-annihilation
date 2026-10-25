@@ -421,6 +421,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-render-tiers", &Options::check_render_tiers, {}},
         {"--check-match-orders", &Options::check_match_orders, {}},
         {"--check-side-orders", &Options::check_side_orders, {}},
+        {"--check-skirmish-sides", &Options::check_skirmish_sides, {}},
         {"--check-mod-limits", &Options::check_mod_limits, {}},
         {"--check-factory-orders", &Options::check_factory_orders, {}},
         {"--check-unit-speech", &Options::check_unit_speech, {}},

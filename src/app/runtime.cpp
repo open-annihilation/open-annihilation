@@ -885,6 +885,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_skirmish_sides) {
+            check_skirmish_sides();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mod_limits) {
             check_mod_limits();
             flush_preferences();
