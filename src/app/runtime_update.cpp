@@ -188,6 +188,10 @@ void Runtime::tick_update_check() {
             }
         }
     }
+    // Ask while the main menu is up, including while a dialog or Settings
+    // keeps the question waiting. A match took the branch above and cancels
+    // there; the question is not offered over it.
+    offer_update();
     // The menu on its own, with no dialog and no settings window over it.
     const bool settled = screen_ == Screen::main_menu && !frame_owned_by_package() &&
                          state_.state == frontend::state_id::main_menu &&

@@ -448,6 +448,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-window-place", &Options::check_window_place, {}},
         {"--check-progress", &Options::check_progress, {}},
         {"--check-engine-feed", &Options::check_engine_feed, {}},
+        {"--check-update-offer", &Options::check_update_offer, {}},
         {"--check-icloud-wait", &Options::check_icloud_wait, {}},
         {"--check-text-fit", &Options::check_text_fit, {}},
         {"--check-folder-chooser", &Options::check_folder_chooser, {}},
@@ -1103,6 +1104,17 @@ void update_feed_options() {
                 "--check-engine-feed draws in a window and cannot be used with --headless-check",
             "--check-engine-feed is not headless"
         );
+        const auto offer = parse({"--check-update-offer"});
+        expect(
+            offer.check_update_offer && offer.fixed_clock && offer.unattended &&
+                !offer.headless_check,
+            "--check-update-offer is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-update-offer", "--headless-check"}) ==
+                "--check-update-offer draws in a window and cannot be used with --headless-check",
+            "--check-update-offer is not headless"
+        );
     } else {
         const std::string feed = rejection({"--update-feed", kUrl});
         expect(feed.find("self-check") != std::string::npos, "--update-feed needs the self-checks");
@@ -1112,6 +1124,11 @@ void update_feed_options() {
         expect(
             flag.find("self-check") != std::string::npos,
             "--check-engine-feed needs the self-checks"
+        );
+        const std::string offer = rejection({"--check-update-offer"});
+        expect(
+            offer.find("self-check") != std::string::npos,
+            "--check-update-offer needs the self-checks"
         );
     }
 }
