@@ -600,6 +600,8 @@ struct Options {
     std::vector<std::string> update_keys;
     /// Serves a feed and checks the background check for a new release.
     bool check_engine_feed = false;
+    /// Serves a feed and checks the question a new release asks.
+    bool check_update_offer = false;
     // Holds one evicted archive's read, checks the window keeps drawing the
     // iCloud line, then continues the folder step.
     bool check_icloud_wait = false;

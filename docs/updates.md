@@ -47,6 +47,31 @@ time, leaves the stored files as they were and tries again on a later
 start. A check that reached the server, including one whose feed was
 refused, waits a day before the next automatic check.
 
+## The prompt
+
+When a check has verified a release this build has not skipped, the main
+menu asks. The question names the release, the version you have, the size
+of this build's package, and the release's notes in the language the game
+is showing. Notes the language does not have are shown in English. It says
+your saved games, settings and mods stay as they are.
+
+The buttons are SKIP THIS VERSION, LATER and UPDATE. UPDATE opens the
+release's page from the signed feed. On a Steam Deck in Game Mode, where
+no browser opens, the question names the page instead of opening it. A
+release that names no page opens the releases page on the project's site.
+
+The question waits while a match is being played, while Settings is open,
+or while a message box is open. It does not take a match's input. A match
+that starts while it is open closes it, and the next settled menu of that
+start asks again.
+
+SKIP THIS VERSION stays quiet for that release and every older one. A newer
+release asks again. The number is `open-annihilation.update-skipped`. LATER
+writes nothing and asks again at the next start. The question is asked once
+a start, whether the check ran on its own or you asked.
+
+Nothing is downloaded.
+
 ## Turning it off
 
 On the welcome's online step, **Not now** sets Check for updates to Never.

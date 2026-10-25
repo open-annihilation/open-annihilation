@@ -5426,6 +5426,14 @@
 	it=BLOCCATO;
 	}
 
+[LATER]
+	{
+	de=SPÄTER;
+	fr=PLUS TARD;
+	es=MÁS TARDE;
+	it=PIÙ TARDI;
+	}
+
 [LAUNCH FILE NOT OPENED]
 	{
 	de=STARTDATEI NICHT GEÖFFNET;
@@ -6538,6 +6546,14 @@
 	it=Nuove unità;
 	}
 
+[New in {version}:]
+	{
+	de=Neu in {version}:;
+	fr=Nouveau dans {version} :;
+	es=Novedades de {version}:;
+	it=Novità di {version}:;
+	}
+
 [New saved games go in:]
 	{
 	de=Neue Speicherstände kommen nach:;
@@ -7386,6 +7402,14 @@
 	it=Open Annihilation {range};
 	}
 
+[Open Annihilation {version} is out]
+	{
+	de=Open Annihilation {version} ist da;
+	fr=Open Annihilation {version} est sorti;
+	es=Open Annihilation {version} ya está;
+	it=Open Annihilation {version} è uscito;
+	}
+
 [Open Annihilation's own settings: controls, graphics, the interface's size, downloads and your files.]
 	{
 	de=Die eigenen Einstellungen von Open Annihilation: Steuerung, Grafik, Größe der Oberfläche, Downloads und deine Dateien.;
@@ -7408,6 +7432,14 @@
 	fr=Ouvrir ces fichiers avec le jeu depuis ton gestionnaire de fichiers.;
 	es=Abrir estos archivos con el juego desde tu gestor de archivos.;
 	it=Apri questi file con il gioco dal tuo gestore di file.;
+	}
+
+[Open {page} in a browser on another computer, or in Desktop Mode.]
+	{
+	de=Öffne {page} in einem Browser auf einem anderen Computer oder im Desktop-Modus.;
+	fr=Ouvre {page} dans un navigateur sur un autre ordinateur, ou en mode Bureau.;
+	es=Abre {page} en un navegador en otro ordenador, o en el modo Escritorio.;
+	it=Apri {page} in un browser su un altro computer, o in modalità Desktop.;
 	}
 
 [Optimize DT rows]
@@ -8584,6 +8616,14 @@
 	fr=TAILLE;
 	es=TAMAÑO;
 	it=DIMENSIONE;
+	}
+
+[SKIP THIS VERSION]
+	{
+	de=DIESE VERSION ÜBERSPRINGEN;
+	fr=IGNORER CETTE VERSION;
+	es=OMITIR ESTA VERSIÓN;
+	it=SALTA QUESTA VERSIONE;
 	}
 
 [SLOWER]
@@ -12066,6 +12106,14 @@
 	it=Hai la versione {mine} di {pack}. L'host gioca la versione {theirs}.;
 	}
 
+[You have {current}. The update is {size}.]
+	{
+	de=Du hast {current}. Die Aktualisierung ist {size}.;
+	fr=Tu as {current}. La mise à jour fait {size}.;
+	es=Tienes {current}. La actualización es de {size}.;
+	it=Hai {current}. L'aggiornamento è di {size}.;
+	}
+
 [You need the folder of an installed copy of Total Annihilation, the one that holds totala1.hpi: about 1.1 GB with both expansions and the music. Installers of the full game are Windows programs and cannot be used here; install the game on a computer and bring its folder.]
 	{
 	de=Du brauchst den Ordner einer installierten Kopie von Total Annihilation, den mit totala1.hpi: etwa 1.1 GB mit beiden Erweiterungen und der Musik. Installationsprogramme des vollständigen Spiels sind Windows-Programme und lassen sich hier nicht nutzen. Installiere das Spiel auf einem Computer und bring seinen Ordner mit.;
@@ -12208,6 +12256,14 @@
 	fr=Ta propre copie;
 	es=Tu propia copia;
 	it=La tua copia;
+	}
+
+[Your saved games, settings and mods stay as they are.]
+	{
+	de=Deine gespeicherten Spiele, Einstellungen und Mods bleiben, wie sie sind.;
+	fr=Tes parties sauvegardées, tes réglages et tes mods restent comme ils sont.;
+	es=Tus partidas guardadas, ajustes y mods siguen como están.;
+	it=Le tue partite salvate, le impostazioni e le mod restano come sono.;
 	}
 
 [Zoom]
