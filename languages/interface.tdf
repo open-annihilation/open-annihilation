@@ -10738,6 +10738,22 @@
 	it=Ti serve un mutatore che non hai: {detail};
 	}
 
+[This recording needs a mod with {n} weapon types and {m} sides.]
+	{
+	de=Diese Aufnahme braucht einen Mod mit {n} Waffentypen und {m} Seiten.;
+	fr=Cet enregistrement a besoin d'un mod avec {n} types d'armes et {m} camps.;
+	es=Esta grabación necesita un mod con {n} tipos de armas y {m} bandos.;
+	it=Questa registrazione ha bisogno di un mod con {n} tipi di armi e {m} fazioni.;
+	}
+
+[This recording was made with 256 weapon types and five sides. The mod you are playing has more.]
+	{
+	de=Diese Aufnahme wurde mit 256 Waffentypen und fünf Seiten gemacht. Der Mod, den du spielst, hat mehr.;
+	fr=Cet enregistrement a été fait avec 256 types d'armes et cinq camps. Le mod avec lequel tu joues en a plus.;
+	es=Esta grabación se hizo con 256 tipos de armas y cinco bandos. El mod con el que juegas tiene más.;
+	it=Questa registrazione è stata fatta con 256 tipi di armi e cinque fazioni. Il mod con cui stai giocando ne ha di più.;
+	}
+
 [This replaces the game files on this {device} ({size}) with the folder you chose. The current folder is kept as Total Annihilation (old) until you remove it. Saved games and settings stay.]
 	{
 	de=Das ersetzt die Spieldateien auf diesem {device} ({size}) durch den Ordner, den du gewählt hast. Der aktuelle Ordner bleibt als Total Annihilation (alt), bis du ihn entfernst. Speicherstände und Einstellungen bleiben.;

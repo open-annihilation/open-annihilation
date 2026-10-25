@@ -50,7 +50,7 @@ void encode_weapon(const SaveContext* save, const UnitWeapon& weapon, uint8_t* o
     store_le16(out + w::target_b, static_cast<uint16_t>(weapon.target_b));
     store_le32(out + w::aim_ready, weapon.aim_ready);
     const WeaponDef* def = world_weapon_def(save->world, weapon.def);
-    store_le32(out + w::weapon_id, def != nullptr ? def->weapon_id : 0u);
+    store_le32(out + w::weapon_id, def != nullptr ? oa_weapon_def_id(def) : 0u);
     std::memcpy(out + w::muzzle_offset, weapon.muzzle_offset, sizeof(weapon.muzzle_offset));
     store_le16(out + w::reload, weapon.reload);
     store_le16(out + w::aim_heading, static_cast<uint16_t>(weapon.aim_heading));
@@ -61,13 +61,24 @@ void encode_weapon(const SaveContext* save, const UnitWeapon& weapon, uint8_t* o
 
 } // namespace
 
-void save_restore_unit_weapon(World* world, const uint8_t* in, UnitWeapon& weapon) {
+void save_restore_unit_weapon(
+    World* world, const uint8_t* in, UnitWeapon& weapon, WeaponIdWidth width
+) {
     namespace w = weapon_record;
     weapon.target_a = static_cast<int16_t>(detail::load_le16(in + w::target_a));
     weapon.target_b = static_cast<int16_t>(detail::load_le16(in + w::target_b));
     weapon.aim_ready = load_le32(in + w::aim_ready);
-    if (WeaponDef* def = world_weapon_def(world, weapon.def); def != nullptr)
-        def->weapon_id = in[w::weapon_id];
+    if (WeaponDef* def = world_weapon_def(world, weapon.def); def != nullptr) {
+        if (width == WeaponIdWidth::wide) {
+            const auto id = static_cast<uint16_t>(
+                static_cast<uint16_t>(in[w::weapon_id]) |
+                (static_cast<uint16_t>(in[w::weapon_id + 1]) << 8)
+            );
+            oa_weapon_def_set_id(def, id);
+        } else {
+            def->weapon_id = in[w::weapon_id];
+        }
+    }
     std::memcpy(weapon.muzzle_offset, in + w::muzzle_offset, sizeof(weapon.muzzle_offset));
     weapon.reload = detail::load_le16(in + w::reload);
     weapon.aim_heading = static_cast<int16_t>(detail::load_le16(in + w::aim_heading));
