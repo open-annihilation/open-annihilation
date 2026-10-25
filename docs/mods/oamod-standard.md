@@ -333,9 +333,11 @@ on:
   `{ini: Section/Key}` or `{registry: Name}`;
 - a constraint between parameters broken, such as a unit limit default
   above its maximum;
-- more `identity.side-names` than `limits.sides`, a hidden side numbered
-  at or past `limits.sides`, or a hidden-side list that offers no side,
-  checked once the limits have resolved
+- more `identity.side-names` than `limits.sides`, a hidden side or a
+  computer-player side numbered at or past `limits.sides`, a hidden-side
+  list that offers no side, or a computer-player list whose every side is
+  hidden from the skirmish or from the battle room, checked once the limits
+  have resolved
   ([6.1](#61-identity), [6.3](#63-limits));
 - a data key bound to a meaning whose hack is off;
 - a hack this engine does not implement yet;
@@ -761,6 +763,7 @@ Identity keys are written directly under `identity`.
 | `watcher-side-frame` | The frame of the battle room's `SIDEx` art that a watching player's side button shows. 3.1c shows frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides, and whose art puts its watcher picture further on, names that frame. The frame is not compared with `limits.sides`. | `2` | integer, 0 to 63 | view |
 | `skirmish-hidden-sides` | The SIDEDATA sides, by number from 0, that the skirmish Side button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them, and a skirmish saved on one opens on the next side offered. The battle room still offers them, and the sides keep their data. Each number must be below `limits.sides`, and at least one side stays offered; a list that fails either is refused once the limits have resolved. | `[]` | up to 31 distinct integers, 0 to 31 | view |
 | `battle-room-hidden-sides` | The SIDEDATA sides, by number from 0, that the battle room's SIDE button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them as it cycles, and leaving watch lands on the first side offered. The skirmish has its own key; a launch file can still name such a side, and the sides keep their data. Each number must be below `limits.sides`, and at least one side stays offered; a list that fails either is refused once the limits have resolved. | `[]` | up to 31 distinct integers, 0 to 31 | view |
+| `computer-player-sides` | SIDEDATA sides, by number, that computer players may take in the skirmish and the battle room; empty lets them take every side. Sides below the profile's limits.sides; a human player still chooses any side offered. | `[]` | up to 31 distinct integers, 0 to 31, below limits.sides | view |
 
 ### 6.2 `layout`
 
@@ -1131,7 +1134,7 @@ change it, so two profiles that mean the same thing hash the same.
   strings, media, the visual
   hacks and every view value.
 
-Six keys were added after grammar 1's first release. The canonical form
+Seven keys were added after grammar 1's first release. The canonical form
 leaves each out while it stays at its baseline, so every profile that
 leaves them there keeps the sim hash and the full hash it had:
 
@@ -1139,6 +1142,7 @@ leaves them there keeps the sim hash and the full hash it had:
 - `identity.watcher-side-frame`, 2;
 - `identity.skirmish-hidden-sides`, an empty list;
 - `identity.battle-room-hidden-sides`, an empty list;
+- `identity.computer-player-sides`, an empty list;
 - `limits.weapon-types`, 256;
 - `limits.sides`, 5.
 
