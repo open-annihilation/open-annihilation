@@ -799,6 +799,26 @@ void test_blocks() {
         profile_text("watcher-frame-past", "identity:\n  watcher-side-frame: 64\n"),
         "is outside [0, 63]"
     ));
+    // icon-categories is view scope: 128 is the bound, 129 is refused, and a
+    // count of 69 moves the full hash only.
+    const ResolveResult icon_128 =
+        resolve(profile_text("icon-cats", "hacks:\n  ui.megamap: {icon-categories: 128}\n"));
+    OA_CHECK(icon_128.resolution.has_value());
+    if (icon_128.resolution)
+        OA_CHECK(icon_128.resolution->profile.ui.megamap.icon_categories == 128);
+    OA_CHECK(refused_with(
+        profile_text("icon-cats-past", "hacks:\n  ui.megamap: {icon-categories: 129}\n"),
+        "is outside [0, 128]"
+    ));
+    const ResolveResult icon_69 =
+        resolve(profile_text("icon-cats", "hacks:\n  ui.megamap: {icon-categories: 69}\n"));
+    const ResolveResult icon_9 =
+        resolve(profile_text("icon-cats", "hacks:\n  ui.megamap: {icon-categories: 9}\n"));
+    OA_CHECK(icon_69.resolution && icon_9.resolution);
+    if (icon_69.resolution && icon_9.resolution) {
+        OA_CHECK(icon_69.resolution->profile.sim_hash == icon_9.resolution->profile.sim_hash);
+        OA_CHECK(icon_69.resolution->profile.full_hash != icon_9.resolution->profile.full_hash);
+    }
     OA_CHECK(refused_with(
         profile_text("archives-slash", "layout:\n  installation-archives: [\"dir/addon.ccx\"]\n"),
         "does not match"
