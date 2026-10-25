@@ -206,6 +206,7 @@ add_subdirectory(src/formats/oascript)
 add_subdirectory(src/formats/oamod)
 add_subdirectory(src/formats/oamut)
 add_subdirectory(src/formats/oabrain)
+add_subdirectory(src/formats/oakeys)
 add_subdirectory(src/formats/oann)
 add_subdirectory(src/data/neural)
 add_subdirectory(src/formats/json)
@@ -1322,7 +1323,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_picture_captions.cpp
   src/app/runtime_renderer.cpp
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
-  src/app/runtime_input_modifiers.cpp src/app/runtime_touch_hud.cpp
+  src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
   src/app/game_files_screen.cpp src/app/game_files_paint.cpp src/app/game_files_dialog.cpp
   src/app/runtime_game_files.cpp
@@ -1443,7 +1444,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-brain-match
   oa-app-brain-seats
   oa-app-seat-chat
-  oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
+  oa-ui-key-bindings oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
   oa-ui-brain-picker
@@ -4438,6 +4439,43 @@ if(BUILD_TESTING)
       "^Open Annihilation [0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)? \\([a-z0-9._-]+ [A-Za-z0-9_]+, ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)\\)\n?$"
     TIMEOUT 60)
 endif()
+# The update helper. Its library and tests are built with the platform.
+# The program itself is built only where this build may start another program.
+if(OA_BUILD_PLATFORM)
+  add_subdirectory(tools/oa-update)
+endif()
+if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING)
+  add_executable(oa-update tools/oa-update/main.cpp)
+  target_link_libraries(oa-update PRIVATE oa-update-core oa-options SDL3::SDL3)
+  # The same version line as the game. A build without the engine-build
+  # header names no commit.
+  target_include_directories(oa-update PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/app/include")
+  target_compile_definitions(oa-update PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+    "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
+  if(TARGET oa-app-engine-build)
+    add_dependencies(oa-update oa-app-engine-build)
+    target_include_directories(oa-update PRIVATE "${oa_engine_build_dir}")
+  endif()
+  if(WIN32)
+    # A Windows program, so starting it opens no console. Its manifest asks
+    # to run as the player who started it: a name containing "update" would
+    # otherwise be treated as an installer.
+    set_target_properties(oa-update PROPERTIES WIN32_EXECUTABLE ON)
+    set(oa_update_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/oa-update/oa-update.manifest")
+    if(MSVC)
+      set(OA_UPDATE_MANIFEST_RESOURCE "")
+      target_sources(oa-update PRIVATE "${oa_update_manifest}")
+    else()
+      set(OA_UPDATE_MANIFEST_RESOURCE "1 24 \"${oa_update_manifest}\"")
+    endif()
+    set(OA_WINDOWS_ICON "${CMAKE_CURRENT_SOURCE_DIR}/branding/open-annihilation.ico")
+    configure_file(tools/oa-update/oa-update.rc.in
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" @ONLY)
+    target_sources(oa-update PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc")
+    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" APPEND PROPERTY
+      OBJECT_DEPENDS "${oa_update_manifest}")
+  endif()
+endif()
 # The Steam Deck's artwork and files for the Steam Deck package.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaSteamDeck.cmake")
 
@@ -4472,6 +4510,12 @@ if(BUILD_TESTING)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    if(TARGET oa-update AND OA_SELF_CHECKS)
+      add_test(NAME tools-oa-update-run COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_helper.py
+        $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
+      set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
+    endif()
     if(UNIX)
       find_program(OA_BASH_EXECUTABLE bash)
       if(OA_BASH_EXECUTABLE)
@@ -4615,6 +4659,9 @@ endif()
 
 if(WIN32)
   set(oa_executables oa-tool)
+  if(TARGET oa-update)
+    list(APPEND oa_executables oa-update)
+  endif()
   if(OA_BUILD_PLATFORM)
     list(APPEND oa_executables oa-platform)
   endif()
@@ -4818,7 +4865,7 @@ endif()
 file(GLOB oa_notice_licenses CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/licenses/*")
 set(oa_notice_files "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/ATTRIBUTIONS.md"
   ${oa_notice_licenses} "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake")
-foreach(target IN ITEMS oa-game oa-intro oa-tool)
+foreach(target IN ITEMS oa-game oa-intro oa-tool oa-update)
   if(NOT TARGET ${target})
     continue()
   endif()

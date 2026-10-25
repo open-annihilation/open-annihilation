@@ -98,3 +98,25 @@ On the welcome's online step, **Not now** sets Check for updates to Never.
 Updates sets the same choice, and it takes effect when you press OK.
 Never makes no request. The setting is `open-annihilation.update-check` in
 the [preferences](../src/platform/preferences/README.md).
+
+## What happens when you update
+
+When you agree to install a release, the game writes a plan and starts
+`oa-update`, then quits. The helper waits until the game has left. It
+checks the saved feed's signature against the keys this build pins, and
+the downloaded package's name, size and SHA-256 against that feed. A
+package that does not match is not unpacked. The window says "The update
+could not be checked. Nothing was changed." and the game starts again on
+the version you had.
+
+While the helper works it can show a small window, the same kind the game
+shows for a long task, drawn with the fonts the game ships. The title and
+the line are already in your language, for example "Installing 0.8.7" and
+"0.8.6 is kept, in case you want it back. The game starts again by
+itself." A swap that finishes quickly shows no window.
+
+The version you had is kept under the data folder, in `updates/previous`,
+and a copy of the preferences file sits beside it. `updates/state.json`
+records what is installed and what was kept. The game then starts again.
+If a step fails, the helper puts back what it had changed and starts the
+version you had. The helper makes no request of its own.
