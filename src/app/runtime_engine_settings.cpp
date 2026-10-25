@@ -1747,6 +1747,17 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
             state.file_type_kept_hint = kept_opener_hint_for(*state.file_type_asked, report->open);
         dialog.file_type_kept_hint = state.file_type_kept_hint;
     }
+    // Weapon types and sides: the profile's limits, and, in a match, how
+    // many of each the match loaded. No profile is the base game.
+    settings::ModLimitsShown mod_shown;
+    mod_shown.mod = mod_profile() != nullptr;
+    mod_shown.weapon_types = limits_.weapon_types.types;
+    mod_shown.sides = limits_.sides.count;
+    if (match_ != nullptr) {
+        mod_shown.loaded_weapon_types = match_weapon_types_;
+        mod_shown.loaded_sides = side_table_.count;
+    }
+    dialog.mod_limits = std::move(mod_shown);
     return dialog;
 }
 
