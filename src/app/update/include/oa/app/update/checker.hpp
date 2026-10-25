@@ -87,7 +87,7 @@ class Checker {
 
     /// One check the worker has been given.
     struct Job {
-        Source source;   ///< the feed and the keys
+        Source source{}; ///< the feed and the keys
         ThisBuild build; ///< the build the offer is chosen for
     };
 
