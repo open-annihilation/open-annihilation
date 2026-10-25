@@ -16,6 +16,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 
@@ -73,6 +74,19 @@ def public_key(text):
     return ""
 
 
+def feed_written(text):
+    """The feed path `engine-feed write` printed on its `wrote` line."""
+    prefix = "wrote "
+    marker = " release "
+    for line in text.splitlines():
+        if not line.startswith(prefix) or marker not in line:
+            continue
+        path = line[len(prefix) : line.rfind(marker)]
+        if path:
+            return path
+    return ""
+
+
 def write_plan(path, install, updates, package, preferences, program, script, marker):
     plan = {
         "plan": 1,
@@ -101,6 +115,25 @@ def marker_lines(marker):
     if not marker.is_file():
         return []
     return marker.read_text(encoding="utf-8").splitlines()
+
+
+def await_marker(marker):
+    """The arguments the started program wrote.
+
+    The helper returns as soon as that program has been started, so the
+    marker can appear a moment later. Two matching reads mean the write
+    has finished.
+    """
+    deadline = time.monotonic() + 5
+    previous = None
+    while True:
+        lines = marker_lines(marker)
+        if lines and lines == previous:
+            return lines
+        previous = lines
+        if time.monotonic() >= deadline:
+            return lines
+        time.sleep(0.05)
 
 
 def same_files(folder, files):
@@ -162,7 +195,7 @@ def check_swapped(install, updates, preferences, marker):
         return fail("state.json does not name the kept version")
     if state.get("failed_starts") != 0:
         return fail("state.json does not start the failure count at 0")
-    lines = marker_lines(marker)
+    lines = await_marker(marker)
     if lines[-2:] != ["--updated-from", "0.0.1"]:
         return fail("the started arguments do not end in --updated-from 0.0.1: " + repr(lines))
     if (updates / "journal.json").exists() or (updates / "2" / "stage").exists():
@@ -173,7 +206,7 @@ def check_swapped(install, updates, preferences, marker):
 def check_unchanged(install, marker, updated_from):
     if not same_files(install, OLD):
         return fail("the install changed")
-    lines = marker_lines(marker)
+    lines = await_marker(marker)
     has_flag = "--updated-from" in lines
     if has_flag != updated_from:
         return fail("the started arguments were " + repr(lines))
@@ -221,14 +254,15 @@ def main(argv):
 
         package = scratch / "packages" / ZIP_NAME
         make_zip(package)
-        feed = scratch / "feed.json"
+        # Attached, so oa-tool does not treat a bare `--version` as its own
+        # version line and leave without writing the feed.
+        feed_asked = scratch / "feed.json"
         written = run(
             [
                 oa_tool,
                 "engine-feed",
                 "write",
-                "--version",
-                "0.0.2",
+                "--version=0.0.2",
                 "--date",
                 "2026-10-24",
                 "--from",
@@ -238,12 +272,19 @@ def main(argv):
                 "--mirror",
                 "http://downloads.example.net/v1/engine/0.0.2/",
                 "--out",
-                str(feed),
+                str(feed_asked),
                 str(package),
             ]
         )
         if written.returncode != 0:
             return fail("engine-feed write failed")
+        wrote = feed_written(written.stdout)
+        if not wrote:
+            sys.stderr.write(written.stdout)
+            return fail("engine-feed write did not name the feed")
+        feed = Path(wrote)
+        if not feed.is_file():
+            return fail("engine-feed write named " + wrote + ", which is not a file")
         signed = run(
             [
                 oa_tool,
