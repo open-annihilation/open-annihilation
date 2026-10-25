@@ -266,6 +266,14 @@
 	it=*** {list};
 	}
 
+[*** {player} chose a side this game does not have.]
+	{
+	de=*** {player} hat eine Seite gewählt, die dieses Spiel nicht hat.;
+	fr=*** {player} a choisi un camp que cette partie n'a pas.;
+	es=*** {player} ha elegido un bando que esta partida no tiene.;
+	it=*** {player} ha scelto una fazione che questa partita non ha.;
+	}
+
 [*** {player} does not have {name}.]
 	{
 	de=*** {player} hat {name} nicht.;

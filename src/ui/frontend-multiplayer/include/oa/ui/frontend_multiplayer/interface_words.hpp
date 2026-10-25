@@ -22,6 +22,7 @@ inline constexpr std::string_view interface_words[] = {
     "*** {host} turned mutators off.",
     "*** {host} turned on mutators: {list}",
     "*** {list}",
+    "*** {player} chose a side this game does not have.",
     "*** {player} does not have {name}.",
     "*** {player} plays Total Annihilation 3.1c and cannot join a game with mutators.",
     "*** {player} plays Total Annihilation 3.1c, which cannot play with mutators.",

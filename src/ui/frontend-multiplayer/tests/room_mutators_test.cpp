@@ -1196,6 +1196,41 @@ bool apply_block(Room& room, uint32_t id, bool oa, bool watcher) {
     return mp::lobby_apply_event(room.lobby, event);
 }
 
+/// Sends one seated player's block with a chosen side and, when asked, the watcher bit.
+///
+/// @param room the room
+/// @param id the player, already seated
+/// @param side the block's side
+/// @param watcher whether the block says the player is watching
+/// @return true when the record applied
+bool apply_side_block(Room& room, uint32_t id, uint8_t side, bool watcher) {
+    mp::PlayerSetupInfo info{};
+    info.state = mp::kInfoStatePlaying;
+    info.version_major = 3;
+    info.version_minor = 1;
+    info.side = side;
+    if (watcher)
+        info.options = mp::option::watcher;
+    info.engine_signature[0] = ng::engine_signature_first;
+    info.engine_signature[1] = ng::engine_signature_second;
+    ng::PlayerInfoRecord record{};
+    std::memcpy(record.info_head, &info, sizeof record.info_head);
+    record.player_id = id;
+    std::memcpy(
+        record.info_tail,
+        reinterpret_cast<const uint8_t*>(&info) + ng::player_info_tail_offset,
+        sizeof record.info_tail
+    );
+    mp::LobbyEvent event{};
+    event.kind = mp::LobbyEventKind::record;
+    event.player_id = id;
+    std::size_t written = 0;
+    if (ng::encode_record(record, event.data, sizeof event.data, &written) != ng::WireError::ok)
+        return false;
+    event.size = static_cast<uint16_t>(written);
+    return mp::lobby_apply_event(room.lobby, event);
+}
+
 /// Tells whether a reject of this player and reason was sent.
 bool sent_reject(const Room& room, uint32_t id, uint8_t reason) {
     for (int32_t index = 0; index < room.loopback.sent_count; ++index) {
@@ -1776,6 +1811,67 @@ void test_new_room_forgets_the_host_list() {
     );
 }
 
+/// A side past the room's side count holds START and names the player once.
+void test_side_past_table() {
+    constexpr const char* kLine = "*** P512 chose a side this game does not have.";
+    Room room(true);
+    room.game->side_count = 2;
+    expect(apply_side_block(room, 0x200, 2, false), "the guest's side 2 block applies");
+    expect(mp::lobby_first_side_past_table(room.lobby) == 1, "the guest on side 2 is the first");
+    expect(!mp::lobby_sides_allow_start(room.lobby), "a guest on side 2 holds START");
+    const auto before = room_lines(room.lobby).size();
+    mp::lobby_note_sides_past_table(room.lobby);
+    mp::lobby_note_sides_past_table(room.lobby);
+    auto lines = room_lines(room.lobby);
+    expect(lines.size() == before + 1, "the side line posts once for the same side");
+    expect(!lines.empty() && lines.back() == kLine, "the side line names P512");
+
+    expect(apply_side_block(room, 0x200, 1, false), "the guest's side 1 block applies");
+    expect(mp::lobby_sides_allow_start(room.lobby), "side 1 allows START");
+    const auto inside = room_lines(room.lobby).size();
+    mp::lobby_note_sides_past_table(room.lobby);
+    expect(room_lines(room.lobby).size() == inside, "a side inside the table posts nothing");
+
+    expect(apply_side_block(room, 0x200, 3, false), "the guest's side 3 block applies");
+    mp::lobby_note_sides_past_table(room.lobby);
+    lines = room_lines(room.lobby);
+    expect(lines.size() == inside + 1, "a different side posts once more");
+    expect(!lines.empty() && lines.back() == kLine, "the second side line names P512");
+
+    expect(apply_side_block(room, 0x200, 4, true), "the watcher block applies");
+    expect(mp::lobby_sides_allow_start(room.lobby), "a watcher on side 4 allows START");
+
+    mp::slot_info(room.lobby, 0)->side = 2;
+    expect(mp::lobby_first_side_past_table(room.lobby) == 0, "the local seat on side 2 is first");
+    expect(!mp::lobby_sides_allow_start(room.lobby), "the local seat on side 2 holds START");
+    mp::slot_info(room.lobby, 0)->side = 0;
+
+    room.seat_computer(2);
+    mp::slot_info(room.lobby, 2)->side = 2;
+    expect(mp::lobby_first_side_past_table(room.lobby) == 2, "the computer on side 2 is first");
+    expect(!mp::lobby_sides_allow_start(room.lobby), "the computer on side 2 holds START");
+
+    room.game->side_count = 0;
+    expect(mp::lobby_sides_allow_start(room.lobby), "an unknown side count allows START");
+
+    room.game->side_count = 2;
+    mp::slot_player(room.lobby, 2).in_use = 0;
+    expect(apply_side_block(room, 0x200, 2, false), "the guest's side 2 block applies again");
+    room.lobby.presence_records.block_player[1] = 0;
+    expect(
+        mp::lobby_sides_allow_start(room.lobby),
+        "a remote seat whose block has not arrived allows START"
+    );
+
+    Room guest(false);
+    guest.game->side_count = 2;
+    expect(apply_side_block(guest, 0x100, 2, false), "the host's side block applies on the guest");
+    const auto guest_lines = room_lines(guest.lobby).size();
+    expect(mp::lobby_sides_allow_start(guest.lobby), "a guest's machine allows START");
+    mp::lobby_note_sides_past_table(guest.lobby);
+    expect(room_lines(guest.lobby).size() == guest_lines, "a guest's machine posts nothing");
+}
+
 void test_shown_name() {
     expect(
         mp::mutator_shown_name("Ridge Tough", "Other", "ridge-tough") == "Ridge Tough",
@@ -1814,6 +1910,7 @@ int main() {
     test_classic_stays_and_leaves();
     test_classic_lines_whole();
     test_guest_posts_the_refusal();
+    test_side_past_table();
     if (g_failures != 0)
         std::fprintf(stderr, "%d failure(s)\n", g_failures);
     return g_failures == 0 ? 0 : 1;

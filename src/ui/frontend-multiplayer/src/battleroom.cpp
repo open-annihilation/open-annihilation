@@ -1490,6 +1490,74 @@ bool lobby_content_allows_start(Lobby& lobby) noexcept {
 
 namespace {
 
+/// A seat that plays: in use, local, a computer, or a remote player still
+/// playing, and not watching. A remote seat counts only once this machine
+/// has that player's own block.
+bool playing_seat(Lobby& lobby, int32_t player_slot) noexcept {
+    if (lobby.game == nullptr || player_slot < 0 || player_slot >= kSlotCount)
+        return false;
+    const auto& player = slot_player(lobby, player_slot);
+    if (player.in_use == 0)
+        return false;
+    const auto* info = player_info(lobby, player);
+    if (info == nullptr || (info->options & option::watcher) != 0)
+        return false;
+    if (local_or_computer(player))
+        return true;
+    if (player.status != kSlotRemote)
+        return false;
+    if (lobby.presence_records.block_player[player_slot] != player.player_id)
+        return false;
+    return slot_remote_playing(lobby, player);
+}
+
+} // namespace
+
+int32_t lobby_first_side_past_table(Lobby& lobby) noexcept {
+    if (lobby.game == nullptr)
+        return -1;
+    const auto side_count = lobby_side_count(*lobby.game);
+    if (side_count == 0)
+        return -1;
+    for (int32_t player_slot = 0; player_slot < kSlotCount; ++player_slot) {
+        if (!playing_seat(lobby, player_slot))
+            continue;
+        const auto* info = player_info(lobby, slot_player(lobby, player_slot));
+        if (info != nullptr && info->side >= side_count)
+            return player_slot;
+    }
+    return -1;
+}
+
+bool lobby_sides_allow_start(Lobby& lobby) noexcept {
+    if (lobby.game == nullptr || !host_is_local(lobby))
+        return true;
+    return lobby_first_side_past_table(lobby) < 0;
+}
+
+void lobby_note_sides_past_table(Lobby& lobby) noexcept {
+    if (lobby.game == nullptr || !host_is_local(lobby))
+        return;
+    const auto side_count = lobby_side_count(*lobby.game);
+    for (int32_t player_slot = 0; player_slot < kSlotCount; ++player_slot) {
+        const auto* info = player_info(lobby, slot_player(lobby, player_slot));
+        const bool past = side_count != 0 && playing_seat(lobby, player_slot) && info != nullptr &&
+                          info->side >= side_count;
+        if (!past) {
+            lobby.side_past_table_posted[player_slot] = -1;
+            continue;
+        }
+        if (lobby.side_past_table_posted[player_slot] == static_cast<int16_t>(info->side))
+            continue;
+        lobby_post_classic_line(
+            lobby, "*** {player} chose a side this game does not have.", player_slot
+        );
+        lobby.side_past_table_posted[player_slot] = static_cast<int16_t>(info->side);
+    }
+}
+
+namespace {
+
 /// Tells whether a slot is an Open Annihilation player of another machine.
 ///
 /// @param lobby Lobby state.
@@ -2131,6 +2199,11 @@ void lobby_reset(Lobby& lobby, Game& game) noexcept {
     lobby.presence_records.part_refused_digest.reset();
     lobby.mutators_hold_seen = false;
     lobby.classic_lines_posted = false;
+    std::fill(
+        std::begin(lobby.side_past_table_posted),
+        std::end(lobby.side_past_table_posted),
+        static_cast<int16_t>(-1)
+    );
     // The recorder's session starts again; the line it answers with stays.
     char program[sizeof lobby.recorder.program];
     std::memcpy(program, lobby.recorder.program, sizeof program);
@@ -2393,6 +2466,7 @@ void lobby_swap_slots(Lobby& lobby, int32_t first, int32_t second) noexcept {
         lobby.computer_launch_brain[static_cast<std::size_t>(first)],
         lobby.computer_launch_brain[static_cast<std::size_t>(second)]
     );
+    std::swap(lobby.side_past_table_posted[first], lobby.side_past_table_posted[second]);
     slot_set_status(lobby, a, kSlotOpen);
     a.in_use = 0;
     // The game renumbers eleven records; the eleventh lies past the table.
@@ -3078,7 +3152,7 @@ void lobby_enter_battleroom(Lobby& lobby, Panel& panel) noexcept {
         panel,
         "START",
         !(host && lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
-          lobby_mutators_allow_start(lobby) && synced)
+          lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby) && synced)
     );
     panel_set_grayed(panel, "RESTRICTIONS", false);
     panel_set_text(panel, "METALTEXT", "0");
@@ -3545,7 +3619,8 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
     }
     if (panel_selected_is(panel, "START")) {
         const bool mutators_allow = lobby_mutators_allow_start(lobby);
-        if (!lobby_content_allows_start(lobby) || !mutators_allow) {
+        const bool sides_allow = lobby_sides_allow_start(lobby);
+        if (!lobby_content_allows_start(lobby) || !mutators_allow || !sides_allow) {
             if (!mutators_allow)
                 lobby_note_refused_start(lobby_mutators_block(lobby));
             panel.selected = kNoControl;
@@ -3691,6 +3766,7 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
     presence_refresh(lobby);
     presence_send_due(lobby);
     lobby_log_mutators_hold(lobby);
+    lobby_note_sides_past_table(lobby);
     if ((game.gui_flags & 1U) != 0) {
         if (!lobby.rows_built)
             lobby_build_rows(lobby, panel);
@@ -3733,9 +3809,9 @@ LobbyAction lobby_tick(Lobby& lobby, Panel& panel, LobbyFront front, Panel* view
         if (front == LobbyFront::battleroom) {
             if (host_is_local(lobby)) {
                 const bool synced = unit_sync_complete(lobby);
-                const bool ready = lobby_ready_to_start(lobby) &&
-                                   lobby_content_allows_start(lobby) &&
-                                   lobby_mutators_allow_start(lobby);
+                const bool ready =
+                    lobby_ready_to_start(lobby) && lobby_content_allows_start(lobby) &&
+                    lobby_mutators_allow_start(lobby) && lobby_sides_allow_start(lobby);
                 const auto tick = now(lobby);
                 panel_set_grayed(panel, "SYNCHING", true);
                 if (lobby.start_frame > 0 && lobby_clock_passed(tick, lobby.start_frame_tick)) {
