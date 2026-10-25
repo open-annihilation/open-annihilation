@@ -1626,6 +1626,14 @@
 	it=CONTROLLALO;
 	}
 
+[CHECK NOW]
+	{
+	de=JETZT PRÜFEN;
+	fr=VÉRIFIER MAINTENANT;
+	es=COMPROBAR AHORA;
+	it=CONTROLLA ORA;
+	}
+
 [CHECK WITH THIS MOD]
 	{
 	de=MIT DIESEM MOD PRÜFEN;
@@ -1912,6 +1920,14 @@
 	fr=La recherche de mises à jour de contenu reste sur Automatiquement, et l'identifiant d'installation de Core Prime reste activé.;
 	es=La búsqueda de actualizaciones de contenido sigue en Automáticamente, y el ID de instalación de Core Prime sigue activado.;
 	it=La ricerca di aggiornamenti dei contenuti resta su Automaticamente, e l'ID di installazione di Core Prime resta attivo.;
+	}
+
+[Check for updates]
+	{
+	de=Nach Updates suchen;
+	fr=Chercher des mises à jour;
+	es=Buscar actualizaciones;
+	it=Cerca aggiornamenti;
 	}
 
 [Checked]
@@ -2472,6 +2488,22 @@
 	fr=Core Contingency;
 	es=Core Contingency;
 	it=Core Contingency;
+	}
+
+[Could not check]
+	{
+	de=Konnte nicht prüfen;
+	fr=Vérification impossible;
+	es=No se pudo comprobar;
+	it=Impossibile controllare;
+	}
+
+[Could not check · checked {when}]
+	{
+	de=Konnte nicht prüfen · geprüft {when};
+	fr=Vérification impossible · vérifié {when};
+	es=No se pudo comprobar · comprobado {when};
+	it=Impossibile controllare · controllato {when};
 	}
 
 [Couldn't download]
@@ -6834,6 +6866,14 @@
 	it=Non controllato con {mod};
 	}
 
+[Not checked yet]
+	{
+	de=Noch nicht geprüft;
+	fr=Pas encore vérifié;
+	es=Aún no comprobado;
+	it=Non ancora controllato;
+	}
+
 [Not compatible with this mod]
 	{
 	de=Passt nicht zu diesem Mod;
@@ -7074,12 +7114,28 @@
 	it=OA non può dire se {to} cambia le regole del gioco. Se lo fa, i salvataggi di {from} non si caricano sotto di esso. {From} viene conservato, e RIPRISTINA lo riporta.;
 	}
 
+[OA looks for a newer Open Annihilation once a day when it starts. It never installs one until you say so.]
+	{
+	de=OA sucht einmal am Tag beim Start nach einem neueren Open Annihilation. Es installiert keins, bis du es sagst.;
+	fr=OA cherche une fois par jour, au démarrage, un Open Annihilation plus récent. Il n'en installe aucun tant que tu ne le dis pas.;
+	es=OA busca un Open Annihilation más nuevo una vez al día al arrancar. No instala ninguno hasta que tú lo digas.;
+	it=OA cerca un Open Annihilation più nuovo una volta al giorno all'avvio. Non ne installa uno finché non lo dici tu.;
+	}
+
 [OA looks for new content and updates in the registries' lists. It never installs anything until you say so.]
 	{
 	de=OA sucht neue Inhalte und Updates in den Listen der Quellen. Es installiert nie etwas, bis du es sagst.;
 	fr=OA cherche du nouveau contenu et des mises à jour dans les listes des sources. Il n'installe jamais rien tant que tu ne le dis pas.;
 	es=OA busca contenido nuevo y actualizaciones en las listas de las fuentes. Nunca instala nada hasta que tú lo digas.;
 	it=OA cerca nuovi contenuti e aggiornamenti negli elenchi delle fonti. Non installa mai nulla finché non lo dici.;
+	}
+
+[OA never checks]
+	{
+	de=OA prüft nie;
+	fr=OA ne vérifie jamais;
+	es=OA no comprueba nunca;
+	it=OA non controlla mai;
 	}
 
 [OA settings › Game files adds an expansion or removes the files later.]
@@ -7330,6 +7386,14 @@
 	it=In linea;
 	}
 
+[Only when I ask]
+	{
+	de=Nur wenn ich frage;
+	fr=Seulement quand je le demande;
+	es=Solo cuando yo lo pida;
+	it=Solo quando lo chiedo;
+	}
+
 [Only when I open the Library]
 	{
 	de=Nur wenn ich die Bibliothek öffne;
@@ -7432,6 +7496,14 @@
 	fr=Open Annihilation {range};
 	es=Open Annihilation {range};
 	it=Open Annihilation {range};
+	}
+
+[Open Annihilation {version}]
+	{
+	de=Open Annihilation {version};
+	fr=Open Annihilation {version};
+	es=Open Annihilation {version};
+	it=Open Annihilation {version};
 	}
 
 [Open Annihilation {version} is out]
@@ -11226,6 +11298,22 @@
 	it=AGGIORNA MUTATORE;
 	}
 
+[UPDATES]
+	{
+	de=AKTUALISIERUNGEN;
+	fr=MISES À JOUR;
+	es=ACTUALIZACIONES;
+	it=AGGIORNAMENTI;
+	}
+
+[UPDATE…]
+	{
+	de=AKTUALISIEREN…;
+	fr=METTRE À JOUR…;
+	es=ACTUALIZAR…;
+	it=AGGIORNA…;
+	}
+
 [USE BY DEFAULT]
 	{
 	de=ALS STANDARD NUTZEN;
@@ -11472,6 +11560,14 @@
 	fr=Jusqu'à un quart du champ de bataille au-delà du bords de la carte, quel que soit le mouvement de la vue.;
 	es=Hasta un cuarto del campo de batalla más allá del bordes del mapa, se mueva como se mueva la vista.;
 	it=Fino a un quarto del campo di battaglia oltre il bordi della mappa, comunque si muova la vista.;
+	}
+
+[Up to date · Stable · checked {when}]
+	{
+	de=Aktuell · Stabil · geprüft {when};
+	fr=À jour · Stable · vérifié {when};
+	es=Al día · Estable · comprobado {when};
+	it=Aggiornato · Stabile · controllato {when};
 	}
 
 [Up to half the battlefield past the map's edges; a zoom keeps the ground under the pointer.]
@@ -13178,6 +13274,14 @@
 	it=vecchio;
 	}
 
+[on {date}]
+	{
+	de=am {date};
+	fr=le {date};
+	es=el {date};
+	it=il {date};
+	}
+
 [on this device or anywhere the system's file picker reaches]
 	{
 	de=auf diesem Gerät oder überall, wohin die Dateiauswahl des Systems reicht;
@@ -13474,6 +13578,14 @@
 	it=questa parte;
 	}
 
+[today at {time}]
+	{
+	de=heute um {time};
+	fr=aujourd'hui à {time};
+	es=hoy a las {time};
+	it=oggi alle {time};
+	}
+
 [unchanged]
 	{
 	de=unverändert;
@@ -13584,6 +13696,14 @@
 	fr=x5 : Maj pour les boutons de construction, cinq à la fois. Touche pour le verrouiller, maintiens pour une fois.;
 	es=x5: Mayús para los botones de construcción, cinco a la vez. Toca para fijarlo, mantén para una vez.;
 	it=x5: Maiusc per i pulsanti di costruzione, cinque alla volta. Tocca per bloccarlo, tieni premuto per una volta.;
+	}
+
+[yesterday at {time}]
+	{
+	de=gestern um {time};
+	fr=hier à {time};
+	es=ayer a las {time};
+	it=ieri alle {time};
 	}
 
 [{To} changes the game's rules. Saved games from {from} won't load under {to}. {From} is kept, and ROLL BACK brings it back.]
@@ -15216,6 +15336,14 @@
 	fr={used} · {free} libres sur ce {device};
 	es={used} · {free} libres en este {device};
 	it={used} · {free} liberi su questo {device};
+	}
+
+[{version} is out · Stable · checked {when}]
+	{
+	de={version} ist da · Stabil · geprüft {when};
+	fr={version} est sorti · Stable · vérifié {when};
+	es={version} ya está · Estable · comprobado {when};
+	it={version} è uscito · Stabile · controllato {when};
 	}
 
 [{version} (rev {revision})]

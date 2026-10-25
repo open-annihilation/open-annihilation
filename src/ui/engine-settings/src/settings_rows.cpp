@@ -211,6 +211,8 @@ constexpr std::array<Setting, 3> kModChatRows{
 };
 /// Downloads builds its rows from the host's offer, not from settings.
 constexpr std::array<Setting, 0> kDownloadsRows{};
+/// Updates builds its rows from the host's offer, not from settings.
+constexpr std::array<Setting, 0> kUpdatesRows{};
 /// System where the game registers file types at run time: Your files, then
 /// Welcome setup, then the group's heading and one switch for each type.
 constexpr std::array<Setting, 10> kSystemRuntimeRows{
@@ -252,6 +254,7 @@ constexpr std::array<std::span<const Setting>, page_count> kPageRows{
     kDownloadsRows,
     kSystemRows,
     {},
+    kUpdatesRows,
     kModKeysRows,
     kModPatrolRows,
     kModGuardRows,
@@ -261,24 +264,10 @@ constexpr std::array<std::span<const Setting>, page_count> kPageRows{
 };
 /// Each section's name, as its list entry shows it, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageNames{
-    "Controls",
-    "Engine Limits",
-    "Language & Text",
-    "Graphics",
-    "User Interface",
-    "Touch",
-    "Controller",
-    "Developer",
-    "Game files",
-    "Downloads",
-    "System",
-    "Game Content",
-    "Keys",
-    "Patrolling",
-    "Guarding",
-    "Build tools",
-    "Snap & chat",
-    "",
+    "Controls", "Engine Limits", "Language & Text", "Graphics",   "User Interface",
+    "Touch",    "Controller",    "Developer",       "Game files", "Downloads",
+    "System",   "Game Content",  "Updates",         "Keys",       "Patrolling",
+    "Guarding", "Build tools",   "Snap & chat",     "",
 };
 /// Each section's heading, in capitals, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageHeadings{
@@ -294,6 +283,7 @@ constexpr std::array<std::string_view, page_count> kPageHeadings{
     "DOWNLOADS",
     "SYSTEM",
     "GAME CONTENT",
+    "UPDATES",
     "MOD KEYS",
     "PATROLLING BUILDERS",
     "GUARDING BUILDERS",
@@ -304,24 +294,10 @@ constexpr std::array<std::string_view, page_count> kPageHeadings{
 /// Each section's automation word, in kebab case, in Page's order.
 /// Engine Limits' word is engine-limits; its enumerator stays common_tweaks.
 constexpr std::array<std::string_view, page_count> kPageWords{
-    "controls",
-    "engine-limits",
-    "language",
-    "graphics",
-    "user-interface",
-    "touch",
-    "controller",
-    "developer",
-    "game-files",
-    "downloads",
-    "system",
-    "game-content",
-    "mod-keys",
-    "mod-patrol",
-    "mod-guard",
-    "mod-tools",
-    "mod-chat",
-    "registered",
+    "controls",  "engine-limits", "language",  "graphics",   "user-interface",
+    "touch",     "controller",    "developer", "game-files", "downloads",
+    "system",    "game-content",  "updates",   "mod-keys",   "mod-patrol",
+    "mod-guard", "mod-tools",     "mod-chat",  "registered",
 };
 static_assert(
     static_cast<std::size_t>(Page::registered) + 1 == page_count,

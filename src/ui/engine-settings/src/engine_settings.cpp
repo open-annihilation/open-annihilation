@@ -374,6 +374,12 @@ constexpr std::array<ChoiceWord<ContentCheck>, 3> content_check_words{{
     {ContentCheck::when_library_opens, "library"},
     {ContentCheck::never, "never"},
 }};
+/// Check for updates' words, in the order the Updates page lists them.
+constexpr std::array<ChoiceWord<UpdateCheck>, 3> update_check_words{{
+    {UpdateCheck::automatically, "automatically"},
+    {UpdateCheck::when_asked, "when-asked"},
+    {UpdateCheck::never, "never"},
+}};
 
 } // namespace
 
@@ -788,6 +794,7 @@ EngineSettings read_settings(
             settings.hack_overrides = mod_profile::read_overrides(found->second);
     // Unknown text leaves the default read_settings started from.
     read_word(values, key::content_check, content_check_words, settings.content_check);
+    read_word(values, key::update_check, update_check_words, settings.update_check);
     settings.file_type_oamod = file_type_on(values, key::file_type_oamod);
     settings.file_type_oamap = file_type_on(values, key::file_type_oamap);
     settings.file_type_oalang = file_type_on(values, key::file_type_oalang);
@@ -1292,6 +1299,15 @@ void write_settings(
         opened.content_check,
         chosen.content_check,
         defaults.content_check,
+        restored
+    );
+    store_word(
+        values,
+        key::update_check,
+        update_check_words,
+        opened.update_check,
+        chosen.update_check,
+        defaults.update_check,
         restored
     );
     const auto store_file_type = [&](std::string_view key, bool EngineSettings::* member) {
