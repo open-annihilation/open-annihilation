@@ -3165,6 +3165,29 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED limits-fixture
         PASS_REGULAR_EXPRESSION "7 sides.*back yes")
+      # The same Side button when computer players may take only side 1.
+      set(oa_skirmish_sides_computer_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides-computer")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_computer_dir}")
+      file(WRITE "${oa_skirmish_sides_computer_dir}/computer-sides.oamod.yaml"
+        "oamod: 1\n"
+        "id: computer-sides\n"
+        "name: Computer sides\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-06, packager: Open Annihilation}\n"
+        "identity:\n"
+        "  computer-player-sides: [1]\n")
+      add_test(NAME native-skirmish-sides-computer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --mod "${oa_skirmish_sides_computer_dir}/computer-sides.oamod.yaml"
+        --preferences-file "${oa_skirmish_sides_computer_dir}/skirmish-sides-computer.conf")
+      set_tests_properties(native-skirmish-sides-computer PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_skirmish_sides_computer_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "computer 1 of")
       # Engine Limits' weapon-type and side rows: 256 and 5 with no profile,
       # at the menu and in a two-slot skirmish.
       set(oa_mod_limits_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits")

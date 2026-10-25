@@ -225,11 +225,12 @@ void helper_tests() {
     check(!ui::color_in_use(s, 1, 0), "disabled color available");
     s.slots[1].controller = 2;
     check(ui::color_in_use(s, 1, 0) && !ui::color_in_use(s, 1, 1), "enabled color excluding self");
-    ui::cycle_player(s, 0, h);
+    const ui::UiState plain;
+    ui::cycle_player(s, 0, plain, h);
     check(s.slots[0].controller == 2, "open to computer");
-    ui::cycle_player(s, 0, h);
+    ui::cycle_player(s, 0, plain, h);
     check(s.slots[0].controller == 1, "computer to human if none");
-    ui::cycle_player(s, 1, h);
+    ui::cycle_player(s, 1, plain, h);
     check(s.slots[1].controller == 0, "computer to open if human");
     {
         // The fifth row is Player. Cycling the first row's Computer does not
@@ -238,17 +239,17 @@ void helper_tests() {
         rows.slot_count = 10;
         rows.slots[0].controller = 2;
         rows.slots[4].controller = 1;
-        ui::cycle_player(rows, 0, h);
+        ui::cycle_player(rows, 0, plain, h);
         check(
             rows.slots[0].controller == 0 && rows.slots[4].controller == 1,
             "computer stays short of a second player"
         );
     }
-    ui::cycle_player(s, 0, h);
+    ui::cycle_player(s, 0, plain, h);
     check(s.slots[0].controller == 0, "human to open");
     s.slots[1].controller = 2;
     s.slots[0].color = 1;
-    ui::cycle_player(s, 0, h);
+    ui::cycle_player(s, 0, plain, h);
     check(s.slots[0].color == 0, "duplicate color repaired");
     ui::cycle_color(s, 0, false, h);
     check(s.slots[0].color == 2, "color skips enabled color only");
@@ -619,6 +620,92 @@ void side_and_alliance_tests() {
         "alliance images refresh"
     );
 }
+
+/// A computer slot's Side button offers only the sides computer players may take.
+void computer_side_tests() {
+    State state;
+    auto s = settings();
+    ui::Preferences p;
+    ui::UiState u;
+    u.side_count = 5;
+    u.computer_hidden_sides = ~1U;
+    TestHost h;
+    const game_entry::Event event{{9}, 0};
+    auto run = [&](std::string name) {
+        h.selection = std::move(name);
+        return ui::handle_event(state, s, p, u, event, h);
+    };
+    s.slots[0].controller = game_entry::controller::human;
+    s.slots[1].controller = game_entry::controller::computer;
+    h.mouse = 1;
+    for (int32_t step = 0; step < 5; ++step) {
+        run("Side1");
+        check(s.slots[1].side == 0, "a computer stays on the one side it may take");
+    }
+    const int32_t human_sides[] = {1, 2, 3, 4, 0};
+    for (const int32_t side : human_sides) {
+        run("Side0");
+        check(s.slots[0].side == side, "a human still cycles every loaded side");
+    }
+    s.slots[2].side = 3;
+    h.calls.clear();
+    run("Player2");
+    check(
+        s.slots[2].controller == game_entry::controller::computer && s.slots[2].side == 0 &&
+            h.saw("side:Side2:0"),
+        "becoming a computer moves to an allowed side"
+    );
+
+    auto stored = settings();
+    stored.slots[0].controller = game_entry::controller::human;
+    stored.slots[0].side = 2;
+    stored.slots[1].controller = game_entry::controller::computer;
+    stored.slots[1].side = 2;
+    ui::UiState populated = u;
+    TestHost host;
+    ui::populate(stored, p, populated, host);
+    check(stored.slots[0].side == 2, "a stored human side stays");
+    check(stored.slots[1].side == 0, "a stored computer side moves to an allowed side");
+
+    u.side_count = 7;
+    u.hidden_sides = 0;
+    u.computer_hidden_sides = ~((1U << 0) | (1U << 5));
+    s.slots[1].side = 5;
+    h.mouse = 1;
+    const int32_t forward[] = {0, 5, 0};
+    for (const int32_t side : forward) {
+        run("Side1");
+        check(s.slots[1].side == side, "a computer steps only through the sides it may take");
+    }
+    s.slots[1].side = 0;
+    h.mouse = 2;
+    const int32_t backward[] = {5, 0, 5};
+    for (const int32_t side : backward) {
+        run("Side1");
+        check(s.slots[1].side == side, "a computer steps back only through the sides it may take");
+    }
+    u.hidden_sides = 1U << 5;
+    s.slots[1].side = 0;
+    h.mouse = 1;
+    run("Side1");
+    check(s.slots[1].side == 0, "a computer stays when its other side is hidden");
+    h.mouse = 2;
+    run("Side1");
+    check(s.slots[1].side == 0, "a right click stays when only one side is offered");
+
+    u.computer_hidden_sides = 0;
+    u.hidden_sides = 0;
+    u.side_count = 5;
+    s.slots[1].side = 0;
+    h.mouse = 1;
+    run("Side1");
+    check(s.slots[1].side == 1, "with no limit a computer steps forward");
+    u.side_count = 7;
+    s.slots[1].side = 0;
+    h.mouse = 2;
+    run("Side1");
+    check(s.slots[1].side == 6, "with no limit a right click steps back");
+}
 } // namespace
 
 int main() {
@@ -628,6 +715,7 @@ int main() {
         event_tests();
         player_count_code_tests();
         side_and_alliance_tests();
+        computer_side_tests();
         std::cout << "skirmish UI passed\n";
         return 0;
     } catch (const std::exception& e) {

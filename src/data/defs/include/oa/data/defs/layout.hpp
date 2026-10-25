@@ -65,6 +65,9 @@ struct DataLayout {
     /// The SIDEDATA sides the battle room's SIDE button never offers, bit n
     /// for side n, sides 0 to 31: none in 3.1c.
     uint32_t battle_room_hidden_sides{};
+    /// The SIDEDATA sides a computer player may take, bit n for side n.
+    /// 0 means every side, as 3.1c.
+    uint32_t computer_player_sides{};
 
     /// Compares every field.
     bool operator==(const DataLayout&) const = default;
@@ -132,6 +135,11 @@ void use_data_layout(const DataLayout& layout);
 ///
 /// @return bit n set for side n; 0 in 3.1c
 [[nodiscard]] uint32_t battle_room_hidden_sides() noexcept;
+
+/// Returns the SIDEDATA sides a computer player may take.
+///
+/// @return bit n set for side n; 0 means every side, as 3.1c
+[[nodiscard]] uint32_t computer_player_sides() noexcept;
 
 /// Returns the map schema section that places a mission's units.
 ///
