@@ -52,18 +52,18 @@ struct DataLayout {
     std::array<int8_t, 2> build_version{3, 1};
     /// The names of the side slots the game itself uses: computer players'
     /// names, elimination messages and the side buttons' gadgets, one a side,
-    /// two to five; a side past the last name takes the last, so with two
-    /// every side but the first takes the second. SIDEDATA keeps its own
-    /// names for everything else.
+    /// two up to limits.sides names; a side past the last name takes the last,
+    /// so with two every side but the first takes the second. SIDEDATA keeps
+    /// its own names for everything else.
     std::vector<std::string> side_names{"Arm", "Core"};
     /// The frame of the battle room's SIDEx art a watching player's side
-    /// button shows: 2 in 3.1c, the art after Arm and Core.
+    /// button shows: 0 to 63, and 2 in 3.1c, the art after Arm and Core.
     uint8_t watcher_side_frame{2};
     /// The SIDEDATA sides the skirmish Side button never offers, bit n for
-    /// side n: none in 3.1c.
+    /// side n, sides 0 to 31: none in 3.1c.
     uint32_t skirmish_hidden_sides{};
     /// The SIDEDATA sides the battle room's SIDE button never offers, bit n
-    /// for side n: none in 3.1c.
+    /// for side n, sides 0 to 31: none in 3.1c.
     uint32_t battle_room_hidden_sides{};
 
     /// Compares every field.

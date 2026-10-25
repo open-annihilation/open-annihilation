@@ -77,7 +77,9 @@ script extension or data key; a value of the wrong type, out of range, not
 a multiple, too long, not matching its pattern, repeated or not ascending;
 an index mounted twice, inside 3.1c's own range or holding an extension of
 the other direction; one extension mounted twice; a fixed parameter bound
-to a setting; a constraint broken; a data key whose hack is off; a hack not
+to a setting; a constraint broken; side keys past limits.sides (more
+side-names than that count, a hidden side at or past it, or a hidden list
+that hides every side); a data key whose hack is off; a hack not
 implemented yet. A setting that does not read as its type is ignored with a
 warning, and one out of bounds is clamped with a warning, as the original
 game treats its INI and registry.
