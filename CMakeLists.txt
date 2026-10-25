@@ -1346,6 +1346,7 @@ endif()
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
+  src/app/runtime_skirmish_sides_check.cpp
   src/app/runtime_mod_limits_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
@@ -3127,6 +3128,40 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-side-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_side_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same order pages over ridge-wide, whose later sides are Ridge5 and Ridge6.
+      set(oa_side_orders_wide_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/side-orders-wide")
+      file(MAKE_DIRECTORY "${oa_side_orders_wide_dir}")
+      add_test(NAME native-side-orders-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-side-orders
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+        --preferences-file "${oa_side_orders_wide_dir}/side-orders-wide.conf")
+      set_tests_properties(native-side-orders-wide PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_side_orders_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "Ridge5 \\(RD5\\):.*Ridge6 \\(RD6\\):")
+      # The skirmish Side button, clicked through every offered side. With
+      # more than five sides a right click steps back.
+      set(oa_skirmish_sides_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_dir}")
+      add_test(NAME native-skirmish-sides COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --preferences-file "${oa_skirmish_sides_dir}/skirmish-sides.conf")
+      set_tests_properties(native-skirmish-sides PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_skirmish_sides_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      set(oa_skirmish_sides_wide_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides-wide")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_wide_dir}")
+      add_test(NAME native-skirmish-sides-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides"
+        --preferences-file "${oa_skirmish_sides_wide_dir}/skirmish-sides-wide.conf")
+      set_tests_properties(native-skirmish-sides-wide PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} WORKING_DIRECTORY "${oa_skirmish_sides_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "7 sides.*back yes")
       # Engine Limits' weapon-type and side rows: 256 and 5 with no profile,
       # at the menu and in a two-slot skirmish.
       set(oa_mod_limits_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits")

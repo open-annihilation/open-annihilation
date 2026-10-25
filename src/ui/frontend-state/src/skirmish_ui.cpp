@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/ui/frontend_state/skirmish_ui.hpp"
+#include "oa/core/side.h"
 #include "oa/data/match_rules/difficulty_names.hpp"
 #include <algorithm>
 #include <bit>
@@ -383,6 +384,32 @@ void advance_side(Settings& s, int32_t index, int32_t side_count, uint32_t hidde
     value.side = offered_side(next, side_count, hidden_sides);
 }
 
+void retreat_side(Settings& s, int32_t index, int32_t side_count, uint32_t hidden_sides) {
+    if (side_count <= 0)
+        throw std::invalid_argument("empty side table");
+    auto& value = slot(s, index);
+    const auto hidden = [&](int32_t at) {
+        return at >= 0 && at < 32 && (hidden_sides & (1U << static_cast<uint32_t>(at))) != 0;
+    };
+    // offered_side of a negative index opens on side 0, so a step back walks
+    // the positive indices itself.
+    const auto wrapped_before = [&](int32_t step) {
+        int32_t previous = value.side - step;
+        previous %= side_count;
+        if (previous < 0)
+            previous += side_count;
+        return previous;
+    };
+    for (int32_t step = 1; step < side_count; ++step) {
+        const int32_t previous = wrapped_before(step);
+        if (!hidden(previous)) {
+            value.side = previous;
+            return;
+        }
+    }
+    value.side = wrapped_before(1);
+}
+
 void cycle_alliance(Settings& s, int32_t index, Host& h) {
     auto& value = slot(s, index);
     value.alliance = add_wrapped(value.alliance, 1) % alliance_count;
@@ -463,7 +490,11 @@ bool handle_event(
         cycle_player(s, ui.selected_slot, h);
     } else if (selected == "Side") {
         sound();
-        advance_side(s, ui.selected_slot, ui.side_count, ui.hidden_sides);
+        // Past 3.1c's five sides a right click steps back; fewer still go forward.
+        if (h.event_button(event.menu) == right_button && ui.side_count > OA_SIDE_COUNT)
+            retreat_side(s, ui.selected_slot, ui.side_count, ui.hidden_sides);
+        else
+            advance_side(s, ui.selected_slot, ui.side_count, ui.hidden_sides);
         // The button's own two stages wrap at Core; its frame follows the
         // side instead, so a third or later SIDEDATA side shows its own art.
         h.set_side_stage(

@@ -23,6 +23,8 @@
 #include "oa/sim/messages.hpp"
 #include "oa/sim/mission_units/map_units.hpp"
 #include "oa/base/text.hpp"
+#include "oa/core/side.h"
+#include "oa/data/languages/interface_text.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -435,13 +437,89 @@ void set_option_bit(uint16_t& options, uint16_t bit, bool on) noexcept {
     options = static_cast<uint16_t>(on ? options | bit : options & ~bit);
 }
 
+/// Tells whether two side names are the same, ignoring ASCII case.
+///
+/// @param left one name
+/// @param right the other
+/// @return true when every character matches, ignoring ASCII case
+bool same_side_name(std::string_view left, std::string_view right) noexcept {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto one = static_cast<unsigned char>(left[index]);
+        const auto other = static_cast<unsigned char>(right[index]);
+        if (std::tolower(one) != std::tolower(other))
+            return false;
+    }
+    return true;
+}
+
+/// Posts that a launch named a side this game does not have.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param side The number or name as the launch wrote it.
+void post_launch_side(Lobby& lobby, std::string_view side) {
+    std::string line(
+        oa::data::languages::interface_text(
+            "*** The launch names side {side}, which this game does not have."
+        )
+    );
+    const auto mark = line.find("{side}");
+    if (mark != std::string::npos)
+        line.replace(mark, std::string_view("{side}").size(), side);
+    lobby_post_chat(lobby, line.c_str());
+}
+
+/// Seats a launch faction or SIDEDATA name, or leaves the room's side.
+///
+/// A faction N from 1 is side N - 1 when the room has it. With no faction, a
+/// name takes the side whose SIDEDATA name matches, ignoring ASCII case. A
+/// number or name the room lacks leaves the side and posts the launch line
+/// once. An empty name with no faction leaves the side.
+///
+/// @param[in,out] lobby Lobby state.
+/// @param[in,out] info The player's lobby block.
+/// @param faction The launch faction; none when the launch named a side.
+/// @param faction_name The SIDEDATA name; empty when the launch gave a faction.
+void seat_named_side(
+    Lobby& lobby, PlayerSetupInfo& info, int32_t faction, std::string_view faction_name
+) {
+    namespace nl = oa::ui::frontend_multiplayer::launch;
+    if (lobby.game == nullptr)
+        return;
+    const uint8_t count = lobby_side_count(*lobby.game);
+    if (faction != nl::faction::none) {
+        const int32_t side = faction - 1;
+        if (side >= 0 && static_cast<uint32_t>(side) < count) {
+            info.side = static_cast<uint8_t>(side);
+            info.options = static_cast<uint16_t>(info.options & ~option::watcher);
+        } else {
+            post_launch_side(lobby, std::to_string(side));
+        }
+        return;
+    }
+    if (faction_name.empty())
+        return;
+    const auto limit = std::min(lobby.side_names.size(), static_cast<std::size_t>(count));
+    for (std::size_t index = 0; index < limit; ++index) {
+        if (!same_side_name(lobby.side_names[index], faction_name))
+            continue;
+        info.side = static_cast<uint8_t>(index);
+        info.options = static_cast<uint16_t>(info.options & ~option::watcher);
+        return;
+    }
+    post_launch_side(lobby, faction_name);
+}
+
 /// Seats the local player as an active launch says: side or watching, team and colour.
 ///
-/// A faction becomes the player's side and a watcher watches instead; a team
-/// 1 to 5 becomes the player's team, which is sent with the alliances
-/// refreshed; a colour 1 to 10 is asked for as a click on the player's logo
-/// asks, and a colour another player has gives the next free one. A field
-/// that is 0 leaves its setting alone.
+/// A faction N from 1 becomes side N - 1 when the room has it, and a faction
+/// name the side whose SIDEDATA name matches, ignoring case. A side the room
+/// lacks is left as the room chose it and named once in the chat. A watcher
+/// watches instead. A team 1 to 5 becomes the player's team, which is sent
+/// with the alliances refreshed; a colour 1 to 10 is asked for as a click on
+/// the player's logo asks, and a colour another player has gives the next
+/// free one. A field that is 0 leaves its setting alone.
 ///
 /// @param[in,out] lobby Lobby state; its launch must be active.
 /// @param[in,out] me the local player
@@ -452,9 +530,10 @@ void apply_launch_seat(Lobby& lobby, Player& me, PlayerSetupInfo& info) noexcept
     if (block.watcher != 0) {
         info.side = 0;
         info.options |= option::watcher;
-    } else if (block.faction != nl::faction::none) {
-        info.side = block.faction != nl::faction::arm ? 1 : 0;
-        info.options &= static_cast<uint16_t>(~option::watcher);
+    } else {
+        seat_named_side(
+            lobby, info, block.faction, text_view(block.faction_name, sizeof block.faction_name)
+        );
     }
     if (block.team >= nl::kLaunchTeamFirst && block.team <= nl::kLaunchTeamLast) {
         lobby_player_team(me) = static_cast<uint8_t>(block.team - nl::kLaunchTeamFirst);
@@ -2123,6 +2202,19 @@ uint8_t lobby_offered_side(const Game& game, uint32_t side) noexcept {
     return static_cast<uint8_t>(std::min(side, count));
 }
 
+uint8_t lobby_offered_side_before(const Game& game, uint32_t side) noexcept {
+    const uint32_t count = lobby_side_count(game);
+    const uint32_t hidden = oa::data::defs::battle_room_hidden_sides();
+    uint32_t at = side < count ? side : count;
+    while (at > 0) {
+        --at;
+        if (at < 32 && (hidden & (1U << at)) != 0)
+            continue;
+        return static_cast<uint8_t>(at);
+    }
+    return static_cast<uint8_t>(count);
+}
+
 StartedOptions lobby_started_options(Game& game) noexcept {
     const auto load = [&](std::size_t offset) {
         uint32_t value = 0;
@@ -3061,8 +3153,12 @@ bool seat_launch_computers(Lobby& lobby) noexcept {
                              lobby_color_available(lobby, player.player_id, colour)
                          ? static_cast<uint8_t>(colour)
                          : static_cast<uint8_t>(lobby_next_free_color(lobby));
-        if (computer.faction != nl::faction::none)
-            info.side = computer.faction != nl::faction::arm ? 1 : 0;
+        seat_named_side(
+            lobby,
+            info,
+            computer.faction,
+            text_view(computer.faction_name, sizeof computer.faction_name)
+        );
         if (computer.team >= nl::kLaunchTeamFirst && computer.team <= nl::kLaunchTeamLast)
             lobby_player_team(player) = static_cast<uint8_t>(computer.team - nl::kLaunchTeamFirst);
         if (computer.difficulty >= nl::difficulty::easy &&
@@ -3398,23 +3494,44 @@ LobbyAction handle_panel_event(Lobby& lobby, Panel& panel) noexcept {
             if (!lobby_launch_locked(lobby)) {
                 play(lobby, "Multi");
                 // The button steps past a side the mod keeps out of the
-                // battle room, and wraps to the first side offered.
+                // battle room, and wraps to the first side offered. Past
+                // 3.1c's five sides a right click walks that cycle backwards.
+                const uint8_t count = lobby_side_count(game);
                 const auto first_offered = [&] {
                     const uint8_t first = lobby_offered_side(game, 0);
-                    return first < lobby_side_count(game) ? first : uint8_t{0};
+                    return first < count ? first : uint8_t{0};
                 };
-                if (player.in_use != 0 && (info.options & option::watcher) != 0) {
+                const auto host = lobby_host_slot(lobby);
+                const auto host_options =
+                    host == kNoSlot ? 0 : info_of(lobby, slot_player(lobby, host)).options;
+                const bool may_watch = (host_options & option::watching_allowed) != 0 &&
+                                       player.in_use != 0 && player.status == kSlotLocal;
+                const bool watching = player.in_use != 0 && (info.options & option::watcher) != 0;
+                if (panel.button == 2 && count > OA_SIDE_COUNT) {
+                    const uint8_t earlier = lobby_offered_side_before(game, count);
+                    const uint8_t last = earlier < count ? earlier : uint8_t{0};
+                    if (watching) {
+                        info.options &= static_cast<uint16_t>(~option::watcher);
+                        info.side = last;
+                    } else {
+                        const uint8_t previous = lobby_offered_side_before(game, info.side);
+                        if (previous < count) {
+                            info.side = previous;
+                        } else if (may_watch) {
+                            info.options |= option::watcher;
+                        } else {
+                            info.side = last;
+                            panel_set_stage(panel, name, info.side);
+                        }
+                    }
+                } else if (watching) {
                     info.options &= static_cast<uint16_t>(~option::watcher);
                     info.side = first_offered();
                 } else {
                     info.side = lobby_offered_side(game, info.side + 1U);
-                    if (info.side >= lobby_side_count(game)) {
+                    if (info.side >= count) {
                         info.side = first_offered();
-                        const auto host = lobby_host_slot(lobby);
-                        const auto host_options =
-                            host == kNoSlot ? 0 : info_of(lobby, slot_player(lobby, host)).options;
-                        if ((host_options & option::watching_allowed) == 0 || player.in_use == 0 ||
-                            player.status != kSlotLocal)
+                        if (!may_watch)
                             panel_set_stage(panel, name, info.side);
                         else
                             info.options |= option::watcher;

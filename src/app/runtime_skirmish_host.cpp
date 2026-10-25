@@ -227,8 +227,35 @@ void Runtime::set_button_status(std::string_view name, int16_t value) {
 }
 
 void Runtime::set_side_stage(std::string_view name, uint8_t stage) {
-    widget_gaf_frames_[std::string(name)] = stage;
-    widget_text_stages_[std::string(name)] = stage;
+    const std::string key(name);
+    std::size_t frames = 0;
+    if (const auto sprite = widget_sprites_.find(key); sprite != widget_sprites_.end()) {
+        if (const auto* sequence = gaf_sequence(resources_.sprites, sprite->second.sequence))
+            frames = sequence->frames.size();
+    }
+    auto* gadget = widget(name);
+    auto* fields = gadget != nullptr
+                       ? std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget->fields)
+                       : nullptr;
+    if (static_cast<std::size_t>(stage) < frames) {
+        widget_gaf_frames_[key] = stage;
+        widget_text_stages_[key] = stage;
+        if (fields != nullptr)
+            fields->text.clear();
+        widget_caption_only_.erase(key);
+        return;
+    }
+    widget_gaf_frames_.erase(key);
+    widget_text_stages_.erase(key);
+    widget_caption_only_.insert(key);
+    if (fields == nullptr)
+        return;
+    if (stage >= side_table_.count) {
+        fields->text.clear();
+        return;
+    }
+    const char* side_name = side_table_.sides[stage].name;
+    fields->text.assign(side_name, ::strnlen(side_name, sizeof side_table_.sides[stage].name));
 }
 
 void Runtime::set_tooltip(std::string_view name, std::string_view text) {

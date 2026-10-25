@@ -45,6 +45,20 @@ std::string Runtime::match_side_prefix() const {
     return "arm";
 }
 
+std::string Runtime::match_side_tile() const {
+    const auto side = match_view_side();
+    if (side < side_table_.count) {
+        const auto& field = side_table_.sides[side].name_prefix;
+        const std::string_view prefix(field, strnlen(field, sizeof field));
+        if (!prefix.empty()) {
+            const std::string path = "bitmaps/" + std::string(prefix) + "guisidetile.pcx";
+            if (assets_.provider(path).kind != oa::ProviderKind::none)
+                return path;
+        }
+    }
+    return "bitmaps/" + match_side_prefix() + "guisidetile.pcx";
+}
+
 std::string Runtime::match_side_panel_gaf() const {
     return match_side_file(oa::data::defs::SideFile::panels);
 }

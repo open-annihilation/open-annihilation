@@ -326,6 +326,16 @@ void cycle_color(Settings& settings, int32_t slot, bool reverse, Host& h);
 /// @throws std::invalid_argument for an empty side table, and std::out_of_range for a bad slot.
 void advance_side(Settings& settings, int32_t slot, int32_t side_count, uint32_t hidden_sides = 0);
 
+/// Steps a slot to the previous loaded side, wrapping to the last, past the
+/// hidden ones; when every side is hidden, to the previous side.
+///
+/// @param[in,out] settings Skirmish settings.
+/// @param slot Slot index.
+/// @param side_count Number of loaded sides.
+/// @param hidden_sides Bit n set for a side the Side button never offers.
+/// @throws std::invalid_argument for an empty side table, and std::out_of_range for a bad slot.
+void retreat_side(Settings& settings, int32_t slot, int32_t side_count, uint32_t hidden_sides = 0);
+
 /// Returns the side a slot shows: its own, or the next one offered when its
 /// own is hidden, as a skirmish saved on a hidden side opens. A side past
 /// the loaded ones, saved while a mod with more sides was played, wraps to
