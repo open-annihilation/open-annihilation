@@ -2471,10 +2471,12 @@ void Runtime::check_engine_settings_window_sizes() {
             tap(SDLK_HOME);
         }
         // Updates, on the three windows the ticket names. The mode is chosen
-        // through its drop-down and read back after OK. CHECK NOW is then
-        // pressed against a feed this check names, and the dialog is left
-        // open for the Escape below. The preferences, the feed and the
-        // settings are put back on every path, including a failure.
+        // through its drop-down and read back after OK. Never then hides
+        // CHECK NOW and starts nothing. CHECK NOW is pressed once the mode
+        // is Automatically again, against a feed this check names, and the
+        // dialog is left open for the Escape below. The preferences, the
+        // feed and the settings are put back on every path, including a
+        // failure.
         if ((width == 640 && height == 480) || (width == 1280 && height == 720) ||
             (width == 1920 && height == 1080)) {
             struct RestoreUpdates {
@@ -2565,8 +2567,63 @@ void Runtime::check_engine_settings_window_sizes() {
                     engine_settings_dialog()->page == settings::Page::updates,
                 "Updates did not show again" + on
             );
+            // The previous window's CHECK NOW may still be finishing. Let it
+            // leave checking before Never is judged, so its result is not a
+            // request Never made.
+            cancel_update_check();
+            const auto drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (std::chrono::steady_clock::now() < drain_deadline) {
+                const oa::app::update::CheckState state = update_snapshot().state;
+                tick_update_check();
+                if (update_snapshot().state == state &&
+                    state != oa::app::update::CheckState::checking)
+                    break;
+                SDL_Delay(10);
+            }
+            click_updates(mode_row, {}, "Check for updates");
+            require(
+                engine_settings_dialog()->open_list == mode_row,
+                "Check for updates did not open again" + on
+            );
+            click_updates(settings::no_control, "Never", "Never");
+            require(
+                engine_settings_dialog()->chosen.update_check == settings::UpdateCheck::never &&
+                    engine_settings_dialog()->open_list == settings::no_control,
+                "Never was not chosen" + on
+            );
+            {
+                const auto never_parts = settings::dialog_layout(*engine_settings_dialog());
+                require(
+                    !shows_text(never_parts, "CHECK NOW") &&
+                        !shows_text(never_parts, "UPDATE\u2026"),
+                    "CHECK NOW was shown with Check for updates at Never" + on
+                );
+            }
+            const uint64_t generation_never = update_snapshot().generation;
+            tick_update_check();
+            require(
+                update_snapshot().generation == generation_never &&
+                    update_snapshot().state != oa::app::update::CheckState::checking,
+                "Never started a check" + on
+            );
+            std::cout << "engine settings check: Updates Never made no request on the " << size
+                      << " window\n";
+            click_updates(mode_row, {}, "Check for updates");
+            require(
+                engine_settings_dialog()->open_list == mode_row,
+                "Check for updates did not open after Never" + on
+            );
+            click_updates(settings::no_control, "Automatically", "Automatically");
+            require(
+                engine_settings_dialog()->chosen.update_check ==
+                        settings::UpdateCheck::automatically &&
+                    engine_settings_dialog()->open_list == settings::no_control,
+                "Automatically was not chosen after Never" + on
+            );
+
             const uint64_t generation = update_snapshot().generation;
-            click_updates(settings::no_control, "CHECK NOW", "CHECK NOW");
+            // The button is the status row's control, not a caption with no control.
+            click_updates(settings::first_row_control, "CHECK NOW", "CHECK NOW");
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
             bool started = false;
             while (std::chrono::steady_clock::now() < deadline) {

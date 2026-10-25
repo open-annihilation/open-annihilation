@@ -683,6 +683,37 @@ void updates_names_its_ways() {
     const kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
     OA_CHECK(kit::control_named(list, "settings.update-status.check-now") != settings::no_control);
     OA_CHECK(kit::control_named(list, "settings.update-check") != settings::no_control);
+
+    // The open list's items are controls, named as the preference stores them.
+    // A click reaches the item where it is drawn.
+    dialog.focused = settings::first_row_control + 1;
+    OA_CHECK(
+        settings::dialog_key(dialog, settings::DialogKey::space) == settings::DialogAction::redraw
+    );
+    OA_CHECK(dialog.open_list == settings::first_row_control + 1);
+    const kit::DisplayList open = geometry::dialog_list(dialog, nullptr);
+    OA_CHECK(
+        kit::control_named(open, "settings.update-check.automatically") ==
+        geometry::menu_item_control(0)
+    );
+    OA_CHECK(
+        kit::control_named(open, "settings.update-check.when-asked") ==
+        geometry::menu_item_control(1)
+    );
+    OA_CHECK(
+        kit::control_named(open, "settings.update-check.never") == geometry::menu_item_control(2)
+    );
+    const kit::Control* asked = nullptr;
+    for (const kit::Control& control : open.controls) {
+        if (control.id != geometry::menu_item_control(1))
+            continue;
+        asked = &control;
+        break;
+    }
+    OA_CHECK(asked != nullptr);
+    OA_CHECK(
+        kit::hit(open, {asked->rect.x + asked->rect.width / 2, asked->rect.y + 1}) == asked->id
+    );
 }
 
 } // namespace

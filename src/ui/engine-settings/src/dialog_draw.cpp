@@ -25,6 +25,7 @@
 #include "geometry.hpp"
 #include "language_page.hpp"
 #include "registered.hpp"
+#include "updates_page.hpp"
 
 #include <algorithm>
 #include <array>
@@ -900,16 +901,23 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
     if (dialog.open_list == no_control)
         return;
     for (const layout::Row& row : open.rows.rows) {
+        // Updates is not a setting, so its row carries none. Without the
+        // same test Downloads uses, the drop-down test below skips it and
+        // a click on a listed item lands on whatever is under the list.
         const bool downloads_choice = row.downloads >= 0 && downloads::is_choice(row);
+        const bool updates_choice = row.updates >= 0 && updates::is_choice(row);
         if (row.control != dialog.open_list || row.lock != Lock::none)
             continue;
-        if (!downloads_choice && layout::kind_of(row.setting) != kit::RowKind::choice)
+        if (!downloads_choice && !updates_choice &&
+            layout::kind_of(row.setting) != kit::RowKind::choice)
             continue;
+        const bool page_choice = downloads_choice || updates_choice;
         const auto& spec =
-            downloads_choice ? layout::row_spec(Setting::language) : layout::row_spec(row.setting);
+            page_choice ? layout::row_spec(Setting::language) : layout::row_spec(row.setting);
         const layout::SettingsModel model = layout::reading(dialog.chosen, dialog);
-        const int32_t choices =
-            downloads_choice ? downloads::choice_count() : kit::row_count(spec, model);
+        const int32_t choices = downloads_choice ? downloads::choice_count()
+                                : updates_choice ? updates::choice_count()
+                                                 : kit::row_count(spec, model);
         const SourceRect menu = layout::choice_list(
             row.control_area, static_cast<std::size_t>(choices), dialog.size_class
         );
@@ -917,8 +925,9 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
         kit::ChoiceMenuLook look;
         look.first = dialog.list_first;
         look.total = choices;
-        look.chosen =
-            downloads_choice ? downloads::choice_index(dialog) : kit::row_index(spec, model);
+        look.chosen = downloads_choice ? downloads::choice_index(dialog)
+                      : updates_choice ? updates::choice_index(dialog)
+                                       : kit::row_index(spec, model);
         look.marked = dialog.list_marked;
         look.focus_shown = dialog.focused != no_control;
         layout::fill_language_menu(dialog, row.setting, look);
@@ -927,26 +936,26 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
             if (choice >= choices)
                 break;
             const std::string caption =
-                downloads_choice
-                    ? downloads::choice_caption(choice)
+                downloads_choice ? downloads::choice_caption(choice)
+                : updates_choice
+                    ? updates::choice_caption(choice)
                     : std::string(layout::shown_text(kit::row_caption(spec, model, choice)));
             const std::string word = downloads_choice ? downloads::choice_id(choice)
+                                     : updates_choice ? updates::choice_id(choice)
                                                       : layout::choice_word(spec, model, choice);
-            look.shown.push_back(
-                downloads_choice ? std::string(layout::shown_text(caption)) : caption
-            );
+            look.shown.push_back(page_choice ? std::string(layout::shown_text(caption)) : caption);
             // A divider is a heading: it is not a control and has no name.
-            if (!downloads_choice && static_cast<std::size_t>(choice) < look.items.size() &&
+            if (!page_choice && static_cast<std::size_t>(choice) < look.items.size() &&
                 look.items[static_cast<std::size_t>(choice)].divider)
                 continue;
+            const std::string stem = downloads_choice ? std::string("content-updates")
+                                     : updates_choice
+                                         ? std::string("update-check")
+                                         : std::string(layout::setting_name(row.setting));
             kit::Control added = control_of(
                 layout::menu_item_control(choice),
                 layout::choice_item(menu, place),
-                named(
-                    (downloads_choice ? std::string("content-updates")
-                                      : std::string(layout::setting_name(row.setting))) +
-                    "." + word
-                ),
+                named(stem + "." + word),
                 kit::ControlKind::list_item
             );
             added.checked = choice == look.chosen;

@@ -8519,6 +8519,32 @@ void updates_lists_its_rows_and_the_compact_list_of_thirteen_scrolls() {
     CHECK(cancelled.chosen.update_check == settings::UpdateCheck::automatically);
     CHECK(cancelled.updates.mode == static_cast<int32_t>(settings::UpdateCheck::automatically));
     CHECK(cancelled.updates.can_check);
+
+    // A click on the open list chooses where the item is drawn, at each
+    // class. At Compact the list opens upward, above the footer, and the
+    // click still lands on Only when I ask.
+    const std::array<kit::SizeClass, 3> classes{
+        kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large
+    };
+    for (const kit::SizeClass size_class : classes) {
+        settings::Dialog menu = updates_dialog(ready);
+        menu.size_class = size_class;
+        const auto field = find_part(
+            settings::dialog_layout(menu), "Automatically", settings::first_row_control + 1
+        );
+        CHECK(field != nullptr);
+        CHECK(click(menu, centre(field->rect)) == DialogAction::redraw);
+        CHECK(menu.open_list == settings::first_row_control + 1);
+        const auto asked =
+            find_part(settings::dialog_layout(menu), "Only when I ask", settings::no_control);
+        CHECK(asked != nullptr);
+        const geometry::Sizes& sized = geometry::sizes_of(menu);
+        CHECK(asked->rect.y >= geometry::body_top);
+        CHECK(asked->rect.y + asked->rect.height <= sized.footer_rule_row);
+        CHECK(click(menu, centre(asked->rect)) == DialogAction::changed);
+        CHECK(menu.chosen.update_check == settings::UpdateCheck::when_asked);
+        CHECK(menu.open_list == settings::no_control);
+    }
 }
 
 void controller_is_listed_only_once_a_gamepad_sent_input() {
