@@ -1246,6 +1246,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_full.cpp src/app/runtime_full_sprites.cpp src/app/runtime_full_overlays.cpp
   src/app/runtime_terrain_filter.cpp src/app/runtime_fog.cpp
   src/app/runtime_pointer_press.cpp
+  src/app/runtime_pointer_roles.cpp
   src/app/runtime_selection.cpp src/app/runtime_selection_shortcuts.cpp
   src/app/runtime_view_panels.cpp src/app/runtime_whiteboard.cpp src/app/runtime_commander_placement.cpp
   src/app/runtime_megamap.cpp
@@ -3677,6 +3678,21 @@ endforeach()
         --preferences-file "${oa_key_table_dir}/key-table.conf")
       set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows with the left and right mouse buttons exchanged, under
+      # a layout that exchanges those roles.
+      set(oa_key_table_swapped_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-swapped-buttons")
+      file(MAKE_DIRECTORY "${oa_key_table_swapped_dir}")
+      add_test(NAME native-key-table-swapped-buttons COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons/swapped-buttons.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons"
+        --preferences-file "${oa_key_table_swapped_dir}/key-table.conf")
+      set_tests_properties(native-key-table-swapped-buttons PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_swapped_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same rows again, plus the ones that exist only with the twelve
       # catalogue hacks turned on.

@@ -2309,15 +2309,15 @@ bool Runtime::draw_match_surface() {
     // by the view's offset, to the nearest screen pixel.
     auto painted = viewport;
     align_order_overlay_viewport(painted);
-    // Over the fog tiles: the local player's order overlays while Shift is
-    // held (asked of the keyboard, not the pointer word), so that orders
+    // Over the fog tiles: the local player's order overlays while the queue
+    // modifier is held (asked of that role, not the pointer word), so that orders
     // queued onto never-mapped or unseen ground stay in view (in 3.1c the
     // smoke and the fog cover them), then the HUD overlay's outline of the
     // build site or the drag box. The fog's profile category takes the time
     // of both.
     if (!bare) {
-        if (!live_renderer_active() && (control_key_down(oa::ui::gui_input::ControlKey::shift) ||
-                                        virtual_shift(ModifierUse::order)))
+        if (!live_renderer_active() &&
+            (modifier_role_active("order.queue-modifier") || virtual_shift(ModifierUse::order)))
             // What the pass drew is for the checks alone.
             std::ignore = draw_order_overlays(world_surface, painted);
         if (build_queue_drag_ && build_queue_drag_->moved)

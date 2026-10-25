@@ -299,8 +299,7 @@ void Runtime::align_order_overlay_viewport(
 
 bool Runtime::build_queue_drag_pointer(const SDL_Event& event, float x, float y) {
     const auto shift_held = [this] {
-        return control_key_down(oa::ui::gui_input::ControlKey::shift) ||
-               virtual_shift(ModifierUse::order);
+        return modifier_role_active("build.move-queued-site") || virtual_shift(ModifierUse::order);
     };
     const auto site_at = [this](float px, float py) -> std::optional<BuildQueueDrag> {
         if (!match_)
@@ -401,7 +400,7 @@ bool Runtime::build_queue_drag_pointer(const SDL_Event& event, float x, float y)
     }
     if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
         return false;
-    if (event.button.button != SDL_BUTTON_LEFT)
+    if (event.button.button != pointer_role_button("build.move-queued-site"))
         return false;
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
         build_queue_drag_.reset();

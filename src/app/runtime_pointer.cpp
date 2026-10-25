@@ -1093,11 +1093,11 @@ bool Runtime::middle_pan_take(const SDL_Event& event) {
         button = event.button.button;
         x = event.button.x;
         y = event.button.y;
-        gesture = button == SDL_BUTTON_MIDDLE ? middle_pan::Gesture::middle_down
-                                              : middle_pan::Gesture::other;
+        gesture = button == pointer_role_button("pointer.pan") ? middle_pan::Gesture::middle_down
+                                                               : middle_pan::Gesture::other;
         break;
     case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (event.button.button != SDL_BUTTON_MIDDLE)
+        if (event.button.button != pointer_role_button("pointer.pan"))
             return false;
         gesture = middle_pan::Gesture::middle_up;
         x = event.button.x;
@@ -1120,8 +1120,8 @@ bool Runtime::middle_pan_take(const SDL_Event& event) {
     const auto result = middle_pan::apply(middle_pan_, gesture, x, y, enabled, can_start);
     middle_pan_ = result.state;
     if (button_down && result.swallow) {
-        const bool starting =
-            button == SDL_BUTTON_MIDDLE && result.state.phase != middle_pan::Phase::idle;
+        const bool starting = button == pointer_role_button("pointer.pan") &&
+                              result.state.phase != middle_pan::Phase::idle;
         if (!starting)
             middle_pan_swallow_button_ = button;
     }
