@@ -166,6 +166,22 @@ bool modifiers_match(uint8_t chord_modifiers, uint8_t held) {
     return (need & static_cast<uint8_t>(~held)) == 0;
 }
 
+/// The mouse button SDL reports for a chord's button.
+///
+/// A chord numbers MouseLeft, MouseRight, MouseMiddle as 1, 2, 3. SDL numbers
+/// those same buttons 1, 3, 2. The match compares a press with SDL's number, so
+/// a stored mouse chord is translated once, here. A wheel has no button.
+///
+/// @param chord_button the chord's button, 1 to 8
+/// @return the SDL button
+uint8_t sdl_mouse_button(uint8_t chord_button) {
+    if (chord_button == 2)
+        return kButtonRight;
+    if (chord_button == 3)
+        return kButtonMiddle;
+    return chord_button;
+}
+
 /// How many modifiers a chord names. A higher count is the more specific chord.
 ///
 /// @param modifiers the chord's bits
@@ -203,7 +219,8 @@ void Runtime::rebuild_pointer_roles(const keys::Resolved& resolved) {
                 continue;
             PointerRoleChord& stored = pointer_roles_.chords[slot_index][count];
             stored.modifiers = chord.modifiers;
-            stored.button = chord.button;
+            stored.button = chord.kind == keys::TriggerKind::mouse ? sdl_mouse_button(chord.button)
+                                                                   : chord.button;
             stored.wheel = chord.wheel;
             stored.kind = static_cast<uint8_t>(chord.kind);
             stored.gesture = static_cast<uint8_t>(chord.gesture);
