@@ -250,7 +250,8 @@ Each of these takes effect at once.
 
 The three sliders are locked during a game, and in a multiplayer game or a
 replay they show "Set by the host". Weapon types and Sides never take a
-focus, a key or a click.
+focus, a key or a click. Resting on either says
+"Set by the mod. Every player in a game has the same."
 
 ![The end of the Engine Limits section: the heading Set by the mod, Weapon types at 256, and Sides at 5.](images/settings/engine-limits-2.png)
 

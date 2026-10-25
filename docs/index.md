@@ -84,7 +84,8 @@ Every document in the repository, by what you want to do.
   which others.
 - [multiplayer/content.md](multiplayer/content.md): the base game and
   expansions each player shows in the battle room, and when a difference
-  keeps the game from starting.
+  keeps the game from starting. A mod with more weapons or sides plays
+  only on Open Annihilation; the page points at the room's lines.
 - [multiplayer/mutators.md](multiplayer/mutators.md): mutators in the
   battle room: the host chooses, a guest sees the list and **GET
   MUTATORS**, **START** waits, and a room with mutators is Open
