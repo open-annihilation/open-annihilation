@@ -11,6 +11,7 @@ add_library(oa-ui-key-bindings
   src/key_names.cpp
   src/resolve.cpp
   src/clashes.cpp
+  src/dispatcher.cpp
   src/layout_file.cpp)
 add_library(oa::ui::key_bindings ALIAS oa-ui-key-bindings)
 target_include_directories(oa-ui-key-bindings PUBLIC include)
@@ -31,6 +32,11 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME ui-key-bindings-layouts COMMAND oa-ui-key-bindings-layouts-exe)
 
+  # One binding per event, the gestures, and a modifier role read from the keys held now.
+  add_executable(oa-ui-key-bindings-dispatcher-exe tests/dispatcher_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-dispatcher-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-dispatcher COMMAND oa-ui-key-bindings-dispatcher-exe)
   # A manifest's chords, warnings and the text form, against a layout.
   add_executable(oa-ui-key-bindings-files-exe tests/layout_file_test.cpp)
   target_link_libraries(oa-ui-key-bindings-files-exe PRIVATE oa-ui-key-bindings oa-test-support

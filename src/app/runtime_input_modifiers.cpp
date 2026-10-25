@@ -133,6 +133,8 @@ SDL_Keymod Runtime::input_modifiers(ModifierUse use) const {
     auto modifiers = static_cast<uint32_t>(device_state::modifiers_held());
     if (const auto* state = touch_state_if_made(); state != nullptr)
         modifiers |= state->dispatch.pulse;
+    // The role is read before the latch and FORCE, so those still add their bits.
+    apply_binding_roles(modifiers, use);
     if (virtual_shift(use))
         modifiers |= SDL_KMOD_LSHIFT;
     // FORCE is the pad's Ctrl for clicks, never for the keys the pad presses.
