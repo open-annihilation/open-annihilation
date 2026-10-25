@@ -420,6 +420,15 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
 bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     if (screen_ != Screen::match || !match_)
         return false;
+    // The event may arrive here without passing through dispatch_event, which
+    // is where a key is fed. A check also leaves the down flag clear and names
+    // the press by the event type. Feed this press so the action is the one
+    // this key stands for, including when dispatch_event already fed it.
+    SDL_Event fed_event{};
+    fed_event.key = key;
+    fed_event.type = SDL_EVENT_KEY_DOWN;
+    fed_event.key.down = true;
+    feed_input_actions(fed_event);
     // The surrender confirmation takes the keys ahead of the chat line and
     // a marker's text, which keep what was typed for after it.
     const bool question = match_question_open();
