@@ -193,23 +193,15 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         live.drag_button = 0;
         return false;
     }
-    const bool option_key = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_ALT) != 0;
-    if (option_key && (event.key.key == SDLK_R || event.key.scancode == SDL_SCANCODE_R)) {
-        reset_live_renderer();
-        return true;
-    }
-    if (option_key && (event.key.key == SDLK_U || event.key.scancode == SDL_SCANCODE_U)) {
-        if (!event.key.repeat) {
-            live.failed = false;
-            live.unavailable = false;
-            const auto before = engine_settings();
-            auto chosen = before;
-            chosen.unlocked_camera = !chosen.unlocked_camera;
-            apply_engine_settings(chosen);
-            if (const auto error = save_engine_settings(before, chosen, false))
-                status_ = *error;
+    if (event.type == SDL_EVENT_KEY_DOWN) {
+        const auto actions = match_action_events();
+        for (const oa::ui::key_bindings::ActionEvent& action : actions) {
+            if (action.phase != oa::ui::key_bindings::Phase::pressed)
+                continue;
+            if (action.action != "camera.classic-view" && action.action != "camera.unlocked")
+                continue;
+            return handle_match_action(action);
         }
-        return true;
     }
     SDL_Event converted = event;
     const bool pointer =
