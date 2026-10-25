@@ -4481,6 +4481,12 @@ if(BUILD_TESTING)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    if(TARGET oa-update AND OA_SELF_CHECKS)
+      add_test(NAME tools-oa-update-run COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_helper.py
+        $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
+      set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
+    endif()
     if(UNIX)
       find_program(OA_BASH_EXECUTABLE bash)
       if(OA_BASH_EXECUTABLE)
