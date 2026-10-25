@@ -42,7 +42,7 @@ struct Recorder {
     };
 
     std::vector<Change> changes;
-    std::vector<uint8_t> hits_elsewhere; // weapon ids handed to feature_hit_elsewhere
+    std::vector<uint16_t> hits_elsewhere; // weapon ids handed to feature_hit_elsewhere
     bool settled_elsewhere = false;
     float credited_energy = 0.0f;
     float credited_metal = 0.0f;
@@ -97,7 +97,7 @@ FeatureHost make_host(Recorder& recorder) {
         recorder->credited_energy += energy;
         recorder->credited_metal += metal;
     };
-    host.feature_hit_elsewhere = [](void* context, uint8_t weapon_id, int32_t, int32_t) {
+    host.feature_hit_elsewhere = [](void* context, uint16_t weapon_id, int32_t, int32_t) {
         auto* recorder = static_cast<Recorder*>(context);
         recorder->hits_elsewhere.push_back(weapon_id);
         return recorder->settled_elsewhere;
@@ -552,6 +552,14 @@ void test_hit_elsewhere() {
         f.plots[f.at(5, 5)].feature == 3 && r.changes.empty(),
         "hit settled elsewhere is not applied"
     );
+    WeaponDef wide{};
+    oa_weapon_def_set_id(&wide, 300);
+    wide.damage_default = 200;
+    damage_feature(f.world, host, f.at(5, 5), 5, 5, wide);
+    require(
+        r.hits_elsewhere.size() == 2 && r.hits_elsewhere[1] == 300, "weapon 300 is forwarded whole"
+    );
+    require(f.plots[f.at(5, 5)].feature == 3, "wide hit settled elsewhere is not applied");
     r.settled_elsewhere = false;
     damage_feature(f.world, host, f.at(5, 5), 5, 5, weapon);
     require(f.plots[f.at(5, 5)].feature == 4, "hit settled here destroys wreck");

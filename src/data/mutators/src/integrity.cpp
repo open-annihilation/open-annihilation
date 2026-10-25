@@ -8,7 +8,6 @@
 #include "oa/data/mutators/integrity.hpp"
 
 #include "oa/core/move_class.h"
-#include "oa/core/side.h"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_catalog.hpp"
 #include "oa/formats/tdf.hpp"
@@ -583,11 +582,11 @@ void check_sides(
             if (section == nullptr || section->name == nullptr)
                 continue;
             const std::optional<uint32_t> slot = numbered(section->name, "SIDE");
-            if (!slot.has_value() || *slot < OA_SIDE_COUNT)
+            if (!slot.has_value() || *slot < limits.sides)
                 continue;
             std::string sentence = section->name;
             sentence += " is past the ";
-            sentence += std::to_string(OA_SIDE_COUNT);
+            sentence += std::to_string(limits.sides);
             sentence += " sides the game reads";
             add_issue(
                 issues,
@@ -600,7 +599,7 @@ void check_sides(
                 std::move(sentence)
             );
         }
-        for (uint32_t slot = 0; slot < OA_SIDE_COUNT; ++slot) {
+        for (uint32_t slot = 0; slot < limits.sides; ++slot) {
             const std::string section_name = "SIDE" + std::to_string(slot);
             const tdf::Block* section = first_named(root, section_name.c_str());
             if (section == nullptr)

@@ -96,11 +96,15 @@ bool side_load_rect(
 }
 
 bool side_table_load(
-    formats::tdf::Document* sidedata, SideTable* table, const SideFontResolver* fonts
+    formats::tdf::Document* sidedata,
+    SideTable* table,
+    const SideFontResolver* fonts,
+    uint32_t side_limit
 ) noexcept {
     std::memset(static_cast<void*>(table), 0, sizeof *table);
+    const uint32_t cap = std::min(side_limit, static_cast<uint32_t>(side_table_capacity));
     uint32_t index = 0;
-    for (; index < OA_SIDE_COUNT; ++index) {
+    for (; index < cap; ++index) {
         Side* side = &table->sides[index];
         side->side_index = index;
         char section[32];
@@ -150,11 +154,30 @@ bool side_table_load(
         }
     }
     table->count = index;
+    table->limit = cap;
+    // A section past the cap is only looked up, never read, so a missing
+    // rectangle there does not refuse the load.
+    if (index == cap) {
+        uint32_t past = 0;
+        for (uint32_t extra = cap; extra != UINT32_MAX; ++extra) {
+            char past_section[32];
+            std::snprintf(past_section, sizeof past_section, "SIDE%u", extra);
+            formats::tdf::reset_cursor(sidedata);
+            if (!formats::tdf::select_section(sidedata, past_section))
+                break;
+            ++past;
+        }
+        table->past_limit = past;
+    }
     return true;
 }
 
 bool load_side_data(
-    const Files* files, SideTable* table, const char* variant, const SideFontResolver* fonts
+    const Files* files,
+    SideTable* table,
+    const char* variant,
+    const SideFontResolver* fonts,
+    uint32_t side_limit
 ) noexcept {
     char path[path_capacity];
     build_variant_path(
@@ -170,7 +193,7 @@ bool load_side_data(
     formats::tdf::document_init(&document);
     // 3.1c ignores a failed load here and ends up with zero sides.
     const bool loaded = load_tdf_file(files, path, &document, nullptr);
-    const bool ok = side_table_load(&document, table, fonts);
+    const bool ok = side_table_load(&document, table, fonts, side_limit);
     formats::tdf::document_free(&document);
     return loaded && ok;
 }
@@ -186,7 +209,7 @@ bool side_file_path(
 ) noexcept {
     if (capacity != 0)
         out[0] = '\0';
-    if (side >= table.count || side >= OA_SIDE_COUNT)
+    if (side >= table.count || side >= side_table_capacity)
         return false;
     const bool panels = file == SideFile::panels;
     if (!(panels ? table.has_panel_gaf[side] : table.has_font[side]))
@@ -212,7 +235,7 @@ uint32_t side_missing_files(
     uint32_t count = 0;
     // Every side's intgaf before any side's font, as 3.1c loads them.
     for (const SideFile file : {SideFile::panels, SideFile::font})
-        for (uint32_t index = 0; index < table.count && index < OA_SIDE_COUNT; ++index) {
+        for (uint32_t index = 0; index < table.count && index < side_table_capacity; ++index) {
             char path[path_capacity];
             if (!side_file_path(files, table, index, file, variant, path, sizeof path))
                 continue;
@@ -239,6 +262,34 @@ uint32_t side_missing_files(
             ++count;
         }
     return count;
+}
+
+bool side_table_past_limit_line(const SideTable& table, char* out, std::size_t capacity) noexcept {
+    if (out != nullptr && capacity != 0)
+        out[0] = '\0';
+    if (table.past_limit == 0 || out == nullptr || capacity == 0)
+        return false;
+    if (table.past_limit == 1) {
+        std::snprintf(
+            out,
+            capacity,
+            "gamedata/sidedata.tdf: SIDE%u is past the %u sides this game plays (limits.sides) "
+            "and is left out",
+            table.limit,
+            table.limit
+        );
+    } else {
+        std::snprintf(
+            out,
+            capacity,
+            "gamedata/sidedata.tdf: SIDE%u to SIDE%u are past the %u sides this game plays "
+            "(limits.sides) and are left out",
+            table.limit,
+            table.limit + table.past_limit - 1u,
+            table.limit
+        );
+    }
+    return true;
 }
 
 } // namespace oa::data::defs

@@ -146,7 +146,7 @@ void Runtime::prepare_megamap() {
     const uint32_t type_bits = categories.words_per_mask * 32U;
     // The sets made here first, so that their masks keep their places.
     const auto& game = world.game;
-    const uint32_t sides = std::min<uint32_t>(game.side_count, std::size(game.sides));
+    const uint32_t sides = oa::world_side_count(&world);
     const bool built_in = state.config.options.default_icons;
     const std::size_t own_count = built_in ? 7 : sides;
     state.own_words.assign(own_count, {});
@@ -193,22 +193,25 @@ void Runtime::prepare_megamap() {
     } else {
         // Each side's commanders first, under the side's name.
         for (uint32_t side = 0; side < sides; ++side) {
-            for (uint32_t index = 0; index < world.unit_def_count; ++index) {
-                const auto& def = world.unit_defs[index];
-                if (commander_type(def) && same_side(def.side, game.sides[side].name))
-                    add_type(state.own_masks[side], def.type_id);
+            const oa::Side* record = oa::world_side(&world, side);
+            if (record != nullptr) {
+                for (uint32_t index = 0; index < world.unit_def_count; ++index) {
+                    const auto& def = world.unit_defs[index];
+                    if (commander_type(def) && same_side(def.side, record->name))
+                        add_type(state.own_masks[side], def.type_id);
+                }
             }
-            std::string name(
-                game.sides[side].name,
-                ::strnlen(game.sides[side].name, sizeof game.sides[side].name)
-            );
+            const char* side_name = record != nullptr ? record->name : "";
+            std::string name(side_name, ::strnlen(side_name, sizeof(oa::Side::name)));
             state.entries.push_back({load_megamap_icon(name + ".PCX"), &state.own_masks[side]});
         }
-        for (const auto& line : state.config.lines)
+        for (const auto& line : state.config.lines) {
+            // A line must not add a category: adding one can move the masks
+            // earlier lines point at.
             state.entries.push_back(
-                {load_megamap_icon(line.file),
-                 oa::data::defs::category_registry_find_or_add(&categories, line.category.c_str())}
+                {load_megamap_icon(line.file), hud::icon_category_mask(categories, line)}
             );
+        }
         state.unknown = load_megamap_icon(state.config.unknown_file);
         state.nothing = load_megamap_icon(state.config.nothing_file);
     }

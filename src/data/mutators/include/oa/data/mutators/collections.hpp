@@ -323,6 +323,19 @@ class Collections {
     /// @return the count last given to `set_weapon_types`, or 256
     [[nodiscard]] uint32_t weapon_types() const noexcept { return weapon_types_; }
 
+    /// Remembers how many SIDE sections the game reads.
+    ///
+    /// A side collection counts sections up to this limit and no further.
+    /// Five unless the pipeline read the profile's `limits.sides`.
+    ///
+    /// @param count sides the game reads
+    void set_side_limit(uint32_t count) noexcept { side_limit_ = count; }
+
+    /// How many SIDE sections the game reads.
+    ///
+    /// @return the count last given to `set_side_limit`, or 5
+    [[nodiscard]] uint32_t side_limit() const noexcept { return side_limit_; }
+
     /// Remembers weapon sections whose ids the game already assigned.
     ///
     /// A later hook that writes `id` on one of these weapons does not change
@@ -587,6 +600,8 @@ class Collections {
     oa::AssetStore* store_{}; ///< store a clone reads; not owned
     /// Weapon ids the mod numbers, 0 to one less. 256 until `set_weapon_types`.
     uint32_t weapon_types_{256};
+    /// SIDE sections the game reads, from SIDE0. Five until `set_side_limit`.
+    uint32_t side_limit_{5};
     std::vector<CloneRecord> clones_; ///< clones made during the hooks
     std::vector<ServedCopy> served_;  ///< binary copies those clones serve
     /// Folded weapon section names whose ids stay as the game assigned them.

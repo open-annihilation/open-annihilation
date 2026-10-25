@@ -91,7 +91,7 @@ void Runtime::check_side_orders() {
     std::string report;
     const auto hidden_sides = oa::data::defs::skirmish_hidden_sides();
     for (std::size_t side = 0; side < side_table_.count; ++side) {
-        if (((hidden_sides >> side) & 1u) != 0)
+        if (side < 32 && ((hidden_sides >> side) & 1u) != 0)
             continue;
         const auto side_name =
             field_text(side_table_.sides[side].name, sizeof side_table_.sides[side].name);

@@ -277,6 +277,17 @@ struct IconConfig {
 /// @return the settings
 [[nodiscard]] IconConfig parse_icon_config(std::string_view text, uint32_t category_limit);
 
+/// The mask of a line's category word, matched without case.
+///
+/// A category no unit carries is null, which matches nothing. The lookup never
+/// adds a category: adding one can move the masks earlier lines point at.
+///
+/// @param registry the unit table's category registry
+/// @param line one [Icon] line
+/// @return the category's mask, or null when no unit carries that word
+[[nodiscard]] const data::defs::CategoryMask*
+icon_category_mask(const data::defs::CategoryRegistry& registry, const IconLine& line) noexcept;
+
 /// Which icon a unit takes.
 enum class IconChoice : uint8_t {
     category, ///< the first line whose category holds the unit's type

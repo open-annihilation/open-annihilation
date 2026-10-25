@@ -17,7 +17,7 @@ system. Headers compile as C11 and C++20 (namespace `oa` in C++); target
 | `map_plot.h` | `MapPlot` (0xd terrain cell), plot flags |
 | `cob.h` | `CobScriptHeader`, `CobThread` (0xa4), `CobMachine` (0x544) |
 | `game_state.h` | `Game` (0x3924d): players, weapon defs, sides, score table inline; tables by reference |
-| `world.h` | `World`: the live `Game` plus its tables, including weapon slots past the game state's table; lifetime (`world_create`, `world_alloc_tables`, ...) and reference helpers |
+| `world.h` | `World`: the live `Game` plus its tables, including weapon slots past the game state's table and sides past it that the match binds; lifetime (`world_create`, `world_alloc_tables`, ...) and reference helpers |
 
 Conventions:
 
@@ -32,12 +32,15 @@ Conventions:
   host pointers and has no 3.1c layout. `world_alloc_tables` sizes the
   unit (`units_per_player * 10 + 1`, slot 0 reserved), type (index 0 reserved),
   feature and projectile tables, and weapon slots past the game state's table
-  when the capacity asks for them; the map loader owns `plots`, `sight_grid`
-  and `placed_features`. Tables stay at stable addresses while referenced.
+  when the capacity asks for them. Sides past the fifth are bound by the match,
+  which owns them; the World only points at them. The map loader owns `plots`,
+  `sight_grid` and `placed_features`. Tables stay at stable addresses while
+  referenced.
 - An `oa_ref32` that refers to an element of a World table stores the element
   index + 1; 0 is null. Use the `world_*` helpers (`world_unit`,
   `world_unit_ref`, `world_unit_def_of`, `world_unit_owner`,
-  `world_player_units`, ...) rather than decoding by hand. Unit links convert
+  `world_player_units`, `world_side`, `world_side_count`, ...) rather than
+  decoding by hand. Unit links convert
   to slot indices with `oa_unit_slot_from_ref` / `oa_unit_ref_from_slot` (0
   stays "none").
 - Objects with no 3.1c layout yet (order queues, movement and script

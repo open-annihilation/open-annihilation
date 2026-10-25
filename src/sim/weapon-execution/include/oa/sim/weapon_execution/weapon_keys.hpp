@@ -47,7 +47,7 @@ reach_keys(const data::match_rules::WeaponTypeRules& weapon) noexcept {
 
 /// Returns a weapon's reach-test inputs under the match's rules.
 ///
-/// @param weapon the weapon definition; its weapon_id selects its own rules
+/// @param weapon the weapon definition; its whole id selects its own rules
 /// @param simulation_gravity Game.gravity
 /// @param rules the match's rules
 /// @return flags, range, launch solver inputs and data-key switches
@@ -62,7 +62,7 @@ reach_keys(const data::match_rules::WeaponTypeRules& weapon) noexcept {
         ballistic_parameters(
             weapon.weapon_velocity, weapon.min_barrel_angle, simulation_gravity, rules.rules()
         ),
-        reach_keys(rules.weapon(weapon.weapon_id))
+        reach_keys(rules.weapon(oa_weapon_def_id(&weapon)))
     };
 }
 
