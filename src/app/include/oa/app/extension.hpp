@@ -223,8 +223,11 @@
 /// extension fills it. Version 17 adds hear_remote_seat_chat, which hands a
 /// chat line from another machine to the computer seats on this machine
 /// that the line reached. It is not a hook: the engine does not call it,
-/// and no extension fills it.
-#define OA_EXTENSION_API_VERSION 17
+/// and no extension fills it. Version 18 adds the kit's keycaps, chord
+/// chips, keyboard and mouse pictures, key tints and marks, and the hold
+/// ring. It is not a hook: the engine does not call it, and no extension
+/// fills it.
+#define OA_EXTENSION_API_VERSION 18
 
 namespace oa {
 struct Game;
