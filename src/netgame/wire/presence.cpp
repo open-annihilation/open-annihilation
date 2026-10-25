@@ -4,6 +4,7 @@
 #include "oa/netgame/presence.hpp"
 
 #include "oa/netgame/records.hpp"
+#include "oa/netgame/wire_rules.hpp"
 
 #include <cassert>
 #include <cstring>
@@ -19,6 +20,8 @@ constexpr uint8_t developer_mode_flag = 0x01;
 constexpr uint8_t content_fetches_flag = 0x01;
 /// The content field's value: one byte of flags.
 constexpr std::size_t content_value_bytes = 1;
+/// The limits field's value: a u32 of weapon types and a u8 of sides.
+constexpr std::size_t limits_value_bytes = 5;
 /// Bit 0 of the bundles flags: a chosen bundle differs from a known hash.
 /// Bits 1 to 7 are sent as 0 and ignored when read.
 constexpr uint8_t bundles_differ_flag = 0x01;
@@ -569,6 +572,18 @@ void write_sim(uint8_t* out, std::size_t* used, const PresenceDigest& hash) noex
     put_bytes(out, used, hash.data(), digest_bytes);
 }
 
+/// A limits value names at least 3.1c's ceilings.
+bool limits_ok(const PresenceLimits& limits) noexcept {
+    return limits.weapon_types >= wire_base_weapon_types && limits.sides >= wire_base_sides;
+}
+
+void write_limits(uint8_t* out, std::size_t* used, const PresenceLimits& limits) noexcept {
+    put_u8(out, used, static_cast<uint8_t>(PresenceTag::limits));
+    put_u16(out, used, static_cast<uint16_t>(limits_value_bytes));
+    put_u32(out, used, limits.weapon_types);
+    put_u8(out, used, limits.sides);
+}
+
 void write_map_pack_value(uint8_t* out, std::size_t* used, const PresenceMapPack& pack) noexcept {
     put_string(out, used, pack.key);
     put_u32(out, used, pack.release);
@@ -1028,6 +1043,8 @@ WireError encode_presence(
         return WireError::bad_argument;
     if (record.mutator_part && !part_ok(*record.mutator_part))
         return WireError::bad_argument;
+    if (record.limits && !limits_ok(*record.limits))
+        return WireError::bad_argument;
 
     const auto limit = capacity < presence_record_max_bytes ? capacity : presence_record_max_bytes;
     std::size_t fixed = presence_record_header_bytes;
@@ -1045,6 +1062,8 @@ WireError encode_presence(
         fixed += presence_field_header_bytes + origin_value_bytes(*record.mod_origin);
     if (record.sim_hash)
         fixed += presence_field_header_bytes + digest_bytes;
+    if (record.limits)
+        fixed += presence_field_header_bytes + limits_value_bytes;
     if (record.mutators)
         fixed += presence_field_header_bytes + mutators_fixed_value_bytes;
     if (record.mutator_modes)
@@ -1128,6 +1147,8 @@ WireError encode_presence(
         write_origin(local, &used, *record.mod_origin);
     if (record.sim_hash)
         write_sim(local, &used, *record.sim_hash);
+    if (record.limits)
+        write_limits(local, &used, *record.limits);
     if (record.mutators)
         write_mutators(local, &used, *record.mutators, mutator_keep);
     if (record.mutator_modes) {
@@ -1197,6 +1218,7 @@ WireError decode_presence(const uint8_t* record, std::size_t size, PresenceRecor
     bool saw_mutators = false;
     bool saw_part = false;
     bool saw_modes = false;
+    bool saw_limits = false;
     std::optional<uint32_t> pending_modes;
     std::size_t at = presence_record_header_bytes;
     while (at < size) {
@@ -1236,6 +1258,15 @@ WireError decode_presence(const uint8_t* record, std::size_t size, PresenceRecor
                 std::memcpy(hash.data(), value.data, digest_bytes);
                 decoded.sim_hash = hash;
             }
+        } else if (tag == static_cast<uint8_t>(PresenceTag::limits)) {
+            if (saw_limits)
+                continue;
+            saw_limits = true;
+            uint32_t weapon_types = 0;
+            uint8_t sides = 0;
+            if (value.size == limits_value_bytes && value.u32(&weapon_types) && value.u8(&sides) &&
+                weapon_types >= wire_base_weapon_types && sides >= wire_base_sides)
+                decoded.limits = PresenceLimits{weapon_types, sides};
         } else if (tag == static_cast<uint8_t>(PresenceTag::game_hacks)) {
             if (saw_game)
                 continue;
@@ -1447,6 +1478,17 @@ std::optional<PresenceDigest> presence_sim_hash(const uint8_t* record, std::size
     PresenceDigest hash{};
     std::memcpy(hash.data(), value.data(), digest_bytes);
     return hash;
+}
+
+std::optional<PresenceLimits> presence_limits(const uint8_t* record, std::size_t size) noexcept {
+    std::span<const uint8_t> value;
+    if (!find_presence_field(record, size, PresenceTag::limits, &value) || value.size() != 5)
+        return std::nullopt;
+    const auto weapon_types = load_u32(value.data());
+    const auto sides = value[4];
+    if (weapon_types < wire_base_weapon_types || sides < wire_base_sides)
+        return std::nullopt;
+    return PresenceLimits{weapon_types, sides};
 }
 
 WireError encode_presence_map_pack(

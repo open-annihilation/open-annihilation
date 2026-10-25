@@ -7,6 +7,8 @@
 #include "oa/netgame/match/sim_records.hpp"
 #include "oa/netgame/player_slots.hpp"
 
+#include "oa/core/weapon_def.h"
+
 #include "oa/sim/air/host.hpp"
 #include "oa/sim/feature_runtime.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
@@ -480,10 +482,10 @@ void tree_burn(void* context, World* world, uint16_t x, uint16_t y) {
 ///
 /// @param context The MatchBinding.
 /// @param world Match world.
-/// @param weapon Game.weapon_defs index; unknown weapons are ignored.
+/// @param weapon Weapon id, looked up with world_weapon_def; unknown weapons are ignored.
 /// @param x Plot column; plots off the map are ignored.
 /// @param y Plot row.
-void feature_event(void* context, World* world, uint8_t weapon, uint16_t x, uint16_t y) {
+void feature_event(void* context, World* world, uint16_t weapon, uint16_t x, uint16_t y) {
     auto& b = self(context);
     const auto* def = world_weapon_def(world, oa_ref_from_index(weapon));
     if (def == nullptr || x >= world->game.map_width || y >= world->game.map_height)
@@ -519,14 +521,16 @@ void cob_start(void* context, World* world, Unit* unit, const CobStartRecord& re
 /// @param context The MatchBinding.
 /// @param world Match world.
 /// @param record Target point and weapon id of the intercepted shot.
-void detonate_projectile(void* context, World* world, const ProjectileInterceptedRecord& record) {
+void detonate_projectile(
+    void* context, World* world, const WideProjectileInterceptedRecord& record
+) {
     auto& b = self(context);
     const int32_t projectile_count = world->game.projectile_count;
     const auto count = std::min<int32_t>(projectile_count, OA_PROJECTILE_CAPACITY);
     for (int32_t i = 0; i < count; ++i) {
         auto& shot = world->projectiles[i];
         const auto* weapon = world_weapon_def(world, shot.def);
-        if (weapon == nullptr || weapon->weapon_id != record.weapon_id ||
+        if (weapon == nullptr || oa_weapon_def_id(weapon) != record.weapon_id ||
             shot.target.x != record.target[0] || shot.target.y != record.target[1] ||
             shot.target.z != record.target[2])
             continue;
@@ -545,7 +549,7 @@ void detonate_projectile(void* context, World* world, const ProjectileIntercepte
 /// @param sender The sender's player record (unused).
 /// @param record The shot.
 void weapon_fire(
-    void* context, World* /*world*/, Player* /*sender*/, const WeaponFireRecord& record
+    void* context, World* /*world*/, Player* /*sender*/, const WideWeaponFireRecord& record
 ) {
     auto& b = self(context);
     sim::match_runtime::ShotEvent shot{};
@@ -759,6 +763,34 @@ void script_started(
 void shot_fired(void* context, const sim::match_runtime::ShotEvent& shot) {
     auto& b = self(context);
     auto* world = b.net->world;
+    uint32_t route = net_match_local_route(b.net);
+    if (const auto* unit = shot.source_unit != 0 ? world_unit_at(world, shot.source_unit) : nullptr)
+        if (const auto* owner = world_player_ref(world, unit->owner))
+            route = owner->player_id;
+    const auto flags = shot.interceptor ? weapon_fire_interceptor : uint8_t{};
+    if (wide_weapon_records(b.net->rules)) {
+        WideWeaponFireRecord record{};
+        record.start[0] = shot.start.x;
+        record.start[1] = shot.start.y;
+        record.start[2] = shot.start.z;
+        record.target[0] = shot.target.x;
+        record.target[1] = shot.target.y;
+        record.target[2] = shot.target.z;
+        record.weapon_id = shot.weapon_id;
+        record.flags = flags;
+        record.aim_heading = shot.aim_heading;
+        record.aim_pitch = shot.aim_pitch;
+        record.target_unit_index = shot.target_unit;
+        record.source_unit_index = shot.source_unit;
+        record.slot = shot.slot;
+        constexpr auto length =
+            record_table_length(static_cast<uint8_t>(WideRecordType::weapon_fire));
+        uint8_t bytes[length];
+        std::size_t written = 0;
+        if (encode_record(record, bytes, sizeof bytes, &written) == WireError::ok)
+            (void)net_match_send(b.net, route, broadcast_destination_id, bytes, written);
+        return;
+    }
     WeaponFireRecord record{};
     record.start[0] = shot.start.x;
     record.start[1] = shot.start.y;
@@ -768,16 +800,12 @@ void shot_fired(void* context, const sim::match_runtime::ShotEvent& shot) {
     record.target[2] = shot.target.z;
     // 3.1c's record holds one byte, so a weapon past 255 goes out as its low byte.
     record.weapon_id = static_cast<uint8_t>(shot.weapon_id);
-    record.flags = shot.interceptor ? weapon_fire_interceptor : uint8_t{};
+    record.flags = flags;
     record.aim_heading = shot.aim_heading;
     record.aim_pitch = shot.aim_pitch;
     record.target_unit_index = shot.target_unit;
     record.source_unit_index = shot.source_unit;
     record.slot = shot.slot;
-    uint32_t route = net_match_local_route(b.net);
-    if (const auto* unit = shot.source_unit != 0 ? world_unit_at(world, shot.source_unit) : nullptr)
-        if (const auto* owner = world_player_ref(world, unit->owner))
-            route = owner->player_id;
     uint8_t bytes[36];
     std::size_t written = 0;
     if (encode_record(record, bytes, sizeof bytes, &written) == WireError::ok)
@@ -812,17 +840,20 @@ void unit_killed(void* context, uint16_t index, const sim::match_runtime::KillOu
 /// sender slot, or from the first player on this machine.
 ///
 /// @param context The MatchBinding.
-/// @param record The 0x0f record.
+/// @param record The feature record, narrow or wide.
+/// @param size Its length in bytes.
 /// @param to_host True for a hit handed to the host.
 /// @param sender Player slot the record goes out from; no_player_slot for the first player on this machine.
 void send_feature_record(
-    void* context, const uint8_t record[feature_record_bytes], bool to_host, uint8_t sender
+    void* context, const uint8_t* record, std::size_t size, bool to_host, uint8_t sender
 ) {
     auto& b = self(context);
+    if (record == nullptr || size == 0)
+        return;
     const uint32_t from = sender != no_player_slot ? player_slot_id(b.net->world->game, sender)
                                                    : net_match_local_route(b.net);
     const uint32_t to = to_host ? net_match_host_id(b.net) : broadcast_destination_id;
-    (void)net_match_send(b.net, from, to, record, feature_record_bytes);
+    (void)net_match_send(b.net, from, to, record, size);
 }
 
 /// Tells whether the session is live (Game.session_flags kNetFlagLive).
@@ -871,7 +902,7 @@ void feature_changed_hook(
 /// @param record The record.
 template <class R>
 void broadcast(MatchBinding& b, uint32_t from, const R& record) {
-    uint8_t bytes[record_length_table[static_cast<uint8_t>(R::type)]];
+    uint8_t bytes[record_table_length(static_cast<uint8_t>(R::type))];
     std::size_t written = 0;
     if (encode_record(record, bytes, sizeof bytes, &written) == WireError::ok)
         (void)net_match_send(b.net, from, broadcast_destination_id, bytes, written);
@@ -886,6 +917,23 @@ void broadcast(MatchBinding& b, uint32_t from, const R& record) {
 void shot_intercepted(void* context, const Projectile& shot, const Projectile& interceptor) {
     auto& b = self(context);
     auto* world = b.net->world;
+    const auto* source = world_unit(world, interceptor.source);
+    const auto* owner = source != nullptr ? world_player_ref(world, source->owner) : nullptr;
+    const uint32_t from = owner != nullptr ? owner->player_id : net_match_local_route(b.net);
+    if (wide_weapon_records(b.net->rules)) {
+        const auto record_of = [world](const Projectile& projectile) {
+            WideProjectileInterceptedRecord record{};
+            record.target[0] = projectile.target.x;
+            record.target[1] = projectile.target.y;
+            record.target[2] = projectile.target.z;
+            if (const auto* weapon = world_weapon_def(world, projectile.def))
+                record.weapon_id = oa_weapon_def_id(weapon);
+            return record;
+        };
+        broadcast(b, from, record_of(shot));
+        broadcast(b, from, record_of(interceptor));
+        return;
+    }
     const auto record_of = [world](const Projectile& projectile) {
         ProjectileInterceptedRecord record{};
         record.target[0] = projectile.target.x;
@@ -895,9 +943,6 @@ void shot_intercepted(void* context, const Projectile& shot, const Projectile& i
             record.weapon_id = weapon->weapon_id;
         return record;
     };
-    const auto* source = world_unit(world, interceptor.source);
-    const auto* owner = source != nullptr ? world_player_ref(world, source->owner) : nullptr;
-    const uint32_t from = owner != nullptr ? owner->player_id : net_match_local_route(b.net);
     broadcast(b, from, record_of(shot));
     broadcast(b, from, record_of(interceptor));
 }
@@ -1127,6 +1172,7 @@ void match_binding_install(MatchBinding* b) noexcept {
     b->features.context = b;
     b->features.send = send_feature_record;
     b->features.networked = session_live;
+    b->features.wide = wide_weapon_records(b->net->rules);
     b->match->multiplayer = hooks;
 }
 

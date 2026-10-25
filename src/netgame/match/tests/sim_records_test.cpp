@@ -162,7 +162,7 @@ void unit_killed_record() {
 }
 
 struct Sent {
-    std::vector<std::array<uint8_t, feature_record_bytes>> records;
+    std::vector<std::vector<uint8_t>> records;
     std::vector<bool> to_host;
     std::vector<uint8_t>
         senders; // the slot each record goes out from; no_player_slot for this machine's first
@@ -173,17 +173,13 @@ FeatureRecordLink link_for(World& world, Sent& sent) {
     FeatureRecordLink link{};
     link.world = &world;
     link.context = &sent;
-    link.send = [](void* context,
-                   const uint8_t record[feature_record_bytes],
-                   bool to_host,
-                   uint8_t sender) {
-        auto& s = *static_cast<Sent*>(context);
-        std::array<uint8_t, feature_record_bytes> copy{};
-        std::memcpy(copy.data(), record, copy.size());
-        s.records.push_back(copy);
-        s.to_host.push_back(to_host);
-        s.senders.push_back(sender);
-    };
+    link.send =
+        [](void* context, const uint8_t* record, std::size_t size, bool to_host, uint8_t sender) {
+            auto& s = *static_cast<Sent*>(context);
+            s.records.emplace_back(record, record + size);
+            s.to_host.push_back(to_host);
+            s.senders.push_back(sender);
+        };
     link.networked = [](void* context) { return static_cast<Sent*>(context)->networked; };
     return link;
 }
@@ -300,7 +296,7 @@ void feature_records() {
     );
     CHECK(
         sent.records.size() == 5 &&
-        (sent.records[4] == std::array<uint8_t, feature_record_bytes>{0x0f, 0xff, 6, 1, 7, 0})
+        (sent.records[4] == std::vector<uint8_t>{0x0f, 0xff, 6, 1, 7, 0})
     );
     CHECK(!sent.to_host[4] && sent.senders[4] == 3);
 
@@ -313,6 +309,42 @@ void feature_records() {
     CHECK(!feature_hit_elsewhere(&link, 9, 1, 1) && sent.records.size() == 5);
     feature_changed(&link, sim::feature_runtime::FeatureChange::ignited, 1, 1, nullptr);
     CHECK(sent.records.size() == 6 && sent.records[5][1] == 0xfe);
+}
+
+// With the wide form on, a hit and each change go out as the 8-byte record.
+void wide_feature_records() {
+    const auto burn =
+        encode_wide_feature_record(netgame::WideFeatureAction::tree_burn, 300, 8, 0x0102);
+    CHECK(burn.size() == 8 && burn[0] == 0xe2);
+    CHECK(burn[1] == static_cast<uint8_t>(netgame::WideFeatureAction::tree_burn));
+    CHECK(burn[2] == 0 && burn[3] == 0 && burn[4] == 8 && burn[6] == 2 && burn[7] == 1);
+
+    Map scene;
+    Sent sent;
+    sent.networked = true;
+    auto link = link_for(scene.world, sent);
+    link.wide = true;
+    CHECK(feature_hit_elsewhere(&link, 300, 5, 6));
+    CHECK(sent.records.size() == 1 && sent.records[0].size() == 8 && sent.to_host[0]);
+    CHECK(sent.records[0][0] == 0xe2);
+    CHECK(sent.records[0][1] == static_cast<uint8_t>(netgame::WideFeatureAction::weapon_hit));
+    CHECK(sent.records[0][2] == static_cast<uint8_t>(300) && sent.records[0][3] == 1);
+
+    feature_changed(&link, sim::feature_runtime::FeatureChange::ignited, 1, 2, nullptr);
+    feature_changed(&link, sim::feature_runtime::FeatureChange::destroyed, 3, 4, nullptr);
+    Unit reclaimer{};
+    reclaimer.owner_index = 2;
+    feature_changed(&link, sim::feature_runtime::FeatureChange::reclaimed, 5, 6, &reclaimer);
+    CHECK(sent.records.size() == 4);
+    CHECK(sent.records[1].size() == 8);
+    CHECK(sent.records[1][1] == static_cast<uint8_t>(netgame::WideFeatureAction::tree_burn));
+    CHECK(sent.records[1][2] == 0 && sent.records[1][3] == 0);
+    CHECK(sent.records[2][1] == static_cast<uint8_t>(netgame::WideFeatureAction::queue_event));
+    CHECK(sent.records[2][2] == 0 && sent.records[2][3] == 0);
+    CHECK(
+        sent.records[3][1] == static_cast<uint8_t>(netgame::WideFeatureAction::queue_event_flagged)
+    );
+    CHECK(sent.senders[3] == 2);
 }
 
 // Replication hooks on the local navigator, and a received delta on the
@@ -407,6 +439,7 @@ int main() {
     unit_flags_record();
     unit_killed_record();
     feature_records();
+    wide_feature_records();
     unit_transfer_records();
     route_deltas();
     if (failures != 0) {

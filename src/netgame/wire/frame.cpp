@@ -102,6 +102,8 @@ uint16_t copy_record_length(const PeerRecords* r, std::size_t at) noexcept {
         }
         return 0;
     }
+    if (r->wide_records && is_wide_record_type(type))
+        return wide_record_length_table[static_cast<std::size_t>(type - first_wide_record_type)];
     return record_length_table[type];
 }
 
@@ -110,10 +112,12 @@ uint16_t copy_record_length(const PeerRecords* r, std::size_t at) noexcept {
 /// @param r the peer's records
 /// @param type the byte
 /// @return true for 0x02..0x2c, for a recorder record when the ring splits
-///         them, and for 0xf0 when the ring splits presence records
+///         them, for 0xf0 when the ring splits presence records, and for
+///         0xe0..0xe2 when the ring splits wide weapon records
 bool splits_record(const PeerRecords* r, uint8_t type) noexcept {
     return is_record_type(type) || (r->recorder_records && is_recorder_record_type(type)) ||
-           (r->presence_records && type == presence_record_type);
+           (r->presence_records && type == presence_record_type) ||
+           (r->wide_records && is_wide_record_type(type));
 }
 
 /// Binds a peer slot to a sender with no sequence, nothing held and an empty ring.

@@ -430,6 +430,40 @@ WireError replication_apply_unit_state(
     return replication_apply_full_record(world, sim, &first[slot], &reader);
 }
 
+namespace {
+
+/// Applies one wide feature record. Actions other than a hit, a queue or a burn are not handled.
+bool apply_wide_feature(
+    World* world, const ReplicationSim* sim, const WideFeatureEventRecord& record
+) noexcept {
+    const auto action = record.action;
+    if (action == static_cast<uint8_t>(WideFeatureAction::tree_burn)) {
+        if (sim != nullptr && sim->tree_burn != nullptr)
+            sim->tree_burn(sim->context, world, record.x, record.y);
+        return true;
+    }
+    if (action == static_cast<uint8_t>(WideFeatureAction::queue_event) ||
+        action == static_cast<uint8_t>(WideFeatureAction::queue_event_flagged)) {
+        if (sim != nullptr && sim->queue_feature_event != nullptr)
+            sim->queue_feature_event(
+                sim->context,
+                world,
+                record.x,
+                record.y,
+                action == static_cast<uint8_t>(WideFeatureAction::queue_event_flagged)
+            );
+        return true;
+    }
+    if (action == static_cast<uint8_t>(WideFeatureAction::weapon_hit)) {
+        if (sim != nullptr && sim->feature_event != nullptr)
+            sim->feature_event(sim->context, world, record.weapon_id, record.x, record.y);
+        return true;
+    }
+    return false;
+}
+
+} // namespace
+
 WireError replication_apply_record(
     World* world,
     const ReplicationSim* sim,
@@ -442,6 +476,36 @@ WireError replication_apply_record(
         *handled = false;
     if (world == nullptr || bytes == nullptr || size == 0)
         return WireError::bad_argument;
+    if (is_wide_record_type(bytes[0])) {
+        void* ctx = sim != nullptr ? sim->context : nullptr;
+        bool known = false;
+        if (bytes[0] == static_cast<uint8_t>(WideRecordType::weapon_fire)) {
+            WideWeaponFireRecord record{};
+            const auto error = decode_record(bytes, size, &record);
+            if (error != WireError::ok)
+                return error;
+            known = true;
+            if (sim != nullptr && sim->weapon_fire != nullptr)
+                sim->weapon_fire(ctx, world, world_player(world, sender_index), record);
+        } else if (bytes[0] == static_cast<uint8_t>(WideRecordType::projectile_intercepted)) {
+            WideProjectileInterceptedRecord record{};
+            const auto error = decode_record(bytes, size, &record);
+            if (error != WireError::ok)
+                return error;
+            known = true;
+            if (sim != nullptr && sim->detonate_projectile != nullptr)
+                sim->detonate_projectile(ctx, world, record);
+        } else {
+            WideFeatureEventRecord record{};
+            const auto error = decode_record(bytes, size, &record);
+            if (error != WireError::ok)
+                return error;
+            known = apply_wide_feature(world, sim, record);
+        }
+        if (handled != nullptr)
+            *handled = known;
+        return WireError::ok;
+    }
     if (bytes[0] == static_cast<uint8_t>(RecordType::unit_state)) {
         if (handled != nullptr)
             *handled = true;
@@ -473,29 +537,15 @@ WireError replication_apply_record(
         break;
     case RecordType::weapon_fire:
         if (hook(&ReplicationSim::weapon_fire))
-            sim->weapon_fire(ctx, world, sender, any.weapon_fire);
+            sim->weapon_fire(ctx, world, sender, widen(any.weapon_fire));
         break;
     case RecordType::projectile_intercepted:
         if (hook(&ReplicationSim::detonate_projectile))
-            sim->detonate_projectile(ctx, world, any.projectile_intercepted);
+            sim->detonate_projectile(ctx, world, widen(any.projectile_intercepted));
         break;
-    case RecordType::feature_event: {
-        const auto& r = any.feature_event;
-        if (r.action == feature_action_tree_burn) {
-            if (hook(&ReplicationSim::tree_burn))
-                sim->tree_burn(ctx, world, r.x, r.y);
-        } else if (
-            r.action == feature_action_queue_event || r.action == feature_action_queue_event_flagged
-        ) {
-            if (hook(&ReplicationSim::queue_feature_event))
-                sim->queue_feature_event(
-                    ctx, world, r.x, r.y, r.action == feature_action_queue_event_flagged
-                );
-        } else if (hook(&ReplicationSim::feature_event)) {
-            sim->feature_event(ctx, world, r.action, r.x, r.y);
-        }
+    case RecordType::feature_event:
+        (void)apply_wide_feature(world, sim, widen(any.feature_event));
         break;
-    }
     case RecordType::cob_start: {
         // Unit index 0 names no unit: the record starts no script.
         Unit* unit = any.cob_start.unit_index != 0 ? world_unit_at(world, any.cob_start.unit_index)

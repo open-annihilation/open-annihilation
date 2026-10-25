@@ -201,9 +201,179 @@ void known_record_layouts() {
         header.length == 0x1234 && header.sender_tick == 0xa1b2c3d4u &&
         header.body_size == 0x1234 - 7
     );
+
+    WeaponFireRecord fire{};
+    fire.start[0] = 1;
+    fire.start[1] = 2;
+    fire.start[2] = 3;
+    fire.target[0] = 4;
+    fire.target[1] = 5;
+    fire.target[2] = 6;
+    fire.weapon_id = 7;
+    fire.flags = 1;
+    fire.aim_heading = 0x0102;
+    fire.aim_pitch = -3;
+    fire.target_unit_index = 0x0405;
+    fire.source_unit_index = 0x0607;
+    fire.slot = 2;
+    uint8_t fire_wire[36]{};
+    CHECK(encode_record(fire, fire_wire, sizeof fire_wire, nullptr) == WireError::ok);
+    const uint8_t expected_fire[] = {
+        0x0d, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0,    0,    4, 0, 0, 0, 5,
+        0,    0, 0, 6, 0, 0, 0, 7, 1, 2, 1, 0xfd, 0xff, 5, 4, 7, 6, 2,
+    };
+    CHECK(std::memcmp(fire_wire, expected_fire, sizeof fire_wire) == 0);
+
+    ProjectileInterceptedRecord intercepted{};
+    intercepted.target[0] = 9;
+    intercepted.target[1] = 8;
+    intercepted.target[2] = 7;
+    intercepted.weapon_id = 6;
+    uint8_t intercepted_wire[14]{};
+    CHECK(
+        encode_record(intercepted, intercepted_wire, sizeof intercepted_wire, nullptr) ==
+        WireError::ok
+    );
+    const uint8_t expected_intercepted[] = {0x0e, 9, 0, 0, 0, 8, 0, 0, 0, 7, 0, 0, 0, 6};
+    CHECK(std::memcmp(intercepted_wire, expected_intercepted, sizeof intercepted_wire) == 0);
+
+    FeatureEventRecord feature{};
+    feature.action = 4;
+    feature.x = 0x0102;
+    feature.y = 0x0304;
+    uint8_t feature_wire[6]{};
+    CHECK(encode_record(feature, feature_wire, sizeof feature_wire, nullptr) == WireError::ok);
+    const uint8_t expected_feature[] = {0x0f, 4, 2, 1, 4, 3};
+    CHECK(std::memcmp(feature_wire, expected_feature, sizeof feature_wire) == 0);
 }
 
 // ---- bit stream ----
+
+void wide_records_round_trip() {
+    const uint16_t ids[] = {0, 255, 256, 65535};
+    for (const auto id : ids) {
+        WideWeaponFireRecord fire{};
+        fire.start[0] = 1;
+        fire.start[1] = 2;
+        fire.start[2] = 3;
+        fire.target[0] = 4;
+        fire.target[1] = 5;
+        fire.target[2] = 6;
+        fire.weapon_id = id;
+        fire.flags = 1;
+        fire.aim_heading = 0x0102;
+        fire.aim_pitch = -3;
+        fire.target_unit_index = 0x0405;
+        fire.source_unit_index = 0x0607;
+        fire.slot = 2;
+        uint8_t bytes[64]{};
+        std::size_t written = 0;
+        CHECK(encode_record(fire, bytes, sizeof bytes, &written) == WireError::ok);
+        CHECK(written == wide_record_length_table[0] && bytes[0] == 0xe0);
+        CHECK(load_u16(bytes + 25) == id);
+        WideWeaponFireRecord fire_back{};
+        CHECK(decode_record(bytes, written, &fire_back) == WireError::ok && fire_back == fire);
+
+        WideProjectileInterceptedRecord hit{};
+        hit.target[0] = 9;
+        hit.target[1] = 8;
+        hit.target[2] = 7;
+        hit.weapon_id = id;
+        CHECK(encode_record(hit, bytes, sizeof bytes, &written) == WireError::ok);
+        CHECK(written == wide_record_length_table[1] && bytes[0] == 0xe1);
+        CHECK(load_u16(bytes + 13) == id);
+        WideProjectileInterceptedRecord hit_back{};
+        CHECK(decode_record(bytes, written, &hit_back) == WireError::ok && hit_back == hit);
+
+        WideFeatureEventRecord event{};
+        event.action = static_cast<uint8_t>(WideFeatureAction::weapon_hit);
+        event.weapon_id = id;
+        event.x = 0x0102;
+        event.y = 0x0304;
+        CHECK(encode_record(event, bytes, sizeof bytes, &written) == WireError::ok);
+        CHECK(written == wide_record_length_table[2] && bytes[0] == 0xe2);
+        CHECK(load_u16(bytes + 2) == id);
+        WideFeatureEventRecord event_back{};
+        CHECK(decode_record(bytes, written, &event_back) == WireError::ok && event_back == event);
+    }
+
+    FeatureEventRecord narrow{};
+    narrow.x = 1;
+    narrow.y = 2;
+    narrow.action = feature_action_queue_event;
+    auto widened = widen(narrow);
+    CHECK(
+        widened.action == static_cast<uint8_t>(WideFeatureAction::queue_event) &&
+        widened.weapon_id == 0 && widened.x == 1 && widened.y == 2
+    );
+    narrow.action = feature_action_tree_burn;
+    widened = widen(narrow);
+    CHECK(
+        widened.action == static_cast<uint8_t>(WideFeatureAction::tree_burn) &&
+        widened.weapon_id == 0
+    );
+    narrow.action = feature_action_queue_event_flagged;
+    widened = widen(narrow);
+    CHECK(
+        widened.action == static_cast<uint8_t>(WideFeatureAction::queue_event_flagged) &&
+        widened.weapon_id == 0
+    );
+    narrow.action = 4;
+    widened = widen(narrow);
+    CHECK(
+        widened.action == static_cast<uint8_t>(WideFeatureAction::weapon_hit) &&
+        widened.weapon_id == 4
+    );
+
+    uint8_t sample[40]{};
+    uint16_t length = 0;
+    sample[0] = 0xe0;
+    CHECK(wide_record_wire_length(sample, sizeof sample, &length) == WireError::ok && length == 37);
+    sample[0] = 0xe1;
+    CHECK(wide_record_wire_length(sample, sizeof sample, &length) == WireError::ok && length == 15);
+    sample[0] = 0xe2;
+    CHECK(wide_record_wire_length(sample, sizeof sample, &length) == WireError::ok && length == 8);
+    sample[0] = 0xdf;
+    CHECK(wide_record_wire_length(sample, sizeof sample, &length) == WireError::invalid_type);
+    sample[0] = 0xe3;
+    CHECK(wide_record_wire_length(sample, sizeof sample, &length) == WireError::invalid_type);
+    sample[0] = 0xe0;
+    CHECK(record_wire_length(sample, sizeof sample, &length) == WireError::invalid_type);
+}
+
+// A frame of 0x0b, 0xe0, 0x0b splits into three records only when wide records are admitted.
+void wide_records_split_only_when_admitted() {
+    constexpr std::size_t damage = 9;
+    constexpr std::size_t wide = 37;
+    uint8_t frame[frame_header_bytes + damage + wide + damage]{};
+    frame[frame_header_bytes] = 0x0b;
+    frame[frame_header_bytes + damage] = 0xe0;
+    frame[frame_header_bytes + damage + wide] = 0x0b;
+
+    auto without = std::make_unique<PeerRecords>();
+    peer_records_reset(without.get());
+    auto outcome = UnpackOutcome::unpacked;
+    CHECK(
+        unpack_frame_records(without.get(), frame, sizeof frame, 0, 1, 0, false, &outcome) ==
+        WireError::ok
+    );
+    const uint8_t* data = nullptr;
+    uint16_t length = 0;
+    CHECK(pop_due_record(without.get(), 0, &data, &length) && data[0] == 0x0b && length == damage);
+    CHECK(!pop_due_record(without.get(), 0, &data, &length));
+
+    auto admitted = std::make_unique<PeerRecords>();
+    peer_records_reset(admitted.get());
+    admitted->wide_records = true;
+    CHECK(
+        unpack_frame_records(admitted.get(), frame, sizeof frame, 0, 1, 0, false, &outcome) ==
+        WireError::ok
+    );
+    CHECK(pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0x0b && length == damage);
+    CHECK(pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0xe0 && length == wide);
+    CHECK(pop_due_record(admitted.get(), 0, &data, &length) && data[0] == 0x0b && length == damage);
+    CHECK(!pop_due_record(admitted.get(), 0, &data, &length));
+}
 
 void bit_writer_is_bounded() {
     uint8_t storage[8]{};
@@ -951,6 +1121,8 @@ int main() {
         {"every_record_type_round_trips", every_record_type_round_trips},
         {"unit_created_matches_existing_encoder", unit_created_matches_existing_encoder},
         {"known_record_layouts", known_record_layouts},
+        {"wide_records_round_trip", wide_records_round_trip},
+        {"wide_records_split_only_when_admitted", wide_records_split_only_when_admitted},
         {"bit_writer_is_bounded", bit_writer_is_bounded},
         {"build_fraction_coding_is_asymmetric", build_fraction_coding_is_asymmetric},
         {"unit_state_stream_round_trip", unit_state_stream_round_trip},

@@ -54,6 +54,12 @@ static_assert(layout_matches_table<EconomyRecord>());
 static_assert(layout_matches_table<EconomyReplyRecord>());
 static_assert(layout_matches_table<LoadProgressRecord>());
 
+static_assert(detail::visited_length<WideWeaponFireRecord>() == wide_record_length_table[0]);
+static_assert(
+    detail::visited_length<WideProjectileInterceptedRecord>() == wide_record_length_table[1]
+);
+static_assert(detail::visited_length<WideFeatureEventRecord>() == wide_record_length_table[2]);
+
 /// Calls f with the union member that matches a record type.
 ///
 /// @param any Record whose union member is passed.
@@ -235,6 +241,19 @@ record_wire_length(const uint8_t* bytes, std::size_t available, uint16_t* length
     }
     // A zero length would never advance past the record.
     return *length == 0 ? WireError::zero_length_record : WireError::ok;
+}
+
+WireError
+wide_record_wire_length(const uint8_t* bytes, std::size_t available, uint16_t* length) noexcept {
+    if (bytes == nullptr || length == nullptr)
+        return WireError::bad_argument;
+    if (available == 0)
+        return WireError::truncated;
+    const auto type = bytes[0];
+    if (!is_wide_record_type(type))
+        return WireError::invalid_type;
+    *length = wide_record_length_table[static_cast<std::size_t>(type - first_wide_record_type)];
+    return available < *length ? WireError::truncated : WireError::ok;
 }
 
 WireError
