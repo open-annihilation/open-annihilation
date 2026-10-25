@@ -212,6 +212,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/input-actions)
 add_subdirectory(src/data/brain-facts)
 add_subdirectory(src/data/brain-library)
 add_subdirectory(src/data/map-fit)
@@ -4356,6 +4357,14 @@ if(BUILD_TESTING)
     add_test(NAME mod-registry-sync-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_mod_registry.py --self-test)
     set_tests_properties(mod-registry-sync mod-registry-sync-selftest PROPERTIES TIMEOUT 60)
+    # The action table generated from the action registry
+    # (tools/gen_input_actions.py) is what the registry gives, and the
+    # registry is consistent.
+    add_test(NAME input-actions-sync COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_input_actions.py --check)
+    add_test(NAME input-actions-sync-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_input_actions.py --self-test)
+    set_tests_properties(input-actions-sync input-actions-sync-selftest PROPERTIES TIMEOUT 60)
     # The homepage, tag and engine-requirement rules (tools/oamod_yaml.py)
     # agree with the table the C++ reader checks.
     add_test(NAME oamod-yaml-selftest COMMAND ${Python3_EXECUTABLE}
