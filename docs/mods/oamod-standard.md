@@ -333,6 +333,10 @@ on:
   `{ini: Section/Key}` or `{registry: Name}`;
 - a constraint between parameters broken, such as a unit limit default
   above its maximum;
+- more `identity.side-names` than `limits.sides`, a hidden side numbered
+  at or past `limits.sides`, or a hidden-side list that offers no side,
+  checked once the limits have resolved
+  ([6.1](#61-identity), [6.3](#63-limits));
 - a data key bound to a meaning whose hack is off;
 - a hack this engine does not implement yet;
 - two `installation-archives` names that differ only in the case of their
@@ -753,10 +757,10 @@ Identity keys are written directly under `identity`.
 | `replay-network-version` | The version bytes a replay presents | `[3, 1]` | two integers, 0 to 255 | sim |
 | `settings-file` | The name of the INI file the game reads its settings from | `totala.ini` | string, at most 64 | view |
 | `registry-root` | The registry key the game keeps its settings under | 3.1c's own key | string, at most 128 | view |
-| `side-names` | The side names the game itself uses: computer players' names, elimination messages and the side buttons, one name a side in SIDEDATA's order. A side past the last name takes the last, so with two names every side but the first takes the second, as in 3.1c; a mod with more sides names each. SIDEDATA keeps its own names for everything else. | `[Arm, Core]` | two to five strings, at most 16 each | sim |
-| `watcher-side-frame` | The frame of the battle room's `SIDEx` art that a watching player's side button shows. 3.1c shows frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides, and whose art puts its watcher picture further on, names that frame | `2` | integer, 0 to 15 | view |
-| `skirmish-hidden-sides` | The SIDEDATA sides, by number from 0, that the skirmish Side button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them, and a skirmish saved on one opens on the next side offered. The battle room still offers them, and the sides keep their data | `[]` | up to four distinct integers, 0 to 4 | view |
-| `battle-room-hidden-sides` | The SIDEDATA sides, by number from 0, that the battle room's SIDE button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them as it cycles, and leaving watch lands on the first side offered. The skirmish has its own key; a launch file can still name such a side, and the sides keep their data | `[]` | up to four distinct integers, 0 to 4 | view |
+| `side-names` | The side names the game itself uses: computer players' names, elimination messages and the side buttons, one name a side in SIDEDATA's order. A side past the last name takes the last, so with two names every side but the first takes the second, as in 3.1c; a mod with more sides names each. SIDEDATA keeps its own names for everything else. There can be no more names than `limits.sides`; more is refused once the limits have resolved. | `[Arm, Core]` | two to 32 strings, at most 16 each | sim |
+| `watcher-side-frame` | The frame of the battle room's `SIDEx` art that a watching player's side button shows. 3.1c shows frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides, and whose art puts its watcher picture further on, names that frame. The frame is not compared with `limits.sides`. | `2` | integer, 0 to 63 | view |
+| `skirmish-hidden-sides` | The SIDEDATA sides, by number from 0, that the skirmish Side button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them, and a skirmish saved on one opens on the next side offered. The battle room still offers them, and the sides keep their data. Each number must be below `limits.sides`, and at least one side stays offered; a list that fails either is refused once the limits have resolved. | `[]` | up to 31 distinct integers, 0 to 31 | view |
+| `battle-room-hidden-sides` | The SIDEDATA sides, by number from 0, that the battle room's SIDE button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them as it cycles, and leaving watch lands on the first side offered. The skirmish has its own key; a launch file can still name such a side, and the sides keep their data. Each number must be below `limits.sides`, and at least one side stays offered; a list that fails either is refused once the limits have resolved. | `[]` | up to 31 distinct integers, 0 to 31 | view |
 
 ### 6.2 `layout`
 
@@ -836,6 +840,8 @@ take the same forms as hacks ([5.2](#52-ways-to-write-a-limit-or-hack)).
 | | `overflow` | `truncate` | `truncate` | `truncate`, `dynamic` | fixed | |
 | `model-composite` (view) | `width`, `height` | 600 | 1,280 | 64 to 8,192 | fixed | |
 | | `clamp-oversize` | `false` | `true` | boolean | fixed | |
+| `weapon-types` | `types` (shorthand) | 256 | 4,096 | 256 to 65,536 | fixed | |
+| `sides` | `count` (shorthand) | 5 | 10 | 5 to 32 | fixed | |
 
 What each limit holds:
 
@@ -867,8 +873,34 @@ What each limit holds:
   The size is counted in the game's pixels: with Enhanced anti-aliasing a
   model is drawn finer into a buffer as many times larger, so a model that
   fits is drawn whole at every level. Local display only.
+- **`weapon-types`**: a weapon file's `ID=` may be 0 to `types` minus one.
+  The game holds as many weapons as the highest id it loaded needs, and
+  never fewer than 3.1c's 256, so a mod that stays under 256 plays exactly
+  as 3.1c. An ID past the limit, or none, leaves that weapon out. When any
+  ID is past the limit, one log line names how many sections were left
+  out, the limit and the highest such ID:
+  `open-annihilation: weapons: 1 weapon section has an ID past the limit of 256 weapon types and is left out; the highest ID is 2000`,
+  with "sections have IDs" and "are" when more than one was left out, and
+  with this load's numbers. Raising it makes the profile OA-only and its
+  weapon records wide
+  ([12.3](#123-wire-behaviour-a-profile-selects)).
+- **`sides`**: SIDEDATA is read from `SIDE0` until a section is missing or
+  `count` sides are read. A section past the limit is left out, and one
+  log line names it. One section reads
+  `open-annihilation: side data: gamedata/sidedata.tdf: SIDE5 is past the 5 sides this game plays (limits.sides) and is left out`;
+  several read `SIDE5 to SIDE6 are past the 5 sides this game plays (limits.sides) and are left out`,
+  with this load's numbers. The identity keys that name sides follow
+  `count` ([6.1](#61-identity)). Raising it makes the profile OA-only.
+  Campaigns stay Arm and Core.
 
-There is no weapon-id limit: every profile keeps 3.1c's 256 weapon ids.
+```yaml
+limits:
+  weapon-types: 1024   # weapon IDs 0 to 1,023
+  sides: 7             # SIDE0 to SIDE6
+```
+
+Writing `true` for either gives its default, 4,096 weapon types or 10
+sides ([5.2](#52-ways-to-write-a-limit-or-hack)).
 
 ## 7. Script extensions
 
@@ -1014,7 +1046,7 @@ profile, are [the OAMUT standard](../mutators/oamut-standard.md).
 | Unit scripts | `set ARMORED` turns on `DamageModifier`; a negative `EnergyUse` is paid out while the unit is activated; a script can attach and drop any unit, and attaching to piece −1 hides the passenger; scripts may scan every unit slot in one tick without sleeping; `MoveRate` calls reach ground units. |
 | Deaths and wrecks | `setSFXoccupy` codes reach `Killed`; corpse types up to 25; wrecks that turn into further wrecks over several steps. |
 | AI and builds | Build orders named `MAKENUKE` and `MAKEANTI` become stockpile orders; manual fire of the third weapon works with an empty second weapon. |
-| Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. A unit page draws the panel art its GUI names, `ARMPAN` or `ARMPAN2` for a third side whose pages are the `nameprefix`'s templates; when the side's `intgaf` holds art named by that GAF's stem without `INT` and the page's name without its side, `RUMPAN2` in `RUMINT.gaf` for `ARMPAN2`, the side's own is drawn instead. Commanders and build lists come from SIDEDATA, never from fixed unit names. The skirmish side button shows the `SIDEx` frame of the side it has chosen, for every SIDEDATA side, where 3.1c's two-stage button wraps back to Arm after Core. |
+| Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. A unit page draws the panel art its GUI names, `ARMPAN` or `ARMPAN2` for a third side whose pages are the `nameprefix`'s templates; when the side's `intgaf` holds art named by that GAF's stem without `INT` and the page's name without its side, `RUMPAN2` in `RUMINT.gaf` for `ARMPAN2`, the side's own is drawn instead. Commanders and build lists come from SIDEDATA, never from fixed unit names. The skirmish side button shows the `SIDEx` frame of the side it has chosen, for every SIDEDATA side, where 3.1c's two-stage button wraps back to Arm after Core. With more than five sides, a left click on the skirmish Side button and on the battle room's SIDE button steps forward, and a right click steps back, skipping a hidden side and wrapping. With five sides or fewer a right click still steps forward. A side whose `SIDEx` art has no frame shows its SIDEDATA name. The side tile is looked up as `<nameprefix>guisidetile.pcx` before the Arm and Core tiles. Order pages are named with the side's `nameprefix`, and the pointer reads a button's action from its name with that prefix taken off. |
 | Transports | A script may drop every passenger at once; a blocked drop cell is handled as 3.1c handles it. |
 | Loading | Missing weapons, sounds, fonts and sprite sequences; unknown unit names in AI profiles; misspelled SIDEDATA sections; duplicate unit and feature names; a missing semicolon; brackets inside weapon names; non-square footprints of mobile units; maps without a terrain file. Each loads as 3.1c loads it. |
 | Files | An empty file wins its path and contributes nothing, hiding the file beneath it. |
@@ -1099,14 +1131,21 @@ change it, so two profiles that mean the same thing hash the same.
   strings, media, the visual
   hacks and every view value.
 
-`layout.installation-archives` is the exception. It was added after grammar
-1's first release. An absent key and an empty list both mount no extra
-archive, so neither enters the canonical form, and every profile that does
-not name an installation archive keeps the sim hash and the full hash it
-already had. A list of one or more names is included, in the order written,
-and it stays sim scope because the mounted data changes the game.
-`--print-profile` still prints the empty list: it prints the effective
-profile, and the omission is only in the canonical form the hashes read.
+Six keys were added after grammar 1's first release. The canonical form
+leaves each out while it stays at its baseline, so every profile that
+leaves them there keeps the sim hash and the full hash it had:
+
+- `layout.installation-archives`, an empty list;
+- `identity.watcher-side-frame`, 2;
+- `identity.skirmish-hidden-sides`, an empty list;
+- `identity.battle-room-hidden-sides`, an empty list;
+- `limits.weapon-types`, 256;
+- `limits.sides`, 5.
+
+Any other value is included. A named installation archive stays sim scope,
+because the mounted data changes the game. `--print-profile` still prints
+every key: it prints the effective profile, and the omission is only in
+the canonical form the hashes read.
 
 The sim hash names the ruleset. Two profiles with the same sim hash play the
 same game, even when their names, comments or display choices differ. It is
@@ -1179,6 +1218,58 @@ Network play is part of the engine, and reads its rules from the profile:
   same map. While the match holds a mutator digest, that digest is folded
   into the hash the match plays. Without one, the bytes stay that hash
   and the map.
+- **OA-only profiles.** A profile whose `weapon-types` is above 256, or
+  whose `sides` is above 5, plays only between Open Annihilation builds
+  that know these limits, whatever its data uses, so raise a limit only
+  when the mod needs it. The host refuses a player on Total Annihilation
+  3.1c who tries to join, and posts one line. The line stays in the room
+  and is not sent as chat. When weapon types are raised it is
+  `*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than 256 weapon types.`
+  When only the sides are raised it is
+  `*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than five sides.`
+  When both are raised, the weapon-types line is the one shown. When the
+  room also has mutators, the mutator line is the one shown. An Open
+  Annihilation player is seated until that player's presence record
+  arrives. A record that does not cover the mod refuses them once, with
+  `*** {player} needs a newer Open Annihilation for this mod.`
+  A later record from the same player does not say it again. A build that
+  sends no presence record, such as Open Annihilation 0.7.4, is not
+  refused. **START** stays grey while a 3.1c player is seated, and while
+  an Open Annihilation player has not yet shown limits that cover the
+  mod, including a build that sent no such word. An Open Annihilation
+  player whose mod is one of these, seated in a room a 3.1c host is
+  playing, leaves it. The game list says
+  `This mod needs every player on Open Annihilation. The host plays Total Annihilation 3.1c.`
+  A player whose chosen side is past the sides the room plays keeps
+  **START** grey, and the room says once
+  `*** {player} chose a side this game does not have.`
+  That side check is the room's for every profile.
+- **The `limits` presence tag.** Open Annihilation's presence record,
+  which only Open Annihilation players receive, carries the most weapon
+  types and the most sides this build plays. The room seats the player
+  when those cover the profile. An older build skips a tag it does not
+  know, so stock games between versions are unchanged.
+- **Wide weapon records.** Under `weapon-types` above 256 the weapon
+  fire, interception and feature records are sent only in Open
+  Annihilation's wide forms, which carry the weapon id in 16 bits:
+  `0xe0` is 37 bytes, `0xe1` is 15 and `0xe2` is 8. The feature record
+  keeps its own action byte, and the weapon id is 0 for every action
+  other than a hit. With only `sides` raised the records stay 3.1c's:
+  `0x0d` is 36 bytes, `0x0e` is 14 and `0x0f` is 6. A 3.1c machine never
+  receives a wide record. The side byte already holds every side.
+- **Recordings.** Such a game's recording keeps both limits and plays
+  back only under a profile with the same ones. One whose limits differ
+  says
+  `This recording needs a mod with {n} weapon types and {m} sides.`
+  A recording without them, from 3.1c or from a game at 256 weapon types
+  and five sides, is refused under a profile that raises either:
+  `This recording was made with 256 weapon types and five sides. The mod you are playing has more.`
+  Wide records are played when the recording's weapon types are above
+  256. A recording that only raises sides keeps 3.1c's records. Other
+  programs that read recordings stop at the first wide record.
+- **The recorder's weapon-id patch.**
+  `recorder.ta-demo-recorder.weapon-id-patch` stays unsupported, and a
+  value of it in the settings file never sets `weapon-types`.
 
 Without a profile, network play uses 3.1c's rules.
 
@@ -1211,7 +1302,8 @@ limits) and [src/app](../../src/app/README.md#mod-profile-and-mod-folders)
    at every site. With a mod folder, the files are layered as in
    [4.1](#41-copied-install-and-mod-folder).
 4. **Limits.** The limits fill the engine's one limits record before
-   anything sizes a table from it.
+   anything sizes a table from it. The weapon and side tables then take
+   their size from the data, within `weapon-types` and `sides`.
 5. **Rules.** Every match is built with the profile's rules: one record per
    area, holding for each hack whether it is on and each parameter's value,
    with every field starting at its 3.1c baseline. A match without a
@@ -1347,6 +1439,7 @@ What it plays:
 | --- | --- |
 | 3.1c | Total Annihilation at version 3.1c, unmodified. Every baseline in this document is its behaviour. |
 | Profile, `oamod.yaml` | The strict YAML file in the root of a mod's folder that describes the mod as changes from 3.1c. |
+| OA-only profile | A profile whose `limits.weapon-types` is above 256 or whose `limits.sides` is above 5. It plays only between Open Annihilation builds that know these limits ([12.3](#123-wire-behaviour-a-profile-selects)). |
 | Package, packaging revision | A mod's profile and files as one person put them together on one day; its revision counts the updates of that package from 1. |
 | Game folder | The installed game. Under a mod folder it must be plain 3.1c, with no `oamod.yaml`. A managed start plays `Games/<game>` as that folder. |
 | Mod folder | A folder holding a mod's files and its `oamod.yaml`, in the game folder's `mods` folder or named with `--mod-dir`. It plays as if copied over the expansions that are on and the base game. An expansion folder is not a mod folder. |
@@ -1366,6 +1459,7 @@ What it plays:
 | Ownership | Which machines run an entry's behaviour in a network game. |
 | Effective profile | The fully resolved profile: every value, written or not. |
 | Canonical form | The effective profile as RFC 8785 canonical JSON, the input of the hashes. |
+| Late key | A key added after grammar 1's first release. The canonical form leaves it out while it stays at its baseline, so a profile that leaves it there keeps the hashes it had. Any other value is included. `--print-profile` still prints it. The six are in [11](#11-the-resolved-profile-and-its-hashes). |
 | Sim hash, full hash | The SHA-256 of the canonical form of the effective profile's sim-scope part, and of all of it. |
 | Fidelity | How script extensions answer for empty or dead slots: `exact` or `safe`. |
 | Script extension | A value a unit script's `get` returns at an index outside 3.1c's own, mounted by the profile. |

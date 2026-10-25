@@ -164,7 +164,10 @@ the same icon. F1 or Return on a player's row, reached with Tab or the
 arrow keys, opens it too, as do View and A on a controller and a tap on
 the badge; Escape closes it. The card shows what that player's machine sent
 in its presence record, which OA sends only to the players whose setup blocks
-carry the mark, each alone in its frame. OA 0.7.4 players carry the mark
+carry the mark, each alone in its frame. The record also carries the
+limits: the most weapon types and the most sides this build plays. An
+older build skips a word it does not know, so a stock game between
+versions is unchanged. OA 0.7.4 players carry the mark
 too: they receive the record and ignore it, and their cards say only "Open
 Annihilation (before 0.8)". No 3.1c machine receives one, and a 3.1c
 player sees nothing new. The setup block carries nothing else new:
@@ -290,7 +293,12 @@ plays when:
   default, keeps the check;
 - it has fewer than ten players, since the viewer needs a slot of its own,
   unless the mod's profile turns on
-  [recorder.ten-player-replay](docs/mods/standard-hacks/recorder.ten-player-replay.md).
+  [recorder.ten-player-replay](docs/mods/standard-hacks/recorder.ten-player-replay.md);
+- a recording of a mod with more than 256 weapon types, or more than five
+  sides, plays only under a mod with the same two limits.
+  [Saves, recordings and films](docs/saves.md#mods-with-more-weapon-types-or-sides)
+  quotes the two refusals. Other programs that read recordings stop at the
+  first wide weapon record.
 
 With `--headless-check --game-dir PATH --match-ticks N`, the game plays up
 to N ticks of a recording without a window and prints a summary of the

@@ -64,6 +64,7 @@ NOTICE_SHOWN = "src/ui/engine-settings/src/language_notice.cpp"
 ROW_FILES = {
     "src/ui/engine-settings/src/settings_rows.cpp",
     "src/ui/engine-settings/src/downloads_page.cpp",
+    "src/ui/engine-settings/src/updates_page.cpp",
     "src/ui/engine-settings/src/registered.cpp",
 }
 ROW_FUNCS = {

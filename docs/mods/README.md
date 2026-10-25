@@ -296,7 +296,8 @@ Its blocks are:
   games announce, its settings file, its registry root and its side names;
 - `layout`: the archives the engine mounts, and the directories and file
   names it reads;
-- `limits`: engine limits such as the number of units per player;
+- `limits`: engine limits such as the number of units per player, and how
+  many weapon ids and sides the mod numbers;
 - `script-extensions`: extra values the mod's unit scripts read and set,
   each described on its own page under
   [script-extensions/](script-extensions/) (see

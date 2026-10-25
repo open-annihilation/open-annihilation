@@ -98,6 +98,11 @@ enum class Page : uint8_t {
     /// Listed after Downloads and before System. Its number follows System's
     /// so System stays 10.
     game_content,
+    /// Updates: this build's version and whether a release is out, and when
+    /// Open Annihilation looks for one. Listed after Downloads and before
+    /// Game Content. Its number follows Game Content's, so Downloads, System
+    /// and Game Content stay 9, 10 and 11.
+    updates,
     mod_keys,   ///< the mod's keys
     mod_patrol, ///< what patrolling builders do
     mod_guard,  ///< what guarding builders do
@@ -109,12 +114,12 @@ enum class Page : uint8_t {
 };
 
 /// The number of sections, of every kind of dialog, counting Downloads,
-/// Game Content, System and the registered page.
-inline constexpr std::size_t page_count = 18;
-/// The most sections a dialog lists: the engine's settings' twelve with
-/// Touch, Controller and Game files, nine without them; a mod's options have
+/// Updates, Game Content, System and the registered page.
+inline constexpr std::size_t page_count = 19;
+/// The most sections a dialog lists: the engine's settings' thirteen with
+/// Touch, Controller and Game files, ten without them; a mod's options have
 /// five.
-inline constexpr std::size_t most_listed_pages = 12;
+inline constexpr std::size_t most_listed_pages = 13;
 /// Windows and Linux register the seven file types at run time, and macOS
 /// chooses whether this copy is the default opener of each, so System lists
 /// a switch for each. iOS takes the types from the app and has no way to
@@ -149,10 +154,10 @@ enum class DialogKind : uint8_t {
 /// @param controller a gamepad has sent input in this run
 ///     (Dialog::controller), so that the engine's settings list Controller
 ///     after Touch and before Game files and Developer
-/// @return nine sections for the engine's settings (Controls, Common
-///     Tweaks, Language & Text, Graphics, User Interface, Downloads, Game
-///     Content, System and Developer), one more for each of Touch, Controller
-///     and Game files listed, twelve with all three; five
+/// @return ten sections for the engine's settings (Controls, Common
+///     Tweaks, Language & Text, Graphics, User Interface, Downloads, Updates,
+///     Game Content, System and Developer), one more for each of Touch,
+///     Controller and Game files listed, thirteen with all three; five
 ///     for a mod's options and one for Language & Text alone, whatever the
 ///     others say
 [[nodiscard]] std::span<const Page> dialog_pages(
@@ -412,8 +417,9 @@ inline constexpr int32_t first_registered_nav_control = -10000;
 /// Returns the control of a section's entry in the list: its place among
 /// its kind of dialog's sections, each section counted whether or not it is
 /// listed, so that Touch is 5, Controller 6, Developer 7, Game files 8,
-/// Downloads 9, System 10 and Game Content 11 in every dialog of the engine's settings, and a dialog
-/// without Touch has no control 5, one without Controller no control 6.
+/// Downloads 9, System 10, Game Content 11 and Updates 12 in every dialog of
+/// the engine's settings, and a dialog without Touch has no control 5, one
+/// without Controller no control 6.
 /// The registered page has no entry of this form; its entries are
 /// registered_nav_control.
 ///
@@ -590,6 +596,11 @@ enum class DialogAction : uint8_t {
     /// CANCEL on the bundle being copied: stop that copy. What was already
     /// in the managed folders stays. The dialog stays open.
     cancel_content_copy,
+    /// CHECK NOW on Updates: look for a release now. The dialog stays open.
+    /// Nothing is asked while the check is Never.
+    check_updates,
+    /// UPDATE… on Updates: open the release's page. The dialog stays open.
+    open_release,
 };
 
 /// One of the Library's tabs, as the dialog asks the host to open it
@@ -761,6 +772,52 @@ struct DownloadsOffer {
     /// check's hint then says so, once.
     bool https_over_http{};
 };
+
+/// What Updates shows besides the check, which the host fills. The check the
+/// player moves lives on the dialog, as its chosen settings do, and takes
+/// effect at OK. CHECK NOW and UPDATE… act at once.
+struct UpdatesOffer {
+    std::string version_line; ///< "Open Annihilation {version}", already filled
+    std::string status;       ///< the status line, already as the page shows it
+    bool can_check{};         ///< CHECK NOW can be pressed
+    bool offered{};           ///< a release is out; the button is UPDATE…
+    int32_t mode{};           ///< the check as UpdateCheck, so the page can hide the button
+};
+
+/// Where a check for a release stands, as the host tells update_lines.
+enum class UpdateStand : uint8_t {
+    idle,       ///< no check has run
+    checking,   ///< a check is in progress
+    up_to_date, ///< the feed verified and offers nothing newer
+    offered,    ///< the feed verified and offers a newer release
+    failed,     ///< the check failed, or the feed was refused
+    cancelled,  ///< the check was cancelled before it finished
+};
+
+/// What the host knows when it asks for Updates' lines.
+struct UpdateReading {
+    std::string_view version;             ///< this build's version, without a leading v
+    std::string_view offer_version;       ///< the offered release's version, when one is out
+    UpdateStand stand{UpdateStand::idle}; ///< where the check stands
+    bool never{};                         ///< the check the dialog shows is Never
+    std::optional<int64_t> checked_at;    ///< when the server answered, seconds since 1970
+    int64_t now{};                        ///< the clock now, seconds since 1970
+};
+
+/// The lines Updates shows, and which button they allow.
+struct UpdateLines {
+    std::string version_line; ///< the label
+    std::string status;       ///< the status; a key while it is still looked up
+    bool can_check{};         ///< CHECK NOW can be pressed
+    bool offered{};           ///< the button is UPDATE…
+};
+
+/// Returns the lines Updates shows for one reading. The templates are looked
+/// up; the version and the time are filled in and are not looked up again.
+///
+/// @param reading what the host knows
+/// @return the lines
+[[nodiscard]] UpdateLines update_lines(const UpdateReading& reading);
 
 /// One install-ID switch, as the dialog keeps the player's choice.
 struct InstallIdChoice {
@@ -965,6 +1022,9 @@ struct Dialog {
     /// What Downloads shows, which the host sets with set_downloads_offer
     /// after the dialog has opened. open_dialog clears it.
     DownloadsOffer downloads{};
+    /// What Updates shows, which the host fills after the dialog has opened.
+    /// open_dialog clears it, and sets mode from the check in effect.
+    UpdatesOffer updates{};
     /// Each install-ID switch as the player has it, in downloads.install_ids'
     /// order. A switch takes effect at OK.
     std::vector<InstallIdChoice> install_id_chosen{};
@@ -988,8 +1048,9 @@ struct Dialog {
     /// Those values as the pages were given. Cancel puts them back, and OK
     /// writes a key whose text differs.
     oa::ui::kit::PreferenceModel registered_opened{};
-    /// The section list's scroll, in source pixels, while registered pages
-    /// make the list taller than its room.
+    /// The section list's scroll, in source pixels, while the list is taller
+    /// than its room: registered pages, or the engine's own thirteen sections
+    /// at Compact. Developer stays pinned under the divider and does not scroll.
     int32_t nav_scroll{};
     /// The part of a source pixel the wheel has turned over the section list
     /// and not yet scrolled.

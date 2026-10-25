@@ -1030,6 +1030,15 @@ enum class ContentCheck : uint8_t {
     never,              ///< only when the player asks
 };
 
+/// When Open Annihilation looks for a new release of itself. It never
+/// installs one until the player says so. The stored words are the existing
+/// preference's: automatically, when-asked, never.
+enum class UpdateCheck : uint8_t {
+    automatically, ///< once a day, when the game starts
+    when_asked,    ///< only when the player asks
+    never,         ///< the player asks, and CHECK NOW is not offered
+};
+
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
     /// Path nodes the path search may visit in a game tick, all players
@@ -1211,6 +1220,10 @@ struct EngineSettings {
     /// When Open Annihilation looks for new content and updates. It takes
     /// effect when OK is pressed; Cancel and Restore defaults apply.
     ContentCheck content_check{ContentCheck::automatically};
+    /// When Open Annihilation looks for a new release of itself. It takes
+    /// effect when OK is pressed, as the check for content does. CHECK NOW
+    /// looks at once and does not store this.
+    UpdateCheck update_check{UpdateCheck::automatically};
     /// The game opens mod packages (.oamod). On unless the preference is the
     /// word off. Windows and Linux register it when OK is pressed. On macOS
     /// the switch shows whether this copy is the default opener, and OK

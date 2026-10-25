@@ -3895,7 +3895,13 @@ runtime then:
   (`multiplayer_bind_rules`) and to each network match
   (`net_match_bind_rules`), and with `setup.map-scripted-units` places a
   skirmish or multiplayer map's schema units in place of the commanders and
-  as their countdowns come due (`runtime_map_units.cpp`).
+  as their countdowns come due (`runtime_map_units.cpp`);
+- sizes the weapon table and the side table from the data, within the
+  profile's `weapon-types` and `sides` (`load_weapon_defs`,
+  `load_side_data`, `side_table_past_limit_line`); copies the limits onto
+  the room's wire rules with `wire_rules_of`, which the room reads through
+  `oa_only`; and writes and reads a recording's limits sector as
+  `RecordedLimits`, judged by `demo_limits_verdict`.
 
 A save made under a profile holds a ModProfile account (its id, version,
 catalogue, hashes and the match's rule-state tables); such a save loads only
