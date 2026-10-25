@@ -1041,6 +1041,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-interpolation", &Options::check_interpolation},
     {"--check-unit-playout", &Options::check_unit_playout},
     {"--trace-input", &Options::trace_input},
+    {"--keys-reset", &Options::keys_reset},
     {"--debug-order-lines", &Options::debug_order_lines},
 };
 
@@ -1496,6 +1497,10 @@ take_engine_option(std::string_view argument, ArgumentCursor& cursor, Options& o
         options.mutators.push_back(value);
         return true;
     }
+    if (argument == "--keys") {
+        options.keys = std::string(option_value(cursor));
+        return true;
+    }
     if (argument == "--content") {
         options.content = std::string(option_value(cursor));
         return true;
@@ -1647,6 +1652,7 @@ void write_startup_line(std::string_view text) {
                      "[--archive PATH]... "
                      "[--mod FILE] [--mod-dir PATH | --base-game] "
                      "[--mutator PATH|ID[:OPTION=VALUE,...]] [--no-mutators] "
+                     "[--keys ID|PATH] [--keys-reset] "
                      "[--content GAME[:EXPANSION,...]] [--print-profile] "
                      "[--accept-unimplemented-hacks] "
                      "[--skip-intro] [--first-run] [--frames N] [--headless-check] "
@@ -1812,6 +1818,8 @@ void write_startup_line(std::string_view text) {
     refuse_left_out_self_checks(result);
     if (!result.update_keys.empty() && !result.update_feed.has_value())
         throw std::runtime_error("--update-key needs --update-feed");
+    if (!result.keys.empty() && result.keys_reset)
+        throw std::runtime_error("--keys and --keys-reset cannot be used together");
     if (acceleration_differing) {
         // Named in one order whichever came first.
         const std::string& first = acceleration_first->text;

@@ -2475,11 +2475,25 @@ class Runtime final : public menu::Host,
     /// @return the contexts the dispatcher searches
     [[nodiscard]] oa::ui::key_bindings::Contexts input_contexts();
 
-    /// Resolves oa-default again when the keyboard, the hacks, the pointer scheme or SwitchAlt
-    /// changed, making the dispatcher on first use. [runtime_key_bindings.cpp]
+    /// Resolves the layout in use again when the keyboard, the hacks, the pointer scheme,
+    /// SwitchAlt or the loaded layout changed, making the dispatcher on first use.
+    /// [runtime_key_bindings.cpp]
     ///
     /// @param keymap_changed the keymap changed, so the keyboard map is read again
     void ensure_key_bindings(bool keymap_changed);
+
+    /// Loads the layout for this run and the player's own changes, and imports stored keys once.
+    ///
+    /// Called after the view settings are read, and again when the played mod changes. `--keys`
+    /// and `--keys-reset` choose the layout for this run and save nothing. A layout named by
+    /// `--keys` that cannot be read sets key_bindings_refusal_; any other problem is logged and
+    /// the built-in layout is used. [runtime_key_bindings.cpp]
+    void load_key_bindings();
+
+    /// Prints one line for each action event when --trace-input is on.
+    ///
+    /// @param events the events just fed
+    void trace_fed_actions(const std::vector<oa::ui::key_bindings::ActionEvent>& events) const;
 
     /// Whether one named hack is on for the bindings. [runtime_key_bindings.cpp]
     ///
@@ -19364,6 +19378,11 @@ class Runtime final : public menu::Host,
     // The key bindings' dispatcher; null until the first event or frame that feeds it.
     mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
         key_bindings_state_{nullptr, destroy_key_bindings_state};
+    /// Set once the view settings have been read, so a later mod change loads again.
+    bool key_bindings_armed_{};
+    /// Why `--keys` cannot be played; empty when the run can start. The constructor ends with
+    /// status 2 when this is set.
+    std::string key_bindings_refusal_{};
     // The installed brains; null until first read.
     mutable std::unique_ptr<BrainLibraryState, void (*)(BrainLibraryState*) noexcept>
         brain_library_state_{nullptr, destroy_brain_library_state};

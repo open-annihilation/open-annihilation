@@ -3,6 +3,7 @@
 
 // Runtime construction, main loop and screen loading.
 #include "oa/app/runtime.hpp"
+#include "oa/app/netgame/launch_file.hpp"
 #include "renderer_effect_events.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/defs/layout.hpp"
@@ -484,6 +485,11 @@ Runtime::Runtime(
     load_engine_settings();
     // The settings the profile's display rules let the player change.
     load_view_settings();
+    // The layout in use, after those settings, so a stored key is the one
+    // the player set. A layout --keys cannot read ends the run.
+    load_key_bindings();
+    if (!key_bindings_refusal_.empty())
+        throw netgame::LaunchRefusal(key_bindings_refusal_);
     // The registries and their catalogues, after the player's folder and
     // Developer mode are known. The registries check writes its own list
     // first.

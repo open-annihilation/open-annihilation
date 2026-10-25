@@ -473,6 +473,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-interpolation", &Options::check_interpolation, {}},
         {"--check-unit-playout", &Options::check_unit_playout, {}},
         {"--trace-input", &Options::trace_input, {}},
+        {"--keys-reset", &Options::keys_reset, {}},
         {"--debug-order-lines", &Options::debug_order_lines, {}},
     };
     return cases;
@@ -494,6 +495,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--archive", "totala1.hpi", {}},
         {"--mod", "mods/x/oamod.yaml", {}},
         {"--mutator", "ridge-swift:factor=4", {}},
+        {"--keys", "ridge-grid", {}},
         {"--mod-dir", "mods/x", {}},
         {"--snapshot", "frame.ppm", {}},
         {"--preferences-file", "p.conf", {}},
@@ -1059,6 +1061,22 @@ void mutator_options() {
     expect(refused.starts_with("--mutator: "), "a malformed --mutator names the option");
 }
 
+// --keys takes an id or a path, --keys-reset is a flag, and the two together
+// are refused.
+void key_layout_options() {
+    const auto chosen = parse({"--keys", "ridge-grid"});
+    expect(chosen.keys == "ridge-grid" && !chosen.keys_reset, "--keys takes the layout");
+    const auto path = parse({"--keys", "layouts/ridge/oakeys.yaml"});
+    expect(path.keys == "layouts/ridge/oakeys.yaml", "--keys takes a path");
+    const auto reset = parse({"--keys-reset"});
+    expect(reset.keys.empty() && reset.keys_reset, "--keys-reset is a flag");
+    expect(
+        rejection({"--keys", "ridge-grid", "--keys-reset"}) ==
+            "--keys and --keys-reset cannot be used together",
+        "--keys and --keys-reset are refused together"
+    );
+}
+
 // --update-feed and --update-key are self-checks. A key needs a feed, and
 // the key's text has to be an ed25519 public key. --check-engine-feed draws
 // in a window on the fixed clock.
@@ -1142,6 +1160,7 @@ int main() {
     update_feed_options();
     value_options();
     mutator_options();
+    key_layout_options();
     const auto plain = parse({"--headless-check"});
     expect(plain.trace_digest.empty() && plain.trace_units.empty(), "no trace without the flag");
     expect(!plain.seed, "no fixed seed without the flag");
