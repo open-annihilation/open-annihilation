@@ -506,6 +506,9 @@ void Runtime::bind_match_speech() {
 
 void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     pause_content_for_match();
+    // A check still waiting is not a result: the load can outlast its idle
+    // limit, so the cancel is set before any of that work.
+    cancel_update_check();
     // A shared game whose mod cannot start one is refused before anything is
     // dropped or loaded; its warning shows once the main menu does, where
     // the abandoned launch returns.

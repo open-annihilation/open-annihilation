@@ -1322,6 +1322,7 @@ void Runtime::idle_tick() {
     tell_found_install();
     tell_incomplete_mod();
     tick_content();
+    tick_update_check();
     tick_library();
     // A catalogue that moved on adds its language packs to the registry.
     note_catalogue_languages();

@@ -323,7 +323,7 @@ target_link_libraries(oa-app-game-options PUBLIC oa-app-headers)
 target_link_libraries(oa-app-game-options PUBLIC oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario
   oa-ui-screen-registry oa-app-command-line oa-platform-preferences oa-app-mod-profile
   PRIVATE oa-app-package-install oa-platform-job-pool oa-platform-display-modes oa-options
-  oa-data-content-bundles oa-data-mutators)
+  oa-data-content-bundles oa-data-mutators oa-base-signing)
 # oa-game's game folder: --game-dir, the remembered folder, a folder found
 # where Steam, Heroic or Lutris put it, or the folder dialog's choice, the
 # installation checks, and the installer of the Total Annihilation demo
@@ -1262,7 +1262,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_user_folder.cpp
   src/app/runtime_mod_warning.cpp
   src/app/runtime_presence_card.cpp
-  src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_challenge.cpp
+  src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_update.cpp
+  src/app/runtime_challenge.cpp
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
   src/app/runtime_mutator_library.cpp

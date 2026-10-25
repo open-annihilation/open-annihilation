@@ -446,6 +446,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-setup-window", &Options::check_setup_window, {}},
         {"--check-window-place", &Options::check_window_place, {}},
         {"--check-progress", &Options::check_progress, {}},
+        {"--check-engine-feed", &Options::check_engine_feed, {}},
         {"--check-icloud-wait", &Options::check_icloud_wait, {}},
         {"--check-text-fit", &Options::check_text_fit, {}},
         {"--check-folder-chooser", &Options::check_folder_chooser, {}},
@@ -563,6 +564,10 @@ const std::vector<ValueCase>& value_cases() {
         {"--trace-units", "run.units", {"--trace-digest", "run.trace"}},
         {"--capture-video", "game.mp4", {}},
         {"--showcase", "arm-first-mission", {}},
+        {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json", {}},
+        {"--update-key",
+         "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
+         {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
     };
     return cases;
 }
@@ -1046,12 +1051,71 @@ void mutator_options() {
     expect(refused.starts_with("--mutator: "), "a malformed --mutator names the option");
 }
 
+// --update-feed and --update-key are self-checks. A key needs a feed, and
+// the key's text has to be an ed25519 public key. --check-engine-feed draws
+// in a window on the fixed clock.
+void update_feed_options() {
+    constexpr const char* kUrl = "http://127.0.0.1:9/v1/engine/stable.json";
+    constexpr const char* kKey = "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
+    constexpr const char* kOther = "other-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=";
+    if constexpr (oa::app::self_checks_built) {
+        expect(
+            rejection({"--update-key", kKey}) == "--update-key needs --update-feed",
+            "--update-key needs --update-feed"
+        );
+        expect(
+            rejection({"--update-key", "test-key=ed25519:not-a-key"}) ==
+                "--update-key must be ID=ed25519:KEY",
+            "a malformed --update-key is refused"
+        );
+        expect(
+            rejection({"--update-key", "not a key"}) == "--update-key must be ID=ed25519:KEY",
+            "--update-key must be ID=ed25519:KEY"
+        );
+        const auto ordered = parse({"--update-key", kKey, "--update-feed", kUrl});
+        expect(
+            ordered.update_feed && *ordered.update_feed == kUrl &&
+                ordered.update_keys.size() == 1 && ordered.update_keys[0] == kKey,
+            "--update-key before --update-feed is taken"
+        );
+        const auto two =
+            parse({"--update-feed", kUrl, "--update-key", kKey, "--update-key", kOther});
+        expect(
+            two.update_keys.size() == 2 && two.update_keys[0] == kKey &&
+                two.update_keys[1] == kOther,
+            "two --update-key values stay in order"
+        );
+        const auto check = parse({"--check-engine-feed"});
+        expect(
+            check.check_engine_feed && check.fixed_clock && check.unattended &&
+                !check.headless_check,
+            "--check-engine-feed is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-engine-feed", "--headless-check"}) ==
+                "--check-engine-feed draws in a window and cannot be used with --headless-check",
+            "--check-engine-feed is not headless"
+        );
+    } else {
+        const std::string feed = rejection({"--update-feed", kUrl});
+        expect(feed.find("self-check") != std::string::npos, "--update-feed needs the self-checks");
+        const std::string keyed = rejection({"--update-feed", kUrl, "--update-key", kKey});
+        expect(keyed.find("self-check") != std::string::npos, "--update-key needs the self-checks");
+        const std::string flag = rejection({"--check-engine-feed"});
+        expect(
+            flag.find("self-check") != std::string::npos,
+            "--check-engine-feed needs the self-checks"
+        );
+    }
+}
+
 int main() {
     renderer_ladder_options();
     game_files_options();
     mod_install_options();
     switch_words_keep_their_spaces();
     options_by_name();
+    update_feed_options();
     value_options();
     mutator_options();
     const auto plain = parse({"--headless-check"});
