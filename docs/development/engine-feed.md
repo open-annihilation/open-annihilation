@@ -112,3 +112,30 @@ oa-tool engine-feed check --url http://downloads.coreprime.net/v1/engine/stable.
 
 That fetches the feed and the feed's address plus `.sig`, and runs the
 same check.
+
+## The plan and the state
+
+The game writes a plan for `oa-update`, and the helper writes
+`state.json` after a swap. Both live under the data folder's `updates`
+directory. Both are JSON. The plan's `plan` member is 1. A member this
+build does not know is ignored. A member named twice is refused. Every
+path is absolute.
+
+The plan's members, in the order `plan_text` writes them, are `plan`,
+`action` (`install` or `roll-back`), `route` (`check-folder`,
+`macos-bundle`, `windows-installer`, `windows-folder` or
+`linux-versions`), `wait_for` (a process id, or 0), `install`, `program`,
+`arguments`, `from_version`, `feed`, `signature`, `release`, `package`,
+`file`, `installer`, `preferences`, `updates`, `title` and `line`. The
+title and the line are already in the player's language, and each is at
+most 200 bytes.
+
+`state.json` records `installed_version`, `installed_release`,
+`kept_version`, `kept_path`, `kept_route`, `preferences_copy`,
+`confirmed` (false after a swap) and `failed_starts` (0 after a swap).
+The installed version and release are the ones the feed named. The kept
+version is the one that was running. The file is replaced whole.
+
+The helper checks the feed and the package before it unpacks anything,
+and it makes no request. What the player sees is in
+[Updates](../updates.md).

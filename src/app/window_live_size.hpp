@@ -30,7 +30,10 @@ namespace oa::app {
 /// @param[out] height left unchanged
 /// @return false
 [[nodiscard]] inline bool
-platform_window_content_size(SDL_Window* /*window*/, int& /*width*/, int& /*height*/) {
+platform_window_content_size(SDL_Window* window, int& width, int& height) {
+    static_cast<void>(window);
+    static_cast<void>(width);
+    static_cast<void>(height);
     return false;
 }
 #endif
