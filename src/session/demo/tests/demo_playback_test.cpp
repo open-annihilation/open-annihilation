@@ -24,6 +24,7 @@
 #include <cstring>
 #include <exception>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -1647,6 +1648,187 @@ void economy_records_give_income_figures() {
     CHECK(player.energy_produced == 100.0f && sample.energy_produced_total == 500.0f);
 }
 
+// The limits sector is written after the brains sector and read back. A
+// setup that does not carry limits writes no such sector, and the same
+// sector list as a recording that never had the field.
+void recording_carries_limits() {
+    const std::string brains = "steady-commander 1";
+    const formats::tad::RecordedLimits recorded{1024, 10};
+    DemoRecording with_limits;
+    recording_begin(&with_limits, live_setup(2, false));
+    with_limits.setup.brains_text = brains;
+    with_limits.setup.limits = recorded;
+    const auto written = recording_write(with_limits);
+    CHECK(written.ok());
+    const auto parsed = formats::tad::parse(written.bytes);
+    CHECK(parsed.ok());
+    if (parsed.ok()) {
+        int brains_at = -1;
+        int limits_at = -1;
+        const auto& sectors = parsed.demo->sectors;
+        for (std::size_t index = 0; index < sectors.size(); ++index) {
+            if (sectors[index].type == static_cast<uint32_t>(formats::tad::SectorType::brains))
+                brains_at = static_cast<int>(index);
+            if (sectors[index].type == static_cast<uint32_t>(formats::tad::SectorType::limits))
+                limits_at = static_cast<int>(index);
+        }
+        CHECK(brains_at >= 0 && limits_at == brains_at + 1);
+        const auto* sector =
+            formats::tad::find_sector(*parsed.demo, formats::tad::SectorType::limits);
+        CHECK(sector != nullptr);
+        if (sector != nullptr) {
+            const auto back = formats::tad::decode_limits_sector(*sector);
+            CHECK(back && *back == recorded);
+        }
+    }
+
+    DemoRecording plain;
+    recording_begin(&plain, live_setup(2, false));
+    const auto plain_written = recording_write(plain);
+    CHECK(plain_written.ok());
+    DemoRecording absent;
+    recording_begin(&absent, live_setup(2, false));
+    absent.setup.limits.reset();
+    const auto absent_written = recording_write(absent);
+    CHECK(absent_written.ok() && absent_written.bytes == plain_written.bytes);
+    const auto plain_parsed = formats::tad::parse(plain_written.bytes);
+    const auto absent_parsed = formats::tad::parse(absent_written.bytes);
+    CHECK(plain_parsed.ok() && absent_parsed.ok());
+    if (plain_parsed.ok() && absent_parsed.ok()) {
+        CHECK(
+            formats::tad::find_sector(*absent_parsed.demo, formats::tad::SectorType::limits) ==
+            nullptr
+        );
+        CHECK(absent_parsed.demo->sectors.size() == plain_parsed.demo->sectors.size());
+        for (std::size_t index = 0; index < plain_parsed.demo->sectors.size(); ++index)
+            CHECK(
+                absent_parsed.demo->sectors[index].type == plain_parsed.demo->sectors[index].type
+            );
+    }
+}
+
+// The container's wide lengths are the wire's.
+void tad_wide_lengths_match_the_wire() {
+    CHECK(formats::tad::wide_record_lengths.size() == wide_record_type_count);
+    for (std::size_t index = 0; index < formats::tad::wide_record_lengths.size(); ++index)
+        CHECK(formats::tad::wide_record_lengths[index] == wide_record_length_table[index]);
+}
+
+// A 0xE0 payload whose weapon id is 300.
+std::vector<uint8_t> wide_fire_payload() {
+    WideWeaponFireRecord fire{};
+    fire.weapon_id = 300;
+    std::array<uint8_t, wide_record_length_table[0]> bytes{};
+    std::size_t written = 0;
+    CHECK(encode_record(fire, bytes.data(), bytes.size(), &written) == WireError::ok);
+    std::vector<uint8_t> payload{formats::tad::payload_marker};
+    payload.insert(
+        payload.end(), bytes.begin(), bytes.begin() + static_cast<std::ptrdiff_t>(written)
+    );
+    return payload;
+}
+
+// Loads a one-player recording, optionally carrying a limits sector, with one
+// wide weapon record, and plays it. Returns how many wide records the binding
+// applied.
+uint32_t applied_wide_records(std::optional<formats::tad::RecordedLimits> limits) {
+    auto recording = make_recording(kUnitsPerPlayer, 1);
+    const auto encoded = limits ? formats::tad::encode_limits_sector(*limits)
+                                : std::array<uint8_t, formats::tad::limits_sector_bytes>{};
+    if (limits) {
+        recording.demo.sectors.push_back(
+            {static_cast<uint32_t>(formats::tad::SectorType::limits), encoded}
+        );
+    }
+    recording.add(1, 33, wide_fire_payload());
+    const auto release = [](DemoSession* session) {
+        demo_session_end(session);
+        delete session;
+    };
+    std::unique_ptr<DemoSession, decltype(release)> session(new DemoSession(), release);
+    std::string error;
+    CHECK(demo_load(&session->playback, recording.bytes(), &error));
+    const bool wide = limits && limits->weapon_types > formats::tad::recorded_base_weapon_types;
+    CHECK(session->playback.stats.wide_records == (wide ? 1u : 0u));
+    CHECK(session->playback.frames.size() == (wide ? 1u : 0u));
+    if (wide && !session->playback.frames.empty()) {
+        const auto unwrapped =
+            oa::netgame::network::unwrap_frame(session->playback.frames[0].datagram);
+        CHECK(unwrapped.ok());
+        if (unwrapped.ok()) {
+            const auto& frame = *unwrapped.value;
+            CHECK(frame.size() >= frame_header_bytes + 27);
+            if (frame.size() >= frame_header_bytes + 27) {
+                CHECK(frame[frame_header_bytes] == 0xE0);
+                const auto id = static_cast<uint16_t>(
+                    frame[frame_header_bytes + 25] |
+                    (static_cast<uint16_t>(frame[frame_header_bytes + 26]) << 8)
+                );
+                CHECK(id == 300);
+            }
+        }
+    }
+    Machine replay;
+    replay.build(1);
+    CHECK(demo_session_begin(session.get(), replay.match.get(), &error));
+    if (session->match == nullptr)
+        return 0;
+    for (int tick = 0; tick < 10; ++tick)
+        demo_session_frame(session.get());
+    CHECK(session->tick_errors == 0);
+    return session->net.wide_records_applied;
+}
+
+// A recording with the sector (1024, 10) delivers a 0xE0 of id 300 to the
+// binding. The same packet without the sector, or with weapon types left at
+// 256, does not.
+void wide_records_reach_the_binding() {
+    CHECK(applied_wide_records(formats::tad::RecordedLimits{1024, 10}) == 1);
+    CHECK(applied_wide_records(std::nullopt) == 0);
+    CHECK(applied_wide_records(formats::tad::RecordedLimits{256, 7}) == 0);
+}
+
+DemoPlayback playback_with(std::optional<std::vector<uint8_t>> limits_body) {
+    auto recording = make_recording(kUnitsPerPlayer, 1);
+    if (limits_body) {
+        recording.demo.sectors.push_back(
+            {static_cast<uint32_t>(formats::tad::SectorType::limits), *limits_body}
+        );
+    }
+    DemoPlayback playback;
+    std::string error;
+    CHECK(demo_load(&playback, recording.bytes(), &error));
+    return playback;
+}
+
+// Each verdict, including a sides-only sector.
+void limits_verdicts() {
+    const auto encoded = [](formats::tad::RecordedLimits limits) {
+        const auto bytes = formats::tad::encode_limits_sector(limits);
+        return std::vector<uint8_t>(bytes.begin(), bytes.end());
+    };
+    const auto raised = playback_with(encoded({1024, 10}));
+    CHECK(demo_limits_verdict(raised, 1024, 10) == DemoLimitsVerdict::plays);
+    CHECK(demo_limits_verdict(raised, 256, 5) == DemoLimitsVerdict::other_limits);
+    CHECK(demo_limits_verdict(raised, 1024, 7) == DemoLimitsVerdict::other_limits);
+
+    const auto stock = playback_with(std::nullopt);
+    CHECK(demo_limits_verdict(stock, 256, 5) == DemoLimitsVerdict::plays);
+    CHECK(demo_limits_verdict(stock, 1024, 5) == DemoLimitsVerdict::base_limits);
+    CHECK(demo_limits_verdict(stock, 256, 7) == DemoLimitsVerdict::base_limits);
+
+    const auto sides_only = playback_with(encoded({256, 7}));
+    CHECK(demo_limits_verdict(sides_only, 256, 7) == DemoLimitsVerdict::plays);
+    CHECK(demo_limits_verdict(sides_only, 256, 5) == DemoLimitsVerdict::other_limits);
+    CHECK(sides_only.stats.wide_records == 0);
+
+    const auto broken = playback_with(std::vector<uint8_t>(7, 0));
+    CHECK(broken.limits_unreadable);
+    CHECK(!broken.limits);
+    CHECK(demo_limits_verdict(broken, 256, 5) == DemoLimitsVerdict::unreadable);
+    CHECK(demo_limits_verdict(broken, 1024, 10) == DemoLimitsVerdict::unreadable);
+}
+
 } // namespace
 
 int main() {
@@ -1668,6 +1850,10 @@ int main() {
     ten_players_watch_without_a_slot();
     recording_carries_loadout_text();
     recording_carries_brains_text();
+    recording_carries_limits();
+    tad_wide_lengths_match_the_wire();
+    wide_records_reach_the_binding();
+    limits_verdicts();
     slotless_viewer_watches_the_recording();
     recorded_unicode_chat_plays_back();
     recorded_alliance_line_reads_in_the_language_shown();
