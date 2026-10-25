@@ -103,6 +103,7 @@ enum class LostReason {
     moved_by_layout, ///< the layout, or the base it kept, already had the chord
     fixed,           ///< the chord is a fixed action's key, in a layer it meets
     too_many,        ///< a fifth chord or later
+    number_swap,     ///< the number-key swap flipped Alt onto this chord
 };
 
 /// A chord that resolution dropped.
@@ -131,8 +132,9 @@ struct Resolved {
 ///
 /// The order is the base, the chosen layout, the mod's letters, the player's
 /// own changes, the number-key swap, then fixed keys and the four-chord limit.
-/// The result does not depend on the order of `hacks_on`. Nothing is written
-/// back into a layout.
+/// The swap exchanges `group.select-n` with `build.page-n` and flips Alt on
+/// `group.add-n`, dropping any chord that flip lands on. The result does not
+/// depend on the order of `hacks_on`. Nothing is written back into a layout.
 ///
 /// @param input the base, the layouts, the mod, the hacks and the scheme
 /// @return the actions, the unknown names and the chords that lost

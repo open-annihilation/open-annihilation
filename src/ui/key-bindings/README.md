@@ -108,8 +108,12 @@ active.
   keycaps and the gesture after a space.
 - Resolution reads its input and the registry, and does not read a clock.
   The number-key swap is applied to the result only: the layout and the
-  player's own changes are left as they were given. An action keeps at most
-  four chords. Escape stays on `chat.cancel` whatever a step said. Every
+  player's own changes are left as they were given. It exchanges
+  `group.select-n` with `build.page-n` and flips Alt on `group.add-n`. A
+  chord that flip lands on is dropped, lost to the swap. A page that kept an
+  Alt chord also keeps it with Shift, so Alt+Shift+1 stays that page. An
+  action keeps at
+  most four chords. Escape stays on `chat.cancel` whatever a step said. Every
   other action, `ui.settings` included, takes the chords the steps give it.
 - `layout_from_manifest` reports a bad chord at the chord, not at the list.
   It keeps an unknown action and its chords. It does not change the layout
