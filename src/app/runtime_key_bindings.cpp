@@ -24,6 +24,8 @@
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
 #include "oa/ui/key_bindings/layout_file.hpp"
+#include "oa/ui/key_bindings/legacy.hpp"
+
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -362,6 +364,126 @@ bool use_layout(const oakeys::Manifest& manifest, keys::Layout& layout) {
     return parsed && !layout_blocked(problems);
 }
 
+/// The comma-separated ids of a preference.
+///
+/// @param text the value
+/// @return the ids, without empty pieces
+std::vector<std::string> split_ids(std::string_view text) {
+    std::vector<std::string> ids;
+    std::size_t at = 0;
+    while (at <= text.size()) {
+        const std::size_t comma = text.find(',', at);
+        std::string_view part =
+            text.substr(at, comma == std::string_view::npos ? text.size() - at : comma - at);
+        while (!part.empty() && part.front() == ' ')
+            part.remove_prefix(1);
+        while (!part.empty() && part.back() == ' ')
+            part.remove_suffix(1);
+        if (!part.empty())
+            ids.emplace_back(part);
+        if (comma == std::string_view::npos)
+            break;
+        at = comma + 1;
+    }
+    return ids;
+}
+
+/// Tells whether an id is one of a list.
+///
+/// @param ids the ids
+/// @param id the id
+/// @return true when the list holds it
+bool lists_id(const std::vector<std::string>& ids, std::string_view id) {
+    for (const std::string& one : ids)
+        if (one == id)
+            return true;
+    return false;
+}
+
+/// Joins ids with commas.
+///
+/// @param ids the ids
+/// @return the value
+std::string join_ids(const std::vector<std::string>& ids) {
+    std::string joined;
+    for (const std::string& id : ids) {
+        if (!joined.empty())
+            joined.push_back(',');
+        joined += id;
+    }
+    return joined;
+}
+
+/// The position of a stored key code, or 0 when it has none.
+///
+/// @param code the SDL key code
+/// @return the position
+uint16_t position_of(uint32_t code) {
+    const auto key = static_cast<SDL_Keycode>(code);
+    const SDL_Scancode scan = SDL_GetScancodeFromKey(key, nullptr);
+    const auto raw = static_cast<uint32_t>(scan);
+    if (raw == 0 || raw >= keys::scancode_limit)
+        return 0;
+    return static_cast<uint16_t>(raw);
+}
+
+/// Tells whether an own manifest already names an action.
+///
+/// @param manifest the own changes
+/// @param action the action id
+/// @return true when a binding names it
+bool names_action(const oakeys::Manifest& manifest, std::string_view action) {
+    for (const oakeys::BindingEntry& entry : manifest.bindings)
+        if (entry.action == action)
+            return true;
+    return false;
+}
+
+/// Replaces or appends one action's chords.
+///
+/// @param[in,out] manifest the own changes
+/// @param action the action id
+/// @param chords the chords
+void set_binding(
+    oakeys::Manifest& manifest, std::string action, const std::vector<keys::Chord>& chords
+) {
+    std::vector<oakeys::ChordText> texts;
+    texts.reserve(chords.size());
+    for (const keys::Chord& chord : chords) {
+        oakeys::ChordText text;
+        text.text = keys::chord_text(chord);
+        texts.push_back(std::move(text));
+    }
+    for (oakeys::BindingEntry& entry : manifest.bindings) {
+        if (entry.action == action) {
+            entry.chords = std::move(texts);
+            return;
+        }
+    }
+    oakeys::BindingEntry entry;
+    entry.action = std::move(action);
+    entry.chords = std::move(texts);
+    manifest.bindings.push_back(std::move(entry));
+}
+
+/// A new own manifest for one layout.
+///
+/// @param base_id the layout the changes sit on
+/// @return the manifest, with no bindings yet
+oakeys::Manifest fresh_own(std::string_view base_id) {
+    oakeys::Manifest manifest;
+    manifest.format = oakeys::format_version;
+    manifest.id = std::string("own-") + std::string(base_id);
+    manifest.name = "Your changes";
+    manifest.version.major = 1;
+    manifest.version.minor = 0;
+    manifest.version.parts = 2;
+    manifest.author.name = "You";
+    manifest.tags = {"own"};
+    manifest.base = oakeys::Base::oa_default;
+    return manifest;
+}
+
 /// The word `--trace-input` prints for an action's phase.
 ///
 /// @param phase the phase
@@ -587,6 +709,9 @@ void Runtime::load_key_bindings() {
     const bool apply_own = !one_run && key_bindings_refusal_.empty();
     keys::Layout own_layout;
     bool has_own = false;
+    oakeys::Manifest own_manifest;
+    bool have_own_manifest = false;
+    bool own_broken = false;
     if (apply_own) {
         const fs::path own_file =
             keys_folder / library::own_folder_name(base_id) / std::string(oakeys::manifest_file);
@@ -594,10 +719,124 @@ void Runtime::load_key_bindings() {
         if (fs::exists(own_file, own_error) && !own_error) {
             const ReadLayout read = read_layout_file(own_file);
             if (!read.ok) {
+                own_broken = true;
                 for (const std::string& line : read.lines)
                     log_keys(line);
-            } else if (use_layout(read.manifest, own_layout)) {
-                has_own = true;
+            } else {
+                own_manifest = read.manifest;
+                have_own_manifest = true;
+                if (use_layout(own_manifest, own_layout))
+                    has_own = true;
+                else
+                    own_broken = true;
+            }
+        }
+    }
+
+    bool needed_write = false;
+    if (apply_own && import_hacks && !mod_id.empty()) {
+        const std::vector<std::string> already =
+            split_ids(preference_text(preference_values_, imported_preference));
+        if (!lists_id(already, mod_id)) {
+            struct StoredKey {
+                const char* setting;
+                const char* action;
+                uint32_t code;
+            };
+
+            const StoredKey stored[] = {
+                {"ClickSnapOverrideKey", "build.snap-override", view_settings_.snap_override_key},
+                {"KeyCode", "build.line", view_settings_.autoclick_key},
+                {"RotateBuildKey", "build.rotate", view_settings_.rotate_build_key},
+            };
+            if (!have_own_manifest && !own_broken)
+                own_manifest = fresh_own(base_id);
+            for (const StoredKey& stored_key : stored) {
+                const actions::Action* action = actions::find(stored_key.action);
+                if (action == nullptr)
+                    continue;
+                if (have_own_manifest && names_action(own_manifest, stored_key.action)) {
+                    log_keys(
+                        std::string("skipped ") + stored_key.action +
+                        "; your changes already name it"
+                    );
+                    continue;
+                }
+                const std::optional<keys::Chord> chord = keys::legacy_key_chord(
+                    stored_key.code, position_of(stored_key.code), action->by
+                );
+                if (!chord) {
+                    log_keys(
+                        std::string("skipped ") + stored_key.setting + "; it maps to no chord"
+                    );
+                    continue;
+                }
+                bool same_as_default = false;
+                if (!action->defaults.empty()) {
+                    keys::ChordError chord_error;
+                    const std::optional<keys::Chord> first =
+                        keys::parse_chord(action->defaults.front(), chord_error);
+                    same_as_default = first.has_value() && *first == *chord;
+                }
+                if (same_as_default) {
+                    log_keys(
+                        std::string("skipped ") + stored_key.setting + "; it is already the default"
+                    );
+                    continue;
+                }
+                if (own_broken) {
+                    needed_write = true;
+                    log_keys(
+                        std::string("skipped ") + stored_key.action +
+                        "; your changes cannot be read"
+                    );
+                    continue;
+                }
+                const std::vector<keys::Chord> chords = keys::imported_list(*action, *chord);
+                if (chords.empty()) {
+                    log_keys(
+                        std::string("skipped ") + stored_key.setting + "; it maps to no chord"
+                    );
+                    continue;
+                }
+                needed_write = true;
+                std::string shown;
+                for (const keys::Chord& one : chords) {
+                    if (!shown.empty())
+                        shown += ", ";
+                    shown += keys::chord_text(one);
+                }
+                set_binding(own_manifest, std::string(stored_key.action), chords);
+                have_own_manifest = true;
+                log_keys(
+                    std::string("imported ") + stored_key.action + " from " + stored_key.setting +
+                    " as " + shown
+                );
+            }
+            bool wrote = !needed_write;
+            if (needed_write && !own_broken) {
+                std::string write_error;
+                wrote = library::write_own(keys_folder, base_id, own_manifest, write_error);
+                if (!wrote)
+                    log_keys(base_id + ": " + write_error);
+            }
+            if (wrote && !(needed_write && own_broken)) {
+                std::vector<std::string> ids = already;
+                ids.push_back(mod_id);
+                const std::string joined = join_ids(ids);
+                const std::string key{imported_preference};
+                const auto found = preference_values_.find(key);
+                if (found == preference_values_.end() || found->second != joined) {
+                    preference_values_[key] = joined;
+                    preferences_dirty_ = true;
+                }
+            }
+            if (have_own_manifest && !own_broken) {
+                keys::Layout imported;
+                if (use_layout(own_manifest, imported)) {
+                    own_layout = std::move(imported);
+                    has_own = true;
+                }
             }
         }
     }
