@@ -443,9 +443,15 @@ std::string_view label_of(settings::Setting setting) {
     case settings::Setting::heat_distortion:
         return "Heat distortion";
     case settings::Setting::allow_full_3d:
-        return "Allow Full 3D Mode";
+        return "Allow full 3D mode";
     case settings::Setting::unlocked_camera:
-        return "Unlocked Camera";
+        return "Unlocked camera";
+    case settings::Setting::mod_limits_heading:
+        return "Set by the mod";
+    case settings::Setting::weapon_types:
+        return "Weapon types";
+    case settings::Setting::sides:
+        return "Sides";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:

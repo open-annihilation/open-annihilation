@@ -478,6 +478,9 @@ struct Options {
     // MOVE ORDERS, CLOAK, ON/OFF and MOVE buttons through the SDL presenter and
     // checks the units carry the orders out.
     bool check_side_orders = false;
+    // Opens Settings on Engine Limits at the menu and in a two-slot skirmish
+    // and checks the weapon-type and side rows.
+    bool check_mod_limits = false;
     // Gives a Kbot Lab a move through the SDL presenter and checks the unit it
     // builds carries it out.
     bool check_factory_orders = false;
@@ -529,6 +532,9 @@ struct Options {
     // so that the game's tallest unit page ends on the window's last row;
     // empty for no check.
     std::string check_unit_pages;
+    // Drives every key, click and wheel the match answers and compares what
+    // each did with the named table; empty for no check.
+    std::string check_key_table;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,

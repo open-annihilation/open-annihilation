@@ -12400,6 +12400,12 @@ class Runtime final : public menu::Host,
     /// (check_pointer_picks). Throws std::runtime_error on a failure.
     void check_pointer_interfaces();
 
+    /// Plays every row of options_.check_key_table on one skirmish, through
+    /// dispatch_event, and compares each effect with the file. Writes
+    /// key-table-observed.tsv in the working directory even when a row does
+    /// not match. Throws std::runtime_error on a failure.
+    void check_key_table();
+
     /// Checks the screen's edges scrolling the camera through SDL input, on
     /// the skirmish check_pointer_interfaces() starts.
     ///
@@ -13934,6 +13940,15 @@ class Runtime final : public menu::Host,
     /// units offers CLOAK or ON/OFF is reported so. Throws std::runtime_error
     /// on a failure.
     void check_side_orders();
+
+    /// Checks Engine Limits' weapon-type and side rows at the menu and in a match.
+    ///
+    /// At the main menu the rows show 256 and 5 without a mod profile, or the
+    /// profile's limits with one. A two-slot skirmish then shows those same
+    /// numbers without a profile, or how many of each limit the match loaded
+    /// with one. Prints one line, `mod limits check: menu <weapons>, <sides>;
+    /// match <weapons>, <sides>`. Throws std::runtime_error on a failure.
+    void check_mod_limits();
 
     /// Checks the command buttons through ARMGEN.GUI clicks.
     ///
@@ -18210,6 +18225,9 @@ class Runtime final : public menu::Host,
 
     MapUnitRun map_units_{};
     oa::sim::combat_state::WeaponRegistry weapon_registry_;
+    /// The weapon types the playing match loaded. Empty until a match has
+    /// loaded its weapons.
+    std::optional<uint32_t> match_weapon_types_;
     // The 3DO model each weapon registry slot draws its shots with (TDF
     // `model`), read with the weapon definitions as the match starts.
     std::map<uint16_t, std::string> weapon_model_names_;

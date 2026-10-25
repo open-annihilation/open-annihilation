@@ -649,6 +649,7 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     }
     if (installed_weapons == 0)
         throw std::runtime_error("no base weapon definitions were installed");
+    match_weapon_types_ = static_cast<uint32_t>(installed_weapons);
     set_load_progress(0, 100);
 
     // Mission state set-up: Terrain before Units.

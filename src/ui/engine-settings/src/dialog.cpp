@@ -574,9 +574,24 @@ Rows place_section(
         for (std::size_t line = 0; line < row.hint_lines; ++line)
             row.hints[line] = placed_row.hints[line];
         row.control_area = placed_row.control_area;
-        // Only a slider shows a value of its own beside its control.
+        // Only a slider shows a value of its own beside its control. A text
+        // row's value shares the label line; the layout gives it the right
+        // of that line, so the label and the value do not overlap.
         if (placed_row.view.kind == kit::RowKind::slider)
             row.value = placed_row.value;
+        else if (placed_row.view.kind == kit::RowKind::text && !placed_row.view.value.empty()) {
+            const SourceRect line = placed_row.label;
+            const int32_t columns = std::max(
+                static_cast<int32_t>(oa::ui::kit::character_count(placed_row.view.value)) *
+                    estimated_character_width,
+                int32_t{1}
+            );
+            int32_t value_span = std::min(columns, std::max(line.width / 2, int32_t{1}));
+            if (value_span + label_gap >= line.width)
+                value_span = std::max((line.width - label_gap) / 2, int32_t{1});
+            row.value = {line.x + line.width - value_span, line.y, value_span, line.height};
+            row.label.width = std::max(row.value.x - label_gap - row.label.x, int32_t{1});
+        }
     }
     if (placed != nullptr)
         *placed = std::move(kit_rows);
@@ -1067,7 +1082,7 @@ std::string_view lock_text(Lock lock) noexcept {
     case Lock::needs_full_acceleration:
         return "Needs Full acceleration";
     case Lock::needs_full_3d:
-        return "Needs Allow Full 3D Mode";
+        return "Needs Allow full 3D mode";
     case Lock::main_menu:
         return "Choose from the main menu.";
     }
@@ -2811,8 +2826,11 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             break;
         case oa::ui::kit::RowKind::text_field:
         case oa::ui::kit::RowKind::link:
-        case oa::ui::kit::RowKind::text:
             // Where the files are and the Steam Input notice show text alone.
+            break;
+        case oa::ui::kit::RowKind::text:
+            if (!view.value.empty())
+                row_part(LayoutPart{row.value, view.value, DialogFont::regular, 0, no_control});
             break;
         }
     }

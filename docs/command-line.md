@@ -361,6 +361,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-render-tiers` | Checks the accelerated drawing of the main menu and a skirmish against the processor's. |
 | `--check-match-orders` | Clicks the order page's buttons and checks what the units do. |
 | `--check-side-orders` | Clicks each side's order page buttons, whatever prefix their names carry, and checks what the units do. |
+| `--check-mod-limits` | Opens Settings on Engine Limits at the menu and in a two-slot skirmish and checks the weapon-type and side rows. |
 | `--check-side-data-per-match` | Plays skirmishes and checks each match reads side data again when `gamedata/sidedata.tdf` has changed. |
 | `--check-gadget-art-per-match` | Plays three skirmishes and checks a download button's picture appears only in the match whose mod folder holds it. |
 | `--check-factory-orders` | Gives a Kbot Lab a move and checks the unit it builds carries it out. |
@@ -404,6 +405,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
+| `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
 | `--check-pad-controls` | Drives the gamepad controls with SDL's virtual pads ([controllers](controllers.md)). |
 | `--check-touch-controls` | Drives the touch controls with finger events ([touch controls](touch-controls.md)). |
 | `--check-running-while-inactive` | Checks the game keeps running while its window is inactive, when it must. |
@@ -461,6 +463,7 @@ Network play's own checks, the last rows, are in every build.
 | `--net-loopback-check TICKS` | Hosts and joins a match in one process over 127.0.0.1 and compares both worlds after `TICKS` ticks. |
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
+| `--net-loopback-shooter TYPE` | The loopback check's host makes one finished `TYPE` beside its commander, and that unit fires at the ground beside the commander's aim point. |
 | `--net-loopback-each-ai` | The loopback check's host and joiner each seat a computer player. |
 | `--net-loopback-fixed-starts` | The loopback check's host fixes the start positions. |
 | `--check-host-not-found` | Checks a joiner whose host is never found. |

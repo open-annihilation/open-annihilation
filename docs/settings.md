@@ -219,7 +219,7 @@ Each of these takes effect at once.
 
 ## Engine Limits
 
-![The Engine Limits section: Unit limit at 250 per player, Pathfinding cycles at 1x and Skirmish players at 10.](images/settings/engine-limits.png)
+![The Engine Limits section: Unit limit at 250 per player, Pathfinding cycles at 1x, Skirmish players at 10, and the heading Set by the mod.](images/settings/engine-limits.png)
 
 - **Unit limit**, 50 to 1500 units per player in steps of 50 (a mod may
   allow more). By default it is the unit limit your Total Annihilation
@@ -239,9 +239,20 @@ Each of these takes effect at once.
   setup's key codes store, so a code changes the slider and the slider
   changes what a code would set. A count you already stored stays, including
   one outside 2 to 10, until you move the slider.
+- **Weapon types**, set by the mod. It counts how many weapon types the
+  mod allows. The base game allows 256. In a match it shows how many of
+  that limit the match loaded, as "312 of 4096". Every player in a game
+  has the same count. The row never takes input.
+- **Sides**, set by the mod. It counts how many sides the mod allows. The
+  base game has 5. In a match it shows how many of that limit the match
+  loaded, as "7 of 10". Every player in a game has the same count. The
+  row never takes input.
 
 The three sliders are locked during a game, and in a multiplayer game or a
-replay they show "Set by the host".
+replay they show "Set by the host". Weapon types and Sides never take a
+focus, a key or a click.
+
+![The end of the Engine Limits section: the heading Set by the mod, Weapon types at 256, and Sides at 5.](images/settings/engine-limits-2.png)
 
 <a id="language"></a>
 

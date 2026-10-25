@@ -273,6 +273,8 @@ add_subdirectory(src/ui/paint)
 # The touch controls' gesture recogniser and model (docs/touch-controls.md).
 add_subdirectory(src/ui/touch-gestures)
 add_subdirectory(src/ui/touch-hud)
+# Chords: letters, key positions, names and how an event matches.
+add_subdirectory(src/ui/key-bindings)
 add_subdirectory(src/ui/game-files)
 # The in-engine game folder chooser's model.
 add_subdirectory(src/ui/folder-chooser)
@@ -1342,13 +1344,15 @@ endif()
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
+  src/app/runtime_mod_limits_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
   src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
-  src/app/runtime_pointer_check.cpp src/app/runtime_dgun_check.cpp
+  src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
+  src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
   src/app/runtime_zoom_memory_check.cpp
   src/app/runtime_match_panel_keys_check.cpp src/app/runtime_turret_draw_check.cpp
@@ -3106,6 +3110,30 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-side-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_side_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Engine Limits' weapon-type and side rows: 256 and 5 with no profile,
+      # at the menu and in a two-slot skirmish.
+      set(oa_mod_limits_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits")
+      file(MAKE_DIRECTORY "${oa_mod_limits_check_dir}")
+      add_test(NAME native-mod-limits COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mod-limits
+        --preferences-file "${oa_mod_limits_check_dir}/mod-limits.conf")
+      set_tests_properties(native-mod-limits PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mod_limits_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "menu 256, 5; match 256, 5")
+      # The same rows with ridge-wide: the profile's limits at the menu, and
+      # how many of each the match loaded. The fixture has seven sides.
+      set(oa_mod_limits_wide_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits-wide")
+      file(MAKE_DIRECTORY "${oa_mod_limits_wide_dir}")
+      add_test(NAME native-mod-limits-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mod-limits
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+        --preferences-file "${oa_mod_limits_wide_dir}/mod-limits-wide.conf")
+      set_tests_properties(native-mod-limits-wide PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mod_limits_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "menu 1024, 10; match [0-9]+ of 1024, 7 of 10")
       # A Kbot Lab sent to a point with MOVE and PATROL through SDL input on
       # dummy devices: each Peewee it then builds heads there.
       set(oa_factory_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/factory-orders")
@@ -3585,6 +3613,49 @@ endforeach()
         --preferences-file "${oa_pointer_check_dir}/pointer-interfaces.conf")
       set_tests_properties(native-pointer-interfaces PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_pointer_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Every key, click and wheel the match answers, compared with the table.
+      set(oa_key_table_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table")
+      file(MAKE_DIRECTORY "${oa_key_table_dir}")
+      add_test(NAME native-key-table COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/base.tsv"
+        --preferences-file "${oa_key_table_dir}/key-table.conf")
+      set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows again, plus the ones that exist only with the twelve
+      # catalogue hacks turned on.
+      set(oa_key_table_hacks_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-hacks")
+      file(MAKE_DIRECTORY "${oa_key_table_hacks_dir}")
+      file(WRITE "${oa_key_table_hacks_dir}/key-table-hacks.oamod.yaml"
+        "oamod: 1\n"
+        "id: key-table-hacks\n"
+        "name: Key table hacks\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-25, packager: Open Annihilation}\n"
+        "hacks:\n"
+        "  ui.megamap: true\n"
+        "  ui.whiteboard: true\n"
+        "  ui.resource-panel: true\n"
+        "  ui.selection-shortcuts: true\n"
+        "  ui.build-tools: true\n"
+        "  ui.click-snap: {mex-default: 3, mex-max: 3, wreck-default: 1, wreck-max: 1}\n"
+        "  ui.build-preview: true\n"
+        "  ui.options-dialog: true\n"
+        "  ui.display-modes: true\n"
+        "  console.key-remaps: true\n"
+        "  teams.alliance-menu-all-game-types: true\n"
+        "  units.build-rotation: true\n")
+      add_test(NAME native-key-table-hacks COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/hacks.tsv"
+        --mod "${oa_key_table_hacks_dir}/key-table-hacks.oamod.yaml"
+        --preferences-file "${oa_key_table_hacks_dir}/key-table.conf")
+      set_tests_properties(native-key-table-hacks PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_hacks_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # With the request held, the frame hook keeps being called while the
       # window is inactive; released, the loop waits for an event.

@@ -325,6 +325,7 @@ void check_game_files_options(Options& options) {
         {options.check_render_tiers, "--check-render-tiers"},
         {options.check_match_orders, "--check-match-orders"},
         {options.check_side_orders, "--check-side-orders"},
+        {options.check_mod_limits, "--check-mod-limits"},
         {options.check_factory_orders, "--check-factory-orders"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_mutator_layer, "--check-mutator-layer"},
@@ -339,6 +340,7 @@ void check_game_files_options(Options& options) {
         {options.check_side_column, "--check-side-column"},
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
+        {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -622,6 +624,7 @@ void check_director_options(Options& options) {
         {options.check_render_tiers, "--check-render-tiers"},
         {options.check_match_orders, "--check-match-orders"},
         {options.check_side_orders, "--check-side-orders"},
+        {options.check_mod_limits, "--check-mod-limits"},
         {options.check_factory_orders, "--check-factory-orders"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_mutator_layer, "--check-mutator-layer"},
@@ -636,6 +639,7 @@ void check_director_options(Options& options) {
         {options.check_side_column, "--check-side-column"},
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
+        {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -729,6 +733,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_render_tiers, "--check-render-tiers"},
             {options.check_match_orders, "--check-match-orders"},
             {options.check_side_orders, "--check-side-orders"},
+            {options.check_mod_limits, "--check-mod-limits"},
             {options.check_factory_orders, "--check-factory-orders"},
             {options.check_unit_speech, "--check-unit-speech"},
             {options.check_mutator_layer, "--check-mutator-layer"},
@@ -743,6 +748,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_side_column, "--check-side-column"},
             {options.check_match_bars, "--check-match-bars"},
             {!options.check_unit_pages.empty(), "--check-unit-pages"},
+            {!options.check_key_table.empty(), "--check-key-table"},
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
             {options.check_saved_brains, "--check-saved-brains"},
@@ -982,6 +988,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-render-tiers", &Options::check_render_tiers},
     {"--check-match-orders", &Options::check_match_orders},
     {"--check-side-orders", &Options::check_side_orders},
+    {"--check-mod-limits", &Options::check_mod_limits},
     {"--check-factory-orders", &Options::check_factory_orders},
     {"--check-unit-speech", &Options::check_unit_speech},
     {"--check-mutator-layer", &Options::check_mutator_layer},
@@ -1334,6 +1341,10 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.check_unit_pages = option_value(cursor);
         return true;
     }
+    if (argument == "--check-key-table") {
+        options.check_key_table = option_value(cursor);
+        return true;
+    }
     if (argument == "--check-unit-language") {
         options.check_unit_language = option_value(cursor);
         return true;
@@ -1644,7 +1655,8 @@ void write_startup_line(std::string_view text) {
                      "zoom-1920x1080|zoom-2560x1440|campaign]] "
                      "[--check-match-dialogs] [--check-match-layers] "
                      "[--check-render-tiers [--force-capable]] "
-                     "[--check-match-orders] [--check-side-orders] [--check-factory-orders] "
+                     "[--check-match-orders] [--check-side-orders] [--check-mod-limits] "
+                     "[--check-factory-orders] "
                      "[--check-unit-speech] [--check-mutator-layer] [--check-mutator-verdicts] "
                      "[--check-replay-loadout] "
                      "[--check-side-data-per-match] "
@@ -1669,6 +1681,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
+                     "[--check-key-table FILE] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
                      "[--check-installer FILE] "
@@ -1958,15 +1971,16 @@ void write_startup_line(std::string_view text) {
         result.check_side_data_per_match || result.check_gadget_art_per_match ||
         result.check_download_builds || result.check_stockpile_builds ||
         result.check_unit_page_memory || result.check_side_column || result.check_match_bars ||
-        !result.check_unit_pages.empty() || result.check_kill_board ||
-        !result.check_unit_language.empty() || result.check_language_switch ||
-        result.check_language_registry || result.check_language_notice || result.check_first_run ||
-        result.check_setup_window || result.check_window_place || result.check_progress ||
-        result.check_engine_feed || result.check_text_fit || result.check_folder_chooser ||
-        result.check_patrol_reclaim || result.check_reclaim_cursor || result.check_wreck_pick ||
-        result.check_build_preview || result.check_pointer_interfaces ||
-        result.check_megamap_clicks || result.check_single_player_offers ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
+        !result.check_unit_pages.empty() || !result.check_key_table.empty() ||
+        result.check_kill_board || !result.check_unit_language.empty() ||
+        result.check_language_switch || result.check_language_registry ||
+        result.check_language_notice || result.check_first_run || result.check_setup_window ||
+        result.check_window_place || result.check_progress || result.check_engine_feed ||
+        result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
+        result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
+        result.check_pointer_interfaces || result.check_megamap_clicks ||
+        result.check_single_player_offers || result.check_radar_orders ||
+        result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
@@ -1975,7 +1989,8 @@ void write_startup_line(std::string_view text) {
         result.check_mutator_picker || result.check_brain_picker ||
         result.check_brain_seat_buttons || result.check_brain_campaign ||
         result.check_mutator_prompts || result.check_map_pack_lists ||
-        result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;
+        result.check_mod_map_settings || result.check_side_orders || result.check_mod_limits ||
+        result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

@@ -37,6 +37,10 @@
 //   0x23 developer: u8 flags (bit 0 Developer Mode on, other bits 0), u16
 //        the number of overrides, then as many as were sent, each u8 on
 //        (0 or 1) and an id string 1 to 64.
+//   0x24 limits: u32 the most weapon types this build plays, u8 the most
+//        sides. A value that is not five bytes, or names fewer than 256
+//        weapon types or five sides, is left out. Absent: an OA build from
+//        before these limits.
 //   0x30 content: u8 flags, bit 0 the machine can fetch content (it has a
 //        downloads folder and at least one enabled registry whose downloads
 //        are on); bits 1 to 7 sent as 0 and ignored when read. Absent: the
@@ -160,6 +164,7 @@ enum class PresenceTag : uint8_t {
     game_hacks = 0x21,      ///< game hacks that are on
     view_hacks = 0x22,      ///< view hacks that are on
     developer = 0x23,       ///< Developer Mode and its overrides
+    limits = 0x24,          ///< the most weapon types and sides this build plays
     content = 0x30,         ///< whether the machine can fetch content
     bundles = 0x31,         ///< the base game and the rule-changing expansions
     language = 0x32,        ///< the language's name in English
@@ -421,6 +426,15 @@ struct PresenceMutatorPart {
     friend bool operator==(const PresenceMutatorPart&, const PresenceMutatorPart&) = default;
 };
 
+/// The ceilings this build plays, tag 0x24. These name the build, not the profile.
+struct PresenceLimits {
+    uint32_t weapon_types{}; ///< the most weapon types this build plays
+    uint8_t sides{};         ///< the most sides this build plays
+
+    /// Compares two ceilings.
+    friend bool operator==(const PresenceLimits&, const PresenceLimits&) = default;
+};
+
 /// One presence record. A field that was not sent, or whose value broke its rule, is absent.
 struct PresenceRecord {
     uint8_t version{presence_record_version}; ///< format version, 1 or more
@@ -428,6 +442,10 @@ struct PresenceRecord {
     std::optional<PresenceMod> mod;
     std::optional<PresenceOrigin> mod_origin;
     std::optional<PresenceDigest> sim_hash;
+    /// The most weapon types and sides this build plays. Absent on a record
+    /// from before these limits, and when the value named fewer than 256
+    /// weapon types or five sides.
+    std::optional<PresenceLimits> limits;
     std::optional<PresenceHacks> game_hacks;
     std::optional<PresenceHacks> view_hacks;
     std::optional<PresenceDeveloper> developer;
@@ -468,7 +486,7 @@ presence_record_length(const uint8_t* bytes, std::size_t available, uint16_t* le
 /// Writes a presence record.
 ///
 /// Fields that are present go out in the order engine, content, bundles,
-/// language, mod, mod origin, sim hash, mutators, mutator modes, map pack,
+/// language, mod, mod origin, sim hash, limits, mutators, mutator modes, map pack,
 /// mutator part, developer, game hacks, view hacks. A list field carries its full count
 /// and as many entries, in order, as keep the record within min(capacity,
 /// 1024). Whole mutators are filled before developer overrides and hack
@@ -529,6 +547,18 @@ decode_presence(const uint8_t* record, std::size_t size, PresenceRecord* out);
 /// @return the hash, or nothing
 [[nodiscard]] std::optional<PresenceDigest>
 presence_sim_hash(const uint8_t* record, std::size_t size) noexcept;
+
+/// Reads the build ceilings of a well-framed record, without allocating.
+///
+/// The first 0x24 field is kept when its value is five bytes and names at
+/// least 256 weapon types and five sides. A shorter, longer or smaller
+/// value, and a record without the tag, answers nothing.
+///
+/// @param record the record, type byte first; null is nothing
+/// @param size its length in bytes
+/// @return the ceilings, or nothing
+[[nodiscard]] std::optional<PresenceLimits>
+presence_limits(const uint8_t* record, std::size_t size) noexcept;
 
 /// Compares the bundles fields of two records, without allocating.
 ///

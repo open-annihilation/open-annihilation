@@ -606,7 +606,7 @@ void event_records_follow_pump_rules() {
     world.sim.queue_feature_event = [](void*, World*, uint16_t, uint16_t, bool flagged) {
         active->queued += flagged ? 10 : 1;
     };
-    world.sim.feature_event = [](void*, World*, uint8_t, uint16_t, uint16_t) { ++active->table; };
+    world.sim.feature_event = [](void*, World*, uint16_t, uint16_t, uint16_t) { ++active->table; };
     Unit* live = world.spawn(&world.units[2], 1, true);
     world.units[3].type_index = 1;
     world.world->game.players[4].status = OA_PLAYER_STATUS_LOCAL;
@@ -658,6 +658,116 @@ void event_records_follow_pump_rules() {
     CHECK(seen.burns == 1 && seen.queued == 11 && seen.table == 1);
     ChatRecord chat{};
     CHECK(!apply(chat));
+    active = nullptr;
+}
+
+// Wide weapon records, and the narrow ones widened on the way in, reach the same hooks.
+void wide_weapon_records_reach_the_hooks() {
+    TestWorld world(
+        small_units_per_player, small_def_bits, small_classes, nullptr, std::size(small_classes)
+    );
+
+    struct Seen {
+        WideWeaponFireRecord fire{};
+        int fires = 0;
+        WideProjectileInterceptedRecord hit{};
+        int hits = 0;
+        uint16_t feature_weapon = 0;
+        int features = 0;
+        int burns = 0;
+        int queued = 0;
+        int flagged = 0;
+    } seen;
+
+    static Seen* active = nullptr;
+    active = &seen;
+    world.sim.weapon_fire = [](void*, World*, Player*, const WideWeaponFireRecord& record) {
+        active->fire = record;
+        ++active->fires;
+    };
+    world.sim.detonate_projectile =
+        [](void*, World*, const WideProjectileInterceptedRecord& record) {
+            active->hit = record;
+            ++active->hits;
+        };
+    world.sim.feature_event = [](void*, World*, uint16_t weapon, uint16_t, uint16_t) {
+        active->feature_weapon = weapon;
+        ++active->features;
+    };
+    world.sim.tree_burn = [](void*, World*, uint16_t, uint16_t) { ++active->burns; };
+    world.sim.queue_feature_event = [](void*, World*, uint16_t, uint16_t, bool flagged) {
+        ++active->queued;
+        active->flagged += flagged ? 1 : 0;
+    };
+    const auto apply = [&](const auto& record) {
+        uint8_t bytes[256];
+        std::size_t written = 0;
+        CHECK(encode_record(record, bytes, sizeof bytes, &written) == WireError::ok);
+        bool handled = false;
+        CHECK(
+            replication_apply_record(world.world.get(), &world.sim, 1, bytes, written, &handled) ==
+            WireError::ok
+        );
+        return handled;
+    };
+
+    WideWeaponFireRecord wide_fire{};
+    wide_fire.start[0] = 11;
+    wide_fire.target[1] = 22;
+    wide_fire.weapon_id = 300;
+    wide_fire.flags = 1;
+    wide_fire.aim_heading = 7;
+    wide_fire.aim_pitch = -2;
+    wide_fire.target_unit_index = 3;
+    wide_fire.source_unit_index = 4;
+    wide_fire.slot = 1;
+    CHECK(apply(wide_fire));
+    CHECK(seen.fires == 1 && seen.fire == wide_fire);
+
+    WeaponFireRecord narrow_fire{};
+    narrow_fire.start[0] = 11;
+    narrow_fire.target[1] = 22;
+    narrow_fire.weapon_id = 200;
+    narrow_fire.flags = 1;
+    narrow_fire.aim_heading = 7;
+    narrow_fire.aim_pitch = -2;
+    narrow_fire.target_unit_index = 3;
+    narrow_fire.source_unit_index = 4;
+    narrow_fire.slot = 1;
+    CHECK(apply(narrow_fire));
+    CHECK(seen.fires == 2 && seen.fire.weapon_id == 200 && seen.fire.start[0] == 11);
+    CHECK(seen.fire.flags == 1 && seen.fire.slot == 1 && seen.fire.aim_heading == 7);
+
+    WideProjectileInterceptedRecord wide_hit{};
+    wide_hit.target[0] = 5;
+    wide_hit.target[1] = 6;
+    wide_hit.target[2] = 7;
+    wide_hit.weapon_id = 300;
+    CHECK(apply(wide_hit));
+    CHECK(seen.hits == 1 && seen.hit == wide_hit);
+    ProjectileInterceptedRecord narrow_hit{};
+    narrow_hit.target[0] = 8;
+    narrow_hit.target[1] = 9;
+    narrow_hit.target[2] = 10;
+    narrow_hit.weapon_id = 9;
+    CHECK(apply(narrow_hit));
+    CHECK(seen.hits == 2 && seen.hit.weapon_id == 9 && seen.hit.target[0] == 8);
+
+    WideFeatureEventRecord feature{};
+    feature.x = 1;
+    feature.y = 2;
+    feature.action = static_cast<uint8_t>(WideFeatureAction::weapon_hit);
+    feature.weapon_id = 300;
+    CHECK(apply(feature) && seen.features == 1 && seen.feature_weapon == 300);
+    feature.action = static_cast<uint8_t>(WideFeatureAction::queue_event);
+    CHECK(apply(feature));
+    feature.action = static_cast<uint8_t>(WideFeatureAction::queue_event_flagged);
+    CHECK(apply(feature));
+    feature.action = static_cast<uint8_t>(WideFeatureAction::tree_burn);
+    CHECK(apply(feature));
+    CHECK(seen.queued == 2 && seen.flagged == 1 && seen.burns == 1);
+    feature.action = 4;
+    CHECK(!apply(feature));
     active = nullptr;
 }
 
@@ -863,6 +973,7 @@ int main() {
          stream_created_unit_waits_for_its_full_record},
         {"receiver_calls_follow_the_record", receiver_calls_follow_the_record},
         {"event_records_follow_pump_rules", event_records_follow_pump_rules},
+        {"wide_weapon_records_reach_the_hooks", wide_weapon_records_reach_the_hooks},
         {"malformed_unit_states_change_nothing", malformed_unit_states_change_nothing},
         {"short_body_recreates_nothing", short_body_recreates_nothing},
     };

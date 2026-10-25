@@ -885,6 +885,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_mod_limits) {
+            check_mod_limits();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_factory_orders) {
             check_factory_orders();
             flush_preferences();
@@ -1037,6 +1042,11 @@ int Runtime::run() {
         }
         if (options_.check_pointer_interfaces) {
             check_pointer_interfaces();
+            flush_preferences();
+            return 0;
+        }
+        if (!options_.check_key_table.empty()) {
+            check_key_table();
             flush_preferences();
             return 0;
         }

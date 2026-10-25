@@ -46,6 +46,10 @@ inline constexpr uint8_t recorder_protocol_plain = 0;
 inline constexpr uint8_t recorder_protocol_current = 6;
 /// The recording header version every recorder writes and every replayer reads.
 inline constexpr uint8_t recording_header_version = 5;
+/// The most weapon types 3.1c's records can name.
+inline constexpr uint32_t wire_base_weapon_types = 256;
+/// The most sides 3.1c plays.
+inline constexpr uint8_t wire_base_sides = 5;
 
 /// The network rules of one game; value-initialised it is 3.1c.
 struct WireRules {
@@ -84,6 +88,12 @@ struct WireRules {
     /// The host's .syncon and .syncoff lock and unlock the game speed for
     /// the game, on recorders (console.game-speed-range syncon).
     bool speed_lock{};
+    /// The most weapon types this game's records name. Above
+    /// wire_base_weapon_types, shots, interceptions and feature hits travel
+    /// as the wide records.
+    uint32_t weapon_types{wire_base_weapon_types};
+    /// The most sides this game plays.
+    uint8_t sides{wire_base_sides};
 
     /// Compares every field.
     bool operator==(const WireRules&) const = default;
@@ -97,6 +107,24 @@ struct WireRules {
 [[nodiscard]] constexpr bool version_admits(const WireRules& rules, int32_t game_major) noexcept {
     const auto local = static_cast<int32_t>(static_cast<int8_t>(rules.version_major));
     return rules.version_rule == VersionRule::equal ? game_major == local : local <= game_major;
+}
+
+/// Tells whether shots, interceptions and feature hits travel as wide records.
+///
+/// The choice reads the profile's weapon-type ceiling, not the weapons loaded.
+///
+/// @param rules the game's rules
+/// @return true when weapon_types is above wire_base_weapon_types
+[[nodiscard]] constexpr bool wide_weapon_records(const WireRules& rules) noexcept {
+    return rules.weapon_types > wire_base_weapon_types;
+}
+
+/// Tells whether the game can be played only between OA machines.
+///
+/// @param rules the game's rules
+/// @return true when weapon types pass 256 or sides pass five
+[[nodiscard]] constexpr bool oa_only(const WireRules& rules) noexcept {
+    return rules.weapon_types > wire_base_weapon_types || rules.sides > wire_base_sides;
 }
 
 } // namespace oa::netgame

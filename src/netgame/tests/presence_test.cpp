@@ -1692,6 +1692,66 @@ void a_record_with_computer_brains_keeps_the_other_fields() {
     CHECK(!decode_presence_brains(bad.bytes));
 }
 
+void limits_round_trip() {
+    start_case("limits_round_trip");
+    PresenceRecord record{};
+    record.limits = PresenceLimits{65536, 32};
+    uint8_t bytes[256]{};
+    std::size_t written = 0;
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::ok);
+    PresenceRecord back{};
+    CHECK(decode_presence(bytes, written, &back) == WireError::ok);
+    CHECK(back.version == presence_record_version);
+    CHECK(back.limits && *back.limits == *record.limits);
+    const auto read = presence_limits(bytes, written);
+    CHECK(read && *read == *record.limits);
+
+    record.limits = PresenceLimits{255, 5};
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::bad_argument);
+    record.limits = PresenceLimits{256, 4};
+    CHECK(encode_presence(record, bytes, sizeof bytes, &written) == WireError::bad_argument);
+
+    const auto left_out = [](const std::vector<uint8_t>& value) {
+        Raw raw;
+        raw.field(static_cast<uint8_t>(PresenceTag::limits), value);
+        raw.finish();
+        PresenceRecord decoded{};
+        CHECK(decode_presence(raw.bytes.data(), raw.bytes.size(), &decoded) == WireError::ok);
+        CHECK(!decoded.limits);
+        CHECK(!presence_limits(raw.bytes.data(), raw.bytes.size()));
+    };
+    left_out({1, 0, 0, 0});
+    left_out({0, 1, 0, 0, 5, 0});
+    left_out({255, 0, 0, 0, 5});
+    left_out({0, 1, 0, 0, 4});
+
+    Raw bare;
+    bare.finish();
+    CHECK(!presence_limits(bare.bytes.data(), bare.bytes.size()));
+    PresenceRecord empty{};
+    CHECK(decode_presence(bare.bytes.data(), bare.bytes.size(), &empty) == WireError::ok);
+    CHECK(!empty.limits);
+
+    const std::vector<uint8_t> limits{0, 1, 0, 0, 5};
+    Raw both;
+    both.field(static_cast<uint8_t>(PresenceTag::limits), limits);
+    both.field(0x7e, std::vector<uint8_t>{1, 2, 3});
+    both.finish();
+    PresenceRecord decoded{};
+    CHECK(decode_presence(both.bytes.data(), both.bytes.size(), &decoded) == WireError::ok);
+    CHECK(decoded.limits && decoded.limits->weapon_types == 256 && decoded.limits->sides == 5);
+
+    Raw twice;
+    twice.field(static_cast<uint8_t>(PresenceTag::limits), limits);
+    twice.field(static_cast<uint8_t>(PresenceTag::limits), std::vector<uint8_t>{0, 4, 0, 0, 10});
+    twice.finish();
+    PresenceRecord first{};
+    CHECK(decode_presence(twice.bytes.data(), twice.bytes.size(), &first) == WireError::ok);
+    CHECK(first.limits && first.limits->weapon_types == 256 && first.limits->sides == 5);
+    const auto probed = presence_limits(twice.bytes.data(), twice.bytes.size());
+    CHECK(probed && probed->weapon_types == 256 && probed->sides == 5);
+}
+
 } // namespace
 
 int main() {
@@ -1721,6 +1781,7 @@ int main() {
     computer_brains_round_trip();
     computer_brains_refuse_a_broken_value();
     a_record_with_computer_brains_keeps_the_other_fields();
+    limits_round_trip();
     if (failures != 0) {
         std::fprintf(stderr, "%d failure(s)\n", failures);
         return 1;

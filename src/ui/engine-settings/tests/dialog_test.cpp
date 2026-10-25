@@ -605,7 +605,10 @@ void every_part_lies_inside_the_dialog_and_apart() {
                     if (row.control_area.width == 0) {
                         CHECK(
                             row.setting == Setting::file_type_registration ||
-                            row.setting == Setting::file_types_note || row.content >= 0
+                            row.setting == Setting::file_types_note ||
+                            row.setting == Setting::mod_limits_heading ||
+                            row.setting == Setting::weapon_types || row.setting == Setting::sides ||
+                            row.content >= 0
                         );
                         continue;
                     }
@@ -671,11 +674,15 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::controls)[5] == Setting::switch_alt);
     CHECK(settings::page_settings(Page::controls)[6] == Setting::window_edge);
     CHECK(settings::page_settings(Page::controls)[7] == Setting::window_edge_stickiness);
-    // Engine Limits: the unit limit, pathfinding, then the skirmish player count.
-    CHECK(settings::page_settings(Page::common_tweaks).size() == 3);
+    // Engine Limits: the unit limit, pathfinding, the skirmish player count,
+    // then the heading and the two rows the mod fixes.
+    CHECK(settings::page_settings(Page::common_tweaks).size() == 6);
     CHECK(settings::page_settings(Page::common_tweaks)[0] == Setting::unit_limit);
     CHECK(settings::page_settings(Page::common_tweaks)[1] == Setting::path_search);
     CHECK(settings::page_settings(Page::common_tweaks)[2] == Setting::skirmish_players);
+    CHECK(settings::page_settings(Page::common_tweaks)[3] == Setting::mod_limits_heading);
+    CHECK(settings::page_settings(Page::common_tweaks)[4] == Setting::weapon_types);
+    CHECK(settings::page_settings(Page::common_tweaks)[5] == Setting::sides);
     // System: Your files, then Welcome setup, then the switches where the
     // game registers file types at run time, or the text row where the app
     // declares them.
@@ -832,9 +839,12 @@ void each_section_shows_its_rows() {
     parts = settings::dialog_layout(opened(Page::common_tweaks));
     CHECK(find_part(parts, "ENGINE LIMITS", settings::no_control) != nullptr);
     const auto tweaks = geometry::place_rows(Page::common_tweaks, {});
-    CHECK(tweaks.rows.size() == 3);
+    CHECK(tweaks.rows.size() == 6);
     CHECK(tweaks.rows[0].label.y < tweaks.rows[1].label.y);
     CHECK(tweaks.rows[1].label.y < tweaks.rows[2].label.y);
+    CHECK(tweaks.rows[2].label.y < tweaks.rows[3].label.y);
+    CHECK(tweaks.rows[3].label.y < tweaks.rows[4].label.y);
+    CHECK(tweaks.rows[4].label.y < tweaks.rows[5].label.y);
     CHECK(find_part(parts, "Skirmish players", settings::no_control) != nullptr);
     CHECK(
         find_part(parts, "The skirmish setup shows that many player rows.", settings::no_control) !=
@@ -2571,19 +2581,18 @@ void the_view_and_the_scroll_bar_keep_their_places() {
 
 void sections_that_fit_do_not_scroll() {
     // Each section's content: its rows, and the end gap under the last.
-    // Engine Limits' unit limit, pathfinding and skirmish-player sliders
-    // are 216, and fit; Controls' three switches, the zoom's two drop-downs, View
-    // past the map's edge's strip, Window edge's strip and Edge stickiness's
-    // slider are 491,
-    // Graphics' twenty-one rows are 1208, Language's drop-down, five switches and
-    // slider 424, and User Interface's four strips and switches with
-    // Interface size's row are 324, and they scroll. Developer's list
-    // scrolls in a view of its own (developer_*).
+    // Controls' three switches, the zoom's two drop-downs, View past the
+    // map's edge's strip, Window edge's strip and Edge stickiness's slider
+    // are 491. Engine Limits' three sliders, the mod's heading and its two
+    // rows are 369. Graphics' twenty-one rows are 1208, Language's
+    // drop-down, five switches and slider 424, and User Interface's four
+    // strips and switches with Interface size's row are 324. All of them
+    // scroll. Developer's list scrolls in a view of its own (developer_*).
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{491, 216, 1208, 424, 324};
-    const std::array<int32_t, 5> limits{255, 0, 972, 188, 88};
+    const std::array<int32_t, 5> content{491, 369, 1208, 424, 324};
+    const std::array<int32_t, 5> limits{255, 133, 972, 188, 88};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -2630,6 +2639,90 @@ void sections_that_fit_do_not_scroll() {
             CHECK(geometry::open_rows(dialog).scroll == 0);
         }
     }
+}
+
+/// The part whose rectangle is a row's value, when the layout lists it.
+const settings::LayoutPart*
+value_part(const std::vector<settings::LayoutPart>& parts, const renderer::SourceRect& value) {
+    for (const settings::LayoutPart& part : parts)
+        if (same_rect(part.rect, value))
+            return &part;
+    return nullptr;
+}
+
+void the_mod_limits_rows_show_the_counts_and_take_no_input() {
+    const auto at_end = [](settings::Dialog& dialog) {
+        dialog.scroll[static_cast<std::size_t>(Page::common_tweaks)] =
+            settings::scroll_limit(dialog);
+    };
+    settings::Dialog dialog = opened(Page::common_tweaks);
+    at_end(dialog);
+    auto parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "Set by the mod", settings::no_control) != nullptr);
+    CHECK(find_part(parts, "Weapon types", settings::no_control) != nullptr);
+    CHECK(find_part(parts, "Sides", settings::no_control) != nullptr);
+    CHECK(shows_wrapped(parts, "Set by the mod. Every player in a game has the same.", dialog));
+    auto open = geometry::open_rows(dialog);
+    const settings::LayoutPart* weapons = value_part(parts, open.rows.rows[4].value);
+    const settings::LayoutPart* sides = value_part(parts, open.rows.rows[5].value);
+    CHECK(weapons != nullptr && weapons->text == "256");
+    CHECK(sides != nullptr && sides->text == "5");
+    CHECK(find_part(parts, "256 of 256", settings::no_control) == nullptr);
+    CHECK(find_part(parts, "5 of 5", settings::no_control) == nullptr);
+
+    dialog.mod_limits = {true, 1024, 10, std::nullopt, std::nullopt};
+    at_end(dialog);
+    parts = settings::dialog_layout(dialog);
+    open = geometry::open_rows(dialog);
+    weapons = value_part(parts, open.rows.rows[4].value);
+    sides = value_part(parts, open.rows.rows[5].value);
+    CHECK(weapons != nullptr && weapons->text == "1024");
+    CHECK(sides != nullptr && sides->text == "10");
+
+    dialog.mod_limits = {true, 1024, 10, 312, 7};
+    at_end(dialog);
+    parts = settings::dialog_layout(dialog);
+    open = geometry::open_rows(dialog);
+    weapons = value_part(parts, open.rows.rows[4].value);
+    sides = value_part(parts, open.rows.rows[5].value);
+    CHECK(weapons != nullptr && weapons->text == "312 of 1024");
+    CHECK(sides != nullptr && sides->text == "7 of 10");
+
+    const oa::ui::kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
+    for (int32_t index = 3; index <= 5; ++index) {
+        CHECK(kit::control_of(list, settings::first_row_control + index) == nullptr);
+        CHECK(
+            std::find(
+                list.tab_order.begin(), list.tab_order.end(), settings::first_row_control + index
+            ) == list.tab_order.end()
+        );
+    }
+    settings::Dialog keys = opened(Page::common_tweaks);
+    for (int32_t step = 0; step < 3; ++step)
+        CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
+    CHECK(keys.focused == settings::first_row_control + 2);
+    CHECK(settings::dialog_key(keys, DialogKey::tab) == DialogAction::redraw);
+    CHECK(keys.focused == settings::restore_control);
+
+    const settings::EngineSettings chosen = dialog.chosen;
+    const settings::ModLimitsShown limits = dialog.mod_limits;
+    const Page page = dialog.page;
+    const int32_t scroll = dialog.scroll[static_cast<std::size_t>(Page::common_tweaks)];
+    for (const std::string_view text :
+         {"Set by the mod", "Weapon types", "312 of 1024", "Sides", "7 of 10"}) {
+        const settings::LayoutPart* part = find_part(parts, text, settings::no_control);
+        CHECK(part != nullptr);
+        CHECK(click(dialog, centre(part->rect)) == DialogAction::none);
+    }
+    CHECK(dialog.chosen == chosen);
+    CHECK(dialog.page == page);
+    CHECK(dialog.scroll[static_cast<std::size_t>(Page::common_tweaks)] == scroll);
+    CHECK(dialog.mod_limits.mod == limits.mod);
+    CHECK(dialog.mod_limits.weapon_types == limits.weapon_types);
+    CHECK(dialog.mod_limits.sides == limits.sides);
+    CHECK(dialog.mod_limits.loaded_weapon_types == limits.loaded_weapon_types);
+    CHECK(dialog.mod_limits.loaded_sides == limits.loaded_sides);
+    CHECK(dialog.focused == settings::no_control);
 }
 
 void a_long_section_scrolls_by_its_overflow() {
@@ -5149,7 +5242,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
     // again.
     const std::array<std::pair<Page, uint64_t>, 10> kBefore{{
         {Page::controls, 0xc9b50dd61f00f98a},
-        {Page::common_tweaks, 0xa9d3644ec50d7ae1},
+        {Page::common_tweaks, 0x067daa2b5496bf13},
         {Page::language, 0xa7351a7ba3a3fcbe},
         {Page::graphics, 0xd03cbfe3c82dbe49},
         {Page::user_interface, 0x1bedfda1543e7ecf},
@@ -10389,6 +10482,7 @@ int main(int argc, char** argv) {
         the_oa_mark_alone_shows_the_icon_or_the_button_mark();
         every_part_lies_inside_the_dialog_and_apart();
         each_section_shows_its_rows();
+        the_mod_limits_rows_show_the_counts_and_take_no_input();
         game_content_lists_each_bundle_and_three_actions();
         game_content_sentence_breaks_where_measured();
         a_click_on_an_entry_shows_its_section();

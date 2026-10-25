@@ -193,7 +193,12 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         result.net_loopback_each_ai = true;
     else if (argument == "--net-loopback-fixed-starts")
         result.net_loopback_fixed_starts = true;
-    else if (argument == "--check-host-not-found") {
+    else if (argument == "--net-loopback-shooter") {
+        const auto type = value();
+        if (type.empty())
+            throw std::runtime_error("--net-loopback-shooter needs a unit type");
+        result.net_loopback_shooter = std::string(type);
+    } else if (argument == "--check-host-not-found") {
         result.check_host_not_found = true;
         effects |= option_effect::unattended | option_effect::skip_intro;
     } else if (argument == "--dplay-port") {
@@ -632,7 +637,8 @@ const std::string& usage_runs() {
         listed += "[--list-content --json] "
                   "[--net-loopback-check TICKS] [--net-loopback-watcher] "
                   "[--net-loopback-computer] [--net-loopback-each-ai] "
-                  "[--net-loopback-fixed-starts] [--check-host-not-found] "
+                  "[--net-loopback-fixed-starts] [--net-loopback-shooter TYPE] "
+                  "[--check-host-not-found] "
                   "[--check-opened-launch start|menu FILE] "
                   "[--play-demo FILE.tad] "
                   "[--demo-unit-table strict|ignore] [--net-record FILE] [--replay-viewer] ";
