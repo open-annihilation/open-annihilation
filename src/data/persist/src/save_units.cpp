@@ -6,6 +6,7 @@
 #include "bank_util.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -44,8 +45,9 @@ uint32_t pack_unit_flags(const Unit* unit) {
            ((flags & f::low) << f::low_shift) | (unit->build_flags & f::build_nibble);
 }
 
-void encode_weapon(const SaveContext* save, const UnitWeapon& weapon, uint8_t* out) {
+void encode_weapon(const SaveContext* save, const Unit& unit, uint32_t slot, uint8_t* out) {
     namespace w = weapon_record;
+    const UnitWeapon& weapon = unit.weapons[slot];
     store_le16(out + w::target_a, static_cast<uint16_t>(weapon.target_a));
     store_le16(out + w::target_b, static_cast<uint16_t>(weapon.target_b));
     store_le32(out + w::aim_ready, weapon.aim_ready);
@@ -55,11 +57,67 @@ void encode_weapon(const SaveContext* save, const UnitWeapon& weapon, uint8_t* o
     store_le16(out + w::reload, weapon.reload);
     store_le16(out + w::aim_heading, static_cast<uint16_t>(weapon.aim_heading));
     store_le16(out + w::aim_pitch, static_cast<uint16_t>(weapon.aim_pitch));
-    out[w::stockpile] = weapon.stockpile;
+    out[w::stockpile] = saved_stockpile(*save->world, unit, slot);
     out[w::flags] = static_cast<uint8_t>(weapon.flags & w::saved_flags);
 }
 
 } // namespace
+
+uint8_t saved_stockpile(const World& world, const Unit& unit, uint32_t slot) noexcept {
+    if (slot >= OA_UNIT_WEAPON_COUNT)
+        return 0;
+    const UnitWeapon& weapon = unit.weapons[slot];
+    const uint8_t held = weapon.stockpile;
+    const WeaponDef* def = world_weapon_def(&world, weapon.def);
+    if (def == nullptr || (def->flags & OA_WEAPON_FLAG_STOCKPILE) == 0)
+        return held;
+    for (uint32_t earlier = 0; earlier < slot; ++earlier) {
+        if (unit.weapons[earlier].def == weapon.def)
+            return held;
+    }
+    if (world.projectiles == nullptr || world.game.projectile_count <= 0)
+        return held;
+
+    const oa_ref32 source = world_unit_ref(&world, &unit);
+    const int32_t live_count = world.game.projectile_count < OA_PROJECTILE_CAPACITY
+                                   ? world.game.projectile_count
+                                   : OA_PROJECTILE_CAPACITY;
+
+    struct InFlightRound {
+        oa_ref32 def;
+        oa_ref32 source;
+        uint32_t created_tick;
+    };
+
+    std::array<InFlightRound, OA_PROJECTILE_CAPACITY> rounds{};
+    uint32_t round_count = 0;
+    for (int32_t index = 0; index < live_count; ++index) {
+        const Projectile& shot = world.projectiles[index];
+        if ((shot.flags & OA_PROJECTILE_FLAG_RETIRED) != 0)
+            continue;
+        if (shot.def != weapon.def || shot.source != source)
+            continue;
+        bool already = false;
+        for (uint32_t seen = 0; seen < round_count; ++seen) {
+            if (rounds[seen].def == shot.def && rounds[seen].source == shot.source &&
+                rounds[seen].created_tick == shot.created_tick) {
+                already = true;
+                break;
+            }
+        }
+        if (already)
+            continue;
+        rounds[round_count] = InFlightRound{shot.def, shot.source, shot.created_tick};
+        ++round_count;
+    }
+
+    const uint32_t total = static_cast<uint32_t>(held) + round_count;
+    if (total <= held)
+        return held;
+    if (total > saved_stockpile_limit)
+        return held > saved_stockpile_limit ? held : saved_stockpile_limit;
+    return static_cast<uint8_t>(total);
+}
 
 void save_restore_unit_weapon(
     World* world, const uint8_t* in, UnitWeapon& weapon, WeaponIdWidth width
@@ -180,7 +238,9 @@ void save_encode_unit_record(
     store_le16(record + r::health, static_cast<uint16_t>(unit->health));
     store_le16(record + r::veteran_level, unit->veteran_level);
     for (std::size_t i = 0; i < OA_UNIT_WEAPON_COUNT; ++i)
-        encode_weapon(save, unit->weapons[i], record + r::weapons + i * r::weapon_bytes);
+        encode_weapon(
+            save, *unit, static_cast<uint32_t>(i), record + r::weapons + i * r::weapon_bytes
+        );
     const auto* carrier = world_unit(save->world, unit->attach_parent);
     if (unit_live(carrier)) {
         store_le16(record + r::carrier_id, carrier->id);
