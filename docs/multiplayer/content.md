@@ -19,3 +19,15 @@ them. A player on an older Open Annihilation that does not name its content
 is not refused for that alone.
 
 The base games and expansions are the ones in [Game content](../game-content.md).
+
+## A mod with more weapons or sides
+
+A mod that numbers more than 256 weapon types, or more than five sides,
+plays only with players on Open Annihilation.
+[Mods with more weapon types or sides](limits.md) says which line each
+machine shows, when **START** stays grey, and when an older Open
+Annihilation is refused.
+
+A player who has chosen a side the room does not have also keeps **START**
+grey. The room says once "*** {player} chose a side this game does not
+have."
