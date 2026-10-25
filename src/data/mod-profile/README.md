@@ -88,7 +88,11 @@ which leaves out the id, name, version, author, packaging, settings and
 every `view` value. `ModProfile::author` and `ModProfile::packaging` hold
 who made the mod and who packaged it, when and in which revision.
 `describe_resolution` writes the effective profile and both hashes, as
-`--print-profile` prints them.
+`--print-profile` prints them. `limits.weapon-types` at its baseline of 256
+weapon types and `limits.sides` at its baseline of five sides are left out
+of the canonical form, so a profile that writes either at that baseline
+keeps both hashes of a profile that never wrote it. `--print-profile` still
+prints the effective profile, which holds both limits.
 
 
 `baseline_profile_text` writes the profile that turns on every limit and

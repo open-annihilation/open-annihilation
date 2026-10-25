@@ -57,6 +57,11 @@ LimitsError check_limits(const Limits& limits) noexcept {
     if (!composite_side_in_range(limits.model_composite.width) ||
         !composite_side_in_range(limits.model_composite.height))
         return LimitsError::model_composite_sides;
+    if (limits.weapon_types.types < base_weapon_types ||
+        limits.weapon_types.types > highest_weapon_types)
+        return LimitsError::weapon_types;
+    if (limits.sides.count < base_sides || limits.sides.count > highest_sides)
+        return LimitsError::sides;
     return LimitsError::none;
 }
 

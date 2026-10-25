@@ -944,6 +944,11 @@ void test_refusals() {
         {"detect: {all: [{file: a.gp3}]}", "unknown top-level"},
         {"notes: text", "unknown top-level"},
         {"5: five", "unknown top-level"},
+        {"limits: {weapon-types: 255}", "outside"},
+        {"limits: {weapon-types: 65537}", "outside"},
+        {"limits: {sides: 4}", "outside"},
+        {"limits: {sides: 33}", "outside"},
+        {"limits: {weapon-types: 1.5}", "integer"},
     };
     for (const Case& refusal : cases) {
         const bool refused =
@@ -1644,6 +1649,69 @@ void test_content_needs() {
     OA_CHECK(refused_with(profile_text("many-games", many), "at most 16"));
 }
 
+void test_weapon_and_side_limits() {
+    const ResolveResult minimal = resolve(profile_text("minimal"));
+    OA_CHECK(minimal.resolution.has_value());
+    if (!minimal.resolution)
+        return;
+    const Resolution& base = *minimal.resolution;
+    OA_CHECK(base.profile.limits.weapon_types.types == 256);
+    OA_CHECK(base.profile.limits.sides.count == 5);
+    OA_CHECK(text_of(at(base, {"limits", "weapon-types"})) == "{\"types\":256}");
+    OA_CHECK(text_of(at(base, {"limits", "sides"})) == "{\"count\":5}");
+    OA_CHECK(base.canonical.find("\"weapon-types\"") == std::string::npos);
+    OA_CHECK(base.canonical.find("\"sides\"") == std::string::npos);
+
+    const ResolveResult turned_on =
+        resolve(profile_text("on", "limits: {weapon-types: true, sides: true}\n"));
+    OA_CHECK(turned_on.resolution.has_value());
+    if (turned_on.resolution) {
+        OA_CHECK(turned_on.resolution->profile.limits.weapon_types.types == 4096);
+        OA_CHECK(turned_on.resolution->profile.limits.sides.count == 10);
+    }
+
+    const ResolveResult shorthand =
+        resolve(profile_text("shorthand", "limits: {weapon-types: 1024, sides: 7}\n"));
+    OA_CHECK(shorthand.resolution.has_value());
+    if (shorthand.resolution) {
+        OA_CHECK(shorthand.resolution->profile.limits.weapon_types.types == 1024);
+        OA_CHECK(shorthand.resolution->profile.limits.sides.count == 7);
+        OA_CHECK(
+            shorthand.resolution->canonical.find("\"weapon-types\":{\"types\":1024}") !=
+            std::string::npos
+        );
+        OA_CHECK(
+            shorthand.resolution->canonical.find("\"sides\":{\"count\":7}") != std::string::npos
+        );
+    }
+
+    const char* written_at_baseline[] = {
+        "limits: {weapon-types: false, sides: false}\n",
+        "limits: {weapon-types: 256, sides: 5}\n",
+        "limits: {weapon-types: {preset: baseline}, sides: {preset: baseline}}\n",
+    };
+    for (const char* body : written_at_baseline) {
+        const ResolveResult written = resolve(profile_text("minimal", body));
+        OA_CHECK(written.resolution.has_value());
+        if (!written.resolution)
+            continue;
+        OA_CHECK(written.resolution->profile.sim_hash == base.profile.sim_hash);
+        OA_CHECK(written.resolution->profile.full_hash == base.profile.full_hash);
+    }
+
+    OA_CHECK(turned_on.resolution && shorthand.resolution);
+    if (turned_on.resolution && shorthand.resolution) {
+        OA_CHECK(turned_on.resolution->profile.sim_hash != base.profile.sim_hash);
+        OA_CHECK(turned_on.resolution->profile.full_hash != base.profile.full_hash);
+        OA_CHECK(shorthand.resolution->profile.sim_hash != base.profile.sim_hash);
+        OA_CHECK(shorthand.resolution->profile.full_hash != base.profile.full_hash);
+        OA_CHECK(turned_on.resolution->profile.sim_hash != shorthand.resolution->profile.sim_hash);
+        OA_CHECK(
+            turned_on.resolution->profile.full_hash != shorthand.resolution->profile.full_hash
+        );
+    }
+}
+
 int main(int argc, char** argv) {
     if (argc > 1 && std::string_view{argv[1]} == "--references")
         return test_references();
@@ -1657,6 +1725,7 @@ int main(int argc, char** argv) {
     test_comments_and_true();
     test_unimplemented();
     test_refusals();
+    test_weapon_and_side_limits();
     test_author_and_packaging();
     test_overrides();
     test_override_text_and_states();

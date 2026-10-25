@@ -296,6 +296,28 @@ entries:
       types: {type: int, min: 512, max: 65536, multiple-of: 512, unit: type ids, baseline: 512, default: 512, adjustable: fixed, scope: sim}
     presets:
       baseline: {types: 512}
+  limits.weapon-types:
+    kind: limit
+    area: limits
+    summary: "Weapon ids a mod may number: 3.1c's 256, ids 0 to 255, up to 65,536. Raised, it plays only between Open Annihilation machines."
+    ownership: all-machines
+    scope: sim
+    shorthand: types
+    params:
+      types: {type: int, min: 256, max: 65536, unit: weapon types, baseline: 256, default: 4096, adjustable: fixed, scope: sim}
+    presets:
+      baseline: {types: 256}
+  limits.sides:
+    kind: limit
+    area: limits
+    summary: "SIDEDATA sides a mod may load: 3.1c's five, up to 32."
+    ownership: all-machines
+    scope: sim
+    shorthand: count
+    params:
+      count: {type: int, min: 5, max: 32, unit: sides, baseline: 5, default: 10, adjustable: fixed, scope: sim}
+    presets:
+      baseline: {count: 5}
 
   # ---- script extensions (profile block script-extensions)
   unit.kills-x100:

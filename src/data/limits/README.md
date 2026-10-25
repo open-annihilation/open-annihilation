@@ -15,6 +15,8 @@ code that sizes its tables from it.
 | `path_search.nodes` | 1,333 path nodes a tick | the path search's tick credit (`sim::ground_orders`), times the player's Pathfinding cycles |
 | `build_lists` | 30 CANBUILD entries, the rest dropped | the build lists of the unit table (`data::defs`) and of the computer players (`sim::ai`) |
 | `model_composite` | 600 by 600, growing to fit a larger model | the model renderer's composite buffer (`present::model`) |
+| `weapon_types.types` | 256, ids 0 to 255 | kept for the profile; nothing reads it yet |
+| `sides.count` | 5, SIDE0 to SIDE4 | kept for the profile; nothing reads it yet |
 
 The Open Annihilation settings already offer unit limits up to 1,500 per
 player for every game; a profile's `units_per_player.maximum` raises that
@@ -25,9 +27,9 @@ limit a player starts with.
 `highest_*` and `lowest_*` constants, and returns the first one out of range
 as a `LimitsError`. The highest values are the largest each capacity's
 storage holds: 6,553 units per player (65,531 unit slots, within 16-bit unit
-ids), 65,536 type ids, a million emitters a layer and ten million in the
-pool, ten million path nodes a tick, 1,024 build-list entries and an 8,192
-pixel composite side.
+ids), 65,536 type ids, weapon types from 256 to 65,536, sides from 5 to 32,
+a million emitters a layer and ten million in the pool, ten million path
+nodes a tick, 1,024 build-list entries and an 8,192 pixel composite side.
 
 `unit_types.partial_widening` and `units_per_player.limits_screen_fallback`
 are kept for the profile; nothing reads them yet.

@@ -63,6 +63,10 @@ std::string_view limits_error_name(limits::LimitsError error) {
         return "build_list_overflow";
     case limits::LimitsError::model_composite_sides:
         return "model_composite_sides";
+    case limits::LimitsError::weapon_types:
+        return "weapon_types";
+    case limits::LimitsError::sides:
+        return "sides";
     }
     return "unknown";
 }
@@ -1969,14 +1973,17 @@ class Resolver {
 
     /// Returns the profile the hashes read, when it is not the effective one.
     ///
-    /// Four keys were added after grammar 1's first release: an empty
+    /// Six keys were added after grammar 1's first release: an empty
     /// `layout.installation-archives` list mounts nothing, an
     /// `identity.watcher-side-frame` of 2 shows 3.1c's watcher art, and an
     /// empty `identity.skirmish-hidden-sides` or `battle-room-hidden-sides`
-    /// list hides no side, the same as a profile that never wrote the key. So the canonical form leaves each
-    /// out at that value, and existing profiles keep both hashes. Any other
-    /// value stays, and the effective profile is read as it is, uncopied.
-    /// The effective profile itself still holds every key.
+    /// list hides no side. A `limits.weapon-types` of 256 weapon types and a
+    /// `limits.sides` of five sides number and load what 3.1c does. Each of
+    /// those is what a profile that never wrote the key does, so the canonical
+    /// form leaves each out at that value, and existing profiles keep both
+    /// hashes. Any other value stays, and the effective profile is read as it
+    /// is, uncopied, when none of the keys is at its baseline. The effective
+    /// profile itself still holds every key.
     ///
     /// @param effective the effective profile
     /// @return a copy without those keys; nothing when there are none to leave out
@@ -1987,7 +1994,7 @@ class Resolver {
             bool (*at_baseline)(const Value&);
         };
 
-        static constexpr std::array<LateKey, 4> late_keys{{
+        static constexpr std::array<LateKey, 6> late_keys{{
             {"layout",
              "installation-archives",
              [](const Value& value) {
@@ -2005,8 +2012,28 @@ class Resolver {
              [](const Value& value) {
                  return value.kind == ValueKind::list && value.items.empty();
              }},
-            {"identity", "battle-room-hidden-sides", [](const Value& value) {
+            {"identity",
+             "battle-room-hidden-sides",
+             [](const Value& value) {
                  return value.kind == ValueKind::list && value.items.empty();
+             }},
+            {"limits",
+             "weapon-types",
+             [](const Value& value) {
+                 const Value* types = find_member(value, "types");
+                 int64_t numbered = 0;
+                 return value.kind == ValueKind::map && types != nullptr &&
+                        types->kind == ValueKind::number &&
+                        formats::oamod::integer_value(types->number, numbered) &&
+                        numbered == limits::base_weapon_types;
+             }},
+            {"limits", "sides", [](const Value& value) {
+                 const Value* count = find_member(value, "count");
+                 int64_t loaded = 0;
+                 return value.kind == ValueKind::map && count != nullptr &&
+                        count->kind == ValueKind::number &&
+                        formats::oamod::integer_value(count->number, loaded) &&
+                        loaded == limits::base_sides;
              }},
         }};
         std::optional<Value> copy;

@@ -27,6 +27,8 @@ template <class Visitor, class Profile> void visit_bindings(Visitor& visitor, Pr
     visitor.parameter("limits.build-list-entries", "copy", profile.limits.build_lists.copy);
     visitor.parameter("limits.build-list-entries", "overflow", profile.limits.build_lists.overflow);
     visitor.parameter("limits.category-mask-types", "types", profile.limits.category_masks.types);
+    visitor.parameter("limits.weapon-types", "types", profile.limits.weapon_types.types);
+    visitor.parameter("limits.sides", "count", profile.limits.sides.count);
     visitor.hack("ai.income-multipliers", profile.rules.ai.income_multipliers.enabled);
     visitor.parameter("ai.income-multipliers", "production", profile.rules.ai.income_multipliers.production);
     visitor.parameter("ai.income-multipliers", "reclaim", profile.rules.ai.income_multipliers.reclaim);
