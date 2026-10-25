@@ -26,6 +26,7 @@
 #include "oa/app/setup_before_game.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/update/checker.hpp"
+#include "oa/app/update/build.hpp"
 #include "oa/ui/engine_settings/file_types.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/netgame/presence.hpp"
@@ -724,11 +725,15 @@ void paint_updates(
                       .count();
     if (snapshot.offer.release != nullptr)
         reading.offer_version = snapshot.offer.release->version_text;
+    reading.replaces_itself = update::replaces_itself();
+    if (!reading.replaces_itself)
+        reading.packager = update::packager_name();
     const settings::UpdateLines lines = settings::update_lines(reading);
     dialog.updates.version_line = lines.version_line;
     dialog.updates.status = lines.status;
     dialog.updates.can_check = lines.can_check;
     dialog.updates.offered = lines.offered;
+    dialog.updates.updated_by = lines.updated_by;
     dialog.updates.mode = static_cast<int32_t>(dialog.chosen.update_check);
 }
 

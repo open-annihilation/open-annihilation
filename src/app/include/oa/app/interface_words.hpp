@@ -177,6 +177,7 @@ inline constexpr std::string_view interface_words[] = {
     "OPEN FOLDER",
     "OPEN MOD FOLDER",
     "OPEN MODS FOLDER",
+    "OPEN THE PAGE",
     "ORDERS",
     "Off",
     "Off for this game: in a shared game, Basic",
@@ -190,6 +191,8 @@ inline constexpr std::string_view interface_words[] = {
     "menu, then open the file again.",
     "Open Annihilation remembers it for later starts; start it with --choose-game-dir to choose "
     "another folder.",
+    "Open your software centre to update it.",
+    "Open your software centre, or run:",
     "Open {page} in a browser on another computer, or in Desktop Mode.",
     "Orders",
     "PATROL",
@@ -261,6 +264,8 @@ inline constexpr std::string_view interface_words[] = {
     "The map list does not hold this map.",
     "The mutators this was made with cannot be read.",
     "The pack was not installed: {reason}",
+    "This copy came from {name}, which updates it.",
+    "This copy cannot replace itself. Get the new release from its page.",
     "This game includes no multiplayer maps, so multiplayer is not available.",
     "This game includes no skirmish maps, so skirmish is not available.",
     "This launch plays other content than the game plays now. Quit Open Annihilation, then open "
@@ -350,6 +355,7 @@ inline constexpr std::string_view interface_words[] = {
     "{unit}: {field} {value} held at {max}",
     "{used} on this {device}",
     "{used} · {free} free on this {device}",
+    "{version} is out",
 };
 
 } // namespace oa::app

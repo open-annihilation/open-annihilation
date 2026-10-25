@@ -782,6 +782,10 @@ struct UpdatesOffer {
     bool can_check{};         ///< CHECK NOW can be pressed
     bool offered{};           ///< a release is out; the button is UPDATE…
     int32_t mode{};           ///< the check as UpdateCheck, so the page can hide the button
+    /// "Updated by {name}", already filled, when this copy cannot replace
+    /// itself and a packager is named. Empty otherwise. The status line
+    /// joins it after the check's own words.
+    std::string updated_by;
 };
 
 /// Where a check for a release stands, as the host tells update_lines.
@@ -802,6 +806,11 @@ struct UpdateReading {
     bool never{};                         ///< the check the dialog shows is Never
     std::optional<int64_t> checked_at;    ///< when the server answered, seconds since 1970
     int64_t now{};                        ///< the clock now, seconds since 1970
+    /// True when this build may replace itself. False keeps CHECK NOW in
+    /// place of UPDATE…, because the player asks for a check and does not install.
+    bool replaces_itself{true};
+    /// Who updates this copy when it cannot replace itself. Empty names nobody.
+    std::string_view packager{};
 };
 
 /// The lines Updates shows, and which button they allow.
@@ -810,6 +819,9 @@ struct UpdateLines {
     std::string status;       ///< the status; a key while it is still looked up
     bool can_check{};         ///< CHECK NOW can be pressed
     bool offered{};           ///< the button is UPDATE…
+    /// "Updated by {name}", already filled. Empty when this build replaces
+    /// itself or names nobody.
+    std::string updated_by;
 };
 
 /// Returns the lines Updates shows for one reading. The templates are looked

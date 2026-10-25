@@ -108,9 +108,21 @@ std::string version_label(const RowModel& model) {
 std::string status_hint(const RowModel& model, std::size_t line) {
     if (line != 0 || model.dialog == nullptr)
         return {};
-    if (model.dialog->updates.mode == static_cast<int32_t>(UpdateCheck::never))
-        return std::string(kNeverStatus);
-    return model.dialog->updates.status;
+    const UpdatesOffer& offer = model.dialog->updates;
+    // Never names itself, whatever a check found. A packager's name is
+    // already filled, so it is joined after the status is looked up: the
+    // whole line is then not a word, and a second lookup keeps it.
+    std::string line_text;
+    if (offer.mode == static_cast<int32_t>(UpdateCheck::never))
+        line_text = std::string(kNeverStatus);
+    else
+        line_text = offer.status;
+    if (offer.updated_by.empty())
+        return line_text;
+    line_text = std::string(geometry::shown_text(line_text));
+    line_text += " \u00b7 ";
+    line_text += offer.updated_by;
+    return line_text;
 }
 
 /// Returns how many status lines the row shows before they wrap.
@@ -485,54 +497,60 @@ UpdateLines update_lines(const UpdateReading& reading) {
         lines.status = "OA never checks";
         lines.can_check = false;
         lines.offered = false;
-        return lines;
-    }
-    const std::string when = reading.checked_at.has_value()
-                                 ? updates::when_phrase(*reading.checked_at, reading.now)
-                                 : std::string{};
-    const bool timed = !when.empty();
-    switch (reading.stand) {
-    case UpdateStand::checking:
-        lines.status = "Checking\u2026";
-        lines.can_check = false;
-        break;
-    case UpdateStand::up_to_date:
-        if (timed)
-            lines.status = geometry::filled(
-                "Up to date \u00b7 Stable \u00b7 checked {when}", {{"when", when}}
-            );
-        else
+    } else {
+        const std::string when = reading.checked_at.has_value()
+                                     ? updates::when_phrase(*reading.checked_at, reading.now)
+                                     : std::string{};
+        const bool timed = !when.empty();
+        switch (reading.stand) {
+        case UpdateStand::checking:
+            lines.status = "Checking\u2026";
+            lines.can_check = false;
+            break;
+        case UpdateStand::up_to_date:
+            if (timed)
+                lines.status = geometry::filled(
+                    "Up to date \u00b7 Stable \u00b7 checked {when}", {{"when", when}}
+                );
+            else
+                lines.status = "Not checked yet";
+            lines.can_check = true;
+            break;
+        case UpdateStand::offered:
+            lines.offered = true;
+            lines.can_check = true;
+            if (timed)
+                lines.status = geometry::filled(
+                    "{version} is out \u00b7 Stable \u00b7 checked {when}",
+                    {{"version", reading.offer_version}, {"when", when}}
+                );
+            else
+                lines.status = geometry::filled(
+                    "{version} is out \u00b7 Stable \u00b7 checked {when}",
+                    {{"version", reading.offer_version}, {"when", std::string_view{}}}
+                );
+            break;
+        case UpdateStand::failed:
+            if (timed)
+                lines.status =
+                    geometry::filled("Could not check \u00b7 checked {when}", {{"when", when}});
+            else
+                lines.status = "Could not check";
+            lines.can_check = true;
+            break;
+        case UpdateStand::idle:
+        case UpdateStand::cancelled:
             lines.status = "Not checked yet";
-        lines.can_check = true;
-        break;
-    case UpdateStand::offered:
-        lines.offered = true;
-        lines.can_check = true;
-        if (timed)
-            lines.status = geometry::filled(
-                "{version} is out \u00b7 Stable \u00b7 checked {when}",
-                {{"version", reading.offer_version}, {"when", when}}
-            );
-        else
-            lines.status = geometry::filled(
-                "{version} is out \u00b7 Stable \u00b7 checked {when}",
-                {{"version", reading.offer_version}, {"when", std::string_view{}}}
-            );
-        break;
-    case UpdateStand::failed:
-        if (timed)
-            lines.status =
-                geometry::filled("Could not check \u00b7 checked {when}", {{"when", when}});
-        else
-            lines.status = "Could not check";
-        lines.can_check = true;
-        break;
-    case UpdateStand::idle:
-    case UpdateStand::cancelled:
-        lines.status = "Not checked yet";
-        lines.can_check = true;
-        break;
+            lines.can_check = true;
+            break;
+        }
     }
+    // A copy that cannot replace itself still checks. The button stays
+    // CHECK NOW, and the status names who updates it when someone is named.
+    if (!reading.replaces_itself)
+        lines.offered = false;
+    if (!reading.replaces_itself && !reading.packager.empty())
+        lines.updated_by = geometry::filled("Updated by {name}", {{"name", reading.packager}});
     return lines;
 }
 
