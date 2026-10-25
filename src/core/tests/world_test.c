@@ -190,5 +190,45 @@ int main(void) {
             world_destroy(owned);
         }
     }
+
+    {
+        static Side extra_sides[2];
+        memset(extra_sides, 0, sizeof extra_sides);
+        extra_sides[0].side_index = 5;
+        extra_sides[1].side_index = 6;
+        check(world_side_count(&world) == 0, "zeroed world side count");
+        check(world_side(&world, 0) == &world.game.sides[0], "side 0 of an empty count");
+        check(world_side(&world, 4) == &world.game.sides[4], "side 4 of an empty count");
+        check(world_side(&world, 5) == NULL, "side 5 with no table");
+        world.game.side_count = 3;
+        check(world_side(&world, 2) == &world.game.sides[2], "side under five past the count");
+        check(world_side(&world, 4) == &world.game.sides[4], "side 4 past side_count");
+        check(world_side(&world, 5) == NULL, "side 5 while the count is under five");
+        world.game.side_count = 7;
+        world.extra_sides = extra_sides;
+        world.extra_side_count = 2;
+        check(world_side(&world, 5) == &extra_sides[0], "first extra side");
+        check(world_side(&world, 6) == &extra_sides[1], "last loaded side");
+        check(world_side(&world, 7) == NULL, "past the loaded sides");
+        world.extra_side_count = 1;
+        check(world_side(&world, 6) == NULL, "past the extra table");
+        world.extra_sides = NULL;
+        check(world_side(&world, 5) == NULL, "side 5 after the table is cleared");
+        check(world_side(&world, 0) == &world.game.sides[0], "side 0 still inline");
+        {
+            World* owned = world_create();
+            if (owned != NULL) {
+                owned->extra_sides = extra_sides;
+                owned->extra_side_count = 2;
+                world_free_tables(owned);
+                check(
+                    owned->extra_sides == extra_sides && owned->extra_side_count == 2,
+                    "free leaves bound sides"
+                );
+                owned->extra_sides = NULL;
+                world_destroy(owned);
+            }
+        }
+    }
     return failures == 0 ? 0 : 1;
 }

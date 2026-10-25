@@ -103,7 +103,37 @@ int main() {
                 owned->extra_weapon_defs == nullptr && owned->extra_weapon_def_count == 0,
                 "freed extra weapons"
             );
+            static oa::Side kept[1];
+            owned->extra_sides = kept;
+            owned->extra_side_count = 1;
+            oa::world_free_tables(owned.get());
+            check(
+                owned->extra_sides == kept && owned->extra_side_count == 1,
+                "free leaves bound sides"
+            );
         }
+    }
+    {
+        oa::World plain{};
+        const oa::World* sides = &plain;
+        check(oa::world_side_count(sides) == 0, "zeroed side count");
+        check(oa::world_side(sides, 0) == &plain.game.sides[0], "const side 0");
+        check(oa::world_side(sides, 4) == &plain.game.sides[4], "const side 4");
+        check(oa::world_side(sides, 5) == nullptr, "const side 5 with no table");
+        plain.game.side_count = 3;
+        check(oa::world_side(sides, 4) == &plain.game.sides[4], "const side 4 past side_count");
+        plain.game.side_count = 7;
+        auto extra = std::make_unique<oa::Side[]>(2);
+        plain.extra_sides = extra.get();
+        plain.extra_side_count = 2;
+        check(oa::world_side(&plain, 5) == &extra[0], "first extra side");
+        check(oa::world_side(sides, 6) == &extra[1], "const last loaded side");
+        check(oa::world_side(sides, 7) == nullptr, "const past the loaded sides");
+        plain.extra_side_count = 1;
+        check(oa::world_side(sides, 6) == nullptr, "const past the extra table");
+        plain.extra_sides = nullptr;
+        check(oa::world_side(sides, 5) == nullptr, "const side 5 after unbind");
+        check(oa::world_side(sides, 3) == &plain.game.sides[3], "const side under five");
     }
     return failures == 0 ? 0 : 1;
 }

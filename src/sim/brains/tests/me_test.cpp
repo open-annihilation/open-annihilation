@@ -1762,6 +1762,34 @@ void random_starts_hide_the_other_rows() {
     run_chunk(*sandbox, read_random_starts);
 }
 
+void side_past_the_fifth_names_itself() {
+    Fixture fixture;
+    oa::World& world = fixture.match->state();
+    std::array<oa::Side, 7> table{};
+    const char* names[] = {"Arm", "Core", "Ridge2", "Ridge3", "Ridge4", "Ridge5", "Ridge6"};
+    for (uint32_t index = 0; index < table.size(); ++index) {
+        table[index].side_index = index;
+        copy_text(table[index].name, sizeof table[index].name, names[index]);
+    }
+    oa::Side first_five[OA_SIDE_COUNT];
+    std::memcpy(first_five, table.data(), sizeof first_five);
+    fixture.match->bind_sides(table, 7);
+    CHECK(world.game.side_count == 7);
+    CHECK(std::memcmp(world.game.sides, first_five, sizeof first_five) == 0);
+
+    oa::PlayerSetupInfo* info = oa::world_player_info(&world, &world.game.players[computer]);
+    CHECK(info != nullptr);
+    info->side = 6;
+    seat_reader(fixture, "return {}\n", computer);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, computer);
+    CHECK(sandbox != nullptr);
+    run_chunk(*sandbox, "if me.side_name ~= \"Ridge6\" then error(tostring(me.side_name)) end\n");
+    info->side = 7;
+    run_chunk(*sandbox, "if me.side_name ~= nil then error(\"side 7\") end\n");
+    info->side = 1;
+    run_chunk(*sandbox, "if me.side_name ~= \"Core\" then error(tostring(me.side_name)) end\n");
+}
+
 void starts_appear_when_the_match_places_players() {
     Fixture fixture;
     seat_reader(fixture, "return {}\n", computer);
@@ -1814,6 +1842,7 @@ int main() {
         fixed_starts_and_alliances();
         random_starts_hide_the_other_rows();
         starts_appear_when_the_match_places_players();
+        side_past_the_fifth_names_itself();
     } catch (const std::exception& ex) {
         std::fprintf(stderr, "sim-brains-me: %s\n", ex.what());
         return 1;

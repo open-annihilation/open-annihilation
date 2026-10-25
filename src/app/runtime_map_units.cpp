@@ -7,6 +7,8 @@
 #include "oa/app/runtime.hpp"
 #include "oa/sim/match_runtime/mission_unit_binding.hpp"
 
+#include <algorithm>
+#include <cstdint>
 #include <iostream>
 #include <span>
 #include <vector>
@@ -93,7 +95,9 @@ bool Runtime::place_map_units(uint8_t player, int32_t start_position) {
             map->unit_count,
             start_position,
             neutral,
-            std::span<const Side>(world.game.sides),
+            std::span<const Side>(
+                side_table_.sides, std::max<uint32_t>(OA_SIDE_COUNT, side_table_.count)
+            ),
             picks
         ))
     );
