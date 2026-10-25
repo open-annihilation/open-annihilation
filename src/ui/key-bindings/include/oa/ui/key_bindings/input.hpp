@@ -13,7 +13,7 @@
 namespace oa::ui::key_bindings {
 
 /// What an input event is.
-enum class InputKind : std::uint8_t {
+enum class InputKind : uint8_t {
     key,    ///< a keyboard key
     button, ///< a mouse button
     wheel,  ///< a wheel turn
@@ -26,17 +26,17 @@ enum class InputKind : std::uint8_t {
 /// held, using the bits of `Modifier`. It never carries `primary`: that bit
 /// is a chord's, and the platform decides which physical key it means.
 struct InputEvent {
-    InputKind kind{};         ///< which kind of event
-    bool down{};              ///< the control went down, rather than up
-    bool repeat{};            ///< the platform repeated a key that is still held
-    std::uint16_t scancode{}; ///< the key's position number; 0 for a button or a wheel
-    std::uint32_t key_code{}; ///< the character an event carries, or a position key code
-    std::uint8_t button{};    ///< a mouse button, 1 to 8
-    std::int8_t wheel_x{};    ///< notches across; positive is to the right
-    std::int8_t wheel_y{};    ///< notches away from the player; positive is up
-    std::uint8_t clicks{};    ///< how many clicks landed together, for a button
-    std::uint8_t modifiers{}; ///< the physical modifiers held, never `primary`
-    std::uint64_t time_ms{};  ///< when the event happened, in milliseconds
+    InputKind kind{};    ///< which kind of event
+    bool down{};         ///< the control went down, rather than up
+    bool repeat{};       ///< the platform repeated a key that is still held
+    uint16_t scancode{}; ///< the key's position number; 0 for a button or a wheel
+    uint32_t key_code{}; ///< the character an event carries, or a position key code
+    uint8_t button{};    ///< a mouse button, 1 to 8
+    int8_t wheel_x{};    ///< notches across; positive is to the right
+    int8_t wheel_y{};    ///< notches away from the player; positive is up
+    uint8_t clicks{};    ///< how many clicks landed together, for a button
+    uint8_t modifiers{}; ///< the physical modifiers held, never `primary`
+    uint64_t time_ms{};  ///< when the event happened, in milliseconds
 };
 
 /// Which physical key the word Primary means on this platform.
@@ -60,25 +60,25 @@ struct KeyboardMap {
     /// @param scancode the position number, ignored when it is past the map
     /// @param event_key_code the key code events for that key carry
     /// @param printed the character the key prints, or 0 when it prints none
-    void set(std::uint16_t scancode, std::uint32_t event_key_code, char32_t printed);
+    void set(uint16_t scancode, uint32_t event_key_code, char32_t printed);
 
     /// Returns the key code events carry for a key.
     ///
     /// @param scancode the position number
     /// @return the key code, or 0 when the map does not know it
-    [[nodiscard]] std::uint32_t event_key_code(std::uint16_t scancode) const;
+    [[nodiscard]] uint32_t event_key_code(uint16_t scancode) const;
 
     /// Returns the character a key prints.
     ///
     /// @param scancode the position number
     /// @return the character, or 0 when the key prints none
-    [[nodiscard]] char32_t printed(std::uint16_t scancode) const;
+    [[nodiscard]] char32_t printed(uint16_t scancode) const;
 
   private:
 
     struct Slot {
-        std::uint32_t event_key_code{}; ///< the key code events carry, or 0
-        char32_t printed{};             ///< the character the key prints, or 0
+        uint32_t event_key_code{}; ///< the key code events carry, or 0
+        char32_t printed{};        ///< the character the key prints, or 0
     };
 
     std::array<Slot, scancode_limit> slots_{};

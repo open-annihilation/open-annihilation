@@ -13,7 +13,7 @@ namespace {
 ///
 /// @param scancode the position number
 /// @return the character, or 0 when the key prints none
-char32_t us_printed(std::uint16_t scancode) {
+char32_t us_printed(uint16_t scancode) {
     if (scancode >= 4 && scancode <= 29)
         return static_cast<char32_t>('a' + (scancode - 4));
     if (scancode >= 30 && scancode <= 38)
@@ -52,10 +52,10 @@ char32_t us_printed(std::uint16_t scancode) {
 ///
 /// @param scancode the position number
 /// @return the key code, or 0 for position 0
-std::uint32_t us_event(std::uint16_t scancode) {
+uint32_t us_event(uint16_t scancode) {
     const char32_t printed = us_printed(scancode);
     if (printed != 0)
-        return static_cast<std::uint32_t>(printed);
+        return static_cast<uint32_t>(printed);
     switch (scancode) {
     case 40:
         return 0x0D;
@@ -74,32 +74,32 @@ std::uint32_t us_event(std::uint16_t scancode) {
     }
     if (scancode == 0)
         return 0;
-    return std::uint32_t{scancode} | position_key_code_bit;
+    return uint32_t{scancode} | position_key_code_bit;
 }
 
 } // namespace
 
 KeyboardMap KeyboardMap::us() {
     KeyboardMap map;
-    for (std::uint16_t scancode = 1; scancode < scancode_limit; ++scancode)
+    for (uint16_t scancode = 1; scancode < scancode_limit; ++scancode)
         map.set(scancode, us_event(scancode), us_printed(scancode));
     return map;
 }
 
-void KeyboardMap::set(std::uint16_t scancode, std::uint32_t event_key_code, char32_t printed) {
+void KeyboardMap::set(uint16_t scancode, uint32_t event_key_code, char32_t printed) {
     if (scancode >= scancode_limit)
         return;
     slots_[scancode].event_key_code = event_key_code;
     slots_[scancode].printed = printed;
 }
 
-std::uint32_t KeyboardMap::event_key_code(std::uint16_t scancode) const {
+uint32_t KeyboardMap::event_key_code(uint16_t scancode) const {
     if (scancode >= scancode_limit)
         return 0;
     return slots_[scancode].event_key_code;
 }
 
-char32_t KeyboardMap::printed(std::uint16_t scancode) const {
+char32_t KeyboardMap::printed(uint16_t scancode) const {
     if (scancode >= scancode_limit)
         return 0;
     return slots_[scancode].printed;

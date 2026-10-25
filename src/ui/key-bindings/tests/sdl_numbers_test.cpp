@@ -37,8 +37,8 @@ struct NamedExpect {
 /// @param scancodes the positions without a code
 /// @param scancode the position number
 /// @return true when the list holds it
-bool listed(std::span<const std::uint16_t> scancodes, std::uint16_t scancode) {
-    for (const std::uint16_t listed_code : scancodes) {
+bool listed(std::span<const uint16_t> scancodes, uint16_t scancode) {
+    for (const uint16_t listed_code : scancodes) {
         if (listed_code == scancode)
             return true;
     }
@@ -278,18 +278,18 @@ constexpr NamedExpect kNamed[] = {
 
 /// Every scancode SDL names is in the table or on the unnamed list.
 void every_named_scancode() {
-    const std::span<const std::uint16_t> without = keys::scancodes_without_code();
+    const std::span<const uint16_t> without = keys::scancodes_without_code();
     for (int number = 0; number < SDL_SCANCODE_COUNT; ++number) {
         const auto scancode = static_cast<SDL_Scancode>(number);
         const char* name = SDL_GetScancodeName(scancode);
         if (name == nullptr || name[0] == '\0')
             continue;
-        const bool in_table = !keys::code_of(static_cast<std::uint16_t>(number)).empty();
-        const bool in_without = listed(without, static_cast<std::uint16_t>(number));
+        const bool in_table = !keys::code_of(static_cast<uint16_t>(number)).empty();
+        const bool in_without = listed(without, static_cast<uint16_t>(number));
         OA_CHECK(in_table || in_without);
         OA_CHECK(!(in_table && in_without));
     }
-    for (const std::uint16_t scancode : without) {
+    for (const uint16_t scancode : without) {
         OA_CHECK(scancode < SDL_SCANCODE_COUNT);
         const char* name = SDL_GetScancodeName(static_cast<SDL_Scancode>(scancode));
         OA_CHECK(name != nullptr);
@@ -328,7 +328,7 @@ void named_keys_match() {
         }
         OA_CHECK(expect != nullptr);
         if (expect != nullptr)
-            OA_CHECK(key.key_code == static_cast<std::uint32_t>(expect->key_code));
+            OA_CHECK(key.key_code == static_cast<uint32_t>(expect->key_code));
     }
 }
 

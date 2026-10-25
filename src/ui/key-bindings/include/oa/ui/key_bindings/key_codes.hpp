@@ -15,20 +15,20 @@
 namespace oa::ui::key_bindings {
 
 /// How many position numbers a keyboard map holds. A report uses those below this.
-inline constexpr std::uint16_t scancode_limit = 512;
+inline constexpr uint16_t scancode_limit = 512;
 
 /// Bit set on a key code that names a position rather than a character.
-inline constexpr std::uint32_t position_key_code_bit = 1u << 30;
+inline constexpr uint32_t position_key_code_bit = 1u << 30;
 
 /// One physical key: its UI Events code, its position number and whether it prints.
 struct KeyPosition {
-    std::string_view code{};  ///< the UI Events code, such as `KeyA` or `ArrowUp`
-    std::uint16_t scancode{}; ///< the key's position number
-    bool prints{};            ///< a writing-system key, whose label follows the layout
+    std::string_view code{}; ///< the UI Events code, such as `KeyA` or `ArrowUp`
+    uint16_t scancode{};     ///< the key's position number
+    bool prints{};           ///< a writing-system key, whose label follows the layout
 };
 
 /// A named key of a chord, with the key code an event carries for it.
-enum class NamedKey : std::uint8_t {
+enum class NamedKey : uint8_t {
     escape,
     enter,
     tab,
@@ -91,10 +91,10 @@ enum class NamedKey : std::uint8_t {
 
 /// One named key: the word a chord writes, its key code and its position.
 struct NamedKeySpec {
-    std::string_view name{};  ///< the chord's word, such as `Enter` or `F1`
-    std::uint32_t key_code{}; ///< the key code an event carries
-    std::uint16_t scancode{}; ///< the key's position number
-    NamedKey id{};            ///< the same key, as the chord stores it
+    std::string_view name{}; ///< the chord's word, such as `Enter` or `F1`
+    uint32_t key_code{};     ///< the key code an event carries
+    uint16_t scancode{};     ///< the key's position number
+    NamedKey id{};           ///< the same key, as the chord stores it
 };
 
 /// Returns every key position, in section order.
@@ -106,13 +106,13 @@ struct NamedKeySpec {
 ///
 /// @param code the code, such as `Digit1`
 /// @return the position number, or nothing when the table has no such code
-[[nodiscard]] std::optional<std::uint16_t> scancode_of(std::string_view code) noexcept;
+[[nodiscard]] std::optional<uint16_t> scancode_of(std::string_view code) noexcept;
 
 /// Finds the UI Events code of a position number.
 ///
 /// @param scancode the position number
 /// @return the code, or empty when the table does not name it
-[[nodiscard]] std::string_view code_of(std::uint16_t scancode) noexcept;
+[[nodiscard]] std::string_view code_of(uint16_t scancode) noexcept;
 
 /// Returns every named key, in enum order.
 ///
@@ -128,7 +128,7 @@ struct NamedKeySpec {
 /// Returns the position numbers a keyboard report can carry that no chord can name.
 ///
 /// @return those position numbers, in ascending order
-[[nodiscard]] std::span<const std::uint16_t> scancodes_without_code() noexcept;
+[[nodiscard]] std::span<const uint16_t> scancodes_without_code() noexcept;
 
 /// Reports whether a UI Events code is a lock or a modifier key's own position.
 ///

@@ -17,7 +17,7 @@
 namespace oa::ui::key_bindings {
 
 /// A modifier a chord can name. Values are bits and combine with `|`.
-enum Modifier : std::uint8_t {
+enum Modifier : uint8_t {
     primary = 1u << 0, ///< the platform's primary modifier, Ctrl or the command key
     ctrl = 1u << 1,    ///< the Control key
     alt = 1u << 2,     ///< the Alt key
@@ -26,7 +26,7 @@ enum Modifier : std::uint8_t {
 };
 
 /// What a chord waits for, besides its modifiers.
-enum class TriggerKind : std::uint8_t {
+enum class TriggerKind : uint8_t {
     character,      ///< a letter or another printing character
     place,          ///< one key position, written with an at sign
     named,          ///< a named key, such as Enter or F1
@@ -37,7 +37,7 @@ enum class TriggerKind : std::uint8_t {
 };
 
 /// How the player finishes the chord. A plain press is the usual one.
-enum class Gesture : std::uint8_t {
+enum class Gesture : uint8_t {
     press,        ///< the chord goes down
     double_press, ///< two presses, written `:double`
     hold,         ///< the chord is held, written `:hold`
@@ -46,15 +46,15 @@ enum class Gesture : std::uint8_t {
 
 /// One binding: modifiers, one trigger and a gesture.
 struct Chord {
-    std::uint8_t modifiers{}; ///< bits of `Modifier`, in any combination
-    TriggerKind kind{};       ///< what the trigger is
-    char32_t character{};     ///< the character, in capitals for a letter
-    std::uint16_t scancode{}; ///< the position, for a place or a named key
-    std::uint8_t named{};     ///< the `NamedKey` value, for a named key
-    std::uint8_t button{};    ///< the mouse button, 1 to 8
-    std::int8_t wheel{};      ///< 1 up, -1 down, 2 right, -2 left
-    std::string pad{};        ///< the pad button's name, without the `Pad.` prefix
-    Gesture gesture{};        ///< how the chord finishes; a plain press by default
+    uint8_t modifiers{};  ///< bits of `Modifier`, in any combination
+    TriggerKind kind{};   ///< what the trigger is
+    char32_t character{}; ///< the character, in capitals for a letter
+    uint16_t scancode{};  ///< the position, for a place or a named key
+    uint8_t named{};      ///< the `NamedKey` value, for a named key
+    uint8_t button{};     ///< the mouse button, 1 to 8
+    int8_t wheel{};       ///< 1 up, -1 down, 2 right, -2 left
+    std::string pad{};    ///< the pad button's name, without the `Pad.` prefix
+    Gesture gesture{};    ///< how the chord finishes; a plain press by default
 
     /// Returns whether two chords name the same binding.
     ///
@@ -63,7 +63,7 @@ struct Chord {
 };
 
 /// Why a chord text was refused, and where in the text.
-enum class ChordErrorReason : std::uint8_t {
+enum class ChordErrorReason : uint8_t {
     ok,                  ///< the text parsed
     empty,               ///< the text is empty
     too_long,            ///< the text is longer than 64 bytes
@@ -81,14 +81,14 @@ enum class ChordErrorReason : std::uint8_t {
 /// A refusal from `parse_chord`, with the byte it was found at.
 struct ChordError {
     ChordErrorReason reason{}; ///< why the text was refused; `ok` when it parsed
-    std::uint32_t byte{};      ///< the byte in the text where the reason was found
+    uint32_t byte{};           ///< the byte in the text where the reason was found
 };
 
 /// The longest chord text, in bytes.
 inline constexpr std::size_t chord_text_limit = 64;
 
 /// How well a chord matches one event.
-enum class Match : std::uint8_t {
+enum class Match : uint8_t {
     none,                 ///< the event is not this chord
     with_extra_modifiers, ///< the trigger matches, with Shift, Alt or Meta held beyond the chord
     exact,                ///< the trigger and the modifiers match
@@ -165,7 +165,7 @@ match(const Chord& chord, const InputEvent& event, const KeyboardMap& map, Platf
 /// @param modifiers the physical modifiers held, as an event records them
 /// @param platform which key Primary means
 /// @return true when that modifier is among those held
-[[nodiscard]] bool held(const Chord& modifier_alone, std::uint8_t modifiers, Platform platform);
+[[nodiscard]] bool held(const Chord& modifier_alone, uint8_t modifiers, Platform platform);
 
 /// Splits a chord into the keycaps a screen draws, in chord order.
 ///

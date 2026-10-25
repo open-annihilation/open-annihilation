@@ -14,7 +14,7 @@ namespace {
 
 struct ModifierName {
     std::string_view name;
-    std::uint8_t bit;
+    uint8_t bit{};
 };
 
 constexpr ModifierName kModifiers[] = {
@@ -42,7 +42,7 @@ constexpr std::string_view kMouse[] = {
 /// @param reason why the text was refused
 /// @param byte the byte where it was found
 /// @return nothing
-std::optional<Chord> fail(ChordError& error, ChordErrorReason reason, std::uint32_t byte) {
+std::optional<Chord> fail(ChordError& error, ChordErrorReason reason, uint32_t byte) {
     error.reason = reason;
     error.byte = byte;
     return std::nullopt;
@@ -64,10 +64,10 @@ const ModifierName* modifier_at(std::string_view text) {
 ///
 /// @param trigger the trigger text
 /// @return the button number, 1 to 8, or 0
-std::uint8_t mouse_button(std::string_view trigger) {
+uint8_t mouse_button(std::string_view trigger) {
     for (std::size_t index = 0; index < std::size(kMouse); ++index) {
         if (kMouse[index] == trigger)
-            return static_cast<std::uint8_t>(index + 1);
+            return static_cast<uint8_t>(index + 1);
     }
     return 0;
 }
@@ -76,7 +76,7 @@ std::uint8_t mouse_button(std::string_view trigger) {
 ///
 /// @param trigger the trigger text
 /// @return 1 up, -1 down, 2 right, -2 left, or 0
-std::int8_t wheel_code(std::string_view trigger) {
+int8_t wheel_code(std::string_view trigger) {
     if (trigger == "WheelUp")
         return 1;
     if (trigger == "WheelDown")
@@ -145,7 +145,7 @@ void append_utf8(std::string& out, char32_t character) {
 /// @param at the trigger's first byte
 /// @param[out] error the refusal, left unchanged when the trigger parses
 /// @return the chord, or nothing
-std::optional<Chord> parse_trigger(std::string_view trigger, std::uint32_t at, ChordError& error) {
+std::optional<Chord> parse_trigger(std::string_view trigger, uint32_t at, ChordError& error) {
     if (trigger.empty())
         return fail(error, ChordErrorReason::empty_part, at);
 
@@ -157,14 +157,14 @@ std::optional<Chord> parse_trigger(std::string_view trigger, std::uint32_t at, C
     if (const NamedKeySpec* named = find_named_key(trigger)) {
         Chord chord;
         chord.kind = TriggerKind::named;
-        chord.named = static_cast<std::uint8_t>(named->id);
+        chord.named = static_cast<uint8_t>(named->id);
         chord.scancode = named->scancode;
         return chord;
     }
 
     if (trigger.starts_with('@')) {
         const std::string_view code = trigger.substr(1);
-        const std::uint32_t code_at = at + 1;
+        const uint32_t code_at = at + 1;
         if (code.empty())
             return fail(error, ChordErrorReason::unknown_position, at);
         if (position_refused(code)) {
@@ -176,11 +176,11 @@ std::optional<Chord> parse_trigger(std::string_view trigger, std::uint32_t at, C
         if (const NamedKeySpec* named = find_named_key(code)) {
             Chord chord;
             chord.kind = TriggerKind::named;
-            chord.named = static_cast<std::uint8_t>(named->id);
+            chord.named = static_cast<uint8_t>(named->id);
             chord.scancode = named->scancode;
             return chord;
         }
-        const std::optional<std::uint16_t> scancode = scancode_of(code);
+        const std::optional<uint16_t> scancode = scancode_of(code);
         if (!scancode)
             return fail(error, ChordErrorReason::unknown_position, code_at);
         Chord chord;
@@ -199,14 +199,14 @@ std::optional<Chord> parse_trigger(std::string_view trigger, std::uint32_t at, C
         return chord;
     }
 
-    if (const std::uint8_t button = mouse_button(trigger)) {
+    if (const uint8_t button = mouse_button(trigger)) {
         Chord chord;
         chord.kind = TriggerKind::mouse;
         chord.button = button;
         return chord;
     }
 
-    if (const std::int8_t wheel = wheel_code(trigger)) {
+    if (const int8_t wheel = wheel_code(trigger)) {
         Chord chord;
         chord.kind = TriggerKind::wheel;
         chord.wheel = wheel;
@@ -242,7 +242,7 @@ struct Need {
 /// @param modifiers the chord's modifier bits
 /// @param platform which key Primary means
 /// @return the physical modifiers that must be held
-Need required_modifiers(std::uint8_t modifiers, Platform platform) {
+Need required_modifiers(uint8_t modifiers, Platform platform) {
     Need need;
     need.ctrl =
         (modifiers & ctrl) != 0 || ((modifiers & primary) != 0 && !platform.primary_is_meta);
@@ -257,7 +257,7 @@ Need required_modifiers(std::uint8_t modifiers, Platform platform) {
 /// @param modifiers the bits
 /// @param bit the bit
 /// @return true when it is set
-bool has_bit(std::uint8_t modifiers, std::uint8_t bit) {
+bool has_bit(uint8_t modifiers, uint8_t bit) {
     return (modifiers & bit) != 0;
 }
 
@@ -274,7 +274,7 @@ bool trigger_matches(const Chord& chord, const InputEvent& event) {
         char32_t expected = chord.character;
         if (expected >= U'A' && expected <= U'Z')
             expected = static_cast<char32_t>(expected - U'A' + U'a');
-        return event.key_code == static_cast<std::uint32_t>(expected);
+        return event.key_code == static_cast<uint32_t>(expected);
     }
     case TriggerKind::place:
         return event.kind == InputKind::key && event.scancode == chord.scancode;
@@ -315,7 +315,7 @@ bool trigger_matches(const Chord& chord, const InputEvent& event) {
 /// @param held_modifiers the physical modifiers held
 /// @param platform which key Primary means
 /// @return exact, with extra modifiers, or none
-Match modifier_match(std::uint8_t modifiers, std::uint8_t held_modifiers, Platform platform) {
+Match modifier_match(uint8_t modifiers, uint8_t held_modifiers, Platform platform) {
     const Need need = required_modifiers(modifiers, platform);
     const bool got_ctrl = has_bit(held_modifiers, ctrl);
     const bool got_alt = has_bit(held_modifiers, alt);
@@ -341,18 +341,16 @@ std::optional<Chord> parse_chord(std::string_view text, ChordError& error) {
     if (text.empty())
         return fail(error, ChordErrorReason::empty, 0);
     if (text.size() > chord_text_limit)
-        return fail(
-            error, ChordErrorReason::too_long, static_cast<std::uint32_t>(chord_text_limit)
-        );
+        return fail(error, ChordErrorReason::too_long, static_cast<uint32_t>(chord_text_limit));
 
     std::string_view body = text;
     Gesture gesture = Gesture::press;
-    std::uint32_t gesture_at = 0;
+    uint32_t gesture_at = 0;
     const std::size_t colon = text.rfind(':');
     if (colon != std::string_view::npos) {
         const std::string_view suffix = text.substr(colon + 1);
         if (suffix == "double" || suffix == "hold" || suffix == "release") {
-            gesture_at = static_cast<std::uint32_t>(colon);
+            gesture_at = static_cast<uint32_t>(colon);
             if (suffix == "double")
                 gesture = Gesture::double_press;
             else if (suffix == "hold")
@@ -361,13 +359,11 @@ std::optional<Chord> parse_chord(std::string_view text, ChordError& error) {
                 gesture = Gesture::release;
             body = text.substr(0, colon);
         } else if (!suffix.empty()) {
-            return fail(
-                error, ChordErrorReason::unknown_gesture, static_cast<std::uint32_t>(colon)
-            );
+            return fail(error, ChordErrorReason::unknown_gesture, static_cast<uint32_t>(colon));
         }
     }
 
-    std::uint8_t modifiers = 0;
+    uint8_t modifiers = 0;
     std::size_t cursor = 0;
     while (cursor < body.size()) {
         const ModifierName* modifier = modifier_at(body.substr(cursor));
@@ -379,14 +375,10 @@ std::optional<Chord> parse_chord(std::string_view text, ChordError& error) {
         if (!at_end && !then_plus)
             break;
         if ((modifiers & modifier->bit) != 0)
-            return fail(
-                error, ChordErrorReason::modifier_repeated, static_cast<std::uint32_t>(cursor)
-            );
+            return fail(error, ChordErrorReason::modifier_repeated, static_cast<uint32_t>(cursor));
         if (at_end) {
             if (modifiers != 0)
-                return fail(
-                    error, ChordErrorReason::not_a_trigger, static_cast<std::uint32_t>(cursor)
-                );
+                return fail(error, ChordErrorReason::not_a_trigger, static_cast<uint32_t>(cursor));
             if (gesture != Gesture::press)
                 return fail(error, ChordErrorReason::gesture_not_allowed, gesture_at);
             Chord chord;
@@ -395,7 +387,7 @@ std::optional<Chord> parse_chord(std::string_view text, ChordError& error) {
             error = {};
             return chord;
         }
-        modifiers = static_cast<std::uint8_t>(modifiers | modifier->bit);
+        modifiers = static_cast<uint8_t>(modifiers | modifier->bit);
         cursor = name_end + 1;
     }
 
@@ -403,9 +395,9 @@ std::optional<Chord> parse_chord(std::string_view text, ChordError& error) {
     // starts with "+" has an empty part between the two pluses.
     const std::string_view trigger = body.substr(cursor);
     if (trigger.size() > 1 && trigger.front() == '+')
-        return fail(error, ChordErrorReason::empty_part, static_cast<std::uint32_t>(cursor));
+        return fail(error, ChordErrorReason::empty_part, static_cast<uint32_t>(cursor));
 
-    std::optional<Chord> parsed = parse_trigger(trigger, static_cast<std::uint32_t>(cursor), error);
+    std::optional<Chord> parsed = parse_trigger(trigger, static_cast<uint32_t>(cursor), error);
     if (!parsed)
         return std::nullopt;
     if (parsed->kind == TriggerKind::wheel && gesture != Gesture::press)
@@ -448,7 +440,7 @@ std::string_view chord_error_text(ChordErrorReason reason) noexcept {
 
 std::string chord_text(const Chord& chord) {
     std::string text;
-    auto add_modifier = [&](std::uint8_t bit, std::string_view name) {
+    auto add_modifier = [&](uint8_t bit, std::string_view name) {
         if ((chord.modifiers & bit) == 0)
             return;
         if (!text.empty())
@@ -524,22 +516,18 @@ Match match(
 
 int rank(const Chord& chord) {
     int named = 0;
-    for (const std::uint8_t bit :
-         {std::uint8_t{primary},
-          std::uint8_t{ctrl},
-          std::uint8_t{alt},
-          std::uint8_t{shift},
-          std::uint8_t{meta}}) {
+    for (const uint8_t bit :
+         {uint8_t{primary}, uint8_t{ctrl}, uint8_t{alt}, uint8_t{shift}, uint8_t{meta}}) {
         if ((chord.modifiers & bit) != 0)
             ++named;
     }
     const bool by_position = chord.kind == TriggerKind::place ||
                              (chord.kind == TriggerKind::named &&
-                              chord.named == static_cast<std::uint8_t>(NamedKey::numpad_enter));
+                              chord.named == static_cast<uint8_t>(NamedKey::numpad_enter));
     return named * 2 + (by_position ? 1 : 0);
 }
 
-bool held(const Chord& modifier_alone, std::uint8_t modifiers, Platform platform) {
+bool held(const Chord& modifier_alone, uint8_t modifiers, Platform platform) {
     if (modifier_alone.kind != TriggerKind::modifier_alone)
         return false;
     const Need need = required_modifiers(modifier_alone.modifiers, platform);

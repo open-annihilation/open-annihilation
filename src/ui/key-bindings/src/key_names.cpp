@@ -74,7 +74,7 @@ void add_modifier(std::vector<KeyCap>& caps, const char* text) {
 /// @param caps the keycaps
 /// @param modifiers the chord's modifier bits
 /// @param platform which key Primary means, and the name of Meta
-void add_modifiers(std::vector<KeyCap>& caps, std::uint8_t modifiers, Platform platform) {
+void add_modifiers(std::vector<KeyCap>& caps, uint8_t modifiers, Platform platform) {
     if ((modifiers & primary) != 0)
         add_modifier(caps, platform.primary_is_meta ? "Cmd" : "Ctrl");
     if ((modifiers & ctrl) != 0)
@@ -341,8 +341,8 @@ bool on_keyboard(const Chord& chord, const KeyboardMap& map) {
         character = static_cast<char32_t>(character - U'A' + U'a');
     if (character == 0)
         return false;
-    for (std::uint16_t scancode = 0; scancode < scancode_limit; ++scancode) {
-        if (map.event_key_code(scancode) == static_cast<std::uint32_t>(character))
+    for (uint16_t scancode = 0; scancode < scancode_limit; ++scancode) {
+        if (map.event_key_code(scancode) == static_cast<uint32_t>(character))
             return true;
     }
     return false;

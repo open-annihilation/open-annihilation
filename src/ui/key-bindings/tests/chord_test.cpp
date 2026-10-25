@@ -110,7 +110,7 @@ void writes(std::string_view text, std::string_view canonical) {
 /// @param text the chord text
 /// @param reason the reason
 /// @param byte the byte in the text
-void expect_refuse(std::string_view text, ChordErrorReason reason, std::uint32_t byte) {
+void expect_refuse(std::string_view text, ChordErrorReason reason, uint32_t byte) {
     ChordError error;
     const std::optional<Chord> chord = keys::parse_chord(text, error);
     if (chord || error.reason != reason || error.byte != byte) {
@@ -136,7 +136,7 @@ void expect_refuse(std::string_view text, ChordErrorReason reason, std::uint32_t
 /// @param key_code the key code the event carries
 /// @param modifiers the physical modifiers held
 /// @return the event
-InputEvent key_event(std::uint16_t scancode, std::uint32_t key_code, std::uint8_t modifiers) {
+InputEvent key_event(uint16_t scancode, uint32_t key_code, uint8_t modifiers) {
     InputEvent event;
     event.kind = InputKind::key;
     event.down = true;
@@ -349,7 +349,7 @@ void matching() {
 
     OA_CHECK(match(letter, key_event(4, 0x61, 0), us, windows) == Match::exact);
     OA_CHECK(
-        match(letter, key_event(4, static_cast<std::uint32_t>('q'), 0), us, windows) == Match::none
+        match(letter, key_event(4, static_cast<uint32_t>('q'), 0), us, windows) == Match::none
     );
     OA_CHECK(
         match(letter, key_event(4, 0x61, keys::shift), us, windows) == Match::with_extra_modifiers
@@ -363,37 +363,28 @@ void matching() {
     OA_CHECK(match(letter, key_event(4, 0x61, keys::ctrl), us, windows) == Match::none);
     OA_CHECK(
         match(
-            letter,
-            key_event(4, 0x61, static_cast<std::uint8_t>(keys::ctrl | keys::shift)),
-            us,
-            windows
+            letter, key_event(4, 0x61, static_cast<uint8_t>(keys::ctrl | keys::shift)), us, windows
         ) == Match::none
     );
 
     OA_CHECK(match(ctrl_a, key_event(4, 0x61, keys::ctrl), us, windows) == Match::exact);
     OA_CHECK(
         match(
-            ctrl_a,
-            key_event(4, 0x61, static_cast<std::uint8_t>(keys::ctrl | keys::shift)),
-            us,
-            windows
+            ctrl_a, key_event(4, 0x61, static_cast<uint8_t>(keys::ctrl | keys::shift)), us, windows
         ) == Match::with_extra_modifiers
     );
     OA_CHECK(
         match(
-            ctrl_a,
-            key_event(4, 0x61, static_cast<std::uint8_t>(keys::ctrl | keys::alt)),
-            us,
-            windows
+            ctrl_a, key_event(4, 0x61, static_cast<uint8_t>(keys::ctrl | keys::alt)), us, windows
         ) == Match::with_extra_modifiers
     );
     OA_CHECK(match(ctrl_a, key_event(4, 0x61, keys::shift), us, windows) == Match::none);
 
     OA_CHECK(
-        match(digit, key_event(30, static_cast<std::uint32_t>('1'), 0), us, windows) == Match::exact
+        match(digit, key_event(30, static_cast<uint32_t>('1'), 0), us, windows) == Match::exact
     );
     OA_CHECK(
-        match(digit, key_event(20, static_cast<std::uint32_t>('1'), 0), us, windows) == Match::none
+        match(digit, key_event(20, static_cast<uint32_t>('1'), 0), us, windows) == Match::none
     );
     OA_CHECK(match(digit, key_event(30, 0x61, 0), us, windows) == Match::exact);
 
@@ -401,34 +392,32 @@ void matching() {
     OA_CHECK(match(keypad, key_event(88, 0x0D, 0), us, windows) == Match::exact);
     OA_CHECK(match(enter, key_event(40, 0x0D, 0), us, windows) == Match::exact);
     OA_CHECK(match(keypad, key_event(40, 0x0D, 0), us, windows) == Match::none);
-    const std::uint32_t keypad_code = std::uint32_t{88} | keys::position_key_code_bit;
+    const uint32_t keypad_code = uint32_t{88} | keys::position_key_code_bit;
     OA_CHECK(match(enter, key_event(88, keypad_code, 0), us, windows) == Match::none);
     OA_CHECK(match(keypad, key_event(88, keypad_code, 0), us, windows) == Match::exact);
     OA_CHECK(keys::rank(keypad) == keys::rank(enter) + 1);
 
     const Chord arrow = must_parse("@ArrowUp");
     const Chord up = must_parse("Up");
-    const std::uint32_t up_code = std::uint32_t{82} | keys::position_key_code_bit;
+    const uint32_t up_code = uint32_t{82} | keys::position_key_code_bit;
     OA_CHECK(match(arrow, key_event(82, 0, 0), us, windows) == Match::exact);
     OA_CHECK(match(up, key_event(82, 0, 0), us, windows) == Match::none);
     OA_CHECK(match(up, key_event(0, up_code, 0), us, windows) == Match::exact);
     OA_CHECK(match(arrow, key_event(0, up_code, 0), us, windows) == Match::none);
 
     OA_CHECK(
-        match(primary, key_event(54, static_cast<std::uint32_t>(','), keys::meta), us, mac) ==
+        match(primary, key_event(54, static_cast<uint32_t>(','), keys::meta), us, mac) ==
         Match::exact
     );
     OA_CHECK(
-        match(primary, key_event(54, static_cast<std::uint32_t>(','), keys::ctrl), us, mac) ==
+        match(primary, key_event(54, static_cast<uint32_t>(','), keys::ctrl), us, mac) ==
         Match::none
     );
     OA_CHECK(
         match(
             primary,
             key_event(
-                54,
-                static_cast<std::uint32_t>(','),
-                static_cast<std::uint8_t>(keys::meta | keys::ctrl)
+                54, static_cast<uint32_t>(','), static_cast<uint8_t>(keys::meta | keys::ctrl)
             ),
             us,
             mac
@@ -438,30 +427,24 @@ void matching() {
         match(
             primary,
             key_event(
-                54,
-                static_cast<std::uint32_t>(','),
-                static_cast<std::uint8_t>(keys::meta | keys::shift)
+                54, static_cast<uint32_t>(','), static_cast<uint8_t>(keys::meta | keys::shift)
             ),
             us,
             mac
         ) == Match::with_extra_modifiers
     );
     OA_CHECK(
-        match(primary, key_event(54, static_cast<std::uint32_t>(','), keys::ctrl), us, windows) ==
+        match(primary, key_event(54, static_cast<uint32_t>(','), keys::ctrl), us, windows) ==
         Match::exact
     );
     OA_CHECK(
-        match(primary, key_event(54, static_cast<std::uint32_t>(','), keys::meta), us, windows) ==
+        match(primary, key_event(54, static_cast<uint32_t>(','), keys::meta), us, windows) ==
         Match::none
     );
     OA_CHECK(
         match(
             primary,
-            key_event(
-                54,
-                static_cast<std::uint32_t>(','),
-                static_cast<std::uint8_t>(keys::ctrl | keys::alt)
-            ),
+            key_event(54, static_cast<uint32_t>(','), static_cast<uint8_t>(keys::ctrl | keys::alt)),
             us,
             windows
         ) == Match::with_extra_modifiers
@@ -513,28 +496,28 @@ void matching() {
 /// An AZERTY map: the number row's events carry digits, and A sits on the Q key.
 void azerty() {
     KeyboardMap map = KeyboardMap::us();
-    map.set(20, static_cast<std::uint32_t>('a'), U'a');
-    map.set(4, static_cast<std::uint32_t>('q'), U'q');
-    map.set(30, static_cast<std::uint32_t>('1'), U'&');
+    map.set(20, static_cast<uint32_t>('a'), U'a');
+    map.set(4, static_cast<uint32_t>('q'), U'q');
+    map.set(30, static_cast<uint32_t>('1'), U'&');
     const Platform windows{};
     const Chord letter = must_parse("A");
     const Chord place = must_parse("@KeyA");
     const Chord digit = must_parse("@Digit1");
 
     OA_CHECK(
-        keys::match(letter, key_event(20, static_cast<std::uint32_t>('a'), 0), map, windows) ==
+        keys::match(letter, key_event(20, static_cast<uint32_t>('a'), 0), map, windows) ==
         Match::exact
     );
     OA_CHECK(
-        keys::match(letter, key_event(4, static_cast<std::uint32_t>('q'), 0), map, windows) ==
+        keys::match(letter, key_event(4, static_cast<uint32_t>('q'), 0), map, windows) ==
         Match::none
     );
     OA_CHECK(
-        keys::match(place, key_event(4, static_cast<std::uint32_t>('q'), 0), map, windows) ==
+        keys::match(place, key_event(4, static_cast<uint32_t>('q'), 0), map, windows) ==
         Match::exact
     );
     OA_CHECK(
-        keys::match(place, key_event(20, static_cast<std::uint32_t>('a'), 0), map, windows) ==
+        keys::match(place, key_event(20, static_cast<uint32_t>('a'), 0), map, windows) ==
         Match::none
     );
 
@@ -615,18 +598,17 @@ void names() {
     for (const keys::NamedKeySpec& key : keys::named_keys()) {
         Chord chord;
         chord.kind = TriggerKind::named;
-        chord.named = static_cast<std::uint8_t>(key.id);
+        chord.named = static_cast<uint8_t>(key.id);
         chord.scancode = key.scancode;
         expect_words_apart(keys::keycaps(chord, us, windows));
     }
-    for (std::uint8_t button = 1; button <= 8; ++button) {
+    for (uint8_t button = 1; button <= 8; ++button) {
         Chord chord;
         chord.kind = TriggerKind::mouse;
         chord.button = button;
         expect_words_apart(keys::keycaps(chord, us, windows));
     }
-    for (const std::int8_t wheel :
-         {std::int8_t{1}, std::int8_t{-1}, std::int8_t{2}, std::int8_t{-2}}) {
+    for (const int8_t wheel : {int8_t{1}, int8_t{-1}, int8_t{2}, int8_t{-2}}) {
         Chord chord;
         chord.kind = TriggerKind::wheel;
         chord.wheel = wheel;

@@ -17,8 +17,8 @@ namespace {
 ///
 /// @param scancode the position number
 /// @return the key code
-constexpr std::uint32_t at(std::uint16_t scancode) {
-    return std::uint32_t{scancode} | position_key_code_bit;
+constexpr uint32_t at(uint16_t scancode) {
+    return uint32_t{scancode} | position_key_code_bit;
 }
 
 constexpr KeyPosition kPositions[] = {
@@ -260,7 +260,7 @@ constexpr NamedKeySpec kNamed[] = {
 };
 
 // Position numbers a report names that the UI Events code list does not.
-constexpr std::uint16_t kWithout[] = {
+constexpr uint16_t kWithout[] = {
     50,  116, 118, 120, 134, 140, 141, 142, 143, 149, 150, 151, 152, 153, 154, 155,
     156, 157, 158, 159, 160, 161, 162, 163, 164, 176, 177, 178, 179, 180, 181, 184,
     185, 186, 188, 189, 190, 191, 192, 193, 194, 195, 196, 197, 198, 199, 200, 201,
@@ -320,7 +320,7 @@ std::span<const KeyPosition> key_positions() noexcept {
     return kPositions;
 }
 
-std::optional<std::uint16_t> scancode_of(std::string_view code) noexcept {
+std::optional<uint16_t> scancode_of(std::string_view code) noexcept {
     for (const KeyPosition& position : kPositions) {
         if (position.code == code)
             return position.scancode;
@@ -328,7 +328,7 @@ std::optional<std::uint16_t> scancode_of(std::string_view code) noexcept {
     return std::nullopt;
 }
 
-std::string_view code_of(std::uint16_t scancode) noexcept {
+std::string_view code_of(uint16_t scancode) noexcept {
     for (const KeyPosition& position : kPositions) {
         if (position.scancode == scancode)
             return position.code;
@@ -348,7 +348,7 @@ const NamedKeySpec* find_named_key(std::string_view name) noexcept {
     return nullptr;
 }
 
-std::span<const std::uint16_t> scancodes_without_code() noexcept {
+std::span<const uint16_t> scancodes_without_code() noexcept {
     return kWithout;
 }
 
