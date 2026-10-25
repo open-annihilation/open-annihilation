@@ -38,7 +38,9 @@ check stands: up to date, checking, a release out, could not check, or not
 checked yet. The line names Stable, and when the check last reached the
 server. CHECK NOW runs a check at once. While a release is offered the
 button is UPDATE…, which opens that release's page the way the prompt's
-UPDATE does. The button is greyed while a check is running.
+UPDATE does. The button is greyed while a check is running. A copy that cannot replace
+itself keeps CHECK NOW, and the line says who updates it
+([Copies a package manager updates](#copies-a-package-manager-updates)).
 
 Check for updates is Automatically, Only when I ask, or Never. It takes
 effect when you press OK. Cancel leaves the choice the dialog opened with.
@@ -120,3 +122,24 @@ and a copy of the preferences file sits beside it. `updates/state.json`
 records what is installed and what was kept. The game then starts again.
 If a step fails, the helper puts back what it had changed and starts the
 version you had. The helper makes no request of its own.
+
+## Copies a package manager updates
+
+A copy from Flathub, Nix, Homebrew or a distribution is built so it does
+not replace itself. It still checks for a release when you allow it. The
+prompt says who updates it, for example "This copy came from Flathub,
+which updates it." and "Open your software centre, or run:" with the
+command on the next line. There is no Skip, Later or Update. OK dismisses
+it until the next start. Settings keeps CHECK NOW, and the status says
+"Updated by Flathub". The command is shown as it was written.
+
+The repository's Nix package for Linux is built this way. The official
+Windows package still replaces itself.
+
+iOS is built the same way and names nobody. The notice says this copy
+cannot replace itself and offers the release's page beside OK. You build
+the new release the same way
+([iOS](installation/ios.md)).
+
+A packager sets this in
+[What a platform can do](development/platform.md#what-a-platform-can-do).
