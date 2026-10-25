@@ -10,6 +10,8 @@
 #include "oa/formats/oakeys/manifest.hpp"
 #include "oa/test/check.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/key_codes.hpp"
+#include "oa/ui/key_bindings/legacy.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -368,6 +370,107 @@ void test_defaults_round_trip() {
     OA_CHECK(same_layout(layout, layout_again));
 }
 
+/// The sixteen option keys, and a key code outside them.
+void test_legacy_keys() {
+    struct Sample {
+        uint32_t code{};
+        const char* place{};
+        const char* letter{};
+    };
+
+    const Sample samples[] = {
+        {0x400000e2U, nullptr, "Alt"},
+        {0x400000e0U, nullptr, "Ctrl"},
+        {0x400000e1U, nullptr, "Shift"},
+        {'\t', "Tab", "Tab"},
+        {'b', "KeyB", "B"},
+        {'c', "KeyC", "C"},
+        {'e', "KeyE", "E"},
+        {'f', "KeyF", "F"},
+        {'g', "KeyG", "G"},
+        {'q', "KeyQ", "Q"},
+        {'r', "KeyR", "R"},
+        {'v', "KeyV", "V"},
+        {'x', "KeyX", "X"},
+        {'z', "KeyZ", "Z"},
+        {'/', "Slash", "/"},
+        {'\\', "Backslash", "\\"},
+    };
+    const actions::By ways[] = {actions::By::none, actions::By::letter, actions::By::place};
+    for (const Sample& sample : samples) {
+        for (const actions::By by : ways) {
+            uint16_t scancode = 0;
+            if (sample.place != nullptr) {
+                const std::optional<uint16_t> found = keys::scancode_of(sample.place);
+                OA_CHECK(found.has_value());
+                if (!found)
+                    continue;
+                scancode = *found;
+            }
+            const std::optional<keys::Chord> chord =
+                keys::legacy_key_chord(sample.code, scancode, by);
+            OA_CHECK(chord.has_value());
+            if (!chord)
+                continue;
+            const bool modifier = sample.code == 0x400000e2U || sample.code == 0x400000e0U ||
+                                  sample.code == 0x400000e1U;
+            std::string text;
+            if (modifier || by != actions::By::place)
+                text = sample.letter;
+            else
+                text = std::string("@") + sample.place;
+            keys::ChordError error;
+            const std::optional<keys::Chord> parsed = keys::parse_chord(text, error);
+            OA_CHECK(parsed.has_value());
+            OA_CHECK(parsed && *parsed == *chord);
+        }
+    }
+    const uint32_t outside[] = {
+        0U, static_cast<uint32_t>('a'), static_cast<uint32_t>('Q'), 0x4000003aU
+    };
+    for (const uint32_t code : outside) {
+        for (const actions::By by : ways)
+            OA_CHECK(!keys::legacy_key_chord(code, 0, by).has_value());
+    }
+
+    const actions::Action* rotate = actions::find("build.rotate");
+    const actions::Action* snap = actions::find("build.snap-override");
+    OA_CHECK(rotate != nullptr && snap != nullptr);
+    const std::optional<uint16_t> key_q = keys::scancode_of("KeyQ");
+    OA_CHECK(key_q.has_value());
+    if (rotate == nullptr || snap == nullptr || !key_q)
+        return;
+    const std::optional<keys::Chord> placed =
+        keys::legacy_key_chord('q', *key_q, actions::By::place);
+    OA_CHECK(placed.has_value());
+    if (!placed)
+        return;
+    const std::vector<keys::Chord> turned = keys::imported_list(*rotate, *placed);
+    OA_CHECK(turned.size() == 2);
+    if (turned.size() == 2) {
+        OA_CHECK(keys::chord_text(turned[0]) == "@KeyQ");
+        OA_CHECK(keys::chord_text(turned[1]) == "Shift+@KeyQ");
+    }
+    const std::optional<keys::Chord> letter =
+        keys::legacy_key_chord('q', *key_q, actions::By::none);
+    OA_CHECK(letter.has_value());
+    if (letter) {
+        const std::vector<keys::Chord> snapped = keys::imported_list(*snap, *letter);
+        OA_CHECK(snapped.size() == 1);
+        if (snapped.size() == 1)
+            OA_CHECK(keys::chord_text(snapped[0]) == "Q");
+    }
+    keys::ChordError alt_error;
+    const std::optional<keys::Chord> alt = keys::parse_chord("Alt", alt_error);
+    OA_CHECK(alt.has_value());
+    if (alt) {
+        const std::vector<keys::Chord> alone = keys::imported_list(*rotate, *alt);
+        OA_CHECK(alone.size() == 1);
+        if (alone.size() == 1)
+            OA_CHECK(keys::chord_text(alone[0]) == "Alt");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -378,5 +481,6 @@ int main() {
     test_not_on_keyboard();
     test_lone_modifier();
     test_defaults_round_trip();
+    test_legacy_keys();
     return oa::test::check_exit_status();
 }
