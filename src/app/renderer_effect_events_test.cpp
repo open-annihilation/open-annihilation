@@ -4,6 +4,7 @@
 // Event capture preserves existing observers, lifetime, nesting and same-tick shot colours.
 #include "renderer_effect_events.hpp"
 #include "renderer_weapon_style.hpp"
+#include "oa/core/world.h"
 #include "oa/sim/match_runtime.hpp"
 #include "oa/test/check.hpp"
 
@@ -110,11 +111,11 @@ int main() {
 
     auto world = std::make_unique<oa::World>();
     world->game.tick = 42;
-    world->game.weapon_defs[0].color = 17;
-    world->game.weapon_defs[0].render_type = 4;
-    std::snprintf(
-        world->game.weapon_defs[0].key, sizeof world->game.weapon_defs[0].key, "%s", "VTOL_EMG"
-    );
+    // Ref 1 is the first weapon slot.
+    oa::WeaponDef& first_weapon = *oa::world_weapon_def(world.get(), 1);
+    first_weapon.color = 17;
+    first_weapon.render_type = 4;
+    std::snprintf(first_weapon.key, sizeof first_weapon.key, "%s", "VTOL_EMG");
     std::array<oa::Unit, 3> units{};
     oa::UnitDef naval{};
     naval.flags = OA_UNIT_DEF_FLAG_FLOATER;
@@ -188,7 +189,7 @@ int main() {
     Owner water_owner;
     auto water_log = std::make_shared<Log>();
     world->game.sea_level = 30;
-    world->game.weapon_defs[0].flags |= OA_WEAPON_FLAG_WATER_WEAPON;
+    first_weapon.flags |= OA_WEAPON_FLAG_WATER_WEAPON;
     shot.origin = {10 * 65536, 20 * 65536, 30 * 65536};
     shot.position = {40 * 65536, 25 * 65536, 60 * 65536};
     shot.velocity = {0, -10 * 65536, 0};
@@ -209,7 +210,7 @@ int main() {
         OA_CHECK(!water_log->events[1].crossed_surface);
         water_owner.hooks.shot_detonated(water_owner.hooks.context, *world, shot, 0);
         OA_CHECK(water_log->events[2].water_weapon && water_log->events[2].crossed_surface);
-        world->game.weapon_defs[0].flags &= ~OA_WEAPON_FLAG_WATER_WEAPON;
+        first_weapon.flags &= ~OA_WEAPON_FLAG_WATER_WEAPON;
         water_owner.hooks.shot_detonated(water_owner.hooks.context, *world, shot, 0);
         OA_CHECK(!water_log->events[3].water_weapon && water_log->events[3].crossed_surface);
         shot.velocity.y = -1 * 65536;

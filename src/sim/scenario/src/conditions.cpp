@@ -61,9 +61,10 @@ bool side_commander(const oa::World& world, const oa::Unit& unit) {
     const oa::Player* owner = oa::world_player_ref(&world, unit.owner);
     const oa::PlayerSetupInfo* info =
         owner != nullptr ? oa::world_player_info(&world, owner) : nullptr;
-    if (info == nullptr || info->side >= OA_SIDE_COUNT)
+    const oa::Side* side = info != nullptr ? oa::world_side(&world, info->side) : nullptr;
+    if (info == nullptr || side == nullptr)
         return false;
-    return named(world, unit, world.game.sides[info->side].commander);
+    return named(world, unit, side->commander);
 }
 
 /// Marks a condition met, then plays the victory cue the first time.

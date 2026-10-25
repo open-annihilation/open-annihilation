@@ -25,7 +25,9 @@ OA_CORE_BEGIN
  * canonical. world_alloc_tables allocates the unit, type, feature and
  * projectile tables, and weapon slots past the game state's table when the
  * capacity asks for them; the map tables (plots, sight grid, placed features)
- * belong to the map loader. The accessors never allocate. */
+ * belong to the map loader. Sides past the game state's table are bound by
+ * the match, which owns them; the World only points at them. The accessors
+ * never allocate. */
 typedef struct World {
     Game game;
     Unit* units; /* unit_slot_count records; slot 0 is reserved */
@@ -38,6 +40,11 @@ typedef struct World {
      * OA_WEAPON_DEF_COUNT + i. NULL when the table holds 256. */
     WeaponDef* extra_weapon_defs;
     uint32_t extra_weapon_def_count;
+    /* Sides from index OA_SIDE_COUNT on: record i is side OA_SIDE_COUNT + i.
+     * Owned by whoever bound them (the match). The World never allocates
+     * or frees them. */
+    Side* extra_sides;
+    uint32_t extra_side_count;
     Projectile* projectiles;                             /* OA_PROJECTILE_CAPACITY records */
     UnitEconomy player_economy[OA_PLAYER_COUNT];         /* targets of Player.economy */
     PlayerSetupInfo player_info[OA_PLAYER_RECORD_COUNT]; /* targets of Player.info */
@@ -353,6 +360,35 @@ static inline uint32_t world_weapon_def_count(const World* world) {
     return OA_WEAPON_DEF_COUNT + world->extra_weapon_def_count;
 }
 
+/// Returns the side record at an index.
+///
+/// An index under OA_SIDE_COUNT is the game state's table, including a
+/// zeroed record past side_count. A later index is extra_sides when the
+/// index is a loaded side and that record was bound.
+///
+/// @param world World holding the side tables
+/// @param index side index
+/// @return the side, or NULL when a side past the game state's table is not bound
+static inline Side* world_side(World* world, uint32_t index) {
+    uint32_t extra;
+    if (index < OA_SIDE_COUNT)
+        return &world->game.sides[index];
+    if (world->extra_sides == NULL || index >= world->game.side_count)
+        return NULL;
+    extra = index - OA_SIDE_COUNT;
+    if (extra >= world->extra_side_count)
+        return NULL;
+    return &world->extra_sides[extra];
+}
+
+/// Returns how many sides the game loaded.
+///
+/// @param world World holding the side tables
+/// @return game.side_count
+static inline uint32_t world_side_count(const World* world) {
+    return world->game.side_count;
+}
+
 /// Resolves a feature-type reference.
 ///
 /// @param world World holding the feature table
@@ -455,6 +491,11 @@ inline const Player* world_unit_owner(const World* world, const Unit* unit) {
 /// Const overload of world_weapon_def.
 inline const WeaponDef* world_weapon_def(const World* world, oa_ref32 ref) {
     return world_weapon_def(const_cast<World*>(world), ref);
+}
+
+/// Const overload of world_side.
+inline const Side* world_side(const World* world, uint32_t index) {
+    return world_side(const_cast<World*>(world), index);
 }
 
 /// Const overload of world_player_info.

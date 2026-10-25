@@ -920,6 +920,57 @@ void test_installed(oa::AssetStore& store) {
     OA_CHECK(result.layer.entries.empty());
 }
 
+void test_side_count_follows_the_limit(const fs::path& scratch) {
+    const fs::path root = scratch / "seven";
+    write_unit(root, "RIDGECOM", false);
+    const char* names[] = {"Arm", "Core", "Ridge2", "Ridge3", "Ridge4", "Ridge5", "Ridge6"};
+    std::string sides;
+    for (int index = 0; index < 7; ++index) {
+        sides += "[SIDE";
+        sides += std::to_string(index);
+        sides += "]\n{\nname=";
+        sides += names[index];
+        sides += ";\ncommander=RIDGECOM;\n}\n";
+    }
+    write_bytes(root / "gamedata" / "sidedata.tdf", sides);
+    constexpr std::string_view layers = "\"units\", \"sides\"";
+    constexpr const char* wide_script = R"lua(
+function mutate(ctx)
+  return {
+    units = function(units, ctx)
+      if #ctx.sides ~= 7 then error("count " .. tostring(#ctx.sides)) end
+      if ctx.sides[7].name ~= "Ridge6" then error("name") end
+    end
+  }
+end
+)lua";
+    constexpr const char* stock_script = R"lua(
+function mutate(ctx)
+  return {
+    units = function(units, ctx)
+      if #ctx.sides ~= 5 then error("count " .. tostring(#ctx.sides)) end
+    end
+  }
+end
+)lua";
+    oa::AssetStore wide_store(root);
+    mutators::PipelineInput wide = input_of(
+        load_package(scratch / "ridge-t09-sides", "ridge-t09-sides", layers, wide_script), ""
+    );
+    wide.limits.sides = 7;
+    const mutators::PipelineResult wide_result = mutators::run_pipeline(wide_store, wide);
+    release(wide_store);
+    expect_applied(wide_result);
+
+    oa::AssetStore stock_store(root);
+    mutators::PipelineInput stock = input_of(
+        load_package(scratch / "ridge-t09-stock", "ridge-t09-stock", layers, stock_script), ""
+    );
+    const mutators::PipelineResult stock_result = mutators::run_pipeline(stock_store, stock);
+    release(stock_store);
+    expect_applied(stock_result);
+}
+
 void synthetic_tests() {
     Scratch scratch("D04");
     Corpus corpus;
@@ -944,6 +995,7 @@ void synthetic_tests() {
     test_sound_and_sidedata(scratch.path);
     test_table_paths(scratch.path);
     test_two_runs(scratch.path);
+    test_side_count_follows_the_limit(scratch.path);
 }
 
 } // namespace

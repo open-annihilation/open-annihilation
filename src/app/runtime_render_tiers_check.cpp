@@ -1480,11 +1480,10 @@ int Runtime::check_render_tiers() {
     {
         // The first weapon of each kind, past record zero, the fallback; a
         // laser is one with a colour.
-        std::optional<uint8_t> lens_weapon;
-        std::optional<uint8_t> laser_weapon;
-        for (std::size_t index = 1; index < oa::sim::combat_state::weapon_registry_capacity;
-             ++index) {
-            const auto weapon = static_cast<uint8_t>(index);
+        std::optional<uint16_t> lens_weapon;
+        std::optional<uint16_t> laser_weapon;
+        for (std::size_t index = 1; index < weapon_registry_.capacity(); ++index) {
+            const auto weapon = static_cast<uint16_t>(index);
             if (weapon_registry_.name(weapon).empty())
                 continue;
             const auto& definition = weapon_registry_.definition(weapon);
@@ -1507,7 +1506,7 @@ int Runtime::check_render_tiers() {
                 world.projectiles + std::max<std::ptrdiff_t>(lens_check_shots, match_count)
             );
             const oa::FixedVec3 place = oa::world_unit_at(&world, anchor)->position;
-            const auto shot_of = [&](uint8_t weapon) {
+            const auto shot_of = [&](uint16_t weapon) {
                 oa::Projectile shot{};
                 shot.def = static_cast<oa_ref32>(weapon) + 1U;
                 shot.position = place;

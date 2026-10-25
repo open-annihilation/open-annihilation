@@ -227,12 +227,12 @@ struct FeatureHost {
     /// Reports whether another player's simulation settles this weapon hit on a feature.
     ///
     /// @param context FeatureHost::context
-    /// @param weapon_id the hitting weapon's ID
+    /// @param weapon_id the hitting weapon's id
     /// @param cell_x hit plot column
     /// @param cell_z hit plot row
     /// @return true when nothing is to be applied here
     bool (*feature_hit_elsewhere)(
-        void* context, uint8_t weapon_id, int32_t cell_x, int32_t cell_z
+        void* context, uint16_t weapon_id, int32_t cell_x, int32_t cell_z
     ){};
     /// Reports a feature change settled here to the other players.
     ///

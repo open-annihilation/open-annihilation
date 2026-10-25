@@ -1216,8 +1216,8 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // match starts, so that the first of each explosion does not wait for
     // its file and a damaged one is reported now; their sequences are
     // decoded as explosions first ask for them.
-    for (std::size_t index = 0; index < oa::sim::combat_state::weapon_registry_capacity; ++index) {
-        const auto& weapon = weapon_registry_.definition(static_cast<uint8_t>(index));
+    for (std::size_t index = 0; index < weapon_registry_.capacity(); ++index) {
+        const auto& weapon = weapon_registry_.definition(static_cast<uint16_t>(index));
         for (const auto* name : {&weapon.explosion_gaf, &weapon.water_explosion_gaf})
             if (!name->empty())
                 load_explosion_gaf(*name);

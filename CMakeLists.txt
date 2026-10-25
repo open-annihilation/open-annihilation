@@ -1341,7 +1341,8 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
-  src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
+  src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
+  src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
@@ -3802,6 +3803,17 @@ endforeach()
         set_tests_properties(native-limits-weapon-table PROPERTIES
           FIXTURES_REQUIRED limits-fixture
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A unit armed past 255 fires that weapon at a unit and a feature.
+        # Two seeded runs print the same lines and the same trace.
+        add_test(NAME native-limits-weapon-fire COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_weapon_fire.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+          --type RIDGEW300 --weapon 300
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-limits-weapon-fire PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # --brain-shadow seats a brain beside every computer seat. The inert
         # leg plays the trace skirmish with and without a shadow.
         add_test(NAME native-brain-shadow COMMAND ${Python3_EXECUTABLE}
@@ -4082,6 +4094,13 @@ endforeach()
         set_tests_properties(limits-fixture PROPERTIES
           FIXTURES_SETUP limits-fixture
           TIMEOUT 300)
+        add_test(NAME app-brain-check-sides
+          COMMAND oa-app-brain-check-test --data --sides-fixture
+            "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides")
+        oa_game_data_tests(app-brain-check-sides)
+        set_tests_properties(app-brain-check-sides PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT 120)
         add_test(NAME limits-fixture-repeatable COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py"
           --game-dir "${OA_GAME_DIR}" --oa-tool $<TARGET_FILE:oa-tool>
@@ -4373,6 +4392,11 @@ if(BUILD_TESTING)
     add_test(NAME doc-links-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_links.py --self-test)
     set_tests_properties(doc-links doc-links-selftest PROPERTIES TIMEOUT 60)
+    # Narrowing and sign warnings on lines changed since a merge base
+    # (tools/check_conversions.py). The self-test needs no compiler.
+    add_test(NAME conversion-check-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_conversions.py --self-test)
+    set_tests_properties(conversion-check-selftest PROPERTIES TIMEOUT 60)
     # The engine's C, C++ and Objective-C sources are laid out as
     # .clang-format says, by the clang-format release that
     # tools/format/requirements.txt pins (tools/format_sources.py, whose

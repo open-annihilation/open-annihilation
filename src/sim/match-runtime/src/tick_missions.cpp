@@ -272,8 +272,8 @@ bool Match::respawn_bound() const noexcept {
         return false;
     const auto* local =
         oa::world_player_info(&world, &world.game.players[world.game.local_player_index]);
-    return local != nullptr && local->side < OA_SIDE_COUNT &&
-           world.game.sides[local->side].commander[0] != '\0';
+    const oa::Side* side = local != nullptr ? oa::world_side(&world, local->side) : nullptr;
+    return local != nullptr && side != nullptr && side->commander[0] != '\0';
 }
 
 void Match::respawn_local_commander() {
@@ -282,11 +282,16 @@ void Match::respawn_local_commander() {
         &world, oa::world_player_record(&world, sim::scenario::host_player_index(world))
     );
     auto& player = world.game.players[world.game.local_player_index];
-    const auto& side = world.game.sides[oa::world_player_info(&world, &player)->side];
+    const oa::PlayerSetupInfo* info = oa::world_player_info(&world, &player);
+    const oa::Side* side = info != nullptr ? oa::world_side(&world, info->side) : nullptr;
+    if (side == nullptr) {
+        fault_.note("the deathmatch commander has no side");
+        return;
+    }
     const auto type =
-        oa::data::defs::unit_defs_type_id(world.unit_defs, world.unit_def_count, side.commander);
+        oa::data::defs::unit_defs_type_id(world.unit_defs, world.unit_def_count, side->commander);
     if (type == 0) {
-        fault_.note("side commander is not in the unit catalog", side.commander);
+        fault_.note("side commander is not in the unit catalog", side->commander);
         return;
     }
     sim::unit_spawn::Request request;

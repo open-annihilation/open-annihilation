@@ -65,17 +65,17 @@ struct TimelineUnitType {
     std::string unit_name{}; ///< UnitDef.unit_name
     bool mobile{};           ///< not a building (UnitDef.bm_code nonzero)
     bool can_fly{};
-    bool builder{};                                   ///< the type builds or assists
-    uint32_t metal_cost{};                            ///< UnitDef.build_cost_metal, whole units
-    uint32_t energy_cost{};                           ///< UnitDef.build_cost_energy, whole units
-    uint32_t max_damage{};                            ///< UnitDef.max_damage: full health
-    uint32_t build_distance{};                        ///< map pixels
-    std::array<uint8_t, unit_weapon_slots> weapons{}; ///< weapon ids, 0 for none
+    bool builder{};                                    ///< the type builds or assists
+    uint32_t metal_cost{};                             ///< UnitDef.build_cost_metal, whole units
+    uint32_t energy_cost{};                            ///< UnitDef.build_cost_energy, whole units
+    uint32_t max_damage{};                             ///< UnitDef.max_damage: full health
+    uint32_t build_distance{};                         ///< map pixels
+    std::array<uint16_t, unit_weapon_slots> weapons{}; ///< weapon ids, 0 for none
 };
 
 /// A weapon type the replayed game used.
 struct TimelineWeapon {
-    uint8_t weapon_id{}; ///< the weapon's index in the world's weapon types
+    uint16_t weapon_id{}; ///< the weapon's index in the world's weapon types
     std::string name{};
     int32_t range{};           ///< map pixels
     uint32_t flags{};          ///< WeaponDef.flags
@@ -133,7 +133,7 @@ struct TimelineEvent {
     uint8_t flags{}; ///< event_flag bits
     uint8_t owner{no_player};
     uint8_t other_owner{no_player};
-    uint8_t weapon{}; ///< weapon id; 0 for none
+    uint16_t weapon{}; ///< the weapon's id; 0 for none
     uint8_t damage_kind{};
     uint16_t unit{};       ///< unit slot; 0 for none
     uint16_t other_unit{}; ///< unit slot; 0 for none

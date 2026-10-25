@@ -163,7 +163,7 @@ features::FeatureHost Match::feature_host() noexcept {
     };
     // A weapon hit on a feature that another player's machine settles.
     host.feature_hit_elsewhere = [](void* context,
-                                    uint8_t weapon_id,
+                                    uint16_t weapon_id,
                                     int32_t cell_x,
                                     int32_t cell_z) {
         const auto& multiplayer = feature_match(context).multiplayer;
@@ -436,7 +436,8 @@ bool Match::launch_meteor(
         ShotEvent shared{};
         shared.start = position;
         shared.target = velocity;
-        shared.weapon_id = oa::world_weapon_def(&state(), weapon)->weapon_id;
+        if (const oa::WeaponDef* record = oa::world_weapon_def(&state(), weapon))
+            shared.weapon_id = oa::oa_weapon_def_id(record);
         share_shot(shared);
     }
     return true;
@@ -450,7 +451,7 @@ void Match::burn_weapon_blast(oa_ref32 weapon, const FixedVec3& at) {
     blast.def = weapon;
     blast.position = at;
     blast.owner_index = features::no_player;
-    detonate_area(blast, input_.weapons.definition(static_cast<uint8_t>(weapon - 1u)), *def);
+    detonate_area(blast, input_.weapons.definition(static_cast<uint16_t>(weapon - 1u)), *def);
 }
 
 } // namespace oa::sim::match_runtime
