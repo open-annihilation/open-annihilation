@@ -425,7 +425,7 @@ void Runtime::check_update_offer() {
         );
         if (update_ != nullptr)
             update_->offered_release = first_release;
-        const SignedFeed higher = sign_feed(feed_json(higher_release, built.package), kKeyId, 0x62);
+        const SignedFeed higher = sign_feed(feed_json(higher_release, built.package), kKeyId, 0x61);
         server.serve_bytes("/v1/engine/stable.json", higher.bytes, "application/json");
         server.serve_bytes("/v1/engine/stable.json.sig", higher.signature, "text/plain");
         force_check();
