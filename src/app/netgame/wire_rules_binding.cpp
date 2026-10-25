@@ -99,6 +99,10 @@ ng::WireRules wire_rules_of(const mp::ModProfile* profile) noexcept {
     rules.speed_min = byte_of(speed.minimum);
     rules.speed_max = byte_of(std::max(speed.maximum, speed.minimum));
     rules.speed_lock = speed.enabled && speed.syncon;
+
+    rules.weapon_types = profile->limits.weapon_types.types;
+    const auto side_count = profile->limits.sides.count;
+    rules.sides = byte_of(side_count > 255u ? 255 : static_cast<int32_t>(side_count));
     return rules;
 }
 
