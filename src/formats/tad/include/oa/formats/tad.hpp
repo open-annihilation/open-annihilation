@@ -36,11 +36,15 @@
 // and is absent otherwise, so a recording without it is unchanged. It adds
 // a sector of type 0x4f414231 (the bytes 1 B A O on disk) when computer
 // players ran brains. It holds those seats as text and is absent otherwise,
-// so a recording without brains is unchanged. Readers that do not know a
-// type skip it; this parser keeps every sector and continues.
+// so a recording without brains is unchanged. It adds a sector of type
+// 0x4f414c31 (the bytes 1 L A O on disk) when a game was played under a
+// profile that raises weapon types or sides. It holds those two limits and
+// is absent otherwise, so a recording without it is unchanged. Readers that
+// do not know a type skip it; this parser keeps every sector and continues.
 //
 // Only version 5 has been checked against recordings; other versions are rejected.
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -93,7 +97,43 @@ enum class SectorType : uint32_t {
     /// Annihilation's own type, the bytes 1 B A O on disk. Other readers
     /// skip it.
     brains = 0x4f414231,
+    /// The two limits of a game played under a profile that raises either.
+    /// Open Annihilation's own type, the bytes 1 L A O on disk. Other readers
+    /// skip it.
+    limits = 0x4f414c31,
 };
+
+/// Weapon types a recording names when the profile leaves them at 3.1c's count.
+inline constexpr uint32_t recorded_base_weapon_types = 256;
+/// The most weapon types a limits sector may name.
+inline constexpr uint32_t recorded_highest_weapon_types = 65536;
+/// Sides a recording names when the profile leaves them at 3.1c's count.
+inline constexpr uint32_t recorded_base_sides = 5;
+/// The most sides a limits sector may name.
+inline constexpr uint32_t recorded_highest_sides = 32;
+
+/// The two limits a recording of a raised-limit game carries.
+struct RecordedLimits {
+    /// Weapon types the game numbered.
+    uint32_t weapon_types{recorded_base_weapon_types};
+    /// Sides the game loaded.
+    uint32_t sides{recorded_base_sides};
+    /// Compares both limits.
+    bool operator==(const RecordedLimits&) const = default;
+};
+
+/// Bytes of a limits sector: weapon types, then sides, each a little-endian count.
+inline constexpr std::size_t limits_sector_bytes = 8;
+
+/// Which record lengths a recording's packets are split with.
+///
+/// narrow is 3.1c's types. wide also sizes the wide weapon records 0xE0 to 0xE2.
+enum class RecordForms : uint8_t { narrow, wide };
+
+/// Lengths of the wide weapon records 0xE0, 0xE1 and 0xE2, type byte included.
+inline constexpr std::array<uint8_t, 3> wide_record_lengths{37, 15, 8};
+/// The first wide weapon record type.
+inline constexpr uint8_t first_wide_recorded_type = 0xE0;
 
 enum class RecordedSide : uint8_t { arm = 0, core = 1 };
 
@@ -212,6 +252,22 @@ struct WriteResult {
 /// @return A view into the sector's data.
 [[nodiscard]] std::string_view sector_text(const Sector& sector) noexcept;
 
+/// Writes a limits sector: weapon types, then sides, each a little-endian count.
+///
+/// @param limits The two limits.
+/// @return The eight sector bytes.
+[[nodiscard]] std::array<uint8_t, limits_sector_bytes>
+encode_limits_sector(const RecordedLimits& limits);
+
+/// Reads a limits sector.
+///
+/// The sector must be exactly eight bytes. Weapon types must be from 256 to
+/// 65,536 and sides from 5 to 32, both ends included.
+///
+/// @param sector Sector to read.
+/// @return The two limits, or nothing when the sector does not hold them.
+[[nodiscard]] std::optional<RecordedLimits> decode_limits_sector(const Sector& sector);
+
 /// Splits the unit-check chunk into its 14-byte 0x1a records.
 ///
 /// @param demo Parsed recording.
@@ -251,11 +307,13 @@ struct DecodedPayload {
 /// Returns the length of the record at the start of bytes, including its type byte.
 ///
 /// Game types use the game's own length table; 0x2c and the recording-only
-/// variable records carry their own length.
+/// variable records carry their own length. wide also sizes 0xE0 to 0xE2.
 ///
 /// @param bytes Record start.
+/// @param forms narrow sizes 3.1c's types; wide also sizes 0xE0 to 0xE2.
 /// @return The length, or 0 when the type is unknown or the length does not fit bytes.
-[[nodiscard]] std::size_t record_length(std::span<const uint8_t> bytes) noexcept;
+[[nodiscard]] std::size_t
+record_length(std::span<const uint8_t> bytes, RecordForms forms = RecordForms::narrow) noexcept;
 
 /// Cuts an uncompressed 0x03 payload into records and assigns ticks to the tick records.
 ///
@@ -266,8 +324,10 @@ struct DecodedPayload {
 /// without parsing their bytes.
 ///
 /// @param payload Packet payload, marker byte first.
+/// @param forms narrow sizes 3.1c's types; wide also sizes 0xE0 to 0xE2.
 /// @return The records, whether the marker was 0x03, and the error that stopped the split, if any.
-[[nodiscard]] RecordSplit split_records(std::span<const uint8_t> payload);
+[[nodiscard]] RecordSplit
+split_records(std::span<const uint8_t> payload, RecordForms forms = RecordForms::narrow);
 
 /// Rebuilds the 0x2c wire record an elided_unit_state record stands for, with its tick restored.
 ///

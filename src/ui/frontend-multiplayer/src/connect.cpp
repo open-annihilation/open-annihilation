@@ -5,6 +5,8 @@
 #include "oa/ui/frontend_multiplayer/connect.hpp"
 #include "oa/formats/tdf.hpp"
 
+#include "oa/data/languages/interface_text.hpp"
+
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
@@ -495,9 +497,14 @@ bool game_list_open(Lobby& lobby, ConnectState& state, Panel& panel) noexcept {
         return false;
     }
     panel.focus = panel_find(panel, "GAMENAME");
-    // A player who left by itself (reason 2) is told nothing.
+    // A player who left by itself (reason 2) is told nothing, unless this
+    // machine left a room a 3.1c host was playing. That line is shown once.
     auto& me = local_player(lobby);
-    if (me.reject_reason != 0 && me.reject_reason != kRejectLeaving)
+    if (lobby.leave_line != nullptr) {
+        const std::string left(oa::data::languages::interface_text(lobby.leave_line));
+        message(lobby, left.c_str());
+        lobby.leave_line = nullptr;
+    } else if (me.reject_reason != 0 && me.reject_reason != kRejectLeaving)
         message(lobby, lobby_translated(lobby, reject_reason_text(me.reject_reason)));
     me.reject_reason = 0;
     return true;
