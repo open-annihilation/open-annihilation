@@ -541,7 +541,7 @@ void Runtime::console_reload_unit_type(uint16_t type) {
     const oa::data::defs::UnitDefSources sources{
         "",
         &unit_table_.move_classes,
-        match_->state().game.weapon_defs,
+        weapon_registry_.records(),
         &unit_table_.sound_categories,
         &unit_table_.tables.categories,
         &unit_table_.tables.blocks,

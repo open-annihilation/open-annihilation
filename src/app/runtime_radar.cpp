@@ -214,7 +214,7 @@ void Runtime::compose_radar_final() {
         const auto* weapon = oa::world_weapon_def(&world, shot.def);
         return weapon != nullptr &&
                oa::sim::weapon_execution::silent_ownerless_shot(
-                   shot, *weapon, self.match_->rules_view().weapon(weapon->weapon_id)
+                   shot, *weapon, self.match_->rules_view().weapon(oa::oa_weapon_def_id(weapon))
                );
     };
     host.allied_units_shown = ui_rules().allied_unit_display.enabled;
