@@ -3079,6 +3079,60 @@ int main() {
             shows_frame(d, art, sides, control("SIDE0")->stage, control("SIDE0")),
         "SIDE0 keeps its art"
     );
+    // A side past the art shows its name on the bevel, and a side the art
+    // has a frame for still shows that frame.
+    if (sides != nullptr && control("SIDE0") != nullptr && sides->frames.size() > 1 &&
+        sides->frames.size() < 7) {
+        const auto saved_stage = control("SIDE0")->stage;
+        const auto saved_side = mp::local_info(lobby).side;
+        std::vector<std::string> names;
+        for (int index = 0; index < 7; ++index)
+            names.push_back("Ridge" + std::to_string(index));
+        mp::multiplayer_bind_side_names(names);
+        mp::multiplayer_bind_side_count(7);
+        const auto past = static_cast<int32_t>(sides->frames.size());
+        // The room's tick copies the local seat's side onto SIDE0 before the
+        // draw, so the seat names the stage this frame should show. The bevel
+        // colours are GUI palette entries 17 and 0 as the room's palette matches them.
+        mp::local_info(lobby).side = static_cast<uint8_t>(past);
+        mp::panel_set_stage(mp::multiplayer_panel(), "SIDE0", past);
+        d.frame();
+        const auto* named = control("SIDE0");
+        const Box face = named != nullptr ? badge_box(*named) : Box{};
+        const auto mapped = oa::remap_palette(art.screen.gui_palette, art.palette);
+        const auto palette_rgb = [&](uint8_t index) {
+            const auto entry = mapped[index];
+            return Rgb{
+                art.palette[entry * 4], art.palette[entry * 4 + 1], art.palette[entry * 4 + 2]
+            };
+        };
+        const Rgb bevel_top = palette_rgb(17);
+        const Rgb bevel_bottom = palette_rgb(0);
+        bool caption_is_name = false;
+        for (const auto& gadget : mp::multiplayer_drawn_layout().gadgets) {
+            if (gadget.common.name != "SIDE0")
+                continue;
+            if (const auto* fields = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields))
+                caption_is_name = fields->text == names[static_cast<std::size_t>(past)];
+        }
+        expect(
+            named != nullptr && caption_is_name && !shows_frame(d, art, sides, 0, named) &&
+                pixel_is(d, face.x, face.y, bevel_top) &&
+                pixel_is(d, face.x + face.width - 1, face.y + face.height - 1, bevel_bottom),
+            "a side past the art shows its name on the bevel"
+        );
+        mp::local_info(lobby).side = static_cast<uint8_t>(1);
+        mp::panel_set_stage(mp::multiplayer_panel(), "SIDE0", 1);
+        d.frame();
+        expect(
+            shows_frame(d, art, sides, 1, control("SIDE0")),
+            "SIDE0 at stage 1 still shows its art frame"
+        );
+        mp::local_info(lobby).side = saved_side;
+        mp::multiplayer_bind_side_names({});
+        mp::panel_set_stage(mp::multiplayer_panel(), "SIDE0", saved_stage);
+        d.frame();
+    }
     expect(shows_frame(d, art, doors, 0, control("battlestart")), "closed doors hide START");
 
     // The sliders lie between their arrows and are drawn from the shared

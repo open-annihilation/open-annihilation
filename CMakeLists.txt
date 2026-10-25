@@ -1347,6 +1347,7 @@ endif()
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
+  src/app/runtime_skirmish_sides_check.cpp
   src/app/runtime_mod_limits_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
@@ -3128,6 +3129,40 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-side-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_side_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same order pages over ridge-wide, whose later sides are Ridge5 and Ridge6.
+      set(oa_side_orders_wide_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/side-orders-wide")
+      file(MAKE_DIRECTORY "${oa_side_orders_wide_dir}")
+      add_test(NAME native-side-orders-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-side-orders
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+        --preferences-file "${oa_side_orders_wide_dir}/side-orders-wide.conf")
+      set_tests_properties(native-side-orders-wide PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_side_orders_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "Ridge5 \\(RD5\\):.*Ridge6 \\(RD6\\):")
+      # The skirmish Side button, clicked through every offered side. With
+      # more than five sides a right click steps back.
+      set(oa_skirmish_sides_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_dir}")
+      add_test(NAME native-skirmish-sides COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --preferences-file "${oa_skirmish_sides_dir}/skirmish-sides.conf")
+      set_tests_properties(native-skirmish-sides PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_skirmish_sides_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      set(oa_skirmish_sides_wide_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides-wide")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_wide_dir}")
+      add_test(NAME native-skirmish-sides-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides"
+        --preferences-file "${oa_skirmish_sides_wide_dir}/skirmish-sides-wide.conf")
+      set_tests_properties(native-skirmish-sides-wide PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT} WORKING_DIRECTORY "${oa_skirmish_sides_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "7 sides.*back yes")
       # Engine Limits' weapon-type and side rows: 256 and 5 with no profile,
       # at the menu and in a two-slot skirmish.
       set(oa_mod_limits_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits")
@@ -4455,6 +4490,43 @@ if(BUILD_TESTING)
       "^Open Annihilation [0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)? \\([a-z0-9._-]+ [A-Za-z0-9_]+, ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)\\)\n?$"
     TIMEOUT 60)
 endif()
+# The update helper. Its library and tests are built with the platform.
+# The program itself is built only where this build may start another program.
+if(OA_BUILD_PLATFORM)
+  add_subdirectory(tools/oa-update)
+endif()
+if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING)
+  add_executable(oa-update tools/oa-update/main.cpp)
+  target_link_libraries(oa-update PRIVATE oa-update-core oa-options SDL3::SDL3)
+  # The same version line as the game. A build without the engine-build
+  # header names no commit.
+  target_include_directories(oa-update PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/app/include")
+  target_compile_definitions(oa-update PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+    "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
+  if(TARGET oa-app-engine-build)
+    add_dependencies(oa-update oa-app-engine-build)
+    target_include_directories(oa-update PRIVATE "${oa_engine_build_dir}")
+  endif()
+  if(WIN32)
+    # A Windows program, so starting it opens no console. Its manifest asks
+    # to run as the player who started it: a name containing "update" would
+    # otherwise be treated as an installer.
+    set_target_properties(oa-update PROPERTIES WIN32_EXECUTABLE ON)
+    set(oa_update_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/oa-update/oa-update.manifest")
+    if(MSVC)
+      set(OA_UPDATE_MANIFEST_RESOURCE "")
+      target_sources(oa-update PRIVATE "${oa_update_manifest}")
+    else()
+      set(OA_UPDATE_MANIFEST_RESOURCE "1 24 \"${oa_update_manifest}\"")
+    endif()
+    set(OA_WINDOWS_ICON "${CMAKE_CURRENT_SOURCE_DIR}/branding/open-annihilation.ico")
+    configure_file(tools/oa-update/oa-update.rc.in
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" @ONLY)
+    target_sources(oa-update PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc")
+    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" APPEND PROPERTY
+      OBJECT_DEPENDS "${oa_update_manifest}")
+  endif()
+endif()
 # The Steam Deck's artwork and files for the Steam Deck package.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaSteamDeck.cmake")
 
@@ -4489,6 +4561,12 @@ if(BUILD_TESTING)
   endif()
   find_package(Python3 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
+    if(TARGET oa-update AND OA_SELF_CHECKS)
+      add_test(NAME tools-oa-update-run COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_helper.py
+        $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
+      set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
+    endif()
     if(UNIX)
       find_program(OA_BASH_EXECUTABLE bash)
       if(OA_BASH_EXECUTABLE)
@@ -4632,6 +4710,9 @@ endif()
 
 if(WIN32)
   set(oa_executables oa-tool)
+  if(TARGET oa-update)
+    list(APPEND oa_executables oa-update)
+  endif()
   if(OA_BUILD_PLATFORM)
     list(APPEND oa_executables oa-platform)
   endif()
@@ -4835,7 +4916,7 @@ endif()
 file(GLOB oa_notice_licenses CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/licenses/*")
 set(oa_notice_files "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/ATTRIBUTIONS.md"
   ${oa_notice_licenses} "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake")
-foreach(target IN ITEMS oa-game oa-intro oa-tool)
+foreach(target IN ITEMS oa-game oa-intro oa-tool oa-update)
   if(NOT TARGET ${target})
     continue()
   endif()

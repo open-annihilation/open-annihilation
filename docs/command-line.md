@@ -361,6 +361,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-render-tiers` | Checks the accelerated drawing of the main menu and a skirmish against the processor's. |
 | `--check-match-orders` | Clicks the order page's buttons and checks what the units do. |
 | `--check-side-orders` | Clicks each side's order page buttons, whatever prefix their names carry, and checks what the units do. |
+| `--check-skirmish-sides` | Clicks the skirmish Side button through every offered side, and back when the game has more than five, and checks the face each side shows. |
 | `--check-mod-limits` | Opens Settings on Engine Limits at the menu and in a two-slot skirmish and checks the weapon-type and side rows. |
 | `--check-side-data-per-match` | Plays skirmishes and checks each match reads side data again when `gamedata/sidedata.tdf` has changed. |
 | `--check-gadget-art-per-match` | Plays three skirmishes and checks a download button's picture appears only in the match whose mod folder holds it. |
@@ -1000,8 +1001,10 @@ setting the file leaves out keeps the battle room's own choice.
 `--join ADDRESS` on the command line. A host plays over TCP/IP. A player who
 joins needs `game.address`, or `--join ADDRESS`.
 
-Each item of `computer-players` is a group of `side` (`arm` or `core`),
-`team` (`1` to `5`, or `none`), `colour` (`1` to `10`), `difficulty`
+Each item of `computer-players` is a group of `side` (`arm`, `core`, a
+number from 0 through 31 or a name of 1 to 29 characters, matched without
+regard to case; a side this game does not have leaves the room's own
+choice), `team` (`1` to `5`, or `none`), `colour` (`1` to `10`), `difficulty`
 (`easy`, `medium` or `hard`) and `brain`, an installed brain's id. Any but
 the side may be left out, and the battle room then chooses it as it does
 for a computer player a click seats: no team, the next free colour, hard,
@@ -1167,7 +1170,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `game.directplay.application-guid` | `--dplay-guid GUID` | The DirectPlay application GUID the game hosts under and looks for, with or without braces. |
 | `game.directplay.port` | `--dplay-port PORT` | The DirectPlay port the game hosts on and looks for games at, from 1 through 65535. |
 | `player.name` | `--player-name NAME` | The player's name, at most 16 characters. |
-| `player.side` | `--side arm\|core\|watcher` | The player's side, or `watcher` to watch instead of play. |
+| `player.side` | `--side arm\|core\|watcher\|0-31\|NAME` | The player's side: `arm`, `core` or `watcher` to watch instead of play, a side's number from 0 through 31 (SIDEDATA's sections, counting from 0) or its name, 1 to 29 characters, matched without regard to case. A side this game does not have leaves the battle room's own choice. |
 | `player.team` | `--team 1-5\|none` | The player's team, from 1 through 5, or `none`. |
 | `player.colour` | `--colour 1-10` | The player's colour, from 1 through 10 in the order the battle room steps through them. A colour another player has gives the next free one. |
 | `map` | `--map NAME` | The map the host plays: the name the list shows, or its key (`name@package` for a pack map). At most 63 characters. |
@@ -1183,7 +1186,7 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `rules.time-limit` | `--time-limit N` | A whole number of 0 or more, kept and passed on with the score report. |
 | `rules.lock-options` | `--lock-options[=on\|off]` | Locks the battle room's option controls for a host: `on` or `off`. |
 | `rules.unit-restrictions` | `--unit-restriction UNIT=0-100\|no-limit` | Build limits, as the battle room's Restrictions sets them: each unit by its FBI UnitName (such as `CORKROG`), from 0, which cannot be built, through 100, or `no-limit`. Give the option once for each unit. A unit the game's content does not have is left out. |
-| `computer-players` | `--computer-player arm\|core[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]` | The computer players this machine seats, at most 9, each with a side, and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a brain's id. A brain that is not installed refuses the launch; one that does not fit plays the built-in player. Give the option once for each. |
+| `computer-players` | `--computer-player arm\|core\|0-31\|NAME[:TEAM[:COLOUR[:DIFFICULTY[:BRAIN]]]]` | The computer players this machine seats, at most 9, each with a side (`arm`, `core`, a number from 0 through 31 or a name of 1 to 29 characters, matched without regard to case; a side this game does not have leaves the room's own choice), and a team, colour and difficulty (`easy`, `medium` or `hard`) the battle room otherwise chooses, then a brain's id. A brain that is not installed refuses the launch; one that does not fit plays the built-in player. Give the option once for each. |
 | `content.base-game` | `--content GAME[:EXPANSION,...]` | The base game this run plays, by its id. |
 | `content.expansions` | `--content GAME[:EXPANSION,...]` | The expansions this run plays, a list of ids. It needs a base game. |
 | `content.mod` | `--mod FILE \| --mod-dir PATH` | The mod this run plays: in the file a mod's id or a path, and on the command line its profile or its folder. |
@@ -1192,7 +1195,8 @@ settings in src/app/netgame/launch_file.cpp, word for word. -->
 | `status.file` | `--status-file PATH` | Writes the status stream to this file. |
 | `status.quit-after-game` | `--quit-after-game[=after-score]` | Leaves when the game ends (`on`), stays (`off`), or leaves after the score (`after-score`). |
 
-`--computer-player` takes the computer player's side, then, after a colon
+`--computer-player` takes the computer player's side (`arm`, `core`, a
+number from 0 through 31 or a name of 1 to 29 characters), then, after a colon
 each, its team (`1` to `5`, or `none`), its colour (`1` to `10`), its
 difficulty (`easy`, `medium` or `hard`) and a brain's id. A part left out
 or left empty is chosen by the battle room: `core:2::hard` is Core on team

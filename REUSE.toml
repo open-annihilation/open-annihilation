@@ -61,6 +61,7 @@ path = [
     "tests/**.json",
     "tools/**.json",
     "tools/**.txt",
+    "tools/oa-update/oa-update.manifest",
 ]
 SPDX-FileCopyrightText = "The Open Annihilation Authors; see COPYRIGHT"
 SPDX-License-Identifier = "GPL-3.0-only"

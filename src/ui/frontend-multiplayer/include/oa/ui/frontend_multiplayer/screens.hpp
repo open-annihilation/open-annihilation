@@ -347,6 +347,14 @@ void multiplayer_bind_translation(const TextTranslation& translation) noexcept;
 /// @param side_count the loaded sides, 0 for unknown
 void multiplayer_bind_side_count(int32_t side_count) noexcept;
 
+/// Binds the SIDEDATA names of the loaded sides, one per side number.
+///
+/// The binding survives multiplayer_reset, as the side count does. A side
+/// the battle room's art has no frame for shows its name on the plain face.
+///
+/// @param names the names, side 0 first
+void multiplayer_bind_side_names(std::span<const std::string> names) noexcept;
+
 // The line this machine says of its engine in the battle room's chat, which
 // the engine gives (multiplayer_bind_engine_banner).
 struct EngineBanner {
@@ -540,6 +548,15 @@ void multiplayer_bind_layer_presence_badges(void* context, bool (*draws)(void*))
 
 /// Returns the gadget records of the current base screen as its loader left them.
 [[nodiscard]] const ui::gui_layout::Layout& multiplayer_screen_layout() noexcept;
+
+/// Returns the gadgets the base screen last composed for a draw.
+///
+/// multiplayer_screen_layout is the GUI as its loader left it. A draw
+/// replaces this layout with one gadget per control, and a side past the
+/// art has its name on that gadget.
+///
+/// @return the layout the last draw composed, or the loaded GUI before that
+[[nodiscard]] const ui::gui_layout::Layout& multiplayer_drawn_layout() noexcept;
 
 /// Returns the stacked dialog's panel, or null when none is open.
 [[nodiscard]] Panel* multiplayer_modal() noexcept;

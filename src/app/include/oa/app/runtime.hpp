@@ -3121,6 +3121,15 @@ class Runtime final : public menu::Host,
     /// @return "cor" when the side's nameprefix is COR in any case, else "arm"
     std::string match_side_prefix() const;
 
+    /// Returns the side tile the match draws for the viewed player.
+    ///
+    /// The path is bitmaps/<nameprefix>guisidetile.pcx when the asset store
+    /// holds the viewed side's nameprefix tile, and otherwise the path
+    /// match_side_prefix names.
+    ///
+    /// @return the tile's path in the asset store
+    std::string match_side_tile() const;
+
     /// Returns the GAF that holds the viewed side's panels (PANELTOP,
     /// PANELSIDE and PANELBOT) and the rest of its HUD chrome: the file in
     /// anims/ that the side's SIDEDATA intgaf names, from anims-<language>
@@ -14119,6 +14128,20 @@ class Runtime final : public menu::Host,
     /// on a failure.
     void check_side_orders();
 
+    /// Checks the skirmish Side button through the SDL presenter.
+    ///
+    /// From the main menu the skirmish opens, and Side0 is clicked with the
+    /// left button through every offered side and back to the first. With
+    /// more than five sides it is also clicked with the right button back
+    /// through them; with five or fewer a right click steps forward. After
+    /// each click the slot's side is the one the click should reach, the
+    /// button shows the SIDEx frame when the art has one and the side's
+    /// SIDEDATA name on the plain face otherwise, and the button's rectangle
+    /// was repainted. Prints `skirmish sides check: <n> sides, <k> by art,
+    /// <m> by name, back <yes|no>` and writes a snapshot per side when
+    /// --snapshot is given. Throws std::runtime_error on a failure.
+    void check_skirmish_sides();
+
     /// Checks Engine Limits' weapon-type and side rows at the menu and in a match.
     ///
     /// At the main menu the rows show 256 and 5 without a mod profile, or the
@@ -17199,7 +17222,8 @@ class Runtime final : public menu::Host,
     /// @param value new status
     void set_button_status(std::string_view name, int16_t value);
 
-    /// Sets a side button's stage, the frame and caption it shows.
+    /// Sets a side button's stage: the SIDEx frame when the art has one, else
+    /// the side's name on the plain face.
     ///
     /// @param name gadget name
     /// @param stage side index
@@ -18458,6 +18482,9 @@ class Runtime final : public menu::Host,
     std::map<std::string, std::size_t> widget_gaf_frames_;
     std::map<std::string, std::size_t> widget_text_stages_;
     std::map<std::string, renderer::SpriteOverride> widget_sprites_;
+    // Side buttons whose art has no frame for the shown side. The presentation
+    // draws their bevelled face and the side's name.
+    std::set<std::string> widget_caption_only_;
     uint32_t menu_flags_ = 0;
     int32_t event_button_ = 1;
     bool input_enabled_ = true;
