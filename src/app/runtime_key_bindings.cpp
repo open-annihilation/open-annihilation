@@ -12,7 +12,11 @@
 #include "engine_settings_state.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/match_console.hpp"
+#include "oa/app/package_install.hpp"
+#include "oa/app/package_install/oakeys.hpp"
 #include "oa_layer.hpp"
+
+#include "oa/formats/zip/stream.hpp"
 
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/data/key_library/library.hpp"
@@ -34,6 +38,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -49,6 +54,8 @@ namespace oa::app {
 namespace keys = oa::ui::key_bindings;
 namespace actions = oa::data::input_actions;
 namespace console = oa::ui::console;
+namespace install = oa::app::package_install;
+namespace zip = oa::formats::zip;
 
 namespace {
 
@@ -242,10 +249,22 @@ preference_text(const std::map<std::string, std::string>& values, std::string_vi
     return found->second;
 }
 
+/// Tells whether a name ends in `.oakeys`, in any case.
+///
+/// @param value the option's value
+/// @return true when the folded name ends in `.oakeys`
+bool ends_oakeys(const std::string& value) {
+    const std::string name = folded(value);
+    constexpr std::string_view extension = ".oakeys";
+    return name.size() >= extension.size() &&
+           name.compare(name.size() - extension.size(), extension.size(), extension) == 0;
+}
+
 /// Tells whether `--keys` names a path rather than an installed id.
 ///
 /// A separator, an absolute path, a name that is already there, or a name
-/// that ends in oakeys.yaml is a path.
+/// that ends in oakeys.yaml or `.oakeys` is a path. A missing `.oakeys`
+/// file is still a path, so it fails as unreadable rather than as an id.
 ///
 /// @param value the option's value
 /// @return true when it is a path
@@ -260,8 +279,79 @@ bool names_a_path(const std::string& value) {
     if (name.size() >= manifest.size() &&
         name.compare(name.size() - manifest.size(), manifest.size(), manifest) == 0)
         return true;
+    if (ends_oakeys(value))
+        return true;
     std::error_code exists_error;
     return fs::exists(path, exists_error) && !exists_error;
+}
+
+/// Reads bytes of a package for the streamed zip reader.
+///
+/// @param context the open file (`std::ifstream`)
+/// @param offset where the read starts
+/// @param bytes where the bytes go
+/// @return true when every byte was read
+bool read_package_at(void* context, uint64_t offset, std::span<uint8_t> bytes) {
+    auto* input = static_cast<std::ifstream*>(context);
+    if (input == nullptr)
+        return false;
+    if (offset > static_cast<uint64_t>(std::numeric_limits<std::streamoff>::max()))
+        return false;
+    input->clear();
+    input->seekg(static_cast<std::streamoff>(offset));
+    if (!*input)
+        return false;
+    input->read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return input->gcount() == static_cast<std::streamsize>(bytes.size());
+}
+
+/// Reads a package's manifest entry into a manifest.
+///
+/// The kind's check already ran in open_package. This reads the same entry
+/// again, in memory, so `--keys` can use the layout without installing it.
+///
+/// @param package the opened package
+/// @param[out] manifest the manifest
+/// @param[out] lines why it could not be read
+/// @return true when the manifest was read
+bool read_opened_manifest(
+    const install::Package& package, oakeys::Manifest& manifest, std::vector<std::string>& lines
+) {
+    if (package.manifest_entry >= package.directory.entries.size()) {
+        lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        return false;
+    }
+    std::ifstream input(package.file, std::ios::binary);
+    if (!input) {
+        lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        return false;
+    }
+    zip::SourceHooks source;
+    source.context = &input;
+    source.read_at = &read_package_at;
+    std::vector<uint8_t> bytes;
+    zip::ZipError error{};
+    const bool read = zip::read_stream_entry(
+        source,
+        package.archive_bytes,
+        package.directory.entries[package.manifest_entry],
+        oa::formats::oamod::max_input_bytes,
+        bytes,
+        error
+    );
+    if (!read) {
+        lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        return false;
+    }
+    std::vector<oakeys::Problem> problems;
+    if (!oakeys::read_manifest(bytes, manifest, problems)) {
+        if (problems.empty())
+            lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        for (const oakeys::Problem& problem : problems)
+            lines.push_back(oakeys::describe(problem));
+        return false;
+    }
+    return true;
 }
 
 /// Reads a file up to one byte past a bound.
@@ -672,6 +762,28 @@ void Runtime::load_key_bindings() {
                     use_manifest(installed->manifest, true);
                 }
             }
+        } else if (ends_oakeys(options_.keys)) {
+            const install::PackageResult opened =
+                install::open_package(path_from_utf8(options_.keys));
+            if (!opened.package) {
+                for (const std::string& line : opened.problem.lines)
+                    log_keys(line);
+                key_bindings_refusal_ = "--keys: " + options_.keys + ": " +
+                                        install::oakeys::refusal_text(opened.problem);
+                log_keys(key_bindings_refusal_);
+            } else {
+                oakeys::Manifest manifest;
+                std::vector<std::string> lines;
+                if (!read_opened_manifest(*opened.package, manifest, lines)) {
+                    for (const std::string& line : lines)
+                        log_keys(line);
+                    key_bindings_refusal_ =
+                        "--keys: " + options_.keys + ": the layout cannot be read";
+                    log_keys(key_bindings_refusal_);
+                } else {
+                    use_manifest(manifest, true);
+                }
+            }
         } else {
             const ReadLayout read = read_layout_file(path_from_utf8(options_.keys));
             if (!read.ok) {
@@ -859,6 +971,20 @@ void Runtime::load_key_bindings() {
         state.own = std::move(own_layout);
     state.signature = signature_now();
     state.ready = false;
+}
+
+void Runtime::reload_key_layout_if_in_use(const fs::path& folder) {
+    // The runtime keeps no separate listing of layouts. The layout in use is
+    // the one this load chose. The signature does not include the folder's
+    // files, so a match would skip the reread. Clearing it makes the next
+    // load read the folder again. An update of the layout in use then plays
+    // at once. Installing never writes the preference.
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->has_chosen)
+        return;
+    if (utf8_of(folder.filename()) != key_bindings_state_->chosen.id)
+        return;
+    key_bindings_state_->signature.clear();
+    load_key_bindings();
 }
 
 void Runtime::ensure_key_bindings(bool keymap_changed) {

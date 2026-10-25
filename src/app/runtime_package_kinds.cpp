@@ -3,8 +3,8 @@
 
 // What each kind of package asks of the running game. A kind is named in
 // one branch of each function: a mod package (oamod), a map pack (oamap),
-// a language pack (oalang), an expansion, a mutator (oamut) and a brain
-// (oabrain). An
+// a language pack (oalang), an expansion, a mutator (oamut), a brain
+// (oabrain) and a key layout (oakeys). An
 // expansion is copied by install_oaexp; these hooks are not its install.
 
 #include "map_packs.hpp"
@@ -115,6 +115,9 @@ bool Runtime::package_target_in_use(
     // files. Nothing holds its folder open.
     if (kind.name == "oabrain")
         return false;
+    // A layout is read whole when it is chosen. Nothing holds its folder open.
+    if (kind.name == "oakeys")
+        return false;
     return false;
 }
 
@@ -133,10 +136,14 @@ bool Runtime::package_offers_play(const package_install::PackageKind& kind) cons
     // Installing a brain does not seat it, and PLAY NOW is not offered.
     if (kind.name == "oabrain")
         return false;
+    // Installing a key layout does not make it the one in use, and PLAY NOW
+    // is not offered.
+    if (kind.name == "oakeys")
+        return false;
     return false;
 }
 
-void Runtime::package_changed(const package_install::PackageKind& kind, const fs::path&) {
+void Runtime::package_changed(const package_install::PackageKind& kind, const fs::path& folder) {
     if (kind.name == "oamod")
         list_offered_mods();
     if (kind.name == "oamap") {
@@ -159,6 +166,10 @@ void Runtime::package_changed(const package_install::PackageKind& kind, const fs
     // unmade: nothing has asked for it yet.
     if (kind.name == "oabrain")
         reload_installed_brains();
+    // The runtime keeps no separate listing of layouts. When this folder is
+    // the layout in use, it is read again so an update plays at once.
+    if (kind.name == "oakeys")
+        reload_key_layout_if_in_use(folder);
 }
 
 package_install::PackageOptions
@@ -192,6 +203,10 @@ Runtime::package_options(const package_install::PackageKind& kind) const {
         return options;
     // A brain's hooks read the package themselves and need no context.
     if (kind.name == "oabrain")
+        return options;
+    // A key layout's hooks read the package themselves and need no context.
+    // Installing never writes the layout in use.
+    if (kind.name == "oakeys")
         return options;
     return options;
 }

@@ -2485,10 +2485,20 @@ class Runtime final : public menu::Host,
     /// Loads the layout for this run and the player's own changes, and imports stored keys once.
     ///
     /// Called after the view settings are read, and again when the played mod changes. `--keys`
-    /// and `--keys-reset` choose the layout for this run and save nothing. A layout named by
-    /// `--keys` that cannot be read sets key_bindings_refusal_; any other problem is logged and
-    /// the built-in layout is used. [runtime_key_bindings.cpp]
+    /// and `--keys-reset` choose the layout for this run and save nothing. A `.oakeys` file is
+    /// read in memory and not installed. A layout named by `--keys` that cannot be read, or a
+    /// `.oakeys` file the installer refuses, sets key_bindings_refusal_; any other problem is
+    /// logged and the built-in layout is used. [runtime_key_bindings.cpp]
     void load_key_bindings();
+
+    /// Reads the layout in use again when `folder` is that layout.
+    ///
+    /// The runtime keeps no separate listing of layouts. The signature is cleared first, because
+    /// it does not include the folder's files. Installing never writes the preference.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param folder the folder a package change put in place
+    void reload_key_layout_if_in_use(const fs::path& folder);
 
     /// Prints one line for each action event when --trace-input is on.
     ///
@@ -6318,7 +6328,8 @@ class Runtime final : public menu::Host,
     [[nodiscard]] bool package_offers_play(const package_install::PackageKind& kind) const;
 
     /// Takes in what a change of this kind put in place. A mod change lists
-    /// the Mods folder again. A map pack change reads Maps again.
+    /// the Mods folder again. A map pack change reads Maps again. A key
+    /// layout change reads that layout again when it is the one in use.
     ///
     /// @param kind the package's kind
     /// @param folder the folder the change put in place
