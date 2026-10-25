@@ -152,9 +152,15 @@ std::vector<SentRecord> sent_records(const Inbox& inbox) {
         }
         for (std::size_t at = frame_header_bytes; at < size;) {
             uint16_t length = 0;
-            if (record_wire_length(frame.data() + at, size - at, &length) != WireError::ok ||
-                length == 0)
+            const auto error = record_wire_length(frame.data() + at, size - at, &length);
+            if (error == WireError::invalid_type) {
+                if (wide_record_wire_length(frame.data() + at, size - at, &length) !=
+                        WireError::ok ||
+                    length == 0)
+                    break;
+            } else if (error != WireError::ok || length == 0) {
                 break;
+            }
             out.push_back(
                 {from, to, std::vector<uint8_t>(frame.data() + at, frame.data() + at + length)}
             );
@@ -162,6 +168,14 @@ std::vector<SentRecord> sent_records(const Inbox& inbox) {
         }
     }
     return out;
+}
+
+std::size_t count_sent_type(const Inbox& inbox, uint8_t type) {
+    std::size_t count = 0;
+    for (const auto& record : sent_records(inbox))
+        if (!record.bytes.empty() && record.bytes[0] == type)
+            ++count;
+    return count;
 }
 
 // The records of one type a machine sent.
@@ -2606,6 +2620,192 @@ void naval_units_agree_on_their_height() {
     CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
 }
 
+// A profile that raises weapon types sends shots as 0xe0. Id 300 and an id
+// under 256 both launch on the joiner. 3.1c rules keep the same shot as 0x0d.
+void remote_wide_shots_reach_the_copy() {
+    Machine host_machine(0, kMapCells, true);
+    Machine joiner_machine(0, kMapCells, true);
+    const char* wide_gun =
+        "[W300]{id=300; reloadtime=0.1; range=400; lineofsight=1; weaponvelocity=100; turret=1; "
+        "[DAMAGE]{default=10;}}";
+    CHECK(sim::combat_state::install_weapon_text(host_machine.weapons, wide_gun, false, 1024) == 1);
+    CHECK(
+        sim::combat_state::install_weapon_text(joiner_machine.weapons, wide_gun, false, 1024) == 1
+    );
+    host_machine.inbox.peer = &joiner_machine.inbox;
+    joiner_machine.inbox.peer = &host_machine.inbox;
+    host_machine.start(0);
+    joiner_machine.start(1);
+    host_machine.net->rules.weapon_types = 1024;
+    joiner_machine.net->rules.weapon_types = 1024;
+    host_machine.connection.packets->receiver.wide_records = true;
+    joiner_machine.connection.packets->receiver.wide_records = true;
+
+    auto* owned = host_machine.match->create({0, 1, {40u << 16, 0, 40u << 16}, true, 1, 0});
+    CHECK(owned != nullptr);
+    if (owned == nullptr)
+        return;
+    const auto index = owned->unit_index;
+    for (uint32_t t = 0; t < 4; ++t) {
+        step(host_machine);
+        step(joiner_machine);
+    }
+    host_machine.inbox.sent.clear();
+    joiner_machine.inbox.sent.clear();
+    auto& world = joiner_machine.match->state();
+    const auto deliver = [&] {
+        packet_layer_flush(host_machine.connection.packets, 0, true);
+        (void)net_match_pump(joiner_machine.net.get());
+    };
+    const auto send_wide = [&](const WideWeaponFireRecord& record) {
+        uint8_t bytes[64];
+        std::size_t written = 0;
+        CHECK(encode_record(record, bytes, sizeof bytes, &written) == WireError::ok);
+        CHECK(written == wide_record_length_table[0]);
+        CHECK(net_match_send(
+            host_machine.net.get(), kIds[0], broadcast_destination_id, bytes, written
+        ));
+        deliver();
+    };
+
+    WideWeaponFireRecord fire{};
+    fire.start[0] = 41 << 16;
+    fire.start[1] = 12 << 16;
+    fire.start[2] = 40 << 16;
+    fire.target[0] = 140 << 16;
+    fire.target[1] = 0;
+    fire.target[2] = 90 << 16;
+    fire.weapon_id = 300;
+    fire.aim_heading = 0x1234;
+    fire.aim_pitch = -0x100;
+    fire.source_unit_index = index;
+    fire.slot = 0;
+    const auto before = world.game.projectile_count;
+    send_wide(fire);
+    CHECK(world.game.projectile_count == before + 1);
+    const auto* wide_def = world_weapon_def(&world, oa_ref_from_index(300));
+    CHECK(wide_def != nullptr);
+    if (wide_def != nullptr) {
+        const auto& wide_shot = world.projectiles[before];
+        CHECK(wide_shot.def == oa_ref_from_index(300));
+        CHECK(wide_shot.source == oa_unit_ref_from_slot(index) && wide_shot.owner_index == 0);
+        CHECK(wide_shot.position.x == fire.start[0] && wide_shot.target.x == fire.target[0]);
+    }
+    CHECK(joiner_machine.net->wide_records_applied == 1);
+
+    fire.weapon_id = kGun;
+    send_wide(fire);
+    CHECK(world.game.projectile_count == before + 2);
+    CHECK(world.projectiles[before + 1].def == oa_ref_from_index(kGun));
+    CHECK(
+        world.units[index].weapons[0].aim_heading == 0x1234 &&
+        world.units[index].weapons[0].aim_pitch == -0x100
+    );
+
+    host_machine.inbox.sent.clear();
+    const auto applied = joiner_machine.net->wide_records_applied;
+    const auto shots_before = world.game.projectile_count;
+    // launch_meteor is the public path into the binding's shot_fired.
+    const FixedVec3 fall_from{fire.start[0], fire.start[1], fire.start[2]};
+    const FixedVec3 fall{0, -(8 << 16), 0};
+    CHECK(host_machine.match->launch_meteor(oa_ref_from_index(kGun), fall_from, fall, true));
+    deliver();
+    CHECK(count_sent_type(host_machine.inbox, 0xe0) == 1);
+    CHECK(sent_of(host_machine.inbox, RecordType::weapon_fire).empty());
+    CHECK(joiner_machine.net->wide_records_applied == applied + 1);
+    CHECK(world.game.projectile_count == shots_before + 1);
+
+    host_machine.inbox.sent.clear();
+    CHECK(host_machine.match->launch_meteor(oa_ref_from_index(300), fall_from, fall, true));
+    deliver();
+    CHECK(count_sent_type(host_machine.inbox, 0xe0) == 1);
+    CHECK(sent_of(host_machine.inbox, RecordType::weapon_fire).empty());
+    CHECK(world.projectiles[world.game.projectile_count - 1].def == oa_ref_from_index(300));
+    CHECK(
+        joiner_machine.connection.packets->traffic
+            .record_count[static_cast<uint8_t>(RecordType::weapon_fire)]
+                         [static_cast<uint8_t>(TrafficChannel::received)] == 0
+    );
+    CHECK(joiner_machine.net->record_errors == 0);
+
+    Pair stock(0, kMapCells, true);
+    auto* stock_unit = stock.host->match->create({0, 1, {40u << 16, 0, 40u << 16}, true, 1, 0});
+    CHECK(stock_unit != nullptr);
+    if (stock_unit == nullptr)
+        return;
+    for (uint32_t t = 0; t < 4; ++t) {
+        step(*stock.host);
+        step(*stock.joiner);
+    }
+    stock.host->inbox.sent.clear();
+    const FixedVec3 stock_from{10 << 16, 40 << 16, 20 << 16};
+    const FixedVec3 stock_fall{0, -(8 << 16), 0};
+    CHECK(stock.host->match->launch_meteor(oa_ref_from_index(kGun), stock_from, stock_fall, true));
+    packet_layer_flush(stock.host->connection.packets, 0, true);
+    (void)net_match_pump(stock.joiner->net.get());
+    CHECK(sent_of(stock.host->inbox, RecordType::weapon_fire).size() == 1);
+    CHECK(count_sent_type(stock.host->inbox, 0xe0) == 0);
+    CHECK(stock.joiner->net->wide_records_applied == 0);
+    CHECK(stock.host->net->wide_records_applied == 0);
+}
+
+// The same interception under wide rules arrives as two 0xe1 records.
+void wide_interceptions_reach_the_shot_s_owner() {
+    Pair pair(0, kMapCells, true);
+    auto& host = *pair.host;
+    auto& joiner = *pair.joiner;
+    install_interceptors(host);
+    install_interceptors(joiner);
+    auto* defender = host.match->create({0, 1, {40u << 16, 0, 200u << 16}, true, 1, 0});
+    auto* launcher = joiner.match->create({1, 1, {200u << 16, 0, 40u << 16}, true, 1, 0});
+    CHECK(defender != nullptr && launcher != nullptr);
+    if (defender == nullptr || launcher == nullptr)
+        return;
+    const auto defender_id = defender->unit_index;
+    const auto launcher_id = launcher->unit_index;
+    for (uint32_t t = 0; t < 4; ++t) {
+        step(host);
+        step(joiner);
+    }
+    host.net->rules.weapon_types = 1024;
+    joiner.net->rules.weapon_types = 1024;
+    host.connection.packets->receiver.wide_records = true;
+    joiner.connection.packets->receiver.wide_records = true;
+    host.inbox.sent.clear();
+    joiner.inbox.sent.clear();
+    auto& interceptor = launch_shot(host, kInterceptor, 128, 128, 0, defender_id);
+    auto& missile_copy = launch_shot(host, kMissile, 150, 128, 1, launcher_id);
+    auto& missile = launch_shot(joiner, kMissile, 150, 128, 1, launcher_id);
+    auto& interceptor_copy = launch_shot(joiner, kInterceptor, 128, 128, 0, defender_id);
+    try {
+        host.match->detonate(interceptor, nullptr);
+    } catch (const std::exception& error) {
+        ++failures;
+        std::fprintf(stderr, "detonate: %s\n", error.what());
+    }
+    CHECK(retired(missile_copy));
+    packet_layer_flush(host.connection.packets, 0, true);
+    CHECK(count_sent_type(host.inbox, 0xe1) == 2);
+    CHECK(sent_of(host.inbox, RecordType::projectile_intercepted).empty());
+    const auto sent = sent_records(host.inbox);
+    std::size_t wide_seen = 0;
+    for (const auto& record : sent) {
+        if (record.bytes.empty() || record.bytes[0] != 0xe1)
+            continue;
+        CHECK(record.bytes.size() == wide_record_length_table[1]);
+        CHECK(record.from == kIds[0] && record.to == broadcast_destination_id);
+        ++wide_seen;
+    }
+    CHECK(wide_seen == 2);
+    CHECK(!retired(missile) && !retired(interceptor_copy));
+    (void)net_match_pump(joiner.net.get());
+    CHECK(retired(missile) && !retired(interceptor_copy));
+    pump_next_tick(joiner);
+    CHECK(retired(interceptor_copy));
+    CHECK(joiner.net->wide_records_applied == 2);
+    CHECK(joiner.net->record_errors == 0);
+}
+
 int main() {
     replicated_play();
     remote_driver_brakes_and_blocks();
@@ -2616,6 +2816,7 @@ int main() {
     death_record_for_unit_zero_changes_nothing();
     owner_script_starts_reach_the_copy();
     remote_shots_reach_the_copy();
+    remote_wide_shots_reach_the_copy();
     owner_kill_is_shared_with_its_wreck();
     received_kill_credits_the_record();
     create_into_live_slot_runs_the_kill();
@@ -2624,6 +2825,7 @@ int main() {
     feature_hits_go_to_the_host();
     reclaims_go_out_from_the_reclaiming_unit_s_owner();
     interceptions_reach_the_shot_s_owner();
+    wide_interceptions_reach_the_shot_s_owner();
     carry_links_reach_the_copy();
     finished_units_reach_the_copy();
     turned_buildings_reach_the_copy();
