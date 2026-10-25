@@ -45,6 +45,9 @@ to its model and world slot.
 
 ## The match
 
+`Match::bind_sides` copies the first five side records into `Game.sides` and
+keeps any further sides in a table the match owns.
+
 `Match` owns the slot pool and the unit instances, weapon slots,
 squads, spatial occupancy and buckets, sight grids, movement maps, projectile
 pool, effect world and map features. Its inputs carry the resolved runtime

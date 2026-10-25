@@ -1186,7 +1186,8 @@ build-list loader opens. When the two paths differ, each document is
 served at the path its own reader opens.
 
 Sides are `SIDE0`, `SIDE1` and so on, until the first number that is
-absent, and at most five. `#sides` is that count. `sides[n]` is the
+absent, and at most the profile's `limits.sides` (five without a profile).
+`#sides` is that count. `sides[n]` is the
 side at that place, counting from 1, and nil past the end.
 `sides.<name>` finds a side by its `name`, ignoring ASCII case.
 `sides:each(function(side) ... end)` walks them in that order. A
@@ -1904,7 +1905,7 @@ failure in the list is a refused hack. The pass is not published.
 | Category masks | 512, unless the running limits set another width | As many unit files as this width, or more, is a warning. The next type id loses its categories. |
 | A shared game | 1,024 unit files | Past this fails the mutator when the match is shared, and is a warning when it is not. |
 | Download files | 4,096 | More than this fails the mutator. The count includes files the menus added. |
-| Sides | 5 | A side section past the five the game reads fails the mutator. Each side from `SIDE0` up to the first gap must name a live commander. |
+| Sides | the profile's `limits.sides`, five without a profile | A side section past the sides the game reads fails the mutator. Each side from `SIDE0` up to the first gap must name a live commander. |
 | Movement classes | 32 | A class past `CLASS31` fails the mutator. `movementclass` has to name one of those. |
 | Weapon id | 0 to one less than the mod's weapon types, 255 unless the profile raises `limits.weapon-types` | An id outside that range, and a weapon section with no `ID`, is the integrity failure `weapon_id_out_of_range`. The sentence ends `outside 0 to 255` when the limit is 256, and the number follows the limit. A weapon a mutator brought that cannot be given an id from 1 to that last id fails that mutator. The clone refusal `no free weapon id: 1 to 255 are all used` is the sentence at a limit of 256; the number follows the limit. Slot 0 is never given out. |
 
