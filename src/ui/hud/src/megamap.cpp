@@ -511,6 +511,11 @@ IconConfig parse_icon_config(std::string_view text, uint32_t category_limit) {
     return config;
 }
 
+const data::defs::CategoryMask*
+icon_category_mask(const data::defs::CategoryRegistry& registry, const IconLine& line) noexcept {
+    return data::defs::category_registry_find(&registry, line.category.c_str());
+}
+
 IconChoice choose_icon(
     bool visible,
     uint16_t type_id,

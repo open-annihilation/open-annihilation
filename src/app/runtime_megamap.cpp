@@ -204,11 +204,13 @@ void Runtime::prepare_megamap() {
             );
             state.entries.push_back({load_megamap_icon(name + ".PCX"), &state.own_masks[side]});
         }
-        for (const auto& line : state.config.lines)
+        for (const auto& line : state.config.lines) {
+            // A line must not add a category: adding one can move the masks
+            // earlier lines point at.
             state.entries.push_back(
-                {load_megamap_icon(line.file),
-                 oa::data::defs::category_registry_find_or_add(&categories, line.category.c_str())}
+                {load_megamap_icon(line.file), hud::icon_category_mask(categories, line)}
             );
+        }
         state.unknown = load_megamap_icon(state.config.unknown_file);
         state.nothing = load_megamap_icon(state.config.nothing_file);
     }
