@@ -4410,8 +4410,42 @@ if(BUILD_TESTING)
       "^Open Annihilation [0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)? \\([a-z0-9._-]+ [A-Za-z0-9_]+, ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)\\)\n?$"
     TIMEOUT 60)
 endif()
+# The update helper. Its library and tests are built with the platform.
+# The program itself is built only where this build may start another program.
 if(OA_BUILD_PLATFORM)
   add_subdirectory(tools/oa-update)
+endif()
+if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING)
+  add_executable(oa-update tools/oa-update/main.cpp)
+  target_link_libraries(oa-update PRIVATE oa-update-core oa-options SDL3::SDL3)
+  # The same version line as the game. A build without the engine-build
+  # header names no commit.
+  target_include_directories(oa-update PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/app/include")
+  target_compile_definitions(oa-update PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\""
+    "OA_ENGINE_VERSION_LABEL=\"${OA_VERSION_LABEL}\"")
+  if(TARGET oa-app-engine-build)
+    add_dependencies(oa-update oa-app-engine-build)
+    target_include_directories(oa-update PRIVATE "${oa_engine_build_dir}")
+  endif()
+  if(WIN32)
+    # A Windows program, so starting it opens no console. Its manifest asks
+    # to run as the player who started it: a name containing "update" would
+    # otherwise be treated as an installer.
+    set_target_properties(oa-update PROPERTIES WIN32_EXECUTABLE ON)
+    set(oa_update_manifest "${CMAKE_CURRENT_SOURCE_DIR}/tools/oa-update/oa-update.manifest")
+    if(MSVC)
+      set(OA_UPDATE_MANIFEST_RESOURCE "")
+      target_sources(oa-update PRIVATE "${oa_update_manifest}")
+    else()
+      set(OA_UPDATE_MANIFEST_RESOURCE "1 24 \"${oa_update_manifest}\"")
+    endif()
+    set(OA_WINDOWS_ICON "${CMAKE_CURRENT_SOURCE_DIR}/branding/open-annihilation.ico")
+    configure_file(tools/oa-update/oa-update.rc.in
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" @ONLY)
+    target_sources(oa-update PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc")
+    set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" APPEND PROPERTY
+      OBJECT_DEPENDS "${oa_update_manifest}")
+  endif()
 endif()
 # The Steam Deck's artwork and files for the Steam Deck package.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaSteamDeck.cmake")
@@ -4590,6 +4624,9 @@ endif()
 
 if(WIN32)
   set(oa_executables oa-tool)
+  if(TARGET oa-update)
+    list(APPEND oa_executables oa-update)
+  endif()
   if(OA_BUILD_PLATFORM)
     list(APPEND oa_executables oa-platform)
   endif()
@@ -4793,7 +4830,7 @@ endif()
 file(GLOB oa_notice_licenses CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/licenses/*")
 set(oa_notice_files "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${CMAKE_CURRENT_SOURCE_DIR}/ATTRIBUTIONS.md"
   ${oa_notice_licenses} "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake")
-foreach(target IN ITEMS oa-game oa-intro oa-tool)
+foreach(target IN ITEMS oa-game oa-intro oa-tool oa-update)
   if(NOT TARGET ${target})
     continue()
   endif()
