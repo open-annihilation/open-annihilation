@@ -10,7 +10,7 @@
 namespace oa::update_helper {
 namespace {
 
-constexpr std::uint64_t max_log_bytes = 1024 * 1024;
+constexpr uint64_t max_log_bytes = 1024 * 1024;
 
 void set_error(std::string* reason, std::string message) {
     if (reason != nullptr)
