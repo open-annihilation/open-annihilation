@@ -14,7 +14,7 @@ namespace oa::app::renderer_live_gpu {
 namespace {
 
 constexpr uint32_t channels = 4;
-constexpr uint32_t max_dimension = 4096;
+constexpr uint32_t max_dimension = largest_edge;
 constexpr size_t max_vertices = 3 * 1024 * 1024;
 constexpr float coordinate_limit = 32768.0f;
 constexpr float projection_limit = 131072.0f;
@@ -26,221 +26,9 @@ bool valid_dimensions(uint32_t width, uint32_t height) {
     return width != 0 && height != 0 && width <= max_dimension && height <= max_dimension;
 }
 
-#if defined(__APPLE__)
-constexpr char shader_source[] = R"(
-#include <metal_stdlib>
-using namespace metal;
-struct Input {
-    float3 world [[attribute(0)]];
-    float2 uv [[attribute(1)]];
-    float2 attenuation [[attribute(2)]];
-    float3 emission [[attribute(3)]];
-    float3 terrain [[attribute(4)]];
-    float2 terrain_fog [[attribute(5)]];
-    float3 modulation [[attribute(6)]];
-};
-struct Output {
-    float4 position [[position]];
-    float2 uv;
-    float2 attenuation;
-    float3 emission;
-    float3 terrain;
-    float2 terrain_fog;
-    float filter_scale [[flat]];
-    float3 world;
-    float3 modulation;
-    float4 water [[flat]];
-    float4 water_scene [[flat]];
-    float4 water_wind [[flat]];
-    float4 water_drift [[flat]];
-    float4 appearance0 [[flat]];
-    float4 appearance1 [[flat]];
-    float4 appearance2 [[flat]];
-    float4 appearance3 [[flat]];
-    float4 appearance4 [[flat]];
-    float4 appearance5 [[flat]];
-
-};
-struct Camera { float4 horizontal; float4 vertical; float4 depth; float4 viewport; float4 water; float4 water_scene; float4 water_wind; float4 water_drift; float4 appearance0; float4 appearance1; float4 appearance2; float4 appearance3; float4 appearance4; float4 appearance5; };
-vertex Output vertex_main(Input input [[stage_in]], constant Camera& camera [[buffer(0)]]) {
-    const float depth_limit = 65536.0;
-    float4 world = float4(input.world, 1.0);
-    float2 pixel = float2(dot(camera.horizontal, world), dot(camera.vertical, world));
-    Output output;
-    output.position = float4(pixel.x * 2.0 / camera.viewport.x - 1.0,
-        1.0 - pixel.y * 2.0 / camera.viewport.y,
-        (depth_limit - dot(camera.depth, world)) / (2.0 * depth_limit), 1.0);
-    output.uv = input.uv;
-    output.attenuation = input.attenuation;
-    output.emission = input.emission;
-    output.modulation = input.modulation;
-    output.terrain = input.terrain;
-    output.terrain_fog = input.terrain_fog;
-    output.filter_scale = camera.viewport.z;
-    output.world = input.world;
-    output.water = camera.water;
-    output.water_scene = camera.water_scene;
-    output.water_wind = camera.water_wind;
-    output.water_drift = camera.water_drift;
-    output.appearance0 = camera.appearance0;
-    output.appearance1 = camera.appearance1;
-    output.appearance2 = camera.appearance2;
-    output.appearance3 = camera.appearance3;
-    output.appearance4 = camera.appearance4;
-    output.appearance5 = camera.appearance5;
-
-    return output;
-}
-// Mip levels occupy vertically stacked squares in a 32 by 64 chain.
-float4 terrain_level(texture2d<float> atlas, float2 origin, float2 local, uint mip) {
-    constexpr sampler linear_sampler(coord::normalized, address::clamp_to_edge, filter::linear);
-    const float base_size = 32.0;
-    const float size = base_size / float(1u << mip);
-    const float offset = mip == 0 ? 0.0 : 64.0 - 2.0 * size;
-    const float2 position = origin + float2(0.0, offset) +
-        clamp(local / float(1u << mip), float2(0.5), float2(size - 0.5));
-    return atlas.sample(linear_sampler,
-        position / float2(atlas.get_width(), atlas.get_height()));
-}
-float water_hash(int2 cell) {
-    uint hash = uint(cell.x) * 0x8da6b343u ^ uint(cell.y) * 0xd8163841u;
-    hash ^= hash >> 13;
-    hash *= 0x85ebca6bu;
-    hash ^= hash >> 16;
-    return float(hash & 65535u) / 65535.0;
-}
-float water_noise(float2 point) {
-    const int2 cell = int2(floor(point));
-    float2 weight = fract(point);
-    weight = weight * weight * (3.0 - 2.0 * weight);
-    return mix(mix(water_hash(cell), water_hash(cell + int2(1, 0)), weight.x),
-               mix(water_hash(cell + int2(0, 1)), water_hash(cell + int2(1, 1)), weight.x), weight.y);
-}
-fragment float4 fragment_main(Output input [[stage_in]],
-    texture2d<float> atlas [[texture(0)]], sampler nearest [[sampler(0)]]) {
-    float4 colour;
-    const float time = input.water_scene.y;
-    const float detail = input.water_scene.z;
-    if (input.terrain.z == -4.0) {
-        colour = float4(0.66, 0.85, 0.92, 1.0);
-    } else if (input.terrain.z == -2.0) {
-        const float depth = input.terrain.x;
-        const float2 medium = input.world.xz - input.water_drift.xy * 0.65;
-        const float2 long_wave = input.world.xz - input.water_drift.xy * 0.28;
-        const float2 fine_point = input.world.xz - input.water_drift.xy * 1.35;
-        const float broad = 0.65 * water_noise(medium / float2(34.0, 22.0)) +
-            0.35 * water_noise((long_wave + float2(37.0, -19.0)) / float2(79.0, 53.0));
-        const float fine = water_noise((fine_point + float2(11.0, -7.0)) / float2(8.0, 11.0));
-        const float ripple = mix(smoothstep(0.48, 0.82, broad),
-            smoothstep(0.48, 0.82, fine), input.water_scene.w * 0.4);
-        const float wind_strength = 0.12 + 0.88 * input.water_wind.z;
-        const float shore = (1.0 - smoothstep(3.0, 24.0, depth)) * smoothstep(0.0, 1.0, depth);
-        const float crest = pow(max(0.0, sin(depth * 0.9 + time * 1.1)), 8.0);
-        const float following = pow(max(0.0, sin(depth * 0.67 + time * 0.83 + 1.4)), 8.0);
-        const float foam = shore * (crest * 0.7 + following * 0.3) * input.water.y *
-            input.terrain.y * 0.090;
-        const float sheen = ripple * input.water.x * 0.14 * wind_strength;
-        const float visibility = input.attenuation.x;
-        colour = float4(float3(0.72, 0.86, 0.90), (foam + sheen) * visibility * detail);
-    } else if (input.terrain.z > 0.0) {
-        const float2 local = input.uv * float2(atlas.get_width(), atlas.get_height()) -
-            input.terrain.xy;
-        const float footprint = max(length(dfdx(local)), length(dfdy(local))) * input.filter_scale;
-        const float lod = clamp(log2(max(footprint, 1.0)), 0.0, 5.0);
-        const uint lower = uint(floor(lod));
-        const uint upper = min(lower + 1u, 5u);
-        if (footprint <= 1.0) {
-            const float2 position = input.terrain.xy + clamp(local, float2(0.5), float2(31.5));
-            colour = atlas.sample(nearest,
-                position / float2(atlas.get_width(), atlas.get_height()));
-        } else {
-            colour = mix(terrain_level(atlas, input.terrain.xy, local, lower),
-                terrain_level(atlas, input.terrain.xy, local, upper), fract(lod));
-        }
-        if (input.terrain_fog.y > 0.0) {
-            const float2 grey_origin = input.terrain.xy + float2(32.0, 0.0);
-            float4 grey;
-            if (footprint <= 1.0) {
-                const float2 position = grey_origin + clamp(local, float2(0.5), float2(31.5));
-                grey = atlas.sample(nearest,
-                    position / float2(atlas.get_width(), atlas.get_height()));
-            } else {
-                grey = mix(terrain_level(atlas, grey_origin, local, lower),
-                    terrain_level(atlas, grey_origin, local, upper), fract(lod));
-            }
-            colour = mix(colour, grey, input.terrain_fog.y);
-        }
-    } else if (input.terrain.z < 0.0) {
-        constexpr sampler effect_sampler(coord::normalized, address::clamp_to_edge, filter::linear);
-        colour = atlas.sample(effect_sampler, input.uv);
-        // Atlas coverage is binary; filtering it gives premultiplied RGB. The pipeline
-        // uses straight alpha, so recover the colour before applying vertex opacity.
-        if (colour.a > 0.0) colour.rgb /= colour.a;
-    } else {
-        colour = atlas.sample(nearest, input.uv);
-    }
-    const float brightness = input.terrain.z == -2.0 ? 1.0 :
-        (input.terrain.z > 0.0 ? input.terrain_fog.x : input.attenuation.x);
-    colour.rgb = colour.rgb * input.modulation * brightness + input.emission;
-    // Optical underwater billboards share their event depth across the complete sprite.
-    // Physical models retain their actual per-fragment water intersection.
-    const float depth = input.terrain.z == -5.0 ? input.terrain.x : input.water_scene.x - input.world.y;
-    if (depth > 0.5 && input.terrain.z != -2.0 && input.terrain.z != -3.0 && input.water.z > 0.0 && detail > 0.0) {
-        const float shallow = 1.0 - smoothstep(input.appearance3.z, input.appearance3.z + input.appearance3.w, depth);
-        // Fine, restrained seabed patterns sit beneath the map's baked water art.
-        // Submerged objects retain stronger highlights so their depth remains legible.
-        const bool terrain = input.terrain.z > 0.0;
-        const float frequency = terrain ? 3.0 : 1.0;
-        const float wave = sin(input.world.x * 0.11 * frequency + time * 0.9 +
-            sin(input.world.z * 0.07 * frequency - time * 0.5) * 1.6);
-        const float crossing = sin(input.world.z * 0.1 * frequency - time * 0.7 +
-            sin(input.world.x * 0.065 * frequency + time * 0.4));
-        const float caustic = smoothstep(0.45, 0.96, max(wave, crossing));
-        const float intensity = input.water.z * detail * smoothstep(0.5, input.appearance0.x, depth);
-        if (input.terrain.z <= 0.0) {
-            const float depth_fraction = clamp(depth / input.appearance0.y, 0.0, 1.0);
-            const float tint = clamp((input.appearance0.z + input.appearance0.w * depth_fraction) *
-                intensity, 0.0, input.appearance1.w);
-            colour.rgb = mix(colour.rgb, colour.rgb * input.appearance1.xyz, tint);
-            colour.rgb *= 1.0 - min(input.appearance2.z, (input.appearance2.x + input.appearance2.y * depth_fraction) * intensity);
-        }
-        const float modulation = terrain ? caustic * 0.06 - 0.01 : caustic * input.appearance3.x + input.appearance3.y;
-        colour.rgb *= 1.0 + modulation * intensity * shallow;
-    }
-    // Actual interpolated surface intersection, confined to covered model fragments.
-    // Geometry stays fixed so crossing triangles cannot displace their dry portion.
-    if (depth > 0.0 && depth < input.appearance4.y && input.terrain.z <= 0.0 &&
-        input.terrain.z >= -1.0 && input.water.z > 0.0 && detail > 0.0) {
-        const float rim = depth < input.appearance4.x ? depth / input.appearance4.x :
-            (input.appearance4.y - depth) / (input.appearance4.y - input.appearance4.x);
-        colour.rgb = mix(colour.rgb, input.appearance5.xyz * brightness,
-            clamp(rim * input.water.z * detail * input.appearance4.z, 0.0, 0.48));
-    }
-    if (input.terrain.z == -3.0) {
-        const float bands = 0.82 + 0.18 * sin(input.world.z * 0.35 + time * 1.5);
-        colour.a *= bands * smoothstep(0.0, 2.0, input.terrain.x);
-    }
-    colour.a *= input.attenuation.y;
-    if (colour.a == 0.0) discard_fragment();
-    return colour;
-}
-vertex float4 resolve_vertex(uint index [[vertex_id]]) {
-    const float2 corners[3] = {float2(-1, -1), float2(3, -1), float2(-1, 3)};
-    return float4(corners[index], 0, 1);
-}
-fragment float4 resolve_fragment(float4 position [[position]],
-    texture2d<float> source [[texture(0)]],
-    constant uint4& parameters [[buffer(0)]]) {
-    const uint factor = parameters.x;
-    const uint samples = factor * factor;
-    const uint2 origin = uint2(position.xy) * factor;
-    uint4 sum = uint4(0);
-    for (uint y = 0; y < factor; ++y)
-        for (uint x = 0; x < factor; ++x)
-            sum += uint4(round(source.read(origin + uint2(x, y)) * 255.0));
-    return float4((sum + samples / 2) / samples) / 255.0;
-}
-)";
+// Every stage, as SPIR-V and as Metal shading language, made from
+// src/app/shaders by tools/make_live_shaders.py.
+#include "renderer_live_shaders.inc"
 
 /// Release all resources, including an unsubmitted command buffer after an error.
 struct Resources {
@@ -254,7 +42,8 @@ struct Resources {
     SDL_GPUShader* resolve_vertex{};
     SDL_GPUShader* resolve_fragment{};
     SDL_GPUGraphicsPipeline* resolve_pipeline{};
-    SDL_GPUSampler* sampler{};
+    SDL_GPUSampler* sampler{};        ///< the atlas's nearest texel
+    SDL_GPUSampler* linear_sampler{}; ///< the atlas filtered
     SDL_GPUBuffer* vertices{};
     SDL_GPUTransferBuffer* upload{};
     SDL_GPUTransferBuffer* download{};
@@ -286,6 +75,8 @@ struct Resources {
             SDL_ReleaseGPUShader(device, fragment_shader);
         if (sampler)
             SDL_ReleaseGPUSampler(device, sampler);
+        if (linear_sampler)
+            SDL_ReleaseGPUSampler(device, linear_sampler);
         if (vertices)
             SDL_ReleaseGPUBuffer(device, vertices);
         if (upload)
@@ -321,25 +112,46 @@ SDL_GPUTexture* create_texture(
     return SDL_CreateGPUTexture(device, &info);
 }
 
-/// Compile a stage from the shared Metal shader source.
+/// The shader formats the renderer carries every stage in.
+constexpr SDL_GPUShaderFormat shader_formats =
+    SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL;
+
+/// Creates a stage in the form the device takes: Metal shading language
+/// where the device runs on Metal, SPIR-V where it runs on Vulkan.
 SDL_GPUShader* create_shader(SDL_GPUDevice* device, bool vertex, bool resolve = false) {
     SDL_GPUShaderCreateInfo info{};
-    info.code = reinterpret_cast<const Uint8*>(shader_source);
-    info.code_size = sizeof(shader_source);
-    info.entrypoint = resolve ? (vertex ? "resolve_vertex" : "resolve_fragment")
-                              : (vertex ? "vertex_main" : "fragment_main");
-    info.format = SDL_GPU_SHADERFORMAT_MSL;
+    const auto stage = [&](const auto& spirv, const auto& msl) {
+        if ((SDL_GetGPUShaderFormats(device) & SDL_GPU_SHADERFORMAT_MSL) != 0) {
+            info.code = reinterpret_cast<const Uint8*>(msl);
+            info.code_size = sizeof(msl) - 1;
+            info.entrypoint = "main0";
+            info.format = SDL_GPU_SHADERFORMAT_MSL;
+        } else {
+            info.code = spirv;
+            info.code_size = sizeof(spirv);
+            info.entrypoint = "main";
+            info.format = SDL_GPU_SHADERFORMAT_SPIRV;
+        }
+    };
+    if (resolve && vertex)
+        stage(live_resolve_vertex_spirv, live_resolve_vertex_msl);
+    else if (resolve)
+        stage(live_resolve_fragment_spirv, live_resolve_fragment_msl);
+    else if (vertex)
+        stage(live_scene_vertex_spirv, live_scene_vertex_msl);
+    else
+        stage(live_scene_fragment_spirv, live_scene_fragment_msl);
     info.stage = vertex ? SDL_GPU_SHADERSTAGE_VERTEX : SDL_GPU_SHADERSTAGE_FRAGMENT;
-    info.num_uniform_buffers = resolve ? (vertex ? 0 : 1) : (vertex ? 1 : 0);
-    info.num_samplers = vertex ? 0 : 1;
+    // The scene's stages each read the camera's block; the resolve's
+    // fragment stage reads its factor.
+    info.num_uniform_buffers = resolve && vertex ? 0 : 1;
+    info.num_samplers = vertex ? 0 : (resolve ? 1 : 2);
     return SDL_CreateGPUShader(device, &info);
 }
-#endif
 
 } // namespace
 
 struct Context::State {
-#if defined(__APPLE__)
     Resources resources;
     uint32_t texture_width{};
     uint32_t texture_height{};
@@ -351,7 +163,6 @@ struct Context::State {
     uint32_t upload_capacity{};
     uint64_t atlas_revision{};
     bool atlas_uploaded{};
-#endif
 };
 
 Context::Context() : state(std::make_unique<State>()) {
@@ -433,13 +244,6 @@ Result render(
         error = "Invalid live GPU vertex coordinates";
         return Result::failed;
     }
-#if !defined(__APPLE__)
-    (void)context;
-    (void)atlas_revision;
-    (void)water;
-    error = "Live GPU shaders currently require Metal";
-    return Result::unavailable;
-#else
     uint32_t supersample = requested_supersample;
     while (output_width > max_dimension / supersample ||
            output_height > max_dimension / supersample)
@@ -448,10 +252,17 @@ Result render(
     const uint32_t render_height = output_height * supersample;
     auto& state = *context.state;
     auto& resources = state.resources;
+    if (context.device_unavailable) {
+        error = "Live GPU unavailable on this system";
+        return Result::unavailable;
+    }
     if (!resources.device) {
-        resources.device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_MSL, false, "metal");
+        // SDL picks the graphics interface: Metal on Apple systems, Vulkan
+        // elsewhere, or SDL_GPU_DRIVER's.
+        resources.device = SDL_CreateGPUDevice(shader_formats, false, nullptr);
         if (!resources.device) {
-            error = std::string("Metal GPU unavailable: ") + SDL_GetError();
+            error = std::string("Live GPU unavailable: ") + SDL_GetError();
+            context.device_unavailable = true;
             return Result::unavailable;
         }
     }
@@ -471,7 +282,10 @@ Result render(
         sampler_info.address_mode_v = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         sampler_info.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
         resources.sampler = SDL_CreateGPUSampler(resources.device, &sampler_info);
-        if (!resources.sampler)
+        sampler_info.min_filter = SDL_GPU_FILTER_LINEAR;
+        sampler_info.mag_filter = SDL_GPU_FILTER_LINEAR;
+        resources.linear_sampler = SDL_CreateGPUSampler(resources.device, &sampler_info);
+        if (!resources.sampler || !resources.linear_sampler)
             return fail("Create live GPU textures and sampler");
 
         SDL_GPUVertexBufferDescription vertex_description{};
@@ -716,6 +530,7 @@ Result render(
         camera[29] = water->wind.drift_z;
     }
     SDL_PushGPUVertexUniformData(resources.command, 0, camera.data(), sizeof(camera));
+    SDL_PushGPUFragmentUniformData(resources.command, 0, camera.data(), sizeof(camera));
     SDL_GPURenderPass* pass =
         SDL_BeginGPURenderPass(resources.command, &colour_target, 1, &depth_target);
     if (!pass)
@@ -723,8 +538,12 @@ Result render(
     SDL_BindGPUGraphicsPipeline(pass, resources.pipeline);
     const SDL_GPUBufferBinding binding{resources.vertices, 0};
     SDL_BindGPUVertexBuffers(pass, 0, &binding, 1);
-    const SDL_GPUTextureSamplerBinding sampler_binding{resources.atlas, resources.sampler};
-    SDL_BindGPUFragmentSamplers(pass, 0, &sampler_binding, 1);
+    const std::array<SDL_GPUTextureSamplerBinding, 2> sampler_bindings{
+        {{resources.atlas, resources.sampler}, {resources.atlas, resources.linear_sampler}}
+    };
+    SDL_BindGPUFragmentSamplers(
+        pass, 0, sampler_bindings.data(), static_cast<Uint32>(sampler_bindings.size())
+    );
     SDL_DrawGPUPrimitives(pass, uint32_t(vertices.size()), 1, 0, 0);
     SDL_EndGPURenderPass(pass);
     if (supersample > 1) {
@@ -779,7 +598,6 @@ Result render(
     state.atlas_revision = atlas_revision;
     state.atlas_uploaded = true;
     return Result::success;
-#endif
 }
 
 } // namespace oa::app::renderer_live_gpu

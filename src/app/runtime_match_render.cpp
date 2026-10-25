@@ -821,6 +821,13 @@ renderer::ButtonCondition Runtime::match_button_condition(std::size_t index) con
 }
 
 void Runtime::render_match_surface() {
+    // A failed rotated frame puts the view back classic, so the second draw
+    // draws the battlefield as the classic tiers do.
+    if (!draw_match_surface())
+        std::ignore = draw_match_surface();
+}
+
+bool Runtime::draw_match_surface() {
     if (!match_ || !selected_tnt_)
         throw std::logic_error("match renderer requires an initialized offline match");
     // The drawing rebuilds piece placements the match reads, so it rounds as
@@ -871,10 +878,15 @@ void Runtime::render_match_surface() {
     // rasterised; the world layer is the overlay canvas, cleared to the key
     // colour, which the painters after the fog paint. The camera and the
     // zoom the frame draws at are kept for the card's frame.
-    const bool card_world = full_presentation() && !directed && !far && !live_renderer_active();
+    // A director's frame is the card's only on the renderer with no window
+    // that draws director frames on the graphics card.
+    const bool card_world = full_presentation() && (!directed || director_draws_on_card()) &&
+                            !far && !live_renderer_active();
     // The live renderer consumes the draw list directly. Its GPU picture replaces
     // the whole battlefield, so a classic terrain, model and fog raster is unused.
-    const bool live_world = !directed && live_renderer_active() && !live_renderer_failed();
+    // A director's turned frame on the graphics card is the live renderer's.
+    const bool live_world = (!directed || director_draws_on_card()) && live_renderer_active() &&
+                            !live_renderer_failed();
     // How far between map pixels the frame draws the view: an accelerated
     // frame the card draws, magnifies or the area pass reduces may, and so
     // may a scene the processor draws at a zoom below 1, which lays its
@@ -964,7 +976,8 @@ void Runtime::render_match_surface() {
     else
         track_match_drag();
     auto viewport = live_viewport(camera_x, camera_y);
-    match_use_layers_ = sdl_.renderer != nullptr && !options_.headless_check;
+    match_use_layers_ =
+        (sdl_.renderer != nullptr && !options_.headless_check) || director_draws_on_card();
     // The sweep that has just opened the menu shows the sound page on this
     // frame, so the HUD drawn below is that page and not the tabs alone.
     advance_options_lightbar();
@@ -2318,10 +2331,14 @@ void Runtime::render_match_surface() {
     // label, message, board or overlay is painted over it.
     drawn_health_bars_.clear();
     if (bare) {
+        // A turned director frame is the rotated view's picture, drawn here
+        // as the frame with the interface draws it below; one the card
+        // cannot draw ends the frame, as there.
+        const bool drawn = !live_world || render_live_match_surface();
         overlay_target_ = nullptr;
         hud_source_space_ = false;
         paint_origin_ = {};
-        return;
+        return drawn;
     }
     // The HUD overlay: resource bars, bottom panel, then radar at
     // Game.radar_offset_x and radar_offset_y, then the GUI's child gadgets last.
@@ -2399,8 +2416,14 @@ void Runtime::render_match_surface() {
     }
     // The rotated view replaces the battlefield's picture, so it is drawn
     // before what lies over the battlefield: the megamap, the markers and
-    // the commander placement.
-    render_live_match_surface();
+    // the commander placement. A rotated frame the card cannot draw ends the
+    // frame here, before anything is drawn over the battlefield it left out.
+    if (!render_live_match_surface()) {
+        overlay_target_ = nullptr;
+        hud_source_space_ = false;
+        paint_origin_ = {};
+        return false;
+    }
     // ui.megamap draws over the battlefield in its place.
     draw_megamap();
     paint_on(PaintLayer::hud);
@@ -2448,6 +2471,7 @@ void Runtime::render_match_surface() {
     // Director mode composes its own frame (draw_director_frame).
     if (!match_use_layers_ && !directed)
         compose_match_frame(surface_);
+    return true;
 }
 
 } // namespace oa::app

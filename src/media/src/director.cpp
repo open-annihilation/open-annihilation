@@ -225,6 +225,12 @@ void warn_about_camera(
             path + ".position: the view reaches past the map's edge; its centre is moved to keep "
                    "it on the map"
         );
+    if (kept.pitch != view.pitch)
+        messages.warnings.push_back(
+            path + ".orientation.pitch: the camera would look down at an elevation outside " +
+            std::to_string(static_cast<int32_t>(min_elevation)) + " to " +
+            std::to_string(static_cast<int32_t>(max_elevation)) + " degrees; it is held within them"
+        );
 }
 
 /// Compiles one shot's cameras, motion and transition.
@@ -320,7 +326,7 @@ View clamp_view(View view, MapBounds bounds, OutputSize output) noexcept {
     };
     const double map_width{static_cast<double>(bounds.width)};
     const double map_height{static_cast<double>(bounds.height)};
-    View kept{view.x, view.z, height};
+    View kept{view.x, view.z, height, view.yaw, held_within(view.pitch, min_pitch, max_pitch)};
     if (width >= map_width)
         kept.x = map_width / 2.0;
     else
@@ -337,6 +343,8 @@ View view_of_camera(const CameraState& camera) noexcept {
         decimal_value(camera.position.x),
         decimal_value(camera.position.z),
         decimal_value(camera.position.y),
+        camera.orientation ? decimal_value(camera.orientation->yaw) : 0.0,
+        camera.orientation ? decimal_value(camera.orientation->pitch) : 0.0,
     };
 }
 
@@ -462,6 +470,8 @@ CameraRig::CameraRig(const ShotList& shots) : shots_{&shots} {
         inverse_height_.value,
         inverse_height_.speed
     );
+    begin_axis(first, first.start.yaw, first.end.yaw, fps, yaw_.value, yaw_.speed);
+    begin_axis(first, first.start.pitch, first.end.pitch, fps, pitch_.value, pitch_.speed);
 }
 
 bool CameraRig::next(FrameCameras& cameras) {
@@ -474,7 +484,9 @@ bool CameraRig::next(FrameCameras& cameras) {
         end_axis(ending, ending.end.x, x_.value);
         end_axis(ending, ending.end.z, z_.value);
         end_axis(ending, 1.0 / ending.end.height, inverse_height_.value);
-        held_ = View{x_.value, z_.value, 1.0 / inverse_height_.value};
+        end_axis(ending, ending.end.yaw, yaw_.value);
+        end_axis(ending, ending.end.pitch, pitch_.value);
+        held_ = View{x_.value, z_.value, 1.0 / inverse_height_.value, yaw_.value, pitch_.value};
         ++shot_;
         const CompiledShot& starting{list.shots[shot_]};
         begin_axis(starting, starting.start.x, starting.end.x, fps, x_.value, x_.speed);
@@ -487,17 +499,23 @@ bool CameraRig::next(FrameCameras& cameras) {
             inverse_height_.value,
             inverse_height_.speed
         );
+        begin_axis(starting, starting.start.yaw, starting.end.yaw, fps, yaw_.value, yaw_.speed);
+        begin_axis(
+            starting, starting.start.pitch, starting.end.pitch, fps, pitch_.value, pitch_.speed
+        );
     }
 
     const CompiledShot& shot{list.shots[shot_]};
     const uint64_t step{frame_ - shot.first_frame};
-    View view{x_.value, z_.value, 1.0 / inverse_height_.value};
+    View view{x_.value, z_.value, 1.0 / inverse_height_.value, yaw_.value, pitch_.value};
     if (shot.motion == Motion::linear) {
         view.x = linear_value(x_.value, shot.end.x, step, shot.frame_count);
         view.z = linear_value(z_.value, shot.end.z, step, shot.frame_count);
         view.height =
             1.0 /
             linear_value(inverse_height_.value, 1.0 / shot.end.height, step, shot.frame_count);
+        view.yaw = linear_value(yaw_.value, shot.end.yaw, step, shot.frame_count);
+        view.pitch = linear_value(pitch_.value, shot.end.pitch, step, shot.frame_count);
     }
 
     cameras = FrameCameras{};
@@ -522,6 +540,8 @@ bool CameraRig::next(FrameCameras& cameras) {
             inverse_height_.value,
             inverse_height_.speed
         );
+        step_spring(spring_of(shot, shot.end.yaw, frame_length), yaw_.value, yaw_.speed);
+        step_spring(spring_of(shot, shot.end.pitch, frame_length), pitch_.value, pitch_.speed);
     }
     ++frame_;
     return true;

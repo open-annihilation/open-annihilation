@@ -3,15 +3,18 @@
 
 // A network match under a mod profile's setup and team rules, over an
 // in-memory transport: the host's start positions with team-mates
-// together, a team record moving this machine's alliances, and an
-// alliance request carried out. Each case also runs without the rules,
-// where the match keeps 3.1c's behaviour.
+// together, every machine working out the host's fixed starts, a team
+// record moving this machine's alliances, and an alliance request carried
+// out. Each case also runs without the rules, where the match keeps 3.1c's
+// behaviour.
 
 #include "oa/netgame/match/net_match.hpp"
 #include "oa/netgame/match/packet_layer.hpp"
 #include "oa/netgame/network.hpp"
 #include "oa/ui/frontend_multiplayer/team_rules.hpp"
 
+#include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstring>
 #include <deque>
@@ -266,6 +269,97 @@ void start_positions_put_computers_last_on_neutral_maps() {
     CHECK(positions[1] == 0 && positions[2] == 1 && positions[0] == 2);
 }
 
+/// The host's slot table: each of its slots' player id.
+std::array<uint32_t, OA_PLAYER_COUNT> slot_table_of(const std::vector<Seat>& seats) {
+    std::array<uint32_t, OA_PLAYER_COUNT> table{};
+    for (std::size_t slot = 0; slot < seats.size(); ++slot)
+        table[slot] = seats[slot].id;
+    return table;
+}
+
+void every_machine_works_out_the_fixed_starts() {
+    std::array<int32_t, OA_PLAYER_COUNT> worked{};
+    // The host deals fixed starts in its slot order, past the watcher.
+    const std::vector<Seat> seats{
+        {0x10, OA_PLAYER_STATUS_LOCAL},
+        {0x11, OA_PLAYER_STATUS_MIRRORED, tr::no_team, true},
+        {0x12, OA_PLAYER_STATUS_COMPUTER},
+        {0x13, OA_PLAYER_STATUS_MIRRORED},
+    };
+    const auto table = slot_table_of(seats);
+    Machine host(seats, 0, true);
+    host.world->player_info[0].options |= OA_SETUP_OPTION_FIXED_LOCATIONS;
+    const auto dealt = host.positions();
+    CHECK(dealt[0] == 0 && dealt[1] == -1 && dealt[2] == 1 && dealt[3] == 2);
+    CHECK(net_match_fixed_start_positions(host.match.get(), table, worked));
+    CHECK(std::equal(dealt.begin(), dealt.end(), worked.begin()));
+    // The last player's machine seats it first and the others after it: it
+    // reads the host's order from the host's slot table.
+    Machine joiner(
+        {{0x13, OA_PLAYER_STATUS_LOCAL},
+         {0x10, OA_PLAYER_STATUS_MIRRORED},
+         {0x11, OA_PLAYER_STATUS_MIRRORED, tr::no_team, true},
+         {0x12, OA_PLAYER_STATUS_MIRRORED}},
+        0,
+        true
+    );
+    joiner.world->player_info[0].role = 0;
+    joiner.world->player_info[1].role = 1;
+    CHECK(net_match_fixed_start_positions(joiner.match.get(), table, worked));
+    CHECK(worked[0] == 2 && worked[1] == 0 && worked[2] == -1 && worked[3] == 1);
+    // A table that leaves out a player who plays gives no starts.
+    auto stale = table;
+    stale[3] = 0;
+    CHECK(!net_match_fixed_start_positions(joiner.match.get(), stale, worked));
+    CHECK(std::all_of(worked.begin(), worked.end(), [](int32_t start) { return start == -1; }));
+}
+
+void every_machine_puts_the_hosts_computers_last() {
+    std::array<int32_t, OA_PLAYER_COUNT> worked{};
+    // On a neutral map the team rules put the host's computer player after
+    // the others. The joiner, in machine group 2, reads it as the host's by
+    // its machine group.
+    const std::vector<Seat> seats{
+        {0x10, OA_PLAYER_STATUS_COMPUTER},
+        {0x11, OA_PLAYER_STATUS_LOCAL},
+        {0x12, OA_PLAYER_STATUS_MIRRORED},
+    };
+    const auto table = slot_table_of(seats);
+    const auto team_adjacent = [](Machine& machine) {
+        machine.rules.setup.team_start_positions.enabled = true;
+        machine.rules.setup.team_start_positions.mode =
+            oa::data::match_rules::SetupTeamStartPositionsMode::team_adjacent;
+        net_match_bind_rules(machine.match.get(), &machine.rules, true);
+    };
+    Machine host(seats, 1, true);
+    host.world->player_info[1].options |= OA_SETUP_OPTION_FIXED_LOCATIONS;
+    host.world->game.players[2].machine_group = 2;
+    team_adjacent(host);
+    const auto dealt = host.positions();
+    CHECK(dealt[1] == 0 && dealt[2] == 1 && dealt[0] == 2);
+    CHECK(net_match_fixed_start_positions(host.match.get(), table, worked));
+    CHECK(std::equal(dealt.begin(), dealt.end(), worked.begin()));
+    Machine joiner(
+        {{0x12, OA_PLAYER_STATUS_LOCAL},
+         {0x10, OA_PLAYER_STATUS_MIRRORED},
+         {0x11, OA_PLAYER_STATUS_MIRRORED}},
+        0,
+        true
+    );
+    joiner.world->player_info[0].role = 0;
+    joiner.world->player_info[2].role = 1;
+    joiner.world->player_info[1].state = tr::setup_computer;
+    joiner.world->game.players[0].machine_group = 2;
+    team_adjacent(joiner);
+    CHECK(net_match_fixed_start_positions(joiner.match.get(), table, worked));
+    CHECK(worked[0] == 1 && worked[1] == 2 && worked[2] == 0);
+    // Without the host's machine group its computer players cannot be told
+    // from another machine's, and the joiner gives no starts.
+    joiner.world->game.players[2].machine_group = 0;
+    CHECK(!net_match_fixed_start_positions(joiner.match.get(), table, worked));
+    CHECK(std::all_of(worked.begin(), worked.end(), [](int32_t start) { return start == -1; }));
+}
+
 void team_records_move_local_alliances() {
     const std::vector<Seat> seats{
         {0x10, OA_PLAYER_STATUS_LOCAL, 1},
@@ -381,6 +475,8 @@ void the_host_deals_teams_by_position() {
 int main() {
     start_positions_keep_team_mates_together();
     start_positions_put_computers_last_on_neutral_maps();
+    every_machine_works_out_the_fixed_starts();
+    every_machine_puts_the_hosts_computers_last();
     team_records_move_local_alliances();
     alliance_requests_are_carried_out();
     the_host_deals_teams_by_position();

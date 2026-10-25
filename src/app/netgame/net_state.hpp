@@ -38,6 +38,11 @@ struct NetState {
     // before the match owns the session: the engine's load_progress hook
     // keeps the connection alive for them. Null otherwise.
     const oa::Game* building_game{};
+    // The host's slot table (Game.slot_table, record 0x26) as the battle
+    // room had it at the launch: each of the host's slots' player id. The
+    // host deals fixed starts in its own slot order, which this machine's
+    // slots need not follow.
+    std::array<uint32_t, OA_PLAYER_COUNT> host_slot_ids{};
     // When the loading screen's work last ran, over the build and the load
     // barrier alike.
     oa::netgame::match::LoadingPace loading_pace{};

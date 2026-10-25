@@ -142,6 +142,7 @@ void renderer_ladder_options() {
         {"memory", oa::app::RenderFaultPoint::memory},
         {"card", oa::app::RenderFaultPoint::card},
         {"full-memory", oa::app::RenderFaultPoint::full_memory},
+        {"effects", oa::app::RenderFaultPoint::effects},
     };
     for (const auto& [name, point] : points) {
         const auto faulted = parse({"--check-renderer-ladder", "--render-fault", name});
@@ -161,8 +162,8 @@ void renderer_ladder_options() {
         );
     }
     const std::string usage =
-        "--render-fault takes create, present, reset, lost, stall, float, memory, card or "
-        "full-memory, optionally @FRAME";
+        "--render-fault takes create, present, reset, lost, stall, float, memory, card, "
+        "full-memory or effects, optionally @FRAME";
     for (const char* refused : {"present@0", "present@x", "present@", "reset@-1", "melt", "@5"})
         expect(rejection({"--check-renderer-ladder", "--render-fault", refused}) == usage, refused);
     expect(
@@ -2072,6 +2073,76 @@ int main() {
         rejection({"--render-script", "game.oascript", "--resolution", "640x360"}) ==
             "--render-script takes the frame size from the script, not from --resolution",
         "a render's size is the script's"
+    );
+    // A render draws its frames on the processor or on the graphics card's
+    // Full tier; Basic draws none of its own.
+    expect(
+        rejection({"--render-script", "game.oascript", "--hardware-acceleration=basic"}) ==
+            "--render-script draws its frames on the processor, or on the graphics card with "
+            "--hardware-acceleration=full; Basic draws no frames of its own",
+        "a render is not drawn by Basic"
+    );
+    expect(
+        parse({"--render-script", "game.oascript", "--hardware-acceleration=full"})
+                    .hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full &&
+            parse({"--render-script", "game.oascript", "--hardware-acceleration"})
+                    .hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full &&
+            parse({"--render-script", "game.oascript", "--no-hardware-acceleration"})
+                    .hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::off,
+        "a render is drawn by the card's Full tier or by the processor"
+    );
+    // --effect sets an effect's percent for a render, once for each effect.
+    {
+        const auto effects = parse({"--render-script",
+                                    "game.oascript",
+                                    "--effect",
+                                    "heat-distortion=0",
+                                    "--effect",
+                                    "water-ripples=150"})
+                                 .director_effects;
+        std::size_t set = 0;
+        for (std::size_t index = 0; index < effects.size(); ++index) {
+            const auto name = oa::ui::engine_settings::effect_sliders[index].name;
+            if (name == "heat-distortion")
+                expect(effects[index] == 0U, "--effect heat-distortion=0 sets 0%");
+            else if (name == "water-ripples")
+                expect(effects[index] == 150U, "--effect water-ripples=150 sets 150%");
+            else
+                expect(!effects[index], "--effect leaves the effects it does not name");
+            set += effects[index] ? 1 : 0;
+        }
+        expect(set == 2, "--effect sets the two effects named");
+    }
+    for (const auto* value :
+         {"heat-distortion",
+          "heat-distortion=",
+          "heat-distortion=210",
+          "heat-distortion=15",
+          "heat-distortion=-10",
+          "sparkles=100",
+          "=100",
+          "heat-distortion=1e2"})
+        expect(
+            rejection({"--render-script", "game.oascript", "--effect", value})
+                .starts_with("--effect expects NAME=PERCENT: NAME one of weapon-lighting, "),
+            value
+        );
+    expect(
+        rejection(
+            {"--render-script",
+             "game.oascript",
+             "--effect",
+             "wreck-glow=50",
+             "--effect",
+             "wreck-glow=60"}
+        ) == "--effect names wreck-glow twice",
+        "an effect is set once"
+    );
+    expect(
+        rejection({"--effect", "wreck-glow=50"}) == "--effect needs --render-script" &&
+            rejection({"--generate-script", "game.rec", "--effect", "wreck-glow=50"}) ==
+                "--effect needs --render-script",
+        "--effect belongs to a render"
     );
     const std::vector<std::vector<const char*>> refused_with_scripts{
         {"--seed", "5"},

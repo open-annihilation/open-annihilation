@@ -76,6 +76,9 @@ constexpr auto tab_controls = static_cast<int32_t>(tab_total);
 constexpr auto filter_controls = static_cast<int32_t>(filter_total);
 /// How far a notch of the wheel scrolls the details, in points: a full list row.
 constexpr int32_t details_step = kit::compact_metrics.list_row_height;
+/// How far a mouse moves sideways, in points, before a press on the tab strip
+/// becomes a drag.
+constexpr int32_t mouse_drag_points = 3;
 
 /// The part of a control a press reaches.
 ///
@@ -824,6 +827,7 @@ ScreenResult activate(
     if (id == controls::tab_scroll_left || id == controls::tab_scroll_right) {
         const int32_t steps = id == controls::tab_scroll_right ? 1 : -1;
         state.tab_scroll = kit::tab_scroll_step(list, steps);
+        state.tab_scrolled = true;
         return redrawn();
     }
     if (id >= controls::first_tab && id < controls::first_tab + tab_controls)
@@ -1244,6 +1248,7 @@ ScreenResult library_pointer(
             if (button != 1)
                 return {};
             state.drag = {};
+            state.tab_drag = {};
             state.bar_held = Pane::none;
             const kit::PointerOutcome outcome = kit::pointer_down(interaction, list, at);
             ScreenResult result;
@@ -1276,6 +1281,24 @@ ScreenResult library_pointer(
                 return {};
             scroll_to(state, state.bar_held, next);
             return redrawn();
+        }
+        if (state.tab_drag.held) {
+            const int32_t across = at.x - state.tab_drag.from_x;
+            const int32_t start = finger_reach > 0 ? finger_reach + 1 : mouse_drag_points;
+            if (!state.tab_drag.scrolling && std::abs(across) >= start) {
+                // The press becomes a drag: it scrolls the strip, and presses nothing.
+                state.tab_drag.scrolling = true;
+                interaction.pressed = kit::no_control;
+                interaction.finger_shift = {};
+            }
+            if (state.tab_drag.scrolling) {
+                const int32_t next = kit::tab_scroll_by(list, state.tab_drag.scroll, -across);
+                if (next == state.tab_scroll)
+                    return {};
+                state.tab_scroll = next;
+                state.tab_scrolled = true;
+                return redrawn();
+            }
         }
         if (state.drag.pane != Pane::none) {
             const int32_t across = at.x - state.drag.from.x;
@@ -1320,6 +1343,7 @@ ScreenResult library_pointer(
         if (button != 1)
             return {};
         state.drag = {};
+        state.tab_drag = {};
         state.bar_held = Pane::none;
         if (state.menu != MenuKind::none) {
             const kit::ControlId under =
@@ -1355,7 +1379,14 @@ ScreenResult library_pointer(
         const kit::PointerOutcome outcome =
             finger_reach > 0 ? kit::finger_down(interaction, list, at, finger_reach)
                              : kit::pointer_down(interaction, list, at);
-        if (finger_reach > 0) {
+        if (const std::optional<kit::Rect> strip = kit::tab_drag_area(list);
+            strip && kit::contains(*strip, at)) {
+            // A press on tabs that do not fit can become a drag that scrolls
+            // them sideways; let go without moving, it opens a tab as before.
+            state.tab_drag.held = true;
+            state.tab_drag.from_x = at.x;
+            state.tab_drag.scroll = state.tab_scroll;
+        } else if (finger_reach > 0) {
             const Pane pane = pane_at(library, state, list, at);
             if (const std::optional<PaneScroll> scroll = scroll_of(library, state, list, pane)) {
                 state.drag.pane = pane;
@@ -1376,8 +1407,9 @@ ScreenResult library_pointer(
             interaction.pressed = kit::no_control;
             return redrawn();
         }
-        const bool dragged = state.drag.scrolling;
+        const bool dragged = state.drag.scrolling || state.tab_drag.scrolling;
         state.drag = {};
+        state.tab_drag = {};
         if (dragged) {
             interaction.pressed = kit::no_control;
             interaction.finger_shift = {};
@@ -1693,6 +1725,7 @@ ScreenResult library_wheel(
         if (next == state.tab_scroll)
             return {};
         state.tab_scroll = next;
+        state.tab_scrolled = true;
         return redrawn();
     }
     return turn_pane(library, state, list, pane_at(library, state, list, at), notches);

@@ -52,6 +52,15 @@ struct Drag {
     bool scrolling{};      ///< it moved past the finger's reach: it scrolls and presses nothing
 };
 
+/// A press on the tab strip, which becomes a drag that scrolls the strip
+/// sideways once it moves far enough.
+struct TabDrag {
+    bool held{};      ///< a press on the strip is held
+    int32_t from_x{}; ///< where it pressed, in points
+    int32_t scroll{}; ///< how far the strip was scrolled when it pressed, in points
+    bool scrolling{}; ///< it moved far enough: it scrolls the strip and presses nothing
+};
+
 /// What the Library's screen keeps between its inputs, beside the model.
 struct ScreenState {
     kit::Interaction interaction{}; ///< the hover, the press and the focus
@@ -59,8 +68,16 @@ struct ScreenState {
     /// reveal_row names a row to bring into view.
     mutable int32_t list_scroll{};
     /// How far the tab strip is scrolled, in points from the first tab. The
-    /// layout writes it so the open tab stays wholly in view.
+    /// layout writes it clamped to the strip, and so the open tab stays
+    /// wholly in view until the player scrolls the strip.
     mutable int32_t tab_scroll{};
+    /// The player scrolled the tab strip with an arrow, the wheel or a drag
+    /// since the open tab changed, so the strip stays where they left it.
+    mutable bool tab_scrolled{};
+    /// The tab the strip was last laid out with open; none before the first
+    /// layout. Opening another brings it into view again.
+    mutable std::optional<Tab> tab_laid_out{};
+    TabDrag tab_drag{};       ///< a press on the tab strip
     int32_t details_scroll{}; ///< how far the details are scrolled, in points
     /// A row of the list to bring into view on the next layout, its place
     /// among the visible entries from 0. The layout scrolls to it and clears

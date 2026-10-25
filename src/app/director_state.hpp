@@ -3,8 +3,10 @@
 
 // Director mode's state (Runtime::DirectorState): what it presents and
 // where its sounds go, the director's camera, what it replaced and restores
-// as it leaves, and every player's unit announcements with the director's
-// own random stream. runtime_director_view.cpp enters and leaves the mode;
+// as it leaves, every player's unit announcements with the director's own
+// random stream, and the graphics card's renderer when the Full tier draws
+// the frames (runtime_director_full.cpp). runtime_director_view.cpp enters
+// and leaves the mode;
 // the frame drawing (runtime_match_render.cpp) and the point sounds
 // (runtime_console_sound.cpp) read it.
 #pragma once
@@ -20,8 +22,20 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <stdexcept>
+#include <string>
 
 namespace oa::app {
+
+/// No renderer on a graphics card could be made for director frames drawn
+/// by the Full tier: SDL's video or its GPU renderer did not start, as where
+/// the machine has no graphics device SDL can use. A check skips on it; a
+/// render stops with it.
+class DirectorCardUnavailable : public std::runtime_error {
+  public:
+
+    using std::runtime_error::runtime_error;
+};
 
 struct Runtime::DirectorState {
     /// The linear congruential sequence of the director's random stream,
@@ -41,10 +55,32 @@ struct Runtime::DirectorState {
         uint32_t speaking_players{};     ///< bit n: player n's units asked to speak
     };
 
+    /// The renderer with no window that the Full tier draws a director's
+    /// frames on when its presentation asks for the graphics card
+    /// (runtime_director_full.cpp), and what it replaced.
+    struct Card {
+        SDL_Renderer* renderer{}; ///< null while the processor draws
+        /// The texture each frame is presented into and read back from, at
+        /// the layout's size.
+        SDL_Texture* frame{};
+        int frame_width{};
+        int frame_height{};
+        bool video_started{};          ///< SDL's video was started for the renderer
+        SDL_Renderer* kept_renderer{}; ///< the runtime's renderer before, put back
+        /// The driver of the graphics card the renderer draws with, as SDL
+        /// names it, which the run manifest names.
+        std::string driver{};
+    };
+
     DirectorPresentation presentation{};
     DirectorSoundHooks sounds{};
+    Card card{};
     oa::media::director::EngineView view{};
     bool view_set{}; ///< set_director_view has set `view`
+    /// The view being drawn as the script places it, with the camera's turn:
+    /// a turned frame on the graphics card is drawn from its exact centre.
+    oa::media::director::View aim{};
+    bool live_turned{}; ///< the live renderer's camera was turned for a frame
 
     // What director mode replaced, put back as it leaves.
     oa::ui::display_layout::MatchLayout layout{};

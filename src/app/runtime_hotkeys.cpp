@@ -490,32 +490,54 @@ void Runtime::box_select_units(int x0, int y0, int x1, int y1, bool add) {
         return;
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;
+    if (!add)
+        selected_match_unit_ = 0;
+    bool any = false;
     if (live_renderer_active()) {
-        if (!add)
-            clear_local_selection();
-        const int left = std::min(x0, x1), right = std::max(x0, x1);
-        const int top = std::min(y0, y1), bottom = std::max(y0, y1);
-        for (const auto& slot : match_->world().slots) {
-            if (!slot.unit || slot.unit_index == 0 || slot.owner_index != match_local_player_ ||
-                !match_->selectable(slot.unit_index))
-                continue;
-            const auto bounds = live_unit_bounds(slot.unit_index);
-            if (!bounds)
-                continue;
-            const auto centre_x = bounds->x1 + (bounds->x2 - bounds->x1) / 2;
-            const auto centre_y = bounds->y1 + (bounds->y2 - bounds->y1) / 2;
-            if (centre_x < left || centre_x > right || centre_y < top || centre_y > bottom)
-                continue;
-            if (add && (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0)
-                slot.unit->flags &= ~OA_UNIT_FLAG_SELECTED;
-            else
-                adopt_selection(slot.unit_index);
-        }
-        selection_shortcut_drag_filter();
-        adopt_selected_units();
-        status_ = std::to_string(selected_local_ids().size()) + " selected";
-        return;
+        // The rotated view tests a unit where it drew it: the middle of its
+        // drawn bounds in the box. The selection, its speech or sound and
+        // the select-next marks follow as a classic box's do.
+        struct Box {
+            const Runtime* runtime;
+            int left;
+            int top;
+            int right;
+            int bottom;
+        };
+
+        Box box{this, std::min(x0, x1), std::min(y0, y1), std::max(x0, x1), std::max(y0, y1)};
+        any = oa::sim::selection::select_units_where(
+            world,
+            on_screen_lists(),
+            add,
+            selection_hooks(),
+            [](void* context, const oa::Unit& unit) {
+                const auto& in = *static_cast<const Box*>(context);
+                const auto bounds = in.runtime->live_unit_bounds(unit.id);
+                if (!bounds)
+                    return false;
+                const auto centre_x = bounds->x1 + (bounds->x2 - bounds->x1) / 2;
+                const auto centre_y = bounds->y1 + (bounds->y2 - bounds->y1) / 2;
+                return centre_x >= in.left && centre_x <= in.right && centre_y >= in.top &&
+                       centre_y <= in.bottom;
+            },
+            &box
+        );
+    } else {
+        any = select_units_in_classic_box(x0, y0, x1, y1, add);
     }
+    selection_shortcut_drag_filter();
+    adopt_selected_units();
+    int count = 0;
+    for (const auto& slot : match_->world().slots)
+        if (slot.unit != nullptr && slot.owner_index == match_local_player_ &&
+            (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0)
+            ++count;
+    status_ = !any ? "No units" : std::to_string(count) + " selected";
+}
+
+bool Runtime::select_units_in_classic_box(int x0, int y0, int x1, int y1, bool add) {
+    auto& world = match_->state();
     // The corners are the drag's ends on the canvas, projected from the
     // camera the view has now; the box goes back to Game.drag_start and
     // drag_end as map points at height 0.
@@ -537,18 +559,9 @@ void Runtime::box_select_units(int x0, int y0, int x1, int y1, bool add) {
     static_assert(sizeof end == sizeof world.game.drag_end);
     std::memcpy(world.game.drag_start, start.data(), sizeof world.game.drag_start);
     std::memcpy(world.game.drag_end, end.data(), sizeof world.game.drag_end);
-    if (!add)
-        selected_match_unit_ = 0;
-    const bool any =
-        oa::sim::selection::select_units_in_box(world, on_screen_lists(), add, selection_hooks());
-    selection_shortcut_drag_filter();
-    adopt_selected_units();
-    int count = 0;
-    for (const auto& slot : match_->world().slots)
-        if (slot.unit != nullptr && slot.owner_index == match_local_player_ &&
-            (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0)
-            ++count;
-    status_ = !any ? "No units" : std::to_string(count) + " selected";
+    return oa::sim::selection::select_units_in_box(
+        world, on_screen_lists(), add, selection_hooks()
+    );
 }
 
 void Runtime::area_order_units(int x0, int y0, int x1, int y1, std::string_view kind) {

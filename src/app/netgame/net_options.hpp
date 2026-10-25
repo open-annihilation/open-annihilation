@@ -50,6 +50,9 @@ struct NetOptions {
     // the computer-player match, and plays its recording back when --net-record
     // names a file.
     bool net_loopback_each_ai = false;
+    // The loopback host fixes the start positions, as the battle room's
+    // option does.
+    bool net_loopback_fixed_starts = false;
     // A join whose host is not found, played through the main loop (with
     // --frames and "-n1:<address>" naming an address where no game is
     // hosted): a launch counts as active until the game list begins to wait

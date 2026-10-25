@@ -4,13 +4,16 @@
 // Live match camera and GPU battlefield composition.
 #include "oa/app/runtime.hpp"
 #include "oa/app/frame_coordinates.hpp"
+#include "director_state.hpp"
 #include "match_models.hpp"
 #include "engine_settings_state.hpp"
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_scene.hpp"
+#include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -49,9 +52,29 @@ void Runtime::destroy_live_renderer(LiveRenderer* renderer) noexcept {
 }
 
 bool Runtime::live_renderer_active() const noexcept {
-    return (!engine_settings_ || engine_settings_->current.allow_full_3d) &&
+    // A director's turned frame on the graphics card asks for the turn
+    // itself, whatever Allow Full 3D Mode says.
+    return (!engine_settings_ || engine_settings_->current.allow_full_3d ||
+            director_draws_on_card()) &&
            (full_presentation() || options_.headless_check) && live_renderer_ &&
            (live_renderer_->camera.yaw_degrees != 0 || live_renderer_->camera.pitch_degrees != 0);
+}
+
+bool Runtime::turn_live_camera(float yaw_degrees, float pitch_degrees) {
+    if (!live_renderer_)
+        live_renderer_.reset(new LiveRenderer{});
+    auto& live = *live_renderer_;
+    live.camera.yaw_degrees = yaw_degrees;
+    live.camera.pitch_degrees = pitch_degrees;
+    // Held within the unlocked range by the camera's own limits, so that
+    // the projection takes the angles as they are.
+    renderer_live_camera::set_unlocked(live.camera, true);
+    live.dragging = false;
+    live.drag_button = 0;
+    live.pivot_held = false;
+    live.failed = false;
+    live.unavailable = false;
+    return live.camera.yaw_degrees != 0 || live.camera.pitch_degrees != 0;
 }
 
 bool Runtime::live_renderer_unlocked() const noexcept {
@@ -109,10 +132,19 @@ void Runtime::reset_live_renderer() {
 
 bool Runtime::live_renderer_take_event(SDL_Event& event) {
     // Where no rotated view can be drawn, Alt and its clicks and keys stay
-    // the game's.
-    if (!renderer_live_gpu::shaders_built() || !engine_settings().allow_full_3d ||
-        screen_ != Screen::match || !match_ || !selected_tnt_)
+    // the game's: below Full hardware acceleration, which never draws it,
+    // and once SDL has made no device for it, for the rest of the run.
+    if ((live_renderer_ && live_renderer_->gpu.device_unavailable) ||
+        !engine_settings().allow_full_3d || screen_ != Screen::match || !match_ || !selected_tnt_)
         return false;
+    if (!full_presentation() && !options_.headless_check) {
+        // A camera drag begun on Full ends where Full does.
+        if (live_renderer_) {
+            live_renderer_->dragging = false;
+            live_renderer_->drag_button = 0;
+        }
+        return false;
+    }
     if (!live_renderer_)
         live_renderer_.reset(new LiveRenderer{});
     auto& live = *live_renderer_;
@@ -184,11 +216,6 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
          (live_renderer_active() && engine_settings().middle_click_pan));
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && battlefield &&
         (middle_camera_drag || primary_camera_drag)) {
-        if (!full_presentation() && !options_.headless_check) {
-            live.drag_button = event.button.button;
-            status_ = "3D camera requires Full hardware acceleration";
-            return true;
-        }
         // An explicit camera gesture retries after a failed frame.
         live.failed = false;
         live.unavailable = false;
@@ -235,7 +262,7 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
     if (!std::isfinite(turned) || turned == 0)
         return true;
-    const auto anchor = live_ground_point(x, y);
+    const auto anchor = live_ground_hit(x, y);
     constexpr float fixed_scale = 65536;
     const float anchor_height =
         anchor ? static_cast<float>((*anchor)[1]) / fixed_scale : live.view.focus_y;
@@ -260,9 +287,10 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
     return true;
 }
 
-void Runtime::render_live_match_surface() {
-    if (!engine_settings().allow_full_3d || !match_ || !selected_tnt_)
-        return;
+bool Runtime::render_live_match_surface() {
+    if ((!engine_settings().allow_full_3d && !director_draws_on_card()) || !match_ ||
+        !selected_tnt_)
+        return true;
     if (!live_renderer_)
         live_renderer_.reset(new LiveRenderer{});
     auto& live = *live_renderer_;
@@ -304,7 +332,7 @@ void Runtime::render_live_match_surface() {
         focus_x, elevation, focus_y + elevation * height_lift, width * 0.5F, height * 0.5F, zoom
     };
     if (!renderer_live_camera::projection(live.camera, live.view, live.projection))
-        return;
+        return true;
     if (live_renderer_active() && !live.failed) {
         auto& models = match_models();
         renderer_live_scene::Inputs inputs{};
@@ -312,6 +340,7 @@ void Runtime::render_live_match_surface() {
         inputs.palette = &match_palette_;
         inputs.draws = &models.draws;
         inputs.graphics_flags = models.renderer.graphics_flags;
+        inputs.moving_pieces_once_built = models.renderer.moving_pieces_once_built;
         inputs.shade_table = models.display.shade;
         inputs.light = {
             models.renderer.light[0], models.renderer.light[1], models.renderer.light[2]
@@ -336,6 +365,7 @@ void Runtime::render_live_match_surface() {
         inputs.nanolathe_lighting = engine_settings().nanolathe_lighting > 0;
         inputs.nanolathe_intensity = engine_settings().nanolathe_lighting / 100.0F;
         inputs.tick = match_->simulation().tick;
+        inputs.translucent_units = match_->state().game.debug_overlay != 0;
         inputs.view_direction = {live.projection[8], live.projection[9], live.projection[10]};
         inputs.clip_projection = live.projection;
         inputs.clip_width = match_world_cpu_.width;
@@ -414,20 +444,24 @@ void Runtime::render_live_match_surface() {
             live.drag_button = 0;
             live.pivot_held = false;
             std::cerr << "3D view: " << error << '\n';
-            // This frame omitted the classic raster. Rebuild it once now that
-            // the failed flag selects the fallback, keeping the battlefield usable.
-            render_match_surface();
-            return;
+            // This frame left out the classic raster: render_match_surface
+            // draws the frame again, once, classically.
+            return false;
         }
     }
     if (!live_renderer_active())
-        return;
+        return true;
+    // A director's frame without the interface is the world alone.
+    const bool bare = director_ != nullptr && !director_->presentation.show_interface;
     if (!live.failed) {
-        draw_live_overlays();
-        draw_live_selection();
-        draw_live_unit_overlays();
+        if (!bare) {
+            draw_live_overlays();
+            draw_live_selection();
+            draw_live_unit_overlays();
+        }
         rebuild_on_screen_units();
     }
+    return true;
 }
 
 bool Runtime::scroll_live_match_view(double screen_dx, double screen_dy) {
@@ -524,6 +558,26 @@ Runtime::live_project_world(float x, float height, float z) const {
 }
 
 std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_point(float x, float y) const {
+    const auto hit = live_ground_hit(x, y);
+    if (!hit)
+        return std::nullopt;
+    // The map pixel the hit lies in, at the height the simulation gives that
+    // pixel and never below the sea, as terrain_intersection takes it for a
+    // classic pick; the mesh's height between cells and the fraction of the
+    // pixel are the drawing's alone.
+    const auto whole = [](int32_t fixed) {
+        return std::bit_cast<int32_t>(static_cast<uint32_t>(fixed) & 0xffff0000U);
+    };
+    const int32_t map_x = whole((*hit)[0]);
+    const int32_t map_z = whole((*hit)[2]);
+    const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
+    const int32_t height = std::max<int32_t>(terrain.sea_level(), terrain.height(map_x, map_z));
+    return oa::sim::ground_orders::Point{
+        map_x, std::bit_cast<int32_t>(static_cast<uint32_t>(height) << 16U), map_z
+    };
+}
+
+std::optional<oa::sim::ground_orders::Point> Runtime::live_ground_hit(float x, float y) const {
     if (!live_renderer_ || live_renderer_->failed || !battlefield_contains(x, y))
         return std::nullopt;
     const auto& live = *live_renderer_;
@@ -603,11 +657,12 @@ uint16_t Runtime::live_unit_under(float x, float y) const {
         );
         const auto alpha_index =
             (static_cast<std::size_t>(row) * live.scene.texture_width + column) * 4 + 3;
-        // Smoke and translucent ground overlays do not block gameplay picks.
-        if (alpha_index >= live.scene.texture_rgba.size() ||
-            live.scene.texture_rgba[alpha_index] * opacity < 128)
-            continue;
+        // Smoke and translucent ground overlays do not block gameplay picks;
+        // a unit is picked wherever its texels cover, a cloaked one too.
         const auto id = live.triangle_units[index / 3];
+        if (alpha_index >= live.scene.texture_rgba.size() ||
+            live.scene.texture_rgba[alpha_index] * (id != 0 ? 1.0F : opacity) < 128)
+            continue;
         if (id != 0 && !live_unit_bounds(id))
             continue;
         best_depth = depth;

@@ -898,6 +898,63 @@ void tabs_in_words_keep_a_count_of_zero() {
     OA_CHECK(updates != nullptr && updates->text == "Updates 4");
 }
 
+/// A strip that need not keep its open tab in view scrolls from its first
+/// tab to its last by steps or by points, with the open tab out of view,
+/// and a press can drag it between its arrows. A strip the tabs fit has no
+/// such area and stays at 0.
+void a_free_strip_scrolls_to_either_end() {
+    kit::TabsLook look;
+    look.captions = {"MODS", "MAPS", "UPDATES", "MODS", "MAPS", "UPDATES"};
+    look.counts = {0, 0, 2, 0, 0, 2};
+    look.selected = 1;
+    look.keep_selected_in_view = false;
+    const kit::Rect strip{10, 10, 160, kit::compact_metrics.tab_height};
+    const std::array<kit::ControlId, 6> ids{1, 2, 3, 4, 5, 6};
+    const std::array<std::string, 6> names{"a", "b", "c", "d", "e", "f"};
+
+    kit::DisplayList list;
+    kit::add_tabs(list, fonts(), strip, look, ids, names, 7, "scroll-left", 8, "scroll-right");
+    const std::optional<kit::Rect> area = kit::tab_drag_area(list);
+    OA_CHECK(area.has_value());
+    if (area) {
+        OA_CHECK(area->x == strip.x && area->width < strip.width);
+        OA_CHECK(area->y == strip.y && area->height == strip.height);
+    }
+    OA_CHECK(kit::tab_scroll_by(list, 0, -40) == 0);
+
+    // Steps reach the last tab, past the open one.
+    int32_t scroll = 0;
+    for (int32_t step = 0; step < 12; ++step) {
+        kit::DisplayList stepped;
+        look.scroll = scroll;
+        kit::add_tabs(stepped, fonts(), strip, look, ids, names, 7, "l", 8, "r");
+        scroll = kit::tab_scroll_step(stepped, 1);
+    }
+    look.scroll = scroll;
+    const kit::TabStrip end = kit::place_tabs(fonts(), strip, look);
+    OA_CHECK(end.scroll == scroll && end.right_arrow.width == 0 && end.left_arrow.width > 0);
+    OA_CHECK(kit::wholly_in(end.tabs.back(), end.view));
+    OA_CHECK(!kit::wholly_in(end.tabs[look.selected], end.view));
+
+    // Points stop at the same end, and at 0.
+    OA_CHECK(kit::tab_scroll_by(list, 0, 10000) == end.scroll);
+    const int32_t some = kit::tab_scroll_by(list, 0, 25);
+    OA_CHECK(some == 25);
+    OA_CHECK(kit::tab_scroll_by(list, end.scroll, -10000) == 0);
+
+    // The same scroll, kept for the open tab, comes back to it.
+    look.keep_selected_in_view = true;
+    const kit::TabStrip kept = kit::place_tabs(fonts(), strip, look);
+    OA_CHECK(kit::wholly_in(kept.tabs[look.selected], kept.view));
+
+    const kit::Rect wide{10, 10, 800, kit::compact_metrics.tab_height};
+    kit::DisplayList fitting;
+    look.scroll = 0;
+    kit::add_tabs(fitting, fonts(), wide, look, ids, names, 7, "l", 8, "r");
+    OA_CHECK(!kit::tab_drag_area(fitting).has_value());
+    OA_CHECK(kit::tab_scroll_by(fitting, 0, 50) == 0);
+}
+
 /// A strip the tabs fit draws no arrows and does not shift them. A narrow
 /// one keeps the open tab in view, shows an arrow only toward hidden tabs,
 /// and moves one tab at a time.
@@ -1576,6 +1633,7 @@ int main() {
     tabs_draw_with_a_count_and_with_none();
     tabs_in_words_keep_a_count_of_zero();
     a_narrow_strip_scrolls_one_tab_at_a_time();
+    a_free_strip_scrolls_to_either_end();
     cards_lie_in_a_grid();
     a_card_shows_its_placeholder_chips_and_lines();
     a_greyed_card_fades_into_the_panel();

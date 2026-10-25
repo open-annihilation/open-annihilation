@@ -99,7 +99,8 @@ NOTICE_DIRECTORIES = ("licenses/", "LICENSES/")
 LINE_COMMENT = "//"
 HASH_COMMENT = "#"
 COMMENT_BY_SUFFIX = {
-    **dict.fromkeys((".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inc", ".inl", ".m", ".mm", ".rc"),
+    **dict.fromkeys((".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".inc", ".inl", ".m", ".mm", ".rc",
+                     ".glsl"),
                     LINE_COMMENT),
     **dict.fromkeys((".py", ".sh", ".cmake", ".yml", ".yaml", ".toml", ".specs"), HASH_COMMENT),
 }

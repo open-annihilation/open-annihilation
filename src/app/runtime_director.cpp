@@ -14,6 +14,8 @@
 #include "oa/app/runtime.hpp"
 #include "renderer_effect_events.hpp"
 #include "director_state.hpp"
+#include "engine_settings_state.hpp"
+#include "renderer_live_gpu.hpp"
 #include "match_models.hpp"
 
 #include "oa/app/director_output.hpp"
@@ -32,6 +34,7 @@
 #include "oa/sim/match_runtime.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -78,6 +81,13 @@ struct Runtime::DirectorRender {
     RunDescription run{};   ///< what the run manifest says besides the chunks
     bool mute{};            ///< the sound is silence: no sound reaches the mix
     bool quiet{};           ///< print no line for each chunk
+    /// The frames are drawn by the graphics card's Full tier
+    /// (DirectorPresentation::full); the run manifest says so.
+    bool full{};
+    /// The percent each effect is drawn at in place of the run's settings
+    /// (--effect), in engine_settings::effect_sliders' order; unset for the
+    /// settings'.
+    std::array<std::optional<uint32_t>, oa::ui::engine_settings::effect_sliders.size()> effects{};
     /// The frames also written as stills (write_still), in increasing order;
     /// each lies in a chunk drawn.
     std::vector<uint64_t> stills{};
@@ -86,6 +96,8 @@ struct Runtime::DirectorRender {
     std::vector<ChunkSummary> chunks{};
     sha256::Digest pcm_digest{}; ///< of every written chunk's PCM, in order
     uint64_t frames_drawn{};
+    /// Frames drawn from a turned camera, by the live renderer on the card.
+    uint64_t turned_frames{};
     uint64_t sounds_started{};
     std::vector<std::string> clip_errors{};
     RecordingStatus last_status{}; ///< the replay's, after the last tick stepped
@@ -117,6 +129,9 @@ constexpr uint32_t kMinUsableTicks = 60 * 30;
 constexpr uint32_t kMaxStalledSteps = 30;
 /// Bytes of one pixel of a frame: red, green and blue.
 constexpr size_t kPixelBytes = 3;
+/// The exit status ctest reports as skipped: a check of the card's frames
+/// where no renderer on a graphics card can be made.
+constexpr int kSkippedExitCode = 77;
 /// The extensions of a director script and a director bundle.
 constexpr std::string_view kScriptExtension = ".oascript";
 constexpr std::string_view kBundleExtension = ".oamovie";
@@ -490,9 +505,59 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
     const DirectorSoundHooks sounds =
         render.mute ? DirectorSoundHooks{} : DirectorSoundHooks{&glue, SoundGlue::play};
     enter_director_mode(
-        {output_size.width, output_size.height, render.script->output.show_ux, true}, sounds
+        {output_size.width, output_size.height, render.script->output.show_ux, true, render.full},
+        sounds
     );
     ScopeExit leave{[this]() noexcept { leave_director_mode(); }};
+    if (director_draws_on_card())
+        render.run.graphics_card = director_->card.driver;
+    // The effects the frames are drawn with: each the command line names at
+    // its percent, else the run's settings, in which an effect the
+    // preferences store no percent for takes its default; on the card that
+    // is Full's, whose frames these are, whatever acceleration is stored.
+    // They are put back as the render ends.
+    namespace settings = oa::ui::engine_settings;
+    auto& current = engine_settings_state().current;
+    const settings::EngineSettings kept_settings = current;
+    ScopeExit kept_effects{[this, &kept_settings]() noexcept {
+        if (engine_settings_)
+            for (const auto& slider : settings::effect_sliders)
+                engine_settings_->current.*slider.percent = kept_settings.*slider.percent;
+    }};
+    if (director_draws_on_card())
+        settings::follow_acceleration_with_unset_effects(
+            current, preference_values_, settings::HardwareAcceleration::full
+        );
+    for (size_t index = 0; index < settings::effect_sliders.size(); ++index)
+        if (render.effects[index])
+            current.*settings::effect_sliders[index].percent = *render.effects[index];
+    // A turned camera is drawn by the live renderer on the graphics card;
+    // on the processor the frames show the classic view in its place.
+    const bool turns =
+        std::any_of(shots.shots.begin(), shots.shots.end(), [](const director::CompiledShot& shot) {
+            return director::turned(shot.start) || director::turned(shot.end);
+        });
+    if (turns && !director_draws_on_card())
+        warn(
+            "the script turns the camera, which only a render on the graphics card draws "
+            "(--hardware-acceleration=full); the processor draws the classic view"
+        );
+    else if (
+        turns && (output_size.width > renderer_live_gpu::largest_edge ||
+                  output_size.height > renderer_live_gpu::largest_edge)
+    )
+        throw std::runtime_error(
+            "the script turns the camera, and the 3D renderer draws frames of at most " +
+            std::to_string(renderer_live_gpu::largest_edge) + " pixels a side"
+        );
+    if (director_draws_on_card() && !render.quiet) {
+        std::string drawn;
+        for (const auto& slider : settings::effect_sliders)
+            drawn += (drawn.empty() ? "" : ", ") + std::string(slider.name) + ' ' +
+                     std::to_string(current.*slider.percent) + '%';
+        std::printf("director: the graphics card draws its effects at %s\n", drawn.c_str());
+        std::fflush(stdout);
+    }
     DirectorOutput output(render.output);
     director::CameraRig rig(shots);
     const size_t frame_bytes =
@@ -595,10 +660,13 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
                 chunk_start = std::chrono::steady_clock::now();
             }
             set_director_view(view);
+            director_->aim = cameras.camera;
             set_presentation_alpha(
                 between ? static_cast<float>(place.fraction) / director::tick_parts : 1.0F
             );
             draw_director_frame(incoming);
+            if (director_draws_on_card() && director::turned(cameras.camera))
+                ++render.turned_frames;
             std::span<const uint8_t> picture = incoming;
             if (cameras.transition) {
                 outgoing.resize(frame_bytes);
@@ -606,6 +674,7 @@ void Runtime::render_director_frames(DirectorRender& render, const ReplayHooks& 
                 set_director_view(
                     placed_view(director::engine_view(cameras.outgoing, output_size))
                 );
+                director_->aim = cameras.outgoing;
                 draw_director_frame(outgoing);
                 set_presentation_alpha(1.0F);
                 if (!director::blend_transition(
@@ -887,6 +956,9 @@ int Runtime::run_render_script() {
         render.first_chunk = first_chunk;
         render.last_chunk = last_chunk;
         render.mute = silent;
+        render.full =
+            options_.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full;
+        render.effects = options_.director_effects;
         render.run.engine_version = OA_ENGINE_VERSION;
         render.run.script_name = script_name;
         render.run.recording_name = recording_name;
@@ -1196,15 +1268,19 @@ constexpr uint64_t kRenderCheckChunkFrames =
     kRenderCheckChunkTicks * kRenderCheckFramerate / kRenderCheckTickrate;
 
 /// Returns the check's script: two shots over the fight, a spring and a
-/// cut with a dissolve, in two chunks.
+/// cut with a dissolve, in two chunks; the second turns the camera when
+/// asked.
 ///
 /// @param first_tick the tick the script starts on
 /// @param centre_x the fight's centre, map pixels across
 /// @param centre_z its map-image row
+/// @param turned the second shot turns the camera
 /// @return the script's YAML text
 [[nodiscard]] std::string
-render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z) {
+render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z, bool turned) {
     const auto number = [](int64_t value) { return std::to_string(value); };
+    const std::string start_turn = turned ? ", orientation: { yaw: -20, pitch: -10 }" : "";
+    const std::string end_turn = turned ? ", orientation: { yaw: 25, pitch: 5 }" : "";
     return "oascript: 1\n"
            "input:\n"
            "  demo: skirmish.rec\n"
@@ -1232,11 +1308,11 @@ render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z) {
            number(first_tick + kRenderCheckCutTicks) +
            "\n"
            "      cameraStart: { position: { x: " +
-           number(centre_x + 40) + ", y: 270, z: " + number(centre_z - 20) +
-           " } }\n"
+           number(centre_x + 40) + ", y: 270, z: " + number(centre_z - 20) + " }" + start_turn +
+           " }\n"
            "      cameraEnd: { position: { x: " +
-           number(centre_x - 40) + ", y: 360, z: " + number(centre_z + 20) +
-           " } }\n"
+           number(centre_x - 40) + ", y: 360, z: " + number(centre_z + 20) + " }" + end_turn +
+           " }\n"
            "      transition: { type: dissolve, duration: 0.25 }\n"
            "  endTick: " +
            number(first_tick + kRenderCheckTicks) + "\n";
@@ -1253,10 +1329,18 @@ render_check_script(uint32_t first_tick, int32_t centre_x, int32_t centre_z) {
 
 } // namespace
 
-void Runtime::check_director_render() {
+int Runtime::check_director_render() {
     // The match's sounds reach the mix through the director's hooks alone,
     // as in a render.
     options_.mute = true;
+    // --hardware-acceleration=full draws the frames on the graphics card's
+    // Full tier: the sound, the world and the files are checked as on the
+    // processor, the frames only for being pictures.
+    const bool card =
+        options_.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::full;
+    // On the card the second shot turns the camera: the live renderer draws
+    // its frames, and where it can make no device the check skips.
+    const bool turn = card;
     const auto require = [](bool ok, const std::string& what) {
         if (!ok)
             throw std::runtime_error("director render check: " + what);
@@ -1303,7 +1387,7 @@ void Runtime::check_director_render() {
     const auto render_pass = [&](uint32_t first_chunk, uint32_t last_chunk, const char* name) {
         const auto centre = start_fight();
         const uint32_t first_tick = match_->state().game.tick;
-        const auto text = render_check_script(first_tick, centre.first, centre.second);
+        const auto text = render_check_script(first_tick, centre.first, centre.second, turn);
         oascript::Script script{};
         oascript::DecodeReport report{};
         require(
@@ -1341,6 +1425,7 @@ void Runtime::check_director_render() {
         render->first_chunk = first_chunk;
         render->last_chunk = last_chunk;
         render->quiet = true;
+        render->full = card;
         render->run.engine_version = OA_ENGINE_VERSION;
         render->run.script_name = "check.oascript";
         render->run.recording_name = "skirmish";
@@ -1364,8 +1449,20 @@ void Runtime::check_director_render() {
         return std::tuple{std::move(render), digest, tick};
     };
 
-    // Every chunk.
-    auto [full, full_digest, full_tick] = render_pass(0, 1, "full");
+    // Every chunk. Where no renderer on a graphics card can be made, the
+    // check of the card's frames skips.
+    std::unique_ptr<DirectorRender> full;
+    uint64_t full_digest = 0;
+    uint32_t full_tick = 0;
+    try {
+        std::tie(full, full_digest, full_tick) = render_pass(0, 1, "full");
+    } catch (const DirectorCardUnavailable& error) {
+        std::printf("director render: skipped: %s\n", error.what());
+        std::fflush(stdout);
+        if (options_.snapshot.empty())
+            fs::remove_all(directory, removed);
+        return kSkippedExitCode;
+    }
     const DirectorPaths full_paths{directory / "full", "check"};
     require(full->chunks.size() == 2, "the render did not write two chunks");
     require(
@@ -1397,11 +1494,41 @@ void Runtime::check_director_render() {
         frame_manifests.append(manifest.begin(), manifest.end());
     }
     const auto run_manifest = read_check_file(run_manifest_path(full_paths));
+    const std::string manifest_text(run_manifest.begin(), run_manifest.end());
     require(
-        std::string(run_manifest.begin(), run_manifest.end())
-            .starts_with("open-annihilation director render\n"),
+        manifest_text.starts_with("open-annihilation director render\n"),
         "the run manifest was not written"
     );
+    require(
+        (manifest_text.find("\ndrawn graphics-card ") != std::string::npos) == card,
+        card ? "the run manifest does not say the graphics card drew the frames"
+             : "the run manifest says the graphics card drew the processor's frames"
+    );
+    // The second shot's frames, each drawn from a turned camera on the card.
+    constexpr uint64_t turned_frames =
+        (kRenderCheckTicks - kRenderCheckCutTicks) * kRenderCheckFramerate / kRenderCheckTickrate;
+    require(
+        full->turned_frames == (turn ? turned_frames : 0),
+        "the render drew " + std::to_string(full->turned_frames) + " frames from a turned camera"
+    );
+    if (card) {
+        // A frame the card failed to draw or to read back reads as the same
+        // picture every time; the camera moves and dissolves on every frame.
+        std::vector<std::string> pictures;
+        for (size_t at = 0; at < frame_manifests.size();) {
+            const size_t end = frame_manifests.find('\n', at);
+            const size_t space = frame_manifests.rfind(' ', end);
+            pictures.push_back(frame_manifests.substr(space + 1, end - space - 1));
+            at = end + 1;
+        }
+        std::sort(pictures.begin(), pictures.end());
+        const auto distinct =
+            std::distance(pictures.begin(), std::unique(pictures.begin(), pictures.end()));
+        require(
+            distinct * 2 > static_cast<std::ptrdiff_t>(full->frames_drawn),
+            "the graphics card drew the same picture for most frames"
+        );
+    }
     require(full->sounds_started != 0, "no sound of the fight reached the mix");
     require(full->clip_errors.empty(), "a sound could not be played");
     const auto second_wave = read_check_file(chunk_audio_path(full_paths, 1));
@@ -1477,9 +1604,15 @@ void Runtime::check_director_render() {
         static_cast<unsigned long long>(full->sounds_started),
         frames_alike ? "the same" : "other"
     );
+    if (card)
+        std::printf(
+            "director render: drawn by the graphics card's Full tier, not pinned%s\n",
+            turn ? "; the second shot turned by the live renderer" : ""
+        );
     std::fflush(stdout);
     if (options_.snapshot.empty())
         fs::remove_all(directory, removed);
+    return 0;
 }
 
 } // namespace oa::app

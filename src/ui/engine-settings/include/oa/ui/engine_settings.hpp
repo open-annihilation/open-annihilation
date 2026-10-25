@@ -1329,6 +1329,45 @@ void follow_acceleration_with_effects(
     EngineSettings& settings, HardwareAcceleration before
 ) noexcept;
 
+/// A Graphics effect drawn at a percent, from 0% to 200% in steps of 10%.
+struct EffectSlider {
+    /// Its name: the word of its preferences key between "open-annihilation."
+    /// and ".intensity", such as "weapon-lighting".
+    std::string_view name{};
+    uint32_t EngineSettings::* percent{}; ///< its percent in the settings
+    /// With no stored percent it reads as its acceleration gives
+    /// (default_effect_intensity), rather than as a fixed default.
+    bool follows_acceleration{};
+};
+
+/// Every effect drawn at a percent: Coloured weapon lighting, Nanolathe
+/// glow, Wreck glow and Heat distortion, then the water's four.
+inline constexpr std::array<EffectSlider, 8> effect_sliders{{
+    {"weapon-lighting", &EngineSettings::weapon_lighting, true},
+    {"nanolathe-lighting", &EngineSettings::nanolathe_lighting, true},
+    {"wreck-glow", &EngineSettings::wreck_glow, true},
+    {"heat-distortion", &EngineSettings::heat_distortion, true},
+    {"water-ripples", &EngineSettings::water_ripples, false},
+    {"coastal-waves", &EngineSettings::coastal_waves, false},
+    {"underwater-shimmer", &EngineSettings::underwater_shimmer, false},
+    {"naval-reflections", &EngineSettings::naval_reflections, false},
+}};
+
+/// Sets each effect that follows acceleration (EffectSlider) and whose
+/// percent the preferences do not store, nor its earlier On or Off, to the
+/// percent an acceleration gives an unset one, as read_settings sets it from
+/// the stored acceleration. An effect the preferences store keeps its
+/// percent.
+///
+/// @param[in,out] settings the settings read from `values`
+/// @param values the preferences the settings were read from
+/// @param acceleration the acceleration whose unset percent applies
+void follow_acceleration_with_unset_effects(
+    EngineSettings& settings,
+    const oa::platform::preferences::Values& values,
+    HardwareAcceleration acceleration
+);
+
 /// Reads the settings from the preferences.
 ///
 /// A key that is absent, or whose value is not a whole decimal number,

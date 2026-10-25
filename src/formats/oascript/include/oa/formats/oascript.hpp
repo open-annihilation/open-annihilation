@@ -38,8 +38,10 @@
 //
 // x and z are the centre of the view in map pixels on the ground plane (z is
 // the map-image row, a world point's z less half its height); y is the height
-// of the map the view shows, in map pixels. orientation is read and ignored:
-// the game's view cannot turn, and a non-zero angle gives a warning.
+// of the map the view shows, in map pixels. orientation turns the camera, in
+// degrees: yaw about the vertical from the classic view, pitch in elevation
+// from the classic view's; both 0 when it is left out. A camera does not
+// roll: roll is read and ignored, and one that is not zero gives a warning.
 //
 // decode_script checks what can be checked without the map or the
 // recording: types, ranges, required keys, unknown keys, shot order and the
@@ -103,11 +105,12 @@ struct CameraPosition {
     Decimal z{};
 };
 
-/// A camera's turn, in degrees; read and ignored.
+/// A camera's turn, in degrees.
 struct CameraOrientation {
-    Decimal pitch{};
-    Decimal yaw{};
-    Decimal roll{};
+    Decimal pitch{}; ///< elevation above the classic view's; below 0 is lower
+    Decimal
+        yaw{}; ///< turn about the vertical from the classic view; above 0 turns the picture clockwise
+    Decimal roll{}; ///< read and ignored
 };
 
 /// A camera: cameraStart and cameraEnd.
@@ -211,7 +214,7 @@ struct DecodeReport {
 ///
 /// Every key is checked and every error is reported, not only the first.
 /// Omitted optional keys take their defaults. Unknown keys are errors. A
-/// non-zero orientation angle is a warning.
+/// non-zero orientation roll is a warning.
 ///
 /// @param root the document's top-level mapping
 /// @param[out] script the script; complete only when the call succeeds
