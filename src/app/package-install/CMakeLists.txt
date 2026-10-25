@@ -118,6 +118,15 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME app-package-install-oabrain COMMAND oa-app-package-install-oabrain-test)
   set_tests_properties(app-package-install-oabrain PROPERTIES TIMEOUT 30)
+  # A key layout: its manifest, the files it may hold, its icon, the engine
+  # it needs, a catalogue replace, a question that lists what this build
+  # cannot use, and each refusal. An own folder is left as it is.
+  add_executable(oa-app-package-install-oakeys-test tests/oakeys_test.cpp)
+  target_link_libraries(oa-app-package-install-oakeys-test PRIVATE oa-app-package-install
+    oa-data-key-library oa-formats-zip oa-formats-png oa-formats-oakeys oa-ui-key-bindings
+    oa-base-sha256 ZLIB::ZLIB oa-test-support oa-options)
+  add_test(NAME app-package-install-oakeys COMMAND oa-app-package-install-oakeys-test)
+  set_tests_properties(app-package-install-oakeys PROPERTIES TIMEOUT 30)
   # A language pack: its manifest, the engine it needs, its tables, fonts and
   # warm-up, a question, a replace that keeps .backup, and a font that does
   # not open after unpacking.
