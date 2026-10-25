@@ -651,8 +651,10 @@ std::optional<std::string> Runtime::schema_text(std::string_view key) {
 }
 
 uint16_t Runtime::commander_type_for_side(uint8_t side) {
+    // A side this match's side data does not have places no commander. The
+    // start then fails with its own message, instead of dying on the lookup.
     if (side >= side_table_.count)
-        throw std::out_of_range("player side has no commander definition");
+        return 0;
     const auto type =
         oa::sim::unit_spawn::find_type_index(spawn_type_names_, side_table_.sides[side].commander);
     if (type == 0)

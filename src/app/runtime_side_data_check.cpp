@@ -8,6 +8,7 @@
 
 #include "oa/ui/frontend_dialogs.hpp"
 
+#include <array>
 #include <cctype>
 #include <cstdint>
 #include <cstring>
@@ -118,6 +119,39 @@ std::string replace_commander(std::string text, uint32_t side, std::string_view 
         return text;
     }
     fail("side " + std::to_string(side) + " names no commander");
+}
+
+/// The side data with every [SIDEn] section past SIDE0 left out.
+std::string side0_only(std::string_view text) {
+    std::string kept;
+    kept.reserve(text.size());
+    std::size_t cursor = 0;
+    while (cursor < text.size()) {
+        std::size_t header = std::string::npos;
+        for (std::size_t at = cursor; at < text.size(); ++at) {
+            if (side_header_at(text, at, std::nullopt)) {
+                header = at;
+                break;
+            }
+        }
+        if (header == std::string::npos) {
+            kept.append(text.substr(cursor));
+            break;
+        }
+        std::size_t next = text.size();
+        for (std::size_t at = header + 1; at < text.size(); ++at) {
+            if (side_header_at(text, at, std::nullopt)) {
+                next = at;
+                break;
+            }
+        }
+        if (side_header_at(text, header, 0))
+            kept.append(text.substr(cursor, next - cursor));
+        else
+            kept.append(text.substr(cursor, header - cursor));
+        cursor = next;
+    }
+    return kept;
 }
 
 void write_text(const fs::path& path, std::string_view text) {
@@ -301,6 +335,25 @@ void Runtime::check_side_data_per_match() {
     write_text(mod_sidedata, replace_commander(run_text, played_side, "NOTACOMMANDER"));
     assets_.mark_loose_shadows();
     expect_refused("side commander is absent from unit catalog");
+
+    std::array<int32_t, entry::skirmish_slot_capacity> saved_sides{};
+    for (std::size_t index = 0; index < saved_sides.size(); ++index)
+        saved_sides[index] = skirmish_settings_.slots[index].side;
+    skirmish_settings_.slots[0].side = 1;
+    skirmish_settings_.slots[1].side = 0;
+    write_text(mod_sidedata, side0_only(run_text));
+    assets_.mark_loose_shadows();
+    start_benchmark_skirmish();
+    if (side_table_.count != 1)
+        fail("the one-side match did not load a single side");
+    if (skirmish_settings_.slots[0].side != 0)
+        fail("slot 0 stayed on a side the match does not have");
+    if (!same_name(player_commander(), run_commanders[0]))
+        fail("player 0 did not play the first side's commander");
+    leave_for_menu();
+    run_table_in_place("after a side past the match's side data");
+    for (std::size_t index = 0; index < saved_sides.size(); ++index)
+        skirmish_settings_.slots[index].side = saved_sides[index];
 
     io_error.clear();
     if (!fs::remove(mod_sidedata, io_error) || io_error)

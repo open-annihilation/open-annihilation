@@ -492,6 +492,51 @@ void launch_helpers() {
     world_destroy(world);
 }
 
+/// A side at or past the match's side count is the first slot this machine places.
+void launch_finds_a_side_past_the_table() {
+    start_case("launch_finds_a_side_past_the_table");
+    CHECK(match_first_side_past_table(nullptr) == OA_PLAYER_COUNT);
+
+    World* world = world_create();
+    CHECK(world != nullptr);
+    world->game.side_count = 2;
+
+    auto& local = world->game.players[0];
+    local.in_use = 1;
+    local.status = OA_PLAYER_STATUS_LOCAL;
+    local.info = oa_ref_from_index(0);
+    world->player_info[0].side = 1;
+    CHECK(match_first_side_past_table(world) == OA_PLAYER_COUNT);
+
+    auto& computer = world->game.players[1];
+    computer.in_use = 1;
+    computer.status = OA_PLAYER_STATUS_COMPUTER;
+    computer.info = oa_ref_from_index(1);
+    world->player_info[1].side = 2;
+    CHECK(match_first_side_past_table(world) == 1);
+
+    auto& remote = world->game.players[2];
+    remote.in_use = 1;
+    remote.status = OA_PLAYER_STATUS_MIRRORED;
+    remote.info = oa_ref_from_index(2);
+    world->player_info[2].side = 7;
+    auto& watcher = world->game.players[3];
+    watcher.in_use = 1;
+    watcher.status = OA_PLAYER_STATUS_LOCAL;
+    watcher.info = oa_ref_from_index(3);
+    world->player_info[3].side = 9;
+    world->player_info[3].options = OA_SETUP_OPTION_WATCHER;
+    CHECK(match_first_side_past_table(world) == 1);
+
+    computer.in_use = 0;
+    CHECK(match_first_side_past_table(world) == OA_PLAYER_COUNT);
+
+    computer.in_use = 1;
+    world->game.side_count = 0;
+    CHECK(match_first_side_past_table(world) == OA_PLAYER_COUNT);
+    world_destroy(world);
+}
+
 // Under an active launch the match takes the options lock the
 // battle room set from it (Game.setup_options bit 0), set or clear; without
 // one it keeps its own, as the game switch -b lock sets it.
@@ -4860,6 +4905,7 @@ int main() {
     packet_layer_reclaims_lobby_slots();
     packet_layer_parses_waiting_frame_first();
     launch_helpers();
+    launch_finds_a_side_past_the_table();
     launch_carries_the_options_lock();
     launch_counts_seated_players();
     shared_machines_receive_broadcasts_once();

@@ -135,6 +135,27 @@ bool match_slot_watcher(const World* world, uint8_t slot) noexcept {
     return player.in_use != 0 && info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0;
 }
 
+uint8_t match_first_side_past_table(const World* world) noexcept {
+    if (world == nullptr || world->game.side_count == 0)
+        return OA_PLAYER_COUNT;
+    const auto side_count = world->game.side_count;
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        const auto& player = world->game.players[slot];
+        if (player.in_use == 0)
+            continue;
+        if (player.status != OA_PLAYER_STATUS_LOCAL && player.status != OA_PLAYER_STATUS_COMPUTER)
+            continue;
+        if (match_slot_watcher(world, slot))
+            continue;
+        const auto* info = player.info != 0 && player.info <= OA_PLAYER_COUNT
+                               ? &world->player_info[player.info - 1]
+                               : nullptr;
+        if (info != nullptr && info->side >= side_count)
+            return slot;
+    }
+    return OA_PLAYER_COUNT;
+}
+
 void match_apply_watcher_view(World* world) noexcept {
     if (match_slot_watcher(world, world->game.local_player_index))
         match_show_whole_map(world);

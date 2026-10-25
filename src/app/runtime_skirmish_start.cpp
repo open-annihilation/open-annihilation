@@ -575,6 +575,30 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     } side_table_restore{*this};
 
     load_match_side_table();
+    // A new skirmish whose side was saved under other side data plays the
+    // first side the menu offers, and says so. A saved game, a replay, a
+    // campaign and a network start keep the side they were given.
+    if (bootstrap.seat_roster && bootstrap.place_commanders && !bootstrap.multiplayer &&
+        !campaign_mission_) {
+        for (std::size_t player_slot = 0; player_slot < skirmish_settings_.slots.size();
+             ++player_slot) {
+            auto& setup = skirmish_settings_.slots[player_slot];
+            if (setup.controller == entry::controller::disabled)
+                continue;
+            if (setup.side < static_cast<int32_t>(side_table_.count))
+                continue;
+            const int32_t chosen = setup.side;
+            const int32_t played = skirmish::offered_side(
+                chosen,
+                static_cast<int32_t>(side_table_.count),
+                oa::data::defs::skirmish_hidden_sides()
+            );
+            setup.side = played;
+            std::cerr << "open-annihilation: side data: player " << player_slot << " chose side "
+                      << chosen << ", which this match's side data does not have; it plays side "
+                      << played << '\n';
+        }
+    }
     // The weapons, every WEAPONS\*.TDF section into its ID's slot. A lava
     // world loads the lava explosions into the water explosion slot.
     weapon_registry_ = oa::sim::combat_state::WeaponRegistry{};

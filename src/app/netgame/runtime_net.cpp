@@ -1313,6 +1313,19 @@ struct NetworkPlay::NetHost {
         auto& world = runtime.match_->state();
         if (!nm::match_launch_apply(lobby, &world))
             throw std::runtime_error("the lobby has no local slot");
+        // A seat this machine places on a side the match does not have ends
+        // the start here, before the machines wait for each other to load.
+        if (const auto past = nm::match_first_side_past_table(&world); past < OA_PLAYER_COUNT) {
+            const auto& seated = world.game.players[past];
+            const auto* info = world_player_info(&world, &seated);
+            const auto side = info != nullptr ? static_cast<unsigned>(info->side) : 0U;
+            abort(
+                play,
+                std::string(field_text(seated.name, sizeof seated.name)) + ": side " +
+                    std::to_string(side) + " is not one of this game's sides"
+            );
+            return;
+        }
         play.start_reporter(world, lobby.game);
         if (state.hosting)
             world.game.session_flags =

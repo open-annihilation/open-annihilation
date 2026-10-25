@@ -525,6 +525,9 @@ struct Lobby {
     uint32_t computer_command_player{};
     uint8_t computer_command_kind{};
     uint8_t computer_command_value{};
+    /// The side last named for this slot in the line about a side this game
+    /// does not have, or -1 when nothing was posted.
+    int16_t side_past_table_posted[kSlotCount]{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 };
 
 // ---------------------------------------------------------------------------
@@ -1416,6 +1419,38 @@ struct RowBadgeState {
 /// @param lobby Lobby state.
 /// @return True when content does not refuse the start.
 [[nodiscard]] bool lobby_content_allows_start(Lobby& lobby) noexcept;
+
+/// Finds the first playing seat whose side is past the room's side count.
+///
+/// Slot order. A seat plays when it is in use and local, a computer, or a
+/// remote player still playing, and it is not watching. A remote seat counts
+/// only once this machine has that player's own block. Nothing is found when
+/// the lobby has no game, when the side count is 0, or when every playing
+/// seat's side is one the room has.
+///
+/// @param lobby Lobby state.
+/// @return The slot, or -1 when there is none.
+[[nodiscard]] int32_t lobby_first_side_past_table(Lobby& lobby) noexcept;
+
+/// Tells whether this host may start, from the seated sides.
+///
+/// True when this machine is not the host. Otherwise no playing seat has a
+/// side past the room's side count. A side count of 0 refuses nothing.
+///
+/// @param lobby Lobby state.
+/// @return True when sides do not refuse the start.
+[[nodiscard]] bool lobby_sides_allow_start(Lobby& lobby) noexcept;
+
+/// Posts the host's line for each playing seat on a side the game does not have.
+///
+/// The host only. For each such seat whose side differs from the one last
+/// posted for that slot, posts "*** {player} chose a side this game does not
+/// have." and remembers the side. A seat back inside the table, emptied or
+/// watching, forgets it, so the next side past the table posts once. A
+/// guest's machine posts nothing. The lines are not sent.
+///
+/// @param[in,out] lobby Lobby state.
+void lobby_note_sides_past_table(Lobby& lobby) noexcept;
 
 // ---------------------------------------------------------------------------
 // Machine groups: the players one machine seats share Player.machine_group

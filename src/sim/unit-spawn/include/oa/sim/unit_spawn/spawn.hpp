@@ -390,8 +390,10 @@ struct StartHost {
     virtual ~StartHost() = default;
     /// Returns the commander unit type of a side.
     ///
+    /// 0 means the side has no commander type, and no commander is then placed.
+    ///
     /// @param side side index from the player setup
-    /// @return unit type index
+    /// @return unit type index, or 0 when the side has none
     virtual uint16_t commander_type_for_side(uint8_t side) = 0;
     /// Reports a start position the map does not have.
     ///
