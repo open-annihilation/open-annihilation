@@ -258,6 +258,7 @@ void weapon_load_converts_units_and_flags() {
     CHECK(weapon_damage_for(&table, &laser, "CORCOM") == 7);
     CHECK(weapon_damage_for(&table, &laser, "other") == 100);
     CHECK(table.rejected_ids == 1);
+    CHECK(table.past_limit == 0 && table.highest_past_limit == -1);
     // Slot 6 reuses slot 5's model and owns no name of its own.
     CHECK(laser.model == 101 && table.defs[6].model == 101);
     CHECK(
@@ -366,6 +367,72 @@ void weapon_files_skip_loose_when_archive_only() {
     options.archive_only = false;
     CHECK(load_weapon_defs(&files, &table, &options) == 2);
     CHECK(std::strcmp(table.defs[1].key, "L") == 0);
+    weapon_table_free(&table);
+}
+
+// A raised weapon-types limit keeps IDs up to the highest accepted one and
+// leaves an ID at the limit out. The default limit keeps 256 slots.
+void weapon_table_grows_to_the_highest_accepted_id() {
+    oa_ref32 models = 100;
+    WeaponResolver resolver{&models, fake_model, nullptr, nullptr};
+    const char text[] = "[NEAR]{ID=5; model=shell;}"
+                        "[WIDE]{ID=300; model=SHELL;}"
+                        "[FAR]{ID=1000; [DAMAGE]{default=8; ARMCOM=3;}}"
+                        "[PAST]{ID=2000;}";
+    WeaponLoadOptions wide{&resolver, nullptr, false, false, nullptr, 1024};
+    WeaponTable table;
+    weapon_table_init(&table);
+    CHECK(!load_weapon_text(&table, text, sizeof text - 1, &wide));
+    CHECK(table.defs.size() == 1001);
+    CHECK(
+        table.damage.size() == 1001 && table.assets.size() == 1001 && table.rule_data.size() == 1001
+    );
+    CHECK(std::strcmp(table.defs[300].key, "WIDE") == 0);
+    CHECK(std::strcmp(table.defs[1000].key, "FAR") == 0);
+    CHECK(oa_weapon_def_id(&table.defs[300]) == 300);
+    CHECK(table.defs[299].key[0] == '\0' && oa_weapon_def_id(&table.defs[299]) == 299);
+    CHECK(table.past_limit == 1 && table.highest_past_limit == 2000 && table.rejected_ids == 1);
+    CHECK(table.defs[5].model != 0 && table.defs[300].model == table.defs[5].model);
+    CHECK(weapon_model_name(&table.defs[300])[0] == '\0');
+    CHECK(table.defs[1000].damage_overrides == 1001);
+    CHECK(weapon_damage_for(&table, &table.defs[1000], "ARMCOM") == 3);
+    CHECK(find_weapon_by_name(table.defs, "FAR") == 1000);
+
+    CategoryRegistry categories;
+    category_registry_init(&categories);
+    UnitDefBlocks blocks{};
+    unit_def_blocks_init(&blocks);
+    test::MemoryFiles memory;
+    memory.files = {{"units\\wide.fbi", "[UNITINFO]{UnitName=WIDE; Weapon1=far; BMcode=1;}"}};
+    const Files files = memory.view();
+    const UnitDefSources sources{"", nullptr, table.defs, nullptr, &categories, &blocks, nullptr};
+    UnitDef unit{};
+    CHECK(load_unit_def(&files, "units\\wide.fbi", unit, sources));
+    CHECK(unit.weapon1 == 1001);
+    category_registry_clear(&categories);
+    for (uint32_t block = 0; block < blocks.count; ++block)
+        std::free(blocks.blocks[block].bytes);
+    std::free(blocks.blocks);
+
+    WeaponTable limited;
+    weapon_table_init(&limited);
+    CHECK(!load_weapon_text(&limited, text, sizeof text - 1, nullptr));
+    CHECK(limited.defs.size() == OA_WEAPON_DEF_COUNT);
+    CHECK(
+        limited.rejected_ids == 3 && limited.past_limit == 3 && limited.highest_past_limit == 2000
+    );
+    CHECK(std::strcmp(limited.defs[5].key, "NEAR") == 0);
+    CHECK(limited.defs[6].key[0] == '\0');
+    weapon_table_free(&limited);
+
+    const char base_text[] = "[A]{ID=5;}[B]{ID=200;}";
+    WeaponLoadOptions raised{nullptr, nullptr, false, false, nullptr, 1024};
+    WeaponTable base;
+    weapon_table_init(&base);
+    CHECK(load_weapon_text(&base, base_text, sizeof base_text - 1, &raised));
+    CHECK(base.defs.size() == OA_WEAPON_DEF_COUNT);
+    CHECK(base.past_limit == 0 && base.rejected_ids == 0 && base.highest_past_limit == -1);
+    weapon_table_free(&base);
     weapon_table_free(&table);
 }
 
@@ -738,7 +805,7 @@ struct LoaderFixture {
     LoaderFixture& operator=(const LoaderFixture&) = delete;
 
     UnitDefSources sources(const char* language) {
-        return {language, &moves, weapon_defs.data(), &sounds, &categories, &blocks, &host};
+        return {language, &moves, weapon_defs, &sounds, &categories, &blocks, &host};
     }
 };
 
@@ -1267,6 +1334,7 @@ int main() {
     weapon_present_keys_without_numbers_read_zero();
     weapon_table_keeps_asset_names();
     weapon_files_skip_loose_when_archive_only();
+    weapon_table_grows_to_the_highest_accepted_id();
     sides_load_hud_layout();
     sides_name_their_panel_gaf();
     sides_missing_rect_is_reported();

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <span>
 
 namespace oa::data::unit_definitions {
 
@@ -104,11 +105,11 @@ std::string text_of(const char (&text)[N]) {
 
 /// Returns the section name of the weapon a record's reference points at.
 ///
-/// @param weapon_defs Game.weapon_defs
+/// @param weapon_defs the whole weapon table
 /// @param ref weapon index + 1
-/// @return the name; empty for weapon 0, which stands in for none, and for no table
-std::string weapon_name(const WeaponDef* weapon_defs, oa_ref32 ref) {
-    if (weapon_defs == nullptr || ref <= 1 || ref > OA_WEAPON_DEF_COUNT)
+/// @return the name; empty for weapon 0, which stands in for none, and past the table
+std::string weapon_name(std::span<const WeaponDef> weapon_defs, oa_ref32 ref) {
+    if (ref <= 1 || ref > weapon_defs.size())
         return {};
     return text_of(weapon_defs[ref - 1].key);
 }

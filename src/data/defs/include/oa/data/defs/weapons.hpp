@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Weapon definitions from WEAPONS\*.TDF into the 256-entry WeaponDef table.
+// Weapon definitions from WEAPONS\*.TDF. The table holds 256 slots unless the
+// caller raises WeaponLoadOptions::weapon_types.
 #pragma once
 
 #include "oa/core/weapon_def.h"
@@ -10,6 +11,7 @@
 #include "oa/formats/tdf.hpp"
 
 #include <cstdint>
+#include <vector>
 
 namespace oa::data::defs {
 
@@ -99,14 +101,18 @@ struct WeaponAssetNames {
 };
 
 struct WeaponTable {
-    WeaponDef defs[OA_WEAPON_DEF_COUNT];
+    // One entry per slot. The length is max(OA_WEAPON_DEF_COUNT, highest accepted ID + 1).
+    std::vector<WeaponDef> defs;
     // DAMAGE overrides per slot; WeaponDef.damage_overrides holds index + 1 when set.
-    WeaponDamageTable damage[OA_WEAPON_DEF_COUNT];
-    WeaponAssetNames assets[OA_WEAPON_DEF_COUNT]; // the names each slot's section gave
+    std::vector<WeaponDamageTable> damage;
+    std::vector<WeaponAssetNames> assets; // the names each slot's section gave
     // What each slot's section gave for the rule keys a profile binds
     // (WeaponLoadOptions::data_keys); all false without a binding.
-    match_rules::WeaponTypeRules rule_data[OA_WEAPON_DEF_COUNT];
-    uint32_t rejected_ids{}; // sections whose ID is outside 0..255
+    std::vector<match_rules::WeaponTypeRules> rule_data;
+    uint32_t rejected_ids{}; // sections left out: past the limit, negative or missing ID
+    // Sections left out because their ID is at or past WeaponLoadOptions::weapon_types.
+    uint32_t past_limit{};
+    int32_t highest_past_limit{-1}; // the highest such ID, -1 for none
 };
 
 struct WeaponLoadOptions {
@@ -117,13 +123,16 @@ struct WeaponLoadOptions {
     // The rule keys a mod profile binds, read into WeaponTable::rule_data;
     // null reads none, as 3.1c does.
     const WeaponDataKeys* data_keys{};
+    // IDs from 0 to weapon_types - 1 take a slot. A value outside 256..65536
+    // is held to that range.
+    uint32_t weapon_types{OA_WEAPON_DEF_COUNT};
 };
 
-/// Returns the slot index a weapon record carries in WeaponDef.weapon_id.
+/// Returns the weapon id a record carries, across both id bytes.
 ///
 /// @param weapon weapon record from a WeaponTable
-/// @return the slot index weapon_table_init wrote
-[[nodiscard]] uint8_t weapon_id(const WeaponDef* weapon) noexcept;
+/// @return the id weapon_table_init or weapon_load wrote
+[[nodiscard]] uint16_t weapon_id(const WeaponDef* weapon) noexcept;
 
 /// Returns the model name a weapon slot loaded and owns (WeaponDef.model_name).
 ///
@@ -147,7 +156,7 @@ struct WeaponLoadOptions {
     const WeaponTable* table, const WeaponDef* weapon, const char* unit_name
 ) noexcept;
 
-/// Zeroes the table and numbers each slot's id byte.
+/// Sizes the table to OA_WEAPON_DEF_COUNT zeroed slots and numbers each one.
 ///
 /// @param[out] table table to reset; any DAMAGE maps it held are not freed
 void weapon_table_init(WeaponTable* table) noexcept;
@@ -170,9 +179,12 @@ void weapon_table_free(WeaponTable* table) noexcept;
 /// on a lava world. The asset names are also kept in the slot's
 /// WeaponTable.assets entry. A DAMAGE block sets damage_default and adds each
 /// other key to the slot's override map, which a later section with the same
-/// ID extends. A section whose ID is outside the table is rejected. With
-/// bound rule keys (WeaponLoadOptions::data_keys), the section also replaces
-/// the slot's WeaponTable.rule_data record.
+/// ID extends. An ID from 256 to weapon_types - 1 grows every vector to
+/// ID + 1 and numbers the new slots. An ID at or past the limit, or a
+/// negative or missing ID, is left out and counted in rejected_ids; only an
+/// ID at or past the limit is counted in past_limit. With bound rule keys
+/// (WeaponLoadOptions::data_keys), the section also replaces the slot's
+/// WeaponTable.rule_data record.
 ///
 /// Numbers are read as the game reads them: a key that is present takes its
 /// text's value even when the text is empty or not a number (0), and only a
@@ -182,8 +194,8 @@ void weapon_table_free(WeaponTable* table) noexcept;
 /// @param[in,out] table weapon table
 /// @param section weapon section of a WEAPONS\*.TDF file
 /// @param options asset resolver and world options; may be null
-/// @return false when the ID is outside 0..255 (counted in rejected_ids) or a
-///     DAMAGE override cannot be stored
+/// @return false when the ID is outside 0..weapon_types-1 (counted in
+///     rejected_ids) or a DAMAGE override cannot be stored
 bool weapon_load(
     WeaponTable* table, const formats::tdf::Block* section, const WeaponLoadOptions* options
 ) noexcept;

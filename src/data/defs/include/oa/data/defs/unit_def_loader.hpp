@@ -15,6 +15,7 @@
 #include "oa/formats/tdf.hpp"
 
 #include <cstdint>
+#include <span>
 
 namespace oa::data::defs {
 
@@ -96,7 +97,7 @@ struct YardMapRules {
 struct UnitDefSources {
     const char* language{}; // localized-key prefix ("" for none)
     const MoveClassTable* move_classes{};
-    const WeaponDef* weapon_defs{}; // Game.weapon_defs, OA_WEAPON_DEF_COUNT records
+    std::span<const WeaponDef> weapon_defs{}; // the whole weapon table
     const SoundCategoryTable* sound_categories{};
     CategoryRegistry* categories{};
     UnitDefBlocks* blocks{};
@@ -109,10 +110,13 @@ struct UnitDefSources {
 
 /// Finds a weapon by its TDF section name.
 ///
-/// @param weapon_defs Game.weapon_defs, OA_WEAPON_DEF_COUNT records
+/// The lowest slot wins when several share a name.
+///
+/// @param weapon_defs the whole weapon table
 /// @param name section name, matched case-insensitively; may be null
 /// @return index of the first match, or -1 for a null or empty name or no match
-[[nodiscard]] int find_weapon_by_name(const WeaponDef* weapon_defs, const char* name) noexcept;
+[[nodiscard]] int
+find_weapon_by_name(std::span<const WeaponDef> weapon_defs, const char* name) noexcept;
 
 /// Reads a unit file's UNITINFO section over its record.
 ///
