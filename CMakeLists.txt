@@ -1321,7 +1321,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_picture_captions.cpp
   src/app/runtime_renderer.cpp
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
-  src/app/runtime_input_modifiers.cpp src/app/runtime_touch_hud.cpp
+  src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
   src/app/game_files_screen.cpp src/app/game_files_paint.cpp src/app/game_files_dialog.cpp
   src/app/runtime_game_files.cpp
@@ -1441,7 +1441,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-brain-match
   oa-app-brain-seats
   oa-app-seat-chat
-  oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
+  oa-ui-key-bindings oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
   oa-ui-brain-picker

@@ -3415,6 +3415,11 @@ saves, recordings and network games are unaffected.
   Enter into Return as `dispatch_event` takes each key, so it opens and
   sends the chat line, answers dialogs and ends typed names wherever Return
   does, as in 3.1c; the event keeps the keypad's scancode.
+- `runtime_key_bindings.cpp`: after composition, `feed_input_actions` gives
+  the dispatcher each key, button and wheel with the contexts then.
+  `advance_input_actions` runs once a frame. Losing the window's focus
+  releases every held action and role, and a keymap change rebuilds the
+  keyboard map. The action events are kept and nothing acts on them yet.
 - `runtime_touch_hud.cpp` draws the controls into a layer of their own,
   composed over the CPU frame (`compose_touch_layer`) and presented in every
   tier (`present_touch_layer`), with the primitives of `oa-ui-paint`

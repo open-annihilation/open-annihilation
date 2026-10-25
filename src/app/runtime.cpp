@@ -1163,6 +1163,8 @@ void Runtime::run_frame(bool& running) {
     SDL_Event event{};
     while (SDL_PollEvent(&event))
         dispatch_event(event, running);
+    // Holds finish on the frame's clock, after this frame's events.
+    advance_input_actions();
     // Whatever showed or hid the system's pointer since the last frame, the
     // rule holds again before this frame is drawn; so does the window's
     // frame, for the screen the events left.
@@ -1250,6 +1252,8 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // While an input method composes, the keys it uses are its own.
     if (take_composition_event(event))
         return;
+    // The action events are kept. Nothing acts on them.
+    feed_input_actions(event);
     // Alt+Enter switches between full screen and a window on every screen,
     // before the screen or a screen package sees the key; its repeats reach
     // no screen either, so a held Alt+Enter never opens the chat line or

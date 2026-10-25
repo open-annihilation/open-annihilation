@@ -74,6 +74,7 @@
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/dry_run.hpp"
+#include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/pad_controls.hpp"
 #include "oa/app/acceleration_status.hpp"
 #include "oa/app/content_copy.hpp"
@@ -2441,12 +2442,57 @@ class Runtime final : public menu::Host,
     /// and those the automation endpoint holds), the pulse a synthetic key carries, and
     /// SDL_KMOD_LSHIFT when the use's latch is active.
     ///
-    /// Without touch state it is exactly the modifier keys held. Every place the engine reads the
-    /// modifier keys asks this for its own use. [runtime_input_modifiers.cpp]
+    /// `keyboard` stays those keys. For an order, a selection or a build button, Shift comes from
+    /// the role `order.queue-modifier`, `select.add-modifier` or `build.queue-modifier`, and for
+    /// an order Ctrl comes from `order.force-modifier`, once the bindings have been resolved.
+    /// Before that, and when a role is not among the bindings, the key's own bit is left as it
+    /// is. The pulse, the latch and the pad's FORCE are merged as before. With the stock bindings
+    /// the bits are the keys held. Every place the engine reads the modifier keys asks this for
+    /// its own use. [runtime_input_modifiers.cpp]
     ///
     /// @param use what the read is for
     /// @return SDL_Keymod bits
     [[nodiscard]] SDL_Keymod input_modifiers(ModifierUse use) const;
+
+    /// Turns one key, button or wheel into action events and keeps them.
+    ///
+    /// Called after the input method has taken the keys it is composing, and not for a touch or a
+    /// pad event. A keymap change rebuilds the keyboard map and the bindings. Losing the window's
+    /// focus releases every held action and role. Nothing acts on the events. [runtime_key_bindings.cpp]
+    ///
+    /// @param event the event dispatch_event is given
+    void feed_input_actions(const SDL_Event& event);
+
+    /// Fires each hold whose time has passed, once a frame after that frame's events.
+    /// [runtime_key_bindings.cpp]
+    void advance_input_actions();
+
+    /// The contexts, the conditions and text entry for the event about to be fed.
+    ///
+    /// Computed for that event, not once a frame. While a modal Open Annihilation screen shows,
+    /// the match and the menus are left out: that screen takes the input. [runtime_key_bindings.cpp]
+    ///
+    /// @return the contexts the dispatcher searches
+    [[nodiscard]] oa::ui::key_bindings::Contexts input_contexts();
+
+    /// Resolves oa-default again when the keyboard, the hacks, the pointer scheme or SwitchAlt
+    /// changed, making the dispatcher on first use. [runtime_key_bindings.cpp]
+    ///
+    /// @param keymap_changed the keymap changed, so the keyboard map is read again
+    void ensure_key_bindings(bool keymap_changed);
+
+    /// Whether one named hack is on for the bindings. [runtime_key_bindings.cpp]
+    ///
+    /// @param id the hack id
+    /// @return true while that hack is on
+    [[nodiscard]] bool key_binding_hack(std::string_view id) const;
+
+    /// Replaces the Shift or Ctrl bit of a use from the modifier role, when the bindings are
+    /// ready and name that role. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] modifiers the bits so far, including a synthetic key's pulse
+    /// @param use what the read is for
+    void apply_binding_roles(uint32_t& modifiers, ModifierUse use) const;
 
     /// Returns whether the touch latch for a use gives Shift now (false for keyboard).
     /// [runtime_input_modifiers.cpp]
@@ -4650,6 +4696,14 @@ class Runtime final : public menu::Host,
     ///
     /// @param state state to free; null is allowed
     static void destroy_mutator_library_state(MutatorLibraryState* state) noexcept;
+
+    /// The key bindings' dispatcher, the bindings it searches and the last event's action events.
+    struct KeyBindingsState;
+
+    /// Frees the key bindings' dispatcher.
+    ///
+    /// @param state state to free; null is allowed
+    static void destroy_key_bindings_state(KeyBindingsState* state) noexcept;
 
     /// Returns the installed mutators, read on first use from
     /// `<user folder>/Mutators` and read again after every change of a
@@ -19292,6 +19346,9 @@ class Runtime final : public menu::Host,
     // The installed mutators; null until first read.
     mutable std::unique_ptr<MutatorLibraryState, void (*)(MutatorLibraryState*) noexcept>
         mutator_library_state_{nullptr, destroy_mutator_library_state};
+    // The key bindings' dispatcher; null until the first event or frame that feeds it.
+    mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
+        key_bindings_state_{nullptr, destroy_key_bindings_state};
     // The installed brains; null until first read.
     mutable std::unique_ptr<BrainLibraryState, void (*)(BrainLibraryState*) noexcept>
         brain_library_state_{nullptr, destroy_brain_library_state};
