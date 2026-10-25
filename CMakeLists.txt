@@ -4410,6 +4410,9 @@ if(BUILD_TESTING)
       "^Open Annihilation [0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)? \\([a-z0-9._-]+ [A-Za-z0-9_]+, ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)\\)\n?$"
     TIMEOUT 60)
 endif()
+if(OA_BUILD_PLATFORM)
+  add_subdirectory(tools/oa-update)
+endif()
 # The Steam Deck's artwork and files for the Steam Deck package.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaSteamDeck.cmake")
 
