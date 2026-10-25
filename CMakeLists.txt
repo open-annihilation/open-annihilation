@@ -1357,6 +1357,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
+  src/app/runtime_key_timing_check.cpp
   src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
   src/app/runtime_zoom_memory_check.cpp
@@ -3678,6 +3679,15 @@ endforeach()
         --preferences-file "${oa_key_table_dir}/key-table.conf")
       set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Slow keys, bounce keys, the player's repeat and the drag threshold.
+      set(oa_key_timing_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-timing")
+      file(MAKE_DIRECTORY "${oa_key_timing_dir}")
+      add_test(NAME native-key-timing COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-timing --trace-input --resolution 640x480
+        --preferences-file "${oa_key_timing_dir}/key-timing.conf")
+      set_tests_properties(native-key-timing PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_timing_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same rows with the left and right mouse buttons exchanged, under
       # a layout that exchanges those roles.
