@@ -312,6 +312,24 @@ void Match::State::load_types(const OfflineInputs& input) {
     }
 }
 
+void Match::bind_sides(std::span<const oa::Side> table, uint32_t count) {
+    for (uint32_t index = 0; index < OA_SIDE_COUNT; ++index)
+        state().game.sides[index] = table[index];
+    if (count > OA_SIDE_COUNT) {
+        const uint32_t extra = count - OA_SIDE_COUNT;
+        state_.extra_sides = std::make_unique<oa::Side[]>(extra);
+        for (uint32_t extra_index = 0; extra_index < extra; ++extra_index)
+            state_.extra_sides[extra_index] = table[OA_SIDE_COUNT + extra_index];
+        state().extra_sides = state_.extra_sides.get();
+        state().extra_side_count = extra;
+    } else {
+        state_.extra_sides.reset();
+        state().extra_sides = nullptr;
+        state().extra_side_count = 0;
+    }
+    state().game.side_count = count;
+}
+
 void Match::replace_unit_def(std::size_t type, const oa::UnitDef& record) {
     if (type >= state_.unit_defs.size()) {
         fault_.note("unit type outside the runtime table");

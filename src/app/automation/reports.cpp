@@ -14,6 +14,7 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <string>
 
 namespace oa::app::automation {
@@ -62,19 +63,17 @@ void write_status(JsonWriter& json, uint8_t status) {
 }
 
 /// Writes a side's index and name as the members side and side_name; the
-/// name is null where the Game block holds no name for the side, as the
-/// menus' Game block does not.
+/// name is null when `side` is null or names nothing.
 ///
 /// @param[in,out] json the object being written
-/// @param game the Game block whose sides name it
-/// @param side the side's index
-void write_side(JsonWriter& json, const oa::Game& game, uint8_t side) {
+/// @param side the side record; null when the game holds none
+/// @param side_index the side's index
+void write_side(JsonWriter& json, const oa::Side* side, uint8_t side_index) {
     json.key("side");
-    json.integer(side);
+    json.integer(side_index);
     json.key("side_name");
-    const uint32_t sides = game.side_count < OA_SIDE_COUNT ? game.side_count : OA_SIDE_COUNT;
     const std::string name =
-        side < sides ? game_text(game.sides[side].name, sizeof game.sides[side].name) : "";
+        side != nullptr ? game_text(side->name, sizeof side->name) : std::string{};
     if (!name.empty())
         json.string(name);
     else
@@ -108,7 +107,8 @@ void write_match_player(JsonWriter& json, const oa::World& world, uint8_t slot) 
     json.string(game_text(player.name, sizeof player.name));
     json.key("status");
     write_status(json, player.status);
-    write_side(json, game, info != nullptr ? info->side : 0);
+    const uint8_t side_index = info != nullptr ? info->side : 0;
+    write_side(json, oa::world_side(&world, side_index), side_index);
     json.key("colour");
     if (info != nullptr)
         json.integer(info->color);
@@ -197,7 +197,12 @@ void write_room_player(JsonWriter& json, mp::Lobby& lobby, uint8_t slot) {
     json.boolean(info != nullptr && (info->options & mp::option::ready) != 0);
     json.key("watcher");
     json.boolean(info != nullptr && (info->options & mp::option::watcher) != 0);
-    write_side(json, *lobby.game, info != nullptr ? info->side : 0);
+    const uint8_t side_index = info != nullptr ? info->side : 0;
+    const oa::Game& block = *lobby.game;
+    const oa::Side* side = nullptr;
+    if (side_index < block.side_count && side_index < std::size(block.sides))
+        side = &block.sides[side_index];
+    write_side(json, side, side_index);
     json.key("colour");
     if (info != nullptr && info->color != mp::kNoColor)
         json.integer(info->color);
