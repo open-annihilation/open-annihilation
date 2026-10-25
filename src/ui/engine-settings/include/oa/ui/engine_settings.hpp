@@ -301,6 +301,32 @@ static_assert(brain_default.find('|') == std::string_view::npos);
 static_assert(brains_skirmish.find('|') == std::string_view::npos);
 static_assert(brains_multiplayer.find('|') == std::string_view::npos);
 static_assert(brains_campaign.find('|') == std::string_view::npos);
+/// How long a key is held before it counts, in milliseconds. 0 waits nothing.
+inline constexpr std::string_view access_slow_keys = "open-annihilation.access.slow-keys-ms";
+/// How soon a second press of the same key is ignored, in milliseconds. 0 ignores nothing.
+inline constexpr std::string_view access_bounce_keys = "open-annihilation.access.bounce-keys-ms";
+/// How far apart two presses may be and still be a double press, in milliseconds.
+/// 0 uses the system's double-click time.
+inline constexpr std::string_view access_double_press = "open-annihilation.access.double-press-ms";
+/// How long a hold waits, in milliseconds.
+inline constexpr std::string_view access_long_press = "open-annihilation.access.long-press-ms";
+/// How long a repeating key waits before its first repeat, in milliseconds.
+/// 0 uses the system's repeat.
+inline constexpr std::string_view access_repeat_delay = "open-annihilation.access.repeat-delay-ms";
+/// How many times a second a repeating key repeats after that delay.
+/// 0 uses the system's repeat.
+inline constexpr std::string_view access_repeat_rate = "open-annihilation.access.repeat-rate";
+/// How far a drag may travel and still be a click, in pixels of the 640×480 game.
+inline constexpr std::string_view access_drag_threshold = "open-annihilation.access.drag-threshold";
+static_assert(access_slow_keys.find('|') == std::string_view::npos);
+static_assert(access_bounce_keys.find('|') == std::string_view::npos);
+static_assert(access_double_press.find('|') == std::string_view::npos);
+static_assert(access_long_press.find('|') == std::string_view::npos);
+static_assert(access_repeat_delay.find('|') == std::string_view::npos);
+static_assert(access_repeat_rate.find('|') == std::string_view::npos);
+static_assert(access_drag_threshold.find('|') == std::string_view::npos);
+static_assert(access_slow_keys.find('\\') == std::string_view::npos);
+static_assert(access_drag_threshold.find('\\') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
@@ -1241,6 +1267,24 @@ struct EngineSettings {
     /// copy of NumSkirmishPlayers: read_settings and write_settings leave it
     /// out, and OK stores it as that one count.
     int32_t skirmish_players{default_skirmish_players};
+    /// How long a key is held before it counts, in milliseconds. 0 waits nothing.
+    /// A key is never delayed while text is being typed, and a mouse button never is.
+    uint32_t slow_keys_ms{0};
+    /// How soon a second press of the same key is ignored, in milliseconds. 0 ignores nothing.
+    uint32_t bounce_keys_ms{0};
+    /// How far apart two presses may be and still be a double press, in milliseconds.
+    /// 0 uses the system's double-click time, which is 500 ms for a `:double` chord.
+    uint32_t double_press_ms{0};
+    /// How long a hold waits, in milliseconds.
+    uint32_t long_press_ms{500};
+    /// How long a repeating key waits before its first repeat, in milliseconds.
+    /// 0, or a repeat rate of 0, leaves the system's repeat in place.
+    uint32_t repeat_delay_ms{0};
+    /// How many times a second a repeating key repeats. 0 uses the system's repeat.
+    uint32_t repeat_rate{0};
+    /// How far a drag may travel and still be a click, in pixels of the 640×480 game.
+    /// The tick limit widens in proportion with it.
+    uint32_t drag_threshold{32};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };
@@ -1329,7 +1373,10 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// relative, Pointer speed default_pointer_speed, Pointer acceleration Low,
 /// Trackpad glide Off, Right stick Zoom and build pages, Magnetism On, Gyro
 /// pointer Off, Gyro speed default_gyro_speed, Haptics Light, Button prompts
-/// Automatic and Left-handed Off (oa/ui/pad_controls.hpp).
+/// Automatic and Left-handed Off (oa/ui/pad_controls.hpp). Slow keys and
+/// bounce keys are off, a double press and key repeat use the system's, a
+/// long press waits 500 ms and a drag of 32 pixels of the 640×480 game is
+/// still a click.
 ///
 /// @param inputs the platform, the preferences file and the installation
 /// @return the defaults
@@ -1423,7 +1470,14 @@ void follow_acceleration_with_unset_effects(
 /// read from the key that Inputs::profile_id ends, as
 /// oa::data::mod_profile::read_overrides reads them: none without the key,
 /// from a text the profile grammar does not read as a mapping (one that
-/// names a hack twice among them), or with an empty profile id. In the
+/// names a hack twice among them), or with an empty profile id. Slow keys
+/// and bounce keys are 0 to 1,000 ms, a double press is 0 for the system's
+/// or else 200 to 1,000, a long press is 200 to 1,000, a repeat delay is 0
+/// for the system's or else 150 to 1,000, a repeat rate is 0 for the
+/// system's or else 2 to 30 a second, and the drag threshold is 32 to 96
+/// pixels of the 640×480 game. A value below a range that does not keep
+/// zero is raised to the range's start, and one above it is lowered to its
+/// end. In the
 /// Touch section, One-finger drag and QUEUE and ADD read the words
 /// touch_drag_text and touch_latches_text write, and any other value gives
 /// the default; the hold delay reads as a number, put on its nearest stop
