@@ -106,7 +106,7 @@ struct TableRow {
     std::string input;
     std::string effect;
     Prepared prepared;
-    Gesture gesture;
+    Gesture gesture{};
 };
 
 struct Shot {
@@ -225,6 +225,13 @@ SDL_Scancode scancode_named(std::string_view name) {
         {"Z", SDL_SCANCODE_Z},
         {"1", SDL_SCANCODE_1},
         {"2", SDL_SCANCODE_2},
+        {"3", SDL_SCANCODE_3},
+        {"4", SDL_SCANCODE_4},
+        {"5", SDL_SCANCODE_5},
+        {"6", SDL_SCANCODE_6},
+        {"7", SDL_SCANCODE_7},
+        {"8", SDL_SCANCODE_8},
+        {"9", SDL_SCANCODE_9},
         {"Return", SDL_SCANCODE_RETURN},
         {"Escape", SDL_SCANCODE_ESCAPE},
         {"Left", SDL_SCANCODE_LEFT},
@@ -727,6 +734,16 @@ std::string effect_of(const Shot& before, const Shot& after) {
 } // namespace
 
 void Runtime::check_key_table() {
+    // A row can save a toggle (the health bars write damagebars). Put the
+    // preferences back before leaving, so the next run starts from the same
+    // file. The map is what the following flush writes.
+    const auto saved_preferences = preference_values_;
+    const auto put_preferences_back = [&] {
+        preference_values_ = saved_preferences;
+        preferences_dirty_ = true;
+        flush_preferences();
+    };
+
     struct Player {
         Runtime& self;
         bool running = true;
@@ -748,6 +765,7 @@ void Runtime::check_key_table() {
         uint16_t origin_frame = 0;
         int32_t origin_interface = 0;
         bool origin_wheel = true;
+        bool origin_unlocked = false;
         bool origin_escape_menu = false;
         bool origin_full_screen = false;
         int origin_width = 0;
@@ -1129,6 +1147,7 @@ void Runtime::check_key_table() {
             origin_frame = game.frame_flags;
             origin_interface = game.interface_type;
             origin_wheel = self.engine_settings_state().current.wheel_zoom;
+            origin_unlocked = self.engine_settings_state().current.unlocked_camera;
             origin_escape_menu = self.engine_settings_state().current.escape_opens_menu;
             origin_extension = self.extension_;
             origin_full_screen =
@@ -1155,6 +1174,11 @@ void Runtime::check_key_table() {
             self.engine_settings_state().current.escape_opens_menu = origin_escape_menu;
             self.extension_ = origin_extension;
             set_wheel_zoom(origin_wheel);
+            if (self.engine_settings_state().current.unlocked_camera != origin_unlocked) {
+                auto chosen = self.engine_settings();
+                chosen.unlocked_camera = origin_unlocked;
+                self.apply_engine_settings(chosen);
+            }
             self.match_camera_x_ = origin_x;
             self.match_camera_z_ = origin_z;
             self.match_zoom_ = origin_zoom;
@@ -1306,6 +1330,21 @@ void Runtime::check_key_table() {
             return false;
         }
 
+        void queue_build_at_site() {
+            if (self.pending_build_type_ == 0)
+                arm_build(false);
+            Gesture site_gesture{};
+            site_gesture.shift = true;
+            site_gesture.place = "queued-site";
+            site_gesture.button = SDL_BUTTON_LEFT;
+            const auto point = place_point(site_gesture);
+            hold_mods(site_gesture, true);
+            pointer_button(site_gesture.button, point.first, point.second, true, 1);
+            pointer_button(site_gesture.button, point.first, point.second, false, 1);
+            hold_mods(site_gesture, false);
+            settle();
+        }
+
         void arm_build(bool mex) {
             if (!click_build_button(mex) && mex)
                 click_build_button(false);
@@ -1319,13 +1358,32 @@ void Runtime::check_key_table() {
             }
         }
 
+        // Squad 2's select rows are the empty-squad case, so they are not planted.
+        // Every other select or add digit recalls the commander, as digit 1 does.
+        int planted_squad(const std::string& id) const {
+            const auto number_of = [&](std::string_view stem) -> int {
+                if (id.rfind(stem, 0) != 0)
+                    return 0;
+                const auto rest = id.substr(stem.size());
+                const auto colon = rest.find(':');
+                const auto digits = colon == std::string::npos ? rest : rest.substr(0, colon);
+                if (digits.size() != 1 || digits[0] < '1' || digits[0] > '9')
+                    return 0;
+                return digits[0] - '0';
+            };
+            if (id.rfind("group.add-", 0) == 0)
+                return number_of("group.add-");
+            if (id.rfind("group.select-2", 0) == 0)
+                return 0;
+            return number_of("group.select-");
+        }
+
         void preassign_group(const std::string& id) {
-            const bool select_one = id.rfind("group.select-1", 0) == 0;
-            const bool add_one = id.rfind("group.add-1", 0) == 0;
-            if (!select_one && !add_one)
+            const int squad = planted_squad(id);
+            if (squad == 0)
                 return;
             select_role("commander");
-            self.assign_squad(1);
+            self.assign_squad(squad);
             self.clear_local_selection();
         }
 
@@ -1377,13 +1435,19 @@ void Runtime::check_key_table() {
                 tap(SDL_SCANCODE_F1, SDL_KMOD_NONE, false);
             if (prepared.unit_info && !self.unit_info_panel_)
                 fail(row.id + " did not open the unit info");
-            if (row.id == "whiteboard.draw:wipe") {
+            if (row.id == "whiteboard.wipe" || row.id == "whiteboard.move" ||
+                row.id == "whiteboard.erase") {
                 const auto at = battlefield_centre();
                 const auto map = self.battlefield_map_point(at.first, at.second);
-                oa::ui::hud::whiteboard_draw_line(
-                    self.whiteboard_, map[0], map[1], map[0] + 8, map[1], 1
-                );
+                if (row.id == "whiteboard.wipe")
+                    oa::ui::hud::whiteboard_draw_line(
+                        self.whiteboard_, map[0], map[1], map[0] + 8, map[1], 1
+                    );
+                else
+                    oa::ui::hud::whiteboard_place_marker(self.whiteboard_, map[0], map[1], 1, "");
             }
+            if (row.id.rfind("build.move-queued-site", 0) == 0)
+                queue_build_at_site();
             if (row.gesture.place == "megamap") {
                 set_wheel_zoom(false);
                 self.set_megamap_open(true);
@@ -1765,8 +1829,14 @@ void Runtime::check_key_table() {
         }
     };
 
-    Player player{*this};
-    player.run();
+    try {
+        Player player{*this};
+        player.run();
+    } catch (...) {
+        put_preferences_back();
+        throw;
+    }
+    put_preferences_back();
 }
 
 } // namespace oa::app

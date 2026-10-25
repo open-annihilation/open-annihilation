@@ -1,6 +1,6 @@
 row	setup	input	effect
-panel.orders	select=builder	key O	build-page=0
-panel.orders:commander	select=commander	key O	build-page=0
+panel.orders-tab	select=builder	key O	build-page=0
+panel.orders-tab:commander	select=commander	key O	build-page=0
 panel.build-tab	select=builder	key B	none
 panel.build-tab:commander	select=commander	key B	none
 order.move	select=builder	key M	armed=move
@@ -11,8 +11,8 @@ order.patrol	select=builder	key P	armed=patrol
 order.patrol:commander	select=commander	key P	armed=patrol
 order.attack	select=builder	key A	none
 order.attack:commander	select=commander	key A	armed=attack
-order.defend	select=builder	key G	armed=guard
-order.defend:commander	select=commander	key G	armed=guard
+order.guard	select=builder	key G	armed=guard
+order.guard:commander	select=commander	key G	armed=guard
 order.reclaim	select=builder	key E	none
 order.reclaim:commander	select=commander	key E	none
 order.repair	select=builder	key R	none
@@ -23,12 +23,12 @@ order.load	select=builder	key L	none
 order.load:commander	select=commander	key L	none
 order.unload	select=builder	key U	none
 order.unload:commander	select=commander	key U	none
-order.blast	select=builder	key D	none
-order.blast:commander	select=commander	key D	armed=dgun
-order.fire-orders	select=builder	key F	none
-order.fire-orders:commander	select=commander	key F	none
-order.move-orders	select=builder	key V	none
-order.move-orders:commander	select=commander	key V	none
+order.dgun	select=builder	key D	none
+order.dgun:commander	select=commander	key D	armed=dgun
+order.fire-state	select=builder	key F	none
+order.fire-state:commander	select=commander	key F	none
+order.move-state	select=builder	key V	none
+order.move-state:commander	select=commander	key V	none
 order.on-off	select=builder	key X	none
 order.on-off:commander	select=commander	key X	none
 order.cloak	select=builder	key K	none
@@ -55,10 +55,10 @@ pointer.pan:right-click	interface=right-click	button middle battlefield	none
 pointer.mouse-look:right-click	interface=right-click	button right battlefield ctrl	none
 camera.zoom-in:right-click	interface=right-click	wheel up battlefield	none
 camera.zoom-out:right-click	interface=right-click	wheel down battlefield	none
-pointer.pan:edge-left:right-click	interface=right-click	button left edge-left	camera=left
-pointer.pan:edge-right:right-click	interface=right-click	button left edge-right	camera=right
-pointer.pan:edge-top:right-click	interface=right-click	button left edge-top	camera=up
-pointer.pan:edge-bottom:right-click	interface=right-click	button left edge-bottom	camera=down
+camera.edge-scroll:left:right-click	interface=right-click	button left edge-left	camera=left
+camera.edge-scroll:right:right-click	interface=right-click	button left edge-right	camera=right
+camera.edge-scroll:top:right-click	interface=right-click	button left edge-top	camera=up
+camera.edge-scroll:bottom:right-click	interface=right-click	button left edge-bottom	camera=down
 pointer.command:battlefield:left-click	interface=left-click	button left battlefield	none
 pointer.select:battlefield:left-click	interface=left-click	button right battlefield	none
 pointer.command:unit:left-click	interface=left-click;select=combat	button left unit	none
@@ -74,10 +74,10 @@ pointer.pan:left-click	interface=left-click	button middle battlefield	none
 pointer.mouse-look:left-click	interface=left-click	button right battlefield ctrl	camera=centred
 camera.zoom-in:left-click	interface=left-click	wheel up battlefield	none
 camera.zoom-out:left-click	interface=left-click	wheel down battlefield	none
-pointer.pan:edge-left:left-click	interface=left-click	button left edge-left	camera=left
-pointer.pan:edge-right:left-click	interface=left-click	button left edge-right	camera=right
-pointer.pan:edge-top:left-click	interface=left-click	button left edge-top	camera=up
-pointer.pan:edge-bottom:left-click	interface=left-click	button left edge-bottom	camera=down
+camera.edge-scroll:left:left-click	interface=left-click	button left edge-left	camera=left
+camera.edge-scroll:right:left-click	interface=left-click	button left edge-right	camera=right
+camera.edge-scroll:top:left-click	interface=left-click	button left edge-top	camera=up
+camera.edge-scroll:bottom:left-click	interface=left-click	button left edge-bottom	camera=down
 select.all	select=none	key A ctrl	primary=commander;selected=250
 select.commander	select=none	key C ctrl	build-page=1;primary=commander;selected=1
 select.commander-add	select=combat	key C ctrl shift	primary=commander;selected=2
@@ -167,3 +167,41 @@ gui.armopt.ok	menu=open	key R	panel=closed;paused=off
 gui.armopt.ok:enter	menu=open	key Return	panel=closed;paused=off
 gui.armopt.ok:escape	menu=open	key Escape	panel=closed;paused=off
 game.pause:command	platform=macos	key P primary	paused=on
+group.assign-2	select=combat	key 2 ctrl	group-2=1
+group.assign-3	select=combat	key 3 ctrl	group-3=1
+group.assign-4	select=combat	key 4 ctrl	group-4=1
+group.assign-5	select=combat	key 5 ctrl	group-5=1
+group.assign-6	select=combat	key 6 ctrl	group-6=1
+group.assign-7	select=combat	key 7 ctrl	group-7=1
+group.assign-8	select=combat	key 8 ctrl	group-8=1
+group.assign-9	select=combat	key 9 ctrl	group-9=1
+group.select-3	select=none	key 3 alt	primary=commander;selected=1
+group.select-4	select=none	key 4 alt	primary=commander;selected=1
+group.select-5	select=none	key 5 alt	primary=commander;selected=1
+group.select-6	select=none	key 6 alt	primary=commander;selected=1
+group.select-7	select=none	key 7 alt	primary=commander;selected=1
+group.select-8	select=none	key 8 alt	primary=commander;selected=1
+group.select-9	select=none	key 9 alt	primary=commander;selected=1
+group.add-2	select=none	key 2 alt shift	primary=commander;selected=1
+group.add-3	select=none	key 3 alt shift	primary=commander;selected=1
+group.add-4	select=none	key 4 alt shift	primary=commander;selected=1
+group.add-5	select=none	key 5 alt shift	primary=commander;selected=1
+group.add-6	select=none	key 6 alt shift	primary=commander;selected=1
+group.add-7	select=none	key 7 alt shift	primary=commander;selected=1
+group.add-8	select=none	key 8 alt shift	primary=commander;selected=1
+group.add-9	select=none	key 9 alt shift	primary=commander;selected=1
+build.page-2	select=commander	key 2	none
+build.page-3	select=commander	key 3	build-page=2
+build.page-4	select=commander	key 4	build-page=3
+build.page-5	select=commander	key 5	build-page=4
+build.page-6	select=commander	key 6	none
+build.page-7	select=commander	key 7	none
+build.page-8	select=commander	key 8	none
+build.page-9	select=commander	key 9	none
+camera.classic-view		key R alt	none
+camera.unlocked		key U alt	none
+pointer.camera-orbit:right-click	interface=right-click	drag left battlefield alt	none
+pointer.camera-orbit:left-click	interface=left-click	drag left battlefield alt	none
+pointer.camera-pan:right-click	interface=right-click	drag left battlefield alt shift	none
+pointer.camera-pan:left-click	interface=left-click	drag left battlefield alt shift	none
+build.move-queued-site	select=commander;armed=build	drag left queued-site shift	none
