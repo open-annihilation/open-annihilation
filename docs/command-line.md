@@ -398,6 +398,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-click-snap` | Checks the cursor RECLAIM shows beside a wreck, and where a RECLAIM click there and a metal extractor's build click beside a deposit land, with `ui.click-snap` on or off. |
 | `--check-build-preview` | Checks the building drawn under the build cursor. |
 | `--check-megamap-clicks` | Checks clicks on the megamap. |
+| `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
 | `--check-pad-controls` | Drives the gamepad controls with SDL's virtual pads ([controllers](controllers.md)). |
