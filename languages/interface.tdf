@@ -282,12 +282,36 @@
 	it=*** {player} non ha {name}.;
 	}
 
+[*** {player} needs a newer Open Annihilation for this mod.]
+	{
+	de=*** {player} braucht ein neueres Open Annihilation für diesen Mod.;
+	fr=*** {player} a besoin d'un Open Annihilation plus récent pour ce mod.;
+	es=*** {player} necesita un Open Annihilation más reciente para este mod.;
+	it=*** {player} ha bisogno di un Open Annihilation più recente per questa mod.;
+	}
+
 [*** {player} plays Total Annihilation 3.1c and cannot join a game with mutators.]
 	{
 	de=*** {player} spielt Total Annihilation 3.1c und kann einem Spiel mit Mutatoren nicht beitreten.;
 	fr=*** {player} joue à Total Annihilation 3.1c et ne peut pas rejoindre une partie avec des mutateurs.;
 	es=*** {player} juega a Total Annihilation 3.1c y no puede unirse a una partida con mutadores.;
 	it=*** {player} gioca a Total Annihilation 3.1c e non può unirsi a una partita con mutatori.;
+	}
+
+[*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than 256 weapon types.]
+	{
+	de=*** {player} spielt Total Annihilation 3.1c, das keinen Mod mit mehr als 256 Waffentypen spielen kann.;
+	fr=*** {player} joue à Total Annihilation 3.1c, qui ne peut pas jouer un mod avec plus de 256 types d'armes.;
+	es=*** {player} juega a Total Annihilation 3.1c, que no puede jugar un mod con más de 256 tipos de armas.;
+	it=*** {player} gioca a Total Annihilation 3.1c, che non può giocare una mod con più di 256 tipi di armi.;
+	}
+
+[*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than five sides.]
+	{
+	de=*** {player} spielt Total Annihilation 3.1c, das keinen Mod mit mehr als fünf Seiten spielen kann.;
+	fr=*** {player} joue à Total Annihilation 3.1c, qui ne peut pas jouer un mod avec plus de cinq camps.;
+	es=*** {player} juega a Total Annihilation 3.1c, que no puede jugar un mod con más de cinco bandos.;
+	it=*** {player} gioca a Total Annihilation 3.1c, che non può giocare una mod con più di cinque fazioni.;
 	}
 
 [*** {player} plays Total Annihilation 3.1c, which cannot play with mutators.]
@@ -10770,12 +10794,36 @@
 	it=Questo mod non si può usare;
 	}
 
+[This mod needs every player on Open Annihilation. The host plays Total Annihilation 3.1c.]
+	{
+	de=Dieser Mod braucht jeden Spieler auf Open Annihilation. Der Gastgeber spielt Total Annihilation 3.1c.;
+	fr=Ce mod a besoin de chaque joueur sur Open Annihilation. L'hôte joue à Total Annihilation 3.1c.;
+	es=Este mod necesita a todos los jugadores en Open Annihilation. El anfitrión juega a Total Annihilation 3.1c.;
+	it=Questa mod ha bisogno di ogni giocatore su Open Annihilation. L'host gioca a Total Annihilation 3.1c.;
+	}
+
 [This needs a mutator you do not have: {detail}]
 	{
 	de=Dafür brauchst du einen Mutator, den du nicht hast: {detail};
 	fr=Il te faut un mutateur que tu n'as pas : {detail};
 	es=Te hace falta un mutador que no tienes: {detail};
 	it=Ti serve un mutatore che non hai: {detail};
+	}
+
+[This recording needs a mod with {n} weapon types and {m} sides.]
+	{
+	de=Diese Aufnahme braucht einen Mod mit {n} Waffentypen und {m} Seiten.;
+	fr=Cet enregistrement a besoin d'un mod avec {n} types d'armes et {m} camps.;
+	es=Esta grabación necesita un mod con {n} tipos de armas y {m} bandos.;
+	it=Questa registrazione ha bisogno di un mod con {n} tipi di armi e {m} fazioni.;
+	}
+
+[This recording was made with 256 weapon types and five sides. The mod you are playing has more.]
+	{
+	de=Diese Aufnahme wurde mit 256 Waffentypen und fünf Seiten gemacht. Der Mod, den du spielst, hat mehr.;
+	fr=Cet enregistrement a été fait avec 256 types d'armes et cinq camps. Le mod avec lequel tu joues en a plus.;
+	es=Esta grabación se hizo con 256 tipos de armas y cinco bandos. El mod con el que juegas tiene más.;
+	it=Questa registrazione è stata fatta con 256 tipi di armi e cinque fazioni. Il mod con cui stai giocando ne ha di più.;
 	}
 
 [This replaces the game files on this {device} ({size}) with the folder you chose. The current folder is kept as Total Annihilation (old) until you remove it. Saved games and settings stay.]

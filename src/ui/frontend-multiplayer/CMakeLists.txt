@@ -7,6 +7,7 @@ add_library(oa-ui-frontend-multiplayer
   src/lobby_net.cpp
   src/battleroom.cpp
   src/room_mutators.cpp
+  src/room_limits.cpp
   src/team_rules.cpp
   src/unit_sync.cpp
   src/restrict.cpp
@@ -57,6 +58,13 @@ if(BUILD_TESTING)
     oa-ui-frontend-multiplayer oa-netgame oa-data-languages)
   add_test(NAME ui-multiplayer-room-mutators COMMAND oa-ui-frontend-multiplayer-room-mutators-test)
   set_tests_properties(ui-multiplayer-room-mutators PROPERTIES TIMEOUT 30)
+  # A room past 3.1c's weapon types or sides: who is refused, who holds
+  # START, and the lines written to the log. No game data.
+  add_executable(oa-ui-frontend-multiplayer-room-limits-test tests/room_limits_test.cpp)
+  target_link_libraries(oa-ui-frontend-multiplayer-room-limits-test PRIVATE
+    oa-ui-frontend-multiplayer oa-netgame oa-data-languages)
+  add_test(NAME ui-multiplayer-room-limits COMMAND oa-ui-frontend-multiplayer-room-limits-test)
+  set_tests_properties(ui-multiplayer-room-limits PROPERTIES TIMEOUT 30)
   # GET MAP: every state and line over hand-made records, packs and offers;
   # with --data, the battle room's side over the installed GUI files: what a
   # joiner reads of the host's map, the host's pack through

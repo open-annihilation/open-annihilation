@@ -104,6 +104,12 @@ inline constexpr std::size_t target_a = 0x00, target_b = 0x02, aim_ready = 0x04,
 inline constexpr uint8_t saved_flags = 0x1f; // UnitWeapon.flags bits kept
 } // namespace weapon_record
 
+/// How many bits of a saved weapon id the unit restore writes back.
+///
+/// byte is 3.1c's read of the low byte. wide is 16 bits, under a profile
+/// whose weapon-types is above 256.
+enum class WeaponIdWidth : uint8_t { byte, wide };
+
 // Unit.flags as the unit writer packs them: the low nibble of
 // Unit.build_flags in bits 0..3, flags 0..11 in bits 4..15, flag 13 in bit 16
 // and flags 14..25 from bit 20. The unit restore hands flags 0..1 to the
@@ -371,13 +377,17 @@ void save_write_unit_mobility(const uint8_t* movement, const Unit* unit, Bank* b
 /// Restores one weapon slot from its record as the unit restore does.
 ///
 /// Targets, aim-ready word, muzzle offset, reload, aim angles,
-/// stockpile and the kept flag bits (weapon_record::saved_flags) are restored;
-/// the saved weapon id goes back into the slot's WeaponDef.
+/// stockpile and the kept flag bits (weapon_record::saved_flags) are restored.
+/// The saved weapon id goes back into the slot's WeaponDef: width byte writes
+/// the low byte only, and width wide writes both bytes.
 ///
 /// @param[in,out] world world holding the slot's WeaponDef
 /// @param slot weapon_record-laid-out bytes of the unit record
 /// @param[in,out] weapon weapon slot to restore
-void save_restore_unit_weapon(World* world, const uint8_t* slot, UnitWeapon& weapon);
+/// @param width how many bits of the saved id are written
+void save_restore_unit_weapon(
+    World* world, const uint8_t* slot, UnitWeapon& weapon, WeaponIdWidth width
+);
 
 /// Fills one 0xb8-byte unit record.
 ///

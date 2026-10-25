@@ -268,6 +268,9 @@ inline constexpr std::string_view interface_words[] = {
     "This map is for the TA demo.",
     "This map is for {name}.",
     "This needs a mutator you do not have: {detail}",
+    "This recording needs a mod with {n} weapon types and {m} sides.",
+    "This recording was made with 256 weapon types and five sides. The mod you are playing has "
+    "more.",
     "This saved game needs {name} {version}, which is not installed.",
     "This was made with mutators, and this run plays none.",
     "Total Annihilation",
