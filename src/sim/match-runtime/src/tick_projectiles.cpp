@@ -291,7 +291,7 @@ void Match::detonate(oa::Projectile& shot, sim::unit_spawn::Slot* direct) {
     if (direct != nullptr && definition->areaofeffect < 0x11)
         strike_unit(shot, *direct);
     else if (!sim::weapon_execution::silent_ownerless_shot(
-                 shot, *weapon, rules_view().weapon(weapon->weapon_id)
+                 shot, *weapon, rules_view().weapon(oa::oa_weapon_def_id(weapon))
              ))
         detonate_area(shot, *definition, *weapon);
 }
@@ -641,7 +641,7 @@ void Match::update_projectiles() {
                 // A water weapon's shot above sea level falls, unless it
                 // has the surface-fire key.
                 if ((flags & OA_WEAPON_FLAG_WATER_WEAPON) == 0 || previous_height < sea ||
-                    rules_view().weapon(weapon->weapon_id).surface_fire) {
+                    rules_view().weapon(oa::oa_weapon_def_id(weapon)).surface_fire) {
                     shot.speed = sim::combat_state::accelerate_projectile(
                         shot.speed, weapon->weapon_velocity, weapon->weapon_acceleration
                     );

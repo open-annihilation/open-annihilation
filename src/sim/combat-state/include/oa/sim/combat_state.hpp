@@ -734,7 +734,7 @@ struct WeaponScoreInput {
 ///
 /// @param can_attack whether the type can attack (OA_UNIT_DEF_ABILITY_CAN_ATTACK in
 ///        UnitDef.abilities)
-/// @param weapons the type's three slots; each present one (WeaponDef.weapon_id not zero) adds
+/// @param weapons the type's three slots; each present one (a non-zero id) adds
 ///        range/100 + 5 + damage/40
 /// @return 11 if the type can attack, else 1, plus the weapon terms, clamped to [-100, 100]
 [[nodiscard]] int threat_score(bool can_attack, const WeaponScoreInput weapons[3]) noexcept;
