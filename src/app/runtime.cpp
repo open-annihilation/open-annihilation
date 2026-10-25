@@ -885,6 +885,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_mod_limits) {
+            check_mod_limits();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_factory_orders) {
             check_factory_orders();
             flush_preferences();

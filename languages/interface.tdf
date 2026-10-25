@@ -810,7 +810,7 @@
 	it=Consente angoli fuori dall'intervallo ideale per la grafica di TA.;
 	}
 
-[Allow Full 3D Mode]
+[Allow full 3D mode]
 	{
 	de=Vollen 3D-Modus erlauben;
 	fr=Autoriser le mode 3D complet;
@@ -6378,7 +6378,7 @@
 	it=Richiede;
 	}
 
-[Needs Allow Full 3D Mode]
+[Needs Allow full 3D mode]
 	{
 	de=Braucht vollen 3D-Modus;
 	fr=Requiert le mode 3D complet;
@@ -8938,6 +8938,14 @@
 	it=Impostato dal mod;
 	}
 
+[Set by the mod. Every player in a game has the same.]
+	{
+	de=Vom Mod gesetzt. Alle Spieler einer Partie haben denselben Wert.;
+	fr=Fixé par le mod. Tous les joueurs d'une partie ont la même valeur.;
+	es=Fijado por el mod. Todos los jugadores de una partida tienen el mismo valor.;
+	it=Impostato dal mod. Tutti i giocatori di una partita hanno lo stesso valore.;
+	}
+
 [Set it to Off and back, or restore defaults.]
 	{
 	de=Stell es auf Aus und wieder zurück, oder stell die Standards wieder her.;
@@ -11322,7 +11330,7 @@
 	it=Unità, colpi e parti rotanti si muovono in modo fluido tra i tick del gioco.;
 	}
 
-[Unlocked Camera]
+[Unlocked camera]
 	{
 	de=Freie Kamera;
 	fr=Caméra déverrouillée;
@@ -11736,6 +11744,14 @@
 	fr=Règles d'état de l'eau;
 	es=Reglas del estado del agua;
 	it=Regole dello stato dell'acqua;
+	}
+
+[Weapon types]
+	{
+	de=Waffentypen;
+	fr=Types d'armes;
+	es=Tipos de armas;
+	it=Tipi di armi;
 	}
 
 [Weapons]
@@ -13656,6 +13672,14 @@
 	fr=il y a {count} min;
 	es=hace {count} min;
 	it={count} min fa;
+	}
+
+[{count} of {limit}]
+	{
+	de={count} von {limit};
+	fr={count} sur {limit};
+	es={count} de {limit};
+	it={count} di {limit};
 	}
 
 [{count} of {total} files differ]

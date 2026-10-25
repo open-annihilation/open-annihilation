@@ -313,7 +313,7 @@ enum class Setting : uint8_t {
     underwater_shimmer, ///< Underwater shimmer: an intensity slider
     naval_reflections,  ///< Naval reflections: an intensity slider
 
-    allow_full_3d,   ///< Allow Full 3D Mode: a switch
+    allow_full_3d,   ///< Allow full 3D mode: a switch
     unlocked_camera, ///< Unrestricted camera angles: a switch
     /// Welcome setup: SHOW AGAIN walks through the language, online features
     /// and the OA buttons again. It changes no setting. During a game the
@@ -321,6 +321,15 @@ enum class Setting : uint8_t {
     welcome_setup,
     /// Fog of War: a strip of Classic and Smooth
     fog_of_war,
+    /// Set by the mod: the heading over the limits the mod fixes.
+    /// It keeps no setting.
+    mod_limits_heading,
+    /// Weapon types: how many weapon types the mod allows, and in a match
+    /// how many of them the match loaded. It keeps no setting.
+    weapon_types,
+    /// Sides: how many sides the mod allows, and in a match how many of
+    /// them the match loaded. It keeps no setting.
+    sides,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -780,6 +789,25 @@ struct RegisteredWrite {
     void* state{};                                                      ///< the page's state
 };
 
+/// The weapon types and sides a mod fixes, as Engine Limits shows them.
+/// The host fills it after open_dialog. The default is the base game: no
+/// mod, 256 weapon types and 5 sides, and nothing loaded.
+struct ModLimitsShown {
+    /// A mod profile is in use. Without one the rows show 256 and 5, in a
+    /// match as well as at the menu.
+    bool mod{};
+    /// The weapon types the profile allows, or 256 for the base game.
+    uint32_t weapon_types{256};
+    /// The sides the profile allows, or 5 for the base game.
+    uint32_t sides{5};
+    /// The weapon types the playing match loaded. Empty outside a match.
+    /// The rows ignore it for the base game.
+    std::optional<uint32_t> loaded_weapon_types;
+    /// The sides the playing match loaded. Empty outside a match. The rows
+    /// ignore it for the base game.
+    std::optional<uint32_t> loaded_sides;
+};
+
 /// One open dialog. A host reads opened, chosen, defaults, restored, page
 /// and forget_renderer_failures, sets acceleration, and reads and may keep
 /// developer between openings; section_hooks is set only by tests and
@@ -898,6 +926,9 @@ struct Dialog {
     std::string game_files_location{};
     /// The device's name in the backups switch's hint.
     std::string game_files_device{};
+    /// Weapon types and sides, as the mod fixes them and as a match loaded
+    /// them. The host sets it as the dialog opens. The default is the base game.
+    ModLimitsShown mod_limits{};
     /// Developer Mode's list of the standard hacks.
     DeveloperList developer{};
     /// The language the operating system's preferred locales choose, which

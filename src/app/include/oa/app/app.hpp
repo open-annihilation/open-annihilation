@@ -478,6 +478,9 @@ struct Options {
     // MOVE ORDERS, CLOAK, ON/OFF and MOVE buttons through the SDL presenter and
     // checks the units carry the orders out.
     bool check_side_orders = false;
+    // Opens Settings on Engine Limits at the menu and in a two-slot skirmish
+    // and checks the weapon-type and side rows.
+    bool check_mod_limits = false;
     // Gives a Kbot Lab a move through the SDL presenter and checks the unit it
     // builds carries it out.
     bool check_factory_orders = false;

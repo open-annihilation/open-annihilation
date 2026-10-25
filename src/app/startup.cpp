@@ -324,6 +324,7 @@ void check_game_files_options(Options& options) {
         {options.check_render_tiers, "--check-render-tiers"},
         {options.check_match_orders, "--check-match-orders"},
         {options.check_side_orders, "--check-side-orders"},
+        {options.check_mod_limits, "--check-mod-limits"},
         {options.check_factory_orders, "--check-factory-orders"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_mutator_layer, "--check-mutator-layer"},
@@ -622,6 +623,7 @@ void check_director_options(Options& options) {
         {options.check_render_tiers, "--check-render-tiers"},
         {options.check_match_orders, "--check-match-orders"},
         {options.check_side_orders, "--check-side-orders"},
+        {options.check_mod_limits, "--check-mod-limits"},
         {options.check_factory_orders, "--check-factory-orders"},
         {options.check_unit_speech, "--check-unit-speech"},
         {options.check_mutator_layer, "--check-mutator-layer"},
@@ -730,6 +732,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_render_tiers, "--check-render-tiers"},
             {options.check_match_orders, "--check-match-orders"},
             {options.check_side_orders, "--check-side-orders"},
+            {options.check_mod_limits, "--check-mod-limits"},
             {options.check_factory_orders, "--check-factory-orders"},
             {options.check_unit_speech, "--check-unit-speech"},
             {options.check_mutator_layer, "--check-mutator-layer"},
@@ -981,6 +984,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-render-tiers", &Options::check_render_tiers},
     {"--check-match-orders", &Options::check_match_orders},
     {"--check-side-orders", &Options::check_side_orders},
+    {"--check-mod-limits", &Options::check_mod_limits},
     {"--check-factory-orders", &Options::check_factory_orders},
     {"--check-unit-speech", &Options::check_unit_speech},
     {"--check-mutator-layer", &Options::check_mutator_layer},
@@ -1623,7 +1627,8 @@ void write_startup_line(std::string_view text) {
                      "zoom-1920x1080|zoom-2560x1440|campaign]] "
                      "[--check-match-dialogs] [--check-match-layers] "
                      "[--check-render-tiers [--force-capable]] "
-                     "[--check-match-orders] [--check-side-orders] [--check-factory-orders] "
+                     "[--check-match-orders] [--check-side-orders] [--check-mod-limits] "
+                     "[--check-factory-orders] "
                      "[--check-unit-speech] [--check-mutator-layer] [--check-mutator-verdicts] "
                      "[--check-replay-loadout] "
                      "[--check-side-data-per-match] "
@@ -1948,7 +1953,8 @@ void write_startup_line(std::string_view text) {
         result.check_mutator_picker || result.check_brain_picker ||
         result.check_brain_seat_buttons || result.check_brain_campaign ||
         result.check_mutator_prompts || result.check_map_pack_lists ||
-        result.check_mod_map_settings || result.check_side_orders || result.check_click_snap;
+        result.check_mod_map_settings || result.check_side_orders || result.check_mod_limits ||
+        result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

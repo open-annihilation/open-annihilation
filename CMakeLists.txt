@@ -1341,6 +1341,7 @@ endif()
 set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_check.cpp
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
+  src/app/runtime_mod_limits_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
   src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
   src/app/runtime_patrol_check.cpp
@@ -3092,6 +3093,30 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-side-orders PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_side_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Engine Limits' weapon-type and side rows: 256 and 5 with no profile,
+      # at the menu and in a two-slot skirmish.
+      set(oa_mod_limits_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits")
+      file(MAKE_DIRECTORY "${oa_mod_limits_check_dir}")
+      add_test(NAME native-mod-limits COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mod-limits
+        --preferences-file "${oa_mod_limits_check_dir}/mod-limits.conf")
+      set_tests_properties(native-mod-limits PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mod_limits_check_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "menu 256, 5; match 256, 5")
+      # The same rows with ridge-wide: the profile's limits at the menu, and
+      # how many of each the match loaded. The fixture has seven sides.
+      set(oa_mod_limits_wide_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits-wide")
+      file(MAKE_DIRECTORY "${oa_mod_limits_wide_dir}")
+      add_test(NAME native-mod-limits-wide COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-mod-limits
+        --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+        --preferences-file "${oa_mod_limits_wide_dir}/mod-limits-wide.conf")
+      set_tests_properties(native-mod-limits-wide PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_mod_limits_wide_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED limits-fixture
+        PASS_REGULAR_EXPRESSION "menu 1024, 10; match [0-9]+ of 1024, 7 of 10")
       # A Kbot Lab sent to a point with MOVE and PATROL through SDL input on
       # dummy devices: each Peewee it then builds heads there.
       set(oa_factory_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/factory-orders")
