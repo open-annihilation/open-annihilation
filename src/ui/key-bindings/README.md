@@ -7,8 +7,8 @@ module reads a chord, writes it back as one text, names its parts in English
 for keycaps, and says how well it matches one event on a keyboard map.
 
 It is the model the dispatcher, the reader, the layouts and the editor share.
-It knows nothing of a window or a clock: an event carries its own time, and a
-gesture is recorded but not timed.
+It knows nothing of a window or a clock: an event carries its own time. The
+dispatcher times a double press and a hold from that time.
 
 ## Entry points
 
@@ -50,18 +50,43 @@ gesture is recorded but not timed.
 - `layers_meet`, `conditions_meet` and `same_key` are that rule in pieces.
   `same_key` treats a letter and a place as one key when the keyboard map
   prints that letter on that place.
+- `layout_from_manifest` parses each chord of a manifest. A chord that does
+  not parse, and a modifier on its own on an action whose kind is not a
+  modifier, are errors at that chord's own line and column. An action this
+  build does not know, a binding that leaves Escape out of a fixed action
+  or gives Escape to another action in a context that meets it, a second
+  binding of one chord, and a character the keyboard does not type, are
+  warnings. The layout is left unchanged when any chord is an error. A
+  warning keeps the binding.
+- `manifest_from_layout` writes the layout back into a manifest. Each chord
+  uses its canonical text. An action this build does not know is written
+  back, and the other keys come from the manifest that was passed in.
 - `key_positions` names every position a keyboard report can carry that the
   UI Events code list names. `scancodes_without_code` lists the rest, which
   no chord can name.
+- `Dispatcher` turns one event into action events. `set_contexts` says which
+  contexts are open for the next `feed`. A plain chord gives `pressed` on
+  the down and `released` on that key's or button's up. `:double` gives
+  `double_press`, `:release` gives `pressed` on the up, and `:hold` gives
+  `held` from `advance` once it has been down for `long_press_ms`. A repeat
+  action gives `repeated`; any other action ignores a repeat. A modifier
+  role gives `active` and `inactive` as its own key goes down and up.
+  `release_all` releases every held action and role. `role_active` reads
+  the modifiers and the keys the caller reports now, not the events `feed`
+  saw. The caller passes the time.
 
 ## State
 
-None. A chord, a map and an event are values the caller keeps. The position
-table and the named keys are fixed.
+A chord, a map and an event are values the caller keeps. The position
+table and the named keys are fixed. A `Dispatcher` keeps the bindings, the
+keyboard map, the open contexts, the keys and buttons that are down, the
+actions each down started, the hold timers and the modifier roles that are
+active.
 
 ## Invariants
 
 - The library does not include or link SDL, and it does not read a clock.
+  `feed` and `advance` take the time the caller counted.
 - `chord_text` of a parsed chord is the canonical text, and parsing that
   text gives the same chord. Every registry default is already canonical.
 - A letter matches a key code and a place matches a position number. Shift
@@ -76,6 +101,9 @@ table and the named keys are fixed.
   player's own changes are left as they were given. An action keeps at most
   four chords. Escape stays on `chat.cancel` whatever a step said. Every
   other action, `ui.settings` included, takes the chords the steps give it.
+- `layout_from_manifest` reports a bad chord at the chord, not at the list.
+  It keeps an unknown action and its chords. It does not change the layout
+  when a chord is an error.
 
 ## Tests
 
@@ -90,6 +118,14 @@ AZERTY map, `A` matches the key whose events carry `a`, `@KeyA` matches the
 A key's place, and `@Digit1` is labelled `&`. It checks keycaps for each
 form, and `on_keyboard` for a backtick the map does not carry.
 
+`ui-key-bindings-files` (`tests/layout_file_test.cpp`) reads a manifest into
+a layout. A chord `Ctrl+Q:sometimes` is an error at the chord's column. An
+unknown action is a warning and is written back. `chat.cancel` without
+Escape, and `chat.send` on Escape, are warnings; `ui.settings` on F9 is
+not. A repeated chord, and a backtick the keyboard does not type, are
+warnings. Every registry action's defaults round-trip through the paste
+back to the same layout.
+
 `ui-key-bindings-layouts` (`tests/layout_test.cpp`) resolves `oa-default`
 with no clash for no hack, for each hack alone and for all of them, in both
 pointer schemes and with the number-key swap off and on. It checks a chosen
@@ -98,6 +134,17 @@ replacement, the left-click scheme, the swap, fixed Escape, and the pairs
 that share a key without clashing: modifiers, the left button, a stricter
 condition, chat's Enter, a hack's Tab, and a pointer aimed at a different
 place.
+
+`ui-key-bindings-dispatcher` (`tests/dispatcher_test.cpp`) resolves
+`oa-default` and walks synthetic timelines: Attack on A, including with
+Shift or Alt; Ctrl+M matches nothing; Tab across the megamap, the next
+primary and the previous primary; Enter in chat and in play; `=` for speed
+and, with the debug keys, refill; text entry keeping only Escape; Cmd+/
+reaching the keys overlay in global; a repeating pan and a press that does
+not repeat; the status strip's press and release around a Shift; a
+double-click selecting the type; a hold that fires once after 500 ms; a
+key-up never seen down; `release_all`; and the queue role following Shift
+whether or not a Shift event was fed.
 
 `ui-key-bindings-sdl` (`tests/sdl_numbers_test.cpp`) links SDL and checks the
 numbers the library holds: every scancode SDL names is in the position table
@@ -112,5 +159,6 @@ on that list have no position in a keyboard report and are not in the table:
 Fn, FnLock, Hyper, Super, Turbo, Abort, Resume, Suspend, Hiragana, Katakana,
 LaunchApp1, LaunchApp2, LaunchMail, Unidentified, NumpadStar, Open and Props.
 The words on the keycaps are English; drawing them, and translating them, is
-left to the screens that show them. Matching does not time a double press, a
-hold or a release, and a pad chord matches no event.
+left to the screens that show them. Matching one chord does not time a
+double press, a hold or a release. The dispatcher does, from the time the
+caller passes. A pad chord matches no event.

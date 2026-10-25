@@ -226,6 +226,10 @@ inline constexpr std::string_view update_check = "open-annihilation.update-check
 /// server. Absent, or any text that is not a whole number, means a check
 /// has never reached the server.
 inline constexpr std::string_view update_checked = "open-annihilation.update-checked";
+/// The highest release number the player skipped. Absent, or any text that
+/// is not a whole number, means none. That release and every older one stay
+/// quiet; a newer one asks again.
+inline constexpr std::string_view update_skipped = "open-annihilation.update-skipped";
 /// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
 /// other than off, the game opens mod packages.
 inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";

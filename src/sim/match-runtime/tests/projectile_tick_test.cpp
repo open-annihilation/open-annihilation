@@ -5,9 +5,11 @@
 #include "oa/sim/ballistics.hpp"
 #include "oa/sim/match_runtime.hpp"
 #include "oa/sim/weapon_execution/projectile_pool.hpp"
+#include "oa/data/persist/save_sections.hpp"
 #include "oa/data/unit_definitions.hpp"
 #include "oa/sim/weapon_execution/weapon_launch.hpp"
 
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
@@ -524,6 +526,67 @@ void interception(
     std::cout << "anti-nuke interception passed after " << ticks << " ticks\n";
 }
 
+// While the silo's nuke and the anti-nuke's rocket are both in flight, each
+// stockpile is empty in the match and one in the saved record. Restoring the
+// record into a fresh unit of the same type puts the round back.
+void stockpile_refund(
+    sim::match_runtime::Match& match, sim::unit_spawn::Slot& antinuke, sim::unit_spawn::Slot& silo
+) {
+    auto& world = match.state();
+    CHECK(match.projectiles().empty());
+    silo.record.weapons[0].stockpile = 0;
+    antinuke.record.weapons[0].stockpile = 0;
+    const FixedVec3 pad{fx(350), fx(ground_height), fx(60)};
+    const FixedVec3 aim{fx(70), fx(ground_height), fx(60)};
+    const auto nuke_ref = oa_ref_from_index(nuke_weapon);
+    const auto rocket_ref = oa_ref_from_index(antinuke_weapon);
+    auto* nuke = sim::weapon_execution::allocate_projectile(world);
+    auto* rocket = sim::weapon_execution::allocate_projectile(world);
+    CHECK(nuke != nullptr && rocket != nullptr);
+    sim::weapon_execution::init_projectile_record(
+        world, *nuke, nuke_ref, pad, &aim, world.game.tick, &silo.record, 0
+    );
+    sim::weapon_execution::init_projectile_record(
+        world, *rocket, rocket_ref, aim, &pad, world.game.tick, &antinuke.record, 0
+    );
+    CHECK((world.game.weapon_defs[nuke_weapon].flags & OA_WEAPON_FLAG_STOCKPILE) != 0);
+    CHECK((world.game.weapon_defs[antinuke_weapon].flags & OA_WEAPON_FLAG_STOCKPILE) != 0);
+    CHECK(silo.record.weapons[0].stockpile == 0);
+    CHECK(antinuke.record.weapons[0].stockpile == 0);
+
+    data::persist::SaveContext save{&world, nullptr, nullptr, nullptr, nullptr, nullptr};
+    std::array<std::array<uint8_t, data::persist::unit_record_bytes>, 2> records{};
+    sim::unit_spawn::Slot* launchers[] = {&silo, &antinuke};
+    for (std::size_t index = 0; index < 2; ++index) {
+        data::persist::save_encode_unit_record(
+            &save, &launchers[index]->record, 0, false, records[index].data()
+        );
+        const auto at =
+            data::persist::unit_record::weapons + data::persist::weapon_record::stockpile;
+        CHECK(records[index][at] == 1);
+        CHECK(launchers[index]->record.weapons[0].stockpile == 0);
+    }
+
+    for (std::size_t index = 0; index < 2; ++index) {
+        Unit fresh{};
+        fresh.weapons[0].def = launchers[index]->record.weapons[0].def;
+        data::persist::save_restore_unit_weapon(
+            &world,
+            records[index].data() + data::persist::unit_record::weapons,
+            fresh.weapons[0],
+            data::persist::WeaponIdWidth::byte
+        );
+        CHECK(fresh.weapons[0].stockpile == 1);
+        CHECK(launchers[index]->record.weapons[0].stockpile == 0);
+    }
+
+    sim::weapon_execution::retire_projectile(world, *nuke);
+    sim::weapon_execution::retire_projectile(world, *rocket);
+    sim::weapon_execution::compact_projectiles(world);
+    CHECK(match.projectiles().empty());
+    std::cout << "stockpile refund while both missiles are in flight passed\n";
+}
+
 void direct_hit_does_not_chain(sim::match_runtime::Match& match, sim::unit_spawn::Slot& antinuke) {
     // A blast under 17 wide that hits a unit damages only that unit; the
     // interceptor chain belongs to the area blast, so a shot beside it flies on.
@@ -850,6 +913,7 @@ int main() {
     }
     CHECK(antinuke->record.weapons[0].def == oa_ref_from_index(antinuke_weapon));
     interception(match, *antinuke, *silo);
+    stockpile_refund(match, *antinuke, *silo);
     direct_hit_does_not_chain(match, *antinuke);
     disintegrator_trail(match, *antinuke);
     idle_tower_takes_a_target(match, *antinuke);
