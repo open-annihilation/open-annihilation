@@ -202,6 +202,14 @@
 	it=5–10;
 	}
 
+[*** The launch gives a computer player side {side}, which computer players cannot take in this game.]
+	{
+	de=*** Der Start gibt einem Computerspieler die Seite {side}, die Computerspieler in diesem Spiel nicht nehmen können.;
+	fr=*** Le lancement donne à un joueur ordinateur le camp {side}, que les joueurs ordinateur ne peuvent pas prendre dans cette partie.;
+	es=*** El lanzamiento da a un jugador de ordenador el bando {side}, que los jugadores de ordenador no pueden tomar en esta partida.;
+	it=*** L'avvio dà a un giocatore computer la fazione {side}, che i giocatori computer non possono prendere in questa partita.;
+	}
+
 [*** The launch names side {side}, which this game does not have.]
 	{
 	de=*** Der Start nennt die Seite {side}, die dieses Spiel nicht hat.;
