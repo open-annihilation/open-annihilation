@@ -282,12 +282,36 @@
 	it=*** {player} non ha {name}.;
 	}
 
+[*** {player} needs a newer Open Annihilation for this mod.]
+	{
+	de=*** {player} braucht ein neueres Open Annihilation für diesen Mod.;
+	fr=*** {player} a besoin d'un Open Annihilation plus récent pour ce mod.;
+	es=*** {player} necesita un Open Annihilation más reciente para este mod.;
+	it=*** {player} ha bisogno di un Open Annihilation più recente per questa mod.;
+	}
+
 [*** {player} plays Total Annihilation 3.1c and cannot join a game with mutators.]
 	{
 	de=*** {player} spielt Total Annihilation 3.1c und kann einem Spiel mit Mutatoren nicht beitreten.;
 	fr=*** {player} joue à Total Annihilation 3.1c et ne peut pas rejoindre une partie avec des mutateurs.;
 	es=*** {player} juega a Total Annihilation 3.1c y no puede unirse a una partida con mutadores.;
 	it=*** {player} gioca a Total Annihilation 3.1c e non può unirsi a una partita con mutatori.;
+	}
+
+[*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than 256 weapon types.]
+	{
+	de=*** {player} spielt Total Annihilation 3.1c, das keinen Mod mit mehr als 256 Waffentypen spielen kann.;
+	fr=*** {player} joue à Total Annihilation 3.1c, qui ne peut pas jouer un mod avec plus de 256 types d'armes.;
+	es=*** {player} juega a Total Annihilation 3.1c, que no puede jugar un mod con más de 256 tipos de armas.;
+	it=*** {player} gioca a Total Annihilation 3.1c, che non può giocare una mod con più di 256 tipi di armi.;
+	}
+
+[*** {player} plays Total Annihilation 3.1c, which cannot play a mod with more than five sides.]
+	{
+	de=*** {player} spielt Total Annihilation 3.1c, das keinen Mod mit mehr als fünf Seiten spielen kann.;
+	fr=*** {player} joue à Total Annihilation 3.1c, qui ne peut pas jouer un mod avec plus de cinq camps.;
+	es=*** {player} juega a Total Annihilation 3.1c, que no puede jugar un mod con más de cinco bandos.;
+	it=*** {player} gioca a Total Annihilation 3.1c, che non può giocare una mod con più di cinque fazioni.;
 	}
 
 [*** {player} plays Total Annihilation 3.1c, which cannot play with mutators.]
@@ -10728,6 +10752,14 @@
 	fr=Ce mod ne peut pas être utilisé;
 	es=Este mod no se puede usar;
 	it=Questo mod non si può usare;
+	}
+
+[This mod needs every player on Open Annihilation. The host plays Total Annihilation 3.1c.]
+	{
+	de=Dieser Mod braucht jeden Spieler auf Open Annihilation. Der Gastgeber spielt Total Annihilation 3.1c.;
+	fr=Ce mod a besoin de chaque joueur sur Open Annihilation. L'hôte joue à Total Annihilation 3.1c.;
+	es=Este mod necesita a todos los jugadores en Open Annihilation. El anfitrión juega a Total Annihilation 3.1c.;
+	it=Questa mod ha bisogno di ogni giocatore su Open Annihilation. L'host gioca a Total Annihilation 3.1c.;
 	}
 
 [This needs a mutator you do not have: {detail}]
