@@ -17135,6 +17135,11 @@ class Runtime final : public menu::Host,
 
     /// Tells whether the game data holds a campaign for a side.
     ///
+    /// Arm and Core are remembered together for the mounted folders, archives,
+    /// language and language packs, and read again when any of those change.
+    /// A mod switch is a new run, so it reads its own files. The campaign
+    /// screens are not built to answer this.
+    ///
     /// @param side 0 for Arm, 1 for Core
     /// @return true when a campaign file names the side
     [[nodiscard]] bool side_has_campaign(uint32_t side);
@@ -18620,6 +18625,16 @@ class Runtime final : public menu::Host,
     // NEWGAME.GUI's gadget with the keyboard focus: the one its setup
     // focuses, then the control last pressed.
     std::string campaign_setup_focus_{};
+    /// The mounted folders, archives, language and language packs
+    /// side_has_campaign remembers its answers for.
+    [[nodiscard]] std::string side_campaign_mount_key() const;
+
+    // side_has_campaign's answers for side_campaign_key_. Dropped when the
+    // mounted folders, archives, language or language packs change.
+    std::string side_campaign_key_{};
+    bool side_campaign_known_ = false;
+    bool side_campaign_arm_ = false;
+    bool side_campaign_core_ = false;
     // The record of the frontend screen's panel holding the keyboard focus,
     // -1 for none (frontend_focus()).
     int32_t frontend_focus_ = -1;
