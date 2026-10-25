@@ -549,6 +549,15 @@ void multiplayer_bind_layer_presence_badges(void* context, bool (*draws)(void*))
 /// Returns the gadget records of the current base screen as its loader left them.
 [[nodiscard]] const ui::gui_layout::Layout& multiplayer_screen_layout() noexcept;
 
+/// Returns the gadgets the base screen last composed for a draw.
+///
+/// multiplayer_screen_layout is the GUI as its loader left it. A draw
+/// replaces this layout with one gadget per control, and a side past the
+/// art has its name on that gadget.
+///
+/// @return the layout the last draw composed, or the loaded GUI before that
+[[nodiscard]] const ui::gui_layout::Layout& multiplayer_drawn_layout() noexcept;
+
 /// Returns the stacked dialog's panel, or null when none is open.
 [[nodiscard]] Panel* multiplayer_modal() noexcept;
 

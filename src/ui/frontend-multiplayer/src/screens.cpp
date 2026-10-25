@@ -4695,6 +4695,10 @@ const ui::gui_layout::Layout& multiplayer_screen_layout() noexcept {
     return ui().base.source;
 }
 
+const ui::gui_layout::Layout& multiplayer_drawn_layout() noexcept {
+    return ui().base.screen.layout;
+}
+
 Panel* multiplayer_modal() noexcept {
     return ui().modal_kind == ModalKind::none ? nullptr : &ui().modal.panel;
 }
