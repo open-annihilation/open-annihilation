@@ -362,6 +362,7 @@ void a_side_past_the_fifth_seats_its_commander(const fs::path& game, const fs::p
         "author:\n"
         "  name: \"A. Maker\"\n"
         "description: \"Reads a side past the fifth.\"\n"
+        "tags: [\"classic\"]\n"
         "works-with: [\"ridge-sides\"]\n"
         "levels:\n"
         "  - id: firm\n"
