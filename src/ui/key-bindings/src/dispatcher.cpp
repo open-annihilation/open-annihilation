@@ -878,25 +878,50 @@ Fed Dispatcher::feed(const InputEvent& event) {
 
     Slot& slot = slot_for(*state_, event);
     if (event.repeat) {
-        if (slot.down) {
-            for (const Started& started : slot.started) {
-                if (started.action_index >= state_->resolved.actions.size())
+        // A repeat can be the first event for the key: a check holds it down
+        // by sending the repeat itself. Resolve that the way a press would,
+        // and report one repeat of each repeat action. A press action still
+        // waits for a down that was not a repeat.
+        if (!slot.down) {
+            const std::vector<Candidate> winners = choose(*state_, event, Gesture::press);
+            for (const Candidate& item : winners) {
+                if (item.action_index >= state_->resolved.actions.size())
                     continue;
-                const Bound& bound = state_->resolved.actions[started.action_index];
+                const Bound& bound = state_->resolved.actions[item.action_index];
                 const actions::Kind kind =
                     bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
-                if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                if (kind != actions::Kind::repeat)
                     continue;
-                push_event(
-                    fed,
-                    bound,
-                    Phase::repeated,
-                    bound.chords[started.chord_index].chord,
-                    started.context
-                );
+                push_event(fed, bound, Phase::repeated, item.chord, item.context);
+                remember(slot, item);
             }
+            if (!slot.started.empty()) {
+                slot.down = true;
+                slot.saw_up = false;
+                slot.down_modifiers = event.modifiers;
+                slot.down_ms = event.time_ms;
+                slot.had_binding = true;
+            }
+            fed.bound = !fed.events.empty();
+            return fed;
         }
-        fed.bound = slot.down && slot.had_binding;
+        for (const Started& started : slot.started) {
+            if (started.action_index >= state_->resolved.actions.size())
+                continue;
+            const Bound& bound = state_->resolved.actions[started.action_index];
+            const actions::Kind kind =
+                bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+            if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                continue;
+            push_event(
+                fed,
+                bound,
+                Phase::repeated,
+                bound.chords[started.chord_index].chord,
+                started.context
+            );
+        }
+        fed.bound = slot.had_binding;
         return fed;
     }
 
