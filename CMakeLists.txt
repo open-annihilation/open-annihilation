@@ -4056,6 +4056,13 @@ endforeach()
         set_tests_properties(limits-fixture PROPERTIES
           FIXTURES_SETUP limits-fixture
           TIMEOUT 300)
+        add_test(NAME app-brain-check-sides
+          COMMAND oa-app-brain-check-test --data --sides-fixture
+            "${CMAKE_BINARY_DIR}/limits-fixture/ridge-sides")
+        oa_game_data_tests(app-brain-check-sides)
+        set_tests_properties(app-brain-check-sides PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT 120)
         add_test(NAME limits-fixture-repeatable COMMAND ${Python3_EXECUTABLE}
           "${CMAKE_CURRENT_SOURCE_DIR}/tools/make_limits_fixture.py"
           --game-dir "${OA_GAME_DIR}" --oa-tool $<TARGET_FILE:oa-tool>

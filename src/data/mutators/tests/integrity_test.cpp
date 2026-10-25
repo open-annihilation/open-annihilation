@@ -247,6 +247,43 @@ void test_sides_and_commander() {
     expect_filtered(found, mutators::Problem::side_without_commander);
     expect_filtered(found, mutators::Problem::too_many_sides);
 
+    rules::DocumentSet seven;
+    add_doc(
+        seven,
+        "gamedata/sidedata.tdf",
+        "[SIDE0]\n{\nCommander=RGCOM;\n}\n"
+        "[SIDE1]\n{\nCommander=RGCOM;\n}\n"
+        "[SIDE2]\n{\nCommander=RGCOM;\n}\n"
+        "[SIDE3]\n{\nCommander=RGCOM;\n}\n"
+        "[SIDE4]\n{\nCommander=RGCOM;\n}\n"
+        "[SIDE5]\n{\nCommander=RGCOM;\n}\n"
+        "[SIDE6]\n{\nCommander=NOCOM;\n}\n"
+        "[SIDE7]\n{\nCommander=RGCOM;\n}\n"
+    );
+    add_doc(seven, "units/RGCOM.fbi", "[UNITINFO]\n{\nUnitName=RGCOM;\n}\n");
+    mutators::IntegrityLimits wide;
+    wide.sides = 7;
+    const std::vector<mutators::IntegrityIssue> followed =
+        mutators::integrity_issues(seven, oa::data::defs::data_layout(), wide, holds_all);
+    for (const mutators::IntegrityIssue& issue : followed) {
+        if (issue.problem == mutators::Problem::too_many_sides)
+            OA_CHECK(issue.record != "SIDE5" && issue.record != "SIDE6");
+        if (issue.problem == mutators::Problem::side_without_commander)
+            OA_CHECK(issue.record != "SIDE5");
+    }
+    const mutators::IntegrityIssue* missing_commander = nullptr;
+    const mutators::IntegrityIssue* past = nullptr;
+    for (const mutators::IntegrityIssue& issue : followed) {
+        if (issue.problem == mutators::Problem::side_without_commander && issue.record == "SIDE6")
+            missing_commander = &issue;
+        if (issue.problem == mutators::Problem::too_many_sides && issue.record == "SIDE7")
+            past = &issue;
+    }
+    OA_CHECK(missing_commander != nullptr);
+    OA_CHECK(past != nullptr);
+    if (past != nullptr)
+        OA_CHECK(past->message.find("past the 7 sides") != std::string::npos);
+
     rules::DocumentSet removed;
     add_doc(removed, "units/RGCOM.fbi", "[UNITINFO]\n{\nUnitName=RGCOM;\n}\n");
     add_doc(removed, "gamedata/sidedata.tdf", "[SIDE0]\n{\nCommander=RGCOM;\n}\n");

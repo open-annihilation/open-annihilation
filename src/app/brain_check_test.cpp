@@ -103,8 +103,11 @@ void read_match(oa::sim::match_runtime::Match& match, void* context) {
     auto* seen = static_cast<Seen*>(context);
     oa::World& world = match.state();
     seen->type_count = world.unit_def_count;
-    if (world.game.side_count > 0)
-        seen->commander = world.game.sides[0].commander;
+    if (world.game.side_count > 0) {
+        const oa::Side* side_record = oa::world_side(&world, 0);
+        if (side_record != nullptr)
+            seen->commander = side_record->commander;
+    }
     for (uint32_t slot = 1; slot < world.unit_slot_count; ++slot) {
         const oa::Unit& unit = world.units[slot];
         if (unit.type_index == 0)
@@ -280,6 +283,136 @@ void a_unit_file_that_does_not_load_is_a_warning(
     expect_commander(seen);
 }
 
+struct SideSeen {
+    int sides{-1};
+    std::string side_name;
+    bool found{false};
+    int32_t x{};
+    int32_t z{};
+    uint8_t owner{};
+    std::string type_name;
+};
+
+void read_side_globals(void* context, lua_State* state) {
+    auto* seen = static_cast<SideSeen*>(context);
+    lua_getglobal(state, "seen_sides");
+    if (lua_isinteger(state, -1))
+        seen->sides = static_cast<int>(lua_tointeger(state, -1));
+    lua_pop(state, 1);
+    lua_getglobal(state, "seen_side_name");
+    if (lua_isstring(state, -1)) {
+        const char* text = lua_tostring(state, -1);
+        if (text != nullptr)
+            seen->side_name = text;
+    }
+    lua_pop(state, 1);
+}
+
+void read_side_match(oa::sim::match_runtime::Match& match, void* context) {
+    auto* seen = static_cast<SideSeen*>(context);
+    oa::World& world = match.state();
+    for (uint32_t slot = 1; slot < world.unit_slot_count; ++slot) {
+        const oa::Unit& unit = world.units[slot];
+        if (unit.type_index == 0)
+            continue;
+        seen->found = true;
+        seen->x = unit.position.x;
+        seen->z = unit.position.z;
+        seen->owner = unit.owner_index;
+        if (unit.type_index < world.unit_def_count)
+            seen->type_name = world.unit_defs[unit.type_index].unit_name;
+        break;
+    }
+    if (oa::data::script_host::Sandbox* sandbox = oa::sim::brains::seat_sandbox(match, 1)) {
+        oa::data::script_host::ScriptError script_error;
+        OA_CHECK(sandbox->run_host("read", seen, read_side_globals, script_error));
+    }
+}
+
+std::optional<fs::path> sides_fixture_of(int argc, char** argv) {
+    for (int index = 1; index + 1 < argc; ++index) {
+        if (std::string_view(argv[index]) == "--sides-fixture")
+            return fs::path(argv[index + 1]);
+    }
+    return std::nullopt;
+}
+
+void a_side_past_the_fifth_seats_its_commander(const fs::path& game, const fs::path& fixture) {
+    struct Holder {
+        fs::path path;
+
+        Holder() : path(oa::test::make_scratch_directory("T09-app-brain-check")) {}
+
+        ~Holder() {
+            std::error_code error;
+            fs::remove_all(path, error);
+        }
+
+        Holder(const Holder&) = delete;
+        Holder& operator=(const Holder&) = delete;
+    } holder;
+
+    const fs::path folder = holder.path / "ridge-sixth";
+    write_text(
+        folder / "oabrain.yaml",
+        "oabrain: 1\n"
+        "id: ridge-sixth\n"
+        "name: \"Ridge Sixth\"\n"
+        "version: \"1\"\n"
+        "author:\n"
+        "  name: \"A. Maker\"\n"
+        "description: \"Reads a side past the fifth.\"\n"
+        "works-with: [\"ridge-sides\"]\n"
+        "levels:\n"
+        "  - id: firm\n"
+        "    name: \"Firm\"\n"
+        "    difficulty: medium\n"
+        "entry: \"brain.lua\"\n"
+    );
+    write_text(
+        folder / "brain.lua",
+        "return {\n"
+        "  start = function()\n"
+        "    seen_sides = #game.mod.sides\n"
+        "    seen_side_name = me.side_name\n"
+        "  end\n"
+        "}\n"
+    );
+    std::string failure;
+    const std::optional<oa::app::InstalledBrain> installed =
+        oa::app::read_installed_brain(holder.path, "ridge-sixth", failure);
+    OA_CHECK(installed.has_value());
+    if (!installed) {
+        std::fprintf(stderr, "brain: %s\n", failure.c_str());
+        return;
+    }
+    oa::app::BrainCheckRequest request;
+    request.game_dir = game;
+    request.mod_folder = fixture;
+    request.brain = *installed;
+    request.choice.id = installed->manifest.id;
+    request.choice.level = "firm";
+    request.side = 6;
+    SideSeen seen;
+    std::string problem;
+    const std::optional<oa::app::BrainCheckReport> report =
+        oa::app::check_brain_against_game(request, problem, read_side_match, &seen);
+    if (!report)
+        std::fprintf(stderr, "brain check: %s\n", problem.c_str());
+    OA_CHECK(report.has_value());
+    if (!report)
+        return;
+    OA_CHECK(report->seated);
+    OA_CHECK(seen.sides == 7);
+    OA_CHECK(seen.side_name == "Ridge6");
+    constexpr int32_t centre = static_cast<int32_t>(512u << 16);
+    OA_CHECK(seen.found);
+    OA_CHECK(seen.owner == 1);
+    OA_CHECK(seen.x == centre);
+    OA_CHECK(seen.z == centre);
+    OA_CHECK(same_ascii(seen.type_name, "RD6COM"));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -290,5 +423,7 @@ int main(int argc, char** argv) {
     const oa::app::InstalledBrain brain = brain_of(scratch.path);
     base_game_seats_the_commander(game, brain);
     a_unit_file_that_does_not_load_is_a_warning(game, scratch.path, brain);
+    if (const std::optional<fs::path> fixture = sides_fixture_of(argc, argv))
+        a_side_past_the_fifth_seats_its_commander(game, *fixture);
     return oa::test::check_exit_status();
 }
