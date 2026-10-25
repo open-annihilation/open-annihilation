@@ -60,6 +60,9 @@ same. `--` ends options. A command takes its options through
 | `catalogue public KEY_FILE` | Prints the same three lines. The passphrase is not used. |
 | `catalogue sign --key KEY_FILE CATALOGUE [--out SIG] [--passphrase-file FILE]` | Signs CATALOGUE's exact bytes and writes CATALOGUE.sig, or SIG. The line is the one a catalogue check reads: `ed25519`, the key id and the signature. A catalogue this build would refuse is refused before the key is opened. The written pair is checked before the command reports success. Prints `signed <file> with <id>`. |
 | `catalogue verify CATALOGUE [--sig SIG] (--descriptor FILE \| --registry ID --key ed25519:KEY [--key ...])` | Checks CATALOGUE against its signature, with the descriptor's id and keys, or with ID and the given keys. Each `--key` is read as the key the signature names, and the first is the one that is trusted. Prints `good signature by <id>` and the verdict, and exits 0 when the catalogue can be used. A refused catalogue prints the verdict and exits 1. |
+| `engine-feed write --version V [--release N] --date YYYY-MM-DD --from V --page URL --mirror URL [--mirror URL]... [--notes FILE] [--rollout N] [--online-min V] [--channel stable] [--previous FEED] --out FEED PACKAGE...` | Writes a feed of one release. Each PACKAGE is a release file whose name carries `--version` and a package id, as a zip, a Windows setup or the macOS package. The command reads each file's size and SHA-256. `--release` defaults to that version's release number. `--notes` is a JSON object of language to lines. `--previous` adds the older releases of an earlier feed, five in all. The written file is read back before success. Prints the feed's path and the release number. |
+| `engine-feed sign --key KEY_FILE FEED [--out SIG] [--passphrase-file FILE]` | Signs FEED's exact bytes and writes FEED.sig, or SIG. The line is the one a feed check reads. A feed this build would refuse is refused before the key is opened. The written pair is checked before the command reports success. Prints `signed <file> with <id>`. |
+| `engine-feed check (FEED [--sig SIG] \| --url URL) [--channel stable] [--key ID=ed25519:BASE64]...` | Checks FEED against its signature, or fetches URL and URL plus `.sig`. Without `--key` the keys are this build's pinned keys. Each `--key` replaces those keys. Prints `good signature by <id>` and one line a release, and exits 0 when the feed can be used. A refused feed prints the verdict and exits 1. |
 | `registry init FOLDER --id ID --name NAME --base-url URL --key KEY_FILE [--passphrase-file FILE] [--homepage URL]` | Makes a direct registry in FOLDER: `registry.yaml`, an empty catalogue signed for 30 days, its signature, and `v1/p/` and `v1/i/`. FOLDER must be missing or empty. `--base-url` is the http address the registry is served at, with no trailing slash. Prints the descriptor's path and the key's fingerprint. |
 | `registry mirror URL FOLDER [--key ed25519:<base64>]` | Copies the registry at URL into FOLDER, laid out as on the host that served it. The signature is checked, a sequence lower than the one FOLDER holds stops the copy, and each package and picture is checked by SHA-256. A `.part` is resumed with a Range request. A tokens registry is copied through its download API. The catalogue and its signature are written last, byte for byte. |
 | `interface-words --json` | Prints a JSON array of every English text this build passes to the interface catalogue, sorted, with each text once. The texts are the lists the modules that look them up export. |
@@ -245,6 +248,13 @@ key, with `--registry` and `--key` and with a descriptor. A changed
 catalogue, another key, another registry and a signature that names
 another key are refused. A short passphrase, an existing key file and a
 catalogue the check would refuse fail before the key is opened.
+
+`tools-oa-tool-engine-feed` (`oa-tool-engine-feed-test`) makes one publisher
+key, then writes a feed from stand-in package files, signs it and checks it
+with that key. A check with no `--key` is refused. `check --url` reads the
+feed and its signature from the test HTTP fixture on 127.0.0.1, and the
+fixture's log is two GETs with no query. A package whose name carries
+another version is refused.
 
 `tools-oa-tool-registry` (`oa-tool-registry-test`) makes one publisher key,
 then an empty registry, and mirrors registries served by the test HTTP

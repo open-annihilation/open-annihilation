@@ -332,6 +332,56 @@ class Failure : public std::runtime_error {
 /// @throws Failure when the catalogue or the signature cannot be read
 [[nodiscard]] int run_catalogue_verify(std::span<const std::string> arguments, Output& output);
 
+// The engine feed commands, defined in engine_feed.cpp.
+
+/// Writes one release of the signed engine feed.
+///
+/// `--version`, `--date`, `--from`, `--page`, `--out` and at least one
+/// `--mirror` are required, with one or more package files. `--release`
+/// defaults to the release number of `--version`. `--notes` is a JSON object
+/// of language to lines. `--previous` copies older releases from an earlier
+/// feed, five releases in all. The file is read back before success.
+///
+/// @param arguments the options and the package files
+/// @param[in,out] output receives the written line, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the feed cannot be written
+[[nodiscard]] int run_engine_feed_write(std::span<const std::string> arguments, Output& output);
+
+/// Signs an engine feed with a sealed key.
+///
+/// `--key` is the sealed key. The positional argument is the feed. `--out`
+/// names the signature file; without it the signature is written beside the
+/// feed, with `.sig` added to the name. A feed this build would refuse is
+/// refused before the key is opened. The written pair is checked before the
+/// command reports success.
+///
+/// @param arguments the key, the feed and any options
+/// @param[in,out] output receives the signed line, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done, or exit_usage when the arguments are not the command's
+/// @throws Failure when the feed cannot be signed
+[[nodiscard]] int run_engine_feed_sign(std::span<const std::string> arguments, Output& output);
+
+/// Checks an engine feed's signature.
+///
+/// The positional argument is the feed, or `--url` fetches the feed and that
+/// address with `.sig` added. `--sig` names the signature file; without it
+/// the signature is the feed's name with `.sig` added. `--key` is an id, `=`,
+/// `ed25519:` and the key in base64. Without `--key` the keys are this
+/// build's pinned keys. Prints the signing key and one line a release, and
+/// exits 0 when the feed can be used. A refused feed prints the verdict and
+/// exits 1.
+///
+/// @param arguments the feed or the address, and any options
+/// @param[in,out] output receives the verdict, and a usage line when the
+///        arguments are not the command's
+/// @return exit_done when the feed can be used, exit_failed when it is
+///         refused, or exit_usage when the arguments are not the command's
+/// @throws Failure when the feed or the signature cannot be read
+[[nodiscard]] int run_engine_feed_check(std::span<const std::string> arguments, Output& output);
+
 // The registry commands, defined in registry.cpp.
 
 /// Makes an empty direct registry and signs its catalogue.

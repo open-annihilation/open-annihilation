@@ -70,6 +70,55 @@ const Command catalogue_commands[] = {
     },
 };
 
+const Command engine_feed_commands[] = {
+    {
+        "write",
+        "--version V [--release N] --date YYYY-MM-DD --from V --page URL --mirror URL "
+        "[--mirror URL]... [--notes FILE] [--rollout N] [--online-min V] [--channel stable] "
+        "[--previous FEED] --out FEED PACKAGE...",
+        "Write one release of the signed engine feed.",
+        "Reads each package file, hashes it and writes a feed of format 1. A package is named "
+        "open-annihilation, an optional v, the version, and then the package id as a zip, a "
+        "Windows setup or the macOS package. The version in each name must be --version. "
+        "--release defaults to that version's release number. --notes is a JSON object of "
+        "language to lines. --previous adds the older releases of an earlier feed, five in "
+        "all. The written file is read back before the command reports success. Prints the "
+        "feed's path and the release number.",
+        0,
+        any_count,
+        run_engine_feed_write,
+        {},
+    },
+    {
+        "sign",
+        "--key KEY_FILE FEED [--out SIG] [--passphrase-file FILE]",
+        "Sign an engine feed with a sealed key.",
+        "Reads FEED, opens KEY_FILE with the passphrase and writes a detached signature. "
+        "Without --out the signature is FEED with .sig added to the name. A feed this build "
+        "would refuse is refused before the key is opened. The written pair is checked, with "
+        "the feed's own channel and this key, before the command reports success. Prints the "
+        "signature file and the key id.",
+        0,
+        any_count,
+        run_engine_feed_sign,
+        {},
+    },
+    {
+        "check",
+        "(FEED [--sig SIG] | --url URL) [--channel stable] [--key ID=ed25519:BASE64]...",
+        "Check an engine feed's signature.",
+        "Checks FEED against its signature, or fetches --url and that address with .sig added. "
+        "Without --sig the signature is FEED with .sig added to the name. Without --key the "
+        "keys are this build's pinned keys. Each --key is an id, =, ed25519: and the key in "
+        "base64. Prints the signing key and one line a release, and exits 0 when the feed can "
+        "be used. A refused feed prints the verdict and exits 1.",
+        0,
+        any_count,
+        run_engine_feed_check,
+        {},
+    },
+};
+
 const Command registry_commands[] = {
     {
         "init",
@@ -444,6 +493,18 @@ const Command command_table[] = {
         0,
         nullptr,
         catalogue_commands,
+    },
+    {
+        "engine-feed",
+        "COMMAND",
+        "Write, sign or check the signed engine feed.",
+        "Writes a feed of the releases one channel offers, signs it with a sealed key, and "
+        "checks a feed against that signature. The check is the one the game uses. A signature "
+        "is the one line a catalogue check reads.",
+        0,
+        0,
+        nullptr,
+        engine_feed_commands,
     },
     {
         "registry",
