@@ -383,14 +383,13 @@ oa::ui::hud::BuildPanelHost Runtime::build_panel_host() {
     // x5 is the build buttons' Shift while touch controls are on.
     host.shift_down = [](void* user) {
         const auto& self = *static_cast<Runtime*>(user);
-        return self.control_key_down(oa::ui::gui_input::ControlKey::shift) ||
+        return self.modifier_role_active("build.queue-modifier") ||
                self.virtual_shift(ModifierUse::build_button);
     };
-    // ui.selection-shortcuts: with Ctrl held a shift-click steps by 100.
+    // ui.selection-shortcuts: with the hundred modifier held a shift-click steps by 100.
     if (ui_rules().selection_shortcuts.enabled)
-        host.shift_step = oa::sim::selection::shift_queue_step(
-            control_key_down(oa::ui::gui_input::ControlKey::control)
-        );
+        host.shift_step =
+            oa::sim::selection::shift_queue_step(modifier_role_active("build.hundred-modifier"));
     host.change_queue = [](void* user, const char* name, oa::Unit& builder, int32_t count) {
         auto& self = *static_cast<Runtime*>(user);
         const auto type_for_name = [](void* context, const char* unit_name) {
