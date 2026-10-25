@@ -64,6 +64,17 @@ void match_apply_host_options(World* world, const PlayerSetupInfo& host) noexcep
 /// @return True when the slot is in use and its info block has the watcher option.
 [[nodiscard]] bool match_slot_watcher(const World* world, uint8_t slot) noexcept;
 
+/// Finds the first slot this machine would place a commander for on a side the match does not have.
+///
+/// Slot order. A slot counts when it is in use, its player is local or a
+/// computer, and it is not watching. Its info block's side is at or past
+/// Game.side_count. Nothing is found when world is null, when the match's
+/// side count is 0, or when no such slot is seated.
+///
+/// @param world Match world, or null.
+/// @return The slot, or OA_PLAYER_COUNT when there is none.
+[[nodiscard]] uint8_t match_first_side_past_table(const World* world) noexcept;
+
 /// Lets a local watcher see the whole map.
 ///
 /// Once the commanders stand, the launch turns the host's mapping and
