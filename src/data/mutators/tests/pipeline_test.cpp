@@ -1636,7 +1636,8 @@ void test_wide_limit_numbers_a_record_weapon_256() {
 
 /// A rule or a hook package that brings RGWIDE and writes its id, shaped as
 /// ridge-id-rule and ridge-id-hook do for a weapon the game already numbered.
-mutators::PipelineMutator brought_id_package(const fs::path& package, std::string_view id, bool hook) {
+mutators::PipelineMutator
+brought_id_package(const fs::path& package, std::string_view id, bool hook) {
     const std::string yaml =
         "oamut: 1\nid: " + std::string{id} + "\nname: \"Ridge " + std::string{id} +
         "\"\nversion: \"1.0\"\nauthor:\n  name: \"Ridge Maker\"\ntags: [\"gameplay\"]\n"
@@ -1669,7 +1670,9 @@ mutators::PipelineMutator brought_id_package(const fs::path& package, std::strin
     return load_mutator(package);
 }
 
-void expect_brought_id_300(const fs::path& package, std::string_view id, bool hook, uint32_t types) {
+void expect_brought_id_300(
+    const fs::path& package, std::string_view id, bool hook, uint32_t types
+) {
     std::vector<mutators::PipelineMutator> list;
     list.push_back(brought_id_package(package, id, hook));
     mutators::PipelineInput input = make_input(std::move(list));
@@ -1682,7 +1685,9 @@ void expect_brought_id_300(const fs::path& package, std::string_view id, bool ho
         if (result.mutators.size() == 1)
             OA_CHECK(result.mutators[0].outcome == mutators::Outcome::applied);
         OA_CHECK(count_kind(result, mutators::ConflictKind::write_refused) == 0);
-        OA_CHECK(text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") != std::string::npos);
+        OA_CHECK(
+            text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") != std::string::npos
+        );
     } else if (hook) {
         OA_CHECK(!result.playable());
         OA_CHECK(result.mutators.size() == 1);
@@ -1694,11 +1699,14 @@ void expect_brought_id_300(const fs::path& package, std::string_view id, bool ho
         OA_CHECK(result.playable());
         OA_CHECK(count_kind(result, mutators::ConflictKind::write_refused) == 1);
         const std::vector<std::string> ids{std::string{id}};
-        const mutators::Conflict* refused = conflict_of(result, mutators::ConflictKind::write_refused);
+        const mutators::Conflict* refused =
+            conflict_of(result, mutators::ConflictKind::write_refused);
         OA_CHECK(refused != nullptr);
         if (refused != nullptr)
             OA_CHECK(mutators::describe(*refused, ids).find("255") != std::string::npos);
-        OA_CHECK(text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") == std::string::npos);
+        OA_CHECK(
+            text_of(store.read("weapons/extra.tdf").bytes).find("ID=300") == std::string::npos
+        );
     }
     release(store);
 }

@@ -696,7 +696,9 @@ void test_weapon_wide_full_refuses(const fs::path& scratch) {
             result.mutators[0].message
         );
     }
-    expect(find_entry(result.layer, "Weapons/WNEW.tdf") == nullptr, "refused wide clone was served");
+    expect(
+        find_entry(result.layer, "Weapons/WNEW.tdf") == nullptr, "refused wide clone was served"
+    );
     release(store);
 }
 
