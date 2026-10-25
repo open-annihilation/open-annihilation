@@ -15,6 +15,7 @@ struct SinglePlayerOffers {
     bool saved_games = true; ///< LOADGAME.GUI is in the game data
     bool any_mission = true; ///< the any-mission screen is in the game data
     bool skirmish = true;    ///< the base game can play a skirmish
+    bool campaigns = true;   ///< a side of the base game or mod has a campaign
 };
 
 /// Greys or hides the SINGLE.GUI entries the game cannot open.
@@ -22,7 +23,8 @@ struct SinglePlayerOffers {
 /// Load Game is greyed when saved games are not offered. Any Mission is
 /// hidden when it is not offered. Skirmish is greyed when it is not offered,
 /// which is the Total Annihilation demo (1997) as the base game: the button
-/// stays on the menu, takes no press and its key does nothing. New Campaign,
+/// stays on the menu, takes no press and its key does nothing. With no
+/// campaign, New Campaign is greyed the same way and Any Mission is hidden.
 /// Options and Previous Menu are left as the menu authored them.
 ///
 /// @param[in,out] panel The loaded SINGLE.GUI.

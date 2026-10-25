@@ -67,7 +67,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 96> kExpected{{
+constexpr std::array<Expected, 99> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -164,16 +164,18 @@ constexpr std::array<Expected, 96> kExpected{{
     {Setting::coastal_waves, RowKind::slider, "Coastal waves", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
     {Setting::underwater_shimmer, RowKind::slider, "Underwater shimmer", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
     {Setting::naval_reflections, RowKind::slider, "Naval reflections", 0, 0, 21, 0, 0, false, Lock::none, &Locks::water_effects},
-    {Setting::allow_full_3d, RowKind::toggle, "Allow Full 3D Mode", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
-    {Setting::unlocked_camera, RowKind::toggle, "Unlocked Camera", 1, 1, 0, 0, 0, false, Lock::none, &Locks::unlocked_camera},
+    {Setting::allow_full_3d, RowKind::toggle, "Allow full 3D mode", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::unlocked_camera, RowKind::toggle, "Unlocked camera", 1, 1, 0, 0, 0, false, Lock::none, &Locks::unlocked_camera},
     {Setting::welcome_setup, RowKind::value_and_button, "Welcome setup", 2, 2, 0, 0, 0, false, Lock::main_menu, &Locks::welcome_setup},
     {Setting::fog_of_war, RowKind::levels, "Fog of War", 1, 1, 2, 56, 2, false, Lock::none, nullptr},
+    {Setting::mod_limits_heading, RowKind::text, "Set by the mod", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::weapon_types, RowKind::text, "Weapon types", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::sides, RowKind::text, "Sides", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::fog_of_war) + 1,
-    "every setting has its row"
+    kExpected.size() == static_cast<std::size_t>(Setting::sides) + 1, "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.

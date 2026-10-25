@@ -277,12 +277,13 @@ int main(int argc, char** argv) {
         Dialog dialog = section_dialog(page);
         if (!draw_section(dialog, fonts, icon.picture, directory / picture_name(page)))
             ok = false;
-        // Controls, Graphics, Downloads and System scrolled to their ends:
-        // Window edge and Edge stickiness, the water sliders down to Naval
+        // Controls, Engine Limits, Graphics, Downloads and System scrolled
+        // to their ends: Window edge and Edge stickiness, Weapon types and
+        // Sides under Set by the mod, the water sliders down to Naval
         // reflections, the downloads' last rows, and the file-type switches
         // down to Launch files.
-        if (page == Page::controls || page == Page::graphics || page == Page::downloads ||
-            page == Page::system) {
+        if (page == Page::controls || page == Page::common_tweaks || page == Page::graphics ||
+            page == Page::downloads || page == Page::system) {
             dialog.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(dialog);
             const std::string end = std::string(settings::page_word(page)) + "-2.png";
             if (!draw_section(dialog, fonts, icon.picture, directory / end))

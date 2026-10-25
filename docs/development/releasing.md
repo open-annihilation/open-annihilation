@@ -408,3 +408,9 @@ The other Windows outputs of the flake (`windows`, `windows-i686`) still
 install only the executables, the fonts and the registries, unstripped. The
 suite lays those packages out and strips them. A start of `oa-intro.exe` on
 a Windows 95 machine is not part of building the package.
+
+## The signed feed
+
+A release is offered to players from one signed feed. After the packages
+are built, write the feed, sign it and check it as
+[The engine feed](engine-feed.md) describes.

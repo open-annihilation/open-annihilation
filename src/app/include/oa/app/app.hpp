@@ -478,6 +478,9 @@ struct Options {
     // MOVE ORDERS, CLOAK, ON/OFF and MOVE buttons through the SDL presenter and
     // checks the units carry the orders out.
     bool check_side_orders = false;
+    // Opens Settings on Engine Limits at the menu and in a two-slot skirmish
+    // and checks the weapon-type and side rows.
+    bool check_mod_limits = false;
     // Gives a Kbot Lab a move through the SDL presenter and checks the unit it
     // builds carries it out.
     bool check_factory_orders = false;
@@ -529,6 +532,9 @@ struct Options {
     // so that the game's tallest unit page ends on the window's last row;
     // empty for no check.
     std::string check_unit_pages;
+    // Drives every key, click and wheel the match answers and compares what
+    // each did with the named table; empty for no check.
+    std::string check_key_table;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
@@ -624,6 +630,9 @@ struct Options {
     /// --check-megamap-clicks: the megamap's clicks (ui.megamap) against the
     /// battlefield's in both interface types, on a skirmish.
     bool check_megamap_clicks = false;
+    /// --check-single-player-offers: New Campaign and Any Mission on SINGLE.GUI
+    /// when a side has a campaign, and when neither side has one.
+    bool check_single_player_offers = false;
     /// --check-radar-orders: presses on the minimap (the radar) in both
     /// interface types, for every armed command and the default order, on a
     /// skirmish.

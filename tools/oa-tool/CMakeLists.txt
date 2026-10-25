@@ -7,7 +7,8 @@ add_library(oa-tool-commands STATIC commands.cpp arguments.cpp files.cpp archive
   pack.cpp pack_map.cpp check.cpp check_map.cpp check_brain.cpp check_mutator.cpp brain.cpp
   brain_net.cpp onnx.cpp
   mutator.cpp mutator_diff.cpp
-  mutator_report.cpp catalogue.cpp passphrase.cpp registry.cpp expansion.cpp interface_words.cpp)
+  mutator_report.cpp catalogue.cpp engine_feed.cpp passphrase.cpp registry.cpp expansion.cpp
+  interface_words.cpp)
 add_library(oa::tool::commands ALIAS oa-tool-commands)
 target_include_directories(oa-tool-commands PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # The interface-word lists are headers in the modules that look the texts up.
@@ -39,7 +40,8 @@ target_link_libraries(oa-tool-commands
     oa-data-neural
     oa-formats-soft-mutator oa-formats-json oa-formats-ota oa-formats-tnt
     oa-formats-zip oa-base-sha256 oa-base-text oa-platform-shims oa-base-signing oa-data-catalogue
-    oa-data-registry oa-platform-random oa-app-content oa-netgame-http oa-formats-url
+    oa-data-engine-feed oa-data-registry oa-platform-random oa-app-content oa-netgame-http
+    oa-formats-url
   PUBLIC oa-formats-hpi oa-formats-png oa-ui-decoded)
 target_compile_definitions(oa-tool-commands PRIVATE "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 
@@ -93,6 +95,14 @@ if(BUILD_TESTING)
   target_link_libraries(oa-tool-catalogue-test PRIVATE oa-tool-commands oa-test-support oa-options)
   add_test(NAME tools-oa-tool-catalogue COMMAND oa-tool-catalogue-test)
   set_tests_properties(tools-oa-tool-catalogue PROPERTIES TIMEOUT 120)
+
+  # engine-feed: one real keygen, then write, sign and check against that key
+  # and against the HTTP fixture. The fixture listens on 127.0.0.1 only.
+  add_executable(oa-tool-engine-feed-test tests/engine_feed_test.cpp)
+  target_link_libraries(oa-tool-engine-feed-test PRIVATE oa-tool-commands oa-netgame-http-fixture
+    oa-data-engine-feed oa-base-sha256 oa-test-support oa-options)
+  add_test(NAME tools-oa-tool-engine-feed COMMAND oa-tool-engine-feed-test)
+  set_tests_properties(tools-oa-tool-engine-feed PROPERTIES TIMEOUT 120)
 
   # registry: one real keygen, then an empty registry and mirrors of it against
   # the HTTP fixture. The fixture listens on 127.0.0.1 only.

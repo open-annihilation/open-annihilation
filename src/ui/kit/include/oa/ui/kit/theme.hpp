@@ -93,6 +93,30 @@ inline constexpr Colour backdrop{5, 6, 4};
 inline constexpr Colour danger{0xe0, 0x6c, 0x5c};
 /// Online: a chip that says a thing is on the network.
 inline constexpr Colour online{0x6e, 0xa8, 0xd6};
+/// A key's orders tint: the accent.
+inline constexpr Colour category_orders = accent;
+/// A key's selection tint.
+inline constexpr Colour category_selection = online;
+/// A key's pointer tint: the selection tint.
+inline constexpr Colour category_pointer = category_selection;
+/// A key's groups tint.
+inline constexpr Colour category_groups{0xc4, 0x9b, 0xe0};
+/// A key's camera tint.
+inline constexpr Colour category_camera{0x5f, 0xc0, 0xa8};
+/// A key's building tint: the lock colour.
+inline constexpr Colour category_building = lock;
+/// A key's game tint.
+inline constexpr Colour category_game{0xb9, 0xbf, 0xae};
+/// A key's chat tint.
+inline constexpr Colour category_chat{0xe5, 0x8f, 0xb0};
+/// A key's window tint: the game tint.
+inline constexpr Colour category_window = category_game;
+/// A key's hacks tint.
+inline constexpr Colour category_hacks{0xe0, 0x8a, 0x4f};
+/// A key's mod tint.
+inline constexpr Colour category_mod{0x8f, 0xd0, 0xe8};
+/// A key's developer tint: the quiet colour.
+inline constexpr Colour category_developer = quiet;
 
 } // namespace colour
 

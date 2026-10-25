@@ -330,7 +330,13 @@ alone: `screens`, `orders`, `outcomes`, `zoom` (the zoom's limits and the
 first view of a match on the game's own screen), `zoom-1366x768`,
 `zoom-1920x1080` and `zoom-2560x1440` (the same on that window) and
 `campaign`. `--check-navigation` without a group runs every group in one
-game. The side commanders check runs
+game. `native-single-player-offers` (`--check-single-player-offers`) opens
+Single Player over the installed game, where a side has a campaign, and
+checks New Campaign opens the campaign screen and Previous Menu returns.
+`native-single-player-offers-hidden` runs the same check over a mod folder
+that hides every campaign file with an empty file of the same name: New
+Campaign stays shown and greyed, a press and its key stay on Single Player
+with no notice, and Any Mission is hidden. The side commanders check runs
 as one test for each part (`--part`): `art`, `rule`, `loopback`, `give`, and
 `records-GROUP`, the navigation group over its mod folder.
 
@@ -429,6 +435,10 @@ files in the tree, and `mod-docs-sync` while a generated block of the
 [standard hack and script extension pages](../mods/README.md) or their
 tables differs from what `tools/gen_mod_docs.py` writes, or a page names no
 hack or extension; running the script brings each back in step.
+`input-actions-sync` fails while the action table
+`tools/gen_input_actions.py` writes differs from the tree or the registry
+breaks a rule, and `input-actions-sync-selftest` while the self-test
+reports a failure.
 
 `OA_MOD_GAME_DIR` names a mod's copied install: an `OA_GAME_DIR`
 installation with the mod's files copied over it. With it and

@@ -421,6 +421,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-render-tiers", &Options::check_render_tiers, {}},
         {"--check-match-orders", &Options::check_match_orders, {}},
         {"--check-side-orders", &Options::check_side_orders, {}},
+        {"--check-mod-limits", &Options::check_mod_limits, {}},
         {"--check-factory-orders", &Options::check_factory_orders, {}},
         {"--check-unit-speech", &Options::check_unit_speech, {}},
         {"--check-mutator-layer", &Options::check_mutator_layer, {}},
@@ -456,6 +457,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-build-preview", &Options::check_build_preview, {}},
         {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
         {"--check-megamap-clicks", &Options::check_megamap_clicks, {}},
+        {"--check-single-player-offers", &Options::check_single_player_offers, {}},
         {"--check-radar-orders", &Options::check_radar_orders, {}},
         {"--check-touch-controls", &Options::check_touch_controls, {}},
         {"--check-pad-controls", &Options::check_pad_controls, {}},
@@ -542,6 +544,7 @@ const std::vector<ValueCase>& value_cases() {
         {"--brain-trace", "log.txt", {"--headless-check", "--match-ticks", "60"}},
         {"--render-fault", "present", {"--check-renderer-ladder"}},
         {"--check-unit-pages", "whole:ARMCOM", {}},
+        {"--check-key-table", "table.tsv", {}},
         {"--check-unit-language", "fr", {}},
         {"--check-language", "uk", {"--check-text-fit"}},
         {"--game-files-route", "demo", {"--check-game-files"}},
@@ -718,6 +721,11 @@ void value_options() {
         unit_checks.check_unit_pages == "whole:ARMCOM,CORCOM" &&
             unit_checks.check_unit_language == "fr" && unit_checks.fixed_clock,
         "--check-unit-pages and --check-unit-language take their pages and language"
+    );
+    const auto key_table = parse({"--check-key-table", "table.tsv"});
+    expect(
+        key_table.check_key_table == "table.tsv" && key_table.fixed_clock,
+        "--check-key-table takes its file"
     );
     // The text-fit and language switch checks take the languages they check,
     // such as an installed pack's, in place of their own.

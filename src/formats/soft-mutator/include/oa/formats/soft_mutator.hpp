@@ -95,7 +95,7 @@ struct Change {
 
 /// One bracket block, with the target in force where the block was written.
 struct Block {
-    Target target;               ///< folder and suffix for this block
+    Target target{};             ///< folder and suffix for this block
     Selector selector{};         ///< which records the block changes
     std::string name;            ///< record name; empty unless selector is name
     std::vector<Need> needs;     ///< requirements, in the order written

@@ -13,6 +13,10 @@ void apply_single_player_offers(Panel& panel, SinglePlayerOffers offers) noexcep
         panel_set_active(panel, "AnyMsn", 0);
     if (!offers.skirmish)
         panel_set_grayed(panel, "Skirmish", true);
+    if (!offers.campaigns) {
+        panel_set_grayed(panel, "NewCamp", true);
+        panel_set_active(panel, "AnyMsn", 0);
+    }
 }
 
 } // namespace oa::ui::frontend

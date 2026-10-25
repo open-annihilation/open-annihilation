@@ -346,6 +346,13 @@ std::vector<Picture> scenes(const DialogFonts& fonts, const Icon& icon) {
             problem("graphics is not at its scroll end");
         add(pictures, "dialog/graphics-end", drawn_dialog(graphics_end, fonts, no_icon, 1));
 
+        Dialog limits_end = engine_dialog(Page::common_tweaks);
+        limits_end.scroll[static_cast<std::size_t>(Page::common_tweaks)] =
+            settings::scroll_limit(limits_end);
+        if (limits_end.scroll[static_cast<std::size_t>(Page::common_tweaks)] <= 0)
+            problem("engine limits is not at its scroll end");
+        add(pictures, "dialog/engine-limits-end", drawn_dialog(limits_end, fonts, no_icon, 1));
+
         Dialog language = engine_dialog(Page::language);
         press_keys(language, {DialogKey::tab, DialogKey::space});
         if (language.open_list == settings::no_control)

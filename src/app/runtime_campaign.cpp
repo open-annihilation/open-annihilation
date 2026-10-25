@@ -518,15 +518,17 @@ void Runtime::enter_single_player_panel() {
     const auto host = single_player_host();
     campaign::single_player_enter(&setup, &host, game_language());
     typed_key_hook_ = TypedKeyHook::single_player_code;
-    // Load Game, Any Mission and Skirmish follow what this base game can open.
+    // Load Game, Any Mission, Skirmish and New Campaign follow what this
+    // base game or mod can open.
     oa::ui::frontend::Panel offers_panel;
     oa::ui::frontend::panel_load_layout(offers_panel, resources_.layout);
     oa::ui::frontend::SinglePlayerOffers offers;
     offers.saved_games = offers_saved_games();
     offers.any_mission = offers_any_mission();
     offers.skirmish = offers_skirmish();
+    offers.campaigns = side_has_campaign(0) || side_has_campaign(1);
     oa::ui::frontend::apply_single_player_offers(offers_panel, offers);
-    for (const std::string_view entry_name : {"LoadGame", "AnyMsn", "Skirmish"}) {
+    for (const std::string_view entry_name : {"LoadGame", "AnyMsn", "Skirmish", "NewCamp"}) {
         const auto found = oa::ui::frontend::panel_find(offers_panel, entry_name);
         if (found < 0 || static_cast<std::size_t>(found) >= resources_.layout.gadgets.size())
             continue;
