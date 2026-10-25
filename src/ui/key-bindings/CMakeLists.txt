@@ -12,7 +12,8 @@ add_library(oa-ui-key-bindings
   src/resolve.cpp
   src/clashes.cpp
   src/dispatcher.cpp
-  src/layout_file.cpp)
+  src/layout_file.cpp
+  src/legacy_keys.cpp)
 add_library(oa::ui::key_bindings ALIAS oa-ui-key-bindings)
 target_include_directories(oa-ui-key-bindings PUBLIC include)
 target_compile_features(oa-ui-key-bindings PUBLIC cxx_std_20)

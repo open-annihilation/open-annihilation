@@ -315,6 +315,13 @@ struct Options {
     /// The version a launch required of each entry of `mutators`. Empty when
     /// the file named none, and for an entry `--mutator` named.
     std::vector<std::string> mutator_versions{};
+    /// Uses this layout for one run (--keys ID|PATH): an installed id, a folder
+    /// holding oakeys.yaml, or an oakeys.yaml file. Empty uses the preferences.
+    /// Nothing is saved.
+    std::string keys{};
+    /// Plays oa-default with no own changes for one run (--keys-reset). Nothing
+    /// is saved. Refused together with `--keys`.
+    bool keys_reset = false;
     /// The base game and expansions for this run (--content
     /// GAME[:EXPANSION,...]). Empty when the run uses the remembered choice.
     /// It is not written to the preferences, and the mounted files change
@@ -538,9 +545,6 @@ struct Options {
     // Drives every key, click and wheel the match answers and compares what
     // each did with the named table; empty for no check.
     std::string check_key_table;
-    /// The folder of an oakeys.yaml this run binds in place of the player's layout.
-    /// Empty keeps the game's own layout. A missing or refused file is reported once.
-    fs::path keys_layout;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,

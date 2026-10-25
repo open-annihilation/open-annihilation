@@ -652,7 +652,7 @@ name raises and `pairs(game)` yields both.
 | `game.starts` | `fixed` or `random`, the start rule the match used. Nil outside a match, and nil until the match has placed its players. |
 | `game.difficulty` | `easy`, `medium` or `hard`. |
 | `game.in_match` | True for a seated brain. False for a load check. |
-| `game.mod` | `id`, `name`, `version`, `sides`, `hacks` and `limits`. |
+| `game.mod` | `id`, `name`, `version`, `sides`, `hacks` and `limits`. `sides` is every loaded SIDEDATA side in order from `SIDE0`, up to the mod's `limits.sides` (five without a mod), each `name`, `prefix` and `commander`. `limits` holds each limit by its registry id, with that limit's parameters. |
 | `game:hack(id)` | That hack's table, or nil. |
 | `game.mutators` | The loadout in apply order: `id`, `version` and `options`. |
 | `game.map` | The map. Nil when the seat has no world. [7.2 The map](#72-the-map). |
@@ -664,9 +664,14 @@ name raises and `pairs(game)` yields both.
 | `game.downloadables_allowed` | False when the computer players were configured for a campaign. Nil outside a match. |
 | `game.units` | Full awareness only. [7.7 Full awareness](#77-full-awareness). |
 
-Each side is `name`, `prefix` and `commander`. Each simulation hack is
+`game.mod.sides` lists every loaded SIDEDATA side in order from `SIDE0`,
+up to the mod's `limits.sides` (five without a mod). Lua indexes them from
+1. Each side is `name`, `prefix` and `commander`. Each simulation hack is
 `on` plus its parameters, listed whether the hack is on or off. A view
-hack is left out. Each limit is its parameters, with no `on`.
+hack is left out. `game.mod.limits` is keyed by registry id. Each limit is
+its parameters, with no `on`:
+`game.mod.limits["limits.weapon-types"].types` and
+`game.mod.limits["limits.sides"].count`.
 
 `game.starts` is the rule the match placed with. A campaign mission is
 `fixed`. So is a match whose players were placed by the map's own units.
@@ -752,8 +757,8 @@ the mod and the mutators. They are read-only. Assigning a field raises
 Replacing the global `units` itself is ordinary Lua.
 
 `units[i]` is type index `i`, from 1. Index 0 is not a record.
-`weapons[id]` is the weapon id from 0 to the mod's weapon types minus one
-(255 without a limit), or nil when that slot was not loaded. `features[i]` is the feature type at index `i - 1`. Names are
+`weapons[id]` is the weapon id from 0 to the mod's `weapon-types` minus one
+(255 without a mod), or nil when that slot was not loaded. `features[i]` is the feature type at index `i - 1`. Names are
 matched without regard to ASCII case. `pairs` and `each` walk type index,
 then weapon id, then feature index.
 
@@ -812,7 +817,7 @@ is 2. It returns nil when the seat's table does not reach the type.
 | `me.difficulty` | `easy`, `medium` or `hard`. |
 | `me.options` | The resolved options. |
 | `me.name` | The player's name. |
-| `me.side`, `me.side_name` | The side index and its name. |
+| `me.side`, `me.side_name` | The side index, and the name of any side the mod loaded. A side past that table has no name. |
 | `me.team` | The team. |
 | `me.color` | The colour. |
 | `me.energy`, `me.metal` | Stocks, as `f32`. |

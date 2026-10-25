@@ -27,7 +27,9 @@ own folders for that mod.
 A save or a recording made with mutators keeps those mutators, and so does
 a campaign save. Loading it needs the same ones. When one is missing, the
 game names it. [Playing with mutators](playing-with-mutators.md) says what
-the note holds and what the refusal reads.
+the note holds and what the refusal reads. A recording of a mod with more
+weapon types or more sides is in
+[Mods with more weapon types or sides](#mods-with-more-weapon-types-or-sides).
 
 A save keeps each computer seat's brain as well: the id, the version, the
 level and the options. The note beside the save, and beside a recording,

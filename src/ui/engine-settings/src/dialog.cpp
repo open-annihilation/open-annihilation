@@ -10,6 +10,7 @@
 #include "developer.hpp"
 #include "downloads_page.hpp"
 #include "geometry.hpp"
+#include "updates_page.hpp"
 #include "language_page.hpp"
 #include "registered.hpp"
 #include "settings_rows.hpp"
@@ -47,7 +48,8 @@ struct EnginePageList {
 
 /// Returns the engine's sections a dialog lists, in the list's order: the
 /// five that every dialog lists, then Touch, Controller and Game files where
-/// each is listed, then Downloads, then Game Content, then System, then Developer.
+/// each is listed, then Downloads, then Updates, then Game Content, then
+/// System, then Developer.
 ///
 /// @param touch the dialog lists Touch
 /// @param controller the dialog lists Controller
@@ -70,6 +72,7 @@ constexpr EnginePageList engine_page_list(bool touch, bool controller, bool game
     if (game_files)
         add(Page::game_files);
     add(Page::downloads);
+    add(Page::updates);
     add(Page::game_content);
     add(Page::system);
     add(Page::developer);
@@ -98,7 +101,7 @@ constexpr std::array<EnginePageList, 8> kEnginePageLists{
     engine_page_list(false, true, true),
     engine_page_list(true, true, true),
 };
-static_assert(kEnginePageLists.front().count == 9, "nine sections without the optional three");
+static_assert(kEnginePageLists.front().count == 10, "ten sections without the optional three");
 static_assert(
     kEnginePageLists.back().count == most_listed_pages,
     "the longest list holds the most sections a dialog lists"
@@ -107,22 +110,24 @@ static_assert(
 constexpr std::array<Page, 1> kLanguageTextPages{Page::language};
 
 /// Tells whether the sections before Downloads keep their places in the list
-/// with Touch and Controller, and every engine list ends Downloads, Game
-/// Content, System, Developer.
+/// with Touch and Controller, and every engine list ends Downloads, Updates,
+/// Game Content, System, Developer.
 ///
 /// @return true when those numbers hold
 constexpr bool entries_follow_the_list() noexcept {
     const EnginePageList& list = kEnginePageLists[engine_page_list_index(true, true, false)];
-    if (list.count < 4)
+    if (list.count < 5)
         return false;
-    for (std::size_t index = 0; index + 4 < list.count; ++index)
+    for (std::size_t index = 0; index + 5 < list.count; ++index)
         if (page_control(list.pages[index]) != static_cast<int32_t>(index))
             return false;
-    if (page_control(Page::downloads) != 9 || page_control(Page::game_content) != 11 ||
-        page_control(Page::system) != 10 || page_control(Page::developer) != 7)
+    if (page_control(Page::downloads) != 9 || page_control(Page::updates) != 12 ||
+        page_control(Page::game_content) != 11 || page_control(Page::system) != 10 ||
+        page_control(Page::developer) != 7)
         return false;
     for (const EnginePageList& listed : kEnginePageLists) {
-        if (listed.count < 4 || listed.pages[listed.count - 4] != Page::downloads ||
+        if (listed.count < 5 || listed.pages[listed.count - 5] != Page::downloads ||
+            listed.pages[listed.count - 4] != Page::updates ||
             listed.pages[listed.count - 3] != Page::game_content ||
             listed.pages[listed.count - 2] != Page::system ||
             listed.pages[listed.count - 1] != Page::developer)
@@ -133,8 +138,8 @@ constexpr bool entries_follow_the_list() noexcept {
 
 static_assert(
     entries_follow_the_list(),
-    "entries before Downloads keep their places, and Downloads, Game Content, System, Developer "
-    "end every list"
+    "entries before Downloads keep their places, and Downloads, Updates, Game Content, System, "
+    "Developer end every list"
 );
 static_assert(
     page_control(Page::game_files) == page_control(Page::developer) + 1,
@@ -522,6 +527,8 @@ Rows place_section(
     const Sizes& sized_here = sizes != nullptr ? *sizes : sizes_of(dialog);
     if (page == Page::downloads)
         return downloads::place(dialog, locks, small_width, placed, &sized_here, regular_width);
+    if (page == Page::updates)
+        return updates::place(dialog, locks, small_width, placed, &sized_here, regular_width);
     if (page == Page::game_content)
         return content::place(dialog, locks, small_width, placed, &sized_here);
     const auto settings = section_settings(page, section, row_context(dialog));
@@ -926,6 +933,33 @@ int32_t scroll_at(
     return (limit * along + travel / 2) / travel;
 }
 
+EngineNav engine_nav(std::span<const Page> listed, kit::SizeClass size_class) noexcept {
+    const SourceRect divider = list_divider(size_class);
+    EngineNav nav;
+    nav.viewport = {
+        list_item_left,
+        list_first_top,
+        sizes_of(size_class).list_item_width,
+        divider.y - list_first_top,
+    };
+    // A list that does not pin Developer keeps the gap and does not scroll.
+    // The engine's list drops the gap once the gapped entries would cross the
+    // divider, and scrolls once the gapless entries pass it.
+    const bool pinned = !listed.empty() && listed.back() == Page::developer;
+    if (!pinned)
+        return nav;
+    int32_t flowing = static_cast<int32_t>(listed.size());
+    --flowing;
+    const int32_t gaps = flowing > 0 ? flowing - 1 : 0;
+    const int32_t gapped_bottom =
+        list_first_top + flowing * list_item_height + gaps * list_item_gap;
+    const int32_t gapless_bottom = list_first_top + flowing * list_item_height;
+    nav.stride = gapped_bottom > divider.y ? list_item_height : list_item_height + list_item_gap;
+    nav.scrolls = gapless_bottom > divider.y;
+    nav.limit = nav.scrolls ? gapless_bottom - divider.y : 0;
+    return nav;
+}
+
 SourceRect list_item(
     Page page, bool touch, bool game_files, bool controller, kit::SizeClass size_class
 ) noexcept {
@@ -937,7 +971,7 @@ SourceRect list_item(
         };
     // Each entry at its place in the list its dialog shows; Touch and
     // Controller, which only a dialog that lists them asks for, keep their
-    // own places.
+    // own places. The place is the content's, before the list scrolls.
     const auto kind = static_cast<int32_t>(page) >= static_cast<int32_t>(Page::mod_keys)
                           ? DialogKind::mod_options
                           : DialogKind::engine;
@@ -945,25 +979,12 @@ SourceRect list_item(
     const auto found = std::find(listed.begin(), listed.end(), page);
     const auto index = found != listed.end() ? static_cast<int32_t>(found - listed.begin())
                                              : page_control(page) - first_page_control;
-    // Developer stays pinned under the divider. The other entries step down
-    // from the list's top. The compact list of every section would cross that
-    // line by the gap it keeps between entries, so that list drops the gap
-    // and the last entry ends on the line. Every shorter list keeps the gap.
+    const EngineNav nav = engine_nav(listed, size_class);
     int32_t top = list_first_top;
-    if (page == Page::developer) {
+    if (page == Page::developer)
         top = list_divider(size_class).y + 1 + list_divider_margin;
-    } else {
-        int32_t flowing = static_cast<int32_t>(listed.size());
-        if (!listed.empty() && listed.back() == Page::developer)
-            --flowing;
-        const int32_t gaps = flowing > 0 ? flowing - 1 : 0;
-        const int32_t gapped_bottom =
-            list_first_top + flowing * list_item_height + gaps * list_item_gap;
-        const int32_t stride = gapped_bottom > list_divider(size_class).y
-                                   ? list_item_height
-                                   : list_item_height + list_item_gap;
-        top = list_first_top + index * stride;
-    }
+    else
+        top = list_first_top + index * nav.stride;
     return {list_item_left, top, sizes_of(size_class).list_item_width, list_item_height};
 }
 
@@ -1047,12 +1068,70 @@ break_lines(std::string_view text, std::size_t characters, std::size_t most_line
 }
 
 SourceRect dialog_list_item(const Dialog& dialog, Page page) noexcept {
-    if (dialog.kind != DialogKind::language_text)
-        return list_item(
-            page, dialog.touch, dialog.game_files, dialog.controller, dialog.size_class
+    if (dialog.kind == DialogKind::language_text) {
+        // A Language dialog lists its one section at the top.
+        return {list_item_left, list_first_top, sizes_of(dialog).list_item_width, list_item_height};
+    }
+    SourceRect rect =
+        list_item(page, dialog.touch, dialog.game_files, dialog.controller, dialog.size_class);
+    // The engine's own overflowing list scrolls every entry but Developer.
+    // Registered pages share nav_scroll and lay their list out themselves.
+    if (dialog.kind == DialogKind::engine && page != Page::developer &&
+        dialog.registered_pages.empty()) {
+        const EngineNav nav = engine_nav(
+            dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller),
+            dialog.size_class
         );
-    // A Language dialog lists its one section at the top.
-    return {list_item_left, list_first_top, sizes_of(dialog).list_item_width, list_item_height};
+        if (nav.scrolls)
+            rect.y -= std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
+    }
+    return rect;
+}
+
+void reveal_engine_nav(Dialog& dialog) noexcept {
+    if (dialog.kind != DialogKind::engine || !dialog.registered_pages.empty())
+        return;
+    const std::span<const Page> listed =
+        dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
+    const EngineNav nav = engine_nav(listed, dialog.size_class);
+    if (!nav.scrolls) {
+        dialog.nav_scroll = 0;
+        return;
+    }
+    if (dialog.pressed != no_control)
+        return;
+    Page reveal = dialog.page;
+    bool have = false;
+    if (dialog.focused == no_control) {
+        if (dialog.page != Page::developer && dialog.page != Page::registered) {
+            reveal = dialog.page;
+            have = true;
+        }
+    } else {
+        for (const Page page : listed) {
+            if (page == Page::developer)
+                continue;
+            if (page_control(page) == dialog.focused) {
+                reveal = page;
+                have = true;
+                break;
+            }
+        }
+    }
+    if (!have)
+        return;
+    const SourceRect item =
+        list_item(reveal, dialog.touch, dialog.game_files, dialog.controller, dialog.size_class);
+    const int32_t view_top = nav.viewport.y;
+    const int32_t view_bottom = nav.viewport.y + nav.viewport.height;
+    int32_t scroll = std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
+    const int32_t top = item.y - scroll;
+    const int32_t bottom = top + item.height;
+    if (top < view_top)
+        scroll -= view_top - top;
+    else if (bottom > view_bottom)
+        scroll += bottom - view_bottom;
+    dialog.nav_scroll = std::clamp(scroll, int32_t{0}, nav.limit);
 }
 
 std::string_view lock_text(Lock lock) noexcept {
@@ -1220,6 +1299,7 @@ DialogAction move_in_tab_order(Dialog& dialog, layout::ScrolledRows& open, bool 
     dialog.focused = next;
     static_cast<void>(show_row(dialog, open, dialog.focused));
     reveal_registered_nav(dialog);
+    layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
 
@@ -1247,6 +1327,7 @@ DialogAction move_toward(Dialog& dialog, layout::ScrolledRows& open, kit::Direct
     dialog.focused = next;
     static_cast<void>(show_row(dialog, open, dialog.focused));
     reveal_registered_nav(dialog);
+    layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
 
@@ -1377,12 +1458,14 @@ std::optional<OpenList> open_list(const Dialog& dialog, const layout::ScrolledRo
     const bool choice =
         row != nullptr && row->lock == Lock::none &&
         (row->downloads >= 0 ? downloads::is_choice(*row)
+         : row->updates >= 0 ? updates::is_choice(*row)
                              : layout::kind_of(row->setting) == kit::RowKind::choice);
     if (!choice)
         return std::nullopt;
     const auto choices =
-        row->downloads >= 0
-            ? static_cast<std::size_t>(downloads::choice_count())
+        row->downloads >= 0 ? static_cast<std::size_t>(downloads::choice_count())
+        : row->updates >= 0
+            ? static_cast<std::size_t>(updates::choice_count())
             : static_cast<std::size_t>(kit::row_count(
                   layout::row_spec(row->setting), layout::reading(dialog.chosen, dialog)
               ));
@@ -1437,10 +1520,12 @@ void show_list_item(Dialog& dialog, const OpenList& list, int32_t item) noexcept
 /// @return DialogAction::redraw
 DialogAction open_choices(Dialog& dialog, const layout::Row& row) {
     const bool downloads_choice = row.downloads >= 0;
-    const auto& spec =
-        downloads_choice ? layout::row_spec(Setting::language) : layout::row_spec(row.setting);
+    const bool updates_choice = row.updates >= 0;
+    const auto& spec = downloads_choice || updates_choice ? layout::row_spec(Setting::language)
+                                                          : layout::row_spec(row.setting);
     const layout::SettingsModel model = layout::reading(dialog.chosen, dialog);
     const auto choices = downloads_choice ? static_cast<std::size_t>(downloads::choice_count())
+                         : updates_choice ? static_cast<std::size_t>(updates::choice_count())
                                           : static_cast<std::size_t>(kit::row_count(spec, model));
     const OpenList list{
         &row,
@@ -1451,8 +1536,9 @@ DialogAction open_choices(Dialog& dialog, const layout::Row& row) {
     dialog.open_list = row.control;
     dialog.list_pressed = -1;
     dialog.list_first = 0;
-    dialog.list_marked =
-        downloads_choice ? downloads::choice_index(dialog) : kit::row_index(spec, model);
+    dialog.list_marked = downloads_choice ? downloads::choice_index(dialog)
+                         : updates_choice ? updates::choice_index(dialog)
+                                          : kit::row_index(spec, model);
     show_list_item(dialog, list, dialog.list_marked);
     return DialogAction::redraw;
 }
@@ -1468,6 +1554,12 @@ DialogAction choose(Dialog& dialog, const OpenList& list, int32_t item) {
         close_list(dialog);
         const EngineSettings before = dialog.chosen;
         downloads::apply_choice(dialog, item);
+        return changed_or_redraw(dialog, before);
+    }
+    if (list.row->updates >= 0) {
+        close_list(dialog);
+        const EngineSettings before = dialog.chosen;
+        updates::apply_choice(dialog, item);
         return changed_or_redraw(dialog, before);
     }
     const Setting setting = list.row->setting;
@@ -1623,9 +1715,10 @@ DialogAction restore_defaults(Dialog& dialog) {
         }
     }
     dialog.chosen = restored;
-    // Every install ID goes back on. The check follows the defaults.
+    // Every install ID goes back on. The checks follow the defaults.
     for (InstallIdChoice& choice : dialog.install_id_chosen)
         choice.on = true;
+    updates::follow_mode(dialog);
     dialog.restored = true;
     ++dialog.forget_renderer_failures;
     restore_registered_page(dialog);
@@ -1652,6 +1745,7 @@ DialogAction cancel(Dialog& dialog) noexcept {
     dialog.chosen = dialog.opened;
     dialog.install_id_chosen = dialog.install_id_opened;
     dialog.registered_values = dialog.registered_opened;
+    updates::follow_mode(dialog);
     dialog.pressed = no_control;
     dialog.dragging = false;
     return DialogAction::cancelled;
@@ -1670,6 +1764,7 @@ DialogAction show_page(Dialog& dialog, Page page) noexcept {
     if (dialog.focused >= first_row_control || registered_nav_index(dialog, dialog.focused) >= 0)
         dialog.focused = page == Page::registered ? registered_nav_control(dialog.registered_page)
                                                   : page_control(page);
+    layout::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
 
@@ -1749,6 +1844,10 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         dialog.library_tab = LibraryTab::registries;
         return DialogAction::open_library;
     }
+    if (action == updates::check_updates_action)
+        return DialogAction::check_updates;
+    if (action == updates::open_release_action)
+        return DialogAction::open_release;
     const kit::ActionId button = action - layout::first_folder_action;
     if (button < 0 || button >= static_cast<kit::ActionId>(folder_button_count))
         return DialogAction::none;
@@ -1796,6 +1895,15 @@ DialogAction activate(Dialog& dialog, const layout::ScrolledRows& open, int32_t 
     if (row->downloads >= 0) {
         const EngineSettings before = dialog.chosen;
         const kit::RowResult result = downloads::activate(dialog, *row);
+        if (result.event == kit::RowEvent::open_menu)
+            return open_choices(dialog, *row);
+        if (result.event == kit::RowEvent::action)
+            return row_action(dialog, result.action);
+        return changed_or_redraw(dialog, before);
+    }
+    if (row->updates >= 0) {
+        const EngineSettings before = dialog.chosen;
+        const kit::RowResult result = updates::activate(dialog, *row);
         if (result.event == kit::RowEvent::open_menu)
             return open_choices(dialog, *row);
         if (result.event == kit::RowEvent::action)
@@ -1920,6 +2028,8 @@ void open_dialog(
         dialog.developer.profile.assign(profile_hacks.begin(), profile_hacks.end());
     dialog.developer.areas_open.assign(developer_areas().size(), 0);
     dialog.developer.hacks_open.assign(oa::data::mod_profile::standard_hacks().size(), 0);
+    updates::follow_mode(dialog);
+    geometry::reveal_engine_nav(dialog);
 }
 
 void set_downloads_offer(Dialog& dialog, const DownloadsOffer& offer) {
@@ -1991,8 +2101,10 @@ DialogAction set_touch_controls(Dialog& dialog, bool touch) noexcept {
     if (dialog.touch == touch)
         return DialogAction::none;
     dialog.touch = touch;
-    if (dialog.kind != DialogKind::engine || touch)
+    if (dialog.kind != DialogKind::engine || touch) {
+        geometry::reveal_engine_nav(dialog);
         return DialogAction::redraw;
+    }
     // Touch's entry and rows leave the dialog: what pointed at them points
     // at nothing, and Touch's section gives way to the first.
     const int32_t entry = page_control(Page::touch);
@@ -2003,6 +2115,7 @@ DialogAction set_touch_controls(Dialog& dialog, bool touch) noexcept {
         static_cast<void>(show_page(dialog, dialog_pages(DialogKind::engine).front()));
         dialog.dragging = false;
     }
+    geometry::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
 
@@ -2027,11 +2140,15 @@ DialogAction set_controller_section(Dialog& dialog, bool controller, bool steam_
         dialog.dragging = false;
     }
     dialog.steam_input = steam_input;
-    if (dialog.controller == controller)
+    if (dialog.controller == controller) {
+        geometry::reveal_engine_nav(dialog);
         return DialogAction::redraw;
+    }
     dialog.controller = controller;
-    if (dialog.kind != DialogKind::engine || controller)
+    if (dialog.kind != DialogKind::engine || controller) {
+        geometry::reveal_engine_nav(dialog);
         return DialogAction::redraw;
+    }
     // Controller's entry and rows leave the dialog: what pointed at them
     // points at nothing, and Controller's section gives way to the first.
     const int32_t entry = page_control(Page::controller);
@@ -2042,6 +2159,7 @@ DialogAction set_controller_section(Dialog& dialog, bool controller, bool steam_
         static_cast<void>(show_page(dialog, dialog_pages(DialogKind::engine).front()));
         dialog.dragging = false;
     }
+    geometry::reveal_engine_nav(dialog);
     return DialogAction::redraw;
 }
 
@@ -2152,14 +2270,14 @@ DialogAction dialog_pointer_down(Dialog& dialog, int32_t x, int32_t y) {
     const layout::Row* row = row_of(open.rows, control);
     // Game Content's rows are not settings. An unset setting is the
     // pathfinding slider, so a press on Check again must not drag it.
-    if (row != nullptr && row->content < 0 && row->downloads < 0 &&
+    if (row != nullptr && row->content < 0 && row->downloads < 0 && row->updates < 0 &&
         layout::kind_of(row->setting) == kit::RowKind::slider) {
         dialog.dragging = true;
         const DialogAction action = drag_to(dialog, *row, x);
         return action;
     }
     // A press on Your files holds the button under it.
-    if (row != nullptr && row->content < 0 && row->downloads < 0 &&
+    if (row != nullptr && row->content < 0 && row->downloads < 0 && row->updates < 0 &&
         layout::kind_of(row->setting) == kit::RowKind::buttons)
         dialog.folder_hovered = layout::folder_button_at(row->control_area, x, y);
     return DialogAction::redraw;
@@ -2227,6 +2345,15 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
     if (row->downloads >= 0) {
         const EngineSettings before = dialog.chosen;
         const kit::RowResult result = downloads::release(dialog, *row, x, y);
+        if (result.event == kit::RowEvent::open_menu)
+            return open_choices(dialog, *row);
+        if (result.event == kit::RowEvent::action)
+            return row_action(dialog, result.action);
+        return changed_or_redraw(dialog, before);
+    }
+    if (row->updates >= 0) {
+        const EngineSettings before = dialog.chosen;
+        const kit::RowResult result = updates::release(dialog, *row, x, y);
         if (result.event == kit::RowEvent::open_menu)
             return open_choices(dialog, *row);
         if (result.event == kit::RowEvent::action)
@@ -2325,6 +2452,11 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
             return shown;
         return or_shown(downloads::step(dialog, *row, up));
     }
+    if (row != nullptr && row->updates >= 0) {
+        if (row->lock != Lock::none)
+            return shown;
+        return or_shown(updates::step(dialog, *row, up));
+    }
     const kit::RowKind kind = row != nullptr ? layout::kind_of(row->setting) : kit::RowKind::text;
     if (row != nullptr && row->lock == Lock::none && kind == kit::RowKind::buttons) {
         // Left and Right move Your files' mark along its buttons.
@@ -2342,6 +2474,38 @@ DialogAction dialog_key(Dialog& dialog, DialogKey key) {
     const EngineSettings before = dialog.chosen;
     step(dialog, row->setting, up);
     return changed_or_redraw(dialog, before);
+}
+
+/// Scrolls the engine's section list when the pointer is over it and the
+/// list passes the divider. A list that fits returns nothing, so the open
+/// section still scrolls.
+///
+/// @param[in,out] dialog the dialog
+/// @param x the pointer's column
+/// @param y the pointer's row
+/// @param notches the wheel's notches, away from the player positive
+/// @return what it asks; nothing when the list does not take the wheel
+std::optional<DialogAction> wheel_engine_nav(Dialog& dialog, int32_t x, int32_t y, float notches) {
+    if (dialog.kind != DialogKind::engine || !dialog.registered_pages.empty())
+        return std::nullopt;
+    const auto listed =
+        dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
+    const geometry::EngineNav nav = geometry::engine_nav(listed, dialog.size_class);
+    if (!nav.scrolls || nav.limit <= 0)
+        return std::nullopt;
+    const geometry::Sizes& sized = geometry::sizes_of(dialog);
+    if (x < geometry::edge || y < geometry::body_top || x >= geometry::edge + sized.list_width ||
+        y >= sized.footer_rule_row)
+        return std::nullopt;
+    dialog.nav_scroll = std::clamp(dialog.nav_scroll, int32_t{0}, nav.limit);
+    kit::WheelCarry carry{dialog.nav_wheel_rows};
+    const int32_t next =
+        kit::wheel_offset(carry, notches, geometry::wheel_step, dialog.nav_scroll, nav.limit);
+    dialog.nav_wheel_rows = carry.rows;
+    if (next == dialog.nav_scroll)
+        return DialogAction::none;
+    dialog.nav_scroll = next;
+    return DialogAction::redraw;
 }
 
 DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches) {
@@ -2367,6 +2531,8 @@ DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches) {
     }
     if (const std::optional<DialogAction> nav = wheel_registered_nav(dialog, x, y, notches))
         return *nav;
+    if (const std::optional<DialogAction> engine = wheel_engine_nav(dialog, x, y, notches))
+        return *engine;
     if (const std::optional<DialogAction> registered = wheel_registered_content(dialog, notches))
         return *registered;
     // Away from the player scrolls towards the top, wheel_step rows a notch,
@@ -2646,10 +2812,18 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
     if (registered_nav(dialog))
         append_registered_nav(dialog, parts, &sized);
     else {
-        for (const Page page :
-             dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
+        const auto pages =
+            dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
+        const layout::EngineNav engine = layout::engine_nav(pages, dialog.size_class);
+        const bool clip_nav = dialog.kind == DialogKind::engine && engine.scrolls;
+        for (const Page page : pages) {
             layout::SourceRect item = layout::dialog_list_item(dialog, page);
             item.width = sized.list_item_width;
+            // An entry scrolled off the room above the divider is not drawn.
+            // Developer stays pinned under it. The control stays in the
+            // display list, so Tab still reaches it.
+            if (clip_nav && page != Page::developer && !wholly_in(item, engine.viewport))
+                continue;
             parts.push_back(
                 LayoutPart{
                     {item.x + layout::list_text_offset,
@@ -2797,6 +2971,8 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
                 caption = layout::language_closed_field(dialog, std::move(caption));
             if (row.downloads >= 0)
                 caption = downloads::choice_caption(downloads::choice_index(dialog));
+            if (row.updates >= 0)
+                caption = updates::choice_caption(updates::choice_index(dialog));
             row_part(
                 LayoutPart{row.control_area, std::move(caption), DialogFont::regular, 0, control}
             );
@@ -2880,6 +3056,18 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
                     LayoutPart{
                         box,
                         downloads::choice_caption(item),
+                        DialogFont::regular,
+                        0,
+                        no_control,
+                    }
+                );
+                continue;
+            }
+            if (list->row->updates >= 0) {
+                parts.push_back(
+                    LayoutPart{
+                        box,
+                        updates::choice_caption(item),
                         DialogFont::regular,
                         0,
                         no_control,

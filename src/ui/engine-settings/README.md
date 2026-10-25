@@ -85,8 +85,10 @@ the locks a running game puts on them (`settings_locks`).
 | | Left-handed | Off, On | Off | `open-annihilation.pad-left-handed` |
 | | Control size, Hold delay, QUEUE and ADD | Touch's own rows, shared | | as in Touch |
 | Game files, listed only in the main menu's dialog where the platform brings game files in | Include in device backups | Off, On | Off | `open-annihilation.game-files-backed-up` |
-| Downloads, listed in every dialog of the engine's settings, before System | Check for content updates | Automatically, Only when I open the Library, Never | Automatically | `open-annihilation.content-updates` (`automatically`, `library` or `never`); takes effect at OK, and Cancel and Restore defaults apply |
-| System, listed in every dialog of the engine's settings, after Downloads and before Developer | Your files: the player's own folder and buttons that open its Saves, Screenshots and Mods folders | changes no setting | | `open-annihilation.user-folder`, read at start (`src/app/include/oa/app/user_folder.hpp`) |
+| Downloads, listed in every dialog of the engine's settings, before Updates | Check for content updates | Automatically, Only when I open the Library, Never | Automatically | `open-annihilation.content-updates` (`automatically`, `library` or `never`); takes effect at OK, and Cancel and Restore defaults apply |
+| Updates, listed in every dialog of the engine's settings, after Downloads and before Game Content | Open Annihilation and its version, with the status under it and CHECK NOW, or UPDATE… while a release is offered | the button acts at once; it is hidden while Check for updates is Never and greyed while a check is running | | none. The lines come from the host's offer (`Dialog::updates`) |
+| | Check for updates | Automatically, Only when I ask, Never | Automatically | `open-annihilation.update-check` (`automatically`, `when-asked` or `never`); takes effect at OK, and Cancel and Restore defaults apply. CHECK NOW makes no request while the choice is Never |
+| System, listed in every dialog of the engine's settings, after Game Content and before Developer | Your files: the player's own folder and buttons that open its Saves, Screenshots and Mods folders | changes no setting | | `open-annihilation.user-folder`, read at start (`src/app/include/oa/app/user_folder.hpp`) |
 | | File Type Registration, then one switch for each of the seven types, the launch file's last, on Windows, Linux and macOS | Off, On | On | `open-annihilation.file-types.oamod`, `.oamap`, `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oalaunch` (`on` or `off`; only `off` turns one off). On Windows and Linux OK registers a type turned on and withdraws one turned off, at once; on macOS it changes the default opener of a switch that moved. Each switch acts on its own type alone (`engine_settings/file_types.hpp`) |
 | | File types, the text row on iOS in place of the switches | changes no setting | | none |
 | Developer | Enable Developer Mode | Off, On | Off | `open-annihilation.developer-mode` |
@@ -458,7 +460,7 @@ edge and hairline rules, and one green accent for what is selected:
 - the sections down the left (Controls, Engine Limits, Language & Text,
   Graphics, User Interface, Touch while the game has touch controls,
   Controller once a gamepad has sent input, and Game files where the host
-  lists it, then Downloads, then System),
+  lists it, then Downloads, Updates, Game Content, then System),
   Developer at the foot after a line, the open one marked;
 - the open section's heading and rows: a label, a hint of one or two lines,
   and an Off/On switch, a level strip (Off, 2x, 4x, 8x, 16x for Enhanced
@@ -513,19 +515,23 @@ focus, and a press on it leaves the focus where it is. While a press is held
 the wheel and the scroll keys do nothing, so only a drag of the scroll bar
 scrolls then. No scroll changes a setting or moves the focus.
 
-Controls are numbered: the sections' entries 0 to 10, each its place among
-the sections with Touch, Controller, Game files, Downloads and System
-whether or not the first three are listed (Touch 5, Controller 6,
-Developer 7, Game files 8, Downloads 9, System 10, so a dialog without
-Touch has no control 5, one without Controller no control 6, and one
-without Game files no control 8).
+Controls are numbered: the sections' entries 0 to 12, each its place among
+the sections with Touch, Controller, Game files, Downloads, System, Game
+Content and Updates whether or not the first three are listed (Touch 5,
+Controller 6, Developer 7, Game files 8, Downloads 9, System 10, Game
+Content 11, Updates 12, so a dialog without Touch has no control 5, one
+without Controller no control 6, and one without Game files no control 8).
 Touch, Controller and Developer keep their numbers in every dialog (a
-mod's options' 0 to 4). Restore defaults is 11, Cancel 12, OK 13, the
-scroll bar 14, and the open section's rows from 15, with no upper end. The
+mod's options' 0 to 4). Restore defaults is 13, Cancel 14, OK 15, the
+scroll bar 16, and the open section's rows from 17, with no upper end. The
 list draws its entries by their place in the list it shows, and the focus
 walks that list, so the dialog without Touch, Controller or Game files
-draws and answers exactly as it did before they were added. Downloads and
-System are always in that list.
+draws and answers exactly as it did before they were added. Downloads,
+Updates, Game Content and System are always in that list. At Compact, the
+list of thirteen sections (Touch, Controller and Game files all listed)
+scrolls, the open entry kept in view and Developer pinned under the
+divider. A shorter list keeps the layout it had: gaps while the gapped
+entries fit, and no gaps once they would pass the divider.
 
 The Touch section is listed only while the game has touch controls:
 `Dialog::touch`, which the host gives `open_dialog` and keeps with
@@ -613,6 +619,25 @@ lock and the button do not fit on that line, the lock moves to the start
 of the line under the label and the button stays. Downloaded files
 shows no size line while locked: its label, the lock and the faded EMPTY.
 The check and the install-ID switch stay editable. The link is not listed.
+
+The Updates section is listed in every dialog of the engine's settings,
+after Downloads and before Game Content. Its two rows come from the host's
+offer (`Dialog::updates`), not from a fixed list of settings:
+
+- The version line (`settings.update-status`): the label is "Open
+  Annihilation" and the version, and the hint is the status (up to date,
+  checking, a release out, could not check, not checked yet, or "OA never
+  checks"). CHECK NOW (`settings.update-status.check-now`) asks the host
+  at once (`DialogAction::check_updates`). While a release is offered the
+  same button is UPDATE… (`settings.update-status.update`,
+  `DialogAction::open_release`). The button is hidden while Check for
+  updates is Never and greyed while a check is running.
+- Check for updates (`settings.update-check`): a drop-down of
+  Automatically, Only when I ask, and Never. It is a setting
+  (`update_check`, stored as `open-annihilation.update-check`). A change
+  takes effect at OK. Cancel puts the opened choice back, and Restore
+  defaults sets Automatically. CHECK NOW makes no request while the
+  choice showing is Never.
 
 `open_language_text_dialog` opens a dialog of the third kind,
 `DialogKind::language_text`: Language alone, its entry at the top
@@ -1000,9 +1025,9 @@ values clears them. The host keeps which areas and hacks are open and the
 filter while the game runs (`DeveloperList`).
 
 Developer's controls are numbered from the open section's first row's:
-Enable Developer Mode 14, Show performance statistics 15, Show Active Only
-16, Restore profile values 17, and the list's rows that take input from
-18, in the list's order. Every header takes the focus and a press, which
+Enable Developer Mode 17, Show performance statistics 18, UI kit gallery
+19, Show Active Only 20, Restore profile values 21, and the list's rows
+that take input from 22, in the list's order. Every header takes the focus and a press, which
 opens or closes it; a press on a hack's switch sets it. Space opens or
 closes an area or a hack and flips a switch; Left and Right close and open
 an area, turn a hack or a switch Off and On, and move a slider a stop.
@@ -1374,7 +1399,7 @@ press 15 points off nothing) at several scales, a slider dragged from under
 its track and an open list's nearest item; Game files: listed only with
 its flag, between Touch or User Interface and Downloads, the line and
 Developer under it, its entry numbered 8 with Touch 5, Controller 6,
-Developer 7, Downloads 9 and System 10, the
+Developer 7, Downloads 9, System 10, Game Content 11 and Updates 12, the
 focus walking it, its three rows and their texts, MANAGE… returning
 `manage_game_files` to a click, to Space and to a finger beside it, the
 switch by either half and the keys, Restore defaults and Cancel, where the
@@ -1471,9 +1496,10 @@ alone, unlocked, at Compact and 2× (960 by 648), in the installed game's
 fonts (`OA_GAME_DIR`). The header shows the shipped app icon, the plates,
 cropped to the pixels that show (`branding/open-annihilation-256.png`). It writes one PNG a section, under the names
 `docs/images/settings/` uses (`controls-1.png`, `language-1.png`,
-`graphics-1.png`, `downloads-1.png`, `system-1.png`, and `page_word` plus
-`.png` for the others), and `controls-2.png`, `downloads-2.png` and
-`system-2.png` with those sections scrolled to their ends. The
+`graphics-1.png`, `downloads-1.png`, `system-1.png`, `updates-1.png`, and
+`page_word` plus `.png` for the others), and `controls-2.png`,
+`downloads-2.png`, `system-2.png` with those sections scrolled to their
+ends, and `updates-2.png` with a release offered. The
 rows a host fills (Your files, Game files, Downloads' install ID, Game
 Content) are the defaults the manual describes. The data test
 `ui-engine-settings-pictures` runs the same program into a scratch folder

@@ -25,6 +25,7 @@
 #include "oa/app/content_copy.hpp"
 #include "oa/app/setup_before_game.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/app/update/checker.hpp"
 #include "oa/ui/engine_settings/file_types.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/netgame/presence.hpp"
@@ -647,6 +648,111 @@ window_desktop(const Options& options, SDL_Window* window, settings::ScreenSize 
 
 /// The version the dialog's header shows.
 constexpr const char* kVersionText = "v" OA_ENGINE_VERSION;
+
+/// The generation of the update snapshot Updates last painted. A check that
+/// finishes on another section is painted the next time Updates is open.
+uint64_t& updates_generation_seen() {
+    static uint64_t seen = 0;
+    return seen;
+}
+
+/// Returns a version without a leading v, as the status line writes it.
+///
+/// @param header the header's version text
+/// @return the version
+std::string_view release_version(std::string_view header) noexcept {
+    if (!header.empty() && (header.front() == 'v' || header.front() == 'V'))
+        header.remove_prefix(1);
+    return header;
+}
+
+/// Returns the word the update preference stores for a way.
+///
+/// @param mode the way
+/// @return automatically, when-asked or never
+std::string_view update_mode_word(settings::UpdateCheck mode) noexcept {
+    switch (mode) {
+    case settings::UpdateCheck::when_asked:
+        return "when-asked";
+    case settings::UpdateCheck::never:
+        return "never";
+    case settings::UpdateCheck::automatically:
+        return "automatically";
+    }
+    return "automatically";
+}
+
+/// Returns where the host's snapshot stands, as the page's lines name it.
+///
+/// @param state the snapshot's state
+/// @return the stand
+settings::UpdateStand update_stand(update::CheckState state) noexcept {
+    switch (state) {
+    case update::CheckState::idle:
+        return settings::UpdateStand::idle;
+    case update::CheckState::checking:
+        return settings::UpdateStand::checking;
+    case update::CheckState::up_to_date:
+        return settings::UpdateStand::up_to_date;
+    case update::CheckState::offered:
+        return settings::UpdateStand::offered;
+    case update::CheckState::failed:
+        return settings::UpdateStand::failed;
+    case update::CheckState::cancelled:
+        return settings::UpdateStand::cancelled;
+    }
+    return settings::UpdateStand::idle;
+}
+
+/// Fills Updates from a snapshot. The way is the one the dialog shows, so an
+/// unsaved change is not put back.
+///
+/// @param[in,out] dialog the dialog
+/// @param snapshot the check
+/// @param version this build's version, without a leading v
+void paint_updates(
+    settings::Dialog& dialog, const update::CheckSnapshot& snapshot, std::string_view version
+) {
+    settings::UpdateReading reading;
+    reading.version = version;
+    reading.stand = update_stand(snapshot.state);
+    reading.never = dialog.chosen.update_check == settings::UpdateCheck::never;
+    reading.checked_at = snapshot.checked_at;
+    reading.now = std::chrono::duration_cast<std::chrono::seconds>(
+                      std::chrono::system_clock::now().time_since_epoch()
+    )
+                      .count();
+    if (snapshot.offer.release != nullptr)
+        reading.offer_version = snapshot.offer.release->version_text;
+    const settings::UpdateLines lines = settings::update_lines(reading);
+    dialog.updates.version_line = lines.version_line;
+    dialog.updates.status = lines.status;
+    dialog.updates.can_check = lines.can_check;
+    dialog.updates.offered = lines.offered;
+    dialog.updates.mode = static_cast<int32_t>(dialog.chosen.update_check);
+}
+
+/// Notes the generation Updates was just painted from.
+///
+/// @param snapshot the check
+void note_updates_generation(const update::CheckSnapshot& snapshot) noexcept {
+    updates_generation_seen() = snapshot.generation;
+}
+
+/// Paints Updates when the check has moved and that section is open.
+///
+/// @param snapshot the check
+/// @param[in,out] dialog the dialog
+/// @return true when the lines changed
+bool refill_updates(const update::CheckSnapshot& snapshot, settings::Dialog& dialog) {
+    if (dialog.page != settings::Page::updates)
+        return false;
+    if (snapshot.generation == updates_generation_seen())
+        return false;
+    paint_updates(dialog, snapshot, release_version(dialog.version));
+    note_updates_generation(snapshot);
+    return true;
+}
 
 /// What the player is told when the preferences file could not be written.
 constexpr std::string_view kSaveFailedText = "Settings were not saved.";
@@ -1698,6 +1804,8 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
     }
     lay_game_content(dialog, user_folder_);
     request_content_check(user_folder_);
+    paint_updates(dialog, update_snapshot(), release_version(kVersionText));
+    note_updates_generation(update_snapshot());
     // Your files shows the player's own folder.
     dialog.user_folder = path_to_utf8(user_folder_);
     // The languages whose packs turn Unicode chat on.
@@ -1884,6 +1992,7 @@ settings::Dialog* Runtime::engine_settings_dialog() {
 }
 
 bool Runtime::refresh_game_content(settings::Dialog& dialog) {
+    const bool updates_moved = refill_updates(update_snapshot(), dialog);
     service_content_check();
     ContentCopyWatch& watch = content_copy_watch();
     if (watch.active) {
@@ -1934,13 +2043,13 @@ bool Runtime::refresh_game_content(settings::Dialog& dialog) {
     if (apply) {
         const std::vector<settings::GameContentRow> saved = dialog.game_content;
         paint_check_result(dialog, result);
-        return content_rows_differ(saved, dialog.game_content);
+        return updates_moved || content_rows_differ(saved, dialog.game_content);
     }
     if (running) {
         paint_checking(dialog, done, total);
         return true;
     }
-    return false;
+    return updates_moved;
 }
 
 bool Runtime::take_engine_settings_action(settings::DialogAction action) {
@@ -1996,7 +2105,10 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             settings::EngineSettings live = dialog->chosen;
             live.screen_size = dialog->opened.screen_size;
             live.content_check = dialog->opened.content_check;
+            live.update_check = dialog->opened.update_check;
             apply_engine_settings(live);
+            if (dialog->page == settings::Page::updates)
+                paint_updates(*dialog, update_snapshot(), release_version(dialog->version));
             oa_layer().lay_out_for_size();
         }
         return false;
@@ -2022,6 +2134,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         if (screen_size_moved)
             chosen.screen_size = EngineSettingsState::stored_screen_size(*this, chosen.screen_size);
         const bool check_changed = chosen.content_check != dialog->opened.content_check;
+        const bool updates_never = chosen.update_check == settings::UpdateCheck::never;
         const settings::ContentCheck chosen_check = chosen.content_check;
         const bool file_types_changed =
             !settings::moved_file_type_switches(dialog->opened, chosen).empty();
@@ -2064,6 +2177,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         tell_install_switches(content_downloads(), switches_opened, switches_chosen);
         if (check_changed)
             content_service().set_check_for_updates(check_mode(chosen_check));
+        if (updates_never)
+            cancel_update_check();
         state.last_page = dialog->page;
         state.last_developer_list = dialog->developer;
         state.dialog.reset();
@@ -2173,6 +2288,27 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // stays open under it; where the Library is under the dialog
         // already, the dialog closes back to it.
         open_library(library_tab_of(dialog->library_tab));
+        return false;
+    case settings::DialogAction::check_updates: {
+        // Never offers no button. A check the dialog shows, but has not
+        // stored yet, is lent to the preference for this one call.
+        if (dialog->chosen.update_check == settings::UpdateCheck::never)
+            return false;
+        const std::string key{settings::key::update_check};
+        const auto found = preference_values_.find(key);
+        const bool saved_never = found != preference_values_.end() && found->second == "never";
+        std::string saved_word;
+        if (saved_never)
+            saved_word = found->second;
+        if (saved_never)
+            preference_values_[key] = std::string(update_mode_word(dialog->chosen.update_check));
+        start_update_check(true);
+        if (saved_never)
+            preference_values_[key] = std::move(saved_word);
+        return false;
+    }
+    case settings::DialogAction::open_release:
+        open_release_page();
         return false;
     case settings::DialogAction::download_language: {
         // The dialog stays open. The language applies when the pack arrives.

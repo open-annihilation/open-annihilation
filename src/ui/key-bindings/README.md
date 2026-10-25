@@ -64,6 +64,16 @@ dispatcher times a double press and a hold from that time.
 - `key_positions` names every position a keyboard report can carry that the
   UI Events code list names. `scancodes_without_code` lists the rest, which
   no chord can name.
+- `legacy_key_chord` maps one key the options dialog stores, of the
+  sixteen it offers, to a chord. Alt, Ctrl and Shift are that modifier on
+  its own. A letter, Tab, `/` or `\` follows the action's `by`: a place is
+  the position the caller passes, and a letter is the character. Any other
+  key code maps to nothing. The caller passes the position; this module
+  does not ask which key it is.
+- `imported_list` is an action's default chords with that stored key in
+  place of each trigger. Extra modifiers and the gesture stay. A default
+  that is a modifier on its own loses it before the key is applied, and a
+  stored modifier replaces the whole chord.
 - `Dispatcher` turns one event into action events. `set_contexts` says which
   contexts are open for the next `feed`. A plain chord gives `pressed` on
   the down and `released` on that key's or button's up. `:double` gives
@@ -124,7 +134,9 @@ unknown action is a warning and is written back. `chat.cancel` without
 Escape, and `chat.send` on Escape, are warnings; `ui.settings` on F9 is
 not. A repeated chord, and a backtick the keyboard does not type, are
 warnings. Every registry action's defaults round-trip through the paste
-back to the same layout.
+back to the same layout. It also maps each of the sixteen option keys, and
+a key code outside them, and checks that a stored Q keeps `build.rotate`'s
+Shift chord and replaces Alt on `build.snap-override`.
 
 `ui-key-bindings-layouts` (`tests/layout_test.cpp`) resolves `oa-default`
 with no clash for no hack, for each hack alone and for all of them, in both
