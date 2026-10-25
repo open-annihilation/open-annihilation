@@ -14,6 +14,7 @@
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/kit/theme.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -613,6 +614,112 @@ inline constexpr int32_t grip_width = 6;
 /// A drag handle's height, in points, at every size class.
 inline constexpr int32_t grip_height = 12;
 
+/// A key's category tint. none is an untinted key. The letter on a tinted
+/// key is the caller's.
+enum class KeyTint : uint8_t {
+    none,      ///< no category
+    orders,    ///< orders
+    pointer,   ///< the pointer
+    selection, ///< selection
+    groups,    ///< groups
+    camera,    ///< the camera
+    building,  ///< building
+    game,      ///< the game
+    chat,      ///< chat
+    window,    ///< the window
+    hacks,     ///< a mod's hacks
+    mod,       ///< a mod's data
+    developer, ///< developer
+};
+
+/// A mark on a key. Each has its own shape.
+enum class KeyMark : uint8_t {
+    none,    ///< no mark
+    changed, ///< a filled diamond
+    clash,   ///< a triangle, and a dashed border
+    unbound, ///< a hollow ring
+    fixed,   ///< an open square, and a dashed border
+};
+
+/// A keycap. The label is what the key prints, the short name sits along
+/// the bottom, and the letter sits in a corner square. small is the 9-point
+/// badge: its label alone, in the accent on on_accent.
+struct KeycapLook {
+    std::string label{};         ///< what the key prints
+    std::string sub{};           ///< the short name along the bottom
+    KeyTint tint{KeyTint::none}; ///< the category; none is untinted
+    std::string letter{};        ///< the category letter in the corner
+    KeyMark mark{KeyMark::none}; ///< the corner mark
+    bool modifier{false};        ///< a modifier, in the button text colour when untinted
+    bool held{false};            ///< a press is held on it
+    bool hovered{false};         ///< the pointer is over it
+    bool focused{false};         ///< the keyboard focus is on it
+    bool disabled{false};        ///< it takes nothing
+    bool small{false};           ///< the 9-point corner badge
+};
+
+/// A chord chip: keycaps joined by "+", then a gesture word. add draws the
+/// dashed "+ ADD KEY" form, with keys empty and its caption in none_text.
+/// none_text alone is the quiet unbound text.
+struct ChordChipLook {
+    std::vector<std::string> keys{}; ///< the keycaps' labels, in order
+    std::string gesture{};           ///< the gesture word after the keycaps
+    KeyMark mark{KeyMark::none};     ///< the mark on the last keycap
+    bool selected{false};            ///< the chip is chosen
+    bool hovered{false};             ///< the pointer is over it
+    bool add{false};                 ///< the dashed add form
+    std::string none_text{};         ///< the add form's caption, or the unbound text
+};
+
+/// Which keyboard a picture draws.
+enum class KeyboardShape : uint8_t {
+    ansi, ///< ANSI
+    iso,  ///< ISO, with IntlBackslash and a tall Enter
+    jis,  ///< JIS, with IntlYen, IntlRo and a shorter space
+};
+
+/// One key of a keyboard picture that is not left free.
+struct KeyboardKey {
+    std::string code{}; ///< the W3C code
+    KeycapLook cap{};   ///< what that key shows; an empty label keeps the geometry's
+};
+
+/// A keyboard picture. A code with no entry is a free key with the
+/// geometry's own label.
+struct KeyboardLook {
+    KeyboardShape shape{KeyboardShape::ansi}; ///< which keyboard
+    std::vector<KeyboardKey> keys{};          ///< the keys that are not free
+};
+
+/// A mouse button, in the order MouseLook::buttons stores their looks.
+enum class MouseButton : uint8_t {
+    left,       ///< the left button
+    right,      ///< the right button
+    middle,     ///< the middle button
+    wheel_up,   ///< the wheel turned up
+    wheel_down, ///< the wheel turned down
+    back,       ///< the back side button
+    forward,    ///< the forward side button
+    button6,    ///< an extra button
+    button7,    ///< an extra button
+    button8,    ///< an extra button
+};
+
+/// A mouse picture. buttons is one look per MouseButton. extra_buttons
+/// draws buttons 6, 7 and 8.
+struct MouseLook {
+    std::array<KeycapLook, 10> buttons{}; ///< one look per MouseButton
+    bool extra_buttons{false};            ///< draws the three extra buttons
+};
+
+/// A hold ring filled clockwise from the top to done/whole. reduced_motion
+/// snaps the fill down to a quarter of the ring.
+struct HoldRingLook {
+    int32_t done{0};            ///< how far the ring has filled
+    int32_t whole{1};           ///< the full ring
+    bool reduced_motion{false}; ///< snap the fill down to quarters
+};
+
 /// What a component item draws. Empty for a generic role. Later components
 /// append looks. A locked fade has no look of its own: its rectangle is the
 /// item's.
@@ -654,6 +761,11 @@ using Look = std::variant<
     PictureWellLook,
     CallToActionLook,
     BadgeLook,
-    GripLook>;
+    GripLook,
+    KeycapLook,
+    ChordChipLook,
+    KeyboardLook,
+    MouseLook,
+    HoldRingLook>;
 
 } // namespace oa::ui::kit

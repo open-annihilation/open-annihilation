@@ -223,7 +223,28 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   - a drag handle (`GripLook`, `draw_grip`, `add_grip`, role `grip`):
     two columns of four discs, 3 points apart and 1 point in radius,
     `grip_width` (6) by `grip_height` (12). Rest is `quiet`, hovered the
-    text colour, held the accent, disabled `control_hover`.
+    text colour, held the accent, disabled `control_hover`;
+  - a keycap (`KeycapLook`, `draw_keycap`, `add_keycap`, role `keycap`,
+    `keycap_width`): 16 points high and at least 16 wide, a label, an
+    optional short name, a category tint and its letter, and a mark.
+    Changed is a filled diamond, clash a triangle with a dashed danger
+    border, unbound a hollow ring, fixed an open square with a dashed
+    control border. A held key fills with the accent. `small` is the
+    9-point badge, its label in the accent on `on_accent`. The tint's
+    face, darker bottom edge and ink are `tint_face`, `tint_edge` and
+    `tint_ink` (`colour::category_orders` through `category_developer`);
+  - a chord chip (`ChordChipLook`, `draw_chord_chip`, `add_chord_chip`,
+    role `chord_chip`, `chord_chip_width`): keycaps joined by "+" and a
+    gesture word, or the dashed "+ ADD KEY" form, or quiet unbound text;
+  - a keyboard picture (`KeyboardLook`, `draw_keyboard`, `add_keyboard`,
+    role `keyboard`): ANSI, ISO or JIS from `keyboard_places`, 91 by 25
+    quarter units, one control a key named by `code_word`;
+  - a mouse picture (`MouseLook`, `draw_mouse`, `add_mouse`, role
+    `mouse_picture`): the body, the buttons and the wheel, and the extra
+    buttons when the look asks;
+  - a hold ring (`HoldRingLook`, `draw_hold_ring`, `add_hold_ring`, role
+    `hold_ring`): filled clockwise from the top, in quarters while
+    `reduced_motion` is set.
 
   Each has a draw function and an `add_*` that puts it in a display list
   with its name, kind and Tab place; `paint` draws them.
@@ -444,10 +465,13 @@ takes ([docs/extensions/ui-kit.md](../../../docs/extensions/ui-kit.md#the-galler
   List rows, Scroll list, Card grid, Hover card,
   Section, label and hint, Lock, Notice, Question, OA mark (the OA
   button with and without its dot, the mark alone, the icon and every
-  one-bit mark) and Badges and tags (the eight tag icons, a picture,
+  one-bit mark), Badges and tags (the eight tag icons, a picture,
   letters and a blank badge, a pill and a nav entry with a tag, a drag
   handle at rest, hovered, held and disabled, and a question listing
-  Gatehouse). They flow into the shortest column: one at Compact, two
+  Gatehouse) and Keys (a working keycap, every state and category tint
+  with its letter, a modifier, two small badges, chord chips, an ANSI,
+  ISO and JIS keyboard, a mouse, and hold rings at 0, 1/3, 2/3 and whole,
+  steady and in quarters). They flow into the shortest column: one at Compact, two
   at Regular, three at Large, and scroll between the header and the footer
   where they are taller than it. A notice, a question and the window
   chrome's sample are drawn from their own origin (`GalleryPanel`), as the
@@ -736,11 +760,17 @@ and 40 points at 1x, 2x, 3x and 150%, a badge's picture, tag, letters and
 blank, a row, pill, nav entry and question with nothing new pinned to the
 pixels from before the change, a byline's colour, a drag handle in each
 state, and a question that grows by two item lines and names them.
+`ui-kit-keys` checks each keyboard's geometry, `code_word` and the names
+`add_keyboard` and `add_mouse` give, that every part stays inside its
+rectangle at 1x, 2x, 3x and 150% and that 2x is not 1x doubled, that the
+marks differ in shape, that each tint's face reaches 4.5:1 against its
+ink, and that a reduced-motion ring snaps to quarters.
 
-The module's ctests are those thirteen: `ui-kit-theme`, `ui-kit-text`,
+The module's ctests are those fourteen: `ui-kit-theme`, `ui-kit-text`,
 `ui-kit-layout`, `ui-kit-input`, `ui-kit-components`, `ui-kit-chrome`,
-`ui-kit-controls`, `ui-kit-tag-icons`, `ui-kit-notices`, `ui-kit-smooth`,
-`ui-kit-rows`, `ui-kit-gallery` and `ui-kit-first-run`, none of which needs the game's
+`ui-kit-controls`, `ui-kit-tag-icons`, `ui-kit-keys`, `ui-kit-notices`,
+`ui-kit-smooth`, `ui-kit-rows`, `ui-kit-gallery` and `ui-kit-first-run`,
+none of which needs the game's
 data. Others guard the
 kit from its users: `ui-engine-settings-pixels` and
 `ui-engine-settings-pixels-data` pin Compact's pixels

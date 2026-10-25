@@ -1628,6 +1628,16 @@ class Runtime final : public menu::Host,
     /// @param report_directory directory the frames are written to
     void check_navigation_without_maps(const fs::path& report_directory);
 
+    /// Opens SINGLE.GUI from the main menu and checks New Campaign and Any Mission.
+    ///
+    /// New Campaign is greyed exactly when neither side has a campaign, and it
+    /// stays shown either way. Any Mission is hidden when there is no campaign.
+    /// With no campaign, a press on New Campaign and the key SINGLE.GUI gives
+    /// that button leave the menu on SINGLE.GUI with no notice. With a
+    /// campaign, New Campaign opens NEWGAME.GUI and Previous Menu returns.
+    /// Prints one line and throws std::runtime_error naming what differed.
+    void check_single_player_offers();
+
     /// Checks that a screen keeps the game's own fonts whatever the Language
     /// settings say: drawn with the modern fonts on, at the largest text
     /// size, it equals the frame drawn with them off. The player's settings
