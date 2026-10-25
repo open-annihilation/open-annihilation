@@ -4196,6 +4196,15 @@ endforeach()
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-mutators-command-line PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --keys on the key table, an unknown id, --keys-reset over a layout
+        # that is not installed, and one import of a stored build key that a
+        # second run does not write again.
+        add_test(NAME native-keys COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_keys.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/base.tsv"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A mod folder whose sides name commanders of their own, without the
         # commander flag, and bar colours of their own, with a third side that
         # draws CORE's panels: each side's HUD draws the panels its intgaf

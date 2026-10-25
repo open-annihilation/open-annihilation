@@ -195,6 +195,15 @@ manifests refuse (one id twice, a prerequisite that is not above it, or
 two that conflict) is refused with status 2, before the game starts. An
 id is refused the same way when no player folder can be worked out.
 
+### Keys
+
+| Option | What it does |
+|---|---|
+| `--keys ID\|PATH` | Plays this run with one key layout. `ID` is a layout installed in the Keys folder, or `oa-default` for the game's own layout. `PATH` is a folder holding `oakeys.yaml`, or that file itself. The player's own changes are not laid on top. Nothing is saved: not the layout preference, not an own layout, and not which mods have had their stored keys carried over. |
+| `--keys-reset` | Plays this run with `oa-default` and no own changes. Nothing is saved. |
+
+`--keys` and `--keys-reset` together are refused with status 1. An id `--keys` names that is not installed, a path it cannot read, or a manifest with an error, ends the run with status 2 before the game starts; each problem is printed. `oa-default` is the built-in layout, not an installed folder. A layout named in the preferences, rather than by `--keys`, that is not installed is left unused for that run and `oa-default` is played instead: that does not end the run.
+
 ### Display and sound
 
 | Option | What it does |
@@ -511,7 +520,7 @@ one, for the engine's developers.
 | `--trace-digest FILE` | Writes a digest of the match at each tick. |
 | `--trace-units FILE` | Adds a line for each unit to it. It needs `--trace-digest`. |
 | `--trace-lookups FILE` | Writes every game file and listing the run looks up, and, for a path a mutator serves or hides, which mutator. |
-| `--trace-input` | Prints each press of the pointer's buttons, and where it lands, each move of the pointer over a match, and the game's window, its display and the pointer as a match begins and at each change of the window or a display, on standard error. [Below](#--trace-input). |
+| `--trace-input` | Prints each press of the pointer's buttons, and where it lands, each move of the pointer over a match, the game's window, its display and the pointer as a match begins and at each change of the window or a display, and each action event, on standard error. [Below](#--trace-input). |
 | `--debug-order-lines` | Draws each construction beam as a plain line, to debug it. |
 | `--draw-threads N` | The threads that draw, from 1 through 32. |
 
@@ -525,6 +534,14 @@ On Windows, add `--trace-input` at the end of the game shortcut's Target,
 or run `open-annihilation.exe --trace-input` from a command prompt in the
 game's folder. The lines go to standard error, which the game writes into
 its log (or into the folder `--log-dir` names).
+
+Each action event writes one line:
+
+```text
+input action pressed order.attack chord=A context=play
+```
+
+The word after `input action` is `pressed`, `released`, `repeated`, `double`, `held`, `active` or `inactive`. Then the action's id, the chord that matched, and the context that took the event, such as `play`.
 
 Each move of the pointer over a match writes one line:
 

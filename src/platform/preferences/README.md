@@ -251,6 +251,10 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.base-game` | `totala` or `totala-demo`; any other text reads as `totala` | `totala`, with every copied expansion of it that can be on |
 | `open-annihilation.expansions.<game>` | comma-separated expansion ids, in the built-in order; empty means none on | every copied expansion of that game that can be on |
 | `open-annihilation.content-note` | `required-expansion` when a mod was cleared because an expansion it needs went off | no note waiting |
+| `open-annihilation.keys.layout` | an installed layout's id; `oa-default` is the game's own layout. Any other text is an id. A layout that is not installed is left unused for that run and `oa-default` is played instead | `oa-default` |
+| `open-annihilation.keys.layout.<mod id>` | `same`, or an installed layout's id for that mod. `same` uses `open-annihilation.keys.layout` | `same` |
+| `open-annihilation.keys.show-on-buttons` | 0 or 1. Read from K36; this build does not read it yet | 1 |
+| `open-annihilation.keys.imported` | comma-separated ids of the mods whose stored keys were carried into the player's own changes. A mod is listed once, the first time it is played with a build tool, click snap, a build preview or the options dialog, and not under `--keys` or `--keys-reset` | none imported |
 | `mutators.clash-default` | `add` or `replace`; any other text reads as `replace`. The clash mode a mutator uses when the player and its manifest leave it unset. `Runtime::apply_match_mutators` reads it, and so does the battle room on the host, which sends each mode with its list; a guest plays the host's modes and never reads its own | `replace` |
 
 The seven file-type keys are words, `on` and `off`, not the `0` and `1` of
