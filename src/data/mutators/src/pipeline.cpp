@@ -4889,7 +4889,9 @@ bool run_pass(
     apply_options.layout = &layout;
     apply_options.check = [&layout, &kept_weapons, weapon_types = input.limits.weapon_types](
                               const rules::FieldRef& field, const std::optional<std::string>& text
-                          ) { return check_field(field, text, layout, kept_weapons, weapon_types); };
+                          ) {
+        return check_field(field, text, layout, kept_weapons, weapon_types);
+    };
     rules::ApplyState apply_state;
     std::vector<rules::FieldWrite> rule_writes;
     std::set<ReplacedField> replaced_fields;

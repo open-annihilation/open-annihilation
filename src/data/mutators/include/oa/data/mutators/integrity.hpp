@@ -54,11 +54,11 @@ enum class Problem : uint8_t {
     too_many_sides,            ///< a side section past the five the game reads
     too_many_movement_classes, ///< a class section past the 32 the game reads
     weapon_id_out_of_range, ///< a weapon's ID is outside 0 to weapon_types - 1, so it takes no slot
-    too_many_unit_types,       ///< more unit files than the type table can hold
-    past_category_masks,       ///< more unit files than the category masks hold
-    past_unit_sync,            ///< more unit files than a shared game can keep in step
-    file_name_differs,         ///< a unit file's name is not its UnitName
-    unit_name_twice,           ///< two unit files share one UnitName
+    too_many_unit_types,    ///< more unit files than the type table can hold
+    past_category_masks,    ///< more unit files than the category masks hold
+    past_unit_sync,         ///< more unit files than a shared game can keep in step
+    file_name_differs,      ///< a unit file's name is not its UnitName
+    unit_name_twice,        ///< two unit files share one UnitName
     too_many_download_files, ///< more download files than the game reads, including ones the menus added
 };
 

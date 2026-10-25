@@ -100,12 +100,12 @@ enum class HookNoteKind : uint8_t {
 /// "at id N". `weapon_id` is that id, and 0 for a unit. `asked` is the
 /// name the script wrote when Add stored the clone under a private name.
 struct CloneRecord {
-    std::string mutator;  ///< mutator whose hook cloned it
-    bool weapon{};        ///< true for a weapon section, false for a unit
-    std::string name;     ///< the stored name: the private name, or the name replaced
-    std::string source;   ///< the record it was copied from, as the script wrote it
-    int weapon_id{}; ///< free weapon id, from 1 to weapon_types - 1; 0 for a unit or a replacement
-    std::string path;     ///< document path the copy was written to
+    std::string mutator; ///< mutator whose hook cloned it
+    bool weapon{};       ///< true for a weapon section, false for a unit
+    std::string name;    ///< the stored name: the private name, or the name replaced
+    std::string source;  ///< the record it was copied from, as the script wrote it
+    int weapon_id{};  ///< free weapon id, from 1 to weapon_types - 1; 0 for a unit or a replacement
+    std::string path; ///< document path the copy was written to
     std::string sentence; ///< the journal line for this clone
     /// The name the script asked for when Add stored a different one. Empty
     /// when the asked name was stored as written, and when Replace wrote
