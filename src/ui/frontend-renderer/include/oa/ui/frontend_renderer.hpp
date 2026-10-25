@@ -62,6 +62,9 @@ struct ButtonPresentation {
     // The caption is game text, such as a player's name, which the
     // Language settings may draw in the modern fonts.
     bool game_text = false;
+    /// Draws the button's bevelled face and caption with no art, as a button
+    /// without art is drawn, whatever art its record names.
+    bool caption_only = false;
 };
 
 // Runtime records bound to a type-2 gadget. List storage lives outside the

@@ -1738,6 +1738,7 @@ void Runtime::load(Screen screen) {
     widget_gaf_frames_.clear();
     widget_text_stages_.clear();
     widget_sprites_.clear();
+    widget_caption_only_.clear();
     typed_key_hook_ = TypedKeyHook::none;
     typed_keys_.fill(0);
     const auto* desc = screen_find(&screens_, screen_id(screen));
@@ -1869,6 +1870,10 @@ void Runtime::rebuild_surface() {
         if (button != nullptr)
             presentation.back().quick_key = static_cast<char>(button->quick_key);
         presentation.back().focused = keyboard && static_cast<int32_t>(index) == focus;
+        if (widget_caption_only_.find(name) != widget_caption_only_.end()) {
+            presentation.back().caption_only = true;
+            presentation.back().game_text = true;
+        }
     }
     std::vector<renderer::ListPresentation> lists;
     if (screen_ == Screen::map_selection && !bound_map_names_.empty()) {

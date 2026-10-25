@@ -17010,7 +17010,8 @@ class Runtime final : public menu::Host,
     /// @param value new status
     void set_button_status(std::string_view name, int16_t value);
 
-    /// Sets a side button's stage, the frame and caption it shows.
+    /// Sets a side button's stage: the SIDEx frame when the art has one, else
+    /// the side's name on the plain face.
     ///
     /// @param name gadget name
     /// @param stage side index
@@ -18269,6 +18270,9 @@ class Runtime final : public menu::Host,
     std::map<std::string, std::size_t> widget_gaf_frames_;
     std::map<std::string, std::size_t> widget_text_stages_;
     std::map<std::string, renderer::SpriteOverride> widget_sprites_;
+    // Side buttons whose art has no frame for the shown side. The presentation
+    // draws their bevelled face and the side's name.
+    std::set<std::string> widget_caption_only_;
     uint32_t menu_flags_ = 0;
     int32_t event_button_ = 1;
     bool input_enabled_ = true;

@@ -1315,7 +1315,10 @@ void render_screen_into(
         // A pressed button underlines its key in the bevel's dark colour.
         const auto underline =
             gui_color(condition == ButtonCondition::pressed ? palette_black : palette_underline);
-        const auto binding = resolve_button_sprite(resources, gadget, state);
+        // A side past the art shows its name on the plain face, never a frame.
+        const bool caption_only = state != nullptr && state->caption_only;
+        const auto binding =
+            caption_only ? ResolvedSprite{} : resolve_button_sprite(resources, gadget, state);
         const auto* sequence = binding.sequence;
         constexpr uint32_t invisible_hit_attribute = 0x400U;
         const auto* button_fields = std::get_if<ui::gui_layout::ButtonFields>(&gadget.fields);
@@ -1399,7 +1402,8 @@ void render_screen_into(
             }
             continue;
         }
-        if (portrait_hit)
+        // The plain face is the bevel even when the record is an empty hit target.
+        if (portrait_hit && !caption_only)
             continue;
 
         // A button is filled with map entry 20, or 19 when grayed, then given

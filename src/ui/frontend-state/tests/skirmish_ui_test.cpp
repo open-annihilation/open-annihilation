@@ -392,8 +392,37 @@ void event_tests() {
     h.calls.clear();
     run("Side0");
     check(s.slots[0].side == 3 && h.saw("side:Side0:3"), "the side button skips a hidden side");
+    // Four sides is still within 3.1c's five: a right click steps forward.
+    u.hidden_sides = 0;
+    u.side_count = 4;
+    s.slots[0].side = 0;
+    h.mouse = 2;
+    h.calls.clear();
+    run("Side0");
+    check(s.slots[0].side == 1 && h.saw("side:Side0:1"), "a right click steps forward within five");
+    // Seven sides: a right click steps back, wrapping and skipping a hidden side.
+    u.side_count = 7;
+    s.slots[0].side = 0;
+    h.calls.clear();
+    run("Side0");
+    check(s.slots[0].side == 6 && h.saw("side:Side0:6"), "a right click wraps to the last side");
+    s.slots[0].side = 3;
+    h.calls.clear();
+    run("Side0");
+    check(s.slots[0].side == 2 && h.saw("side:Side0:2"), "a right click steps back one side");
+    u.hidden_sides = 1U << 5;
+    s.slots[0].side = 6;
+    h.calls.clear();
+    run("Side0");
+    check(s.slots[0].side == 4 && h.saw("side:Side0:4"), "a right click skips a hidden side");
+    h.mouse = 1;
+    s.slots[0].side = 4;
+    h.calls.clear();
+    run("Side0");
+    check(s.slots[0].side == 6 && h.saw("side:Side0:6"), "a left click skips a hidden side");
     u.hidden_sides = 0;
     u.side_count = 2;
+    h.mouse = 1;
     s.slots[0].side = 0;
     run("Allies0");
     check(s.slots[0].alliance == 0, "alliance modulo6");
