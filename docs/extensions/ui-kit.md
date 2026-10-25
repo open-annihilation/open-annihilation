@@ -17,6 +17,7 @@ Every example below is taken from it as it is built and checked.
 [components]: ../../src/ui/kit/include/oa/ui/kit/components.hpp
 [components_more]: ../../src/ui/kit/include/oa/ui/kit/components_more.hpp
 [controls]: ../../src/ui/kit/include/oa/ui/kit/controls.hpp
+[keys]: ../../src/ui/kit/include/oa/ui/kit/keys.hpp
 [input]: ../../src/ui/kit/include/oa/ui/kit/input.hpp
 [layout]: ../../src/ui/kit/include/oa/ui/kit/layout.hpp
 [rows]: ../../src/ui/kit/include/oa/ui/kit/rows.hpp
@@ -404,7 +405,12 @@ kit::DisplayList lay_out_screen(void*, const kit::Frame& frame) {
   sampled at the canvas's pixels, not a picture. A package badge
   (`BadgeLook`, `add_badge`) draws a picture, else the first tag's icon on
   the hint ground, else letters, else a dashed square. A drag handle
-  (`GripLook`, `add_grip`) is two columns of four dots. A question's
+  (`GripLook`, `add_grip`) is two columns of four dots. Keycaps, chord
+  chips, a keyboard picture, a mouse picture and a hold ring are in
+  [keys.hpp][keys] (`KeycapLook`, `ChordChipLook`, `KeyboardLook`,
+  `MouseLook`, `HoldRingLook`, and `add_keycap`, `add_chord_chip`,
+  `add_keyboard`, `add_mouse`, `add_hold_ring`). A category tint is one of
+  `colour::category_orders` through `category_developer`. A question's
   `items` are lines under its paragraphs, each a badge, a name and an aside.
 - A button whose mark is `ButtonMark::refresh` draws a circular arrow
   instead of its caption. `turn` is the eighth of the turn (one full turn
@@ -777,7 +783,9 @@ cards and Start playing, with CLOSE clear at the bottom right. The regular
 and large pictures
 show the carousel, the first row of language cards, the picture well and
 the coach mark. The rest of First run, and the sections under it, are
-below the window. The language-card pills are on the cards themselves.
+below the window. The language-card pills are on the cards themselves. Keys is the last
+section: keycaps, chord chips, an ANSI, ISO and JIS keyboard, a mouse
+and hold rings. It sits under Badges and tags, below these pictures.
 
 Compact at 1x, on a 640x480 window: one column, scrolling between the
 header and the footer.

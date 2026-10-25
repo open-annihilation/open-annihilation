@@ -14,6 +14,7 @@
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/first_run.hpp"
+#include "oa/ui/kit/keys.hpp"
 #include "oa/ui/kit/theme.hpp"
 
 #include <algorithm>
@@ -74,6 +75,7 @@ constexpr ControlId kSetupBack = kSetupSkip + 1;
 constexpr ControlId kSetupNext = kSetupBack + 1;
 constexpr ControlId kCallToAction = kSetupNext + 1;
 constexpr ControlId kLanguageCard = kCallToAction + 1;
+constexpr ControlId kKeycap = kLanguageCard + 1;
 
 static_assert(
     std::tuple_size_v<decltype(GalleryModel::chips)> == kChipCount,
@@ -2526,6 +2528,235 @@ int32_t badges_section(Builder& b, Point at, int32_t width, std::string_view /*w
     return y + height - at.y;
 }
 
+/// Keys: a working keycap, every state and tint, a modifier, two small
+/// badges, chord chips, the three keyboards, a mouse and hold rings.
+///
+/// The keyboard's and the mouse's keys are controls so automation can name
+/// them, and they are not focusable. Tab through every key would walk the
+/// gallery hundreds of times. The working keycap is the section's focus stop.
+int32_t keys_section(Builder& b, Point at, int32_t width, std::string_view word) {
+    const GalleryModel& model = *b.model;
+    int32_t y = at.y;
+    const bool over = pointer_on(model, kKeycap);
+    KeycapLook working;
+    working.label = "A";
+    working.sub = "Go";
+    working.tint = KeyTint::orders;
+    working.letter = "O";
+    working.hovered = over;
+    working.held = over && model.interaction.pressed == kKeycap;
+    working.focused = focus_on(model, kKeycap);
+    const int32_t working_across =
+        std::min(std::max(keycap_width(*b.fonts, working), int32_t{28}), width);
+    const Rect working_rect{at.x, y, working_across, keycap_height};
+    const std::size_t part_at = b.list.items.size();
+    add_keycap(b.list, working_rect, working, kKeycap, named(word, 1));
+    show_working(b, part_at, kKeycap, working_rect);
+    b.order.push_back(kKeycap);
+    y += keycap_height + kLineGap;
+
+    y += add_states(
+             b.list,
+             {at.x, y},
+             width,
+             {28, keycap_height},
+             kFiveStates,
+             [&](const Rect& rect, Sample shown) {
+                 add_fixed(b.list, rect, rect, shown, false, [&] {
+                     KeycapLook look;
+                     look.label = "A";
+                     look.letter = "O";
+                     look.tint = KeyTint::orders;
+                     look.hovered = looks_hovered(shown);
+                     look.held = shown == Sample::pressed;
+                     look.focused = shown == Sample::focused;
+                     look.disabled = shown == Sample::disabled;
+                     add_keycap(b.list, rect, look, no_control, {});
+                 });
+             }
+         ) +
+         kLineGap;
+
+    struct TintCap {
+        KeyTint tint;
+        std::string_view letter;
+    };
+
+    constexpr std::array<TintCap, 12> kTints{{
+        {KeyTint::orders, "O"},
+        {KeyTint::pointer, "P"},
+        {KeyTint::selection, "S"},
+        {KeyTint::groups, "G"},
+        {KeyTint::camera, "C"},
+        {KeyTint::building, "B"},
+        {KeyTint::game, "M"},
+        {KeyTint::chat, "T"},
+        {KeyTint::window, "W"},
+        {KeyTint::hacks, "L"},
+        {KeyTint::mod, "D"},
+        {KeyTint::developer, "V"},
+    }};
+    constexpr std::array<std::string_view, 12> kTintCaptions{
+        "O", "P", "S", "G", "C", "B", "M", "T", "W", "L", "D", "V"
+    };
+    y += add_cells(
+             b.list,
+             {at.x, y},
+             width,
+             {28, keycap_height},
+             kTintCaptions,
+             [&](const Rect& rect, std::size_t place) {
+                 KeycapLook look;
+                 look.label = "A";
+                 look.tint = kTints[place].tint;
+                 look.letter = std::string(kTints[place].letter);
+                 add_keycap(b.list, rect, look, no_control, {});
+             }
+         ) +
+         kLineGap;
+
+    constexpr std::array<KeyMark, 4> kMarks{
+        KeyMark::changed, KeyMark::clash, KeyMark::unbound, KeyMark::fixed
+    };
+    constexpr std::array<std::string_view, 4> kMarkCaptions{"Changed", "Clash", "Unbound", "Fixed"};
+    y += add_cells(
+             b.list,
+             {at.x, y},
+             width,
+             {28, keycap_height},
+             kMarkCaptions,
+             [&](const Rect& rect, std::size_t place) {
+                 KeycapLook look;
+                 look.label = "A";
+                 look.mark = kMarks[place];
+                 add_keycap(b.list, rect, look, no_control, {});
+             }
+         ) +
+         kLineGap;
+
+    KeycapLook modifier;
+    modifier.label = "Shift";
+    modifier.modifier = true;
+    const int32_t modifier_across =
+        std::min(std::max(keycap_width(*b.fonts, modifier), keycap_least_width), width);
+    add_keycap(b.list, {at.x, y, modifier_across, keycap_height}, modifier, no_control, {});
+    int32_t badge_x = at.x + modifier_across + kCellGap;
+    for (const std::string_view badge : {"A", "B"}) {
+        if (badge_x + 9 > at.x + width)
+            break;
+        KeycapLook small;
+        small.label = std::string(badge);
+        small.small = true;
+        add_keycap(b.list, {badge_x, y, 9, 9}, small, no_control, {});
+        badge_x += 9 + kCellGap;
+    }
+    y += keycap_height + kLineGap;
+
+    const auto place_chord = [&](ChordChipLook look) {
+        const int32_t want = chord_chip_width(*b.fonts, look);
+        const int32_t across = std::min(std::max(want, keycap_least_width), width);
+        add_chord_chip(b.list, {at.x, y, across, keycap_height}, std::move(look), no_control, {});
+        y += keycap_height + kLineGap;
+    };
+    ChordChipLook ctrl_b;
+    ctrl_b.keys = {"Ctrl", "B"};
+    place_chord(std::move(ctrl_b));
+    ChordChipLook ctrl_d;
+    ctrl_d.keys = {"Ctrl", "D"};
+    ctrl_d.gesture = "hold";
+    place_chord(std::move(ctrl_d));
+    ChordChipLook mouse5;
+    mouse5.keys = {"Mouse 5"};
+    mouse5.selected = true;
+    place_chord(std::move(mouse5));
+    ChordChipLook clash;
+    clash.keys = {"Ctrl", "K"};
+    clash.mark = KeyMark::clash;
+    place_chord(std::move(clash));
+    ChordChipLook changed;
+    changed.keys = {"Ctrl", "G"};
+    changed.mark = KeyMark::changed;
+    place_chord(std::move(changed));
+    ChordChipLook add;
+    add.add = true;
+    add.none_text = "Pick a key";
+    place_chord(std::move(add));
+    ChordChipLook unbound;
+    unbound.none_text = "Escape does it as Back";
+    place_chord(std::move(unbound));
+
+    ControlId next_id = kKeycap + 1;
+    const auto place_keyboard = [&](KeyboardLook look, std::string name) {
+        const int32_t across = std::min(width, int32_t{91 * 4});
+        const int32_t quarter = std::max(across / 91, int32_t{1});
+        const int32_t high = 25 * quarter;
+        const std::size_t first_control = b.list.controls.size();
+        add_keyboard(b.list, {at.x, y, across, high}, look, next_id, std::move(name));
+        next_id += static_cast<ControlId>(keyboard_places(look.shape).size());
+        for (std::size_t index = first_control; index < b.list.controls.size(); ++index)
+            b.list.controls[index].focusable = false;
+        y += high + kLineGap;
+    };
+    KeyboardLook ansi;
+    ansi.shape = KeyboardShape::ansi;
+    KeyboardKey orders_key;
+    orders_key.code = "KeyA";
+    orders_key.cap.tint = KeyTint::orders;
+    orders_key.cap.letter = "O";
+    orders_key.cap.sub = "Go";
+    ansi.keys.push_back(orders_key);
+    place_keyboard(ansi, "gallery.keys.ansi");
+    KeyboardLook iso;
+    iso.shape = KeyboardShape::iso;
+    place_keyboard(std::move(iso), "gallery.keys.iso");
+    KeyboardLook jis;
+    jis.shape = KeyboardShape::jis;
+    place_keyboard(std::move(jis), "gallery.keys.jis");
+
+    constexpr int32_t kMouseAcross = 80;
+    constexpr int32_t kMouseDown = 128;
+    const int32_t mouse_across = std::min(width, kMouseAcross);
+    const int32_t mouse_down = mouse_across >= 40 ? kMouseDown : 0;
+    if (mouse_down > 0) {
+        MouseLook mouse;
+        mouse.extra_buttons = true;
+        mouse.buttons[static_cast<std::size_t>(MouseButton::left)].tint = KeyTint::pointer;
+        mouse.buttons[static_cast<std::size_t>(MouseButton::left)].letter = "P";
+        const std::size_t first_control = b.list.controls.size();
+        add_mouse(
+            b.list, {at.x, y, mouse_across, mouse_down}, mouse, next_id, "gallery.keys.mouse"
+        );
+        for (std::size_t index = first_control; index < b.list.controls.size(); ++index)
+            b.list.controls[index].focusable = false;
+        y += mouse_down + kLineGap;
+    }
+
+    constexpr std::array<HoldRingLook, 8> kRings{{
+        {0, 3, false},
+        {1, 3, false},
+        {2, 3, false},
+        {3, 3, false},
+        {0, 3, true},
+        {1, 3, true},
+        {2, 3, true},
+        {3, 3, true},
+    }};
+    constexpr int32_t kRingSide = 32;
+    int32_t ring_x = at.x;
+    int32_t ring_y = y;
+    int32_t ring_bottom = y;
+    for (const HoldRingLook& ring : kRings) {
+        if (ring_x > at.x && ring_x + kRingSide > at.x + width) {
+            ring_x = at.x;
+            ring_y += kRingSide + kCellGap;
+        }
+        add_hold_ring(b.list, {ring_x, ring_y, kRingSide, kRingSide}, ring);
+        ring_x += kRingSide + kCellGap;
+        ring_bottom = ring_y + kRingSide;
+    }
+    return ring_bottom - at.y;
+}
+
 /// One section of the gallery.
 struct Section {
     std::string_view heading{}; ///< its heading, in capitals
@@ -2560,6 +2791,7 @@ constexpr auto kSections = std::to_array<Section>({
     {"QUESTION", "question", &question_section},
     {"OA MARK", "oa-mark", &oa_mark},
     {"BADGES AND TAGS", "badges", &badges_section},
+    {"KEYS", "keys", &keys_section},
 });
 
 /// Adds a section: its heading, the rule under it and its samples.

@@ -429,6 +429,10 @@ files in the tree, and `mod-docs-sync` while a generated block of the
 [standard hack and script extension pages](../mods/README.md) or their
 tables differs from what `tools/gen_mod_docs.py` writes, or a page names no
 hack or extension; running the script brings each back in step.
+`input-actions-sync` fails while the action table
+`tools/gen_input_actions.py` writes differs from the tree or the registry
+breaks a rule, and `input-actions-sync-selftest` while the self-test
+reports a failure.
 
 `OA_MOD_GAME_DIR` names a mod's copied install: an `OA_GAME_DIR`
 installation with the mod's files copied over it. With it and

@@ -12,6 +12,7 @@
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/first_run.hpp"
+#include "oa/ui/kit/keys.hpp"
 
 #include "oa/ui/frontend_renderer/artless.hpp"
 
@@ -491,6 +492,26 @@ void paint_item(const Canvas& canvas, const Item& item) {
     case Role::grip:
         if (const auto* look = std::get_if<GripLook>(&item.look))
             draw_grip(drawn, item.rect, *look);
+        break;
+    case Role::keycap:
+        if (const auto* look = std::get_if<KeycapLook>(&item.look))
+            draw_keycap(drawn, item.rect, *look);
+        break;
+    case Role::chord_chip:
+        if (const auto* look = std::get_if<ChordChipLook>(&item.look))
+            draw_chord_chip(drawn, item.rect, *look);
+        break;
+    case Role::keyboard:
+        if (const auto* look = std::get_if<KeyboardLook>(&item.look))
+            draw_keyboard(drawn, item.rect, *look);
+        break;
+    case Role::mouse_picture:
+        if (const auto* look = std::get_if<MouseLook>(&item.look))
+            draw_mouse(drawn, item.rect, *look);
+        break;
+    case Role::hold_ring:
+        if (const auto* look = std::get_if<HoldRingLook>(&item.look))
+            draw_hold_ring(drawn, item.rect, *look);
         break;
     case Role::header_bar:
     case Role::badge:
