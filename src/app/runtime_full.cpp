@@ -78,6 +78,9 @@ namespace wr = oa::present::world_renderer;
 /// What --render-fault card makes the card's frame fail with.
 constexpr std::string_view forced_card_failure =
     "the card refused the frame: forced by --render-fault card";
+/// What --render-fault effects makes the effects pass fail with.
+constexpr std::string_view forced_effects_failure =
+    "the effects readback failed: forced by --render-fault effects";
 /// Bytes a texel of a page or a target holds.
 constexpr uint64_t bytes_per_texel = card::texel_bytes;
 
@@ -1578,14 +1581,17 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // The front end's prescale target is not kept during a match.
         accelerated_.screen_prescale.destroy();
         const auto frame_format = opaque_layer_format();
-        ensure_streaming_texture(
-            match_hud_tex_,
-            frame_format,
-            static_cast<int>(match_hud_cpu_.width),
-            static_cast<int>(match_hud_cpu_.height),
-            match_hud_tex_w_,
-            match_hud_tex_h_
-        );
+        // A director's frame of the battlefield alone has no HUD layer.
+        const bool hud_layer = !match_hud_cpu_.rgb.empty();
+        if (hud_layer)
+            ensure_streaming_texture(
+                match_hud_tex_,
+                frame_format,
+                static_cast<int>(match_hud_cpu_.width),
+                static_cast<int>(match_hud_cpu_.height),
+                match_hud_tex_w_,
+                match_hud_tex_h_
+            );
         // The HUD layer's prescale target and the layout's bookkeeping, as
         // Basic's frame makes them, so that the HUD strips are drawn by
         // sharp_draw from that target at every chrome scale as Basic draws
@@ -1637,7 +1643,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             throw_present_error("SDL_RenderClear");
         // In placed mode the HUD's pieces are drawn after the world
         // (finish_match_layers).
-        if (!oa::ui::display_layout::placed_mode(match_layout_))
+        if (hud_layer && !oa::ui::display_layout::placed_mode(match_layout_))
             draw_accelerated_hud_strips();
 
         // The card's frame: the terrain from the pages, by the level rule at
@@ -2325,14 +2331,17 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         // card's own.
         if (render_fault_due(RenderFaultPoint::card))
             throw FullCardError(std::string(forced_card_failure));
-        if (!full.executor.execute(frame, nullptr))
+        if (!full.executor.execute(frame, full.final_target))
             throw_frame_failure(full.executor, "the frame");
         oa::base::float_precision::restore_program_float_control();
         full.execute_ns = nanoseconds_since(execute_start);
         // Process the actual GPU world before interface and order overlays.
         // The moved target keeps its extra border and density, so distortion
         // and lighting follow the same fractional camera move as the scene.
-        if (match_effects_enabled()) {
+        // The failure --check-renderer-ladder forces stands in for the
+        // effects pass's own.
+        const bool effects_fault = render_fault_due(RenderFaultPoint::effects);
+        if (effects_fault || match_effects_enabled()) {
             const auto place = match_view_place();
             const float effect_zoom = match_zoom();
             float left = static_cast<float>(battlefield.width);
@@ -2359,35 +2368,50 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             const SDL_FRect effect_bounds{
                 left, top, std::max(0.0F, right - left), std::max(0.0F, bottom - top)
             };
-            const std::string failure = full_effects::compose(
-                sdl_.renderer,
-                full.effects_upload,
-                {battlefield.x, battlefield.y, battlefield.width, battlefield.height},
-                moved ? full.executor.target_texture(full.moved_target) : nullptr,
-                moved ? full.moved_target_factor : 1U,
-                [&](const full_effects::Pixels& image) {
-                    compose_match_effect_pixels(
-                        image.bytes,
-                        image.width,
-                        image.height,
-                        image.pitch,
-                        4,
-                        // The target is drawn at the rounded view; its resolver
-                        // adds this shift later. Sources use the exact view.
-                        image.origin_x +
-                            (moved ? static_cast<float>(accelerated_.frame_shift[0]) : 0.0F),
-                        image.origin_y +
-                            (moved ? static_cast<float>(accelerated_.frame_shift[1]) : 0.0F),
-                        image.scale_x,
-                        image.scale_y,
-                        false,
-                        static_cast<float>(image.row_offset)
-                    );
-                },
-                &effect_bounds
-            );
-            if (!failure.empty())
-                throw FullCardError(failure);
+            const auto process = [&](const full_effects::Pixels& image) {
+                compose_match_effect_pixels(
+                    image.bytes,
+                    image.width,
+                    image.height,
+                    image.pitch,
+                    4,
+                    // The target is drawn at the rounded view; its resolver
+                    // adds this shift later. Sources use the exact view.
+                    image.origin_x +
+                        (moved ? static_cast<float>(accelerated_.frame_shift[0]) : 0.0F),
+                    image.origin_y +
+                        (moved ? static_cast<float>(accelerated_.frame_shift[1]) : 0.0F),
+                    image.scale_x,
+                    image.scale_y,
+                    false,
+                    static_cast<float>(image.row_offset)
+                );
+            };
+            std::string failure(forced_effects_failure);
+            if (!effects_fault)
+                failure = full_effects::compose(
+                    sdl_.renderer,
+                    full.effects_upload,
+                    {battlefield.x, battlefield.y, battlefield.width, battlefield.height},
+                    moved ? full.executor.target_texture(full.moved_target) : nullptr,
+                    moved ? full.moved_target_factor : 1U,
+                    process,
+                    &effect_bounds,
+                    // The readback is a buffer the frame can do without.
+                    [this](uint64_t bytes) { return accelerated_buffer_fits(bytes); },
+                    full.final_target
+                );
+            // A failed effects pass leaves the card's world as it drew it:
+            // the frame goes on without the effects, and Full stays.
+            if (!failure.empty()) {
+                ++full.effects_skipped;
+                if (!full.effects_failure_logged) {
+                    full.effects_failure_logged = true;
+                    std::cout << graphics_log_prefix << "full tier: " << failure
+                              << "; a frame whose effects pass fails is drawn without them\n"
+                              << std::flush;
+                }
+            }
         }
         // The frame counts towards the stage of Full's first frames.
         if (render_run_)
@@ -2425,7 +2449,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             draw_one_to_one(
                 sdl_.renderer, full.overlay_texture, nullptr, &in_target, one_to_one_scale_mode()
             );
-            if (!SDL_SetRenderTarget(sdl_.renderer, nullptr))
+            if (!SDL_SetRenderTarget(sdl_.renderer, full.final_target))
                 throw FullCardError(
                     std::string("SDL_SetRenderTarget of the window: ") + SDL_GetError()
                 );
@@ -2468,7 +2492,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 onto.shift_y = 0.0F;
             }
             move.batches.push_back(onto);
-            if (!full.executor.execute(move, nullptr))
+            if (!full.executor.execute(move, full.final_target))
                 throw_frame_failure(full.executor, "the zoomed-out target's move");
             oa::base::float_precision::restore_program_float_control();
         } else {

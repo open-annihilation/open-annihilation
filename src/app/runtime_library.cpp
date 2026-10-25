@@ -3092,6 +3092,7 @@ struct Runtime::LibraryScreen final : LayerScreen {
             return;
         LibraryHost& host = *runtime_.library_;
         host.state.drag = {};
+        host.state.tab_drag = {};
         host.state.menu = library::MenuKind::none;
         if (host.work.pictures)
             host.work.pictures->drop_all();

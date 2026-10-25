@@ -264,30 +264,14 @@ void mark_visible_local(World& world, const VisibleLists& lists) noexcept {
     }
 }
 
-bool select_units_in_box(World& world, const VisibleLists& lists, bool toggle, const Hooks& hooks) {
-    const Game& game = world.game;
-    const auto camera_x = static_cast<int32_t>(game.camera_x);
-    const auto camera_y = static_cast<int32_t>(game.camera_y);
-    const int32_t start_x = game.drag_start[0];
-    const int32_t start_y = game.drag_start[1];
-    const int32_t start_z = game.drag_start[2];
-    const int32_t end_x = game.drag_end[0];
-    const int32_t end_y = game.drag_end[1];
-    const int32_t end_z = game.drag_end[2];
-    int32_t min_x = start_x - camera_x + view_origin_x;
-    int32_t max_x = end_x - camera_x + view_origin_x;
-    int32_t min_y = start_z - (start_y >> 1) - camera_y + view_origin_y;
-    int32_t max_y = end_z - (end_y >> 1) - camera_y + view_origin_y;
-    if (max_x < min_x) {
-        const int32_t swap = min_x;
-        min_x = max_x;
-        max_x = swap;
-    }
-    if (max_y < min_y) {
-        const int32_t swap = min_y;
-        min_y = max_y;
-        max_y = swap;
-    }
+namespace {
+
+/// Selects the local player's selectable units a test takes
+/// (select_units_where).
+template <typename InBox>
+bool select_units_taken(
+    World& world, const VisibleLists& lists, bool toggle, const Hooks& hooks, InBox&& in_box
+) {
     if (!toggle)
         clear_selection(world, hooks);
     bool changed = false;
@@ -297,10 +281,7 @@ bool select_units_in_box(World& world, const VisibleLists& lists, bool toggle, c
         for_player_units(world, *player, [&](Unit& unit) {
             if (!selectable(world, unit))
                 return true;
-            const int32_t x = whole(unit.position.x) - camera_x + view_origin_x;
-            const int32_t y =
-                whole(unit.position.z) - (whole(unit.position.y) >> 1) - camera_y + view_origin_y;
-            if (min_x <= x && x <= max_x && min_y <= y && y <= max_y) {
+            if (in_box(unit)) {
                 if (toggle)
                     unit.flags ^= OA_UNIT_FLAG_SELECTED;
                 else
@@ -326,6 +307,53 @@ bool select_units_in_box(World& world, const VisibleLists& lists, bool toggle, c
     else if (hooks.play_sound != nullptr)
         hooks.play_sound(hooks.context, sound_select_multiple);
     return true;
+}
+
+} // namespace
+
+bool select_units_where(
+    World& world,
+    const VisibleLists& lists,
+    bool toggle,
+    const Hooks& hooks,
+    bool (*in_box)(void* context, const Unit& unit),
+    void* context
+) {
+    return select_units_taken(world, lists, toggle, hooks, [&](const Unit& unit) {
+        return in_box != nullptr && in_box(context, unit);
+    });
+}
+
+bool select_units_in_box(World& world, const VisibleLists& lists, bool toggle, const Hooks& hooks) {
+    const Game& game = world.game;
+    const auto camera_x = static_cast<int32_t>(game.camera_x);
+    const auto camera_y = static_cast<int32_t>(game.camera_y);
+    const int32_t start_x = game.drag_start[0];
+    const int32_t start_y = game.drag_start[1];
+    const int32_t start_z = game.drag_start[2];
+    const int32_t end_x = game.drag_end[0];
+    const int32_t end_y = game.drag_end[1];
+    const int32_t end_z = game.drag_end[2];
+    int32_t min_x = start_x - camera_x + view_origin_x;
+    int32_t max_x = end_x - camera_x + view_origin_x;
+    int32_t min_y = start_z - (start_y >> 1) - camera_y + view_origin_y;
+    int32_t max_y = end_z - (end_y >> 1) - camera_y + view_origin_y;
+    if (max_x < min_x) {
+        const int32_t swap = min_x;
+        min_x = max_x;
+        max_x = swap;
+    }
+    if (max_y < min_y) {
+        const int32_t swap = min_y;
+        min_y = max_y;
+        max_y = swap;
+    }
+    return select_units_taken(world, lists, toggle, hooks, [&](const Unit& unit) {
+        const int32_t x = whole(unit.position.x) - camera_x + view_origin_x;
+        const int32_t y =
+            whole(unit.position.z) - (whole(unit.position.y) >> 1) - camera_y + view_origin_y;
+        return min_x <= x && x <= max_x && min_y <= y && y <= max_y;
+    });
 }
 
 void select_cursor_unit(World& world, const VisibleLists& lists, bool toggle, const Hooks& hooks) {

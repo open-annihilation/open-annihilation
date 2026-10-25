@@ -660,8 +660,11 @@ walk runs:
   `--force-capable` would: a card call that fails on a Full match frame
   (`--render-fault card`) drops Full to Basic for the run, which presents
   the composed frame, with the failing call struck against the driver and
-  the status saying Full stopped, Off and back trying Full again; the same
-  failure in two runs in a row records `full-unusable`, told once at the
+  the status saying Full stopped, Off and back trying Full again; an
+  effects pass that fails on a Full match frame (`--render-fault effects`)
+  draws that frame without the effects and keeps Full, with nothing
+  struck and the failure logged once; the same card failure in two runs
+  in a row records `full-unusable`, told once at the
   main menu and cleared by a raise of the row from Basic to Full, a strike
   alone cleared by a clean run; Full's first match frame writes its trial
   and sentinel, `path full`, a left-over Full trial is struck at the first

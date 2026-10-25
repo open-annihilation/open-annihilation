@@ -11,6 +11,7 @@
 #include "renderer_effect_sources.hpp"
 #include "renderer_live_scene.hpp"
 #include "renderer_live_camera.hpp"
+#include "oa/sim/unit_movement/terrain.hpp"
 #include "oa/present/model/shadow_fade.hpp"
 #include "renderer_water.hpp"
 #include "presentation_interpolation.hpp"
@@ -44,7 +45,7 @@ namespace {
 /// Target dimensions used to exercise render target replacement.
 [[maybe_unused]] constexpr int resized_width = 960;
 [[maybe_unused]] constexpr int resized_height = 640;
-/// Exit code for a platform without the experimental Metal backend.
+/// Exit code where SDL makes no graphics device the live renderer can draw with.
 constexpr int unavailable_exit = 77;
 
 /// Ends the native check with a specific explanation.
@@ -71,10 +72,6 @@ constexpr int unavailable_exit = 77;
 } // namespace
 
 int Runtime::check_live_renderer() {
-#if !defined(__APPLE__)
-    std::cout << "live renderer check: skipped: the experimental backend requires Metal\n";
-    return unavailable_exit;
-#else
     // SDL's GPU backend needs the native video driver, but no window or
     // visible renderer is created by this check.
     require(SDL_InitSubSystem(SDL_INIT_VIDEO), "could not initialize windowless video");
@@ -160,6 +157,43 @@ int Runtime::check_live_renderer() {
     };
 
     require(!live_renderer_active(), "Skirmish did not start at classic orientation");
+    // Below Full no rotated view is drawn: Alt, its drags and its keys stay
+    // the game's, with no status line in their place.
+    {
+        require(!full_presentation(), "the check's preferences do not keep the match below Full");
+        const bool was_headless = options_.headless_check;
+        options_.headless_check = false;
+        const auto saved_modifiers = SDL_GetModState();
+        SDL_SetModState(SDL_KMOD_ALT);
+        bool taken = false;
+        for (const uint8_t button : {uint8_t{SDL_BUTTON_LEFT}, uint8_t{SDL_BUTTON_MIDDLE}}) {
+            SDL_Event press{};
+            press.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+            press.button.button = button;
+            press.button.down = true;
+            press.button.x = static_cast<float>(match_layout_.left + 32);
+            press.button.y = static_cast<float>(match_layout_.top + 32);
+            taken = live_renderer_take_event(press) || taken;
+            SDL_Event motion{};
+            motion.type = SDL_EVENT_MOUSE_MOTION;
+            motion.motion.state = SDL_BUTTON_MASK(button);
+            motion.motion.x = press.button.x + orbit_travel;
+            motion.motion.y = press.button.y + orbit_travel;
+            motion.motion.xrel = orbit_travel;
+            motion.motion.yrel = orbit_travel;
+            taken = live_renderer_take_event(motion) || taken;
+            SDL_Event release = press;
+            release.type = SDL_EVENT_MOUSE_BUTTON_UP;
+            release.button.down = false;
+            taken = live_renderer_take_event(release) || taken;
+        }
+        SDL_SetModState(saved_modifiers);
+        taken = key(SDLK_R, SDL_KMOD_ALT) || key(SDLK_U, SDL_KMOD_ALT) || taken;
+        options_.headless_check = was_headless;
+        require(!taken, "below Full the camera took Alt input from the game");
+        require(status_ == initial_status, "below Full the camera answered with a status line");
+        require(!live_renderer_active(), "below Full an Alt+drag turned the camera");
+    }
     // A camera click with no motion still owns its release after Option is
     // released; ordinary classic-view clicks must remain gameplay input.
     for (const bool modified : {false, true}) {
@@ -461,6 +495,10 @@ int Runtime::check_live_renderer() {
         selected_match_unit_ == commander, "rotated triangle click did not select the commander"
     );
     clear_local_selection();
+    // A rotated box selection speaks and visits for 'n' as a classic one does.
+    oa::sim::selection::clear_cycle_marks(match_->state());
+    for (std::size_t pump = 0; pump < oa::audio::game_audio::AnnouncementQueue::capacity; ++pump)
+        (void)offline_services_.pump_announcements();
     box_select_units(
         commander_bounds->x1 - 4,
         commander_bounds->y1 - 4,
@@ -469,7 +507,61 @@ int Runtime::check_live_renderer() {
         false
     );
     require(selected_match_unit_ == commander, "rotated drag box did not select the commander");
+    {
+        std::size_t select_lines = 0;
+        for (std::size_t pump = 0; pump < oa::audio::game_audio::AnnouncementQueue::capacity;
+             ++pump)
+            for (const auto& event : offline_services_.pump_announcements())
+                select_lines += event.unit_index == commander &&
+                                        event.category ==
+                                            oa::audio::game_audio::UnitAnnouncementCategory::select
+                                    ? 1
+                                    : 0;
+        require(select_lines == 1, "the rotated drag box's commander did not speak its line once");
+        require(
+            (match_->world().slots[commander].record.flags & OA_UNIT_FLAG_CYCLE_VISITED) != 0,
+            "the rotated drag box did not visit the commander for 'n'"
+        );
+        require(status_ == "1 selected", "the rotated drag box did not report its selection");
+    }
+    // A cloaked unit is blended at half its opacity, as the classic view
+    // blends it, over the opaque scene, and can still be picked.
+    {
+        clear_local_selection();
+        const auto solid = snapshot();
+        auto& record = match_->world().record.units[commander];
+        const uint8_t kept_state = record.state_flags;
+        record.state_flags = static_cast<uint8_t>(record.state_flags | OA_UNIT_STATE_CLOAKED);
+        const auto cloaked = snapshot();
+        const auto cloaked_bounds = live_unit_bounds(commander);
+        const auto cloaked_pick = live_unit_under((*commander_pixel)[0], (*commander_pixel)[1]);
+        record.state_flags = kept_state;
+        save_picture("cloaked-commander.png", cloaked);
+        require(cloaked.rgb != solid.rgb, "a cloaked unit drew as it does uncloaked");
+        require(cloaked_bounds.has_value(), "a cloaked unit lost its projected bounds");
+        require(cloaked_pick == commander, "a cloaked unit could not be picked");
+        // Only the unit's own pixels change.
+        bool outside = false;
+        for (uint32_t y = 0; y < cloaked.height && !outside; ++y)
+            for (uint32_t x = 0; x < cloaked.width && !outside; ++x) {
+                const std::size_t at = (static_cast<std::size_t>(y) * cloaked.width + x) * 3;
+                if (std::equal(
+                        cloaked.rgb.begin() + static_cast<std::ptrdiff_t>(at),
+                        cloaked.rgb.begin() + static_cast<std::ptrdiff_t>(at + 3),
+                        solid.rgb.begin() + static_cast<std::ptrdiff_t>(at)
+                    ))
+                    continue;
+                const int32_t frame_x = static_cast<int32_t>(x) + match_layout_.left;
+                const int32_t frame_y = static_cast<int32_t>(y) + match_layout_.top;
+                outside = frame_x < cloaked_bounds->x1 - 1 || frame_x > cloaked_bounds->x2 + 1 ||
+                          frame_y < cloaked_bounds->y1 - 1 || frame_y > cloaked_bounds->y2 + 1;
+            }
+        require(!outside, "cloaking a unit changed the picture away from it");
+        select_match_unit((*commander_pixel)[0], (*commander_pixel)[1], 1);
+        require(selected_match_unit_ == commander, "the commander could not be selected again");
+    }
     std::optional<oa::sim::ground_orders::Point> destination;
+    std::optional<oa::sim::ground_orders::Point> destination_hit;
     std::array<float, 2> destination_pixel{};
     for (int offset = 80; offset <= 240 && !destination; offset += 40) {
         for (const int sign : {-1, 1}) {
@@ -479,20 +571,41 @@ int Runtime::check_live_renderer() {
                 continue;
             if (const auto ground = live_ground_point(x, y)) {
                 destination = ground;
+                destination_hit = live_ground_hit(x, y);
                 destination_pixel = {x, y};
                 break;
             }
         }
     }
-    require(destination.has_value(), "no terrain destination was visible in the rotated view");
+    require(
+        destination.has_value() && destination_hit.has_value(),
+        "no terrain destination was visible in the rotated view"
+    );
     const auto projected_ground = live_project_world(
-        (*destination)[0] / 65536.0F, (*destination)[1] / 65536.0F, (*destination)[2] / 65536.0F
+        (*destination_hit)[0] / 65536.0F,
+        (*destination_hit)[1] / 65536.0F,
+        (*destination_hit)[2] / 65536.0F
     );
     require(
         std::abs(projected_ground.x - destination_pixel[0]) <= 1 &&
             std::abs(projected_ground.y - destination_pixel[1]) <= 1,
         "terrain ray intersection did not project back to the order click"
     );
+    // The order takes the hit's whole map pixel at the simulation's terrain
+    // height, as a classic pick does, never the mesh's height between cells.
+    {
+        const int32_t pixel_x = (*destination_hit)[0] >> 16;
+        const int32_t pixel_z = (*destination_hit)[2] >> 16;
+        const oa::sim::unit_movement::Terrain terrain(*selected_tnt_);
+        const int32_t height = std::max<int32_t>(
+            terrain.sea_level(), terrain.height(pixel_x * 65536, pixel_z * 65536)
+        );
+        require(
+            (*destination)[0] == pixel_x * 65536 && (*destination)[2] == pixel_z * 65536 &&
+                (*destination)[1] == height * 65536,
+            "the rotated ground pick was not a whole map pixel at the terrain's height"
+        );
+    }
     SDL_Event ordinary{};
     ordinary.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
     ordinary.button.button = SDL_BUTTON_LEFT;
@@ -729,10 +842,23 @@ int Runtime::check_live_renderer() {
         match_layout_.battlefield_width() > 4096,
         "failure fixture did not exceed the GPU dimension limit"
     );
-    snapshot();
+    // The failed rotated frame is drawn once, classically: the extension's
+    // HUD is asked for once, and the frame is the classic frame that follows.
+    int hud_draws = 0;
+    const Extension saved_extension = extension_;
+    extension_ = {};
+    extension_.context = &hud_draws;
+    extension_.draw_match_hud = [](void* context, Runtime&) { ++*static_cast<int*>(context); };
+    const auto fallback = snapshot();
+    extension_ = saved_extension;
     require(
         live_renderer_failed() && !live_renderer_active(),
         "GPU rejection did not release the failed camera to classic controls"
+    );
+    require(hud_draws == 1, "the failed rotated frame was drawn more than once");
+    require(
+        snapshot().rgb == fallback.rgb,
+        "the failed rotated frame did not fall back to a classic one"
     );
     match_layout_ = recovery_layout;
     SDL_Event recovery_wheel{};
@@ -1707,7 +1833,7 @@ int Runtime::check_live_renderer() {
             inputs.tick = match_->simulation().tick;
             inputs.water.sea_level = static_cast<float>(sea);
             inputs.water.seconds = inputs.tick / 30.0F;
-            inputs.water.reflections = reflections ? 1 : 0;
+            inputs.water.reflections = reflections ? 1.0F : 0.0F;
             inputs.water.shimmer = shimmer;
             renderer_live_camera::TerrainBounds bounds{};
             require(
@@ -1739,6 +1865,11 @@ int Runtime::check_live_renderer() {
                             diagnostic_scene.vertices.begin() + i,
                             diagnostic_scene.vertices.begin() + i + 3
                         );
+                // Ground at most a step above the sea may leave no triangle
+                // dry: the picture is then the empty frame, which one
+                // triangle of no area draws, as the card draws no empty list.
+                if (dry.empty() && !diagnostic_scene.vertices.empty())
+                    dry.assign(3, diagnostic_scene.vertices.front());
                 diagnostic_scene.vertices = std::move(dry);
             }
             std::vector<uint8_t> rgba;
@@ -2372,7 +2503,6 @@ int Runtime::check_live_renderer() {
            "target resize preserve the frozen frame; live picking and rendering remain fault-free "
            "as the simulation advances, without opening a window\n";
     return 0;
-#endif
 }
 
 } // namespace oa::app

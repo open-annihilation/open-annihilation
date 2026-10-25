@@ -191,6 +191,8 @@ bool take_option(void* context, const char* name, const OptionValues& values, ui
         result.net_loopback_computer = true;
     else if (argument == "--net-loopback-each-ai")
         result.net_loopback_each_ai = true;
+    else if (argument == "--net-loopback-fixed-starts")
+        result.net_loopback_fixed_starts = true;
     else if (argument == "--check-host-not-found") {
         result.check_host_not_found = true;
         effects |= option_effect::unattended | option_effect::skip_intro;
@@ -629,7 +631,8 @@ const std::string& usage_runs() {
         }
         listed += "[--list-content --json] "
                   "[--net-loopback-check TICKS] [--net-loopback-watcher] "
-                  "[--net-loopback-computer] [--net-loopback-each-ai] [--check-host-not-found] "
+                  "[--net-loopback-computer] [--net-loopback-each-ai] "
+                  "[--net-loopback-fixed-starts] [--check-host-not-found] "
                   "[--check-opened-launch start|menu FILE] "
                   "[--play-demo FILE.tad] "
                   "[--demo-unit-table strict|ignore] [--net-record FILE] [--replay-viewer] ";

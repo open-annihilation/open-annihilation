@@ -25,10 +25,11 @@ Both need two things besides the game:
   without it: every frame is drawn and hashed and the sound and manifests
   are written, but no video is made.
 
-Both runs are headless: no window opens, and SDL's video and audio are never
-started. Both run on the fixed clock and the fixed random seed of the
-headless checks (`--headless-check`), so that a script's analysis and its
-render replay the recording alike.
+Both runs are headless: no window opens, and SDL's audio is never started,
+nor its video unless a render draws on the graphics card
+([below](#drawing-on-the-graphics-card)). Both run on the fixed clock and
+the fixed random seed of the headless checks (`--headless-check`), so that a
+script's analysis and its render replay the recording alike.
 
 ## Generating a script
 
@@ -142,6 +143,112 @@ and 60 frames a second took about 60 s to draw and hash and 95 s with the
 default preset's encoding; 30 s of the game's start at 1280x720 took 4 s,
 and 24 s with encoding. `OA_DIRECTOR_ENCODER=none` shows the drawing alone.
 
+## Drawing on the graphics card
+
+```sh
+open-annihilation --render-script videos/game.oascript --hardware-acceleration=full
+```
+
+By default the processor draws a render's frames, as the standard tier
+draws the game. With `--hardware-acceleration=full` (or
+`--hardware-acceleration` alone) the graphics card draws them instead, by
+the Full tier: the presenter the game itself uses when Hardware
+acceleration is Full, so a video shows what a player on Full sees from the
+same camera. That brings in what only Full draws: the water's ripples,
+coastal waves, underwater shimmer and naval reflections, softer aircraft
+shadows, the card's terrain sampling, and Enhanced anti-aliasing as the
+card applies it. The water's sliders and Enhanced anti-aliasing, like
+every effect, follow the [Graphics settings](settings.md#graphics) of the
+run's preferences, the player's own or those of `--preferences-file`, so
+a preferences file can set each one, or turn it off at 0%, for a render.
+
+Each effect's percent comes from `--effect NAME=PERCENT` on the command
+line where it names the effect, else from the run's preferences, else from
+its default. On the card the default is Full's, since the card draws the
+render on Full whatever Hardware acceleration the preferences store: 100%
+for Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
+distortion, as for the water's four. A render on the card with a fresh
+`--preferences-file` therefore draws every effect at 100%, and an effect
+the file stores (`open-annihilation.weapon-lighting.intensity` and the
+like, or its earlier On or Off key) keeps the file's percent. On the
+processor an unstored effect follows the stored Hardware acceleration, as
+in the game: 100% with Full, 0% below it. The run changes nothing the
+preferences store, and its first lines say the percents the card draws at:
+
+```text
+director: the graphics card draws its effects at weapon-lighting 100%, nanolathe-lighting 100%, ...
+```
+
+`--effect` takes an effect's name, `weapon-lighting`,
+`nanolathe-lighting`, `wreck-glow`, `heat-distortion`, `water-ripples`,
+`coastal-waves`, `underwater-shimmer` or `naval-reflections` (the words of
+their preferences keys), and a percent from 0 to 200 in steps of 10, as
+the slider sets it; it is given once for each effect it sets, and only
+with `--render-script`. On the processor it sets the four effects the
+processor draws; the water's four are the card's alone.
+
+```sh
+open-annihilation --render-script videos/game.oascript --hardware-acceleration=full \
+  --effect heat-distortion=0 --effect water-ripples=150
+```
+
+The four are drawn by Full's own pass on the card's picture; the
+processor's frames draw them too, at the same settings, by its own.
+
+The card draws on SDL's GPU renderer with no window: nothing appears on
+the screen, and no window system is needed beyond SDL's video starting.
+Each frame is presented into a texture of the frame's size, read back,
+and handed to the same hashing, stills and encoder as a frame of the
+processor's; a frame without the interface is cut from a larger
+battlefield at the view's offset just as the processor's is. The
+script's camera, its clock and chunks, the transitions, the sound and the
+game itself are those of a render on the processor: drawing never changes
+what the game does, and the sound is mixed from the same camera, so a
+render on the card has the same sound and reaches the same world, byte for
+byte, as one on the processor.
+
+Its frames are not pinned. The card's pixels differ from one driver and
+device to the next, so the run manifest gains a line after `output` that
+names the driver SDL drew with:
+
+```text
+drawn graphics-card DRIVER full-tier: frames differ from one driver to the next and are not pinned
+```
+
+A render on the processor has no such line, and is byte for byte what it
+was before the option existed. On one machine and driver, renders of the
+same script have given the same frames run after run, but nothing checks
+that.
+
+It needs SDL 3.4 or later, which makes a GPU renderer without a window,
+and the system's own video driver: under `SDL_VIDEO_DRIVER=dummy`, or on a
+machine with no graphics device SDL's GPU renderer can use, the run stops
+before its first frame with `open-annihilation: director: no renderer on a
+graphics card: ...`. A card that fails the Full tier's function test stops
+it the same way. If the Full tier stops part way, as when the card refuses
+a frame or memory runs short, the render stops with an error rather than
+finishing on the processor. `--hardware-acceleration=basic` is refused,
+since Basic presents frames the processor drew; `=off`, or
+`--no-hardware-acceleration`, draws on the processor. `--generate-script`
+draws nothing, and the option changes nothing there.
+
+A camera the script turns ([the script](#the-script)) is drawn as Full 3D
+Mode draws the game's rotated view: by the live 3D renderer on the card,
+with the same terrain, units, water and effects, at the frame's own size
+and centred on the script's exact centre and zoom. Allow Full 3D Mode does
+not stop it; the script asks for the turn. The live renderer draws through
+Metal or Vulkan; where SDL can make neither, a turned frame stops the
+render, and a script whose frames are wider or taller than the live
+renderer's 4096 pixels stops before its first frame. A frame whose
+camera does not turn is the Full tier's classic view, and a shot may move
+from one to the other. Like the game's, the card's water moves at the
+tick rate, so the frames between two ticks show the later tick's water.
+Drawing on the card is not always faster than on the
+processor: each frame waits for its read-back. On one laptop, a stage of
+ships and tanks fighting across a canal rendered 300 frames at 1280x720 in
+about 5 s on the card against 2.4 s on the processor, and 240 frames at
+3840x2160 with 2x2 anti-aliasing in about 14 s.
+
 ## Bundles
 
 A bundle (`.oamovie`) is a zip archive holding one script at its root,
@@ -214,14 +321,27 @@ Each shot:
 A camera is `{ position: { x: X, y: Y, z: Z } }`: `x` and `z` are the centre
 of the view on the ground, in map pixels (`z` is the row of the map's image:
 a point's height is already folded in), and `y` is the height of the map the
-view shows, in map pixels, so a larger `y` shows more of the map. The game's
-view cannot turn: an `orientation: { pitch, yaw, roll }` is read, ignored,
-and a non-zero angle is a warning. A view is kept on the map: its height
+view shows, in map pixels, so a larger `y` shows more of the map.
+`orientation: { yaw: Y, pitch: P }` turns the camera about the ground at
+the centre, in degrees: `yaw` from the classic view, above 0 turning the
+picture clockwise, and `pitch` in elevation from the classic view's, which
+looks down at about 63.4 degrees, above 0 looking down more steeply and
+below 0 lower towards the horizon. A camera without `orientation` looks as
+the classic view does. Any yaw is taken as it is, so a shot from 0 to 360
+goes once round; the pitch is held so that the camera looks down at 10 to
+85 degrees, the game's range with Unlocked camera on, and a pitch held is a
+warning. A camera does not roll: `roll` is read and ignored, and one that
+is not zero is a warning. Only a render [on the graphics
+card](#drawing-on-the-graphics-card) draws a turned camera; on the
+processor the frames show the classic view, with a warning. A view is kept on the map: its height
 between 270 map pixels and the height at which the whole map fits the frame,
 its centre so that the view shows nothing past the map's edges; a camera
 that has to be moved for that is a warning. The zoom (frame height over view
-height) is not limited to the player's range. `linear` moves `x`, `z` and
-`1 / y` evenly, so the zoom changes at an even rate.
+height) is not limited to the player's range, and a turned view is kept on
+the map as an unturned one is, so it may show past the map's edges.
+`linear` moves `x`, `z`, `1 / y`, the yaw and the pitch evenly, so the zoom
+changes at an even rate, and `spring` moves each of them alike. Sounds are
+placed from `x` and `z` alone, as for a camera that does not turn.
 
 A shot runs from the first frame that shows its tick to the first frame of
 the next shot; frame *f* shows the game after tick `first shot tick + floor(f
@@ -312,13 +432,23 @@ A script and its render are the same on every platform and every run:
 - the frame manifests and the sound's SHA-256 in the run manifest are the
   check. MP4 files are not expected to match across `ffmpeg` versions.
 
+A render [drawn on the graphics card](#drawing-on-the-graphics-card) keeps
+all of this but the frames: its sound, its world and its files are the
+same, and its frames' pixels are the card's.
+
 `native-director-render` renders a small script over the headless skirmish
 with encoding off, whole and its second chunk alone, and pins the frames'
 and the sound's hashes; `native-stage-render` renders a script that names a
 stage, twice, with two stills, and checks that both renders draw the same
 frames; `native-director-render-relative` renders it with
 its files and preferences named relative to the working directory and pins
-the same hashes; `native-director-view` checks the frames director mode
+the same hashes; `native-director-render-full` renders it on the graphics
+card's Full tier, with its second shot turning the camera, pins the same
+sound, checks that the run manifest says the card drew the frames, that
+most frames differ from one another and that the live renderer drew every
+frame of the turned shot, and skips where no renderer on a graphics card,
+or no device for the live renderer, can be made;
+`native-director-view` checks the frames director mode
 draws; `app-director-output` checks the files, the encoder's arguments and
 bundles.
 
@@ -344,7 +474,15 @@ bundles.
 - **Drawing is slow when many units show.** The renderer draws on the CPU,
   on one thread: a frame costs a few milliseconds early in a game and tens
   of milliseconds late in it at a view of the whole map, at any size;
-  transition frames are drawn twice.
+  transition frames are drawn twice. On the graphics card each frame also
+  waits for its read-back.
+- **Frames drawn on the graphics card** are not pinned and need SDL 3.4 and
+  a graphics device; a turned camera needs the live renderer's device, on
+  Metal or Vulkan, and frames of at most 4096 pixels a side
+  ([drawing on the graphics card](#drawing-on-the-graphics-card)).
+- **A turned camera** shows what the live 3D renderer draws: some
+  projectiles and effects are not drawn yet, and the original art shows
+  its painted sides at steep angles.
 - **Unit speech** comes from what the game asks its units to say; units of
   a recorded game are not given orders, so they say little: in one
   23-minute two-player game, 127 announcements against 968 other sounds.
@@ -356,6 +494,8 @@ bundles.
 starts a stage's skirmish (`src/app/runtime_stage.cpp` plays its lines);
 `src/app/runtime_director_view.cpp` is director mode (the camera, the
 drawing and the sound routes, `director_presentation.hpp`);
+`src/app/runtime_director_full.cpp` draws its frames on the graphics card's
+Full tier;
 `src/app/director_output.cpp` writes the files and runs `ffmpeg`
 (`director_output.hpp`); `src/media` plans shots from a timeline and steps
 the cameras; `src/audio` mixes; `src/formats/zip` reads and writes bundles.

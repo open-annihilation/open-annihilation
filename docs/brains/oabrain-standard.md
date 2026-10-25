@@ -843,6 +843,8 @@ are that position in world units, the same units `brain.distance` and the
 order calls take. When `game.starts` is `fixed`, every player who was
 given a start has these three. When it is `random`, only this seat's row
 has them. A watcher, or a player with no start, has nil for all three.
+In a network game every machine gives a player the start the host dealt
+it, though each machine numbers the players by its own slots.
 `allies` is the other players that row counts as allies, in index order,
 from the alliance table as the match holds it now. It changes when an
 alliance changes. The player itself is not in the list. Outside a match

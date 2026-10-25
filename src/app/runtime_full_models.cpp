@@ -175,7 +175,9 @@ struct Corner {
 struct Polygon {
     uint32_t first_corner{};
     uint16_t corner_count{};
-    bool underwater{}; ///< tinted as the blue table tints: halved, then lifted
+    /// Under water by the game's depth rule, with Underwater shimmer at 0%:
+    /// tinted as the blue table tints, halved, then lifted.
+    bool underwater{};
     bool water_geometry{};
     float height_x{};
     float height_y{};
@@ -1799,10 +1801,15 @@ void Emitter::apply_water_and_digger(
         if (polygon.corner_count == 0)
             continue;
         const int32_t depth = static_cast<uint8_t>(polygon.depth);
-        // Visibility keeps the game's depth rule; water colour is applied later
-        // from physical height, never from the cached polygon's mean depth.
-        if (lift_threshold >= 0 && depth <= lift_threshold && !own)
-            polygon.corner_count = 0;
+        // Visibility keeps the game's depth rule. With Underwater shimmer
+        // off, so does the colour, as 3.1c draws it; on, the colour comes
+        // from the physical height instead (append_body).
+        if (lift_threshold >= 0 && depth <= lift_threshold) {
+            if (!own)
+                polygon.corner_count = 0;
+            else if (in_.water_shimmer <= 0)
+                polygon.underwater = true;
+        }
         if (digger && depth <= draw::digger_clip_depth)
             polygon.corner_count = 0;
     }
@@ -2292,7 +2299,7 @@ void Emitter::emit_polygon(const Canvas& surface, const Polygon& polygon) {
     }
     append_body(surface, polygon, placed.page);
     ++counts_.polygons;
-    if (polygon.underwater && (in_.water_shimmer <= 0 || !polygon.water_geometry))
+    if (polygon.underwater)
         lift_under_water(surface);
 }
 
@@ -2330,7 +2337,7 @@ void Emitter::emit_cut_polygon(
         return;
     append_body(surface, polygon, placed.page);
     ++counts_.polygons;
-    if (polygon.underwater && (in_.water_shimmer <= 0 || !polygon.water_geometry))
+    if (polygon.underwater)
         lift_under_water(surface);
 }
 
@@ -2361,7 +2368,7 @@ card::Vertex Emitter::body_vertex(
     vertex.x = surface.origin_x + static_cast<float>(x) * scale_;
     vertex.y = surface.origin_y + static_cast<float>(y) * scale_;
     vertex.colour = colour;
-    if (polygon.underwater && (in_.water_shimmer <= 0 || !polygon.water_geometry)) {
+    if (polygon.underwater) {
         vertex.colour.red *= half_colour;
         vertex.colour.green *= half_colour;
         vertex.colour.blue *= half_colour;

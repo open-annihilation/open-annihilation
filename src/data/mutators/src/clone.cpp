@@ -4,7 +4,8 @@
 // Clones a unit or a weapon onto a new name. The unit keeps the source model
 // by an explicit Objectname and the layer serves the source script, picture
 // and build pages under the new name. A weapon takes the lowest free id from
-// 1 to 255. Download entries are not copied. Download-linked button art
+// 1 to one less than the weapon-types limit. Download entries are not copied.
+// Download-linked button art
 // (anims/<unit>_gadget.gaf) is not copied: its sequences are named after the
 // built units, so the file under the new name would draw nothing.
 #include "clone.hpp"
@@ -194,8 +195,11 @@ std::string request_error(
     return text;
 }
 
-std::string no_free_id(std::string_view source, std::string_view name) {
-    std::string text = "no free weapon id: 1 to 255 are all used (cloning ";
+std::string no_free_id(std::string_view source, std::string_view name, uint32_t weapon_types) {
+    const uint32_t last = weapon_types == 0 ? 0 : weapon_types - 1;
+    std::string text = "no free weapon id: 1 to ";
+    text += std::to_string(last);
+    text += " are all used (cloning ";
     text.append(source);
     text.append(" as ");
     text.append(name);
@@ -778,14 +782,14 @@ bool collect_unit_copies(
     return true;
 }
 
-void note_ids(const tdf::Block* block, bool used[256]) {
+void note_ids(const tdf::Block* block, std::vector<uint8_t>& used) {
     if (block == nullptr)
         return;
     const char* text = tdf::find_value(block, "ID");
     if (text != nullptr) {
         const int32_t value = tdf::parse_int(text);
-        if (value >= 0 && value <= 255)
-            used[static_cast<std::size_t>(value)] = true;
+        if (value >= 0 && static_cast<uint32_t>(value) < used.size())
+            used[static_cast<std::size_t>(value)] = 1;
     }
     const uint32_t count = tdf::child_count(block);
     for (uint32_t index = 0; index < count; ++index)
@@ -794,12 +798,14 @@ void note_ids(const tdf::Block* block, bool used[256]) {
 
 /// Bills one element, then reads that section's id. A child block is part of
 /// the section and is not billed again.
-void visit_section(uint64_t& units, const tdf::Block* section, bool used[256]) {
+void visit_section(uint64_t& units, const tdf::Block* section, std::vector<uint8_t>& used) {
     bill_elements(units, 1);
     note_ids(section, used);
 }
 
-void note_document_ids(uint64_t& units, const rules::LoadedDocument& loaded, bool used[256]) {
+void note_document_ids(
+    uint64_t& units, const rules::LoadedDocument& loaded, std::vector<uint8_t>& used
+) {
     if (loaded.removed)
         return;
     const tdf::Block* root = loaded.document.root();
@@ -812,8 +818,9 @@ void note_document_ids(uint64_t& units, const rules::LoadedDocument& loaded, boo
 
 /// Every id a live weapon section uses, in the document set and in store files
 /// the set does not already hold. An empty or non-numeric id uses 0. An id
-/// outside 0..255 uses none. Each section is billed before it is read.
-void collect_used_ids(uint64_t& units, Collections& self, bool used[256]) {
+/// outside 0 to one less than the table uses none. Each section is billed
+/// before it is read.
+void collect_used_ids(uint64_t& units, Collections& self, std::vector<uint8_t>& used) {
     rules::DocumentSet& documents = CloneAccess::documents(self);
     const std::string folder = folder_of(self, defs::DataDirectory::weapons);
     const std::vector<std::size_t> docs = documents.documents_in(folder, "tdf", false);
@@ -845,10 +852,10 @@ void collect_used_ids(uint64_t& units, Collections& self, bool used[256]) {
     }
 }
 
-int lowest_free_id(const bool used[256]) {
-    for (int id = 1; id <= 255; ++id) {
-        if (!used[static_cast<std::size_t>(id)])
-            return id;
+int lowest_free_id(const std::vector<uint8_t>& used) {
+    for (std::size_t id = 1; id < used.size(); ++id) {
+        if (used[id] == 0)
+            return static_cast<int>(id);
     }
     return 0;
 }
@@ -1008,7 +1015,8 @@ bool empty_section(tdf::Document* document, tdf::Block* block, std::string& erro
 /// `Objectname`, and the source's script, build picture, build pages and
 /// page art are served under the existing name in place of that unit's
 /// own, as a clone under a new name serves them, so the script always
-/// matches the model. A weapon keeps the id it already had. The source
+/// matches the model. A weapon keeps the id it already had when that id is
+/// inside the weapon-types limit. The source
 /// section is not emptied when it is the destination: cloning a record
 /// onto itself only applies the fields and copies nothing.
 bool replace_existing(
@@ -1086,7 +1094,7 @@ bool replace_existing(
     int weapon_id = 0;
     if (weapons && had_id) {
         const int32_t parsed = tdf::parse_int(kept_id.c_str());
-        if (parsed > 0 && parsed <= 255)
+        if (parsed > 0 && static_cast<uint32_t>(parsed) < collections.weapon_types())
             weapon_id = static_cast<int>(parsed);
     }
     publish(
@@ -1209,11 +1217,11 @@ int clone_collection(
 
     int weapon_id = 0;
     if (weapons) {
-        bool used[256] = {};
+        std::vector<uint8_t> used(static_cast<std::size_t>(collections.weapon_types()));
         collect_used_ids(units, collections, used);
         weapon_id = lowest_free_id(used);
         if (weapon_id == 0) {
-            error = no_free_id(source, name);
+            error = no_free_id(source, name, collections.weapon_types());
             return -1;
         }
     }

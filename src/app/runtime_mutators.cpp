@@ -731,6 +731,7 @@ Runtime::mutator_pipeline_input(const std::vector<mutators::ResolvedMutator>& ch
     input.engine_version = OA_ENGINE_VERSION;
     input.layout = &oa::data::defs::data_layout();
     input.limits.category_mask_types = limits_.category_masks.types;
+    input.limits.weapon_types = limits_.weapon_types.types;
     input.variant = side_files_language_;
     input.seed = mutator_seed(*this, chosen);
     return input;

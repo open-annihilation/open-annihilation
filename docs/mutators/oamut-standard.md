@@ -1148,14 +1148,16 @@ mode is active: `replace` puts the clone in place of the existing
 record, and `add` stores it under a private name. While clash mode is
 not active, a clone onto a name that exists is refused with
 `the new name already exists`. A clone's new name is 1 to 31 letters,
-digits, `_` or `-`. `weapons:clone` with no free id from 1 to 255 fails
-at once, before the integrity pass, with
-`no free weapon id: 1 to 255 are all used`.
+digits, `_` or `-`. `weapons:clone` with no free id from 1 to one less
+than the mod's weapon types fails at once, before the integrity pass.
+At 256 weapon types the refusal is
+`no free weapon id: 1 to 255 are all used`. The number follows the limit.
 
 `weapons:clone(source, name, fields)` copies the source section,
 including `[DAMAGE]`, into `Weapons/<name>.tdf`, or
 `Weapons/<name>-<k>.tdf` when that path is taken, `k` from 2. It writes
-`ID` to the lowest free id from 1 to 255. That id is a request, not the
+`ID` to the lowest free id from 1 to one less than the mod's weapon types,
+255 unless the profile raises `limits.weapon-types`. That id is a request, not the
 id the file is published with. A field named `ID` in `fields` is
 refused. When several sections share a name, the copy is the first in
 collection order, which may not be the lowest slot the game fires.
@@ -1165,10 +1167,11 @@ by `weapons:clone`, is given an id. The game's weapons and the mod's
 weapons keep theirs. A rule or a hook that writes `id` on one of those
 weapons does not change it, and the note names the mutator. A write of
 `id` on a weapon that mutator brought is a request. A section's `ID=`
-is a request when it is a number from 1 to 255. Numbering takes each
-mutator in list order. That mutator's requests are kept when the ids
-are still free, and its other weapons then take free ids from 1 to 255,
-by name. A later mutator's request for an id an earlier weapon already
+is a request when it is a number from 1 to one less than the mod's weapon
+types, 255 unless the profile raises `limits.weapon-types`. Numbering takes
+each mutator in list order. That mutator's requests are kept when the ids
+are still free, and its other weapons then take free ids over that same
+range, by name. A later mutator's request for an id an earlier weapon already
 holds takes another free id. Slot 0 is never given out. When one weapon
 has no free id, nothing of that pass is written, the mutator fails in
 the integrity phase, and the message names the mutator and the weapon.
@@ -1903,7 +1906,7 @@ failure in the list is a refused hack. The pass is not published.
 | Download files | 4,096 | More than this fails the mutator. The count includes files the menus added. |
 | Sides | 5 | A side section past the five the game reads fails the mutator. Each side from `SIDE0` up to the first gap must name a live commander. |
 | Movement classes | 32 | A class past `CLASS31` fails the mutator. `movementclass` has to name one of those. |
-| Weapon id | 0 to 255 | An id outside that range, and a weapon section with no `ID`, is the integrity failure `weapon_id_out_of_range`. A weapon a mutator brought that cannot be given an id from 1 to 255 fails that mutator. Slot 0 is never given out. |
+| Weapon id | 0 to one less than the mod's weapon types, 255 unless the profile raises `limits.weapon-types` | An id outside that range, and a weapon section with no `ID`, is the integrity failure `weapon_id_out_of_range`. The sentence ends `outside 0 to 255` when the limit is 256, and the number follows the limit. A weapon a mutator brought that cannot be given an id from 1 to that last id fails that mutator. The clone refusal `no free weapon id: 1 to 255 are all used` is the sentence at a limit of 256; the number follows the limit. Slot 0 is never given out. |
 
 A weapon name, an explosion and a self-destruct have to name a weapon
 that still holds its slot. `corpse` has to name a feature. `objectname`,

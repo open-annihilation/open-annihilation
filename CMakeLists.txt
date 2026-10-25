@@ -7,7 +7,7 @@ project(open_annihilation VERSION 0.8.6 LANGUAGES C CXX)
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
 # and raises the version.
-set(OA_VERSION_LABEL "dev")
+set(OA_VERSION_LABEL "")
 # A target that links one static library both directly and through
 # another library gets it once on its link line, in dependency order, rather
 # than once for each path that reaches it. The linker then has nothing to
@@ -581,6 +581,8 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(app-renderer-live-${oa_live_part} PROPERTIES TIMEOUT 60)
     endforeach()
     set_tests_properties(app-renderer-live-gpu PROPERTIES SKIP_RETURN_CODE 77)
+    # The scene's terrain is held to the simulation's own ground.
+    target_link_libraries(oa-app-renderer-live-scene-test PRIVATE oa-sim-unit-movement)
   endif()
 endif()
 if(OA_BUILD_PLATFORM AND OA_SELF_CHECKS)
@@ -1287,7 +1289,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/frame_pacing.cpp src/app/frame_stats_panel.cpp src/app/runtime_frame_stats.cpp
   src/app/runtime_team_panels.cpp
   src/app/runtime_scroll_bars.cpp
-  src/app/runtime_director_view.cpp src/app/runtime_director.cpp src/app/runtime_stage.cpp
+  src/app/runtime_director_view.cpp src/app/runtime_director_full.cpp src/app/runtime_director.cpp
+  src/app/runtime_stage.cpp
   src/app/presentation_interpolation.cpp
   src/app/runtime_engine_settings.cpp
   src/app/runtime_engine_settings_menu.cpp
@@ -2930,8 +2933,9 @@ if(OA_BUILD_PLATFORM)
       # their shadows lighter, and explosions flash as Explosion flash's
       # default, Full, draws them.
       set(oa_director_render_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/director-render")
+      set(oa_director_render_sound "148e026257cb31ce5afc3f1665856ef483a3983ad74a1fcb50be78d82ec3992b")
       set(oa_director_render_hashes
-        "director render: frames ec9f8e0c7906ef500077571b2da8baf5a8ad6904ca7d3aa44843b13fce496372 sound 148e026257cb31ce5afc3f1665856ef483a3983ad74a1fcb50be78d82ec3992b")
+        "director render: frames ec9f8e0c7906ef500077571b2da8baf5a8ad6904ca7d3aa44843b13fce496372 sound ${oa_director_render_sound}")
       file(MAKE_DIRECTORY "${oa_director_render_dir}")
       # Preserve the original frame reference independently of optional effects.
       # Their enabled rendering and simulation invariance have separate checks.
@@ -2960,6 +2964,27 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy"
         PASS_REGULAR_EXPRESSION "${oa_director_render_hashes}"
         FAIL_REGULAR_EXPRESSION "director render check:|filesystem error")
+      # The same render drawn by the graphics card's Full tier
+      # (--hardware-acceleration=full) on a renderer with no window, its
+      # second shot turning the camera: the sound and the world are the processor's
+      # render's, pinned as above, the run manifest says the card drew the
+      # frames, the live renderer draws every frame of the turned shot, and
+      # the frames are pictures, whose hashes differ from one driver to the
+      # next and are not pinned. SDL's GPU renderer needs the system's own video driver;
+      # where it cannot be made the check skips.
+      set(oa_director_render_full_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/director-render-full")
+      file(MAKE_DIRECTORY "${oa_director_render_full_dir}")
+      file(WRITE "${oa_director_render_full_dir}/director-render.conf" "${oa_director_reference_preferences}")
+      add_test(NAME native-director-render-full COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --mute --check-director-render --hardware-acceleration=full
+        --preferences-file "${oa_director_render_full_dir}/director-render.conf")
+      set_tests_properties(native-director-render-full PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_director_render_full_dir}"
+        ENVIRONMENT "SDL_AUDIO_DRIVER=dummy"
+        SKIP_RETURN_CODE 77
+        PASS_REGULAR_EXPRESSION "director render: frames [0-9a-f]+ sound ${oa_director_render_sound}"
+        FAIL_REGULAR_EXPRESSION "director render check:")
       # Frames drawn between ticks over the headless skirmish's fight leave the
       # world and every whole tick's frame as they are, show units, turrets
       # and projectiles part of the way from one tick to the next, and move
@@ -4359,6 +4384,12 @@ if(BUILD_TESTING)
     add_test(NAME format-check COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/format_sources.py
       --root ${CMAKE_CURRENT_SOURCE_DIR} --check)
     set_tests_properties(format-check PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
+    # The live renderer's shaders, src/app/renderer_live_shaders.inc, are
+    # what tools/make_live_shaders.py makes from src/app/shaders; without
+    # its tools, at the versions the file records, the check skips.
+    add_test(NAME live-shaders COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_live_shaders.py --check)
+    set_tests_properties(live-shaders PROPERTIES TIMEOUT 60 SKIP_RETURN_CODE 77)
     # Every file of the engine states its copyright and licence: an SPDX
     # header, an annotation in REUSE.toml, or a licence text's own terms
     # (tools/spdx_headers.py).

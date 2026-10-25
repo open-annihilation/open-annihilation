@@ -2236,6 +2236,54 @@ struct Runtime::RendererLadder {
         passed.emplace_back(where);
     }
 
+    /// The effects pass fails on a Full match frame (--render-fault
+    /// effects): the card draws that frame without the effects and Full
+    /// stays, with nothing struck against the driver, the failure logged
+    /// once; the next frame is Full's.
+    ///
+    /// @param frame the presented frame of the match the failure comes at
+    void effects_failure(uint32_t frame) {
+        constexpr std::string_view where = "effects";
+        start_match();
+        for (uint32_t presented = 1; presented < frame; ++presented)
+            runtime.render();
+        runtime.forget_render_failures();
+        full_tier(where, true);
+        full_frame(where);
+        const auto& inputs = host().tier_inputs();
+        const auto* before = entry(render_probe::software_renderer);
+        const rs::Strike strike_before = before != nullptr ? before->strike : rs::Strike{};
+        const uint64_t skipped = full(where).effects_skipped;
+        const uint64_t frames = full(where).frames;
+        arm(RenderFaultPoint::effects, 1);
+        present_until_fault(where);
+        expect(
+            runtime.full_presentation() && inputs.full_drop == render_policy::FullDrop::none,
+            where,
+            "the failed effects pass dropped full"
+        );
+        expect(
+            full(where).effects_skipped == skipped + 1 && full(where).frames > frames &&
+                full(where).effects_failure_logged,
+            where,
+            "the card did not draw the frame without its effects"
+        );
+        const auto* after = entry(render_probe::software_renderer);
+        expect(
+            rs::same_strike(after != nullptr ? after->strike : rs::Strike{}, strike_before),
+            where,
+            "the failed effects pass was struck against the driver"
+        );
+        runtime.render();
+        expect(
+            tier().tier == render_policy::RenderTier::full && full(where).drawn,
+            where,
+            "the next frame was not full's"
+        );
+        full_tier(where, false);
+        passed.emplace_back(where);
+    }
+
     /// In a shared game or a replay Full falls to Basic at once and rises
     /// again only when the match ends; a page or a target Full needs during
     /// the match is made then, as at any time, and a shared game's loading
@@ -2762,6 +2810,8 @@ int Runtime::check_renderer_ladder() {
         ladder.shared_game();
     if (runs(RenderFaultPoint::card))
         ladder.card_failure(frame);
+    if (runs(RenderFaultPoint::effects))
+        ladder.effects_failure(frame);
     if (runs(RenderFaultPoint::present)) {
         ladder.present(frame);
         ladder.loading_present();

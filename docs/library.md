@@ -263,11 +263,14 @@ names are always the full ones.
 At Regular and Large the search sits beside the tabs; when the tabs do
 not all fit beside it, as a wordier language's names may not, the tabs
 take the whole row and the search a row of its own under them. When they
-do not fit the strip even so, the strip scrolls sideways. The open tab
-stays wholly in view. A small arrow at an end shows when more tabs lie
-that way, and pressing it moves the strip by one tab. The wheel over the
-strip scrolls it the same way. Where every tab fits, there are no arrows
-and the strip does not scroll. Active
+do not fit the strip even so, the strip scrolls sideways, and the open
+tab is in view when it opens. A small arrow at an end shows when more tabs
+lie that way, and pressing it moves the strip by one tab. The wheel over
+the strip scrolls it the same way, and dragging the tabs sideways with the
+mouse or a finger moves them with the pointer. Either way the strip
+reaches its first tab and its last whichever tab is open, and stays where
+you leave it. Where every tab fits, there are no arrows and the strip does
+not scroll. Active
 has no count.
 Updates counts the updates you can install, as the OA button's dot does.
 Registries counts the registries listed. Registries is last, and it is
@@ -698,8 +701,8 @@ With a controller, Y focuses the search (the maps search on the Active tab),
 X presses the chosen entry's GET,
 UPDATE, CANCEL or RETRY, L1 and R1 change tab, B goes back as Escape does,
 and the right stick scrolls ([gamepad controls](controllers.md#menus)).
-The wheel over the tab strip scrolls the tabs when they do not fit;
-elsewhere it scrolls the page under the pointer. Every scroll bar can be
+The wheel over the tab strip, or a drag along it, scrolls the tabs when
+they do not fit; elsewhere the wheel scrolls the page under the pointer. Every scroll bar can be
 dragged by its thumb, and a press above or below the thumb moves it
 there.
 A finger or the mouse presses any control. A press, double click or tap on

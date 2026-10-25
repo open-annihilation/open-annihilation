@@ -2496,6 +2496,37 @@ void visual_effect_switches_round_trip() {
     CHECK(values.empty());
 }
 
+/// Each effect slider names its own preferences key, and an acceleration
+/// given for a run sets the unset ones of the four that follow it, keeping
+/// what the file stores.
+void unset_effects_follow_a_runs_acceleration() {
+    for (const auto& slider : settings::effect_sliders) {
+        const std::string key = "open-annihilation." + std::string(slider.name) + ".intensity";
+        CHECK(read_one(key, "70").*slider.percent == 70);
+    }
+    Values values = one_key(settings::key::weapon_lighting_intensity, "50");
+    values[std::string{settings::key::wreck_glow}] = "0";
+    auto chosen = settings::read_settings(values, {}, false);
+    CHECK(chosen.hardware_acceleration == HardwareAcceleration::off);
+    CHECK(chosen.nanolathe_lighting == 0 && chosen.heat_distortion == 0);
+    const auto water = chosen.water_ripples;
+    settings::follow_acceleration_with_unset_effects(chosen, values, HardwareAcceleration::full);
+    CHECK(chosen.weapon_lighting == 50);
+    CHECK(chosen.wreck_glow == 0);
+    CHECK(chosen.nanolathe_lighting == 100 && chosen.heat_distortion == 100);
+    CHECK(chosen.water_ripples == water);
+    settings::follow_acceleration_with_unset_effects(chosen, values, HardwareAcceleration::basic);
+    CHECK(chosen.weapon_lighting == 50 && chosen.nanolathe_lighting == 0);
+    for (const auto& slider : settings::effect_sliders)
+        CHECK(
+            slider.follows_acceleration ==
+            (slider.percent == &settings::EngineSettings::weapon_lighting ||
+             slider.percent == &settings::EngineSettings::nanolathe_lighting ||
+             slider.percent == &settings::EngineSettings::wreck_glow ||
+             slider.percent == &settings::EngineSettings::heat_distortion)
+        );
+}
+
 /// The four effects default to 100% with Full and 0% below it, leaving or
 /// reaching Full turns them off or on, and the file reads back as chosen.
 void effects_follow_hardware_acceleration() {
@@ -2917,6 +2948,7 @@ void menu_scaling_and_native_density_default_read_and_round_trip() {
 
 int main() {
     effects_follow_hardware_acceleration();
+    unset_effects_follow_a_runs_acceleration();
     defaults_play_as_without_the_settings();
     escape_opens_the_menu_by_default_only_on_macos_with_the_players_own_file();
     the_unit_limit_defaults_to_the_installations_with_the_players_own_file();

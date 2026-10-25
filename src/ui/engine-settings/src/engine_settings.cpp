@@ -621,6 +621,26 @@ void follow_acceleration_with_effects(
     settings.heat_distortion = effects;
 }
 
+void follow_acceleration_with_unset_effects(
+    EngineSettings& settings, const Values& values, HardwareAcceleration acceleration
+) {
+    const uint32_t unset_effect = default_effect_intensity(acceleration);
+    const auto follow = [&](uint32_t EngineSettings::* percent,
+                            std::string_view intensity_key,
+                            std::string_view switch_key) {
+        if (!stored_intensity(values, intensity_key, switch_key))
+            settings.*percent = unset_effect;
+    };
+    follow(&EngineSettings::weapon_lighting, key::weapon_lighting_intensity, key::weapon_lighting);
+    follow(
+        &EngineSettings::nanolathe_lighting,
+        key::nanolathe_lighting_intensity,
+        key::nanolathe_lighting
+    );
+    follow(&EngineSettings::wreck_glow, key::wreck_glow_intensity, key::wreck_glow);
+    follow(&EngineSettings::heat_distortion, key::heat_distortion_intensity, key::heat_distortion);
+}
+
 EngineSettings read_settings(
     const oa::platform::preferences::Values& values, const Inputs& inputs, bool switch_alt
 ) {

@@ -86,8 +86,8 @@ control characters, C1 control characters, U+2028, U+2029 and U+FEFF as
 The keys, their defaults and their ranges are documented in
 `oa/formats/oascript.hpp`. Omitted optional keys take their defaults; unknown
 keys are errors; a transition's `type` defaults to `dissolve`, and its
-`duration` is required. A camera's `orientation` angles default to 0 and any
-that is not zero gives a warning. Errors are reported in the order the
+`duration` is required. A camera's `orientation` angles default to 0, and a
+roll that is not zero gives a warning: a camera does not roll. Errors are reported in the order the
 decoder meets them: the entries of each mapping in document order, then that
 mapping's missing required keys; the check of `endTick` against the last
 shot comes after the rest of `director`.

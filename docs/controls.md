@@ -28,8 +28,10 @@ left drag pans it. Alt and a middle drag turns it too, and in the rotated
 view a middle drag pans while **Middle-click pans** is on. Alt+R puts the
 classic view back, and Alt+U turns **Unlocked Camera** on or off. While
 an order or a building is armed, Alt and a click places it unsnapped
-instead. The rotated view needs a Mac for now
-([Graphics](settings.md#graphics)).
+instead. The rotated view needs a graphics card SDL can draw on through
+Metal or Vulkan ([Graphics](settings.md#graphics)); with Hardware
+acceleration Off or Basic, or where neither can be used, Alt and its drags
+and keys keep their classic use.
 
 ## Groups
 

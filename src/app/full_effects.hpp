@@ -40,6 +40,10 @@ struct Pixels {
 };
 
 /// Reads and processes only the battlefield, restoring window and target state.
+///
+/// A failure leaves the world as the card drew it: nothing is drawn over it
+/// unless the processed pixels were uploaded whole.
+///
 /// @param renderer renderer holding the completed world
 /// @param upload reusable output texture
 /// @param battlefield window layout rectangle, excluding interface strips
@@ -47,7 +51,11 @@ struct Pixels {
 /// @param moved_factor target pixels per layout pixel; the target has a one-pixel border
 /// @param process compositor called before the processed pixels are uploaded
 /// @param effect_bounds optional affected rectangle in battlefield coordinates, including sampling margin
-/// @return empty on success, otherwise the SDL failure
+/// @param fits the memory guard, asked for the bytes the readback, its
+///        conversion and a grown upload hold together before any is made;
+///        empty allows every size
+/// @param final_target the texture the window's frame is presented into, or null for the window
+/// @return empty on success, otherwise the SDL failure or the guard's refusal
 std::string compose(
     SDL_Renderer* renderer,
     Upload& upload,
@@ -55,7 +63,9 @@ std::string compose(
     SDL_Texture* moved_target,
     uint32_t moved_factor,
     const std::function<void(const Pixels&)>& process,
-    const SDL_FRect* effect_bounds = nullptr
+    const SDL_FRect* effect_bounds = nullptr,
+    const std::function<bool(uint64_t bytes)>& fits = {},
+    SDL_Texture* final_target = nullptr
 );
 
 } // namespace oa::app::full_effects

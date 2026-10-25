@@ -261,8 +261,11 @@ enum class FullDrop : uint8_t {
 
 /// Everything decide_render_tier reads.
 struct TierInputs {
-    bool renderer{};       ///< a renderer exists (headless runs have none)
-    bool director_frame{}; ///< the frame is a director render's
+    bool renderer{}; ///< a renderer exists (headless runs have none)
+    /// The frame is a director render's. A render asked to draw on the
+    /// graphics card opens its own renderer and Full tier
+    /// (Runtime::open_director_card) and never asks for a tier.
+    bool director_frame{};
     /// The machine's physical memory in bytes, as the system reports it; 0
     /// when it does not say.
     uint64_t memory{};

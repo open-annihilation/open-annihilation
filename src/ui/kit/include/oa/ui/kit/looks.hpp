@@ -347,9 +347,14 @@ struct TabsLook {
     /// for a count above 0, a space and the count.
     std::vector<std::string> readings{};
     /// How far the strip is scrolled, in points from the first tab. The
-    /// layout clamps it so the open tab lies wholly in the strip. 0 draws
-    /// the strip from its start, and a strip whose tabs fit ignores it.
+    /// layout clamps it to the strip and, while keep_selected_in_view is set,
+    /// so the open tab lies wholly in the strip. 0 draws the strip from its
+    /// start, and a strip whose tabs fit ignores it.
     int32_t scroll{};
+    /// Keeps the open tab wholly in the strip. Off, the scroll stays where
+    /// the player left it with an arrow, the wheel or a drag, anywhere from
+    /// the first tab to the last, and the open tab may lie out of view.
+    bool keep_selected_in_view{true};
     /// The tab drawing area's left, in window points, after an arrow. 0
     /// until the strip is placed.
     int32_t view_x{};

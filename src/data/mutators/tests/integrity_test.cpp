@@ -149,6 +149,29 @@ void test_weapon_id_300_takes_no_slot() {
     }
 }
 
+/// At 1,024 weapon types, 300 holds a slot and 1,024 is outside 0 to 1,023.
+void test_weapon_id_300_fits_a_wide_table() {
+    mutators::IntegrityLimits limits;
+    limits.weapon_types = 1024;
+    rules::DocumentSet documents;
+    add_doc(documents, "Weapons/wide.tdf", "[WIDE]\n{\nID=300;\n}\n");
+    add_doc(documents, "units/RGBOT.fbi", "[UNITINFO]\n{\nUnitName=RGBOT;\nWeapon1=WIDE;\n}\n");
+    const std::vector<mutators::IntegrityIssue> found =
+        mutators::integrity_issues(documents, oa::data::defs::data_layout(), limits, holds_all);
+    OA_CHECK(!has_problem(found, mutators::Problem::weapon_id_out_of_range));
+    OA_CHECK(!has_problem(found, mutators::Problem::weapon_missing));
+
+    rules::DocumentSet past;
+    add_doc(past, "Weapons/past.tdf", "[PAST]\n{\nID=1024;\n}\n");
+    const std::vector<mutators::IntegrityIssue> past_issues =
+        mutators::integrity_issues(past, oa::data::defs::data_layout(), limits, holds_all);
+    const mutators::IntegrityIssue* range =
+        find_problem(past_issues, mutators::Problem::weapon_id_out_of_range);
+    OA_CHECK(range != nullptr);
+    if (range != nullptr)
+        OA_CHECK(range->message.find("outside 0 to 1023") != std::string::npos);
+}
+
 void test_corpse_movement_and_model() {
     rules::DocumentSet documents;
     add_doc(documents, "features/corpses/ridge.tdf", "[RGBOT_DEAD]\n{\n}\n");
@@ -696,6 +719,7 @@ void test_renamed_movement_class_is_blamed_on_its_writer() {
 int main() {
     test_weapon_must_hold_its_slot();
     test_weapon_id_300_takes_no_slot();
+    test_weapon_id_300_fits_a_wide_table();
     test_corpse_movement_and_model();
     test_sides_and_commander();
     test_download_menu_and_page();

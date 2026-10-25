@@ -14,8 +14,9 @@
 //
 // Shot s runs from its tick to the next shot's tick (the last to the end
 // tick); its frames are those that show its ticks, and game time is never
-// skipped. Each shot moves three quantities from a start to an end: the
-// centre's x and z, and 1 / height, in which zoom changes evenly. Its start
+// skipped. Each shot moves five quantities from a start to an end: the
+// centre's x and z, 1 / height, in which zoom changes evenly, and the
+// camera's yaw and pitch, in degrees. Its start
 // is its cameraStart, or for a shot without one the state the shot before
 // reaches at its end, its speed included. With frames k = 0 .. n - 1 and
 // the end state at k = n:
@@ -52,6 +53,17 @@ namespace oa::media::director {
 /// The smallest view height, in map pixels: 8 output pixels a map pixel at
 /// 2160 lines, 4 at 1080.
 inline constexpr double min_view_height = 270.0;
+/// The elevation the classic view looks down at, in degrees: the angle
+/// whose tangent is 2, at which a point's height lifts it half as far.
+inline constexpr double classic_elevation = 63.43494882292201;
+/// The lowest and highest elevation a turned camera looks down at, in
+/// degrees: the game's range with Unlocked camera on.
+inline constexpr double min_elevation = 10.0;
+inline constexpr double max_elevation = 85.0;
+/// The pitch a camera is held within, in degrees from the classic view's
+/// elevation: min_elevation and max_elevation less classic_elevation.
+inline constexpr double min_pitch = min_elevation - classic_elevation;
+inline constexpr double max_pitch = max_elevation - classic_elevation;
 /// Pi, as the double nearest to it; a spring's frequency times 2 pi is its
 /// angular frequency.
 inline constexpr double pi = 3.141592653589793;
@@ -75,12 +87,25 @@ struct MapBounds {
     int32_t height{};
 };
 
-/// A view of the battlefield, in map pixels.
+/// A view of the battlefield, in map pixels, and the camera's turn.
 struct View {
     double x{};      ///< the centre's column
     double z{};      ///< the centre's map-image row: a world point's z less half its height
     double height{}; ///< the height of the map shown
+    /// Degrees turned about the vertical from the classic view, about the
+    /// ground at the centre; above 0 turns the picture clockwise.
+    double yaw{};
+    /// Degrees of elevation above the classic view's; below 0 looks lower.
+    double pitch{};
 };
+
+/// Tells whether a view turns the camera from the classic view.
+///
+/// @param view the view
+/// @return true when its yaw or its pitch is not 0
+[[nodiscard]] constexpr bool turned(const View& view) noexcept {
+    return view.yaw != 0.0 || view.pitch != 0.0;
+}
 
 /// Returns the height of the view that fits the whole map in the output.
 ///
@@ -95,7 +120,10 @@ struct View {
 /// The height is clamped to [min_view_height, fit_height], then the centre
 /// to [w / 2, bounds.width - w / 2] and [height / 2, bounds.height - height / 2],
 /// w being the view's width, height * output.width / output.height; an axis
-/// on which the view is as large as the map centres on it.
+/// on which the view is as large as the map centres on it. The pitch is
+/// clamped to [min_pitch, max_pitch]; the yaw is kept as it is. The centre
+/// is held as for a camera that does not turn, so a turned view may show
+/// past the map's edges.
 ///
 /// @param view the view
 /// @param bounds the map's bounds
@@ -105,9 +133,10 @@ struct View {
 
 /// Returns the view a script's camera names.
 ///
-/// @param camera the camera; its orientation is ignored
-/// @return its x, z and y (as height), each its decimal mantissa divided by
-///         10 to the power of its places
+/// @param camera the camera; its orientation's roll is ignored
+/// @return its x, z, y (as height), yaw and pitch, each its decimal mantissa
+///         divided by 10 to the power of its places; yaw and pitch 0 without
+///         an orientation
 [[nodiscard]] View view_of_camera(const oa::formats::oascript::CameraState& camera) noexcept;
 
 /// The engine camera that draws a view at the output size.
@@ -179,8 +208,9 @@ struct CompileMessages {
 /// a video of more than max_frame_count frames, a shot that no frame shows,
 /// a transition longer than its shot or of no frame, a spring whose
 /// a = 2 pi frequency / framerate, or whose damping ratio times a, exceeds
-/// max_spring_step. Warnings: a camera clamp_view moves, and a view height
-/// outside [min_view_height, fit_height].
+/// max_spring_step. Warnings: a camera clamp_view moves, a view height
+/// outside [min_view_height, fit_height], and a pitch outside [min_pitch,
+/// max_pitch].
 ///
 /// @param script a script decode_script accepted
 /// @param bounds the map's bounds
@@ -202,7 +232,7 @@ struct FrameCameras {
     uint64_t frame{};
     uint32_t tick{};   ///< the tick the frame shows
     size_t shot{};     ///< the index of its shot in ShotList::shots
-    View camera{};     ///< the shot's own view, clamped; sounds are placed by it
+    View camera{};     ///< the shot's own view, clamped; sounds are placed by its x and z
     bool transition{}; ///< the frame blends `outgoing` into `camera`
     View outgoing{};   ///< the view the shot before reached at its end, clamped
     oa::formats::oascript::TransitionKind transition_kind{
@@ -249,6 +279,8 @@ class CameraRig {
     Axis x_{};              ///< the centre's column
     Axis z_{};              ///< the centre's row
     Axis inverse_height_{}; ///< 1 / the view's height
+    Axis yaw_{};            ///< the camera's yaw, degrees
+    Axis pitch_{};          ///< the camera's pitch, degrees
     View held_{};           ///< the view the shot before reached at its end
 };
 

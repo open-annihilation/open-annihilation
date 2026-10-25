@@ -2566,6 +2566,130 @@ bool watcher(World* world, Player& p) {
     return p.in_use != 0 && info != nullptr && (info->options & OA_SETUP_OPTION_WATCHER) != 0;
 }
 
+/// Tells whether the profile keeps team-mates' start positions together.
+///
+/// @param m Running match.
+/// @return True under setup.team-start-positions at team-adjacent.
+bool team_adjacent_starts(const NetMatch* m) {
+    return setup_rules(m).team_start_positions.mode ==
+           data::match_rules::SetupTeamStartPositionsMode::team_adjacent;
+}
+
+/// Gives every slot its start position.
+///
+/// An active slot that is not watching takes its entry of `positions`, or
+/// without them the next position in slot order. Every other slot takes -1.
+///
+/// @param world Match world.
+/// @param positions The team rules' position of each slot, or null.
+/// @param[out] out Each slot's start position.
+void assign_starts(
+    World* world,
+    const team_rules::StartPositions* positions,
+    std::span<int32_t, OA_PLAYER_COUNT> out
+) {
+    int32_t next = 0;
+    for (int32_t i = 0; i < OA_PLAYER_COUNT; ++i) {
+        auto& p = world->game.players[i];
+        const auto at = static_cast<std::size_t>(i);
+        if (!slot_active(p) || watcher(world, p))
+            out[at] = -1;
+        else
+            out[at] = positions != nullptr ? (*positions)[at] : next++;
+    }
+}
+
+/// Finds the slot of this machine that holds each of the host's slots.
+///
+/// The host's machine holds its own. Another machine seats the players in
+/// slots of its own, and reads the host's from the host's slot table, which
+/// names each slot's player id: 0 for a free slot, no_player_id for a
+/// closed one.
+///
+/// @param world Match world.
+/// @param host_slots The host's slot table.
+/// @param[out] here This machine's slot for each of the host's slots, -1 for none.
+/// @return False when the table names a player this machine does not hold
+///         or names one twice, or leaves out an active slot that is not
+///         watching.
+bool find_host_slots(
+    World* world,
+    std::span<const uint32_t, OA_PLAYER_COUNT> host_slots,
+    std::array<int32_t, OA_PLAYER_COUNT>& here
+) {
+    here.fill(-1);
+    if (host_is_local(world)) {
+        for (int32_t slot = 0; slot < OA_PLAYER_COUNT; ++slot)
+            here[static_cast<std::size_t>(slot)] = slot;
+        return true;
+    }
+    std::array<bool, OA_PLAYER_COUNT> listed{};
+    for (std::size_t at = 0; at < here.size(); ++at) {
+        const uint32_t id = host_slots[at];
+        if (id == 0 || id == no_player_id)
+            continue;
+        const auto slot = slot_of(world, id);
+        if (slot >= OA_PLAYER_COUNT || world->game.players[slot].in_use == 0 || listed[slot])
+            return false;
+        listed[slot] = true;
+        here[at] = slot;
+    }
+    for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
+        auto& p = world->game.players[slot];
+        if (slot_active(p) && !watcher(world, p) && !listed[slot])
+            return false;
+    }
+    return true;
+}
+
+/// Reads the slots in the host's order, as the host's machine reads them.
+///
+/// Each of the host's slots takes the slot of this machine that holds its
+/// player, with its alliances numbered by the host's slots. On a map with
+/// neutral units the team rules place the computer players the reading
+/// machine runs after the others. Away from the host's machine, a computer
+/// player in the host's machine group is one of the host's, and every other
+/// player is read as another machine's.
+///
+/// @param m Running match.
+/// @param here This machine's slot for each of the host's slots (find_host_slots).
+/// @param[out] slots The slots by the host's slots.
+/// @return False when the team rules read the host's computer players and
+///         the host has no machine group to tell them by.
+bool host_team_slots(
+    const NetMatch* m,
+    const std::array<int32_t, OA_PLAYER_COUNT>& here,
+    team_rules::TeamSlots& slots
+) {
+    auto* world = m->world;
+    const auto local = team_slots(world);
+    slots = {};
+    for (std::size_t at = 0; at < slots.size(); ++at) {
+        if (here[at] < 0)
+            continue;
+        const auto& from = local[static_cast<std::size_t>(here[at])];
+        slots[at] = from;
+        for (std::size_t other = 0; other < slots.size(); ++other)
+            slots[at].alliance[other] =
+                here[other] >= 0 ? from.alliance[static_cast<std::size_t>(here[other])] : 0;
+    }
+    if (!m->map_neutral_units || host_is_local(world))
+        return true;
+    const auto host = host_slot(world);
+    if (host == no_slot || world->game.players[host].machine_group == 0)
+        return false;
+    const auto group = world->game.players[host].machine_group;
+    for (std::size_t at = 0; at < slots.size(); ++at) {
+        if (here[at] < 0)
+            continue;
+        const bool hosts =
+            world->game.players[static_cast<std::size_t>(here[at])].machine_group == group &&
+            slots[at].setup_state == team_rules::setup_computer;
+        slots[at].status = hosts ? team_rules::status_computer : team_rules::status_remote;
+    }
+    return true;
+}
+
 /// Runs one step of the load barrier.
 ///
 /// On the host's machine the start positions are assigned once (shuffled
@@ -2585,9 +2709,7 @@ bool barrier_step(NetMatch* m) {
         const auto* local_info = world_player_info(world, &local);
         const bool fixed =
             local_info != nullptr && (local_info->options & OA_SETUP_OPTION_FIXED_LOCATIONS) != 0;
-        int32_t next = 0;
-        if (setup_rules(m).team_start_positions.mode ==
-            data::match_rules::SetupTeamStartPositionsMode::team_adjacent) {
+        if (team_adjacent_starts(m)) {
             // setup.team-start-positions: team-mates start together. With
             // random positions the order is shuffled and the coin flip of
             // 3.1c's shuffle is still drawn once, over no positions.
@@ -2598,13 +2720,9 @@ bool barrier_step(NetMatch* m) {
                 (void)m->hooks.rand15(m->hooks.context);
             m->team_positions = positions;
             m->team_positions_assigned = true;
-            for (int32_t i = 0; i < OA_PLAYER_COUNT; ++i) {
-                auto& p = game.players[i];
-                b.start_assignment[i] = slot_active(p) && !watcher(world, p)
-                                            ? positions[static_cast<std::size_t>(i)]
-                                            : -1;
-            }
+            assign_starts(world, &positions, b.start_assignment);
         } else if (!fixed) {
+            int32_t next = 0;
             int32_t order[OA_PLAYER_COUNT];
             int32_t count = 0;
             for (int32_t i = 0; i < OA_PLAYER_COUNT; ++i)
@@ -2626,10 +2744,7 @@ bool barrier_step(NetMatch* m) {
                 b.start_assignment[i] = slot_active(p) && !watcher(world, p) ? order[next++] : -1;
             }
         } else {
-            for (int32_t i = 0; i < OA_PLAYER_COUNT; ++i) {
-                auto& p = game.players[i];
-                b.start_assignment[i] = slot_active(p) && !watcher(world, p) ? next++ : -1;
-            }
+            assign_starts(world, nullptr, b.start_assignment);
         }
         b.assigned = true;
     }
@@ -2896,6 +3011,42 @@ uint8_t net_match_start_position(const NetMatch* m, uint8_t slot) noexcept {
     if (slot >= OA_PLAYER_COUNT)
         return no_start_position;
     return m->world->game.players[slot].start_position;
+}
+
+bool net_match_fixed_start_positions(
+    const NetMatch* m,
+    std::span<const uint32_t, OA_PLAYER_COUNT> host_slots,
+    std::array<int32_t, OA_PLAYER_COUNT>& positions
+) noexcept {
+    positions.fill(-1);
+    auto* world = m->world;
+    std::array<int32_t, OA_PLAYER_COUNT> here{};
+    if (!find_host_slots(world, host_slots, here))
+        return false;
+    const auto plays = [world, &here](std::size_t at) {
+        if (here[at] < 0)
+            return false;
+        auto& p = world->game.players[static_cast<std::size_t>(here[at])];
+        return slot_active(p) && !watcher(world, p);
+    };
+    // The start of each of the host's slots, as the host deals them.
+    std::array<int32_t, OA_PLAYER_COUNT> dealt{};
+    if (team_adjacent_starts(m)) {
+        team_rules::TeamSlots slots{};
+        if (!host_team_slots(m, here, slots))
+            return false;
+        const auto placed =
+            team_rules::team_start_positions(slots, false, m->map_neutral_units, {});
+        std::copy(placed.begin(), placed.end(), dealt.begin());
+    } else {
+        int32_t next = 0;
+        for (std::size_t at = 0; at < dealt.size(); ++at)
+            dealt[at] = plays(at) ? next++ : -1;
+    }
+    for (std::size_t at = 0; at < dealt.size(); ++at)
+        if (plays(at))
+            positions[static_cast<std::size_t>(here[at])] = dealt[at];
+    return true;
 }
 
 void net_match_send_load_progress(NetMatch* m, const uint8_t rows[load_progress_rows]) noexcept {

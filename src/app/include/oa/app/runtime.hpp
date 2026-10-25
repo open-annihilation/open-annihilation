@@ -2036,10 +2036,44 @@ class Runtime final : public menu::Host,
     /// EngineView::margin pixels larger and cut at the view's offset, with
     /// the default gamma; the player's saved gamma never applies. No
     /// overlay, label, panel, message or cursor is drawn. The Game block's
-    /// camera is left bound to the drawn view.
+    /// camera is left bound to the drawn view. The processor draws it,
+    /// unless director_draws_on_card (draw_director_card_frame).
     ///
     /// @param[out] rgb the frame, width * height * 3 bytes, row by row
     void draw_director_frame(std::span<uint8_t> rgb);
+
+    /// Tells whether director mode's frames are drawn by the graphics card's
+    /// Full tier (DirectorPresentation::full), on the renderer with no window
+    /// open_director_card made.
+    ///
+    /// @return true in director mode once that renderer is open
+    [[nodiscard]] bool director_draws_on_card() const noexcept;
+
+    /// Opens the renderer the Full tier draws director frames on: starts
+    /// SDL's video, makes SDL's GPU renderer with no window, makes it the
+    /// runtime's renderer, switches the accelerated presentation on at a
+    /// Full rung and runs the Full function test on its card executor.
+    /// Called by enter_director_mode when the presentation asks for the
+    /// graphics card.
+    ///
+    /// Throws DirectorCardUnavailable when SDL's video or the renderer does
+    /// not start, and std::runtime_error when the function test fails.
+    void open_director_card();
+
+    /// Closes what open_director_card opened, as much of it as was opened,
+    /// and puts the runtime's renderer back.
+    ///
+    /// @param[in,out] state director mode's state, whose card is closed
+    void close_director_card(DirectorState& state) noexcept;
+
+    /// Draws the running match's current tick from the director's camera on
+    /// the graphics card's Full tier and reads it back into a frame:
+    /// draw_director_frame's frame, the card's picture in place of the
+    /// processor's. Throws std::runtime_error when the Full tier does not
+    /// draw it.
+    ///
+    /// @param[out] rgb the frame, width * height * 3 bytes, row by row
+    void draw_director_card_frame(std::span<uint8_t> rgb);
 
     /// Runs --check-director-view: a headless skirmish drawn in director
     /// mode, checked against the same skirmish replayed in director mode
@@ -2103,8 +2137,13 @@ class Runtime final : public menu::Host,
     /// Runs --check-director-render: a small director script rendered over
     /// the headless skirmish with encoding off, in full and its second chunk
     /// alone, checked for its files, its sound and the world it reaches.
-    /// Throws std::runtime_error when a check fails.
-    void check_director_render();
+    /// With --hardware-acceleration=full the frames are drawn by the
+    /// graphics card's Full tier, and the run manifest must say so. Throws
+    /// std::runtime_error when a check fails.
+    ///
+    /// @return 0 when it ran; 77, which ctest reports as skipped, when the
+    ///     Full tier was asked for and no graphics card renderer could be made
+    [[nodiscard]] int check_director_render();
 
     /// Starts the --campaign mission --mission names through the Any Mission list, its briefing and
     /// Start.
@@ -6935,7 +6974,24 @@ class Runtime final : public menu::Host,
     void apply_live_camera_settings(bool allowed, bool unlocked);
     /// Restores classic orientation while retaining reusable GPU resources.
     void reset_live_renderer();
-    /// Picks the drawn terrain beneath a frame point in the rotated view.
+    /// Turns the live camera for a director's frame, with the wider angles of
+    /// Unlocked camera: the yaw taken modulo a turn and the pitch held within
+    /// the unlocked range. Clears a failure, so that the frame is tried.
+    /// @param yaw_degrees turn about the vertical from the classic view
+    /// @param pitch_degrees elevation change from the classic view
+    /// @return true when the camera is turned from the classic view
+    bool turn_live_camera(float yaw_degrees, float pitch_degrees);
+    /// Picks the drawn terrain beneath a frame point in the rotated view:
+    /// where the pointer's ray meets the terrain's mesh, between map pixels
+    /// and at the mesh's height, as the camera anchors on it.
+    /// @param x frame column in pixels
+    /// @param y frame row in pixels
+    /// @return fixed-point world position, or no terrain intersection
+    std::optional<oa::sim::ground_orders::Point> live_ground_hit(float x, float y) const;
+    /// Picks the ground beneath a frame point in the rotated view as orders
+    /// and placement take it, as a classic pick gives it: the whole map
+    /// pixel the drawn terrain is hit in (live_ground_hit), at the
+    /// simulation's terrain height there, never below the sea.
     /// @param x frame column in pixels
     /// @param y frame row in pixels
     /// @return fixed-point world position, or no terrain intersection
@@ -6969,7 +7025,10 @@ class Runtime final : public menu::Host,
     /// @return whether the 3D view consumed the event
     bool live_renderer_take_event(SDL_Event& event);
     /// Replaces the battlefield with the current match's 3D frame.
-    void render_live_match_surface();
+    /// @return false when the card could not draw the rotated frame, whose
+    ///         battlefield the classic raster left out; the view is then
+    ///         classic again, and the frame must be drawn again
+    [[nodiscard]] bool render_live_match_surface();
     /// Presentation-only effect history, independent of the active renderer.
     struct MatchEffects;
     /// Observes transient events after a simulation tick without changing the match.
@@ -8712,7 +8771,18 @@ class Runtime final : public menu::Host,
     /// the match reads back from the draw (the view in Game, the on-screen
     /// list, the piece transforms, the radar's picture and blips) follows the
     /// zoom and the camera alone, whatever the draw scale.
+    ///
+    /// A rotated frame the card cannot draw leaves the battlefield undrawn;
+    /// that frame ends there, before anything is drawn over the battlefield
+    /// or the extension's HUD is asked for, and the frame is drawn once more,
+    /// classically (draw_match_surface).
     void render_match_surface();
+
+    /// Draws the match frame as render_match_surface describes.
+    ///
+    /// @return false when the rotated view's frame failed, leaving the frame
+    ///         undrawn past the battlefield, with the view put back classic
+    [[nodiscard]] bool draw_match_surface();
 
     /// Returns the 3DO renderer state of the current match, built on first use.
     ///
@@ -13196,7 +13266,9 @@ class Runtime final : public menu::Host,
 
     /// Selects the local units whose position lies in a drag box: the canvas corners go back to
     /// Game.drag_start and drag_end, and selection::select_units_in_box selects or, with shift,
-    /// toggles the units there and visits the local units on screen for 'n'.
+    /// toggles the units there and visits the local units on screen for 'n'. The rotated view
+    /// tests each unit where it drew it (selection::select_units_where), with the same speech,
+    /// sound and visits.
     ///
     /// @param x0 one corner's column
     /// @param y0 one corner's row
@@ -13204,6 +13276,17 @@ class Runtime final : public menu::Host,
     /// @param y1 the other corner's row
     /// @param add true (shift) to toggle the units in the box instead of replacing the selection
     void box_select_units(int x0, int y0, int x1, int y1, bool add);
+
+    /// The classic view's part of box_select_units: the box as map points
+    /// in Game.drag_start and drag_end, which selection::select_units_in_box selects in.
+    ///
+    /// @param x0 one corner's column
+    /// @param y0 one corner's row
+    /// @param x1 the other corner's column
+    /// @param y1 the other corner's row
+    /// @param add true (shift) to toggle the units in the box instead of replacing the selection
+    /// @return true when anything ends up selected
+    bool select_units_in_classic_box(int x0, int y0, int x1, int y1, bool add);
 
     /// Gives the selection an order on each unit whose projected position lies in a canvas box.
     ///

@@ -281,6 +281,35 @@ void test_manifest_lines() {
     CHECK(digest_text(digest).size() == sha256::hex_size);
 }
 
+void test_card_manifest() {
+    RunDescription run{};
+    run.engine_version = "1.2.3";
+    run.script_name = "game.oascript";
+    run.recording_name = "game.rec";
+    run.width = kWidth;
+    run.height = kHeight;
+    run.framerate = Decimal{60, 0};
+    run.tickrate = Decimal{30, 0};
+    run.first_tick = 10;
+    run.end_tick = 12;
+    run.frame_count = 3;
+    const auto digest = sha256::digest_of(bytes_of("pcm"));
+    const std::string processor = run_manifest_text(run, {}, digest);
+    CHECK(processor.find("drawn") == std::string::npos);
+    // A render the graphics card drew says so after the output's line, and
+    // is otherwise the same.
+    run.graphics_card = "some-driver";
+    const std::string card = run_manifest_text(run, {}, digest);
+    const auto ticks = processor.find("ticks ");
+    CHECK(ticks != std::string::npos);
+    CHECK(
+        card == processor.substr(0, ticks) +
+                    "drawn graphics-card some-driver full-tier: frames differ from one driver to "
+                    "the next and are not pinned\n" +
+                    processor.substr(ticks)
+    );
+}
+
 void test_environment() {
     set_environment(director_encoder_variable, nullptr);
     set_environment(director_preset_variable, nullptr);
@@ -578,6 +607,7 @@ int main() {
     test_recording_key();
     test_encoder_arguments();
     test_manifest_lines();
+    test_card_manifest();
     test_environment();
     test_missing_encoder();
     test_render_without_encoder();

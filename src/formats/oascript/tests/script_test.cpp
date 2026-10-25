@@ -1061,7 +1061,7 @@ void test_errors() {
     }
 }
 
-/// Checks the orientation warnings.
+/// Checks the orientation warnings: a roll warns, a yaw and a pitch do not.
 void test_warnings() {
     const std::string text{edited(
         "cameraEnd: { position: { x: 100, y: 200, z: 300 } }",
@@ -1072,12 +1072,11 @@ void test_warnings() {
     DecodeReport report{};
     CHECK(read_script(bytes_of(text), script, report));
     CHECK(report.errors.empty());
-    CHECK(report.warnings.size() == 2);
-    if (report.warnings.size() == 2) {
-        CHECK(report.warnings[0].path == "director.shots[0].cameraEnd.orientation.yaw");
-        CHECK(report.warnings[0].position.line == 8 && report.warnings[0].position.column == 82);
-        CHECK(report.warnings[0].message == "is ignored: the game's view cannot turn");
-        CHECK(report.warnings[1].path == "director.shots[0].cameraEnd.orientation.roll");
+    CHECK(report.warnings.size() == 1);
+    if (report.warnings.size() == 1) {
+        CHECK(report.warnings[0].path == "director.shots[0].cameraEnd.orientation.roll");
+        CHECK(report.warnings[0].position.line == 8 && report.warnings[0].position.column == 92);
+        CHECK(report.warnings[0].message == "is ignored: a camera does not roll");
     }
     CHECK(script.director.shots[0].camera_end.orientation.has_value());
     CHECK(same_decimal(script.director.shots[0].camera_end.orientation->yaw, Decimal{90, 0}));
@@ -1243,7 +1242,8 @@ void test_round_trips() {
     Script decoded{};
     DecodeReport report{};
     CHECK(decode_script(encode_script(script), decoded, report) && same_script(decoded, script));
-    CHECK(report.warnings.size() == 2);
+    // The roll warns; the pitch turns the camera.
+    CHECK(report.warnings.size() == 1);
     for (const DocumentForm form : {DocumentForm::yaml, DocumentForm::json}) {
         Script again{};
         DecodeReport again_report{};
