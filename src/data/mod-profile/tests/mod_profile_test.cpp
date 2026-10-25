@@ -1691,7 +1691,7 @@ void test_weapon_and_side_limits() {
         "limits: {weapon-types: {preset: baseline}, sides: {preset: baseline}}\n",
     };
     for (const char* body : written_at_baseline) {
-        const ResolveResult written = resolve(profile_text("written", body));
+        const ResolveResult written = resolve(profile_text("minimal", body));
         OA_CHECK(written.resolution.has_value());
         if (!written.resolution)
             continue;
