@@ -6,6 +6,7 @@
 
 #include "oa/core/side.h"
 #include "oa/data/defs/files.hpp"
+#include "oa/data/limits.hpp"
 #include "oa/formats/tdf.hpp"
 
 #include <cstddef>
@@ -20,21 +21,27 @@ inline constexpr std::size_t side_panel_gaf_capacity = 0x1e;
 // Bytes of a side's font name, its terminating NUL included.
 inline constexpr std::size_t side_font_name_capacity = 0x100;
 
+/// Sides one table can hold: the most a profile's `limits.sides` may ask for.
+inline constexpr std::size_t side_table_capacity = oa::data::limits::highest_sides;
+static_assert(side_table_capacity >= OA_SIDE_COUNT);
+
 struct SideTable {
-    Side sides[OA_SIDE_COUNT]{};
+    Side sides[side_table_capacity]{};
     uint32_t count{};
+    uint32_t limit{};                  // sides this load could take
+    uint32_t past_limit{};             // SIDE sections from SIDE<limit> on, left out unread
     char error[side_error_capacity]{}; // set when a required rectangle is missing
     // Each side's intgaf: the GAF in anims/ that holds its PANELTOP,
     // PANELSIDE and PANELBOT.
-    char panel_gaf[OA_SIDE_COUNT][side_panel_gaf_capacity]{};
+    char panel_gaf[side_table_capacity][side_panel_gaf_capacity]{};
     // Each side's font: the FNT in fonts/ that its resource numbers and unit
     // panel are drawn in.
-    char font_name[OA_SIDE_COUNT][side_font_name_capacity]{};
+    char font_name[side_table_capacity][side_font_name_capacity]{};
     // Whether each side's section has an intgaf key, and a font key: a side
     // without one has no panels, or no font of its own, and one with it
     // needs the file it names, an empty name included.
-    bool has_panel_gaf[OA_SIDE_COUNT]{};
-    bool has_font[OA_SIDE_COUNT]{};
+    bool has_panel_gaf[side_table_capacity]{};
+    bool has_font[side_table_capacity]{};
 };
 
 // A file a side's SIDEDATA section names.
@@ -51,7 +58,7 @@ struct SideMissingFile {
 };
 
 // The most files the sides can name: an intgaf and a font each.
-inline constexpr std::size_t side_missing_file_capacity = 2 * OA_SIDE_COUNT;
+inline constexpr std::size_t side_missing_file_capacity = 2 * side_table_capacity;
 
 // Resolves a font name to a handle stored in Side.font; may be null.
 struct SideFontResolver {
@@ -87,22 +94,31 @@ bool side_load_rect(
     std::size_t error_capacity
 ) noexcept;
 
-/// Loads SIDE0, SIDE1, ... until one is missing or the table is full.
+/// Loads SIDE0, SIDE1, ... until one is missing or `side_limit` sides are read.
 ///
 /// Each side reads name, nameprefix, commander, intgaf (into panel_gaf, up to
 /// 29 characters), font (into font_name, and through `fonts`), energycolor,
 /// metalcolor, its HUD rectangles in the game's read order and
 /// RELOAD1..RELOAD3; has_panel_gaf and has_font tell which of the two keys
 /// its section has. The table is zeroed first and every visited slot gets its
-/// index.
+/// index. At most side_table_capacity sides are read. `limit` stores that
+/// cap. When the cap was reached, sections from `SIDE<limit>` on are counted
+/// into `past_limit` and left unread: their keys and rectangles are not
+/// touched, so a broken section past the limit refuses nothing.
 ///
 /// @param[in,out] sidedata parsed SIDEDATA.TDF; its cursor is moved
 /// @param[out] table table to fill
 /// @param fonts font resolver; null, or a null callback, leaves Side.font 0
-/// @return false when a side lacks one of its HUD rectangles (fatal in 3.1c);
-///     table->error names the first missing one and count is not set
+/// @param side_limit sides this game plays; the profile's limits.sides, or
+///     base_sides when the caller passes none
+/// @return false when a side the game reads lacks one of its HUD rectangles
+///     (fatal in 3.1c); table->error names the first missing one and count
+///     is not set
 bool side_table_load(
-    formats::tdf::Document* sidedata, SideTable* table, const SideFontResolver* fonts
+    formats::tdf::Document* sidedata,
+    SideTable* table,
+    const SideFontResolver* fonts,
+    uint32_t side_limit = oa::data::limits::base_sides
 ) noexcept;
 
 /// Loads GAMEDATA/SIDEDATA.TDF, preferring the variant directory.
@@ -114,10 +130,29 @@ bool side_table_load(
 /// @param[out] table table to fill
 /// @param variant game-data variant suffix; null or empty for none
 /// @param fonts font resolver; may be null
-/// @return true when the file loaded and every side was complete
+/// @param side_limit sides this game plays; the profile's limits.sides, or
+///     base_sides when the caller passes none
+/// @return true when the file loaded and every side the game reads was complete
 bool load_side_data(
-    const Files* files, SideTable* table, const char* variant, const SideFontResolver* fonts
+    const Files* files,
+    SideTable* table,
+    const char* variant,
+    const SideFontResolver* fonts,
+    uint32_t side_limit = oa::data::limits::base_sides
 ) noexcept;
+
+/// Writes the line for SIDE sections left out past the limit.
+///
+/// One section reads `gamedata/sidedata.tdf: SIDE5 is past the 5 sides this
+/// game plays (limits.sides) and is left out`. More than one reads
+/// `gamedata/sidedata.tdf: SIDE5 to SIDE6 are past the 5 sides this game
+/// plays (limits.sides) and are left out`, with this load's numbers.
+///
+/// @param table loaded side table
+/// @param[out] out destination; emptied when nothing was left out
+/// @param capacity size of `out` in bytes
+/// @return false when `past_limit` is 0
+bool side_table_past_limit_line(const SideTable& table, char* out, std::size_t capacity) noexcept;
 
 /// Builds the path of a file a side's section names: the GAF file in anims/
 /// its intgaf names or the FNT file in fonts/ its font names, from the

@@ -35,6 +35,9 @@ struct IntegrityLimits {
     /// `weapon_types` - 1. 256 unless the caller read the profile's
     /// `limits.weapon-types`.
     uint32_t weapon_types{256};
+    /// The SIDE sections the game reads, the profile's `limits.sides`.
+    /// Five unless the caller read another.
+    uint32_t sides{5};
     /// True when the match is a shared game. Past `unit_sync_limit` then
     /// fails the mutator; otherwise it is a warning.
     bool shared{false};
@@ -51,7 +54,7 @@ enum class Problem : uint8_t {
     model_missing,             ///< the unit's model file is not in the store
     script_missing,            ///< the unit has no script; it can still play
     side_without_commander,    ///< a side the game reads has no commander, or not a live unit
-    too_many_sides,            ///< a side section past the five the game reads
+    too_many_sides,            ///< a side section past the sides the game reads
     too_many_movement_classes, ///< a class section past the 32 the game reads
     weapon_id_out_of_range, ///< a weapon's ID is outside 0 to weapon_types - 1, so it takes no slot
     too_many_unit_types,    ///< more unit files than the type table can hold

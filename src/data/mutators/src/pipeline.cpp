@@ -4907,6 +4907,7 @@ bool run_pass(
     collections.emplace(documents, &layout);
     collections->bind_store(&store);
     collections->set_weapon_types(input.limits.weapon_types);
+    collections->set_side_limit(input.limits.sides);
     collections->keep_weapon_ids(kept_weapons);
     build_menus.emplace(*collections, store, &layout);
     std::vector<BroughtWeapon> brought;

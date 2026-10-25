@@ -596,6 +596,18 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param record The new UnitDef record.
     void replace_unit_def(std::size_t type, const oa::UnitDef& record);
 
+    /// Copies loaded sides into the match.
+    ///
+    /// `table` holds at least five records, and at least `count` records
+    /// when more than five sides were loaded. The first five, zeroed slots
+    /// included, are copied into Game.sides. Further sides are a table this
+    /// match owns, which the World points at. Game.side_count becomes
+    /// `count`. It draws no random number and changes nothing else.
+    ///
+    /// @param table side records, at least five and at least `count`
+    /// @param count sides this match plays
+    void bind_sides(std::span<const oa::Side> table, uint32_t count);
+
     /// Returns a unit's legacy order queue.
     ///
     /// @param index Unit slot; one outside the pool throws.
@@ -3641,6 +3653,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         std::unique_ptr<oa::MapPlot[]> plots;
         // Weapon slots from 256 on. Null when the registry holds 256.
         std::unique_ptr<oa::WeaponDef[]> extra_weapon_defs;
+        // Sides past the game state's five. Null when five or fewer are bound.
+        // The World points at them and does not free them.
+        std::unique_ptr<oa::Side[]> extra_sides;
         std::unique_ptr<sim::feature_runtime::PlacedFeature[]> placed_features;
         std::vector<oa::Projectile> projectiles;
         std::vector<sim::unit_spawn::SlotAssets> assets;

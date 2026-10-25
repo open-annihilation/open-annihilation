@@ -466,8 +466,8 @@ void find_commander(World& world, bool select, const Hooks& hooks) {
     if (player == nullptr)
         return;
     const PlayerSetupInfo* info = world_player_info(&world, player);
-    const char* commander =
-        info != nullptr && info->side < 5 ? world.game.sides[info->side].commander : "";
+    const Side* side_record = info != nullptr ? world_side(&world, info->side) : nullptr;
+    const char* commander = side_record != nullptr ? side_record->commander : "";
     Unit* found = nullptr;
     for_player_units(world, *player, [&](Unit& unit) {
         const UnitDef* def = world_unit_def_of(&world, &unit);
