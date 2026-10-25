@@ -990,6 +990,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_engine_feed) {
+            check_engine_feed();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_text_fit) {
             check_text_fit();
             flush_preferences();

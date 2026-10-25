@@ -1367,6 +1367,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_language_notice_check.cpp
   src/app/runtime_first_run_check.cpp
   src/app/runtime_progress_check.cpp
+  src/app/runtime_update_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -2175,6 +2176,19 @@ if(OA_BUILD_PLATFORM)
         --user-folder "${oa_progress_dir}/Open Annihilation")
       set_tests_properties(native-progress PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_progress_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The background check for a new release: a feed served here, once a
+      # day, not during a match, and not with nobody watching unless a feed
+      # was named.
+      set(oa_engine_feed_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/engine-feed")
+      file(MAKE_DIRECTORY "${oa_engine_feed_dir}")
+      add_test(NAME native-engine-feed COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-engine-feed
+        --user-folder "${oa_engine_feed_dir}/Open Annihilation"
+        --data-dir "${oa_engine_feed_dir}/data"
+        --preferences-file "${oa_engine_feed_dir}/engine-feed.conf")
+      set_tests_properties(native-engine-feed PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_engine_feed_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # One evicted archive's read is held. The window keeps drawing the iCloud
       # line in the stored language, and the folder step then continues. Off
