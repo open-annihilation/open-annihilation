@@ -83,7 +83,14 @@ dispatcher times a double press and a hold from that time.
   role gives `active` and `inactive` as its own key goes down and up.
   `release_all` releases every held action and role. `role_active` reads
   the modifiers and the keys the caller reports now, not the events `feed`
-  saw. The caller passes the time.
+  saw. The caller passes the time. `set_timings` holds each time to its
+  range. Slow keys hold a key down back until `advance` has seen it held
+  for `slow_keys_ms`; it fires once then, at most a frame after it was due,
+  and a release before that drops it. Bounce keys drop a second press of
+  the same key within `bounce_keys_ms` of its last accepted release, and
+  that press's release. Mouse buttons, the wheel and keys typed into a
+  field are never held back. With a repeat delay and a rate both set, the
+  platform's repeats are ignored and a `repeat` action fires from `advance`.
 
 ## State
 
@@ -157,6 +164,19 @@ not repeat; the status strip's press and release around a Shift; a
 double-click selecting the type; a hold that fires once after 500 ms; a
 key-up never seen down; `release_all`; and the queue role following Shift
 whether or not a Shift event was fed.
+
+`ui-key-bindings-timing` (`tests/timing_test.cpp`) walks synthetic
+timelines: a slow-key tap of 100 ms fires nothing and a hold fires once at
+300 ms; a bounce at 200 ms is dropped and one at 400 ms is kept, including
+when the dropped press's release sat in between, while another key is kept;
+two presses 550 ms apart match `:double` at 600 ms and two 650 ms apart do
+not; a `:hold` fires at 800 ms and not at 700; a repeating key held 1,000 ms
+at a 200 ms delay and 10 a second fires nine `repeated` events and the
+platform's repeats do not add one; a press action never repeats; with the
+system's repeat the platform's repeats pass through; a mouse button and the
+wheel are not held back; typed text is not held back; `drag_click_ticks(32)`
+is 0x19 and `drag_click_ticks(96)` is 75; `clamped` holds every limit and
+keeps a zero that means the system's own time.
 
 `ui-key-bindings-sdl` (`tests/sdl_numbers_test.cpp`) links SDL and checks the
 numbers the library holds: every scancode SDL names is in the position table

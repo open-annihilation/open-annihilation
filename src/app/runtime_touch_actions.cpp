@@ -38,9 +38,6 @@ namespace input = oa::sim::gameplay_input;
 constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
 /// How long a tip bubble shows, milliseconds.
 constexpr uint64_t kTipMilliseconds = 2500;
-/// The clock units a press must be older than for its release to read as a box rather than a
-/// click (the engine's own box test, match_drag_is_click).
-constexpr uint32_t kDragClickWindow = 0x19;
 /// The rings of the battlefield tap's nearest-unit probe, as fractions of unit_pick_points
 /// (4, 8 and 12 points).
 constexpr float kUnitProbeRings[] = {1.0F / 3.0F, 2.0F / 3.0F, 1.0F};
@@ -340,7 +337,8 @@ void TouchDispatchAccess::drag_began(Runtime& runtime, const gestures::Gesture& 
     // however short or quick; an order that takes an area (the engine
     // starts no box with one armed) gets its box here.
     const uint32_t tick = runtime.frontend_tick();
-    const uint32_t pressed = tick >= kDragClickWindow ? tick - kDragClickWindow : 0;
+    const uint32_t window = runtime.drag_click_ticks();
+    const uint32_t pressed = tick >= window ? tick - window : 0;
     if (runtime.match_drag_)
         runtime.match_drag_->pressed_tick = pressed;
     else if (area_command(runtime.match_command_))

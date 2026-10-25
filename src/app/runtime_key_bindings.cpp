@@ -9,6 +9,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "device_state.hpp"
+#include "oa/app/input_hints.hpp"
 #include "engine_settings_state.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/match_console.hpp"
@@ -33,6 +34,7 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -606,6 +608,14 @@ struct Runtime::KeyBindingsState {
     keys::KeyboardMap keyboard{};
     keys::Platform platform{};
     std::vector<keys::ActionEvent> events{};
+
+    /// A key down slow keys have not admitted yet, kept so its press can reach the game once.
+    struct HeldBack {
+        bool held{};       ///< a down is waiting
+        SDL_Event event{}; ///< the down, replayed when it is admitted
+    };
+
+    std::array<HeldBack, keys::scancode_limit> held_back{};
     std::vector<std::string> hacks{};
     keys::PointerScheme scheme{keys::PointerScheme::right_click};
     bool number_keys{};
@@ -1038,6 +1048,8 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     state.dispatcher.set_keyboard(state.keyboard);
     state.dispatcher.set_platform(state.platform);
     state.dispatcher.set_bindings(resolved);
+    forget_held_back_keys();
+    apply_key_timings();
     state.resolved = std::move(resolved);
     state.hacks = std::move(hacks);
     state.scheme = scheme;
@@ -1112,32 +1124,97 @@ void Runtime::trace_fed_actions(const std::vector<keys::ActionEvent>& events) co
     }
 }
 
-void Runtime::feed_input_actions(const SDL_Event& event) {
+/// The slot a key's held-back down is kept in.
+///
+/// @param scancode the position
+/// @return the slot; a position past the map shares the unused slot
+uint16_t held_back_slot(uint16_t scancode) noexcept {
+    return scancode < keys::scancode_limit ? scancode : uint16_t{0};
+}
+
+void Runtime::forget_held_back_keys() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    for (KeyBindingsState::HeldBack& slot : key_bindings_state_->held_back)
+        slot = {};
+}
+
+int Runtime::recent_action_phase_count(std::string_view action, keys::Phase phase) const {
+    if (key_bindings_state_ == nullptr)
+        return 0;
+    int count = 0;
+    for (const keys::ActionEvent& action_event : key_bindings_state_->events)
+        if (action_event.action == action && action_event.phase == phase)
+            ++count;
+    return count;
+}
+
+void Runtime::apply_key_timings() {
+    namespace settings = oa::ui::engine_settings;
+    const settings::EngineSettings current =
+        engine_settings_ != nullptr ? engine_settings_->current : settings::EngineSettings{};
+    set_mouse_double_click_time(current.double_press_ms);
+    if (key_bindings_state_ == nullptr)
+        return;
+    keys::Timings timings;
+    timings.slow_keys_ms = current.slow_keys_ms;
+    timings.bounce_keys_ms = current.bounce_keys_ms;
+    timings.double_press_ms = current.double_press_ms == 0 ? 500U : current.double_press_ms;
+    timings.long_press_ms = current.long_press_ms;
+    timings.repeat_delay_ms = current.repeat_delay_ms;
+    timings.repeat_rate = current.repeat_rate;
+    key_bindings_state_->dispatcher.set_timings(timings);
+}
+
+bool Runtime::feed_input_actions(const SDL_Event& event) {
     const bool keymap_changed = event.type == SDL_EVENT_KEYMAP_CHANGED;
     ensure_key_bindings(keymap_changed);
     KeyBindingsState& state = *key_bindings_state_;
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
         state.events = state.dispatcher.release_all(SDL_GetTicks()).events;
         trace_fed_actions(state.events);
-        return;
+        forget_held_back_keys();
+        return false;
     }
     const std::optional<keys::InputEvent> input = input_from_sdl(event, SDL_GetTicks());
     if (!input)
-        return;
+        return false;
     state.dispatcher.set_contexts(input_contexts());
-    state.events = state.dispatcher.feed(*input).events;
+    const keys::Fed fed = state.dispatcher.feed(*input);
+    state.events = fed.events;
     trace_fed_actions(state.events);
+    if (fed.legacy == keys::LegacyGate::hold && event.type == SDL_EVENT_KEY_DOWN) {
+        KeyBindingsState::HeldBack& slot = state.held_back[held_back_slot(input->scancode)];
+        slot.held = true;
+        slot.event = event;
+        return true;
+    }
+    if (fed.legacy == keys::LegacyGate::drop) {
+        if (!input->down)
+            state.held_back[held_back_slot(input->scancode)] = {};
+        return true;
+    }
+    return false;
 }
 
-void Runtime::advance_input_actions() {
+void Runtime::advance_input_actions(bool& running) {
     ensure_key_bindings(false);
     KeyBindingsState& state = *key_bindings_state_;
+    state.dispatcher.set_contexts(input_contexts());
     const keys::Fed fed = state.dispatcher.advance(SDL_GetTicks());
     // An empty frame leaves the last event's action events in place, and is
     // not printed again.
     if (!fed.events.empty()) {
         state.events = fed.events;
         trace_fed_actions(state.events);
+    }
+    for (const keys::InputEvent& admitted : fed.admitted) {
+        KeyBindingsState::HeldBack& slot = state.held_back[held_back_slot(admitted.scancode)];
+        if (!slot.held)
+            continue;
+        SDL_Event replay = slot.event;
+        slot = {};
+        dispatch_after_actions(replay, running);
     }
 }
 

@@ -1333,6 +1333,13 @@ class Runtime final : public menu::Host,
     /// @param[in,out] running loop flag; cleared when the event ends the loop
     void dispatch_event(SDL_Event& event, bool& running);
 
+    /// Dispatches one event after the action events have been fed: full screen, the settings
+    /// request, the view rules, then the screen. [runtime.cpp]
+    ///
+    /// @param event event to dispatch
+    /// @param[in,out] running loop flag; cleared when the event ends the loop
+    void dispatch_after_actions(SDL_Event& event, bool& running);
+
     /// Tracks the window's focus as the application-active flag.
     ///
     /// A focus gain or loss sets the flag. Any other event while inactive sets it
@@ -2458,14 +2465,39 @@ class Runtime final : public menu::Host,
     ///
     /// Called after the input method has taken the keys it is composing, and not for a touch or a
     /// pad event. A keymap change rebuilds the keyboard map and the bindings. Losing the window's
-    /// focus releases every held action and role. Nothing acts on the events. [runtime_key_bindings.cpp]
+    /// focus releases every held action and role. Nothing acts on the events. A key held back by
+    /// slow keys, or dropped by bounce keys, does not reach the rest of the game.
+    /// [runtime_key_bindings.cpp]
     ///
     /// @param event the event dispatch_event is given
-    void feed_input_actions(const SDL_Event& event);
+    /// @return true when the rest of the game should not see this event
+    bool feed_input_actions(const SDL_Event& event);
 
-    /// Fires each hold whose time has passed, once a frame after that frame's events.
-    /// [runtime_key_bindings.cpp]
-    void advance_input_actions();
+    /// Admits keys whose slow-key time has passed, fires holds, and fires the player's repeats,
+    /// once a frame after that frame's events. A key admitted here then reaches the rest of the
+    /// game. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] running loop flag; cleared when an admitted key ends the loop
+    void advance_input_actions(bool& running);
+
+    /// Gives the dispatcher the key timings in effect, and sets the mouse's double-click time.
+    ///
+    /// A double-press time of zero gives the chords 500 ms and clears the mouse hint. Safe to call
+    /// before the dispatcher exists: the hint is still set. [runtime_key_bindings.cpp]
+    void apply_key_timings();
+
+    /// Forgets keys held back by slow keys, without replaying them. [runtime_key_bindings.cpp]
+    void forget_held_back_keys();
+
+    /// How many of the last fed action events name this action and phase.
+    ///
+    /// Zero when the dispatcher has not been made. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param phase the phase
+    /// @return the count
+    [[nodiscard]] int
+    recent_action_phase_count(std::string_view action, oa::ui::key_bindings::Phase phase) const;
 
     /// The contexts, the conditions and text entry for the event about to be fed.
     ///
@@ -12617,6 +12649,10 @@ class Runtime final : public menu::Host,
     /// key-table-observed.tsv in the working directory even when a row does
     /// not match. Throws std::runtime_error on a failure.
     void check_key_table();
+
+    /// Checks slow keys, bounce keys, the double-press time, the player's repeat and the drag
+    /// threshold on one skirmish. Throws std::runtime_error on a failure. [runtime_key_timing_check.cpp]
+    void check_key_timing();
 
     /// Checks the screen's edges scrolling the camera through SDL input, on
     /// the skirmish check_pointer_interfaces() starts.
