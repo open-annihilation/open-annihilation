@@ -214,6 +214,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/key-library)
 add_subdirectory(src/data/input-actions)
 add_subdirectory(src/data/brain-facts)
 add_subdirectory(src/data/brain-library)
@@ -1438,6 +1439,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-ui-game-files oa-app-package-install
   oa-app-map-packs
   oa-data-mutator-library
+  oa-data-key-library
   oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
