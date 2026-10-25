@@ -12341,6 +12341,12 @@ class Runtime final : public menu::Host,
     /// (check_pointer_picks). Throws std::runtime_error on a failure.
     void check_pointer_interfaces();
 
+    /// Plays every row of options_.check_key_table on one skirmish, through
+    /// dispatch_event, and compares each effect with the file. Writes
+    /// key-table-observed.tsv in the working directory even when a row does
+    /// not match. Throws std::runtime_error on a failure.
+    void check_key_table();
+
     /// Checks the screen's edges scrolling the camera through SDL input, on
     /// the skirmish check_pointer_interfaces() starts.
     ///
