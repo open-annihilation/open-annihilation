@@ -2961,6 +2961,15 @@ class Runtime final : public menu::Host,
     /// @return "cor" when the side's nameprefix is COR in any case, else "arm"
     std::string match_side_prefix() const;
 
+    /// Returns the side tile the match draws for the viewed player.
+    ///
+    /// The path is bitmaps/<nameprefix>guisidetile.pcx when the asset store
+    /// holds the viewed side's nameprefix tile, and otherwise the path
+    /// match_side_prefix names.
+    ///
+    /// @return the tile's path in the asset store
+    std::string match_side_tile() const;
+
     /// Returns the GAF that holds the viewed side's panels (PANELTOP,
     /// PANELSIDE and PANELBOT) and the rest of its HUD chrome: the file in
     /// anims/ that the side's SIDEDATA intgaf names, from anims-<language>
