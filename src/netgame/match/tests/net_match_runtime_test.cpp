@@ -2620,18 +2620,36 @@ void naval_units_agree_on_their_height() {
     CHECK(host.net->record_errors == 0 && joiner.net->record_errors == 0);
 }
 
-// A profile that raises weapon types sends shots as 0xe0. Id 300 and an id
-// under 256 both launch on the joiner. 3.1c rules keep the same shot as 0x0d.
+// A profile that raises weapon types sends shots as 0xe0. The joiner
+// launches a unit's shot from the weapon in the named slot: id 300 is that
+// slot's weapon, so the projectile's def is its ref, and an id under 256 in
+// the next slot launches that slot's weapon. A meteor the host shares falls
+// on the joiner, including one past 255. A line-of-sight weapon shared the
+// same way does not: a shot with no source unit is relaunched only for a
+// meteor. 3.1c rules keep the shared shot as 0x0d.
 void remote_wide_shots_reach_the_copy() {
     Machine host_machine(0, kMapCells, true);
     Machine joiner_machine(0, kMapCells, true);
     const char* wide_gun =
         "[W300]{id=300; reloadtime=0.1; range=400; lineofsight=1; weaponvelocity=100; turret=1; "
         "[DAMAGE]{default=10;}}";
+    const char* wide_rock = "[ROCK301]{id=301; reloadtime=1; meteor=1;}";
     CHECK(sim::combat_state::install_weapon_text(host_machine.weapons, wide_gun, false, 1024) == 1);
     CHECK(
         sim::combat_state::install_weapon_text(joiner_machine.weapons, wide_gun, false, 1024) == 1
     );
+    CHECK(
+        sim::combat_state::install_weapon_text(host_machine.weapons, wide_rock, false, 1024) == 1
+    );
+    CHECK(
+        sim::combat_state::install_weapon_text(joiner_machine.weapons, wide_rock, false, 1024) == 1
+    );
+    // The unit's first slot is W300. Its second stays TESTGUN, the weapon
+    // the constructor armed it with, so an id under 256 still has a slot.
+    host_machine.def.weapon1 = "W300";
+    host_machine.def.weapon2 = "TESTGUN";
+    joiner_machine.def.weapon1 = "W300";
+    joiner_machine.def.weapon2 = "TESTGUN";
     host_machine.inbox.peer = &joiner_machine.inbox;
     joiner_machine.inbox.peer = &host_machine.inbox;
     host_machine.start(0);
@@ -2667,6 +2685,29 @@ void remote_wide_shots_reach_the_copy() {
         ));
         deliver();
     };
+    const auto sent_weapon_id = [&] {
+        WideWeaponFireRecord decoded{};
+        bool found = false;
+        for (const auto& record : sent_records(host_machine.inbox)) {
+            if (record.bytes.empty() || record.bytes[0] != 0xe0)
+                continue;
+            CHECK(
+                decode_record(record.bytes.data(), record.bytes.size(), &decoded) == WireError::ok
+            );
+            found = true;
+        }
+        CHECK(found);
+        return decoded.weapon_id;
+    };
+
+    CHECK(world.units[index].weapons[0].def == oa_ref_from_index(300));
+    CHECK(world.units[index].weapons[1].def == oa_ref_from_index(kGun));
+    const auto* wide_def = world_weapon_def(&world, oa_ref_from_index(300));
+    CHECK(wide_def != nullptr && oa_weapon_def_id(wide_def) == 300);
+    CHECK(world_weapon_ref(&world, wide_def) == oa_ref_from_index(300));
+    const auto* wide_meteor = world_weapon_def(&world, oa_ref_from_index(301));
+    CHECK(wide_meteor != nullptr && oa_weapon_def_id(wide_meteor) == 301);
+    CHECK(world_weapon_ref(&world, wide_meteor) == oa_ref_from_index(301));
 
     WideWeaponFireRecord fire{};
     fire.start[0] = 41 << 16;
@@ -2683,44 +2724,73 @@ void remote_wide_shots_reach_the_copy() {
     const auto before = world.game.projectile_count;
     send_wide(fire);
     CHECK(world.game.projectile_count == before + 1);
-    const auto* wide_def = world_weapon_def(&world, oa_ref_from_index(300));
-    CHECK(wide_def != nullptr);
-    if (wide_def != nullptr) {
-        const auto& wide_shot = world.projectiles[before];
-        CHECK(wide_shot.def == oa_ref_from_index(300));
-        CHECK(wide_shot.source == oa_unit_ref_from_slot(index) && wide_shot.owner_index == 0);
-        CHECK(wide_shot.position.x == fire.start[0] && wide_shot.target.x == fire.target[0]);
-    }
-    CHECK(joiner_machine.net->wide_records_applied == 1);
-
-    fire.weapon_id = kGun;
-    send_wide(fire);
-    CHECK(world.game.projectile_count == before + 2);
-    CHECK(world.projectiles[before + 1].def == oa_ref_from_index(kGun));
+    const auto& wide_shot = world.projectiles[before];
+    CHECK(wide_shot.def == oa_ref_from_index(300));
+    CHECK(wide_shot.source == oa_unit_ref_from_slot(index) && wide_shot.owner_index == 0);
+    CHECK(wide_shot.position.x == fire.start[0] && wide_shot.target.x == fire.target[0]);
     CHECK(
         world.units[index].weapons[0].aim_heading == 0x1234 &&
         world.units[index].weapons[0].aim_pitch == -0x100
     );
+    CHECK(joiner_machine.net->wide_records_applied == 1);
+
+    fire.weapon_id = kGun;
+    fire.slot = 1;
+    send_wide(fire);
+    CHECK(world.game.projectile_count == before + 2);
+    CHECK(world.projectiles[before + 1].def == oa_ref_from_index(kGun));
+    CHECK(world.projectiles[before + 1].source == oa_unit_ref_from_slot(index));
+    CHECK(
+        world.units[index].weapons[1].aim_heading == 0x1234 &&
+        world.units[index].weapons[1].aim_pitch == -0x100
+    );
 
     host_machine.inbox.sent.clear();
-    const auto applied = joiner_machine.net->wide_records_applied;
-    const auto shots_before = world.game.projectile_count;
+    auto applied = joiner_machine.net->wide_records_applied;
+    auto shots_before = world.game.projectile_count;
     // launch_meteor is the public path into the binding's shot_fired.
     const FixedVec3 fall_from{fire.start[0], fire.start[1], fire.start[2]};
     const FixedVec3 fall{0, -(8 << 16), 0};
     CHECK(host_machine.match->launch_meteor(oa_ref_from_index(kGun), fall_from, fall, true));
     deliver();
     CHECK(count_sent_type(host_machine.inbox, 0xe0) == 1);
+    CHECK(sent_weapon_id() == kGun);
+    CHECK(sent_of(host_machine.inbox, RecordType::weapon_fire).empty());
+    CHECK(joiner_machine.net->wide_records_applied == applied + 1);
+    CHECK(world.game.projectile_count == shots_before);
+
+    host_machine.inbox.sent.clear();
+    applied = joiner_machine.net->wide_records_applied;
+    shots_before = world.game.projectile_count;
+    CHECK(host_machine.match->launch_meteor(oa_ref_from_index(kRock), fall_from, fall, true));
+    deliver();
+    CHECK(count_sent_type(host_machine.inbox, 0xe0) == 1);
+    CHECK(sent_weapon_id() == kRock);
     CHECK(sent_of(host_machine.inbox, RecordType::weapon_fire).empty());
     CHECK(joiner_machine.net->wide_records_applied == applied + 1);
     CHECK(world.game.projectile_count == shots_before + 1);
+    const auto& rock = world.projectiles[world.game.projectile_count - 1];
+    CHECK(rock.def == oa_ref_from_index(kRock) && rock.source == 0 && rock.owner_index == 10);
+    CHECK(
+        rock.position.x == fall_from.x && rock.position.y == fall_from.y &&
+        rock.position.z == fall_from.z
+    );
+    CHECK(rock.velocity.x == fall.x && rock.velocity.y == fall.y && rock.velocity.z == fall.z);
 
     host_machine.inbox.sent.clear();
-    CHECK(host_machine.match->launch_meteor(oa_ref_from_index(300), fall_from, fall, true));
+    applied = joiner_machine.net->wide_records_applied;
+    shots_before = world.game.projectile_count;
+    CHECK(host_machine.match->launch_meteor(oa_ref_from_index(301), fall_from, fall, true));
     deliver();
     CHECK(count_sent_type(host_machine.inbox, 0xe0) == 1);
+    CHECK(sent_weapon_id() == 301);
     CHECK(sent_of(host_machine.inbox, RecordType::weapon_fire).empty());
-    CHECK(world.projectiles[world.game.projectile_count - 1].def == oa_ref_from_index(300));
+    CHECK(joiner_machine.net->wide_records_applied == applied + 1);
+    CHECK(world.game.projectile_count == shots_before + 1);
+    const auto& far_rock = world.projectiles[world.game.projectile_count - 1];
+    CHECK(
+        far_rock.def == oa_ref_from_index(301) && far_rock.source == 0 && far_rock.owner_index == 10
+    );
     CHECK(
         joiner_machine.connection.packets->traffic
             .record_count[static_cast<uint8_t>(RecordType::weapon_fire)]
