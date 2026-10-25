@@ -27,6 +27,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -244,6 +245,17 @@ void expect_refused(
     helper::Verified verified;
     std::string error;
     OA_CHECK(!helper::verify_package(request, verified, &error));
+    if (error.find(snippet) == std::string::npos) {
+        const std::string file = request.file.generic_string();
+        std::fprintf(
+            stderr,
+            "expected detail containing '%.*s', got '%s' (file %s)\n",
+            static_cast<int>(snippet.size()),
+            snippet.data(),
+            error.c_str(),
+            file.c_str()
+        );
+    }
     OA_CHECK(error.find(snippet) != std::string::npos);
     OA_CHECK(stage_absent(scratch));
 }
@@ -298,7 +310,10 @@ void verification() {
 
     std::vector<uint8_t> flipped = package;
     flipped[0] = static_cast<uint8_t>(flipped[0] ^ 0x01);
-    const fs::path flipped_path = scratch.path / "flipped.zip";
+    // The file name stays the one the feed records. A different name is
+    // refused before the digest is compared.
+    const fs::path flipped_path = scratch.path / "flipped" / "pkg.zip";
+    fs::create_directories(flipped_path.parent_path());
     write_bytes(flipped_path, flipped);
     helper::VerifyRequest wrong_digest = request;
     wrong_digest.file = flipped_path;
