@@ -234,6 +234,7 @@ template <class Visitor, class Profile> void visit_bindings(Visitor& visitor, Pr
     visitor.value("identity.watcher-side-frame", profile.identity.watcher_side_frame);
     visitor.value("identity.skirmish-hidden-sides", profile.identity.skirmish_hidden_sides);
     visitor.value("identity.battle-room-hidden-sides", profile.identity.battle_room_hidden_sides);
+    visitor.value("identity.computer-player-sides", profile.identity.computer_player_sides);
     visitor.value("layout.directories.gamedata", profile.layout.directories.gamedata);
     visitor.value("layout.directories.guis", profile.layout.directories.guis);
     visitor.value("layout.directories.unitpics", profile.layout.directories.unitpics);

@@ -199,10 +199,10 @@ id is refused the same way when no player folder can be worked out.
 
 | Option | What it does |
 |---|---|
-| `--keys ID\|PATH` | Plays this run with one key layout. `ID` is a layout installed in the Keys folder, or `oa-default` for the game's own layout. `PATH` is a folder holding `oakeys.yaml`, or that file itself. The player's own changes are not laid on top. Nothing is saved: not the layout preference, not an own layout, and not which mods have had their stored keys carried over. |
+| `--keys ID\|PATH` | Plays this run with one key layout. `ID` is a layout installed in the Keys folder, or `oa-default` for the game's own layout. `PATH` is a folder holding `oakeys.yaml`, that file itself, or a `.oakeys` file. A `.oakeys` file is read in memory. The player's own changes are not laid on top. Nothing is saved: not the layout preference, not an own layout, and not which mods have had their stored keys carried over. |
 | `--keys-reset` | Plays this run with `oa-default` and no own changes. Nothing is saved. |
 
-`--keys` and `--keys-reset` together are refused with status 1. An id `--keys` names that is not installed, a path it cannot read, or a manifest with an error, ends the run with status 2 before the game starts; each problem is printed. `oa-default` is the built-in layout, not an installed folder. A layout named in the preferences, rather than by `--keys`, that is not installed is left unused for that run and `oa-default` is played instead: that does not end the run.
+`--keys` and `--keys-reset` together are refused with status 1. An id `--keys` names that is not installed, a path it cannot read, a manifest with an error, or a `.oakeys` file the installer refuses, ends the run with status 2 before the game starts; each problem is printed, and nothing is installed or written. `oa-default` is the built-in layout, not an installed folder. A layout named in the preferences, rather than by `--keys`, that is not installed is left unused for that run and `oa-default` is played instead: that does not end the run.
 
 ### Display and sound
 

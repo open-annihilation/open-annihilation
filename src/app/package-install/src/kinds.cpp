@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The kinds of package the game installs, and the names and folder reads
-// each kind shares: oamod, oamap, oalang, expansion, oamut and oabrain.
+// each kind shares: oamod, oamap, oalang, expansion, oamut, oabrain and oakeys.
 
 #include "files.hpp"
 
@@ -14,7 +14,9 @@
 #include "oa/app/package_install/oamut.hpp"
 #include "oa/app/package_install/oabrain.hpp"
 #include "oa/app/package_install/oaexp.hpp"
+#include "oa/app/package_install/oakeys.hpp"
 #include "oa/data/brain_library/library.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/mutator_library/library.hpp"
 #include "oa/app/package_install/origin.hpp"
 #include "oa/app/package_install/prompts.hpp"
@@ -31,6 +33,7 @@ namespace oa::app::package_install {
 
 static_assert(oamut::mutators_folder_name == oa::data::mutator_library::mutators_folder_name);
 static_assert(oabrain::brains_folder_name == oa::data::brain_library::brains_folder_name);
+static_assert(oakeys::keys_folder_name == oa::data::key_library::keys_folder_name);
 
 namespace fs = std::filesystem;
 
@@ -106,6 +109,15 @@ constexpr KindPrompts kBrainPrompts{
     .updated = &oabrain::updated_prompt,
     .refusal_text = &oabrain::refusal_text,
     .refused = &oabrain::refused_prompt,
+};
+
+constexpr KindPrompts kOakeysPrompts{
+    .installing = &oakeys::installing_prompt,
+    .question = &oakeys::question_prompt,
+    .installed = &oakeys::installed_prompt,
+    .updated = &oakeys::updated_prompt,
+    .refusal_text = &oakeys::refusal_text,
+    .refused = &oakeys::refused_prompt,
 };
 
 constexpr PackageKind kKinds[] = {
@@ -192,6 +204,20 @@ constexpr PackageKind kKinds[] = {
         .plan = &oabrain::plan_install,
         .check_staged = &oabrain::check_staged,
         .prompts = &kBrainPrompts,
+    },
+    {
+        .name = "oakeys",
+        .extension = oakeys::oakeys_extension,
+        .manifest = "oakeys.yaml",
+        .manifest_most_bytes = oa::formats::oamod::max_input_bytes,
+        .root_folder = oakeys::keys_folder_name,
+        .prefix = ".oakeys-",
+        .read_manifest = &oakeys::read_manifest,
+        .read_installed = &oakeys::read_installed,
+        .read_backup = &oakeys::read_backup,
+        .plan = &oakeys::plan_install,
+        .check_staged = nullptr,
+        .prompts = &kOakeysPrompts,
     },
 };
 
