@@ -132,8 +132,20 @@ void index_types(Analysis& analysis) {
     for (const TimelineUnitType& type : header.unit_types)
         if (analysis.types[type.type_index] == nullptr)
             analysis.types[type.type_index] = &type;
+    uint16_t largest_weapon{};
+    bool any_weapon{false};
+    for (const TimelineWeapon& weapon : header.weapons) {
+        if (!any_weapon || weapon.weapon_id > largest_weapon) {
+            largest_weapon = weapon.weapon_id;
+            any_weapon = true;
+        }
+    }
+    analysis.weapons.assign(
+        any_weapon ? static_cast<std::size_t>(largest_weapon) + 1u : 0u, nullptr
+    );
     for (const TimelineWeapon& weapon : header.weapons)
-        if (analysis.weapons[weapon.weapon_id] == nullptr)
+        if (weapon.weapon_id < analysis.weapons.size() &&
+            analysis.weapons[weapon.weapon_id] == nullptr)
             analysis.weapons[weapon.weapon_id] = &weapon;
 }
 
@@ -233,7 +245,7 @@ uint32_t start_life(
         life.mobile = type->mobile;
         life.builder = type->builder;
         life.factory = !type->mobile && type->builder;
-        life.armed = std::any_of(type->weapons.begin(), type->weapons.end(), [](uint8_t weapon) {
+        life.armed = std::any_of(type->weapons.begin(), type->weapons.end(), [](uint16_t weapon) {
             return weapon != 0;
         });
         life.value = std::max<int64_t>(1, type->metal_cost);
@@ -486,7 +498,7 @@ void find_deciding_death(Analysis& analysis) {
 struct PendingShot {
     uint32_t tick{};
     uint16_t shooter{};
-    uint8_t weapon{};
+    uint16_t weapon{};
     Point origin{};
 };
 
@@ -532,7 +544,7 @@ void weigh_events(Analysis& analysis) {
     for (const uint32_t index : analysis.event_order) {
         const TimelineEvent& event{timeline.events[index]};
         const EventLives& lives{analysis.event_lives[index]};
-        const TimelineWeapon* weapon{analysis.weapons[event.weapon]};
+        const TimelineWeapon* weapon{weapon_of(analysis, event.weapon)};
         HotEvent hot{};
         hot.tick = event.tick;
         hot.at = ground_of(event.at);
@@ -635,7 +647,7 @@ void weigh_events(Analysis& analysis) {
              water_at(analysis, fire.impact) > tuning::launch_water_limit_percent))
             continue;
         last = fire.shot_tick;
-        const int64_t score{blast_score(analysis.weapons[fire.weapon])};
+        const int64_t score{blast_score(weapon_of(analysis, fire.weapon))};
         found.push_back(Moment{fire.shot_tick, MomentKind::launch, fire.origin, score, index});
         found.push_back(
             Moment{
@@ -730,6 +742,10 @@ uint8_t side_of(const Analysis& analysis, Point at) noexcept {
 
 const TimelineUnitType* type_of(const Analysis& analysis, uint16_t type_index) noexcept {
     return type_index < analysis.types.size() ? analysis.types[type_index] : nullptr;
+}
+
+const TimelineWeapon* weapon_of(const Analysis& analysis, uint16_t weapon_id) noexcept {
+    return weapon_id < analysis.weapons.size() ? analysis.weapons[weapon_id] : nullptr;
 }
 
 } // namespace oa::media::director::planning

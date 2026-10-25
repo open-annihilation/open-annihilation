@@ -12,6 +12,8 @@
 #include "oa/core/feature_def.h"
 #include "oa/core/player.h"
 #include "oa/core/unit.h"
+#include "oa/core/weapon_def.h"
+#include "oa/core/world.h"
 #include "oa/data/defs/asset_files.hpp"
 #include "oa/data/defs/move_classes.hpp"
 #include "oa/data/defs/unit_catalog.hpp"
@@ -118,6 +120,16 @@ void push_named(void* context, lua_State* lua) {
         return;
     brains::push_unit(lua, *request->seat, request->ref);
     lua_setglobal(lua, request->global_name);
+}
+
+int push_hooks_read(void* context, lua_State* lua) {
+    auto* seat = static_cast<brains::Seat*>(context);
+    if (seat == nullptr)
+        return luaL_error(lua, "missing seat");
+    lua_rawgeti(lua, LUA_REGISTRYINDEX, seat->hooks_ref);
+    lua_getfield(lua, -1, "read");
+    lua_remove(lua, -2);
+    return 1;
 }
 
 int push_read(void* context, lua_State* lua) {
@@ -331,6 +343,49 @@ void check_seated(const std::string& script, const std::string& manifest) {
     read_seat(fixture, *seat_for(fixture, 0), foe, own, published);
 }
 
+// A weapon past 255 is a record: its name and id, the count, and each.
+void check_wide_weapon(const std::string& manifest) {
+    std::vector<oa::WeaponDef> extras(45);
+    oa::WeaponDef& wide = extras[44];
+    oa::oa_weapon_def_set_id(&wide, 300);
+    std::snprintf(wide.key, sizeof wide.key, "WIDE");
+    std::snprintf(wide.name, sizeof wide.name, "Wide gun");
+
+    Fixture fixture;
+    oa::World& world = fixture.match->state();
+    world.extra_weapon_defs = extras.data();
+    world.extra_weapon_def_count = static_cast<uint32_t>(extras.size());
+    auto& local = world.game.players[0];
+    local.status = OA_PLAYER_STATUS_COMPUTER;
+    local.in_use = 1;
+
+    const char* script = R"lua(return {
+  read = function()
+    local wide = weapons[300]
+    assert(wide ~= nil, "weapon 300 is missing")
+    assert(wide.name == "Wide gun", "weapon 300 name")
+    assert(wide.id == 300, "weapon 300 id")
+    assert(wide:index() == 300, "weapon 300 index")
+    assert(#weapons == 2, "weapon count")
+    local seen = false
+    weapons:each(function(weapon)
+      if weapon:index() == 300 then seen = true end
+    end)
+    assert(seen, "each missed weapon 300")
+  end
+}
+)lua";
+    seat_reader(fixture, script, manifest, 0);
+    host::Sandbox* sandbox = brains::seat_sandbox(*fixture.match, 0);
+    CHECK(sandbox != nullptr);
+    host::CallHooks hooks;
+    hooks.context = seat_for(fixture, 0);
+    hooks.push = push_hooks_read;
+    host::ScriptError error;
+    if (!sandbox->call("read", hooks, error))
+        throw std::runtime_error(error.message.empty() ? "wide weapon read failed" : error.message);
+}
+
 std::string lower_copy(std::string_view text) {
     std::string out(text);
     for (char& letter : out) {
@@ -396,7 +451,7 @@ std::string_view chars_view(const char* text, std::size_t room) {
 // definition keeps that stand-in as an empty name, the same way the unit
 // definition does.
 std::string weapon_kept(const defs::WeaponTable& weapons, oa_ref32 ref) {
-    if (ref <= 1 || ref > OA_WEAPON_DEF_COUNT)
+    if (ref <= 1 || static_cast<std::size_t>(ref) > weapons.defs.size())
         return {};
     const char* key = weapons.defs[ref - 1].key;
     return std::string(chars_view(key, sizeof weapons.defs[ref - 1].key));
@@ -770,5 +825,6 @@ int main(int argc, char** argv) {
     const std::string manifest = load_text("oabrain.yaml");
     check_outside(script, manifest);
     check_seated(script, manifest);
+    check_wide_weapon(manifest);
     return 0;
 }

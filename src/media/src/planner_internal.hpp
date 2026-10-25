@@ -35,8 +35,6 @@ inline constexpr uint32_t never = std::numeric_limits<uint32_t>::max();
 inline constexpr uint32_t no_index = std::numeric_limits<uint32_t>::max();
 /// The players a timeline names: indices 0 to OA_PLAYER_COUNT - 1.
 inline constexpr size_t player_slots = OA_PLAYER_COUNT;
-/// The weapon ids a timeline names.
-inline constexpr size_t weapon_slots = 256;
 /// A health event's kind (TimelineEvent::damage_kind) for paralysis.
 inline constexpr uint8_t paralysis_kind = 2;
 /// A health event's kind for healing.
@@ -289,7 +287,7 @@ struct LongRangeFire {
     Point origin{}; ///< the muzzle
     Point impact{};
     uint16_t shooter{}; ///< the shooter's unit slot
-    uint8_t weapon{};
+    uint16_t weapon{};
     bool launched{}; ///< the weapon launches vertically or is stockpiled: a missile
     int64_t score{}; ///< its detonation's score
 };
@@ -348,9 +346,10 @@ struct Analysis {
     std::array<uint8_t, player_slots> team{};
     std::array<bool, player_slots> has_start{};
     std::array<Point, player_slots> start{};
-    std::vector<const TimelineUnitType*> types{};              ///< by type index
-    std::array<const TimelineWeapon*, weapon_slots> weapons{}; ///< by weapon id
-    std::vector<Life> lives{};                                 ///< in order of birth
+    std::vector<const TimelineUnitType*> types{}; ///< by type index
+    std::vector<const TimelineWeapon*>
+        weapons{};             ///< by weapon id; empty when the header names none
+    std::vector<Life> lives{}; ///< in order of birth
     /// The timeline's events before end_tick, as indices, in tick order.
     std::vector<uint32_t> event_order{};
     /// The timeline's samples before end_tick, as indices, by tick then slot.
@@ -512,6 +511,14 @@ latest_sample(const Analysis& analysis, uint32_t life, uint32_t tick) noexcept;
 /// @return the type, or null when the timeline does not name it
 [[nodiscard]] const TimelineUnitType*
 type_of(const Analysis& analysis, uint16_t type_index) noexcept;
+
+/// Returns a weapon by its id.
+///
+/// @param analysis the analysis
+/// @param weapon_id the weapon's id
+/// @return the weapon, or null when the timeline does not name it
+[[nodiscard]] const TimelineWeapon*
+weapon_of(const Analysis& analysis, uint16_t weapon_id) noexcept;
 
 /// What a subject is; on equal scores, earlier kinds are preferred.
 enum class SubjectKind : uint8_t {
