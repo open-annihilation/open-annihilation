@@ -15,6 +15,7 @@
 #include "match_models.hpp"
 #include "oa/sim/speed.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/console/hotkeys.hpp"
 #include "oa/ui/hud/chat_panel.hpp"
 #include "oa/ui/hud/order_panel.hpp"
 #include "oa/ui/hud/unit_info.hpp"
@@ -29,8 +30,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <initializer_list>
 #include <iostream>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -40,30 +43,66 @@
 #include <vector>
 
 namespace oa::app {
+
+namespace keys = oa::ui::key_bindings;
+
 namespace {
 
-// The game speed step a speed key asks for: 1 for '+', '=' and the keypad's
-// '+', -1 for '-' and the keypad's '-', 0 for any other key.
-int game_speed_key_step(const SDL_KeyboardEvent& key) {
-    if (key.key == SDLK_MINUS || key.key == SDLK_KP_MINUS || key.scancode == SDL_SCANCODE_MINUS ||
-        key.scancode == SDL_SCANCODE_KP_MINUS)
-        return -1;
-    if (key.key == SDLK_EQUALS || key.key == SDLK_PLUS || key.key == SDLK_KP_PLUS ||
-        key.scancode == SDL_SCANCODE_EQUALS || key.scancode == SDL_SCANCODE_KP_PLUS)
-        return 1;
-    return 0;
+/// The squad or page number at the end of an action id, or 0.
+///
+/// `build.page-next` is not a numbered page: the id must be the prefix and
+/// one digit.
+///
+/// @param id the action id
+/// @param prefix the part before the digit
+/// @return 1 through 9, or 0
+int action_number(std::string_view id, std::string_view prefix) {
+    if (!id.starts_with(prefix) || id.size() != prefix.size() + 1)
+        return 0;
+    const char digit = id.back();
+    if (digit < '1' || digit > '9')
+        return 0;
+    return digit - '0';
 }
 
-/// Returns the way a build-page key turns the order panel's page.
+/// Whether a repeat of this action still changes the speed or the page.
 ///
-/// @param key the key pressed
-/// @return 1 for '.', -1 for ',', 0 for any other key
-int page_key_step(const SDL_KeyboardEvent& key) {
-    if (key.key == SDLK_PERIOD)
-        return 1;
-    if (key.key == SDLK_COMMA)
-        return -1;
-    return 0;
+/// @param id the action id
+/// @return true for the speed and page actions
+bool answers_repeat(std::string_view id) {
+    return id == "game.speed-up" || id == "game.speed-down" || id == "build.page-next" ||
+           id == "build.page-previous";
+}
+
+/// The pressed event whose id is one of `ids`.
+///
+/// @param events the current event's action events
+/// @param ids the ids to answer now
+/// @return that event, or null
+const keys::ActionEvent* find_pressed(
+    std::span<const keys::ActionEvent> events, std::initializer_list<std::string_view> ids
+) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed)
+            continue;
+        for (const std::string_view id : ids) {
+            if (fed.action == id)
+                return &fed;
+        }
+    }
+    return nullptr;
+}
+
+/// Whether this repeat is a speed or page action's `repeated` event.
+///
+/// @param events the current event's action events
+/// @return true when one of those actions repeated
+bool repeats_speed_or_page(std::span<const keys::ActionEvent> events) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase == keys::Phase::repeated && answers_repeat(fed.action))
+            return true;
+    }
+    return false;
 }
 
 // The unit info panel's control that shows the unit's picture, and the one
@@ -108,6 +147,276 @@ bool types_quick_key(
 
 } // namespace
 
+bool Runtime::handle_match_action(const keys::ActionEvent& action) {
+    // Action ids are strings, so this is a chain of comparisons.
+    const std::string_view id = action.action;
+    if (id == "game.kill-board" || id == "game.resource-panel") {
+        if (resource_panel_f4_key())
+            return true;
+        if (match_console() == nullptr)
+            return false;
+        run_console_hotkey(oa::ui::console::hotkey::f1 + 3);
+        return true;
+    }
+    if (id == "game.pin-unit") {
+        auto& game = match_->state().game;
+        game.pinned_unit_a_valid = game.cursor_unit_id != 0 ? 1U : 0U;
+        if (game.cursor_unit_id != 0)
+            game.pinned_unit_a = game.cursor_unit_id;
+        return true;
+    }
+    if (id == "game.unit-info") {
+        // Without a unit to show, F1 does nothing.
+        std::ignore = open_unit_info();
+        return true;
+    }
+    if (id == "game.menu") {
+        if (match_paused_)
+            resume_match_pause();
+        else
+            show_match_pause_menu();
+        return true;
+    }
+    if (id == "camera.next-report") {
+        oa::sim::messages::cycle_reported_units(match_->state(), message_hooks());
+        return true;
+    }
+    if (id == "game.clear-messages") {
+        oa::sim::messages::clear_messages(match_->state().game);
+        return true;
+    }
+    // Pause flips the pause bit and opens no menu; a finished match keeps it
+    // as it is. Pause is a console hotkey and a match is running, so it is
+    // always taken.
+    if (id == "game.pause") {
+        if (!match_finished_)
+            run_console_hotkey(oa::ui::console::hotkey::pause);
+        return true;
+    }
+    if (id == "game.screenshot") {
+        capture_screenshot();
+        return true;
+    }
+    if (id == "chat.cancel") {
+        close_chat_line();
+        return true;
+    }
+    if (id == "chat.send") {
+        submit_chat_line();
+        return true;
+    }
+    // Escape takes back an armed command and keeps the selection; with none
+    // armed it drops the selection. With the Escape opens the game menu
+    // setting on and nothing selected, it opens the in-game menu as F2 does,
+    // which does not stop a shared game; with the menu open, the event
+    // handler closes it.
+    if (id == "game.back") {
+        if (match_paused_)
+            return false;
+        if (match_command_ != MatchCommand::none || pending_build_type_ != 0) {
+            clear_or_cancel_match_command();
+            return true;
+        }
+        if (!match_finished_ && !has_local_selection() &&
+            EngineSettingsState::escape_opens_menu(*this)) {
+            show_match_pause_menu();
+            return true;
+        }
+        clear_or_cancel_match_command();
+        return true;
+    }
+    if (id == "order.self-destruct") {
+        if (selected_match_unit_ == 0)
+            return false;
+        match_->toggle_self_destruct(selected_local_ids());
+        status_ = "Self-destruct";
+        return true;
+    }
+    if (const int assigned = action_number(id, "group.assign-"); assigned != 0) {
+        assign_squad(assigned);
+        return true;
+    }
+    if (const int selected = action_number(id, "group.select-"); selected != 0) {
+        select_squad(selected, false);
+        return true;
+    }
+    if (const int added = action_number(id, "group.add-"); added != 0) {
+        select_squad(added, true);
+        return true;
+    }
+    if (const int page = action_number(id, "build.page-"); page != 0) {
+        show_match_page_by_key(page - 1);
+        return true;
+    }
+    // Shift+1, Shift+3 and Shift+8 are damage-bar chords until they are
+    // routed. They do what the digit with Shift did: a build page, or with
+    // Select groups without Alt the group added.
+    int damage_digit = 0;
+    if (id == "game.health-bars-mode-1")
+        damage_digit = 1;
+    else if (id == "game.health-bars-mode-2")
+        damage_digit = 3;
+    else if (id == "game.health-bars-mode-3")
+        damage_digit = 8;
+    if (damage_digit != 0) {
+        const bool switch_alt =
+            (match_->state().game.graphics_flags & oa::ui::console::graphics_flag::switch_alt) != 0;
+        if (switch_alt)
+            select_squad(damage_digit, true);
+        else
+            show_match_page_by_key(damage_digit - 1);
+        return true;
+    }
+    if (id == "game.health-bars" || id == "game.health-bars-mode-4") {
+        run_console_hotkey(static_cast<uint32_t>('`'));
+        return true;
+    }
+    if (id == "select.all") {
+        select_units_matching([](const oa::sim::unit_spawn::Slot&) { return true; });
+        return true;
+    }
+    if (id == "select.commander") {
+        select_and_follow_commander(false);
+        return true;
+    }
+    if (id == "select.commander-add") {
+        select_and_follow_commander(true);
+        return true;
+    }
+    if (id == "select.builders" || id == "select.idle-builders") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        if (selection_shortcut_key(SDLK_B, shift))
+            return true;
+        select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
+            const auto* def = definition_for(slot.unit_index);
+            return def && def->builder && def->bm_code != 0;
+        });
+        return true;
+    }
+    if (id == "select.factories" || id == "select.idle-factories") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        if (selection_shortcut_key(SDLK_F, shift))
+            return true;
+        select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
+            const auto* def = definition_for(slot.unit_index);
+            return def && def->builder && def->bm_code == 0;
+        });
+        return true;
+    }
+    if (id == "select.aircraft") {
+        select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
+            const auto* def = definition_for(slot.unit_index);
+            return def && def->can_fly;
+        });
+        return true;
+    }
+    if (id == "select.on-screen" || id == "select.armed-on-screen") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        if (selection_shortcut_key(SDLK_S, shift))
+            return true;
+        // Ctrl+S selects the local units of the on-screen list: those whose
+        // box overlaps the view.
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        oa::sim::selection::select_visible_units(world, on_screen_lists(), selection_hooks());
+        adopt_selected_units();
+        return true;
+    }
+    if (id == "select.same-type") {
+        // Ctrl+Z adds to the selection every selectable local unit, anywhere
+        // on the map, whose type is the type of any selected unit, as 3.1c
+        // does. The type set holds the profile's type ids, or every type id
+        // with ui.selection-shortcuts' same-type-bitset-fix.
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        const bool every_type =
+            selection_shortcuts_on() && ui_rules().selection_shortcuts.same_type_bitset_fix;
+        oa::sim::selection::select_matching_types(
+            world,
+            selection_hooks(),
+            every_type ? oa::data::limits::highest_type_bits : limits_.unit_types.bitset_bits
+        );
+        adopt_selected_units();
+        int count = 0;
+        for (const auto& slot : match_->world().slots)
+            count += slot.unit != nullptr && slot.owner_index == match_local_player_ &&
+                     (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
+        status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
+        return true;
+    }
+    if (id == "select.next-primary" || id == "select.previous-primary") {
+        if (selected_match_unit_ == 0)
+            return false;
+        cycle_selected_primary(id == "select.previous-primary");
+        return true;
+    }
+    if (id == "camera.follow" || id == "camera.follow-previous") {
+        cycle_match_tracking(id == "camera.follow-previous");
+        return true;
+    }
+    // Space shows the status strip and the kills board only while it is
+    // held (draw_status_panel, draw_match_kill_board), as 3.1c does: its
+    // press selects nothing and moves no camera.
+    if (id == "game.status-strip")
+        return true;
+    // Home centres the view on the selected unit, or with none selects the
+    // local commander and centres on it.
+    if (id == "camera.centre") {
+        if (selected_match_unit_ != 0)
+            center_camera_on_unit(selected_match_unit_);
+        else {
+            select_local_commander();
+            apply_match_hud_for_selection();
+            if (selected_match_unit_ != 0)
+                center_camera_on_unit(selected_match_unit_);
+        }
+        status_ = "Center";
+        return true;
+    }
+    // A multiplayer game's 'h' reached the console's hotkeys above; outside one
+    // it does nothing.
+    if (id == "game.share-panel")
+        return true;
+    // 'n' centres the view on the next local unit not yet visited and marks
+    // the local units then on screen visited; it selects nothing.
+    if (id == "camera.next-unit") {
+        auto& world = match_->state();
+        world.game.local_player_index = match_local_player_;
+        oa::sim::selection::cycle_next_unit(world, on_screen_lists(), selection_hooks());
+        if (const auto next = world.game.cycle_unit_id; next != 0)
+            status_ = "Next " + unit_info_name(next);
+        return true;
+    }
+    // A multiplayer game's watcher changes no speed.
+    if (id == "game.speed-up" || id == "game.speed-down") {
+        if (action.phase != keys::Phase::pressed && action.phase != keys::Phase::repeated)
+            return false;
+        if ((current_extension_state() & extension_state::local_watcher) == 0)
+            adjust_game_speed(id == "game.speed-up" ? 1 : -1);
+        return true;
+    }
+    // The page keys take the order page into their turn, and sound whether
+    // or not a page turns; each repeat of a held one turns again.
+    if (id == "build.page-next" || id == "build.page-previous") {
+        if (action.phase != keys::Phase::pressed && action.phase != keys::Phase::repeated)
+            return false;
+        play_match_interface_sound("nextbuildmenu");
+        press_match_panel_page(
+            id == "build.page-next" ? oa::ui::hud::BuildPanelClick::page_forward
+                                    : oa::ui::hud::BuildPanelClick::page_back,
+            true
+        );
+        return true;
+    }
+    if (id == "chat.open") {
+        open_chat_line();
+        return true;
+    }
+    if (id == "camera.classic-view" || id == "camera.unlocked")
+        return answer_live_view_key(id);
+    return false;
+}
+
 bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     if (screen_ != Screen::match || !match_)
         return false;
@@ -124,65 +433,33 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // held letters arrive as repeated text.
     const bool deletes_typed_text =
         !question && key.key == SDLK_BACKSPACE && (chat_composing_ || whiteboard_input_.editing);
-    if (key.repeat && !deletes_typed_text && game_speed_key_step(key) == 0 &&
-        page_key_step(key) == 0)
+    const auto events = match_action_events();
+    if (key.repeat && !deletes_typed_text && !repeats_speed_or_page(events))
         return false;
     if ((!question && whiteboard_key(key)) || megamap_key(key))
         return true;
-    // F4 pins the kills board out (Game.graphics_flags 0x80).
-    if (key.key == SDLK_F4 || key.scancode == SDL_SCANCODE_F4)
-        return resource_panel_f4_key() || handle_console_hotkey(key);
-    // F1 opens the unit info panel; Shift+F1 pins the unit under the cursor
-    // instead (Game.pinned_unit_a), or unpins without one.
-    if (key.key == SDLK_F1 || key.scancode == SDL_SCANCODE_F1) {
-        auto& game = match_->state().game;
-        if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0) {
-            game.pinned_unit_a_valid = game.cursor_unit_id != 0 ? 1U : 0U;
-            if (game.cursor_unit_id != 0)
-                game.pinned_unit_a = game.cursor_unit_id;
-            return true;
-        }
-        // Without a unit to show, F1 does nothing.
-        std::ignore = open_unit_info();
-        return true;
-    }
-    if (key.key == SDLK_F2 || key.scancode == SDL_SCANCODE_F2) {
-        if (match_paused_)
-            resume_match_pause();
-        else
-            show_match_pause_menu();
-        return true;
-    }
-    // F3 goes to the next unit the message log reported.
-    if (key.key == SDLK_F3 || key.scancode == SDL_SCANCODE_F3) {
-        oa::sim::messages::cycle_reported_units(match_->state(), message_hooks());
-        return true;
-    }
-    if (key.key == SDLK_F12 || key.scancode == SDL_SCANCODE_F12) {
-        oa::sim::messages::clear_messages(match_->state().game);
-        return true;
-    }
-    // Pause flips the pause bit and opens no menu; a finished match keeps it
-    // as it is.
-    if (key.key == SDLK_PAUSE || key.scancode == SDL_SCANCODE_PAUSE) {
-        // Pause is a console hotkey and a match is running, so it is always
-        // taken.
-        if (!match_finished_)
-            std::ignore = handle_console_hotkey(key);
-        return true;
-    }
-    if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0 &&
-        (key.key == SDLK_F9 || key.scancode == SDL_SCANCODE_F9)) {
-        capture_screenshot();
-        return true;
-    }
+    if (const keys::ActionEvent* pressed = find_pressed(
+            events,
+            {"game.kill-board",
+             "game.resource-panel",
+             "game.unit-info",
+             "game.pin-unit",
+             "game.menu",
+             "camera.next-report",
+             "game.clear-messages",
+             "game.pause",
+             "game.screenshot"}
+        ))
+        return handle_match_action(*pressed);
     if (chat_composing_ && !question) {
+        if (const keys::ActionEvent* cancel = find_pressed(events, {"chat.cancel"}))
+            return handle_match_action(*cancel);
+        if (const keys::ActionEvent* send = find_pressed(events, {"chat.send"}))
+            return handle_match_action(*send);
+        // chat.cancel is fixed to Escape, so Ctrl+Escape emits nothing while
+        // the line is open. The key still closes it.
         if (key.key == SDLK_ESCAPE) {
             close_chat_line();
-            return true;
-        }
-        if (key.key == SDLK_RETURN) {
-            submit_chat_line();
             return true;
         }
         if (key.key == SDLK_BACKSPACE && !chat_buffer_.empty()) {
@@ -211,183 +488,24 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
         return true;
     if (handle_console_hotkey(key))
         return true;
-    // Escape takes back an armed command and keeps the selection; with none
-    // armed it drops the selection. With the Escape opens the game menu
-    // setting on and nothing selected, it opens the in-game menu as F2 does,
-    // which does not stop a shared game; with the menu open, the event
-    // handler closes it.
-    if (key.key == SDLK_ESCAPE) {
-        if (match_paused_)
-            return false;
-        if (match_command_ != MatchCommand::none || pending_build_type_ != 0) {
-            clear_or_cancel_match_command();
-            return true;
-        }
-        if (!match_finished_ && !has_local_selection() &&
-            EngineSettingsState::escape_opens_menu(*this)) {
-            show_match_pause_menu();
-            return true;
-        }
-        clear_or_cancel_match_command();
-        return true;
-    }
+    if (const keys::ActionEvent* back = find_pressed(events, {"game.back"}))
+        return handle_match_action(*back);
     if (match_paused_)
         return false;
-    const auto mods = input_modifiers(ModifierUse::keyboard);
-    if ((mods & SDL_KMOD_CTRL) != 0 && (key.key == SDLK_D || key.scancode == SDL_SCANCODE_D) &&
-        selected_match_unit_ != 0) {
-        match_->toggle_self_destruct(selected_local_ids());
-        status_ = "Self-destruct";
-        return true;
+    for (const keys::ActionEvent& fed : events) {
+        const bool answers = fed.phase == keys::Phase::pressed ||
+                             (fed.phase == keys::Phase::repeated && answers_repeat(fed.action));
+        if (!answers)
+            continue;
+        if (handle_match_action(fed))
+            return true;
     }
-    const bool ctrl = (mods & SDL_KMOD_CTRL) != 0;
-    const bool alt = (mods & SDL_KMOD_ALT) != 0;
-    const bool shift = (mods & SDL_KMOD_SHIFT) != 0;
-    const auto sym = key.key;
-    if (const int n = squad_from_key(key); n != 0) {
-        if (ctrl) {
-            assign_squad(n);
-            return true;
-        }
-        // A digit picks its squad with Alt down, or with Alt up
-        // once SwitchAlt is on; otherwise it picks build page digit - 1.
-        const bool switch_alt =
-            (match_->state().game.graphics_flags & oa::ui::console::graphics_flag::switch_alt) != 0;
-        if (alt != switch_alt)
-            select_squad(n, shift);
-        else
-            show_match_page_by_key(n - 1);
-        return true;
-    }
-    if (ctrl) {
-        if (selection_shortcut_key(sym, shift))
-            return true;
-        if (sym == SDLK_A) {
-            select_units_matching([](const oa::sim::unit_spawn::Slot&) { return true; });
-            return true;
-        }
-        if (sym == SDLK_C) {
-            select_and_follow_commander(shift);
-            return true;
-        }
-        if (sym == SDLK_B) {
-            select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-                const auto* def = definition_for(slot.unit_index);
-                return def && def->builder && def->bm_code != 0;
-            });
-            return true;
-        }
-        if (sym == SDLK_F) {
-            select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-                const auto* def = definition_for(slot.unit_index);
-                return def && def->builder && def->bm_code == 0;
-            });
-            return true;
-        }
-        if (sym == SDLK_V) {
-            select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-                const auto* def = definition_for(slot.unit_index);
-                return def && def->can_fly;
-            });
-            return true;
-        }
-        // Ctrl+S selects the local units of the on-screen list: those whose
-        // box overlaps the view.
-        if (sym == SDLK_S) {
-            auto& world = match_->state();
-            world.game.local_player_index = match_local_player_;
-            oa::sim::selection::select_visible_units(world, on_screen_lists(), selection_hooks());
-            adopt_selected_units();
-            return true;
-        }
-        // Ctrl+Z adds to the selection every selectable local unit, anywhere
-        // on the map, whose type is the type of any selected unit, as 3.1c
-        // does. The type set holds the profile's type ids, or every type id
-        // with ui.selection-shortcuts' same-type-bitset-fix.
-        if (sym == SDLK_Z) {
-            auto& world = match_->state();
-            world.game.local_player_index = match_local_player_;
-            const bool every_type =
-                selection_shortcuts_on() && ui_rules().selection_shortcuts.same_type_bitset_fix;
-            oa::sim::selection::select_matching_types(
-                world,
-                selection_hooks(),
-                every_type ? oa::data::limits::highest_type_bits : limits_.unit_types.bitset_bits
-            );
-            adopt_selected_units();
-            int count = 0;
-            for (const auto& slot : match_->world().slots)
-                count += slot.unit != nullptr && slot.owner_index == match_local_player_ &&
-                         (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0;
-            status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
-            return true;
-        }
+    // A Ctrl chord the actions do not name is not a quick key.
+    if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0)
         return false;
-    }
-    if (sym == SDLK_TAB && selected_match_unit_ != 0) {
-        cycle_selected_primary(shift);
-        return true;
-    }
-    if (sym == SDLK_T || key.scancode == SDL_SCANCODE_T) {
-        cycle_match_tracking(shift);
-        return true;
-    }
-    // Space shows the status strip and the kills board only while it is
-    // held (draw_status_panel, draw_match_kill_board), as 3.1c does: its
-    // press selects nothing and moves no camera.
-    if (sym == SDLK_SPACE || key.scancode == SDL_SCANCODE_SPACE)
-        return true;
-    // Home centres the view on the selected unit, or with none selects the
-    // local commander and centres on it.
-    if (sym == SDLK_HOME || key.scancode == SDL_SCANCODE_HOME) {
-        if (selected_match_unit_ != 0)
-            center_camera_on_unit(selected_match_unit_);
-        else {
-            select_local_commander();
-            apply_match_hud_for_selection();
-            if (selected_match_unit_ != 0)
-                center_camera_on_unit(selected_match_unit_);
-        }
-        status_ = "Center";
-        return true;
-    }
-    // A multiplayer game's 'h' reached the console's hotkeys above; outside one
-    // it does nothing.
-    if (sym == SDLK_H)
-        return true;
-    // 'n' centres the view on the next local unit not yet visited and marks
-    // the local units then on screen visited; it selects nothing.
-    if (sym == SDLK_N) {
-        auto& world = match_->state();
-        world.game.local_player_index = match_local_player_;
-        oa::sim::selection::cycle_next_unit(world, on_screen_lists(), selection_hooks());
-        if (const auto next = world.game.cycle_unit_id; next != 0)
-            status_ = "Next " + unit_info_name(next);
-        return true;
-    }
-    // A multiplayer game's watcher changes no speed.
-    if (const int step = game_speed_key_step(key); step != 0) {
-        if ((current_extension_state() & extension_state::local_watcher) == 0)
-            adjust_game_speed(step);
-        return true;
-    }
-    // The page keys take the order page into their turn, and sound whether
-    // or not a page turns; each repeat of a held one turns again.
-    if (const int step = page_key_step(key); step != 0) {
-        play_match_interface_sound("nextbuildmenu");
-        press_match_panel_page(
-            step > 0 ? oa::ui::hud::BuildPanelClick::page_forward
-                     : oa::ui::hud::BuildPanelClick::page_back,
-            true
-        );
-        return true;
-    }
-    if (sym == SDLK_RETURN || key.scancode == SDL_SCANCODE_RETURN) {
-        open_chat_line();
-        return true;
-    }
     // A button whose quick key is the typed letter in either case
     // is clicked (ATTACK 'a', BLAST 'd', STOP 's', ...).
+    const auto sym = key.key;
     if (match_hud_ && sym < 0x80) {
         const auto typed = std::tolower(static_cast<int>(sym));
         for (std::size_t i = 0; i < match_hud_->layout.gadgets.size(); ++i) {

@@ -17,6 +17,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <string_view>
 #include <unordered_map>
 
 namespace oa::app {
@@ -128,6 +129,37 @@ void Runtime::reset_live_renderer() {
         live_renderer_->failed = false;
         live_renderer_->unavailable = false;
     }
+}
+
+bool Runtime::answer_live_view_key(std::string_view action) {
+    if (action != "camera.classic-view" && action != "camera.unlocked")
+        return false;
+    // Where no rotated view can be drawn, Alt and its keys stay the game's.
+    if ((live_renderer_ && live_renderer_->gpu.device_unavailable) ||
+        !engine_settings().allow_full_3d || screen_ != Screen::match || !match_ || !selected_tnt_)
+        return false;
+    if (!full_presentation() && !options_.headless_check)
+        return false;
+    // A marker's text takes the letters, and a panel or the question owns the
+    // keys.
+    if (match_question_open() || chat_composing_ || whiteboard_input_.editing || match_paused_)
+        return false;
+    if (!live_renderer_)
+        live_renderer_.reset(new LiveRenderer{});
+    if (action == "camera.classic-view") {
+        reset_live_renderer();
+        return true;
+    }
+    auto& live = *live_renderer_;
+    live.failed = false;
+    live.unavailable = false;
+    const auto before = engine_settings();
+    auto chosen = before;
+    chosen.unlocked_camera = !chosen.unlocked_camera;
+    apply_engine_settings(chosen);
+    if (const auto error = save_engine_settings(before, chosen, false))
+        status_ = *error;
+    return true;
 }
 
 bool Runtime::live_renderer_take_event(SDL_Event& event) {

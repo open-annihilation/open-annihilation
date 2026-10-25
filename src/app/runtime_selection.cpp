@@ -562,14 +562,4 @@ void Runtime::select_units_matching(
     status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
 }
 
-int Runtime::squad_from_key(const SDL_KeyboardEvent& key) const {
-    if (key.scancode >= SDL_SCANCODE_1 && key.scancode <= SDL_SCANCODE_9)
-        return static_cast<int>(key.scancode - SDL_SCANCODE_1) + 1;
-    if (key.scancode >= SDL_SCANCODE_KP_1 && key.scancode <= SDL_SCANCODE_KP_9)
-        return static_cast<int>(key.scancode - SDL_SCANCODE_KP_1) + 1;
-    if (key.key >= SDLK_1 && key.key <= SDLK_9)
-        return static_cast<int>(key.key - SDLK_1) + 1;
-    return 0;
-}
-
 } // namespace oa::app

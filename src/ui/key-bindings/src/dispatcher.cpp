@@ -1061,4 +1061,23 @@ bool Dispatcher::role_active(
     return false;
 }
 
+bool Dispatcher::chord_key_held(std::string_view action, const HeldKeys& keys_held) const {
+    const Bound* found = nullptr;
+    for (const Bound& bound : state_->resolved.actions) {
+        if (bound.id == action) {
+            found = &bound;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return false;
+    for (const BoundChord& item : found->chords) {
+        if (item.chord.kind == TriggerKind::modifier_alone)
+            continue;
+        if (trigger_held(item.chord, keys_held, state_->keyboard))
+            return true;
+    }
+    return false;
+}
+
 } // namespace oa::ui::key_bindings
