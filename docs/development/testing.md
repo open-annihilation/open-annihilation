@@ -1252,7 +1252,7 @@ and the bar at three window sizes are in `docs/images/progress/`.
 | Characterisation | Pins what a decoder, raster routine or table does today, edge cases stated byte by byte and seeded sweeps pinned by digest | `present-rle`, `hpi-read-node` |
 | Pinned values | Pins digests or bytes that must not move: a whole match, the random streams, the bytes the writers produce | `match-determinism`, `match-shared-random`, `hpi-writer-golden`, `persist-bank-golden` |
 | Game data | Reads the installed game named by `OA_GAME_DIR` | `unit-definitions-data`, `installed-content` |
-| Native | Runs the game headless over the installation and checks what it does | `native-saveload`, `native-trace` |
+| Native | Runs the game headless over the installation and checks what it does | `native-saveload`, `native-saveload-limits`, `native-trace` |
 | Demo | Runs the game headless over the demo's data, unpacked from the installer `OA_DEMO_INSTALLER` names, and checks what it does | `native-demo-installer`, `native-demo-mission-ac01` |
 | Extension boundary | Checks the extension table and the `Runtime` members an extension may add | `extension-layout-mismatch`, `runtime-surface-names` |
 | Source checks | Check the tree's files against the conventions | `doc-links`, `style-ratchet`, `licensing-check` |

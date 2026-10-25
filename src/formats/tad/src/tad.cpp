@@ -355,6 +355,32 @@ std::string_view sector_text(const Sector& sector) noexcept {
     return text.substr(0, text.find('\0'));
 }
 
+std::array<uint8_t, limits_sector_bytes> encode_limits_sector(const RecordedLimits& limits) {
+    std::array<uint8_t, limits_sector_bytes> out{};
+    const auto put = [](uint8_t* at, uint32_t value) {
+        at[0] = static_cast<uint8_t>(value);
+        at[1] = static_cast<uint8_t>(value >> 8);
+        at[2] = static_cast<uint8_t>(value >> 16);
+        at[3] = static_cast<uint8_t>(value >> 24);
+    };
+    put(out.data(), limits.weapon_types);
+    put(out.data() + 4, limits.sides);
+    return out;
+}
+
+std::optional<RecordedLimits> decode_limits_sector(const Sector& sector) {
+    if (sector.data.size() != limits_sector_bytes)
+        return std::nullopt;
+    RecordedLimits limits;
+    limits.weapon_types = base::bytes::load_le32(sector.data.data());
+    limits.sides = base::bytes::load_le32(sector.data.data() + 4);
+    if (limits.weapon_types < recorded_base_weapon_types ||
+        limits.weapon_types > recorded_highest_weapon_types || limits.sides < recorded_base_sides ||
+        limits.sides > recorded_highest_sides)
+        return std::nullopt;
+    return limits;
+}
+
 std::vector<std::span<const uint8_t>> unit_check_records(const Demo& demo) {
     std::vector<std::span<const uint8_t>> records;
     for (std::size_t at = 0; at + layout::unit_check_record_bytes <= demo.unit_checks.size();
@@ -363,7 +389,7 @@ std::vector<std::span<const uint8_t>> unit_check_records(const Demo& demo) {
     return records;
 }
 
-std::size_t record_length(Bytes bytes) noexcept {
+std::size_t record_length(Bytes bytes, RecordForms forms) noexcept {
     if (bytes.empty())
         return 0;
     const uint8_t type = bytes[0];
@@ -374,6 +400,11 @@ std::size_t record_length(Bytes bytes) noexcept {
             length = 0;
     } else if (type < game_record_lengths.size())
         length = game_record_lengths[type];
+    else if (
+        forms == RecordForms::wide && type >= first_wide_recorded_type &&
+        static_cast<std::size_t>(type - first_wide_recorded_type) < wide_record_lengths.size()
+    )
+        length = wide_record_lengths[static_cast<std::size_t>(type - first_wide_recorded_type)];
     else
         length = recorder_record_length(bytes);
     return length == 0 || length > bytes.size() ? 0 : length;
@@ -403,7 +434,7 @@ DecodedPayload decode_payload(Bytes payload) {
     return decoded;
 }
 
-RecordSplit split_records(Bytes payload) {
+RecordSplit split_records(Bytes payload, RecordForms forms) {
     RecordSplit split;
     if (payload.empty()) {
         split.error = make_error(ErrorCode::truncated, 0, "empty payload");
@@ -418,7 +449,7 @@ RecordSplit split_records(Bytes payload) {
     std::size_t at = 1;
     while (at < payload.size()) {
         const Bytes rest = payload.subspan(at);
-        std::size_t length = record_length(rest);
+        std::size_t length = record_length(rest, forms);
         if (length == 0 && at == 1)
             length = packet_filling_length(rest);
         if (length == 0) {

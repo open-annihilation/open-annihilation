@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -60,6 +61,7 @@ struct PlaybackStats {
     uint32_t untimed_unit_states{}; // 0xfd or 0xff with no tick base before it
     uint32_t sends_dropped{};       // the watcher's own outgoing frames
     uint32_t unknown_senders{};     // packets from a number no player chunk names; dropped
+    uint32_t wide_records{};        // 0xE0..0xE2 kept in the rebuilt frames
 };
 
 struct DemoPlayback {
@@ -79,10 +81,35 @@ struct DemoPlayback {
     std::size_t cursor{};
     uint32_t tick{}; // local tick being delivered for
     PlaybackStats stats;
+    /// The limits sector when the recording carried one that could be read.
+    std::optional<formats::tad::RecordedLimits> limits;
+    /// True when a limits sector was present and could not be read.
+    bool limits_unreadable{};
     /// How a recording of ten players is watched (recorder.ten-player-replay);
     /// off refuses one, as the viewer then has no slot of its own.
     netgame::TenPlayerReplay ten_player_replay{};
 };
+
+/// How a recording's limits sit against the mod the player has.
+enum class DemoLimitsVerdict : uint8_t {
+    plays,        ///< the recording can play
+    other_limits, ///< it names limits this mod does not
+    base_limits,  ///< it has no limits sector and this mod raises one
+    unreadable,   ///< its limits sector cannot be read
+};
+
+/// Tells whether a recording plays under two limits.
+///
+/// A readable sector equal to the two values plays, and one that differs
+/// does not. An unreadable sector does not play. No sector plays when both
+/// values are 3.1c's weapon types and sides, and does not when either is raised.
+///
+/// @param playback Loaded playback.
+/// @param weapon_types Weapon types the mod numbers.
+/// @param sides Sides the mod loads.
+/// @return The verdict.
+[[nodiscard]] DemoLimitsVerdict
+demo_limits_verdict(const DemoPlayback& playback, uint32_t weapon_types, uint32_t sides) noexcept;
 
 /// Tells how the match sees a playback's viewer: as a slotless viewer when every slot belongs to a
 /// recorded player (recorder.ten-player-replay), a watcher under watcher-view and every recorded

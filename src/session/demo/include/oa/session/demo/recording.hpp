@@ -16,6 +16,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -55,6 +56,9 @@ struct RecordingSetup {
     /// writes no sector. A text longer than recording_brains_most_bytes is
     /// left out, and the recording is still written.
     std::string brains_text;
+    /// The two limits of a game played under a profile that raises either.
+    /// Absent writes no sector.
+    std::optional<formats::tad::RecordedLimits> limits;
     std::vector<RecordingPlayer> players; ///< the recording machine's player first; at most 10
     std::vector<std::array<uint8_t, formats::tad::layout::unit_check_record_bytes>> unit_checks;
     bool compress{}; ///< packets stored compressed (marker 4)

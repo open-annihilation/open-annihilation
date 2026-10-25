@@ -11,6 +11,8 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
 
 namespace oa::app {
 
@@ -29,6 +31,14 @@ struct Runtime::UpdateState {
     int64_t release = 0;
     /// A missing data folder has already been logged.
     bool logged_folder = false;
+    /// The release the question was queued for this run. Empty when it has
+    /// not been asked, or a match closed it before an answer, so the next
+    /// settled menu asks again. Later, Skip and Update leave it set. A
+    /// higher release still asks.
+    std::optional<int64_t> offered_release;
+    /// The page that question opens. Empty when the feed named none. Set
+    /// with `offered_release`, so a later check cannot change the page.
+    std::optional<std::string> offered_page;
 };
 
 } // namespace oa::app

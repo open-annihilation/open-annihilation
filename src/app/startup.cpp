@@ -765,6 +765,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.update_feed.has_value(), "--update-feed"},
             {!options.update_keys.empty(), "--update-key"},
             {options.check_engine_feed, "--check-engine-feed"},
+            {options.check_update_offer, "--check-update-offer"},
             {options.check_icloud_wait, "--check-icloud-wait"},
             {options.check_text_fit, "--check-text-fit"},
             {!options.check_languages.empty(), "--check-language"},
@@ -1015,6 +1016,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-window-place", &Options::check_window_place},
     {"--check-progress", &Options::check_progress},
     {"--check-engine-feed", &Options::check_engine_feed},
+    {"--check-update-offer", &Options::check_update_offer},
     {"--check-icloud-wait", &Options::check_icloud_wait},
     {"--check-text-fit", &Options::check_text_fit},
     {"--check-folder-chooser", &Options::check_folder_chooser},
@@ -1673,7 +1675,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-language-notice] [--check-first-run] [--check-setup-window] "
                      "[--check-window-place] "
                      "[--check-progress] [--update-feed URL] [--update-key ID=ed25519:KEY] "
-                     "[--check-engine-feed] [--check-icloud-wait] "
+                     "[--check-engine-feed] [--check-update-offer] [--check-icloud-wait] "
                      "[--check-text-fit [--check-language TAG]...] "
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
@@ -1932,6 +1934,10 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error(
             "--check-engine-feed draws in a window and cannot be used with --headless-check"
         );
+    if (result.check_update_offer && result.headless_check)
+        throw std::runtime_error(
+            "--check-update-offer draws in a window and cannot be used with --headless-check"
+        );
     if (result.check_icloud_wait && result.headless_check)
         throw std::runtime_error(
             "--check-icloud-wait draws in a window and cannot be used with --headless-check"
@@ -1976,11 +1982,11 @@ void write_startup_line(std::string_view text) {
         result.check_language_switch || result.check_language_registry ||
         result.check_language_notice || result.check_first_run || result.check_setup_window ||
         result.check_window_place || result.check_progress || result.check_engine_feed ||
-        result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
-        result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
-        result.check_pointer_interfaces || result.check_megamap_clicks ||
-        result.check_single_player_offers || result.check_radar_orders ||
-        result.check_touch_controls || result.check_pad_controls ||
+        result.check_update_offer || result.check_text_fit || result.check_folder_chooser ||
+        result.check_patrol_reclaim || result.check_reclaim_cursor || result.check_wreck_pick ||
+        result.check_build_preview || result.check_pointer_interfaces ||
+        result.check_megamap_clicks || result.check_single_player_offers ||
+        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||

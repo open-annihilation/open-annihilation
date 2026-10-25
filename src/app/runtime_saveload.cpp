@@ -1260,9 +1260,18 @@ oa::Unit* Runtime::restore_saved_unit(uint16_t id, persist::Bank* bank) {
             if (!imported)
                 ++state.restore_failures;
         }
+        const auto* load_profile = next_match_profile();
+        const auto weapon_id_width =
+            load_profile != nullptr &&
+                    load_profile->limits.weapon_types.types > oa::data::limits::base_weapon_types
+                ? persist::WeaponIdWidth::wide
+                : persist::WeaponIdWidth::byte;
         for (std::size_t w = 0; w < OA_UNIT_WEAPON_COUNT; ++w)
             persist::save_restore_unit_weapon(
-                &match_->state(), record + r::weapons + w * r::weapon_bytes, unit.weapons[w]
+                &match_->state(),
+                record + r::weapons + w * r::weapon_bytes,
+                unit.weapons[w],
+                weapon_id_width
             );
         // An open yard (build flags bit 2) settles its footprint and its
         // neighbours' through the footprint clear.
