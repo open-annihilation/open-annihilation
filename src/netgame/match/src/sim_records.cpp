@@ -21,7 +21,9 @@ bool networked(const FeatureRecordLink& link) {
 
 void send_feature_record(
     const FeatureRecordLink& link,
-    uint8_t action,
+    WideFeatureAction wide_action,
+    uint8_t narrow_action,
+    uint16_t weapon,
     int32_t x,
     int32_t z,
     bool to_host,
@@ -29,8 +31,14 @@ void send_feature_record(
 ) {
     if (link.send == nullptr)
         return;
-    const auto record = encode_feature_record(action, x, z);
-    link.send(link.context, record.data(), to_host, sender);
+    if (link.wide) {
+        const auto id = wide_action == WideFeatureAction::weapon_hit ? weapon : uint16_t{0};
+        const auto record = encode_wide_feature_record(wide_action, id, x, z);
+        link.send(link.context, record.data(), record.size(), to_host, sender);
+        return;
+    }
+    const auto record = encode_feature_record(narrow_action, x, z);
+    link.send(link.context, record.data(), record.size(), to_host, sender);
 }
 
 } // namespace
@@ -91,6 +99,19 @@ encode_feature_record(uint8_t action, int32_t cell_x, int32_t cell_z) noexcept {
     return bytes;
 }
 
+std::array<uint8_t, wide_feature_record_bytes> encode_wide_feature_record(
+    WideFeatureAction action, uint16_t weapon, int32_t cell_x, int32_t cell_z
+) noexcept {
+    WideFeatureEventRecord record{};
+    record.action = static_cast<uint8_t>(action);
+    record.weapon_id = action == WideFeatureAction::weapon_hit ? weapon : uint16_t{0};
+    record.x = static_cast<uint16_t>(cell_x);
+    record.y = static_cast<uint16_t>(cell_z);
+    std::array<uint8_t, wide_feature_record_bytes> bytes{};
+    (void)encode_record(record, bytes.data(), bytes.size(), nullptr);
+    return bytes;
+}
+
 bool feature_hit_elsewhere(void* context, uint16_t weapon_id, int32_t cell_x, int32_t cell_z) {
     auto& link = link_of(context);
     if (!networked(link))
@@ -102,7 +123,14 @@ bool feature_hit_elsewhere(void* context, uint16_t weapon_id, int32_t cell_x, in
         return false;
     // 3.1c's record holds one byte, so a weapon past 255 goes out as its low byte.
     send_feature_record(
-        link, static_cast<uint8_t>(weapon_id), cell_x, cell_z, true, no_player_slot
+        link,
+        WideFeatureAction::weapon_hit,
+        static_cast<uint8_t>(weapon_id),
+        weapon_id,
+        cell_x,
+        cell_z,
+        true,
+        no_player_slot
     );
     return true;
 }
@@ -117,12 +145,28 @@ void feature_changed(
     auto& link = link_of(context);
     switch (change) {
     case sim::feature_runtime::FeatureChange::ignited:
-        send_feature_record(link, feature_action_tree_burn, cell_x, cell_z, false, no_player_slot);
+        send_feature_record(
+            link,
+            WideFeatureAction::tree_burn,
+            feature_action_tree_burn,
+            0,
+            cell_x,
+            cell_z,
+            false,
+            no_player_slot
+        );
         break;
     case sim::feature_runtime::FeatureChange::destroyed:
         if (networked(link))
             send_feature_record(
-                link, feature_action_queue_event, cell_x, cell_z, false, no_player_slot
+                link,
+                WideFeatureAction::queue_event,
+                feature_action_queue_event,
+                0,
+                cell_x,
+                cell_z,
+                false,
+                no_player_slot
             );
         break;
     case sim::feature_runtime::FeatureChange::reclaimed:
@@ -130,7 +174,9 @@ void feature_changed(
         if (networked(link))
             send_feature_record(
                 link,
+                WideFeatureAction::queue_event_flagged,
                 feature_action_queue_event_flagged,
+                0,
                 cell_x,
                 cell_z,
                 false,

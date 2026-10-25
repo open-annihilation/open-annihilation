@@ -2266,6 +2266,16 @@ bool dispatch_record(NetMatch* m, Player& from, Player& to, const Packet& packet
     auto* world = m->world;
     const auto* data = packet.data;
     const auto size = static_cast<std::size_t>(packet.size);
+    if (size != 0 && is_wide_record_type(data[0])) {
+        bool handled = false;
+        const auto error =
+            replication_apply_record(world, &m->sim, from.index, data, size, &handled);
+        if (error != WireError::ok)
+            ++m->record_errors;
+        else if (handled)
+            ++m->wide_records_applied;
+        return true;
+    }
     const auto type = static_cast<RecordType>(data[0]);
     switch (type) {
     case RecordType::ping:
@@ -3154,8 +3164,11 @@ uint32_t net_match_pump(NetMatch* m) noexcept {
             }
             continue;
         }
-        if (packet.size == 0 || !is_record_type(packet.data[0]) ||
-            (record_phase_table[packet.data[0]] & phase_bit) == 0) {
+        const bool wide_admitted = packet.size != 0 && is_wide_record_type(packet.data[0]) &&
+                                   (static_cast<uint8_t>(NetPhase::in_game) & phase_bit) != 0;
+        const bool narrow_admitted = packet.size != 0 && is_record_type(packet.data[0]) &&
+                                     (record_phase_table[packet.data[0]] & phase_bit) != 0;
+        if (!wide_admitted && !narrow_admitted) {
             ++m->records_refused;
             continue;
         }

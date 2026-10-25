@@ -1348,6 +1348,8 @@ language and both sizes.
   `runtime_builtin_screens.cpp`, `screen_registry.*`: the screen registry,
   screen loading and the host of the frontend dispatcher. Lines are only
   ever added to `screens.inc`.
+- `runtime_update.cpp`: looks for a new release at the settled main menu,
+  at most once a day, and keeps the signed feed it accepted.
 - `runtime_menu_audio.cpp`: the main menu's hum, and when it starts and
   stops (The start's movies and the menu hum, above).
 - `runtime_world_draw.cpp`, `runtime_camera.cpp`: world rendering and the

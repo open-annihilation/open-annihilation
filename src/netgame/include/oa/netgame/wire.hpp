@@ -4,8 +4,10 @@
 #pragma once
 
 // Game-packet layer shared definitions: record types, the per-type length
-// table and little-endian field access. Everything here is bounded and
-// reports failures through WireError; nothing allocates or throws.
+// table and little-endian field access. 3.1c's table covers 0x02..0x2c and
+// record_wire_length stays 3.1c's. OA records 0xe0..0xe2 travel only between
+// OA machines when a profile raises weapon-types past 256. Everything here is
+// bounded and reports failures through WireError; nothing allocates or throws.
 
 #include "oa/base/bytes.hpp"
 
@@ -100,9 +102,44 @@ inline constexpr uint8_t record_phase_table[record_type_count] = {
 inline constexpr uint8_t unit_state_prefix_bytes = 3; // type + u16 length
 inline constexpr uint8_t unit_state_header_bytes = 7; // + u32 sender tick
 
+/// OA weapon records. These bytes are not 3.1c record types and never enter
+/// record_length_table or record_wire_length.
+enum class WideRecordType : uint8_t {
+    weapon_fire = 0xe0,
+    projectile_intercepted = 0xe1,
+    feature_event = 0xe2,
+};
+
+inline constexpr uint8_t first_wide_record_type = 0xe0;
+inline constexpr uint8_t last_wide_record_type = 0xe2;
+inline constexpr std::size_t wide_record_type_count = 3;
+
+/// Length of each wide record, including the type byte, in type order.
+inline constexpr uint16_t wide_record_length_table[wide_record_type_count] = {37, 15, 8};
+
 /// Tells whether a byte is in the record type range 0x02..0x2c.
 [[nodiscard]] constexpr bool is_record_type(uint8_t type) noexcept {
     return type >= first_record_type && type <= last_record_type;
+}
+
+/// Tells whether a byte is one of the OA wide weapon records 0xe0..0xe2.
+[[nodiscard]] constexpr bool is_wide_record_type(uint8_t type) noexcept {
+    return type >= first_wide_record_type && type <= last_wide_record_type;
+}
+
+/// Returns the fixed table length of a 3.1c or wide record type, or 0.
+///
+/// Wide types take wide_record_length_table. Types 0x02..0x2c take
+/// record_length_table, including a 0x2c prefix of 3. Anything else is 0.
+///
+/// @param type Record type byte.
+/// @return Table length including the type byte, or 0 when the byte has none.
+[[nodiscard]] constexpr uint16_t record_table_length(uint8_t type) noexcept {
+    if (is_wide_record_type(type))
+        return wide_record_length_table[static_cast<std::size_t>(type - first_wide_record_type)];
+    if (is_record_type(type))
+        return record_length_table[type];
+    return 0;
 }
 
 /// Returns the wire length of the record that starts at bytes[0], as the receive splitter reads it.
@@ -119,6 +156,20 @@ inline constexpr uint8_t unit_state_header_bytes = 7; // + u32 sender tick
 ///         length 0).
 [[nodiscard]] WireError
 record_wire_length(const uint8_t* bytes, std::size_t available, uint16_t* length) noexcept;
+
+/// Returns the wire length of a wide weapon record that starts at bytes[0].
+///
+/// Only 0xe0, 0xe1 and 0xe2 are valid. The length always comes from
+/// wide_record_length_table. record_wire_length still refuses these bytes.
+///
+/// @param bytes Record start.
+/// @param available Bytes readable from bytes.
+/// @param[out] length Record length including the type byte.
+/// @return ok; bad_argument for a null pointer; truncated when the type byte is
+///         missing or the buffer is shorter than the table length; invalid_type
+///         for any byte outside 0xe0..0xe2.
+[[nodiscard]] WireError
+wide_record_wire_length(const uint8_t* bytes, std::size_t available, uint16_t* length) noexcept;
 
 // Explicit little-endian field access.
 

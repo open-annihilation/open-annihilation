@@ -3,10 +3,10 @@
 
 #pragma once
 
-// Game packet records 0x02..0x2c: one plain struct per type with its wire
-// layout (offsets from the type byte), plus bounded encode/decode. Bytes that
-// nothing reads are named for their place in the record and carried
-// unchanged, so every record round-trips.
+// Game packet records 0x02..0x2c and OA's wide weapon records 0xe0..0xe2: one
+// plain struct per type with its wire layout (offsets from the type byte),
+// plus bounded encode/decode. Bytes that nothing reads are named for their
+// place in the record and carried unchanged, so every record round-trips.
 
 #include "oa/netgame/wire.hpp"
 #include <bit>
@@ -134,6 +134,113 @@ struct FeatureEventRecord {
 inline constexpr uint8_t feature_action_queue_event = 0xfd;
 inline constexpr uint8_t feature_action_tree_burn = 0xfe;
 inline constexpr uint8_t feature_action_queue_event_flagged = 0xff;
+
+/// What a wide feature record asks the receiver to do.
+enum class WideFeatureAction : uint8_t {
+    weapon_hit,          ///< the weapon id names the weapon that hit
+    queue_event,         ///< the 0x0f queue whose action byte is 0xfd
+    tree_burn,           ///< the 0x0f tree burn whose action byte is 0xfe
+    queue_event_flagged, ///< the 0x0f flagged queue whose action byte is 0xff
+};
+
+// 0xe0, 37 bytes: a shot whose weapon id is 16 bits. Field order matches
+// 0x0d with the id widened.
+struct WideWeaponFireRecord {
+    static constexpr WideRecordType type = WideRecordType::weapon_fire;
+    int32_t start[3]{};
+    int32_t target[3]{};
+    uint16_t weapon_id{};
+    uint8_t flags{};
+    int16_t aim_heading{};
+    int16_t aim_pitch{};
+    uint16_t target_unit_index{};
+    uint16_t source_unit_index{};
+    uint8_t slot{};
+
+    /// Compares every field.
+    bool operator==(const WideWeaponFireRecord&) const = default;
+};
+
+// 0xe1, 15 bytes: an intercepted shot whose weapon id is 16 bits.
+struct WideProjectileInterceptedRecord {
+    static constexpr WideRecordType type = WideRecordType::projectile_intercepted;
+    int32_t target[3]{};
+    uint16_t weapon_id{};
+
+    /// Compares every field.
+    bool operator==(const WideProjectileInterceptedRecord&) const = default;
+};
+
+// 0xe2, 8 bytes: a feature event whose weapon id is 16 bits. The action is
+// a WideFeatureAction. For every action other than a weapon hit the id is 0.
+struct WideFeatureEventRecord {
+    static constexpr WideRecordType type = WideRecordType::feature_event;
+    uint8_t action{};
+    uint16_t weapon_id{};
+    uint16_t x{};
+    uint16_t y{};
+
+    /// Compares every field.
+    bool operator==(const WideFeatureEventRecord&) const = default;
+};
+
+/// Copies a narrow shot into the wide form, widening its weapon id.
+///
+/// @param in The 0x0d record.
+/// @return The same fields with the id stored in 16 bits.
+[[nodiscard]] constexpr WideWeaponFireRecord widen(const WeaponFireRecord& in) noexcept {
+    WideWeaponFireRecord out{};
+    for (std::size_t i = 0; i < 3; ++i) {
+        out.start[i] = in.start[i];
+        out.target[i] = in.target[i];
+    }
+    out.weapon_id = in.weapon_id;
+    out.flags = in.flags;
+    out.aim_heading = in.aim_heading;
+    out.aim_pitch = in.aim_pitch;
+    out.target_unit_index = in.target_unit_index;
+    out.source_unit_index = in.source_unit_index;
+    out.slot = in.slot;
+    return out;
+}
+
+/// Copies a narrow interception into the wide form, widening its weapon id.
+///
+/// @param in The 0x0e record.
+/// @return The same target and the id stored in 16 bits.
+[[nodiscard]] constexpr WideProjectileInterceptedRecord
+widen(const ProjectileInterceptedRecord& in) noexcept {
+    WideProjectileInterceptedRecord out{};
+    for (std::size_t i = 0; i < 3; ++i)
+        out.target[i] = in.target[i];
+    out.weapon_id = in.weapon_id;
+    return out;
+}
+
+/// Copies a narrow feature event into the wide form.
+///
+/// Actions 0xfd, 0xfe and 0xff become the queue, tree-burn and flagged-queue
+/// actions with weapon id 0. Any other action byte becomes a weapon hit whose
+/// id is that byte.
+///
+/// @param in The 0x0f record.
+/// @return The wide record.
+[[nodiscard]] constexpr WideFeatureEventRecord widen(const FeatureEventRecord& in) noexcept {
+    WideFeatureEventRecord out{};
+    out.x = in.x;
+    out.y = in.y;
+    if (in.action == feature_action_queue_event) {
+        out.action = static_cast<uint8_t>(WideFeatureAction::queue_event);
+    } else if (in.action == feature_action_tree_burn) {
+        out.action = static_cast<uint8_t>(WideFeatureAction::tree_burn);
+    } else if (in.action == feature_action_queue_event_flagged) {
+        out.action = static_cast<uint8_t>(WideFeatureAction::queue_event_flagged);
+    } else {
+        out.action = static_cast<uint8_t>(WideFeatureAction::weapon_hit);
+        out.weapon_id = in.action;
+    }
+    return out;
+}
 
 // 0x10, 22 bytes.
 struct CobStartRecord {
@@ -665,6 +772,39 @@ constexpr void fields(V& v, FeatureEventRecord& r) {
     v.u16(r.y);
 }
 
+/// Visits the fields of a WideWeaponFireRecord in wire order.
+template <class V>
+constexpr void fields(V& v, WideWeaponFireRecord& r) {
+    for (auto& c : r.start)
+        v.i32(c);
+    for (auto& c : r.target)
+        v.i32(c);
+    v.u16(r.weapon_id);
+    v.u8(r.flags);
+    v.i16(r.aim_heading);
+    v.i16(r.aim_pitch);
+    v.u16(r.target_unit_index);
+    v.u16(r.source_unit_index);
+    v.u8(r.slot);
+}
+
+/// Visits the fields of a WideProjectileInterceptedRecord in wire order.
+template <class V>
+constexpr void fields(V& v, WideProjectileInterceptedRecord& r) {
+    for (auto& c : r.target)
+        v.i32(c);
+    v.u16(r.weapon_id);
+}
+
+/// Visits the fields of a WideFeatureEventRecord in wire order.
+template <class V>
+constexpr void fields(V& v, WideFeatureEventRecord& r) {
+    v.u8(r.action);
+    v.u16(r.weapon_id);
+    v.u16(r.x);
+    v.u16(r.y);
+}
+
 /// Visits the fields of a CobStartRecord in wire order.
 template <class V>
 constexpr void fields(V& v, CobStartRecord& r) {
@@ -877,14 +1017,16 @@ constexpr void fields(V& v, LoadProgressRecord& r) {
 ///
 /// @tparam R Record struct; not UnitStateRecord.
 /// @param bytes Record start, type byte first.
-/// @param size Record size; must equal the type's record_length_table entry.
+/// @param size Record size; must equal the type's table length.
 /// @param[out] out Decoded record; written only on success.
 /// @return ok; bad_argument for a null pointer; truncated or length_mismatch when size differs from
 ///         the table length; invalid_type when bytes[0] is not R's type.
 template <class R>
 [[nodiscard]] WireError decode_record(const uint8_t* bytes, std::size_t size, R* out) noexcept {
-    constexpr auto length = record_length_table[static_cast<uint8_t>(R::type)];
-    static_assert(length != 0 && R::type != RecordType::unit_state);
+    constexpr auto length = record_table_length(static_cast<uint8_t>(R::type));
+    static_assert(
+        length != 0 && static_cast<uint8_t>(R::type) != static_cast<uint8_t>(RecordType::unit_state)
+    );
     if (bytes == nullptr || out == nullptr)
         return WireError::bad_argument;
     if (size < length)
@@ -911,8 +1053,10 @@ template <class R>
 template <class R>
 [[nodiscard]] WireError
 encode_record(const R& in, uint8_t* out, std::size_t capacity, std::size_t* written) noexcept {
-    constexpr auto length = record_length_table[static_cast<uint8_t>(R::type)];
-    static_assert(length != 0 && R::type != RecordType::unit_state);
+    constexpr auto length = record_table_length(static_cast<uint8_t>(R::type));
+    static_assert(
+        length != 0 && static_cast<uint8_t>(R::type) != static_cast<uint8_t>(RecordType::unit_state)
+    );
     if (out == nullptr)
         return WireError::bad_argument;
     if (capacity < length)

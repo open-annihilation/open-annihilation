@@ -995,6 +995,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_engine_feed) {
+            check_engine_feed();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_text_fit) {
             check_text_fit();
             flush_preferences();
@@ -1332,6 +1337,7 @@ void Runtime::idle_tick() {
     tell_found_install();
     tell_incomplete_mod();
     tick_content();
+    tick_update_check();
     tick_library();
     // A catalogue that moved on adds its language packs to the registry.
     note_catalogue_languages();

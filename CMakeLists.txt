@@ -325,7 +325,7 @@ target_link_libraries(oa-app-game-options PUBLIC oa-app-headers)
 target_link_libraries(oa-app-game-options PUBLIC oa-ui-frontend-renderer oa-ui-frontend-state oa-sim-scenario
   oa-ui-screen-registry oa-app-command-line oa-platform-preferences oa-app-mod-profile
   PRIVATE oa-app-package-install oa-platform-job-pool oa-platform-display-modes oa-options
-  oa-data-content-bundles oa-data-mutators)
+  oa-data-content-bundles oa-data-mutators oa-base-signing)
 # oa-game's game folder: --game-dir, the remembered folder, a folder found
 # where Steam, Heroic or Lutris put it, or the folder dialog's choice, the
 # installation checks, and the installer of the Total Annihilation demo
@@ -1264,7 +1264,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_user_folder.cpp
   src/app/runtime_mod_warning.cpp
   src/app/runtime_presence_card.cpp
-  src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_challenge.cpp
+  src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_update.cpp
+  src/app/runtime_challenge.cpp
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
   src/app/runtime_mutator_library.cpp
@@ -1370,6 +1371,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_language_notice_check.cpp
   src/app/runtime_first_run_check.cpp
   src/app/runtime_progress_check.cpp
+  src/app/runtime_update_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -2178,6 +2180,19 @@ if(OA_BUILD_PLATFORM)
         --user-folder "${oa_progress_dir}/Open Annihilation")
       set_tests_properties(native-progress PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_progress_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The background check for a new release: a feed served here, once a
+      # day, not during a match, and not with nobody watching unless a feed
+      # was named.
+      set(oa_engine_feed_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/engine-feed")
+      file(MAKE_DIRECTORY "${oa_engine_feed_dir}")
+      add_test(NAME native-engine-feed COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-engine-feed
+        --user-folder "${oa_engine_feed_dir}/Open Annihilation"
+        --data-dir "${oa_engine_feed_dir}/data"
+        --preferences-file "${oa_engine_feed_dir}/engine-feed.conf")
+      set_tests_properties(native-engine-feed PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_engine_feed_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # One evicted archive's read is held. The window keeps drawing the iCloud
       # line in the stored language, and the folder step then continues. Off
@@ -4621,6 +4636,11 @@ if(TARGET oa-game)
   target_link_libraries(oa-game PRIVATE oa-app-content)
 endif()
 list(APPEND oa_game_libraries oa-app-content)
+add_subdirectory(src/app/update)
+if(TARGET oa-game)
+  target_link_libraries(oa-game PRIVATE oa-app-update)
+endif()
+list(APPEND oa_game_libraries oa-app-update)
 add_subdirectory(src/session/demo)
 add_subdirectory(src/app/netgame)
 # The command line reads a launch file. The options library does not link

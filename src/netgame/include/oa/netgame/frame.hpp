@@ -165,6 +165,10 @@ struct PeerRecords {
     /// length word equals the rest of the frame, is split out as a record.
     /// A 0xf0 anywhere else ends the split, as on 3.1c.
     bool presence_records{};
+    /// OA weapon records 0xe0..0xe2 are split out by their own lengths
+    /// instead of ending the frame. Without this they end the split, as on
+    /// 3.1c.
+    bool wide_records{};
     // Two spare bytes: a 0x2c record at the very end of a frame takes its
     // length from the bytes after the frame, which keep what an earlier,
     // longer frame left there, as in 3.1c.
@@ -190,10 +194,11 @@ enum class UnpackOutcome : uint8_t {
 /// recorder_records set, recorder records are split out by their lengths.
 /// With presence_records set, a 0xf0 that starts right after the sequence
 /// number and whose length word equals the rest of the frame is split out
-/// as a record; a 0xf0 anywhere else ends the split, as on 3.1c. Beyond
-/// 0x200 records, that many 0x2c records are dropped from the front. A
-/// zero-length record would never advance the split, so it reports
-/// zero_length_record.
+/// as a record; a 0xf0 anywhere else ends the split, as on 3.1c. With
+/// wide_records set, 0xe0..0xe2 are split out by their table lengths;
+/// without it those bytes end the split, as on 3.1c. Beyond 0x200 records,
+/// that many 0x2c records are dropped from the front. A zero-length record
+/// would never advance the split, so it reports zero_length_record.
 ///
 /// @param[in,out] records The sending peer's record ring.
 /// @param frame Frame bytes, sequence header included; may be null only when size is 0.
@@ -248,6 +253,9 @@ struct FrameReceiver {
     /// Every peer's frames are split with presence records
     /// (PeerRecords::presence_records).
     bool presence_records{};
+    /// Every peer's frames are split with the wide weapon records
+    /// (PeerRecords::wide_records).
+    bool wide_records{};
 };
 
 struct FrameDelivery {

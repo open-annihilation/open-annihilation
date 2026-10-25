@@ -36,6 +36,7 @@
 #include "oa/base/sha256.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_header.hpp"
+#include "oa/data/limits.hpp"
 #include "oa/data/mutators/choice.hpp"
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/base/text.hpp"
@@ -133,6 +134,10 @@ constexpr int32_t kLoopbackMoveDistance = 64 << 16;
 // The host commander fires at the ground this far ahead of it, within its
 // laser's range of 200, from tick 200 until tick 260.
 constexpr int32_t kLoopbackShotDistance = 100 << 16;
+// Beside the host commander, in world units. The check's shooter carries a
+// weapon whose range is about 180. After the commander walks 64 and aims
+// 100 ahead, 32 aside keeps that aim point in range.
+constexpr int32_t kLoopbackShooterAside = 32;
 constexpr std::size_t kLoopbackFireFrom = 200;
 constexpr std::size_t kLoopbackFireUntil = 260;
 // The tick the host's player turns its commander's build page with the
@@ -358,6 +363,40 @@ uint16_t unit_type_named(const World& world, std::string_view name) {
             return static_cast<uint16_t>(type);
     }
     return 0;
+}
+
+/// Makes a finished unit for a player, standing beside another unit.
+///
+/// @param match the player's match
+/// @param world that match's world
+/// @param player the owner's slot
+/// @param type the unit type
+/// @param beside the unit it stands beside
+/// @param aside how many world units to the side, flipped when that would leave the map
+/// @return the new unit's slot, or 0 when it could not be made
+uint16_t make_unit(
+    sim::match_runtime::Match& match,
+    World& world,
+    uint8_t player,
+    uint16_t type,
+    uint16_t beside,
+    int32_t aside
+) {
+    const auto& at = world.units[beside];
+    const int32_t width = static_cast<int32_t>(world.game.map_pixel_width) << 16;
+    const int32_t offset = at.position.x + (aside << 16) < width ? aside << 16 : -(aside << 16);
+    oa::sim::unit_spawn::Request request{};
+    request.player = player;
+    request.type = type;
+    request.position = {
+        static_cast<uint32_t>(at.position.x + offset),
+        static_cast<uint32_t>(at.position.y),
+        static_cast<uint32_t>(at.position.z)
+    };
+    request.finished = true;
+    request.state = 1;
+    auto* made = match.create(request);
+    return made != nullptr && made->unit != nullptr ? static_cast<uint16_t>(made->unit_index) : 0;
 }
 
 /// Hashes which units a world holds: slot, type and owner by player id (FNV-1a).
@@ -791,6 +830,10 @@ std::vector<uint8_t> write_presence_record(
     // record's fixed fields alone need more.
     constexpr std::size_t reserved_capacity =
         ng::presence_record_max_bytes - ng::presence_map_pack_field_max_bytes;
+    record.limits = ng::PresenceLimits{
+        oa::data::limits::highest_weapon_types,
+        static_cast<uint8_t>(oa::data::limits::highest_sides),
+    };
     uint8_t bytes[ng::presence_record_max_bytes];
     std::size_t written = 0;
     auto error = ng::encode_presence(record, bytes, reserved_capacity, &written);
@@ -2053,33 +2096,6 @@ struct NetworkPlay::NetHost {
                       << joiner_built - 1 << " units; both machines hold them\n";
         }
 
-        // A finished unit for a player, standing on its own machine beside
-        // another unit, as its factory would have made it.
-        const auto make_unit = [&](sim::match_runtime::Match& match,
-                                   World& world,
-                                   uint8_t player,
-                                   uint16_t type,
-                                   uint16_t beside,
-                                   int32_t aside) -> uint16_t {
-            const auto& at = world.units[beside];
-            const int32_t width = static_cast<int32_t>(world.game.map_pixel_width) << 16;
-            const int32_t offset =
-                at.position.x + (aside << 16) < width ? aside << 16 : -(aside << 16);
-            oa::sim::unit_spawn::Request request{};
-            request.player = player;
-            request.type = type;
-            request.position = {
-                static_cast<uint32_t>(at.position.x + offset),
-                static_cast<uint32_t>(at.position.y),
-                static_cast<uint32_t>(at.position.z)
-            };
-            request.finished = true;
-            request.state = 1;
-            auto* made = match.create(request);
-            return made != nullptr && made->unit != nullptr
-                       ? static_cast<uint16_t>(made->unit_index)
-                       : 0;
-        };
         // A player makes a unit beside its commander and gives it to the
         // computer player; the giver's machine hands it over.
         const auto give = [&](sim::match_runtime::Match& giver_match,
@@ -2992,6 +3008,12 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
                 decoded.engine && decoded.engine->version == presence_engine,
             "a presence record did not name this build's engine"
         );
+        require(
+            decoded.limits &&
+                decoded.limits->weapon_types == oa::data::limits::highest_weapon_types &&
+                decoded.limits->sides == static_cast<uint8_t>(oa::data::limits::highest_sides),
+            "a presence record did not name this build's limits"
+        );
     }
     std::cout << "net loopback check: presence records exchanged\n";
     // The host seats a computer player in the first open slot, as a click on
@@ -3364,6 +3386,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     }
     const auto& host_world = runtime_.match_->state();
     const auto& client_world = joiner.match_->state();
+    // The match the binding holds is the host's. The shooter is made and
+    // ordered through it, on the world this check already reads.
+    auto& host_match = *net_->binding.match;
     // The setup blocks each machine holds of the other machine's players, a
     // computer player's among them, came from that machine and carry the
     // five bytes after the engine signature as zero, as 0.7 sent them:
@@ -3487,19 +3512,33 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
 
     Shots host_shots{};
     Shots client_shots{};
+    Shots shooter_host{};
+    Shots shooter_client{};
+    uint16_t shooter_slot = 0;
+    const std::string& shooter_name = net_options().net_loopback_shooter;
     const auto host_commander_ref = oa::oa_unit_ref_from_slot(host_commander);
-    const auto count_shots = [host_commander_ref](const World& world, Shots& shots) {
-        const int32_t projectile_count = world.game.projectile_count;
-        const auto live = std::clamp<int32_t>(projectile_count, 0, OA_PROJECTILE_CAPACITY);
-        for (int32_t i = 0; i < live; ++i) {
-            const auto& shot = world.projectiles[i];
-            if (shot.source != host_commander_ref || shot.created_tick != world.game.tick)
-                continue;
-            if (shots.count++ == 0) {
-                shots.origin = shot.origin;
-                shots.target = shot.target;
+    const auto count_from =
+        [](const World& world, decltype(host_commander_ref) source, Shots& shots) {
+            const int32_t projectile_count = world.game.projectile_count;
+            const auto live = std::clamp<int32_t>(projectile_count, 0, OA_PROJECTILE_CAPACITY);
+            for (int32_t i = 0; i < live; ++i) {
+                const auto& shot = world.projectiles[i];
+                if (shot.source != source || shot.created_tick != world.game.tick)
+                    continue;
+                if (shots.count++ == 0) {
+                    shots.origin = shot.origin;
+                    shots.target = shot.target;
+                }
             }
-        }
+        };
+    // The shooter's new shots are counted with the commander's, on the
+    // machine whose world was passed.
+    const auto count_shots = [&](const World& world, Shots& shots) {
+        count_from(world, host_commander_ref, shots);
+        if (shooter_slot == 0)
+            return;
+        auto& shooter_shots = &world == &host_world ? shooter_host : shooter_client;
+        count_from(world, oa::oa_unit_ref_from_slot(shooter_slot), shooter_shots);
     };
     const auto same_point = [](const FixedVec3& a, const FixedVec3& b) {
         return a.x == b.x && a.y == b.y && a.z == b.z;
@@ -3601,6 +3640,43 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     uint32_t held_host_tick = 0;
     uint32_t held_client_tick = 0;
     uint32_t netstats_tick = 0;
+    // One exchange of both machines: each steps, the host commander's pose is
+    // kept, and both machines' new shots are counted.
+    const auto exchange = [&] {
+        net_frame();
+        joiner_play.net_frame();
+        NetHost::loopback_step(*this);
+        note_host_pose();
+        count_shots(host_world, host_shots);
+        NetHost::loopback_step(joiner_play);
+        compare_copy();
+        count_shots(client_world, client_shots);
+        pump_both(kTickPumpWaitMs);
+    };
+    // The host makes the named unit beside its commander and plays until the
+    // joiner holds that copy. Its shots are counted from here on.
+    if (!shooter_name.empty()) {
+        const auto shooter_type = unit_type_named(host_world, shooter_name);
+        require(shooter_type != 0, "the loopback shooter type is not in the match");
+        shooter_slot = make_unit(
+            host_match,
+            host_match.state(),
+            host_world.units[host_commander].owner_index,
+            shooter_type,
+            host_commander,
+            kLoopbackShooterAside
+        );
+        require(shooter_slot != 0, "the host could not make the loopback shooter");
+        const auto copy_limit = 3u * host_world.game.units_per_player;
+        bool copy_held = unit_live(host_world.units[shooter_slot]) &&
+                         unit_live(client_world.units[shooter_slot]);
+        for (uint32_t waited = 0; waited < copy_limit && !copy_held; ++waited) {
+            exchange();
+            copy_held = unit_live(host_world.units[shooter_slot]) &&
+                        unit_live(client_world.units[shooter_slot]);
+        }
+        require(copy_held, "the joiner has no copy of the loopback shooter");
+    }
     for (std::size_t tick = 0; tick < ticks; ++tick) {
         if (tick == 30) {
             const auto& unit = host_world.units[host_commander];
@@ -3759,9 +3835,24 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             (void)runtime_.match_->issue_attack_ground(
                 host_commander, {unit.position.x, unit.position.y, unit.position.z + ahead}, false
             );
+            if (shooter_slot != 0) {
+                const int32_t map_width = static_cast<int32_t>(host_world.game.map_pixel_width)
+                                          << 16;
+                const int32_t beside = unit.position.x + (1 << 16) < map_width
+                                           ? static_cast<int32_t>(1 << 16)
+                                           : -(1 << 16);
+                (void)host_match.issue_attack_ground(
+                    shooter_slot,
+                    {unit.position.x + beside, unit.position.y, unit.position.z + ahead},
+                    false
+                );
+            }
         }
-        if (tick == kLoopbackFireUntil)
+        if (tick == kLoopbackFireUntil) {
             (void)runtime_.match_->issue_stop(host_commander);
+            if (shooter_slot != 0)
+                host_match.kill_unit(shooter_slot, 0);
+        }
         net_frame();
         joiner_play.net_frame();
         NetHost::loopback_step(*this);
@@ -3778,6 +3869,20 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             joiner.preferences_.current_game_speed == runtime_.preferences_.current_game_speed,
         "speed change did not reach the client"
     );
+    // The shooter's death (0x0c) has to reach the joiner before the settle
+    // counts live units. A run that ends at or before the fire window never
+    // kills it.
+    if (shooter_slot != 0 && ticks > kLoopbackFireUntil) {
+        const auto gone_limit = 3u * host_world.game.units_per_player;
+        bool shooter_gone = !unit_live(host_world.units[shooter_slot]) &&
+                            !unit_live(client_world.units[shooter_slot]);
+        for (uint32_t waited = 0; waited < gone_limit && !shooter_gone; ++waited) {
+            exchange();
+            shooter_gone = !unit_live(host_world.units[shooter_slot]) &&
+                           !unit_live(client_world.units[shooter_slot]);
+        }
+        require(shooter_gone, "the loopback shooter is still live");
+    }
     // Settle: the owner's full record refreshes every slot once per
     // units_per_player ticks.
     const auto settle_limit = 3u * host_world.game.units_per_player;
@@ -3849,13 +3954,15 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
             "the client's copy left the host commander's path"
         );
     }
+    const uint32_t joiner_creates = 1u + (shooter_slot != 0 ? 1u : 0u);
     if (watching) {
         require(
             live == 1 && NetHost::local_commander(joiner_play) == 0,
             "the watcher was given a commander"
         );
         require(
-            net_->binding.created_remote == 0 && joiner_play.net_->binding.created_remote == 1,
+            net_->binding.created_remote == 0 &&
+                joiner_play.net_->binding.created_remote == joiner_creates,
             "the host commander did not reach the watcher"
         );
         require(
@@ -3864,7 +3971,8 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     } else {
         require(live == 2, "both commanders are not present");
         require(
-            net_->binding.created_remote == 1 && joiner_play.net_->binding.created_remote == 1,
+            net_->binding.created_remote == 1 &&
+                joiner_play.net_->binding.created_remote == joiner_creates,
             "remote commanders were not created"
         );
     }
@@ -3881,6 +3989,40 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     require(
         host_world.units[host_commander].position.z != commander_z, "host commander did not move"
     );
+    if (shooter_slot != 0) {
+        std::cout << "net loopback check: shooter " << shooter_name << " fired "
+                  << shooter_host.count << " / " << shooter_client.count << " shots\n";
+        require(
+            shooter_host.count > 0 && shooter_host.count == shooter_client.count,
+            "the loopback shooter's shots did not all reach the client"
+        );
+    }
+    const auto received_channel = static_cast<uint8_t>(oa::netgame::TrafficChannel::received);
+    const auto& joiner_traffic = joiner_play.net_->connection.packets->traffic;
+    const auto received_of = [&](oa::netgame::RecordType type) {
+        return joiner_traffic.record_count[static_cast<uint8_t>(type)][received_channel];
+    };
+    const auto narrow_fire = received_of(oa::netgame::RecordType::weapon_fire);
+    const auto narrow_intercepted = received_of(oa::netgame::RecordType::projectile_intercepted);
+    const auto narrow_feature = received_of(oa::netgame::RecordType::feature_event);
+    std::cout << "net loopback check: wide records applied " << host_net.wide_records_applied
+              << " / " << client_net.wide_records_applied << "; weapon records received 0x0d "
+              << narrow_fire << ", 0x0e " << narrow_intercepted << ", 0x0f " << narrow_feature
+              << "\n";
+    if (oa::netgame::wide_weapon_records(host_net.rules)) {
+        const uint32_t least = shooter_slot != 0 ? shooter_host.count : 1u;
+        require(
+            client_net.wide_records_applied >= least && narrow_fire == 0 &&
+                narrow_intercepted == 0 && narrow_feature == 0,
+            "a wide game sent a narrow weapon record or the joiner applied no wide record"
+        );
+    } else {
+        require(
+            host_net.wide_records_applied == 0 && client_net.wide_records_applied == 0 &&
+                narrow_fire > 0,
+            "a narrow game applied a wide record or the joiner received no 0x0d"
+        );
+    }
     // The in-game team panels over the session, run as the host's panels
     // run them, through the host the extension fills for them. ALLIES.GUI
     // allies the joiner and breaks the alliance again: each change reaches

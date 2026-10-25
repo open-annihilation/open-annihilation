@@ -556,8 +556,10 @@ ui::frontend_multiplayer::LobbyNet session_lobby_net(NetConnection* c) noexcept 
 void net_connection_set_rules(NetConnection* c, const WireRules& rules) noexcept {
     c->rules = rules;
     c->session.publish_without_password = rules.clear_session_password;
-    if (c->packets != nullptr)
+    if (c->packets != nullptr) {
         c->packets->receiver.recorder_records = rules.recorder_protocol != recorder_protocol_plain;
+        c->packets->receiver.wide_records = wide_weapon_records(rules);
+    }
 }
 
 bool net_connection_set_packet_rate(NetConnection* c, int32_t sends_per_second) noexcept {
