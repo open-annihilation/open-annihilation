@@ -7,6 +7,7 @@
 #include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
 #include "oa/present/rle.hpp"
+#include "oa/sim/unit_movement/terrain.hpp"
 
 #include <array>
 #include <algorithm>
@@ -14,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace {
@@ -202,6 +204,177 @@ void canonical_terrain_grid() {
         }
     }
     OA_CHECK(plateau_decal);
+}
+
+/// Returns the drawn terrain's height at a world point: the terrain triangle
+/// under it, interpolated, or nothing where none is.
+std::optional<float> drawn_ground(const live::Scene& scene, float x, float z) {
+    for (std::size_t first = 0; first + 2 < scene.terrain_vertex_count; first += 3) {
+        const auto& a = scene.vertices[first];
+        const auto& b = scene.vertices[first + 1];
+        const auto& c = scene.vertices[first + 2];
+        const float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+        if (std::abs(area) < tolerance)
+            continue;
+        const float wb = ((x - a.x) * (c.z - a.z) - (c.x - a.x) * (z - a.z)) / area;
+        const float wc = ((b.x - a.x) * (z - a.z) - (x - a.x) * (b.z - a.z)) / area;
+        const float wa = 1 - wb - wc;
+        if (wa < -tolerance || wb < -tolerance || wc < -tolerance)
+            continue;
+        return wa * a.height + wb * b.height + wc * c.height;
+    }
+    return std::nullopt;
+}
+
+/// A height cell whose corners lie off one plane is drawn about its middle at
+/// the simulation's height there, so that the ground drawn stays within a
+/// sixteenth of the cell's twist of the ground units stand on; across one
+/// diagonal it was a quarter of it away at the middle. Decals drape over the
+/// same triangles, and a cell in one plane keeps its two.
+void twisted_terrain_follows_simulation() {
+    Fixture fixture;
+    fixture.map.attribute_width = 4;
+    fixture.map.attribute_height = 4;
+    fixture.map.tile_width = 2;
+    fixture.map.tile_height = 2;
+    fixture.map.tile_indices.assign(4, 0);
+    fixture.inputs.right = fixture.inputs.bottom = 2 * tile_edge;
+    // The first cell of the second row is a saddle, high at its top left and
+    // bottom right; the one right of it lies in one plane, rising south.
+    constexpr std::array<uint8_t, 16> heights{
+        0, 0, 0, 0, 20, 0, 0, 0, 0, 20, 20, 20, 0, 20, 20, 20
+    };
+    fixture.map.attributes.assign(heights.size(), {});
+    for (std::size_t i = 0; i < heights.size(); ++i)
+        fixture.map.attributes[i].height = heights[i];
+    fixture.inputs.sight.mapping = fixture.inputs.sight.line_of_sight = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const oa::sim::unit_movement::Terrain terrain(fixture.map);
+    constexpr float twist = 40;
+    float worst = 0;
+    for (int32_t z = cell_edge; z <= 2 * cell_edge; z += 2)
+        for (int32_t x = 0; x <= cell_edge; x += 2) {
+            const auto drawn = drawn_ground(fixture.scene, float(x), float(z));
+            OA_CHECK(drawn.has_value());
+            if (!drawn)
+                continue;
+            const float ground = float(terrain.height(x * 65536, z * 65536));
+            worst = std::max(worst, std::abs(*drawn - ground));
+        }
+    // A sixteenth of the twist, and the simulation's whole steps.
+    OA_CHECK(worst <= twist / 16 + 1);
+    const auto middle = drawn_ground(fixture.scene, 8, 24);
+    OA_CHECK(
+        middle && std::abs(*middle - float(terrain.height(8 * 65536, 24 * 65536))) < tolerance
+    );
+    // The cell right of it lies in one plane: two triangles; the saddle four.
+    const auto triangles_in = [&](float left, float top) {
+        std::size_t count = 0;
+        for (std::size_t first = 0; first < fixture.scene.terrain_vertex_count; first += 3) {
+            bool inside = true;
+            for (std::size_t k = 0; k < 3; ++k) {
+                const auto& vertex = fixture.scene.vertices[first + k];
+                inside = inside && vertex.x >= left - tolerance &&
+                         vertex.x <= left + cell_edge + tolerance && vertex.z >= top - tolerance &&
+                         vertex.z <= top + cell_edge + tolerance;
+            }
+            count += inside ? 1 : 0;
+        }
+        return count;
+    };
+    OA_CHECK(triangles_in(0, cell_edge) == 4);
+    OA_CHECK(triangles_in(cell_edge, cell_edge) == 2);
+    // A decal over the saddle lies on the ground drawn under it.
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 12;
+    frame.pixels.assign(144, ground_index);
+    frame.coverage.assign(144, 1);
+    fixture.draws.sprites.push_back({&frame, {2, 13}, false, true, true});
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    std::size_t decal_points = 0;
+    for (std::size_t i = fixture.scene.terrain_vertex_count; i < fixture.scene.vertices.size();
+         ++i) {
+        const auto& vertex = fixture.scene.vertices[i];
+        const auto under = drawn_ground(fixture.scene, vertex.x, vertex.z);
+        OA_CHECK(under && std::abs(vertex.height - *under - 0.05F) < 0.01F);
+        ++decal_points;
+    }
+    OA_CHECK(decal_points > 0);
+}
+
+/// Animated textures show the frames the classic tiers draw: the first on a
+/// piece the unit's image holds, whatever the unit does; the running one on
+/// a moving piece of a unit that is not idle, and on a unit drawn without an
+/// image.
+void animated_frames_follow_classic_tiers() {
+    Fixture fixture;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    source->objects[0].vertices = {{0, 0, 0}, {fixed, 0, 0}, {fixed, fixed, 0}, {0, fixed, 0}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2, 3};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    std::array<uint8_t, 2> pixels{ground_index, alternate_index};
+    drawing::TextureSequence texture;
+    texture.frames.resize(2);
+    for (std::size_t i = 0; i < texture.frames.size(); ++i) {
+        texture.frames[i].width = texture.frames[i].height = 1;
+        texture.frames[i].encoding = OA_SPRITE_RAW;
+        texture.frames[i].data = &pixels[i];
+    }
+    const oa::formats::gaf::Sequence sequence{};
+    drawing::PreparedModel prepared{};
+    prepared.objects.resize(1);
+    prepared.objects[0].primitives.resize(1);
+    auto& primitive = prepared.objects[0].primitives[0];
+    primitive.flags = drawing::primitive_animated;
+    primitive.texture = &texture;
+    primitive.cursor.sequence = &sequence;
+    primitive.cursor.frame_index = 1;
+    std::array<uint8_t, 1> image{ground_index};
+    drawing::ModelState state{};
+    state.image.sprite.data = image.data();
+    oa::Unit unit{};
+    unit.id = 7;
+    unit.position = {8 * fixed, 0, 8 * fixed};
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &prepared;
+    draw.model.state = &state;
+    draw.model.unit = &unit;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    const auto shown = [&] {
+        OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+        OA_CHECK(!fixture.scene.unit_ranges.empty());
+        if (fixture.scene.unit_ranges.empty())
+            return std::array<uint8_t, 4>{};
+        return triangle_color(fixture.scene, fixture.scene.unit_ranges[0].first_vertex);
+    };
+    // A walking unit's cached piece keeps the first frame.
+    auto& piece = instance.pieces()[0];
+    const auto cached = static_cast<uint16_t>(oa::sim::model_runtime::PieceFlag::cached);
+    OA_CHECK((piece.flags & cached) != 0);
+    OA_CHECK(shown()[0] == ground_color[0]);
+    // Its moving piece shows the running frame, unless the unit is idle.
+    piece.flags = static_cast<uint16_t>(piece.flags & ~cached);
+    OA_CHECK(shown()[0] == alternate_color[0]);
+    draw.plan.linked.unlit = true;
+    OA_CHECK(shown()[0] == ground_color[0]);
+    // Over an image with a depth plane a moving piece always runs.
+    state.image.sprite.aux = image.data();
+    OA_CHECK(shown()[0] == alternate_color[0]);
+    // Without an image every piece runs unless the unit is idle.
+    piece.flags = static_cast<uint16_t>(piece.flags | cached);
+    draw.plan.model.from_image = false;
+    OA_CHECK(shown()[0] == ground_color[0]);
+    draw.plan.linked.unlit = false;
+    OA_CHECK(shown()[0] == alternate_color[0]);
 }
 
 /// Keep clipped atlas coordinates valid at the map edge, including fractional intersections.
@@ -599,6 +772,78 @@ void planned_model_visibility() {
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.model_count == 0);
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+}
+
+/// A pictured unit's walls of the image key draw nothing, as its picture
+/// leaves them clear, while a unit drawn flat keeps them as a colour; a
+/// cloaked unit, or every unit under the debug overlay, is drawn at half
+/// opacity after the opaque units, and keeps its range for picking.
+void model_key_walls_and_cloak() {
+    Fixture fixture;
+    namespace models = oa::formats::objects3d;
+    namespace drawing = oa::present::model;
+    auto source = std::make_shared<models::Model>();
+    source->objects.resize(1);
+    constexpr int32_t fixed = models::kThreeDoUnitsPerWorldUnit;
+    source->objects[0].vertices = {{0, 0, 0}, {fixed, 0, 0}, {0, fixed, 0}};
+    source->objects[0].primitives.resize(1);
+    source->objects[0].primitives[0].vertex_indices = {0, 1, 2};
+    auto instance = oa::sim::model_runtime::make_instance(source);
+    instance.rebuild_transforms();
+    drawing::PreparedModel wall{};
+    wall.objects.resize(1);
+    wall.objects[0].primitives.resize(1);
+    wall.objects[0].primitives[0].flags = drawing::primitive_colored;
+    wall.objects[0].primitives[0].color = drawing::image_key;
+    drawing::ModelState state{};
+    state.image = oa::present::create_sprite(8, 8);
+    oa::Unit unit{};
+    unit.position = {8 * fixed, 0, 8 * fixed};
+    unit.id = 7;
+    fixture.draws.models.resize(1);
+    auto& draw = fixture.draws.models[0];
+    draw.model.instance = &instance;
+    draw.model.prepared = &wall;
+    draw.model.unit = &unit;
+    draw.model.state = &state;
+    draw.plan.linked.drawn = true;
+    draw.plan.model.from_image = true;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.model_count == 1);
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    draw.plan.model.from_image = false;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count + 3);
+
+    // A cloaked unit first in the plan, an opaque one after it.
+    drawing::PreparedModel solid = wall;
+    solid.objects[0].primitives[0].color = alternate_index;
+    draw.model.prepared = &solid;
+    unit.state_flags = OA_UNIT_STATE_CLOAKED;
+    oa::Unit other = unit;
+    other.id = 8;
+    other.state_flags = 0;
+    other.position.x += 2 * fixed;
+    fixture.draws.models.push_back(draw);
+    fixture.draws.models[1].model.unit = &other;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.unit_ranges.size() == 2);
+    const auto range_of = [&](uint16_t id) {
+        for (const auto& range : fixture.scene.unit_ranges)
+            if (range.unit_id == id)
+                return range;
+        return live::UnitRange{};
+    };
+    const auto cloaked = range_of(7);
+    const auto opaque = range_of(8);
+    OA_CHECK(cloaked.vertex_count == 3 && opaque.vertex_count == 3);
+    OA_CHECK(cloaked.first_vertex > opaque.first_vertex);
+    OA_CHECK(std::abs(fixture.scene.vertices[cloaked.first_vertex].opacity - 0.5F) < tolerance);
+    OA_CHECK(fixture.scene.vertices[opaque.first_vertex].opacity == 1);
+    OA_CHECK(std::abs(fixture.scene.vertices[cloaked.first_vertex].x - 8) < tolerance);
+    fixture.inputs.translucent_units = true;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(std::abs(fixture.scene.vertices[range_of(8).first_vertex].opacity - 0.5F) < tolerance);
 }
 
 /// Team textures share only matching frames, and the next build observes edits.
@@ -1723,8 +1968,16 @@ void model_shade_parity() {
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(triangle_color(fixture.scene, first)[0] == 120);
     fixture.inputs.graphics_flags = drawing::graphics_shading;
+    // The ground's colour at an index other than the image key, which a
+    // pictured unit's polygons leave clear.
+    constexpr uint8_t model_index = 3;
+    std::copy_n(
+        fixture.palette.begin() + ground_index * oa::palette_entry_bytes,
+        oa::palette_entry_bytes,
+        fixture.palette.begin() + model_index * oa::palette_entry_bytes
+    );
     prepared.objects[0].primitives[0].flags = drawing::primitive_colored;
-    prepared.objects[0].primitives[0].color = ground_index;
+    prepared.objects[0].primitives[0].color = model_index;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     const auto& vertex = fixture.scene.vertices[first];
     OA_CHECK(triangle_color(fixture.scene, first)[0] == 30);
@@ -1829,6 +2082,7 @@ int main() {
     underwater_effect_altitude();
     painted_projection();
     canonical_terrain_grid();
+    twisted_terrain_follows_simulation();
     clipped_texture_bounds();
     fog_materials();
     terrain_mip_colours();
@@ -1840,7 +2094,9 @@ int main() {
     atlas_repack_rows();
     terrain_material_repack();
     planned_model_visibility();
+    model_key_walls_and_cloak();
     model_material_lifetime();
+    animated_frames_follow_classic_tiers();
     terrain_decals();
     sprite_material_lifetime();
     cropped_ground_sprites();

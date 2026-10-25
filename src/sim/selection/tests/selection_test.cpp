@@ -236,6 +236,43 @@ int main() {
         world_destroy(w);
     }
     {
+        // A box test of a view's own selects as the drag box does: cleared
+        // first, the visible local units visited, one unit speaking and more
+        // playing the selection sound; enemy units are never tested.
+        World* w = make_world();
+        collect_visible_units(*w, lists, h);
+        r = Recorder{};
+
+        struct Taken {
+            uint16_t first;
+            uint16_t last;
+            int tested;
+        } taken{2, 2, 0};
+
+        const auto in_box = [](void* context, const Unit& unit) {
+            auto& box = *static_cast<Taken*>(context);
+            ++box.tested;
+            return unit.id >= box.first && unit.id <= box.last;
+        };
+        w->units[1].flags |= OA_UNIT_FLAG_SELECTED;
+        CHECK(select_units_where(*w, lists, false, h, in_box, &taken));
+        CHECK(!selected(*w, 1) && selected(*w, 2) && !selected(*w, 3));
+        CHECK(r.speech == 1 && r.multiple == 0 && r.cleared == 1);
+        CHECK(taken.tested == 3);
+        for (uint16_t id = 1; id <= 3; ++id)
+            CHECK((w->units[id].flags & OA_UNIT_FLAG_CYCLE_VISITED) != 0);
+        CHECK((w->game.frame_flags & frame_flag_selection_changed) != 0);
+        taken = {1, 3, 0};
+        CHECK(select_units_where(*w, lists, true, h, in_box, &taken));
+        CHECK(selected(*w, 1) && !selected(*w, 2) && selected(*w, 3));
+        CHECK(r.multiple == 1 && r.speech == 1 && r.cleared == 1);
+        taken = {0, 0, 0};
+        CHECK(!select_units_where(*w, lists, false, h, in_box, &taken));
+        CHECK(!select_units_where(*w, lists, false, h, nullptr, nullptr));
+        CHECK(!selected(*w, 1) && !selected(*w, 3));
+        world_destroy(w);
+    }
+    {
         World* w = make_world();
         r = Recorder{};
         w->game.cursor_unit_id = 2;

@@ -224,11 +224,22 @@ void Runtime::enter_director_mode(
              }}
         );
     offline_services_.set_on_screen_test(&DirectorState::unit_in_view, &match_->state());
+    // The graphics card's renderer last, so that a card that cannot be
+    // opened leaves director mode as it found the match.
+    if (presentation.full) {
+        try {
+            open_director_card();
+        } catch (...) {
+            leave_director_mode();
+            throw;
+        }
+    }
 }
 
 void Runtime::leave_director_mode() noexcept {
     if (director_ == nullptr)
         return;
+    close_director_card(*director_);
     const auto state = std::move(director_);
     match_layout_ = state->layout;
     match_camera_x_ = state->camera_x;
@@ -371,6 +382,10 @@ void Runtime::draw_director_frame(std::span<uint8_t> rgb) {
     const auto view = director_->view;
     const auto width = static_cast<int>(presentation.width);
     const auto height = static_cast<int>(presentation.height);
+    if (director_draws_on_card()) {
+        draw_director_card_frame(rgb);
+        return;
+    }
     const auto* gamma = director_->gamma_identity ? nullptr : &director_->gamma_table;
     namespace layout = oa::ui::display_layout;
     if (presentation.show_interface) {

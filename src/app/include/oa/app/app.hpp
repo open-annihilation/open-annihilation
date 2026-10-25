@@ -15,6 +15,7 @@
 #include "oa/ui/frontend_state/skirmish_ui.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/screen_registry.hpp"
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -210,6 +211,9 @@ enum class RenderFaultPoint : uint8_t {
     /// the memory guard refuses the Full tier's pages, then drops Full and
     /// then Basic; named alone, never part of the run of every case
     full_memory,
+    /// the effects pass fails on a Full match frame, which is drawn without
+    /// the effects while Full stays
+    effects,
 };
 
 /// The failure --render-fault forces and when.
@@ -854,6 +858,12 @@ struct Options {
     // pictures (director_output.hpp), counted from 0, in increasing order;
     // empty for none.
     std::vector<uint64_t> director_stills;
+    // --effect NAME=PERCENT, once for each effect it sets: the percent
+    // --render-script draws an effect at in place of the run's settings,
+    // one entry for each of engine_settings::effect_sliders, in its order;
+    // unset for the settings'.
+    std::array<std::optional<uint32_t>, oa::ui::engine_settings::effect_sliders.size()>
+        director_effects{};
     bool trace_input = false;
     // Writes every game file and listing the run looks up, one a line, to
     // this file (--trace-lookups); empty for none.

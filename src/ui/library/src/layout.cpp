@@ -1317,15 +1317,19 @@ std::string tab_caption(const Library& library, Tab tab, bool compact) {
 
 /// Returns the strip's look: each tab's caption and reading, the open tab,
 /// the hovered one and the scroll asked for. The counts the kit would draw
-/// beside a caption stay unset, so the brackets are the only digits.
+/// beside a caption stay unset, so the brackets are the only digits. The
+/// open tab is kept wholly in view until the player scrolls the strip, and
+/// again once another tab opens.
 ///
 /// @param building the layout
 /// @return the look
 kit::TabsLook tabs_look(const Building& building) {
     const Library& library = *building.library;
+    const ScreenState& state = *building.state;
     kit::TabsLook look;
     look.count_style = kit::TabCountStyle::words;
-    look.scroll = building.state->tab_scroll;
+    look.scroll = state.tab_scroll;
+    look.keep_selected_in_view = !state.tab_scrolled || state.tab_laid_out != library.tab;
     look.left_arrow_hovered = hovered(building, controls::tab_scroll_left);
     look.right_arrow_hovered = hovered(building, controls::tab_scroll_right);
     for (std::size_t index = 0; index < tab_order.size(); ++index) {
@@ -1440,8 +1444,9 @@ void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsL
 /// brackets after its title, in that title's font and colour. Active has
 /// no count. The names are the full ones while those keep Updates wholly in
 /// the view the strip opens on. When they do not fit, the strip scrolls
-/// sideways and an arrow at an end moves it by one tab. The scroll is
-/// written back so the open tab stays wholly in view.
+/// sideways: an arrow at an end moves it by one tab, and a drag moves it
+/// with the pointer. The scroll is written back, clamped to the strip, and
+/// so the open tab stays wholly in view until the player scrolls it.
 ///
 /// @param[in,out] building the layout
 /// @param strip the strip
@@ -1477,6 +1482,10 @@ void add_tabs(Building& building, const kit::Rect& strip) {
         if (const auto* stored = std::get_if<kit::TabsLook>(&cursor->look))
             building.state->tab_scroll = stored->scroll;
         break;
+    }
+    if (building.state->tab_laid_out != building.library->tab) {
+        building.state->tab_laid_out = building.library->tab;
+        building.state->tab_scrolled = false;
     }
     move_controls(building.list, before, building.top);
     for (std::size_t index = top_before; index < building.top.size(); ++index)

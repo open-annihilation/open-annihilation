@@ -491,6 +491,52 @@ void check_game_files_options(Options& options) {
     }
 }
 
+/// Takes an --effect value, NAME=PERCENT: an effect's name
+/// (engine_settings::EffectSlider) and a whole percent from 0 to 200 in steps
+/// of 10, as the effect's slider sets it.
+///
+/// Throws std::runtime_error for any other value, and for an effect named
+/// twice.
+///
+/// @param text the option's value
+/// @param[in,out] effects the percents taken so far, in effect_sliders' order
+void take_effect(
+    std::string_view text,
+    std::array<std::optional<uint32_t>, oa::ui::engine_settings::effect_sliders.size()>& effects
+) {
+    namespace settings = oa::ui::engine_settings;
+    constexpr uint32_t most_percent = 200;
+    constexpr uint32_t percent_step = 10;
+    const auto refuse = [] {
+        std::string names;
+        for (const auto& slider : settings::effect_sliders)
+            names += (names.empty() ? "" : ", ") + std::string(slider.name);
+        throw std::runtime_error(
+            "--effect expects NAME=PERCENT: NAME one of " + names +
+            ", PERCENT from 0 to 200 in steps of 10"
+        );
+    };
+    const auto equals = text.find('=');
+    if (equals == std::string_view::npos)
+        refuse();
+    const auto name = text.substr(0, equals);
+    const auto digits = text.substr(equals + 1);
+    uint32_t percent = 0;
+    const auto result = std::from_chars(digits.data(), digits.data() + digits.size(), percent);
+    if (digits.empty() || result.ec != std::errc{} || result.ptr != digits.data() + digits.size() ||
+        percent > most_percent || percent % percent_step != 0)
+        refuse();
+    for (std::size_t index = 0; index < settings::effect_sliders.size(); ++index) {
+        if (settings::effect_sliders[index].name != name)
+            continue;
+        if (effects[index])
+            throw std::runtime_error("--effect names " + std::string(name) + " twice");
+        effects[index] = percent;
+        return;
+    }
+    refuse();
+}
+
 /// Checks the director's options against the others, and has a director
 /// run headless: --generate-script and --render-script run on their own,
 /// on the fixed clock and seed, so that a script's analysis and its render
@@ -504,6 +550,11 @@ void check_game_files_options(Options& options) {
 void check_director_options(Options& options) {
     const bool generate = !options.generate_script.empty();
     const bool render = !options.render_script.empty();
+    const bool effects = std::any_of(
+        options.director_effects.begin(),
+        options.director_effects.end(),
+        [](const std::optional<uint32_t>& percent) { return percent.has_value(); }
+    );
     if (!generate && !render) {
         if (!options.director_output.empty())
             throw std::runtime_error("--output needs --generate-script or --render-script");
@@ -511,6 +562,8 @@ void check_director_options(Options& options) {
             throw std::runtime_error("--chunks needs --render-script");
         if (!options.director_stills.empty())
             throw std::runtime_error("--stills needs --render-script");
+        if (effects)
+            throw std::runtime_error("--effect needs --render-script");
         return;
     }
     if (generate && render)
@@ -519,9 +572,19 @@ void check_director_options(Options& options) {
         throw std::runtime_error("--chunks needs --render-script");
     if (generate && !options.director_stills.empty())
         throw std::runtime_error("--stills needs --render-script");
+    if (generate && effects)
+        throw std::runtime_error("--effect needs --render-script");
     if (render && options.window_resolution)
         throw std::runtime_error(
             "--render-script takes the frame size from the script, not from --resolution"
+        );
+    // A render's frames are the processor's, or the graphics card's Full
+    // tier's; Basic presents the processor's frames and draws none itself.
+    if (render &&
+        options.hardware_acceleration == oa::ui::engine_settings::HardwareAcceleration::basic)
+        throw std::runtime_error(
+            "--render-script draws its frames on the processor, or on the graphics card with "
+            "--hardware-acceleration=full; Basic draws no frames of its own"
         );
     const char* run = generate ? "--generate-script" : "--render-script";
     // Options of other runs, and those that would change the match, its
@@ -791,9 +854,10 @@ namespace {
         {"memory", RenderFaultPoint::memory},
         {"card", RenderFaultPoint::card},
         {"full-memory", RenderFaultPoint::full_memory},
+        {"effects", RenderFaultPoint::effects},
     };
     const char* const usage = "--render-fault takes create, present, reset, lost, stall, float, "
-                              "memory, card or full-memory, optionally @FRAME";
+                              "memory, card, full-memory or effects, optionally @FRAME";
     const auto at = text.find('@');
     const auto name = text.substr(0, at);
     const auto named = std::find_if(std::begin(points), std::end(points), [&](const auto& point) {
@@ -1333,6 +1397,10 @@ take_recording_option(std::string_view argument, ArgumentCursor& cursor, Options
     }
     if (argument == "--stills") {
         options.director_stills = parse_stills(option_value(cursor));
+        return true;
+    }
+    if (argument == "--effect") {
+        take_effect(option_value(cursor), options.director_effects);
         return true;
     }
     if (argument == "--trace-lookups") {

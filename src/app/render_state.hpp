@@ -51,8 +51,14 @@ class RenderState {
 
     /// Draws to the window directly, in its own pixels: no target, no logical presentation,
     /// no scale, no viewport and no clip.
-    void use_window_pixels() const noexcept {
-        SDL_SetRenderTarget(renderer_, nullptr);
+    void use_window_pixels() const noexcept { use_target_pixels(nullptr); }
+
+    /// Draws to a target directly, in its own pixels, as use_window_pixels draws to the
+    /// window: no logical presentation, no scale, no viewport and no clip.
+    ///
+    /// @param target the texture drawn into; null for the window
+    void use_target_pixels(SDL_Texture* target) const noexcept {
+        SDL_SetRenderTarget(renderer_, target);
         SDL_SetRenderLogicalPresentation(renderer_, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED);
         SDL_SetRenderScale(renderer_, 1.0F, 1.0F);
         SDL_SetRenderViewport(renderer_, nullptr);

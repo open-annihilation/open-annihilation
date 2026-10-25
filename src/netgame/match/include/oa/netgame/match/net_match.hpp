@@ -24,6 +24,7 @@
 
 #include <array>
 #include <cstddef>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -376,10 +377,42 @@ bool net_match_loading_frame(NetMatch* match) noexcept;
 
 /// Returns the start position index of a slot once the barrier passed (Player.start_position).
 ///
+/// The host sends each machine the start positions of its own players
+/// only, so another machine's player keeps whatever its record held before;
+/// net_match_fixed_start_positions gives its start when the starts are
+/// fixed.
+///
 /// @param match Running match.
 /// @param slot Player slot, 0..9.
 /// @return The start position, or no_start_position for a slot out of range.
 [[nodiscard]] uint8_t net_match_start_position(const NetMatch* match, uint8_t slot) noexcept;
+
+/// Works out the start position the host gives every slot when the starts
+/// are fixed, the same on every machine of the match.
+///
+/// The host deals fixed starts in its own slot order: every active slot
+/// that is not watching takes the next position, or with
+/// setup.team-start-positions at team-adjacent the team rules place them
+/// (team_rules::team_start_positions). Another machine seats the players in
+/// slots of its own, so it reads the host's order from the host's slot
+/// table, and on a map with neutral units reads the computer players of the
+/// host's machine group as the host's own. Shuffled starts are the host's
+/// alone, so this does not give them.
+///
+/// @param match Running match.
+/// @param host_slots The host's slot table (Game.slot_table, record 0x26) as
+///        the battle room last had it: each of the host's slots' player id,
+///        0 for a free slot, no_player_id for a closed one. The host's
+///        machine reads its own slots instead.
+/// @param[out] positions each of this machine's slots' start position, -1 for none
+/// @return False, with every position -1, when the table does not list this
+///         machine's players as playing once each, or the team rules would
+///         read the host's computer players and the host has no machine group
+[[nodiscard]] bool net_match_fixed_start_positions(
+    const NetMatch* match,
+    std::span<const uint32_t, OA_PLAYER_COUNT> host_slots,
+    std::array<int32_t, OA_PLAYER_COUNT>& positions
+) noexcept;
 
 // Rows of the loading screen (Game.load_progress), each 0..100.
 inline constexpr std::size_t load_progress_rows = 6;

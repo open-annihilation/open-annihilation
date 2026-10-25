@@ -186,6 +186,28 @@ void mark_visible_local(World& world, const VisibleLists& lists) noexcept;
 /// @return true when anything ends up selected
 bool select_units_in_box(World& world, const VisibleLists& lists, bool toggle, const Hooks& hooks);
 
+/// Selects the units a box test takes, as select_units_in_box selects the
+/// units in the drag box: for a view that tests a unit where it drew it,
+/// such as the rotated view. The selection is cleared first unless toggled,
+/// the local units of the visible list are visited for select-next, and a
+/// unit selected alone speaks, more than one play the selection sound.
+///
+/// @param[in,out] world units, players and game fields
+/// @param lists visible-unit list
+/// @param toggle true (shift) flips instead of replacing
+/// @param hooks sight, sound and panel services
+/// @param in_box tells whether one of the local player's selectable units is in the box
+/// @param context passed back to in_box
+/// @return true when anything ends up selected
+bool select_units_where(
+    World& world,
+    const VisibleLists& lists,
+    bool toggle,
+    const Hooks& hooks,
+    bool (*in_box)(void* context, const Unit& unit),
+    void* context
+);
+
 /// Selects the unit under the cursor (Game.cursor_unit_id).
 ///
 /// @param[in,out] world units, players and game fields

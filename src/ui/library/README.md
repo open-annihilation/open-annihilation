@@ -494,7 +494,9 @@ app removes the folder (`Runtime::library_uninstall`,
     refresh could not reach a registry),
     the tabs with their full names and All counts in brackets ("Active",
     "Mods (11)", "Maps (2)", "Languages (2)", "Updates (15)", "Registries (2)";
-    the strip scrolls sideways, with an arrow at an end, when the names do not fit), the search
+    the strip scrolls sideways, with an arrow at an end, when the names do not fit; it shows
+    the open tab when that tab opens, and then stays where an arrow, the wheel or a drag
+    leaves it, from the first tab to the last), the search
     field and the filter
     drop-down (All, New, Installed and Updates with their counts, "All
     (11)", then "Tag: balance (3)" for each tag of the tab), on the
@@ -610,9 +612,12 @@ app removes the folder (`Runtime::library_uninstall`,
     row. A finger reaches the nearest control
     within its reach (`kit::finger_down`); a finger that moves farther than
     its reach in the list or the details scrolls that pane and presses
-    nothing. A press outside an open drop-down only closes it. The wheel
-    over the tab strip scrolls the tabs when they do not fit, and otherwise
-    scrolls the pane under the pointer, or an open drop-down's items.
+    nothing. A press on tabs that do not fit that moves sideways, three
+    points for the mouse or past a finger's reach, drags the strip with the
+    pointer (`kit::tab_scroll_by`) and opens nothing. A press outside an
+    open drop-down only closes it. The wheel over the tab strip scrolls the
+    tabs when they do not fit, and otherwise scrolls the pane under the
+    pointer, or an open drop-down's items.
 - Every control is named for automation (the OA layer lists each as `oa.`
   and its name):
   - `library.tab.active`, `library.tab.mods`, `library.tab.maps`,

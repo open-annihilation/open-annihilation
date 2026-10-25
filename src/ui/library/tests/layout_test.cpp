@@ -4128,8 +4128,9 @@ bool open_tab_is_shown(const kit::DisplayList& list) {
 }
 
 /// The tabs keep their full names. At Compact the strip scrolls, the open
-/// tab stays in view, and an arrow or the wheel moves it by one tab. Where
-/// the names fit there are no arrows. A download draws its bar at every size.
+/// tab is in view until the strip is scrolled, and an arrow or the wheel
+/// moves it by one tab and leaves it there. Where the names fit there are no
+/// arrows. A download draws its bar at every size.
 void tabs_scroll_and_the_queue_shows_its_bar() {
     const std::vector<fixture::NamedFrame> all = fixture::frames();
     lib::Library library = with_ridge();
@@ -4220,14 +4221,16 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
         OA_CHECK(turned.redraw);
         OA_CHECK(scrolling.tab_scroll == stepped);
         OA_CHECK(scrolling.list_scroll == 0);
-        OA_CHECK(open_tab_is_shown(laid_out(library, scrolling, narrow)));
+        static_cast<void>(laid_out(library, scrolling, narrow));
+        OA_CHECK(scrolling.tab_scroll == stepped);
 
         lib::ScreenState by_arrow;
         const kit::DisplayList before = laid_out(library, by_arrow, narrow);
         const int32_t by_step = kit::tab_scroll_step(before, 1);
         click(library, by_arrow, before, "library.tab.scroll-right");
         OA_CHECK(by_arrow.tab_scroll == by_step);
-        OA_CHECK(open_tab_is_shown(laid_out(library, by_arrow, narrow)));
+        static_cast<void>(laid_out(library, by_arrow, narrow));
+        OA_CHECK(by_arrow.tab_scroll == by_step);
     }
 
     library = with_ridge();
@@ -4239,6 +4242,158 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
     OA_CHECK(library.tab == lib::Tab::registries);
     OA_CHECK(open_tab_is_shown(shown));
     OA_CHECK(commands.tab_scroll > 0);
+}
+
+/// Tells whether a tab lies wholly in the strip's view.
+///
+/// @param list the display list
+/// @param name the tab's automation name
+/// @return true when it is wholly shown
+bool tab_is_shown(const kit::DisplayList& list, std::string_view name) {
+    const kit::Item* strip = tab_strip(list);
+    const kit::Control* tab = fixture::named(list, name);
+    if (strip == nullptr || tab == nullptr)
+        return false;
+    const auto* look = std::get_if<kit::TabsLook>(&strip->look);
+    if (look == nullptr)
+        return false;
+    const kit::Rect view{look->view_x, strip->rect.y, look->view_width, strip->rect.height};
+    return kit::wholly_in(tab->rect, view);
+}
+
+/// Returns the middle of a tab whose middle lies in the strip's view, where a
+/// press can drag the strip.
+///
+/// @param list the display list
+/// @return the point; none when no tab's middle is in view or the tabs fit
+std::optional<kit::Point> tab_in_view(const kit::DisplayList& list) {
+    const std::optional<kit::Rect> area = kit::tab_drag_area(list);
+    if (!area)
+        return std::nullopt;
+    for (const kit::Control& control : list.controls) {
+        if (control.kind != kit::ControlKind::tab)
+            continue;
+        const kit::Point middle = centre_of(control);
+        if (kit::contains(*area, middle))
+            return middle;
+    }
+    return std::nullopt;
+}
+
+/// Whatever tab is open, the arrows reach the strip's first and last tabs,
+/// and the strip stays where they leave it. A press on the tabs that moves
+/// sideways drags the strip with it and opens nothing, a mouse after three
+/// points and a finger past its reach; a press that does not move opens its
+/// tab. Opening a tab brings it into view again.
+void tabs_scroll_to_either_end_and_drag() {
+    // As narrow as the scroll test's, so the full names overflow.
+    kit::Frame narrow;
+    narrow.area = {0, 0, 280, 480};
+    narrow.size_class = kit::SizeClass::compact;
+    narrow.scale_percent = 100;
+
+    lib::Library library = with_ridge();
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState state;
+    kit::DisplayList list = laid_out(library, state, narrow);
+    OA_CHECK(tab_is_shown(list, "library.tab.mods"));
+    for (int32_t step = 0; step < 12 && fixture::named(list, "library.tab.scroll-right"); ++step) {
+        click(library, state, list, "library.tab.scroll-right");
+        list = laid_out(library, state, narrow);
+    }
+    OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
+    OA_CHECK(tab_is_shown(list, "library.tab.registries"));
+    OA_CHECK(!tab_is_shown(list, "library.tab.mods"));
+    OA_CHECK(library.tab == lib::Tab::mods);
+    for (int32_t step = 0; step < 12 && fixture::named(list, "library.tab.scroll-left"); ++step) {
+        click(library, state, list, "library.tab.scroll-left");
+        list = laid_out(library, state, narrow);
+    }
+    OA_CHECK(state.tab_scroll == 0);
+    OA_CHECK(tab_is_shown(list, "library.tab.active"));
+
+    // A mouse: two points leave the strip, three drag it, and letting go
+    // opens nothing.
+    lib::ScreenState mouse;
+    list = laid_out(library, mouse, narrow);
+    const kit::Control* mods = fixture::named(list, "library.tab.mods");
+    OA_CHECK(mods != nullptr);
+    if (mods != nullptr) {
+        const kit::Point from = centre_of(*mods);
+        static_cast<void>(
+            lib::library_pointer(library, mouse, list, lib::PointerKind::down, 1, from, 0)
+        );
+        static_cast<void>(lib::library_pointer(
+            library, mouse, list, lib::PointerKind::move, 0, {from.x - 2, from.y}, 0
+        ));
+        OA_CHECK(mouse.tab_scroll == 0);
+        OA_CHECK(!mouse.tab_drag.scrolling);
+        const lib::ScreenResult dragged = lib::library_pointer(
+            library, mouse, list, lib::PointerKind::move, 0, {from.x - 60, from.y}, 0
+        );
+        OA_CHECK(dragged.redraw);
+        OA_CHECK(mouse.tab_scroll == kit::tab_scroll_by(list, 0, 60));
+        OA_CHECK(mouse.tab_scroll > 0);
+        static_cast<void>(lib::library_pointer(
+            library, mouse, list, lib::PointerKind::up, 1, {from.x - 60, from.y}, 0
+        ));
+        OA_CHECK(library.tab == lib::Tab::mods);
+        const int32_t left_at = mouse.tab_scroll;
+        list = laid_out(library, mouse, narrow);
+        OA_CHECK(mouse.tab_scroll == left_at);
+
+        // Dragged far past the end, the strip stops at its last tab.
+        const std::optional<kit::Point> again = tab_in_view(list);
+        OA_CHECK(again.has_value());
+        if (again) {
+            const kit::Point at = *again;
+            static_cast<void>(
+                lib::library_pointer(library, mouse, list, lib::PointerKind::down, 1, at, 0)
+            );
+            static_cast<void>(lib::library_pointer(
+                library, mouse, list, lib::PointerKind::move, 0, {at.x - 4000, at.y}, 0
+            ));
+            static_cast<void>(lib::library_pointer(
+                library, mouse, list, lib::PointerKind::up, 1, {at.x - 4000, at.y}, 0
+            ));
+            list = laid_out(library, mouse, narrow);
+            OA_CHECK(fixture::named(list, "library.tab.scroll-right") == nullptr);
+            OA_CHECK(tab_is_shown(list, "library.tab.registries"));
+            OA_CHECK(library.tab == lib::Tab::mods);
+        }
+
+        // A click on a tab in view opens it, and the strip shows it whole.
+        click(library, mouse, list, "library.tab.registries");
+        OA_CHECK(library.tab == lib::Tab::registries);
+        list = laid_out(library, mouse, narrow);
+        OA_CHECK(tab_is_shown(list, "library.tab.registries"));
+    }
+
+    // A finger drags past its reach, not before.
+    lib::set_tab(library, lib::Tab::mods);
+    lib::ScreenState finger;
+    list = laid_out(library, finger, narrow);
+    const kit::Control* maps = fixture::named(list, "library.tab.maps");
+    OA_CHECK(maps != nullptr);
+    if (maps != nullptr) {
+        constexpr int32_t reach = 12;
+        const kit::Point from = centre_of(*maps);
+        static_cast<void>(
+            lib::library_pointer(library, finger, list, lib::PointerKind::down, 1, from, reach)
+        );
+        static_cast<void>(lib::library_pointer(
+            library, finger, list, lib::PointerKind::move, 0, {from.x - reach, from.y}, reach
+        ));
+        OA_CHECK(finger.tab_scroll == 0);
+        static_cast<void>(lib::library_pointer(
+            library, finger, list, lib::PointerKind::move, 0, {from.x - 40, from.y}, reach
+        ));
+        OA_CHECK(finger.tab_scroll == kit::tab_scroll_by(list, 0, 40));
+        static_cast<void>(lib::library_pointer(
+            library, finger, list, lib::PointerKind::up, 1, {from.x - 40, from.y}, reach
+        ));
+        OA_CHECK(library.tab == lib::Tab::mods);
+    }
 }
 
 } // namespace
@@ -5399,6 +5554,7 @@ int main() {
     expansion_download_arrow_sits_inside_the_pill();
     locked_pill_shows_why();
     tabs_scroll_and_the_queue_shows_its_bar();
+    tabs_scroll_to_either_end_and_drag();
     the_base_chooser_names_its_rows();
     base_badge_is_nearest_and_tabs_are_bracketed();
     unload_mod_asks_switch_off();

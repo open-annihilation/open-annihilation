@@ -1128,6 +1128,11 @@ struct NetworkPlay::NetHost {
             nm::net_match_queue_game_start(&state.connection, *lobby.game);
         }
         state.building_game = lobby.game;
+        std::copy(
+            std::begin(lobby.game->slot_table),
+            std::end(lobby.game->slot_table),
+            state.host_slot_ids.begin()
+        );
         state.loading_pace = {};
         state.load_rows = {};
         try {
@@ -1493,14 +1498,23 @@ struct NetworkPlay::NetHost {
                 throw std::runtime_error("a local commander could not be placed");
             runtime.remember_brain_player_start(slot, start, false, true);
         }
+        // Another machine's player is noted at the start the host dealt it,
+        // the same on every machine. The host sends each machine only its
+        // own players' starts, so with fixed starts the others are worked
+        // out as the host deals them, in the host's slot order; nothing
+        // moves a computer player last then. Shuffled starts are the host's
+        // alone, and a machine may then have moved its computer player last,
+        // so another machine's player has none, and a brain reads only its
+        // own start.
+        std::array<int32_t, OA_PLAYER_COUNT> dealt{};
+        dealt.fill(-1);
+        if (fixed_positions)
+            (void)nm::net_match_fixed_start_positions(state.net.get(), state.host_slot_ids, dealt);
         for (uint8_t slot = 0; slot < OA_PLAYER_COUNT; ++slot) {
             const auto& player = world.game.players[slot];
             if (player.in_use == 0 || nm::match_slot_watcher(&world, slot))
                 continue;
-            const auto remote = nm::net_match_start_position(state.net.get(), slot);
-            if (remote == nm::no_start_position)
-                continue;
-            runtime.remember_brain_player_start(slot, static_cast<int32_t>(remote), false, false);
+            runtime.remember_brain_player_start(slot, dealt[slot], false, false);
         }
         runtime.publish_brain_starts(fixed_positions);
         // Every store starts at the host's resources.
@@ -2934,6 +2948,9 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     host_info.options ^= mp::option::watching_allowed;
     if (!watching)
         host_info.options ^= mp::option::cheats_allowed;
+    // --net-loopback-fixed-starts: the host's block asks for fixed starts.
+    if (net_options().net_loopback_fixed_starts)
+        host_info.options |= mp::option::fixed_locations;
     mp::lobby_send_player_info(*host.lobby);
     mp::lobby_send_player_info(*client.lobby);
     wait_until(
@@ -3221,6 +3238,22 @@ int NetworkPlay::run_net_loopback_check(std::size_t ticks) {
     };
     hold_speed(runtime_, kHostLeftSpeed);
     hold_speed(joiner, kClientLeftSpeed);
+
+    // The host's battle room sends its slot table every few seconds, and the
+    // joiner launches with it, as from a room that has been open that long.
+    mp::lobby_send_slot_table(*host.lobby);
+    wait_until(
+        [&] {
+            drain(host);
+            drain(client);
+            return std::equal(
+                std::begin(host.lobby->game->slot_table),
+                std::end(host.lobby->game->slot_table),
+                std::begin(client.lobby->game->slot_table)
+            );
+        },
+        "the host's slot table did not reach the joiner"
+    );
 
     // START: the host launches and its 0x08 launches the client. No frame
     // runs while the host builds its world; the loading screen's work goes on

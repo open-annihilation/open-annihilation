@@ -630,6 +630,9 @@ std::string run_manifest_text(
     text += "output " + std::to_string(run.width) + 'x' + std::to_string(run.height) +
             " framerate " + oascript::decimal_text(run.framerate) + " tickrate " +
             oascript::decimal_text(run.tickrate) + '\n';
+    if (!run.graphics_card.empty())
+        text += "drawn graphics-card " + run.graphics_card +
+                " full-tier: frames differ from one driver to the next and are not pinned\n";
     text += "ticks " + std::to_string(run.first_tick) + " to " + std::to_string(run.end_tick) +
             " (exclusive)\n";
     text += "frames " + std::to_string(run.frame_count) + '\n';

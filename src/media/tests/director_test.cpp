@@ -436,6 +436,83 @@ void test_spring() {
     expect(std::fabs(frames.back().camera.height - 1200.0) < 1e-6, "its height settles");
 }
 
+/// Returns a camera turned by a yaw and a pitch, in tenths of a degree.
+oascript::CameraState
+turned_camera(oascript::CameraState camera, int64_t yaw_tenths, int64_t pitch_tenths) {
+    camera.orientation = oascript::CameraOrientation{{pitch_tenths, 1}, {yaw_tenths, 1}, {0, 0}};
+    return camera;
+}
+
+void test_turned() {
+    // A camera's yaw and pitch, roll left out; none without an orientation.
+    const director::View view{
+        director::view_of_camera(turned_camera(camera_at(1000, 600, 1080), -305, 100))
+    };
+    expect(view.yaw == -30.5 && view.pitch == 10.0, "a camera's yaw and pitch");
+    expect(director::turned(view), "a turned view");
+    const director::View plain{director::view_of_camera(camera_at(1000, 600, 1080))};
+    expect(plain.yaw == 0.0 && plain.pitch == 0.0 && !director::turned(plain), "no orientation");
+    // The pitch is held to the unlocked range; the yaw is kept as it is.
+    const director::View high{director::clamp_view(
+        {1000.0, 600.0, 1080.0, 720.0, 40.0}, coast_to_coast, director::OutputSize{1920, 1080}
+    )};
+    expect(high.pitch == director::max_pitch && high.yaw == 720.0, "pitch held, yaw kept");
+    const director::View low{director::clamp_view(
+        {1000.0, 600.0, 1080.0, 0.0, -80.0}, coast_to_coast, director::OutputSize{1920, 1080}
+    )};
+    expect(low.pitch == director::min_pitch, "pitch held from below");
+    expect(
+        director::min_pitch + director::classic_elevation == director::min_elevation &&
+            director::max_pitch + director::classic_elevation == director::max_elevation,
+        "the pitch range is the elevation range"
+    );
+
+    // A linear shot turns evenly, and a continuing one turns on from where
+    // it ended; a camera with no orientation turns back to the classic view.
+    oascript::Script script{script_with(
+        {shot_to(
+             0,
+             turned_camera(camera_at(1000, 600, 1080), -300, 0),
+             turned_camera(camera_at(1000, 600, 1080), 300, 100)
+         ),
+         shot_to(60, {}, camera_at(1000, 600, 1080))},
+        90
+    )};
+    director::ShotList shots{};
+    director::CompileMessages messages{};
+    expect(director::compile_shots(script, coast_to_coast, 0, shots, messages), "turned compiles");
+    expect(messages.warnings.empty(), "turning within the range warns about nothing");
+    const std::vector<director::FrameCameras> frames{all_frames(shots)};
+    expect(frames.size() == 180, "180 turned frames");
+    if (frames.size() == 180) {
+        expect(frames[0].camera.yaw == -30.0 && frames[0].camera.pitch == 0.0, "turned start");
+        expect(frames[60].camera.yaw == 0.0 && frames[60].camera.pitch == 5.0, "half way round");
+        expect(frames[120].camera.yaw == 30.0 && frames[120].camera.pitch == 10.0, "turned end");
+        expect(frames[179].camera.yaw > 0.0 && frames[179].camera.yaw < 1.0, "turning back");
+    }
+
+    // A pitch outside the range warns and is held; a spring turns the camera
+    // as it moves the view.
+    script.director.shots[0].camera_end = turned_camera(camera_at(1000, 600, 1080), 0, 400);
+    script.director.shots[1].camera_end = turned_camera(camera_at(1000, 600, 1080), 900, 0);
+    script.director.shots[1].motion = spring({1, 0}, {1, 0});
+    expect(director::compile_shots(script, coast_to_coast, 0, shots, messages), "spring compiles");
+    expect(
+        messages.warnings.size() == 1 &&
+            has_message(messages.warnings, "director.shots[0].cameraEnd.orientation.pitch: "),
+        "a pitch above the range warns"
+    );
+    const std::vector<director::FrameCameras> sprung{all_frames(shots)};
+    if (sprung.size() == 180) {
+        expect(sprung[119].camera.pitch == director::max_pitch, "the pitch is held at its top");
+        bool rising{true};
+        for (size_t frame{121}; frame < sprung.size(); ++frame)
+            rising = rising && sprung[frame].camera.yaw > sprung[frame - 1].camera.yaw &&
+                     sprung[frame].camera.yaw < 90.0;
+        expect(rising, "the spring turns the camera towards its end");
+    }
+}
+
 void test_continuation() {
     oascript::Shot first{shot_to(0, camera_at(1000, 600, 1080), camera_at(2000, 1000, 1200))};
     first.motion = spring({5, 1}, {1, 0});
@@ -601,6 +678,7 @@ int main() {
     test_linear();
     test_spring();
     test_continuation();
+    test_turned();
     test_transition();
     test_pinned_cameras();
     if (failures != 0) {

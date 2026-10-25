@@ -8,7 +8,8 @@
 // In director mode the match is drawn at the output size from the camera the
 // director sets, never the player's: the battlefield fills the frame unless
 // the interface is asked for, no cursor is drawn, and nothing on the wall
-// clock reaches the frame. Debris particles start once a tick whether or not
+// clock reaches the frame. The processor draws it, or, when asked, the
+// graphics card's Full tier on a renderer with no window. Debris particles start once a tick whether or not
 // the tick is drawn, so a pass that draws and one that does not play out the
 // same. Every sound the match plays, every player's unit announcements
 // included, goes to the sound hooks, placed from the director's camera,
@@ -30,6 +31,11 @@ struct DirectorPresentation {
     /// Every player's unit announcements are heard, placed at the unit; the
     /// game itself announces only the viewing player's units.
     bool every_player_speaks{true};
+    /// The frames are drawn by the graphics card's Full tier on a renderer
+    /// of their own with no window, and read back, instead of by the
+    /// processor. Its pixels differ from one driver to the next, so its
+    /// frames are never pinned.
+    bool full{};
 };
 
 /// A sound the match plays in director mode.

@@ -286,9 +286,21 @@ over units. Order markers remain overlays, as in the classic view.
 | Dithered fog | Uses the classic grey palette for mapped-but-unseen terrain; live boundaries remain smoothly interpolated. |
 | Smooth motion | Uses the existing presentation fraction for model movement and animated pieces. |
 | Gamma | Uses the existing presentation conversion. |
-| Classic model shading and cloak blending | Still incomplete in the live path. |
+| Classic model shading | Buildings drawn from their picture take the classic shade rows, the bright page above the unlit row and the shade table's colours, as the classic Full view shades them; mobile units and moving pieces stay unshaded, as there. A pictured unit's polygons of the image key, the walls that hide its pieces below the ground, draw nothing: the terrain hides those pieces. |
+| Cloak blending | A cloaked unit, or every unit under the debug overlay, is drawn at half opacity, as the classic view blends its picture, after the opaque scene so that its depth hides nothing behind it, and stays pickable. Its own faces blend one by one, where the classic view blends its whole picture once. |
 
-The preview currently needs macOS Metal through SDL GPU. It reuses its device,
+The preview draws through SDL's GPU interface on Metal or Vulkan: SDL
+chooses Metal on Apple systems and Vulkan elsewhere, and `SDL_GPU_DRIVER`
+names one. Each stage is written once, in Vulkan's GLSL, in
+`src/app/shaders/`; `tools/make_live_shaders.py` compiles it to SPIR-V and,
+through SPIR-V, to Metal shading language, in
+`src/app/renderer_live_shaders.inc`, which is committed, so the build needs
+no shader tools, and the `live-shaders` check makes it afresh where the
+tools are installed. Windows's own graphics interface has no form yet: on
+Windows the preview needs a Vulkan driver. On a Mac, Vulkan through a translation layer such as
+MoltenVK runs the SPIR-V for testing:
+`SDL_GPU_DRIVER=vulkan SDL_VULKAN_LIBRARY=/opt/homebrew/lib/libvulkan.1.dylib`.
+It reuses its device,
 pipeline, atlas and frame buffers, but each frame waits for GPU readback and
 uploads the result through the existing presentation path. Performance is
 provisional. The live path omits the unused classic battlefield raster, and
@@ -305,8 +317,9 @@ edges. Ground features retain their canonical world anchors. Effect sprites
 face the camera at their actual altitude. Light-table flashes
 are translucent terrain decals, approximating classic relighting. Construction
 starts with polygon-edge nanoframes, then fades in textured faces as work
-finishes. Model shading, cloak transparency and some projectile/effect types
-remain incomplete. Oblique views expose stretched artwork on surfaces missing
+finishes. Some projectile and effect types remain incomplete, and textured
+faces are drawn as triangles rather than as the classic view's strips.
+Oblique views expose stretched artwork on surfaces missing
 from the original painted view. The rotated view does not meet the classic
 parity gate.
 
@@ -323,7 +336,7 @@ OA_BUILD_TYPE=Check ./run.sh --game-dir "$OA_GAME_DIR" --check-live-renderer
 ```
 
 Use the native video driver for this check; the dummy driver cannot create
-a Metal device. An unavailable backend returns 77, while rendering failures
+a GPU device. An unavailable backend returns 77, while rendering failures
 fail the check. The module checks separately cover camera projection, live
 scene visibility and atlas invalidation, and persistent GPU resources.
 

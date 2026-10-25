@@ -218,6 +218,83 @@ std::vector<uint8_t> heat_picture(bool cropped) {
     SDL_DestroySurface(canvas);
     return result;
 }
+
+/// The memory guard is asked for the readback, its copy and the grown
+/// upload together; refused, the pass reads, processes and draws nothing and
+/// leaves the renderer as it was. Allowed, a later pass draws as usual.
+void guarded_case() {
+    using namespace oa::app::full_effects;
+    SDL_Surface* canvas = SDL_CreateSurface(80, 60, SDL_PIXELFORMAT_RGBA32);
+    SDL_Renderer* renderer = canvas ? SDL_CreateSoftwareRenderer(canvas) : nullptr;
+    OA_CHECK(renderer != nullptr);
+    if (!renderer) {
+        SDL_DestroySurface(canvas);
+        return;
+    }
+    OA_CHECK(SDL_SetRenderDrawColor(renderer, 30, 40, 50, 255));
+    OA_CHECK(SDL_RenderClear(renderer));
+    const SDL_Rect clip{3, 2, 72, 54};
+    OA_CHECK(SDL_SetRenderClipRect(renderer, &clip));
+    const SDL_Rect field{10, 8, 40, 30};
+    const auto paint_green = [](const Pixels& image) {
+        for (uint32_t y = 0; y < image.height; ++y)
+            for (uint32_t x = 0; x < image.width; ++x) {
+                auto* pixel = image.bytes.data() + y * image.pitch + x * 4;
+                pixel[0] = 0;
+                pixel[1] = 255;
+                pixel[2] = 0;
+            }
+    };
+    Upload upload;
+    std::vector<uint64_t> asked;
+    bool called = false;
+    const std::string refused = compose(
+        renderer,
+        upload,
+        field,
+        nullptr,
+        1,
+        [&](const Pixels& image) {
+            called = true;
+            paint_green(image);
+        },
+        nullptr,
+        [&](uint64_t bytes) {
+            asked.push_back(bytes);
+            return false;
+        }
+    );
+    OA_CHECK(!refused.empty());
+    OA_CHECK(!called);
+    OA_CHECK(upload.texture == nullptr);
+    // The readback and its copy, and the upload it would have made.
+    OA_CHECK(asked.size() == 1 && asked[0] == 3U * 40U * 30U * 4U);
+    SDL_Rect restored_clip{};
+    OA_CHECK(SDL_GetRenderClipRect(renderer, &restored_clip));
+    OA_CHECK(restored_clip.x == clip.x && restored_clip.w == clip.w);
+    SDL_RenderPresent(renderer);
+    const auto at = [&](int x, int y) {
+        return static_cast<const uint8_t*>(canvas->pixels) + y * canvas->pitch + x * 4;
+    };
+    OA_CHECK(at(20, 20)[0] == 30 && at(20, 20)[1] == 40 && at(20, 20)[2] == 50);
+    // Allowed, the pass draws; an upload large enough is not asked for again.
+    asked.clear();
+    for (int pass = 0; pass < 2; ++pass)
+        OA_CHECK(
+            compose(renderer, upload, field, nullptr, 1, paint_green, nullptr, [&](uint64_t bytes) {
+                asked.push_back(bytes);
+                return true;
+            }).empty()
+        );
+    OA_CHECK(
+        asked.size() == 2 && asked[0] == 3U * 40U * 30U * 4U && asked[1] == 2U * 40U * 30U * 4U
+    );
+    SDL_RenderPresent(renderer);
+    OA_CHECK(at(20, 20)[0] == 0 && at(20, 20)[1] == 255 && at(20, 20)[2] == 0);
+    upload.reset();
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroySurface(canvas);
+}
 } // namespace
 
 int main() {
@@ -231,5 +308,6 @@ int main() {
     run_case(2, false, false, true);
     run_case(1, true, false, true);
     run_case(2, true, true, true);
+    guarded_case();
     return oa::test::check_exit_status();
 }

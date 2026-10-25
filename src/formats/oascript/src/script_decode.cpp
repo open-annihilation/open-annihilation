@@ -640,8 +640,8 @@ class Decoder {
             missing(child_path(path, "z"));
     }
 
-    /// Decodes a camera's orientation, warning about every angle that is
-    /// not zero.
+    /// Decodes a camera's orientation, warning about a roll that is not
+    /// zero.
     ///
     /// @param node the value
     /// @param path its path
@@ -670,8 +670,8 @@ class Decoder {
                 valid = false;
                 continue;
             }
-            if (angle->mantissa != 0)
-                warning(entry_path, entry.position, "is ignored: the game's view cannot turn");
+            if (angle == &orientation.roll && angle->mantissa != 0)
+                warning(entry_path, entry.position, "is ignored: a camera does not roll");
         }
         return valid;
     }

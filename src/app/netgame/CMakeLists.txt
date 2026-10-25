@@ -270,6 +270,17 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
     set_tests_properties(native-net-loopback-brain PROPERTIES
       TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
       SKIP_RETURN_CODE 77)
+    # With fixed starts and a computer player on each machine, both computer
+    # seats play a brain that prints every player's start. The machines seat
+    # the players in different slots, and both brains read the start the
+    # host dealt each player.
+    add_test(NAME native-net-loopback-brain-starts COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_net_brain_starts.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_netgame_checks}")
+    set_tests_properties(native-net-loopback-brain-starts PROPERTIES
+      TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+      SKIP_RETURN_CODE 77)
     # The three computer checks above, with Classic in each computer seat.
     add_test(NAME native-net-loopback-computer-classic COMMAND ${Python3_EXECUTABLE}
       "${PROJECT_SOURCE_DIR}/tools/check_native_classic_swap.py"

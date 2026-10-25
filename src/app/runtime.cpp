@@ -612,9 +612,9 @@ int Runtime::run() {
                 return 0;
             }
             if (options_.check_director_render) {
-                check_director_render();
+                const int status = check_director_render();
                 flush_preferences();
-                return 0;
+                return status;
             }
             if (options_.check_interpolation) {
                 check_interpolation();

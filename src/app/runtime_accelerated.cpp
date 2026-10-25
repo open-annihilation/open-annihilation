@@ -78,8 +78,10 @@ void Runtime::switch_accelerated_presentation(bool on, const policy::LadderState
 }
 
 bool Runtime::accelerated_presentation() const noexcept {
+    // A director's frames are the processor's, unless the graphics card's
+    // renderer with no window draws them (director_draws_on_card).
     return accelerated_.on && !accelerated_.suspended && sdl_.renderer != nullptr &&
-           !options_.headless_check && director_ == nullptr;
+           ((!options_.headless_check && director_ == nullptr) || director_draws_on_card());
 }
 
 void Runtime::drop_acceleration(const std::string& reason, render_policy::Drop drop) {

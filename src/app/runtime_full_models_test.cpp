@@ -1512,8 +1512,9 @@ void test_mobile_nanoframe_once_built() {
     }
 }
 
-// Full uses optional physical water shading, with no legacy polygon-wide tint.
-// The existing visibility rule still hides another player's submerged unit.
+// With Underwater shimmer at 0%, the viewer's own unit under the water line
+// is halved and lifted towards blue, as 3.1c's blue table tints it, and
+// another player's is not drawn at all.
 void test_underwater() {
     Scene scene;
     scene.world->game.sea_level = 10;
@@ -1527,16 +1528,17 @@ void test_underwater() {
     scene.plan_unit(own);
     scene.raster_processor(processor);
     const CardPicture tinted = card.raster(scene);
-    // With effects off, Full stays untinted while preserving the coverage.
+    // The gray palette's nearest entry to the halved and lifted colour is
+    // a gray, so the colours differ by design; the coverage holds.
     const auto c = compare(tinted, processor, scene);
-    print("underwater, own, effects off", c);
+    print("underwater, own", c);
     OA_CHECK(c.drawn == 16 * 16 && c.far_coverage == 0 && c.edge_coverage == 0);
     const uint8_t* pixel = tinted.at(unit_x, unit_z);
     OA_CHECK(pixel[3] == 255);
-    OA_CHECK(std::abs(int{pixel[0]} - ink) <= 2);
-    OA_CHECK(std::abs(int{pixel[1]} - ink) <= 2);
-    OA_CHECK(std::abs(int{pixel[2]} - ink) <= 2);
-    // The software renderer keeps its original palette-based tint.
+    OA_CHECK(std::abs(int{pixel[0]} - ink / 2) <= 2);
+    OA_CHECK(std::abs(int{pixel[1]} - ink / 2) <= 2);
+    OA_CHECK(std::abs(int{pixel[2]} - (ink / 2 + 0x32)) <= 2);
+    // The processor's pixel is tinted too: not the ink.
     OA_CHECK(processor.at(unit_x, unit_z)[0] != ink);
     // Another player's unit under the line is not drawn by either.
     SceneUnit& other = scene.add_unit(square_model(), 2, unit_x, unit_z);
@@ -1580,7 +1582,10 @@ void test_water_shimmer() {
     OA_CHECK(card.raster(scene).rgba == classic.rgba);
 }
 
-/// A sloping face crosses sea level; its dry end stays unchanged in Full.
+/// A sloping face crosses sea level. With Underwater shimmer at 0% Full
+/// draws it as 3.1c does, tinted whole as the game's depth rule finds its
+/// polygon under water; above 0% the shading follows the physical height,
+/// so the face's dry end stays as it is drawn out of the water.
 void test_partial_water_model() {
     Scene scene;
     SceneUnit& own = scene.add_unit(resting_model(), 1, unit_x, unit_z);
@@ -1594,15 +1599,20 @@ void test_partial_water_model() {
     scene.begin_frame(processor, 0);
     scene.plan_unit(own);
     const auto disabled = card.raster(scene);
-    OA_CHECK(disabled.rgba == dry.rgba);
+    for (const int32_t down : {10, 30}) {
+        const uint8_t* plain = dry.at(unit_x, unit_z + down);
+        const uint8_t* tinted = disabled.at(unit_x, unit_z + down);
+        OA_CHECK(plain[3] == 255 && tinted[3] == 255);
+        OA_CHECK(std::abs(int{tinted[0]} - plain[0] / 2) <= 2);
+        OA_CHECK(std::abs(int{tinted[1]} - plain[1] / 2) <= 2);
+        OA_CHECK(std::abs(int{tinted[2]} - (plain[2] / 2 + 0x32)) <= 2);
+    }
     scene.water_shimmer = 1;
     const auto enabled = card.raster(scene);
-    const auto* dry_tip = disabled.at(unit_x, unit_z + 30);
-    OA_CHECK(dry_tip[3] == 255);
+    const auto* dry_tip = dry.at(unit_x, unit_z + 30);
     for (int channel = 0; channel < 4; ++channel)
         OA_CHECK(enabled.at(unit_x, unit_z + 30)[channel] == dry_tip[channel]);
-    const auto* wet_foot = disabled.at(unit_x, unit_z + 10);
-    OA_CHECK(wet_foot[3] == 255);
+    const auto* wet_foot = dry.at(unit_x, unit_z + 10);
     OA_CHECK(enabled.at(unit_x, unit_z + 10)[0] != wet_foot[0]);
 }
 

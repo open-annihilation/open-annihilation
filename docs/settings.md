@@ -509,10 +509,12 @@ the game draws its text and how the modern fonts draw it.
   classic view back. A match always starts in the classic top-down view,
   and Off keeps it there. While an order or a building is armed, Alt+click
   still places it unsnapped (the click snap's override key) and leaves the
-  camera alone. With Hardware acceleration Off or Basic the gesture only
-  says that it needs Full. The rotated view is drawn by the graphics card
-  through Metal, so for now it turns only on a Mac; elsewhere the view stays
-  classic.
+  camera alone. With Hardware acceleration Off or Basic, Alt and its drags,
+  Alt+R and Alt+U keep their classic uses. The rotated view is drawn by the graphics card
+  through Metal on a Mac or Vulkan elsewhere: on Windows 7 to 11 and Linux
+  where the card's driver offers Vulkan, but not on Windows XP or 95 to
+  Me. Where neither can be used, the first turn fails once and the view
+  stays classic, and Alt keeps its other uses for the rest of the run.
 - **Unlocked Camera**, Off by default, locked ("Needs Allow Full 3D Mode")
   while Allow Full 3D Mode is Off. On lets the camera turn beyond the
   angles at which the game's flat art still looks right. Alt+U (Option+U)
@@ -543,7 +545,9 @@ the game draws its text and how the modern fonts draw it.
     water.
   - **Underwater shimmer** tints and lights only the parts of scenery and
     units that are under the water, more the deeper they lie; what stands
-    above the water keeps its colours.
+    above the water keeps its colours. At 0% your own units under the
+    water are darkened and tinted blue as the game draws them at every
+    other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
     surface ship on the water, fading as the view turns flat.
 

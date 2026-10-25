@@ -332,10 +332,15 @@ struct RunDescription {
     uint32_t end_tick{};
     uint64_t frame_count{};
     uint32_t chunk_count{};
+    /// The driver of the graphics card whose Full tier drew the frames, as
+    /// SDL names it; empty when the processor drew them.
+    std::string graphics_card{};
 };
 
 /// Returns the run manifest's text: one line for each fact, one for each
-/// chunk and one for the whole sound's hash.
+/// chunk and one for the whole sound's hash. A render the graphics card drew
+/// has a line saying so after the output's, whose frames are not pinned; a
+/// render the processor drew has none.
 ///
 /// @param run what was rendered
 /// @param chunks every chunk, in order
