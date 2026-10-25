@@ -211,6 +211,9 @@ Every document in the repository, by what you want to do.
   notarizing and checking the macOS release packages with
   `tools/release_macos.sh`, on the maintainer's Mac, and the Steam Deck
   package: the Linux x86_64 package with its `steam-deck` folder.
+- [development/engine-feed.md](development/engine-feed.md): the signed feed
+  a release is offered from, the release number, and how a release is
+  published.
 - [tools/sdl-patches](../tools/sdl-patches/README.md): the changes
   the build makes to the pinned SDL release, which
   [tools/bootstrap_sdl.py](../tools/bootstrap_sdl.py) applies, each offered
