@@ -3775,6 +3775,18 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-saveload PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A skirmish under a mod that raises weapon types or sides saves and
+        # loads under that mod, and is refused without it
+        # (tools/check_native_saveload_limits.py).
+        add_test(NAME native-saveload-limits COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_saveload_limits.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-saveload-limits PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          SKIP_RETURN_CODE ${OA_GAME_DATA_SKIP_CODE})
         # A headless skirmish seats a remembered brain, the default brain, or
         # the built-in player, and writes no seats key when none was named
         # (tools/check_native_brain_seats.py).
