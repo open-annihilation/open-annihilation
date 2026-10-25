@@ -218,6 +218,14 @@ inline constexpr std::string_view hack_overrides = "open-annihilation.hack-overr
 /// "automatically", "library" or "never" (EngineSettings::content_check).
 /// When Open Annihilation looks for new content and updates.
 inline constexpr std::string_view content_check = "open-annihilation.content-updates";
+/// "automatically", "when-asked" or "never". When Open Annihilation looks
+/// for a new release of itself. Absent, or any other text, reads as
+/// "automatically".
+inline constexpr std::string_view update_check = "open-annihilation.update-check";
+/// Seconds since 1970 of the last check for a new release that reached the
+/// server. Absent, or any text that is not a whole number, means a check
+/// has never reached the server.
+inline constexpr std::string_view update_checked = "open-annihilation.update-checked";
 /// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
 /// other than off, the game opens mod packages.
 inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";
@@ -278,6 +286,10 @@ static_assert(base_game.find('\\') == std::string_view::npos);
 static_assert(expansions_prefix.find('|') == std::string_view::npos);
 static_assert(expansions_prefix.back() == '.');
 static_assert(content_note.find('|') == std::string_view::npos);
+static_assert(update_check.find('|') == std::string_view::npos);
+static_assert(update_check.find('\\') == std::string_view::npos);
+static_assert(update_checked.find('|') == std::string_view::npos);
+static_assert(update_checked.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
