@@ -315,9 +315,8 @@ void Runtime::press_match_panel_page(oa::ui::hud::BuildPanelClick press, bool cy
 void Runtime::load_match_chrome() {
     match_chrome_ = {};
     match_hud_.reset();
-    const auto prefix = match_side_prefix();
     try {
-        const auto path = "bitmaps/" + prefix + "guisidetile.pcx";
+        const auto path = match_side_tile();
         match_chrome_ = oa::ui::decoded::require(oa::decode_pcx(assets_.read(path).bytes), path);
     } catch (const std::exception& error) {
         std::cerr << "match chrome tile unavailable: " << error.what() << '\n';

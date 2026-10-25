@@ -175,10 +175,20 @@ void Runtime::load_side_table() {
     log_sides_left_out(side_table_);
     skirmish_ui_.side_count = static_cast<int32_t>(side_table_.count);
     skirmish_ui_.hidden_sides = oa::data::defs::skirmish_hidden_sides();
-    // The battle room's SIDE button cycles the same sides.
+    // The battle room's SIDE button cycles the same sides and shows a name
+    // the art has no frame for.
     oa::ui::frontend_multiplayer::multiplayer_bind_side_count(
         static_cast<int32_t>(side_table_.count)
     );
+    std::vector<std::string> side_names;
+    side_names.reserve(side_table_.count);
+    for (uint32_t index = 0; index < side_table_.count; ++index) {
+        const char* side_name = side_table_.sides[index].name;
+        side_names.emplace_back(
+            side_name, ::strnlen(side_name, sizeof side_table_.sides[index].name)
+        );
+    }
+    oa::ui::frontend_multiplayer::multiplayer_bind_side_names(side_names);
 }
 
 void Runtime::load_match_side_table() {

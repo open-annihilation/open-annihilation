@@ -345,6 +345,91 @@ void test_quick_key_and_focus() {
     CHECK(red_at(drawn, 3, 10) == ground);
 }
 
+// A side past its art draws the raised bevel and the side's name, and none
+// of the sequence named after the button. Without the flag the same button
+// draws that sequence's frame.
+void test_caption_only_skips_art() {
+    namespace renderer = oa::ui::frontend_renderer;
+    constexpr uint8_t glyph_colour = 7;
+    constexpr uint8_t art_frame = 40;
+    constexpr uint8_t art_next = 41;
+    constexpr int16_t origin = 5;
+    constexpr int16_t width = 40;
+    constexpr int16_t height = 16;
+    renderer::ScreenResources resources;
+    resources.background.width = 50;
+    resources.background.height = 30;
+    resources.background.rgb.assign(50U * 30U * 3U, 99);
+    for (std::size_t index = 0; index < 256; ++index)
+        resources.gui_palette[index * 4] = static_cast<uint8_t>(index);
+    resources.background.palette = resources.gui_palette;
+    oa::formats::fnt::Glyph glyph;
+    glyph.width = 3;
+    glyph.height = 4;
+    glyph.pixels.assign(12, glyph_colour);
+    glyph.coverage.assign(12, 1);
+    // 'I' is the font's height reference, so the line is this glyph's height plus 2.
+    for (const char character : {'R', 'i', 'd', 'g', 'e', '6', 'I'})
+        resources.font.glyphs[static_cast<unsigned char>(character)] = glyph;
+    auto side = button("SIDE", origin, origin, width, height);
+    side.common.attributes = 2; // centred caption
+    auto& fields = std::get<oa::ui::gui_layout::ButtonFields>(side.fields);
+    fields.stages = 2;
+    fields.text = "Ridge6";
+    resources.layout.gadgets.push_back(side);
+    oa::formats::gaf::Sequence sequence;
+    sequence.name = "SIDE";
+    for (const uint8_t value : {art_frame, art_next}) {
+        oa::formats::gaf::Frame frame;
+        frame.width = static_cast<uint16_t>(width);
+        frame.height = static_cast<uint16_t>(height);
+        frame.pixels.assign(
+            static_cast<std::size_t>(width) * static_cast<std::size_t>(height), value
+        );
+        frame.coverage.assign(frame.pixels.size(), 1);
+        sequence.frames.push_back(std::move(frame));
+    }
+    resources.sprites.sequences.push_back(std::move(sequence));
+    renderer::ButtonPresentation state{
+        "SIDE", renderer::ButtonCondition::normal, std::nullopt, std::nullopt, std::nullopt
+    };
+    const auto art = renderer::render_screen(resources, {&state, 1});
+    CHECK(red_at(art, origin, origin) == art_frame);
+    CHECK(
+        red_at(
+            art,
+            static_cast<std::size_t>(origin + width - 1),
+            static_cast<std::size_t>(origin + height - 1)
+        ) == art_frame
+    );
+    state.caption_only = true;
+    const auto plain = renderer::render_screen(resources, {&state, 1});
+    // The raised bevel is two pixels thick: map 17 on the top and left, map 0
+    // on the bottom and right, fill 20 inside that rim. "Ridge6" is 18 wide.
+    // The line is the height of 'I' plus 2, so 6, and the first glyph is at
+    // x = 5 + (39 - 18) / 2 + 1 = 16, y = 5 + (15 - 6) / 2 = 9.
+    CHECK(red_at(plain, origin, origin) == 17);
+    CHECK(
+        red_at(
+            plain,
+            static_cast<std::size_t>(origin + width - 1),
+            static_cast<std::size_t>(origin + height - 1)
+        ) == 0
+    );
+    CHECK(red_at(plain, 6, 6) == 17);
+    CHECK(red_at(plain, 7, 7) == 20);
+    CHECK(red_at(plain, 16, 9) == glyph_colour);
+    bool art_pixel = false;
+    for (std::size_t y = 0; y < plain.height && !art_pixel; ++y) {
+        for (std::size_t x = 0; x < plain.width; ++x) {
+            const uint8_t red = red_at(plain, x, y);
+            if (red == art_frame || red == art_next)
+                art_pixel = true;
+        }
+    }
+    CHECK(!art_pixel);
+}
+
 // A caption is placed within the button's inclusive rectangle, whose far
 // edges are a pixel inside its width and height: centred, it starts
 // (width - 1 - text width) / 2 + 1 across and (height - 1 - text height) / 2
@@ -1241,6 +1326,7 @@ int main() {
     test_hold_button_takes_default_art();
     test_grayed_art_cost();
     test_quick_key_and_focus();
+    test_caption_only_skips_art();
     test_caption_placement();
     test_caption_cut_to_button();
     test_blend_rect();
