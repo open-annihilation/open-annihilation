@@ -33,10 +33,12 @@
 #include "oa/app/game_files_hooks.hpp"
 #include "oa/app/mod_profile_loader.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/app/update/checker.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
+#include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/input.hpp"
@@ -52,6 +54,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -260,6 +263,8 @@ std::string_view page_slug(settings::Page page) {
         return "system";
     case settings::Page::game_content:
         return "game-content";
+    case settings::Page::updates:
+        return "updates";
     case settings::Page::mod_keys:
     case settings::Page::mod_patrol:
     case settings::Page::mod_guard:
@@ -2464,6 +2469,119 @@ void Runtime::check_engine_settings_window_sizes() {
             shows_dialog("Graphics at its end");
             snapshot("menu-dialog-graphics-end-" + size);
             tap(SDLK_HOME);
+        }
+        // Updates, on the three windows the ticket names. The mode is chosen
+        // through its drop-down and read back after OK. CHECK NOW is then
+        // pressed against a feed this check names, and the dialog is left
+        // open for the Escape below. The preferences, the feed and the
+        // settings are put back on every path, including a failure.
+        if ((width == 640 && height == 480) || (width == 1280 && height == 720) ||
+            (width == 1920 && height == 1080)) {
+            struct RestoreUpdates {
+                Runtime& runtime;
+                oa::platform::preferences::Values values;
+                std::optional<std::string> feed;
+                settings::EngineSettings settings;
+
+                ~RestoreUpdates() {
+                    runtime.preference_values_ = values;
+                    runtime.preferences_dirty_ = true;
+                    try {
+                        runtime.flush_preferences();
+                    } catch (const std::exception& failure) {
+                        std::cerr << "engine settings check: Updates could not restore "
+                                     "preferences: "
+                                  << failure.what() << '\n';
+                    }
+                    runtime.options_.update_feed = std::move(feed);
+                    runtime.apply_engine_settings(settings);
+                    runtime.cancel_update_check();
+                }
+            } restore{*this, preference_values_, options_.update_feed, engine_settings()};
+
+            const auto click_updates =
+                [&](int32_t control, std::string_view text, std::string_view what) {
+                    const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                    click_part(find_part(parts_now, control, text), what);
+                };
+            const oa::ui::kit::DisplayList named =
+                settings::geometry::dialog_list(*dialog, nullptr);
+            const int32_t updates_nav = oa::ui::kit::control_named(named, "settings.nav.updates");
+            require(
+                updates_nav == settings::page_control(settings::Page::updates),
+                "oa.settings.nav.updates is not Updates' entry" + on
+            );
+            click_updates(updates_nav, {}, "oa.settings.nav.updates");
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::updates,
+                "oa.settings.nav.updates did not show Updates" + on
+            );
+            snapshot("settings-updates-" + size);
+            std::cout << "engine settings check: Updates (oa.settings.nav.updates) on the " << size
+                      << " window\n";
+
+            const int32_t mode_row = settings::first_row_control + 1;
+            click_updates(mode_row, {}, "Check for updates");
+            require(
+                engine_settings_dialog()->open_list == mode_row,
+                "Check for updates did not open" + on
+            );
+            click_updates(settings::no_control, "Only when I ask", "Only when I ask");
+            require(
+                engine_settings_dialog()->chosen.update_check ==
+                        settings::UpdateCheck::when_asked &&
+                    engine_settings_dialog()->open_list == settings::no_control,
+                "Only when I ask was not chosen" + on
+            );
+            click_updates(settings::ok_control, "OK", "OK");
+            require(engine_settings_dialog() == nullptr, "OK did not close Updates" + on);
+            {
+                const auto stored =
+                    preference_values_.find(std::string(settings::key::update_check));
+                require(
+                    stored != preference_values_.end() && stored->second == "when-asked",
+                    "OK did not store Check for updates as when-asked" + on
+                );
+            }
+            std::cout << "engine settings check: Updates stored Only when I ask on the " << size
+                      << " window\n";
+
+            preference_values_ = restore.values;
+            preferences_dirty_ = true;
+            flush_preferences();
+            apply_engine_settings(restore.settings);
+            preference_values_[std::string(oa::ui::first_run::preference_key)] =
+                std::string(oa::ui::first_run::preference_done);
+            options_.update_feed = "http://127.0.0.1:9/v1/engine/stable.json";
+
+            tap(SDLK_COMMA, kShortcutModifier);
+            require(engine_settings_dialog() != nullptr, "Updates did not open again" + on);
+            click_updates(
+                settings::page_control(settings::Page::updates), {}, "oa.settings.nav.updates"
+            );
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::updates,
+                "Updates did not show again" + on
+            );
+            const uint64_t generation = update_snapshot().generation;
+            click_updates(settings::no_control, "CHECK NOW", "CHECK NOW");
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+            bool started = false;
+            while (std::chrono::steady_clock::now() < deadline) {
+                tick_update_check();
+                const oa::app::update::CheckSnapshot& snap = update_snapshot();
+                if (snap.state != oa::app::update::CheckState::idle ||
+                    snap.generation != generation) {
+                    started = true;
+                    break;
+                }
+                SDL_Delay(10);
+            }
+            require(started, "CHECK NOW did not start a check" + on);
+            std::cout << "engine settings check: Updates CHECK NOW started on the " << size
+                      << " window\n";
         }
         tap(SDLK_ESCAPE);
         require(engine_settings_dialog() == nullptr, "Escape did not close the dialog" + on);

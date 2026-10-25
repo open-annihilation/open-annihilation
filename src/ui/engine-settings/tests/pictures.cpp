@@ -4,6 +4,7 @@
 // Writes the manual's pictures of the settings dialog: each section alone,
 // unlocked, at Compact and 2x (960 by 648), in the installed game's fonts,
 // and Controls, Graphics, Downloads and System scrolled to their ends.
+// Updates is drawn twice: up to date, then with a release offered.
 //
 // Usage: oa-ui-engine-settings-pictures DIRECTORY
 //
@@ -148,7 +149,7 @@ AppIcon load_app_icon() {
 std::string picture_name(Page page) {
     const std::string word(settings::page_word(page));
     if (word == "controls" || word == "language" || word == "graphics" || word == "downloads" ||
-        word == "system")
+        word == "system" || word == "updates")
         return word + "-1.png";
     return word + ".png";
 }
@@ -183,6 +184,12 @@ void dress(Dialog& dialog) {
     dialog.game_content.push_back(bundle("cc", "Core Contingency", "42 MB"));
     dialog.game_content.push_back(bundle("bt", "Battle Tactics", "28 MB"));
     dialog.game_content.push_back(bundle("ta-music", "Total Annihilation Music", "61 MB"));
+
+    dialog.updates.version_line = "Open Annihilation 0.8.0";
+    dialog.updates.status = "Up to date \u00b7 Stable \u00b7 checked today at 09:00";
+    dialog.updates.can_check = true;
+    dialog.updates.offered = false;
+    dialog.updates.mode = static_cast<int32_t>(settings::UpdateCheck::automatically);
 }
 
 Dialog section_dialog(Page page) {
@@ -277,6 +284,15 @@ int main(int argc, char** argv) {
         Dialog dialog = section_dialog(page);
         if (!draw_section(dialog, fonts, icon.picture, directory / picture_name(page)))
             ok = false;
+        // Updates again, with a release offered: UPDATE… in place of CHECK NOW.
+        // That picture is not the section scrolled to its end.
+        if (page == Page::updates) {
+            dialog.updates.offered = true;
+            dialog.updates.can_check = true;
+            dialog.updates.status = "0.8.7 is out \u00b7 Stable \u00b7 checked today at 09:00";
+            if (!draw_section(dialog, fonts, icon.picture, directory / "updates-2.png"))
+                ok = false;
+        }
         // Controls, Engine Limits, Graphics, Downloads and System scrolled
         // to their ends: Window edge and Edge stickiness, Weapon types and
         // Sides under Set by the mod, the water sliders down to Naval

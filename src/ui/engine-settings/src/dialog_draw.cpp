@@ -263,6 +263,13 @@ kit::HeaderLook dialog_header(const Dialog& dialog) {
     return header;
 }
 
+/// Tells whether a rectangle lies wholly inside another.
+///
+/// @param inner the inner rectangle
+/// @param outer the outer rectangle
+/// @return true when inner has room and none of it falls outside outer
+bool inside_rect(const SourceRect& inner, const SourceRect& outer) noexcept;
+
 /// Adds the section list: one item that draws it, and a control for each
 /// entry, named for its section.
 ///
@@ -279,8 +286,12 @@ void add_nav(Building& building, const Dialog& dialog) {
         divider.width = sized.list_item_width - 2 * layout::list_divider_inset;
         nav.divider = divider;
     }
-    for (const Page page :
-         dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller)) {
+    const auto pages =
+        dialog_pages(dialog.kind, dialog.touch, dialog.game_files, dialog.controller);
+    const layout::EngineNav engine = layout::engine_nav(pages, dialog.size_class);
+    const bool clip_nav =
+        dialog.kind == DialogKind::engine && dialog.registered_pages.empty() && engine.scrolls;
+    for (const Page page : pages) {
         const int32_t control = page_control(page);
         kit::NavEntry entry;
         entry.rect = layout::dialog_list_item(dialog, page);
@@ -295,9 +306,15 @@ void add_nav(Building& building, const Dialog& dialog) {
             named("nav." + std::string(layout::page_word(page))),
             kit::ControlKind::tab
         );
+        if (clip_nav && page != Page::developer)
+            added.clip = engine.viewport;
         added.checked = entry.selected;
         added.text = entry.caption;
         building.nav.push_back(std::move(added));
+        // Developer stays pinned. An entry that is not wholly in the room
+        // above the divider stays in the tab order and is not drawn.
+        if (clip_nav && page != Page::developer && !inside_rect(entry.rect, engine.viewport))
+            continue;
         nav.entries.push_back(std::move(entry));
     }
     item(building.list, kit::Role::nav, nav.area, {}).look = std::move(nav);

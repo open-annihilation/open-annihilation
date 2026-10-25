@@ -15,6 +15,7 @@
 // order.
 
 #include "geometry.hpp"
+#include "updates_page.hpp"
 
 #include "oa/test/check.hpp"
 #include "oa/ui/engine_settings.hpp"
@@ -621,41 +622,18 @@ void tab_follows_the_dialogs_focus_order() {
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
     OA_CHECK(
-        tab_order(controls) == (std::vector<int32_t>{
-                                   16,
-                                   17,
-                                   18,
-                                   19,
-                                   20,
-                                   21,
-                                   22,
-                                   12,
-                                   13,
-                                   14,
-                                   0,
-                                   1,
-                                   2,
-                                   3,
-                                   4,
-                                   5,
-                                   6,
-                                   8,
-                                   9,
-                                   11,
-                                   10,
-                                   7,
-                                   settings::close_x_control
-                               })
+        tab_order(controls) ==
+        (std::vector<int32_t>{17, 18, 19, 20, 21, 22, 23, 13, 14, 15, 0, 1,
+                              2,  3,  4,  5,  6,  8,  9,  12, 11, 10, 7, settings::close_x_control})
     );
     // Graphics: After zoom, locked while units are drawn whole, takes none.
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
     OA_CHECK(
         tab_order(graphics) ==
-        (std::vector<int32_t>{16, 17, 18, 19, 20, 21, 22, 23,
-                              24, 25, 27, 28, 29, 30, 31, 32,
-                              12, 13, 14, 0,  1,  2,  3,  4,
-                              5,  6,  8,  9,  11, 10, 7,  settings::close_x_control})
+        (std::vector<int32_t>{17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 28,
+                              29, 30, 31, 32, 33, 13, 14, 15, 0,  1,  2,
+                              3,  4,  5,  6,  8,  9,  12, 11, 10, 7,  settings::close_x_control})
     );
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // last of them, its list's headers, Show Active Only and Restore profile
@@ -666,12 +644,45 @@ void tab_follows_the_dialogs_focus_order() {
     developer.developer.areas_open[0] = 1;
     OA_CHECK(
         tab_order(developer) ==
-        (std::vector<int32_t>{
-            16, 17, 18, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33,
-            34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 19, 20,
-            12, 13, 14, 0,  1,  2,  3,  4,  5,  6,  8,  9,  11, 10, 7,  settings::close_x_control
-        })
+        (std::vector<int32_t>{17, 18, 19, 22, 23, 24, 25,
+                              26, 27, 28, 29, 30, 31, 32,
+                              33, 34, 35, 36, 37, 38, 39,
+                              40, 41, 42, 43, 44, 45, 46,
+                              47, 48, 20, 21, 13, 14, 15,
+                              0,  1,  2,  3,  4,  5,  6,
+                              8,  9,  12, 11, 10, 7,  settings::close_x_control})
     );
+}
+
+void updates_names_its_ways() {
+    OA_CHECK(settings::updates::choice_count() == 3);
+    OA_CHECK(settings::updates::choice_id(0) == "automatically");
+    OA_CHECK(settings::updates::choice_id(1) == "when-asked");
+    OA_CHECK(settings::updates::choice_id(2) == "never");
+    OA_CHECK(settings::updates::choice_caption(0) == "Automatically");
+    OA_CHECK(settings::updates::choice_caption(1) == "Only when I ask");
+    OA_CHECK(settings::updates::choice_caption(2) == "Never");
+
+    settings::EngineSettings opened;
+    settings::EngineSettings chosen;
+    chosen.update_check = settings::UpdateCheck::never;
+    oa::platform::preferences::Values values;
+    settings::write_settings(values, opened, chosen, opened, false);
+    const auto written = values.find(std::string(settings::key::update_check));
+    OA_CHECK(written != values.end() && written->second == "never");
+    const settings::EngineSettings read =
+        settings::read_settings(values, settings::Inputs{}, false);
+    OA_CHECK(read.update_check == settings::UpdateCheck::never);
+
+    settings::Dialog dialog = engine_dialog();
+    dialog.page = settings::Page::updates;
+    dialog.updates.version_line = "Open Annihilation 0.8.6";
+    dialog.updates.status = "Not checked yet";
+    dialog.updates.can_check = true;
+    dialog.updates.mode = static_cast<int32_t>(settings::UpdateCheck::automatically);
+    const kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
+    OA_CHECK(kit::control_named(list, "settings.update-status.check-now") != settings::no_control);
+    OA_CHECK(kit::control_named(list, "settings.update-check") != settings::no_control);
 }
 
 } // namespace
@@ -684,5 +695,6 @@ int main() {
     developer_names_every_hack_and_parameter();
     an_open_list_names_its_controls();
     tab_follows_the_dialogs_focus_order();
+    updates_names_its_ways();
     return oa::test::check_exit_status();
 }

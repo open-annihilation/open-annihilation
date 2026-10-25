@@ -151,6 +151,8 @@ std::string_view page_slug(Page page) {
         return "system";
     case Page::game_content:
         return "game-content";
+    case Page::updates:
+        return "updates";
     case Page::mod_keys:
         return "mod-keys";
     case Page::mod_patrol:
@@ -194,6 +196,24 @@ Dialog engine_dialog(Page page, const settings::Locks& locks = {}) {
     );
     fill_game_files(dialog);
     return dialog;
+}
+
+/// The status Updates shows in a picture: up to date, or a release offered.
+void fill_updates(Dialog& dialog, bool offered) {
+    dialog.updates.version_line = "Open Annihilation 0.8.6";
+    dialog.updates.can_check = true;
+    dialog.updates.offered = offered;
+    dialog.updates.mode = static_cast<int32_t>(settings::UpdateCheck::automatically);
+    dialog.updates.status = offered ? "0.8.7 is out \u00b7 Stable \u00b7 checked today at 09:00"
+                                    : "Up to date \u00b7 Stable \u00b7 checked today at 09:00";
+}
+
+/// The dialog drawn at its own size class, one point a pixel of that class.
+renderer::Surface drawn_class_dialog(const Dialog& dialog, const DialogFonts& fonts) {
+    const oa::ui::kit::Metrics& metrics = oa::ui::kit::metrics_of(dialog.size_class);
+    renderer::Surface surface = black(metrics.dialog_width, metrics.dialog_height);
+    settings::draw_dialog(surface, {0, 0, 1}, dialog, fonts, {});
+    return surface;
 }
 
 void press_keys(Dialog& dialog, std::initializer_list<DialogKey> keys) {
@@ -329,10 +349,22 @@ std::vector<Picture> scenes(const DialogFonts& fonts, const Icon& icon) {
             // everywhere.
             if (page == Page::system)
                 continue;
+            Dialog dialog = engine_dialog(page);
+            // The shared scene is up to date, with CHECK NOW. The offered
+            // release and Regular are their own scenes below.
+            if (page == Page::updates)
+                fill_updates(dialog, false);
             add(pictures,
                 std::string("dialog/") + std::string(page_slug(page)),
-                drawn_dialog(engine_dialog(page), fonts, no_icon, 1));
+                drawn_dialog(dialog, fonts, no_icon, 1));
         }
+        Dialog updates_offered = engine_dialog(Page::updates);
+        fill_updates(updates_offered, true);
+        add(pictures, "dialog/updates-offered", drawn_dialog(updates_offered, fonts, no_icon, 1));
+        Dialog updates_regular = engine_dialog(Page::updates);
+        updates_regular.size_class = oa::ui::kit::SizeClass::regular;
+        fill_updates(updates_regular, false);
+        add(pictures, "dialog/updates-regular", drawn_class_dialog(updates_regular, fonts));
         Dialog system_bundle = engine_dialog(Page::system);
         system_bundle.file_type_switches = false;
         add(pictures, "dialog/system-bundle", drawn_dialog(system_bundle, fonts, no_icon, 1));
