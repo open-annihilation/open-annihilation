@@ -1337,7 +1337,8 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_live_renderer_check.cpp
   src/app/runtime_side_orders_check.cpp
   src/app/runtime_render_tiers_check.cpp src/app/runtime_smooth_pan_check.cpp
-  src/app/runtime_reclaim_check.cpp src/app/runtime_patrol_check.cpp
+  src/app/runtime_reclaim_check.cpp src/app/runtime_weapon_fire_check.cpp
+  src/app/runtime_patrol_check.cpp
   src/app/runtime_reclaim_cursor_check.cpp src/app/runtime_wreck_pick_check.cpp
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
@@ -3774,6 +3775,17 @@ endforeach()
           --fixture-dir "${CMAKE_BINARY_DIR}/limits-fixture"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-limits-weapon-table PROPERTIES
+          FIXTURES_REQUIRED limits-fixture
+          TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # A unit armed past 255 fires that weapon at a unit and a feature.
+        # Two seeded runs print the same lines and the same trace.
+        add_test(NAME native-limits-weapon-fire COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_weapon_fire.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --mod-dir "${CMAKE_BINARY_DIR}/limits-fixture/ridge-wide"
+          --type RIDGEW300 --weapon 300
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-limits-weapon-fire PROPERTIES
           FIXTURES_REQUIRED limits-fixture
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # --brain-shadow seats a brain beside every computer seat. The inert

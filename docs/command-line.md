@@ -341,7 +341,8 @@ The checks drive the game by themselves, with no player, and end with
 status 0 when they pass and 1 when they fail; one that cannot run on this
 machine, such as one that needs 2 GiB of memory, ends with 77. The engine's
 tests run them ([testing](development/testing.md)). Check and Debug builds
-hold the self-checks, the `--check-` options and `--reclaim-check`; the
+hold the self-checks, the `--check-` options, `--reclaim-check` and
+`--weapon-fire-check`; the
 release packages leave them out and refuse them with a line that says so.
 Network play's own checks, the last rows, are in every build.
 
@@ -450,6 +451,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-interpolation` | Checks the frames drawn between ticks, and the frames at whole ticks with Smooth motion Off. |
 | `--check-unit-playout` | Checks another machine's units move evenly. |
 | `--reclaim-check` | Has the commander reclaim the nearest feature in a headless skirmish. |
+| `--weapon-fire-check TYPE` | In a headless skirmish of `--match-ticks` ticks, places `TYPE` and checks its first weapon fires at a unit and a feature. |
 | `--net-loopback-check TICKS` | Hosts and joins a match in one process over 127.0.0.1 and compares both worlds after `TICKS` ticks. |
 | `--net-loopback-watcher` | The loopback check's joiner watches. |
 | `--net-loopback-computer` | The loopback check's host seats a computer player. |
