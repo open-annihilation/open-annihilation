@@ -492,6 +492,18 @@ reference profile the same way, and skip without both variables:
 `defs-rule-keys` and `unit-script-extensions` cover the same readers with
 made-up files and scripts and always run.
 
+`limits-fixture` (`tools/make_limits_fixture.py`) makes two mod folders from
+the installed game when `OA_GAME_DIR` is set, and writes them under
+`${CMAKE_BINARY_DIR}/limits-fixture`. Nothing of them is committed. They
+hold weapon ids past 255 and seven sides, for the weapon and side limits.
+`ridge-wide` carries `RIDGE_W300` at id 300, `RIDGE_W1000` at id 1000 and
+`RIDGE_W2000` at id 2000, a unit whose first weapon is `RIDGE_W300`, and
+sides Ridge2 to Ridge6 beside the game's first two, with limits of 1024
+weapon types and 10 sides. `ridge-sides` carries the same seven sides and a
+limit of 7 sides, and no weapon clones. A check that reads either folder
+declares `FIXTURES_REQUIRED limits-fixture`. Make the folders by hand with
+`python3 tools/make_limits_fixture.py --game-dir "$OA_GAME_DIR" --oa-tool build/oa-tool --out build/limits-fixture`.
+
 ### Network play
 
 Network play is always built and tested. Its tests are `network`, the
