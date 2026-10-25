@@ -13,14 +13,16 @@ add_library(oa-app-package-install src/package.cpp src/names.cpp src/plan_oamod.
   src/plan_oalang.cpp src/change.cpp src/unpack.cpp src/files.cpp src/inbox.cpp src/prompts.cpp
   src/handoff.cpp src/kinds.cpp src/prompts_oamod.cpp src/prompts_oamap.cpp src/prompts_oalang.cpp
   src/prompts_oaexp.cpp src/plan_oaexp.cpp src/plan_oamut.cpp src/prompts_oamut.cpp
-  src/plan_oabrain.cpp src/prompts_oabrain.cpp src/origin.cpp)
+  src/plan_oabrain.cpp src/prompts_oabrain.cpp src/plan_oakeys.cpp
+  src/origin.cpp)
 add_library(oa::app::package_install ALIAS oa-app-package-install)
 target_include_directories(oa-app-package-install PUBLIC include)
 target_compile_features(oa-app-package-install PUBLIC cxx_std_20)
 target_link_libraries(oa-app-package-install PUBLIC oa-formats-zip oa-formats-hpi oa-data-mod-profile
   oa-data-brain-library oa-data-map-pack oa-data-map-fit oa-platform-preferences
   oa-ui-engine-settings oa-base-sha256
-  PRIVATE oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-data-mutator-library
+  PRIVATE oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-formats-oakeys
+  oa-data-mutator-library oa-data-key-library oa-ui-key-bindings
   oa-data-content-bundles oa-formats-png oa-data-languages
   oa-data-registry oa-app-mod-profile oa-app-user-folder oa-app-game-directory
   oa-ui-game-files oa-platform-shims oa-platform-file-types
@@ -32,6 +34,8 @@ set_property(SOURCE src/plan_oalang.cpp APPEND PROPERTY COMPILE_DEFINITIONS
 set_property(SOURCE src/plan_oamut.cpp APPEND PROPERTY COMPILE_DEFINITIONS
   "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 set_property(SOURCE src/plan_oabrain.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+  "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
+set_property(SOURCE src/plan_oakeys.cpp APPEND PROPERTY COMPILE_DEFINITIONS
   "OA_ENGINE_VERSION=\"${PROJECT_VERSION}\"")
 
 if(BUILD_TESTING)

@@ -19,8 +19,9 @@
 // root folder is Maps, the oalang kind, whose manifest is language.yaml
 // and whose root folder is Languages, the expansion kind, whose manifest
 // is oaexp.yaml, the oamut kind, whose manifest is oamut.yaml and whose
-// root folder is Mutators, and the oabrain kind, whose manifest is
-// oabrain.yaml and whose root folder is Brains. An expansion is copied by
+// root folder is Mutators, the oabrain kind, whose manifest is
+// oabrain.yaml and whose root folder is Brains, and the oakeys kind, whose
+// manifest is oakeys.yaml and whose root folder is Keys. An expansion is copied by
 // install_oaexp into Expansions/<game>/<id> with the .oa-content record; its
 // plan refuses the generic unpack. No function here throws: errors are values.
 #pragma once
@@ -98,15 +99,15 @@ enum class Refusal : uint8_t {
     too_many_folders,   ///< it unpacks more than max_package_folders folders
     no_space,           ///< the disk holding the root folder has too little room
     path_too_long,      ///< an unpacked path is longer than the system opens
-    reserved_id,        ///< its id names a device on Windows
-    no_free_folder,     ///< no folder name is free for it alongside the others
-    not_placed,         ///< its files could not be put in place
-    changed,            ///< the root folder changed while it was being installed
-    busy,               ///< another copy of the game is changing the root folder
-    unknown_kind,       ///< it is not a kind of package this game installs
-    missing_entry,      ///< a map pack lists a file it does not hold
-    stray_file,         ///< a map pack holds a file no map uses
-    outside_folder,     ///< a map pack holds a file outside the folders it may
+    reserved_id,    ///< its id names a device on Windows, or is kept for the player's own changes
+    no_free_folder, ///< no folder name is free for it alongside the others
+    not_placed,     ///< its files could not be put in place
+    changed,        ///< the root folder changed while it was being installed
+    busy,           ///< another copy of the game is changing the root folder
+    unknown_kind,   ///< it is not a kind of package this game installs
+    missing_entry,  ///< a map pack lists a file it does not hold
+    stray_file,     ///< a map pack holds a file no map uses
+    outside_folder, ///< a map pack holds a file outside the folders it may
     preview_unreadable, ///< a map's preview is not a PNG
     preview_too_big,    ///< a map's preview is larger than 2 MiB or 1024 pixels
     engine_unmet,       ///< requires.engine is not met by this build
@@ -118,8 +119,8 @@ enum class Refusal : uint8_t {
     table_errors,       ///< a language pack's table or interface.tdf does not parse
     script_missing,     ///< a mutator's or a brain's script is missing, or larger than 1 MiB
     precompiled,        ///< a mutator's or a brain's Lua file is precompiled bytecode
-    outside_layout,     ///< a mutator or a brain holds a file its layout does not allow
-    icon_invalid,       ///< a mutator's or a brain's icon is not a square PNG within the limits
+    outside_layout, ///< a mutator's, a brain's or a key layout's file is outside what it may hold
+    icon_invalid, ///< a mutator's, a brain's or a key layout's icon is not a square PNG within the limits
     network_missing,    ///< a brain names a network file it does not hold
     networks_too_large, ///< a brain's networks together are larger than 64 MiB
     data_too_large,     ///< a brain's data table is larger than 4 MiB
@@ -163,6 +164,9 @@ struct Incoming {
     /// A language pack's name in English, for its install question. Empty
     /// for every other kind.
     std::string english_name{};
+    /// Up to three things this build cannot use in a key layout, then
+    /// "and {n} more" when more remain. Empty for every other kind.
+    std::vector<std::string> cannot_use{};
 };
 
 /// A package, read and checked: what it installs and where its files come from.
@@ -404,7 +408,8 @@ struct PackageKind {
 
 /// Returns every kind the game installs, in table order.
 ///
-/// @return the kinds; oamod, then oamap, then oalang, then expansion, then oamut, then oabrain
+/// @return the kinds; oamod, then oamap, then oalang, then expansion, then oamut, then oabrain,
+///         then oakeys
 [[nodiscard]] std::span<const PackageKind> package_kinds() noexcept;
 
 /// Returns the kind whose extension a file's name ends with, matched without case.
