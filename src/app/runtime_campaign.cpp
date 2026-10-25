@@ -1406,6 +1406,7 @@ void Runtime::show_mission_briefing() {
     widget_sprites_.clear();
     widget_gaf_frames_.clear();
     widget_text_stages_.clear();
+    widget_caption_only_.clear();
     briefing_art_ = {};
     const oa::data::defs::Files files = asset_files(assets_);
     uint8_t* planet_gaf = nullptr;

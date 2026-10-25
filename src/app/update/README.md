@@ -7,8 +7,9 @@ downloaded or installed here.
 
 [build.hpp](include/oa/app/update/build.hpp),
 [check.hpp](include/oa/app/update/check.hpp),
-[checker.hpp](include/oa/app/update/checker.hpp) and
-[offer.hpp](include/oa/app/update/offer.hpp) are the entry points
+[checker.hpp](include/oa/app/update/checker.hpp),
+[offer.hpp](include/oa/app/update/offer.hpp) and
+[plan.hpp](include/oa/app/update/plan.hpp) are the entry points
 (`oa::app::update`).
 
 ## Entry points
@@ -29,6 +30,9 @@ downloaded or installed here.
 - `Checker` fetches one feed and its signature on a worker thread. `start`
   does nothing while a check is running. `cancel` asks it to stop, and a
   cancelled check is not a finished one. `snapshot` is the latest result.
+- `read_plan` and `plan_text` are the plan the game writes for the helper.
+  `read_state`, `state_text` and `write_state` are the record of what was
+  installed and what was kept. This module does not install a package.
 
 ## State
 
@@ -58,7 +62,9 @@ Steam Deck folder, and `this_build` against the version compiled into the
 test. `app-update-check` covers when a check is due, the preference values,
 and a `Checker` against a feed served on 127.0.0.1: an offer, a release
 already running, a missing feed, a refused feed, a check that runs out of
-time, and a cancel.
+time, and a cancel. `app-update-plan` covers the plan and state texts and
+the refusals: an unknown format or route, a relative path, an empty
+program, and a title or line that is too long.
 
 ## Limitations
 

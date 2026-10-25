@@ -1573,7 +1573,7 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     // viewed side's panels, and faults. A GAF a mod lacks, or that cannot be
     // read, is drawn as none named.
     auto panel = match_side_panel_gaf();
-    const auto tile = "bitmaps/" + match_side_prefix() + "guisidetile.pcx";
+    const auto tile = match_side_tile();
     for (;;) {
         try {
             // Command icons live in commongui.gaf; the side's chrome lives in

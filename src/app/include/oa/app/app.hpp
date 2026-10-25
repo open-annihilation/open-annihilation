@@ -485,6 +485,9 @@ struct Options {
     // MOVE ORDERS, CLOAK, ON/OFF and MOVE buttons through the SDL presenter and
     // checks the units carry the orders out.
     bool check_side_orders = false;
+    // Clicks the skirmish Side button through every offered side, and back
+    // when the game has more than five, and checks the face each side shows.
+    bool check_skirmish_sides = false;
     // Opens Settings on Engine Limits at the menu and in a two-slot skirmish
     // and checks the weapon-type and side rows.
     bool check_mod_limits = false;

@@ -202,6 +202,14 @@
 	it=5–10;
 	}
 
+[*** The launch names side {side}, which this game does not have.]
+	{
+	de=*** Der Start nennt die Seite {side}, die dieses Spiel nicht hat.;
+	fr=*** Le lancement indique le camp {side}, que ce jeu n'a pas.;
+	es=*** El lanzamiento nombra el bando {side}, que este juego no tiene.;
+	it=*** L'avvio indica la fazione {side}, che questo gioco non ha.;
+	}
+
 [*** This game is Open Annihilation only, and unranked.]
 	{
 	de=*** Dieses Spiel ist nur Open Annihilation und ungewertet.;
