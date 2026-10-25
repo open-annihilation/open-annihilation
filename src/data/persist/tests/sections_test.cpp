@@ -655,6 +655,126 @@ void units() {
     CHECK(units.blob_count == static_cast<int32_t>(std::size(forged_ids)));
 }
 
+// The unit record this silo wrote before a stockpiled round in flight was
+// refunded: type SILO, owner 2, id 9, weapon id 122, stockpile 4, no carrier.
+// Every other byte is zero, including the packed flags (OA_UNIT_FLAG_LIVE is
+// not one of the bits the record keeps).
+std::array<uint8_t, unit_record_bytes> silo_record_before_refund() {
+    std::array<uint8_t, unit_record_bytes> record{};
+    record[0] = 'S';
+    record[1] = 'I';
+    record[2] = 'L';
+    record[3] = 'O';
+    record[unit_record::owner] = 2;
+    record[unit_record::id] = 9;
+    record[unit_record::weapons + weapon_record::weapon_id] = 122;
+    record[unit_record::weapons + weapon_record::stockpile] = 4;
+    record[unit_record::carrier_slot] = unit_record_no_carrier;
+    return record;
+}
+
+uint8_t
+saved_stockpile_byte(const std::array<uint8_t, unit_record_bytes>& record, std::size_t slot) {
+    return record
+        [unit_record::weapons + slot * unit_record::weapon_bytes + weapon_record::stockpile];
+}
+
+// A save with no projectile, and one with only shots of a weapon that does not
+// stockpile, is the record above. A stockpiled round still in flight is added
+// to the first slot that holds that weapon, once per launch, and never past
+// saved_stockpile_limit. Encoding does not change the unit.
+void stockpile_refunds() {
+    std::array<Projectile, OA_PROJECTILE_CAPACITY> pool{};
+    Fixture fixture;
+    oa::base::text::copy_terminated(fixture.unit_defs[0].unit_name, "SILO");
+    fixture.game->weapon_defs[1].weapon_id = 122;
+    fixture.world_state->projectiles = pool.data();
+    Unit& silo = fixture.units[1];
+    silo.id = 9;
+    silo.flags = OA_UNIT_FLAG_LIVE;
+    silo.def = oa_ref_from_index(0);
+    silo.owner_index = 2;
+    silo.weapons[0].def = oa_ref_from_index(1);
+    silo.weapons[0].stockpile = 4;
+    Unit& other = fixture.units[2];
+    other.id = 3;
+    other.flags = OA_UNIT_FLAG_LIVE;
+    const oa_ref32 silo_ref = world_unit_ref(fixture.world_state.get(), &silo);
+    const oa_ref32 other_ref = world_unit_ref(fixture.world_state.get(), &other);
+
+    const auto encode = [&fixture, &silo] {
+        const uint8_t slot0 = silo.weapons[0].stockpile;
+        const uint8_t slot2 = silo.weapons[2].stockpile;
+        std::array<uint8_t, unit_record_bytes> record{};
+        save_encode_unit_record(&fixture.world, &silo, 0, false, record.data());
+        CHECK(silo.weapons[0].stockpile == slot0);
+        CHECK(silo.weapons[2].stockpile == slot2);
+        return record;
+    };
+
+    const auto place = [&pool](std::size_t index, oa_ref32 source, uint32_t created) {
+        Projectile& shot = pool[index];
+        shot = Projectile{};
+        shot.def = oa_ref_from_index(1);
+        shot.source = source;
+        shot.created_tick = created;
+    };
+
+    const auto pinned = silo_record_before_refund();
+    CHECK(encode() == pinned);
+
+    fixture.game->projectile_count = 3;
+    for (int32_t index = 0; index < 3; ++index)
+        place(static_cast<std::size_t>(index), silo_ref, static_cast<uint32_t>(20 + index));
+    CHECK(encode() == pinned);
+
+    pool = {};
+    fixture.game->weapon_defs[1].flags = OA_WEAPON_FLAG_STOCKPILE;
+    fixture.game->projectile_count = 1;
+    place(0, silo_ref, 20);
+    auto one_round = encode();
+    CHECK(saved_stockpile_byte(one_round, 0) == 5);
+    one_round[unit_record::weapons + weapon_record::stockpile] = 4;
+    CHECK(one_round == pinned);
+    CHECK(silo.weapons[0].stockpile == 4);
+
+    fixture.game->projectile_count = 2;
+    place(1, silo_ref, pool[0].created_tick);
+    CHECK(saved_stockpile_byte(encode(), 0) == 5);
+
+    place(1, silo_ref, pool[0].created_tick + 1);
+    CHECK(saved_stockpile_byte(encode(), 0) == 6);
+
+    pool[0].flags = OA_PROJECTILE_FLAG_RETIRED;
+    pool[1].flags = OA_PROJECTILE_FLAG_RETIRED;
+    CHECK(encode() == pinned);
+
+    pool[0].flags = 0;
+    pool[0].source = other_ref;
+    fixture.game->projectile_count = 1;
+    place(1, silo_ref, 40);
+    CHECK(encode() == pinned);
+
+    silo.weapons[0].stockpile = 199;
+    place(0, silo_ref, 1);
+    place(1, silo_ref, 2);
+    fixture.game->projectile_count = 2;
+    CHECK(saved_stockpile_byte(encode(), 0) == saved_stockpile_limit);
+    CHECK(silo.weapons[0].stockpile == 199);
+
+    silo.weapons[0].stockpile = 5;
+    silo.weapons[2].def = oa_ref_from_index(1);
+    silo.weapons[2].stockpile = 7;
+    fixture.game->projectile_count = 1;
+    pool[1] = {};
+    const auto both = encode();
+    CHECK(saved_stockpile_byte(both, 0) == 6);
+    CHECK(saved_stockpile_byte(both, 1) == 0);
+    CHECK(saved_stockpile_byte(both, 2) == 7);
+    CHECK(silo.weapons[0].stockpile == 5);
+    CHECK(silo.weapons[2].stockpile == 7);
+}
+
 // A weapon id of 300 is stored in the slot's two id bytes. Restoring it as
 // one byte keeps the high byte the definition already had; restoring it as
 // 16 bits gives 300. An id of 42 comes back as 42 either way.
@@ -1007,6 +1127,7 @@ int main() {
     feature_record_bounds();
     units();
     weapon_id_widths();
+    stockpile_refunds();
     unit_record_walk();
     unit_economy();
     whole_game();
