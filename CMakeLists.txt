@@ -214,6 +214,7 @@ add_subdirectory(src/formats/url)
 add_subdirectory(src/data/mod-profile)
 add_subdirectory(src/data/map-pack)
 add_subdirectory(src/data/mutator-library)
+add_subdirectory(src/data/key-library)
 add_subdirectory(src/data/input-actions)
 add_subdirectory(src/data/brain-facts)
 add_subdirectory(src/data/brain-library)
@@ -1439,6 +1440,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-ui-touch-gestures oa-ui-touch-hud oa-app-game-files oa-ui-game-files oa-app-package-install
   oa-app-map-packs
   oa-data-mutator-library
+  oa-data-key-library
   oa-data-brain-library
   oa-data-mutators
   oa-app-mutators-memory
@@ -4229,6 +4231,15 @@ endforeach()
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-mutators-command-line PROPERTIES
           TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # --keys on the key table, an unknown id, --keys-reset over a layout
+        # that is not installed, and one import of a stored build key that a
+        # second run does not write again.
+        add_test(NAME native-keys COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_keys.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/base.tsv"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # A mod folder whose sides name commanders of their own, without the
         # commander flag, and bar colours of their own, with a third side that
         # draws CORE's panels: each side's HUD draws the panels its intgaf
