@@ -376,8 +376,11 @@ std::string_view fitted_caption(
 // present::lowest_text_size, until it fits (fitted_fnt_text_size). The
 // caption, or the first stage's of a button with stages, that the game font
 // draws, or that is still too wide, then loses characters from its end until
-// it fits. It is placed as a caption that fits: centred, a long label shows
-// its start inside the button rather than running past both its sides.
+// it fits. A side name (game text) skips that stage translation and is fitted
+// to the record's inclusive width, so the table's spelling stays whole when
+// it fits the button and two names that share a prefix stay distinct. It is
+// placed as a caption that fits: centred, a long label shows its start inside
+// the button rather than running past both its sides.
 void draw_button_text(
     Surface& surface,
     const ui::gui_layout::Gadget& gadget,
@@ -395,10 +398,13 @@ void draw_button_text(
         return;
     auto text = staged_caption(fields->text, selected_stage);
     const bool fitted = text.data() == fields->text.data();
-    const auto translated = translated_stage_caption(*fields, selected_stage);
+    const auto translated =
+        game_text ? std::nullopt : translated_stage_caption(*fields, selected_stage);
     if (translated)
         text = *translated;
-    const int32_t limit = record_width - caption_margin;
+    // Inclusive width: the ordinary margin would cut two side names that share
+    // a prefix down to that prefix on a button the size of one SIDEx frame.
+    const int32_t limit = game_text ? record_width - 1 : record_width - caption_margin;
     const int32_t most_size = fitted_fnt_text_size(selected_font, text, limit, game_text);
     if (fitted)
         text = fitted_caption(selected_font, text, limit, game_text, most_size);
