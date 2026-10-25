@@ -29,6 +29,9 @@ the locks a running game puts on them (`settings_locks`).
 | Engine Limits | Unit limit | 50 to 1500 per player, steps of 50, or on to a mod's higher maximum | the installation's `totala.ini` UnitLimit, else 250 or a mod's default | `open-annihilation.unit-limit` |
 | | Pathfinding cycles | 1× to 8× of 1333 path nodes a tick, or of a mod's budget | 1× | `open-annihilation.path-search-nodes` |
 | | Skirmish players: how many player rows the skirmish setup shows. The dialog's working copy of the setup's own count; OK stores it only when the slider moved, and the setup's key codes write the same count | 2 to 10; a stored count outside that shows as it is until the slider moves | 10 when none is stored | `NumSkirmishPlayers` |
+| | Set by the mod: the heading over Weapon types and Sides. It keeps no setting | | | |
+| | Weapon types: how many weapon types the mod allows. In a match it shows how many of that limit the match loaded, as "312 of 4096". The same for every player. It takes no input | the mod's limit; the base game allows 256 | the mod's limit | |
+| | Sides: how many sides the mod allows. In a match it shows how many of that limit the match loaded, as "7 of 10". The same for every player. It takes no input | the mod's limit; the base game has 5 | the mod's limit | |
 | Language & Text | Language | System default, English, Deutsch, Español, Français, Italiano, and any installed pack | System default with the player's own preferences file; English with `--preferences-file` | `open-annihilation.language` (`system` or a language's tag, as `de`) |
 | | Use modern fonts for game text; On, locked, while a language drawn only in them is chosen | Off, On | On with the player's own preferences file; Off with `--preferences-file` | `open-annihilation.modern-fonts` |
 | | Text size, of the modern fonts | 50% to 300% of the game fonts' sizes, steps of 10% | 80% | `open-annihilation.text-size` |
