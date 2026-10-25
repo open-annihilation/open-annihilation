@@ -13,6 +13,7 @@
 #include "oa/data/map_pack/map_name.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/unit_header.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/game_text.hpp"
@@ -3461,14 +3462,21 @@ void enter_game_list(ScreenContext* ctx, void*) {
     if (!load(state.base, ctx, "selgame.gui", "bitmaps/selectgame2x.pcx", "anims/selgame.gaf"))
         return;
     // A direct join the host refused in its battle room comes back here,
-    // where the game list tells why.
+    // where the game list tells why. So does a join that left a 3.1c host
+    // of a mod only Open Annihilation can play. The game list clears the
+    // line, so the direct join keeps its own copy.
+    std::string left_because;
+    if (state.lobby.leave_line != nullptr)
+        left_because.assign(oa::data::languages::interface_text(state.lobby.leave_line));
     const auto reason =
         state.lobby.game != nullptr ? local_player(state.lobby).reject_reason : uint8_t{0};
     const bool refused = g_direct.progress.reached == DirectGameStep::battle_room &&
                          g_direct.game.kind == DirectGame::Kind::join && refuses_arrival(reason);
+    const bool left_wide = !left_because.empty() && g_direct.game.kind == DirectGame::Kind::join &&
+                           g_direct.progress.reached == DirectGameStep::battle_room;
     if (!game_list_open(state.lobby, state.connect, state.base.panel)) {
         if (g_direct.stage == DirectStage::game_list)
-            fail_direct_game("Invalid TCP/IP Address");
+            fail_direct_game(left_wide ? left_because.c_str() : "Invalid TCP/IP Address");
         app::screen_request(ctx, kScreenProviders);
         return;
     }
@@ -3476,6 +3484,8 @@ void enter_game_list(ScreenContext* ctx, void*) {
     connect_show_error_text(state.lobby, state.connect);
     if (g_direct.stage == DirectStage::game_list)
         continue_direct_game(state);
+    else if (left_wide)
+        fail_direct_game(left_because.c_str());
     else if (refused)
         fail_direct_game(reject_reason_text(reason));
 }
