@@ -1347,6 +1347,10 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.check_key_table = option_value(cursor);
         return true;
     }
+    if (argument == "--keys") {
+        options.keys_layout = path_from_utf8(option_value(cursor));
+        return true;
+    }
     if (argument == "--check-unit-language") {
         options.check_unit_language = option_value(cursor);
         return true;
@@ -1684,6 +1688,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
                      "[--check-key-table FILE] "
+                     "[--keys PATH] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
                      "[--check-installer FILE] "

@@ -535,6 +535,9 @@ struct Options {
     // Drives every key, click and wheel the match answers and compares what
     // each did with the named table; empty for no check.
     std::string check_key_table;
+    /// The folder of an oakeys.yaml this run binds in place of the player's layout.
+    /// Empty keeps the game's own layout. A missing or refused file is reported once.
+    fs::path keys_layout;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,

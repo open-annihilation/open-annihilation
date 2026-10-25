@@ -17,13 +17,19 @@
 #include "oa/data/mod_profile.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
+#include "oa/ui/key_bindings/layout_file.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <span>
@@ -184,6 +190,41 @@ bool key_is_down(const void* context, uint16_t scancode) {
     return device_state::key_held(static_cast<SDL_Scancode>(scancode));
 }
 
+/// Reads oakeys.yaml in a folder as the layout for this run.
+///
+/// @param folder the folder named by --keys
+/// @param[out] layout the layout
+/// @param[out] error the first problem, when the file cannot be used
+/// @return true when the layout was read
+bool load_keys_layout(
+    const std::filesystem::path& folder, keys::Layout& layout, std::string& error
+) {
+    const std::filesystem::path file = folder / "oakeys.yaml";
+    std::ifstream stream{file, std::ios::binary};
+    if (!stream) {
+        error = "could not read oakeys.yaml";
+        return false;
+    }
+    const std::string text{
+        std::istreambuf_iterator<char>{stream}, std::istreambuf_iterator<char>{}
+    };
+    const auto* bytes = reinterpret_cast<const uint8_t*>(text.data());
+    oa::formats::oakeys::Manifest manifest;
+    std::vector<oa::formats::oakeys::Problem> problems;
+    if (!oa::formats::oakeys::read_manifest({bytes, text.size()}, manifest, problems)) {
+        error = problems.empty() ? "oakeys.yaml was refused"
+                                 : oa::formats::oakeys::describe(problems.front());
+        return false;
+    }
+    std::vector<keys::LayoutProblem> layout_problems;
+    if (!keys::layout_from_manifest(manifest, nullptr, layout, layout_problems)) {
+        error =
+            layout_problems.empty() ? "oakeys.yaml has no layout" : layout_problems.front().message;
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 struct Runtime::KeyBindingsState {
@@ -197,6 +238,10 @@ struct Runtime::KeyBindingsState {
     bool number_keys{};
     uint64_t map_generation{};
     bool ready{};
+    /// The layout --keys named, kept for the pointer it is resolved from.
+    std::optional<keys::Layout> chosen{};
+    /// The folder that layout was read from, so a repeat event does not read it again.
+    std::string chosen_from{};
 
     /// Whether the resolved bindings name this action.
     ///
@@ -285,19 +330,33 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
                                            ? keys::PointerScheme::left_click
                                            : keys::PointerScheme::right_click;
     const bool number_keys = EngineSettingsState::live_switch_alt(*this);
+    const std::string keys_from =
+        options_.keys_layout.empty() ? std::string{} : options_.keys_layout.generic_string();
     if (state.ready && !map_changed && state.hacks == hacks && state.scheme == scheme &&
-        state.number_keys == number_keys)
+        state.number_keys == number_keys && state.chosen_from == keys_from)
         return;
 
     // The release events would point into the bindings set_bindings replaces.
     (void)state.dispatcher.release_all(SDL_GetTicks());
     state.events.clear();
+    state.chosen.reset();
+    state.chosen_from = keys_from;
+    if (!keys_from.empty()) {
+        keys::Layout layout;
+        std::string error;
+        if (load_keys_layout(options_.keys_layout, layout, error))
+            state.chosen = std::move(layout);
+        else if (!error.empty())
+            std::cerr << "keys: " << error << '\n';
+    }
     keys::ResolveInput input;
     input.keyboard = &state.keyboard;
     input.platform = state.platform;
     input.hacks_on = hacks;
     input.scheme = scheme;
     input.number_keys_select_groups = number_keys;
+    if (state.chosen)
+        input.chosen = &(*state.chosen);
     keys::Resolved resolved = keys::resolve(input);
     state.dispatcher.set_keyboard(state.keyboard);
     state.dispatcher.set_platform(state.platform);

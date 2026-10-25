@@ -3642,6 +3642,21 @@ endforeach()
       set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows with the left and right mouse buttons exchanged, under
+      # a layout that exchanges those roles.
+      set(oa_key_table_swapped_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-swapped-buttons")
+      file(MAKE_DIRECTORY "${oa_key_table_swapped_dir}")
+      add_test(NAME native-key-table-swapped-buttons COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons/swapped-buttons.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/swapped-buttons"
+        --preferences-file "${oa_key_table_swapped_dir}/key-table.conf")
+      set_tests_properties(native-key-table-swapped-buttons PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_swapped_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same rows again, plus the ones that exist only with the twelve
       # catalogue hacks turned on.
       set(oa_key_table_hacks_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-hacks")

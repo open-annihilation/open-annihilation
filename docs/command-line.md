@@ -407,6 +407,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-radar-orders` | Checks presses on the radar for every order. |
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
 | `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
+| `--keys PATH` | Binds the `oakeys.yaml` in PATH for this run, in place of the player's layout. A missing or refused file is reported once and the game's own layout is used. |
 | `--check-pad-controls` | Drives the gamepad controls with SDL's virtual pads ([controllers](controllers.md)). |
 | `--check-touch-controls` | Drives the touch controls with finger events ([touch controls](touch-controls.md)). |
 | `--check-running-while-inactive` | Checks the game keeps running while its window is inactive, when it must. |
