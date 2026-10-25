@@ -1298,7 +1298,7 @@ bool write_stored(
     if (stored.kind == StoredKind::number) {
         if (!std::isfinite(stored.number)) {
             if (schema.has_value())
-                check = fields::check_number(*schema, trimmed, stored.number);
+                check = fields::check_number(*schema, trimmed, stored.number, self.weapon_types());
             if (check.verdict == fields::Verdict::refuse)
                 reason = prefixed(live.kind, live.name, trimmed, check.reason);
             else {
@@ -1314,7 +1314,7 @@ bool write_stored(
             return false;
         }
         if (schema.has_value())
-            check = fields::check_number(*schema, trimmed, stored.number);
+            check = fields::check_number(*schema, trimmed, stored.number, self.weapon_types());
         if (check.verdict == fields::Verdict::refuse) {
             reason = prefixed(live.kind, live.name, trimmed, check.reason);
             return false;
@@ -1330,7 +1330,7 @@ bool write_stored(
     } else if (stored.kind == StoredKind::boolean) {
         const double number = stored.flag ? 1.0 : 0.0;
         if (schema.has_value())
-            check = fields::check_number(*schema, trimmed, number);
+            check = fields::check_number(*schema, trimmed, number, self.weapon_types());
         if (check.verdict == fields::Verdict::refuse) {
             reason = prefixed(live.kind, live.name, trimmed, check.reason);
             return false;
@@ -1339,7 +1339,7 @@ bool write_stored(
     } else if (stored.kind == StoredKind::fixed_value) {
         const double as_number = static_cast<double>(stored.count) / 65536.0;
         if (schema.has_value())
-            check = fields::check_number(*schema, trimmed, as_number);
+            check = fields::check_number(*schema, trimmed, as_number, self.weapon_types());
         if (check.verdict == fields::Verdict::refuse) {
             reason = prefixed(live.kind, live.name, trimmed, check.reason);
             return false;
@@ -1355,7 +1355,7 @@ bool write_stored(
     } else {
         const std::string_view body = trim_view(stored.text);
         if (schema.has_value())
-            check = fields::check_text(*schema, trimmed, body);
+            check = fields::check_text(*schema, trimmed, body, self.weapon_types());
         if (check.verdict == fields::Verdict::refuse) {
             reason = prefixed(live.kind, live.name, trimmed, check.reason);
             return false;

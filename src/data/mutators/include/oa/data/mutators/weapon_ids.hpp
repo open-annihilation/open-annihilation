@@ -3,7 +3,8 @@
 
 // Weapon ids for the weapons a mutator run brought. The game's and the mod's
 // weapons keep the ids they already have. A mutator weapon keeps a requested
-// id when it is free, and otherwise takes the lowest free id from 1 to 255.
+// id when it is free, and otherwise takes the lowest free id from 1 to
+// `weapon_types` - 1.
 #pragma once
 
 #include "oa/data/defs/layout.hpp"
@@ -43,15 +44,16 @@ struct WeaponIdResult {
 /// Gives every brought weapon an id and writes it into the weapon section.
 ///
 /// A live weapon section whose name is not in `brought` keeps its id and
-/// occupies that slot when the id is from 1 to 255. A missing id, an id of
-/// 0, an id past 255 and a value that does not start with a number occupy
-/// nothing. The brought weapons are taken one mutator at a time, in list
-/// order, and within a mutator by name without ASCII case, then by the raw
-/// name. That mutator's requested ids, from 1 to 255, are kept when they
-/// are still free. Its other weapons then take the lowest free id from 1
-/// to 255. A later mutator's request for an id an earlier weapon already
-/// holds takes another free id. Slot 0 is never given out. Two brought
-/// weapons never share an id.
+/// occupies that slot when the id is from 1 to `weapon_types` - 1. A missing
+/// id, an id of 0, an id past `weapon_types` - 1 and a value that does not
+/// start with a number occupy nothing. The brought weapons are taken one
+/// mutator at a time, in list order, and within a mutator by name without
+/// ASCII case, then by the raw name. That mutator's requested ids, from 1
+/// to `weapon_types` - 1, are kept when they are still free. Its other
+/// weapons then take the lowest free id from 1 to `weapon_types` - 1. A
+/// later mutator's request for an id an earlier weapon already holds takes
+/// another free id. Slot 0 is never given out. Two brought weapons never
+/// share an id.
 ///
 /// Every id is chosen before any section is written. When one weapon has no
 /// free id, nothing is written, `result.ok` is false, and `result` names
@@ -64,12 +66,16 @@ struct WeaponIdResult {
 /// @param layout the mod's directory names
 /// @param brought the weapons mutators added; updated with the assigned ids
 /// @param result set to the refusal, or left ok on success
+/// @param weapon_types how many weapon ids the mod numbers. Requests and free
+///     ids run from 1 to `weapon_types` - 1. 256 unless the caller read the
+///     profile's `limits.weapon-types`.
 /// @return false when a brought weapon could not be numbered
 [[nodiscard]] bool assign_weapon_ids(
     oa::data::mutation_rules::DocumentSet& documents,
     const oa::data::defs::DataLayout& layout,
     std::span<BroughtWeapon> brought,
-    WeaponIdResult& result
+    WeaponIdResult& result,
+    uint32_t weapon_types = 256
 );
 
 } // namespace oa::data::mutators

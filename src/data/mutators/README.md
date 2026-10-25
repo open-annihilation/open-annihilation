@@ -66,7 +66,9 @@ Target `oa-data-mutators`, alias `oa::data::mutators`, namespace
 - `units:clone(source, name, fields)` and `weapons:clone(source, name, fields)`
   add a copy of one record. A unit clone keeps the source model by writing
   `Objectname` and serves the source script, picture and build pages under
-  the new name. A weapon clone asks for the lowest free id from 1 to 255.
+  the new name. A weapon clone asks for the lowest free id from 1 to one
+  less than the mod's weapon types, 255 unless the profile raises
+  `limits.weapon-types`.
   `assign_weapon_ids` gives that id when it is still free. Each mutator is
   numbered in list order: its requested ids, then ids for its other weapons.
   A later request for an id an earlier weapon already holds takes another
@@ -251,7 +253,8 @@ two weapon sections differing only in `ID` are the same weapon.
 `assign_weapon_ids`: a requested id is kept when it is free, each mutator
 takes its free requests and then ids for its other weapons before the next
 mutator is numbered, a later request for a taken id takes another free id,
-a missing id or an id outside 1 to 255 is not a request, slot 0 is never
+a missing id or an id outside 1 to one less than the mod's weapon types
+(255 unless the profile raises `limits.weapon-types`) is not a request, slot 0 is never
 given out, a full table refuses the mutator that overflows and writes
 nothing, and a base weapon's id text stays. Two mutators that both ask
 for ids are numbered in that same list order, so when the later one's
@@ -388,9 +391,12 @@ it, and the note names the mutator. A write of `id` on a weapon that
 mutator brought is that weapon's request. Two mutators never share an
 id. Numbering takes each mutator in list order, its requests and then
 its other weapons, so an earlier mutator is not refused for a later
-mutator's requests. When no id from 1 to 255 is free, the mutator whose
-weapon could not be numbered is refused and named, and nothing of that
-mutator is served.
+mutator's requests. When no id from 1 to one less than the mod's weapon
+types is free (255 unless the profile raises `limits.weapon-types`), the
+mutator whose weapon could not be numbered is refused and named, and
+nothing of that mutator is served. The clone's own refusal, when the limit
+is 256, is `no free weapon id: 1 to 255 are all used`; the number follows
+the limit.
 
 A download entry is its builder (`UNITMENU`) and its unit (`UNITNAME`),
 not its section name. Two mutators that add the same unit to one
@@ -612,7 +618,9 @@ page it served, each with the source's bytes. A field in the clone's
 table is a typed write, in sorted key order, and a bad field adds nothing.
 A weapon clone copies the source section, including `[DAMAGE]`, into
 `Weapons/<name>.tdf` (or `Weapons/<name>-<k>.tdf` when that path is taken,
-`k` from 2) and writes `ID` to the lowest free id from 1 to 255. That id
+`k` from 2) and writes `ID` to the lowest free id from 1 to one less than
+the mod's weapon types, 255 unless the profile raises `limits.weapon-types`.
+That id
 is a request. After the last hook the pipeline keeps it when it is still
 free, and otherwise gives the weapon another free id. The journal line
 names the id the weapon was given. When several
@@ -1341,9 +1349,11 @@ by `weapons:clone`, is given an id. The game's weapons and the mod's
 weapons keep theirs. A rule or a hook that writes `id` on one of those
 weapons does not change it, and the note names the mutator. A write of
 `id` on a weapon that mutator brought is a request. A section's `ID=` is
-a request when it is a number from 1 to 255. Numbering takes each mutator
-in list order. That mutator's requests are kept when the ids are still
-free, and its other weapons then take free ids from 1 to 255, by name.
+a request when it is a number from 1 to one less than the mod's weapon
+types, 255 unless the profile raises `limits.weapon-types`. Numbering takes
+each mutator in list order. That mutator's requests are kept when the ids
+are still free, and its other weapons then take free ids over that same
+range, by name.
 A later mutator's request for an id an earlier weapon already holds takes
 another free id. Slot 0 is never given out. The weapons are numbered
 before anything is written. When one weapon has no free id, nothing is
@@ -1517,7 +1527,10 @@ unit file that has not been removed. A legacy `Copyright=""` does not remove
 the file, so a menu entry that names it is not a problem. A weapon name
 (`weapon1` to `weapon3`, `explodeas`, `selfdestructas`) resolves only when its
 section still holds its `ID` slot after every weapon file has loaded, in the
-order the documents were added. An ID outside 0 to 255 takes no slot. A weapon
+order the documents were added. An ID outside 0 to one less than the mod's
+weapon types takes no slot: 255 unless the profile raises
+`limits.weapon-types`, and the sentence ends `outside 0 to 255` at that
+baseline. The number follows the limit. A weapon
 section with no `ID` says so. `corpse` names a feature section under
 `features`. `movementclass` names the `Name` of `CLASS0` to `CLASS31`. A later
 class or side section is `too_many_movement_classes` or `too_many_sides`. Each

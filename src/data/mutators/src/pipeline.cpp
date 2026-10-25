@@ -1582,11 +1582,13 @@ kept_weapon_names(const rules::DocumentSet& documents, const defs::DataLayout& l
 ///
 /// A write or a removal of `id` on a weapon the game already numbered is
 /// refused. The weapon keeps the id it had when the documents were parsed.
+/// A weapon `id` is held to `weapon_types`.
 rules::CheckResult check_field(
     const rules::FieldRef& field,
     const std::optional<std::string>& text,
     const defs::DataLayout& layout,
-    const std::vector<std::string>& kept_weapons
+    const std::vector<std::string>& kept_weapons,
+    uint32_t weapon_types
 ) {
     rules::CheckResult result;
     if (weapon_id_stays(field, kept_weapons)) {
@@ -1603,7 +1605,7 @@ rules::CheckResult check_field(
         result.outcome = rules::CheckOutcome::ok;
         return result;
     }
-    const fields::Check verdict = fields::check_text(*kind, field.key, *text);
+    const fields::Check verdict = fields::check_text(*kind, field.key, *text, weapon_types);
     if (verdict.verdict == fields::Verdict::warn) {
         result.outcome = rules::CheckOutcome::warn;
         result.reason = verdict.reason;
@@ -4885,9 +4887,11 @@ bool run_pass(
     const std::vector<std::string> kept_weapons = kept_weapon_names(documents, layout);
     rules::ApplyOptions apply_options;
     apply_options.layout = &layout;
-    apply_options.check = [&layout, &kept_weapons](
+    apply_options.check = [&layout, &kept_weapons, weapon_types = input.limits.weapon_types](
                               const rules::FieldRef& field, const std::optional<std::string>& text
-                          ) { return check_field(field, text, layout, kept_weapons); };
+                          ) {
+        return check_field(field, text, layout, kept_weapons, weapon_types);
+    };
     rules::ApplyState apply_state;
     std::vector<rules::FieldWrite> rule_writes;
     std::set<ReplacedField> replaced_fields;
@@ -4902,6 +4906,7 @@ bool run_pass(
     // a failure the files layer found does not run either.
     collections.emplace(documents, &layout);
     collections->bind_store(&store);
+    collections->set_weapon_types(input.limits.weapon_types);
     collections->keep_weapon_ids(kept_weapons);
     build_menus.emplace(*collections, store, &layout);
     std::vector<BroughtWeapon> brought;
@@ -5062,7 +5067,7 @@ bool run_pass(
         }
     }
     WeaponIdResult id_result;
-    if (!assign_weapon_ids(documents, layout, brought, id_result)) {
+    if (!assign_weapon_ids(documents, layout, brought, id_result, input.limits.weapon_types)) {
         std::string message;
         if (id_result.mutator < ids.size())
             message = ids[id_result.mutator];

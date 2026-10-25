@@ -138,9 +138,11 @@ struct PipelineInput {
     /// Empty skips the check. Each error fails that mutator in the plan
     /// phase, and the pass runs again without it.
     std::function<std::vector<HackCheckError>(std::span<const MutatorHack>)> check_hacks{};
-    /// Category width and whether the match is shared. The integrity check
-    /// reads these after the last hook. A caller that leaves them unset uses
-    /// 512 category types and a match that is not shared.
+    /// Category width, weapon types and whether the match is shared. The
+    /// integrity check reads these after the last hook, and brought weapons
+    /// and clones take free ids from 1 to `weapon_types` - 1. A caller that
+    /// leaves them unset uses 512 category types, 256 weapon types and a
+    /// match that is not shared.
     IntegrityLimits limits{};
     /// When false, the run does not check that the documents are a game the
     /// engine can load. The mutator diff leaves it false, so a loadout the
@@ -236,7 +238,8 @@ first_blocking(const PipelineResult& result, std::span<const PipelineMutator> li
 /// entries, every weapon a
 /// mutator brought, by a record file or by
 /// theirs. Numbering takes each mutator in list order: its requested ids
-/// from 1 to 255 when those ids are still free, then free ids for its
+/// from 1 to one less than `limits.weapon_types` when those ids are still
+/// free, then free ids for its
 /// other weapons. A later request for an id already held takes another
 /// free id. A write of `id` on a weapon the game already numbered is left
 /// undone and noted. Slot 0 is never given out. When no id remains, the

@@ -31,6 +31,10 @@ struct IntegrityLimits {
     /// Unit types the category masks hold. Later type ids silently lose
     /// their categories. 512 unless the caller read another width.
     uint32_t category_mask_types{512};
+    /// Weapon IDs 0 to `weapon_types` - 1 take a slot. Free ids are 1 to
+    /// `weapon_types` - 1. 256 unless the caller read the profile's
+    /// `limits.weapon-types`.
+    uint32_t weapon_types{256};
     /// True when the match is a shared game. Past `unit_sync_limit` then
     /// fails the mutator; otherwise it is a warning.
     bool shared{false};
@@ -49,12 +53,12 @@ enum class Problem : uint8_t {
     side_without_commander,    ///< a side the game reads has no commander, or not a live unit
     too_many_sides,            ///< a side section past the five the game reads
     too_many_movement_classes, ///< a class section past the 32 the game reads
-    weapon_id_out_of_range,    ///< a weapon's ID is outside 0 to 255, so it takes no slot
-    too_many_unit_types,       ///< more unit files than the type table can hold
-    past_category_masks,       ///< more unit files than the category masks hold
-    past_unit_sync,            ///< more unit files than a shared game can keep in step
-    file_name_differs,         ///< a unit file's name is not its UnitName
-    unit_name_twice,           ///< two unit files share one UnitName
+    weapon_id_out_of_range, ///< a weapon's ID is outside 0 to weapon_types - 1, so it takes no slot
+    too_many_unit_types,    ///< more unit files than the type table can hold
+    past_category_masks,    ///< more unit files than the category masks hold
+    past_unit_sync,         ///< more unit files than a shared game can keep in step
+    file_name_differs,      ///< a unit file's name is not its UnitName
+    unit_name_twice,        ///< two unit files share one UnitName
     too_many_download_files, ///< more download files than the game reads, including ones the menus added
 };
 
@@ -95,7 +99,7 @@ struct IntegrityIssue {
 ///
 /// @param documents the parsed documents, removed ones included
 /// @param layout the pipeline's data layout
-/// @param limits category width and whether the match is shared
+/// @param limits category width, weapon types and whether the match is shared
 /// @param store_holds true when the store holds that path
 /// @return the problems, in the order the check walks the documents
 [[nodiscard]] std::vector<IntegrityIssue> integrity_issues(

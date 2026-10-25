@@ -625,6 +625,83 @@ void test_weapon_full(const fs::path& scratch) {
     release(store);
 }
 
+/// Ids 1 to 255 are taken and the limit is 1,024, so the clone receives 256.
+void test_weapon_wide_clone_gets_256(const fs::path& scratch) {
+    const fs::path game = scratch / "weapon-wide-game";
+    const fs::path package = scratch / "weapon-wide-package";
+    std::string text;
+    for (int id = 1; id <= 255; ++id) {
+        text += "[W";
+        text += std::to_string(id);
+        text += "]\n{\nID=";
+        text += std::to_string(id);
+        text += ";\nname=Wide;\n}\n";
+    }
+    write_bytes(game / "Weapons" / "FULL.tdf", text);
+    write_package(
+        package,
+        "ridge-clone-wide",
+        "weapons",
+        "function mutate(ctx)\n"
+        "  return { weapons = function(weapons, ctx)\n"
+        "    weapons:clone(\"W1\", \"WNEW\", {})\n"
+        "  end }\nend\n"
+    );
+    oa::AssetStore store(game);
+    mutators::PipelineInput input = make_input({load_package(package)});
+    input.limits.weapon_types = 1024;
+    const mutators::PipelineResult result = mutators::run_pipeline(store, input);
+    expect(result.playable(), result.mutators.empty() ? "wide run" : result.mutators[0].message);
+    const std::string made = entry_text(find_entry(result.layer, "Weapons/WNEW.tdf"));
+    expect(contains(made, "ID=256"), made);
+    expect(
+        has_sentence(result.journal, "added weapon WNEW (copy of W1) at id 256"), "id 256 journal"
+    );
+    release(store);
+}
+
+/// Ids 1 to 1,023 are taken, so the refusal names that whole range.
+void test_weapon_wide_full_refuses(const fs::path& scratch) {
+    const fs::path game = scratch / "weapon-wide-full-game";
+    const fs::path package = scratch / "weapon-wide-full-package";
+    std::string text;
+    for (int id = 1; id <= 1023; ++id) {
+        text += "[W";
+        text += std::to_string(id);
+        text += "]\n{\nID=";
+        text += std::to_string(id);
+        text += ";\nname=Full;\n}\n";
+    }
+    write_bytes(game / "Weapons" / "FULL.tdf", text);
+    write_package(
+        package,
+        "ridge-clone-wide-full",
+        "weapons",
+        "function mutate(ctx)\n"
+        "  return { weapons = function(weapons, ctx)\n"
+        "    weapons:clone(\"W1\", \"WNEW\", {})\n"
+        "  end }\nend\n"
+    );
+    oa::AssetStore store(game);
+    mutators::PipelineInput input = make_input({load_package(package)});
+    input.limits.weapon_types = 1024;
+    const mutators::PipelineResult result = mutators::run_pipeline(store, input);
+    expect(!result.playable(), "a table full through 1023 was accepted");
+    expect(!result.mutators.empty(), "wide full result");
+    if (!result.mutators.empty()) {
+        expect(
+            result.mutators[0].message.find(
+                "no free weapon id: 1 to 1023 are all used (cloning W1 as WNEW)"
+            ) != std::string::npos,
+            result.mutators[0].message
+        );
+    }
+    expect(
+        find_entry(result.layer, "Weapons/WNEW.tdf") == nullptr, "refused wide clone was served"
+    );
+    release(store);
+}
+
 void test_weapon_id_field(const fs::path& scratch) {
     const fs::path game = scratch / "weapon-id-game";
     const fs::path package = scratch / "weapon-id-package";
@@ -871,6 +948,8 @@ int main() {
     test_weapon_lowest(scratch);
     test_weapon_zero(scratch);
     test_weapon_full(scratch);
+    test_weapon_wide_clone_gets_256(scratch);
+    test_weapon_wide_full_refuses(scratch);
     test_weapon_id_field(scratch);
     test_clone_budgets(scratch);
     test_page_collision(scratch);
