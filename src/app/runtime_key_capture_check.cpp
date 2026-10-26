@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-key-capture: capturing a chord over a paused skirmish, a clash and
-// its swap, Escape held for a second, a refused Escape, Settings' chord, and
-// a draft clash's card. With --snapshot it writes key-capture-<w>x<h>.ppm and
-// key-clash-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080.
+// its swap, Escape held for a second, a refused Escape, Settings' chord, an
+// empty search that finds Primary+, and a draft clash's card. With --snapshot
+// it writes key-capture-<w>x<h>.ppm and key-clash-<w>x<h>.ppm at 640x480,
+// 1280x720 and 1920x1080.
 
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
@@ -333,6 +334,16 @@ void Runtime::check_key_capture() {
     note("paused staged skirmish");
     resize(kLarge);
     open_paused();
+    note("an empty search finds Primary+, and Settings stays shut");
+    click_named("oa.key-editor.search");
+    chord(SDLK_COMMA, kShortcutModifier, kShortcutKey);
+    require(oa_layer().find("settings") == nullptr, "Settings opened from the search");
+    require(
+        named("oa.key-editor.search.chord").has_value() ||
+            named("oa.key-editor.row.ui.settings").has_value(),
+        "Primary+, did not find Settings"
+    );
+    clear_search();
     capture_attack(kLarge, true);
 
     note("Enter on Select all's Ctrl+A, then Ctrl+B");

@@ -2374,6 +2374,14 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
             key_editor_capture_event(event);
         return false;
     }
+    // An empty, focused search lists a chord and does not do what it names.
+    // The screen still sees the key. A stale action from the last feed must
+    // not fire in its place.
+    if (key_editor_find_swallows(event)) {
+        if (key_bindings_state_ != nullptr)
+            key_bindings_state_->events.clear();
+        return false;
+    }
     const bool keymap_changed = event.type == SDL_EVENT_KEYMAP_CHANGED;
     ensure_key_bindings(keymap_changed);
     KeyBindingsState& state = *key_bindings_state_;

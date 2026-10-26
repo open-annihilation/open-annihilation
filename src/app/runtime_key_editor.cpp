@@ -1284,6 +1284,30 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     /// @return true while a prompt is open
     [[nodiscard]] bool capturing() const { return state_.prompt != editor::Prompt::none; }
 
+    /// True when this key is a chord the empty, focused search would list.
+    ///
+    /// A key-up and a repeat are asked as a fresh press: the search reads the
+    /// press, and the feed must skip the release and the repeat as well.
+    ///
+    /// @param event the event dispatch_event is given
+    /// @return true when the feed should not give the chord to the dispatcher
+    [[nodiscard]] bool find_swallows(const SDL_Event& event) const {
+        if (state_.prompt != editor::Prompt::none)
+            return false;
+        if (!editor::focused_field(state_, list_) || !state_.search.text.empty())
+            return false;
+        if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP)
+            return false;
+        const keys::InputEvent probe = capture_key_event(
+            static_cast<uint32_t>(event.key.key),
+            static_cast<uint16_t>(static_cast<uint32_t>(event.key.mod)),
+            true,
+            false,
+            capture_scancode(static_cast<uint32_t>(event.key.key))
+        );
+        return editor::chord_to_find(editor_, probe).has_value();
+    }
+
     /// Gives a key-up to the capture. The layer does not call the screen for
     /// a key-up, and a held Escape cancels when it is let go before a second.
     ///
@@ -1549,6 +1573,13 @@ bool Runtime::key_editor_capturing() {
     if (found == nullptr)
         return false;
     return static_cast<KeyEditorScreen*>(found)->capturing();
+}
+
+bool Runtime::key_editor_find_swallows(const SDL_Event& event) {
+    LayerScreen* found = oa_layer().find(editor::screen_name);
+    if (found == nullptr)
+        return false;
+    return static_cast<KeyEditorScreen*>(found)->find_swallows(event);
 }
 
 void Runtime::key_editor_capture_event(const SDL_Event& event) {

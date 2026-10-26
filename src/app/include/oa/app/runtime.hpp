@@ -2609,6 +2609,16 @@ class Runtime final : public menu::Host,
     /// @return true while a prompt covers the editor
     bool key_editor_capturing();
 
+    /// True when an empty, focused search would list this chord.
+    ///
+    /// feed_input_actions returns before the dispatcher while this is true, so
+    /// the chord finds and does not do what it names. A capture does the same.
+    /// [runtime_key_editor.cpp]
+    ///
+    /// @param event the event dispatch_event is given
+    /// @return true when the search takes the chord
+    bool key_editor_find_swallows(const SDL_Event& event);
+
     /// Gives a key-up to the key editor's capture. The layer does not hand a
     /// key-up to the screen. [runtime_key_editor.cpp]
     ///
