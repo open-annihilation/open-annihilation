@@ -633,9 +633,9 @@ uint8_t modifier_bit_of(uint16_t scancode) {
 
 /// QUEUE, ADD or x5, when this id is one of those shared roles.
 struct SharedRole {
-    const char* id;
-    oa::ui::touch_hud::Latch latch;
-    oa::ui::touch_hud::ActionClass action;
+    const char* id{};
+    oa::ui::touch_hud::Latch latch{};
+    oa::ui::touch_hud::ActionClass action{};
 };
 
 /// The shared role of an action id, or null.
