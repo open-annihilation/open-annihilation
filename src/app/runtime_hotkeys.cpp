@@ -67,13 +67,37 @@ int action_number(std::string_view id, std::string_view prefix) {
     return digit - '0';
 }
 
-/// Whether a repeat of this action still changes the speed or the page.
+/// Whether a repeat of this action still changes the speed, the page or the zoom.
 ///
 /// @param id the action id
-/// @return true for the speed and page actions
+/// @return true for the speed, page and zoom-key actions
 bool answers_repeat(std::string_view id) {
     return id == "game.speed-up" || id == "game.speed-down" || id == "build.page-next" ||
-           id == "build.page-previous";
+           id == "build.page-previous" || id == "camera.zoom-in-key" || id == "camera.zoom-out-key";
+}
+
+/// The build cell at the end of `build.cell-N`, or 0.
+///
+/// One or two digits, 1 through 12. `build.cell-next` is not a cell.
+///
+/// @param id the action id
+/// @return 1 through 12, or 0
+int build_cell_number(std::string_view id) {
+    constexpr std::string_view prefix = "build.cell-";
+    if (!id.starts_with(prefix))
+        return 0;
+    const std::string_view tail = id.substr(prefix.size());
+    if (tail.empty() || tail.size() > 2)
+        return 0;
+    int cell = 0;
+    for (const char digit : tail) {
+        if (digit < '0' || digit > '9')
+            return 0;
+        cell = cell * 10 + (digit - '0');
+    }
+    if (cell < 1 || cell > 12)
+        return 0;
+    return cell;
 }
 
 /// The pressed event whose id is one of `ids`.
@@ -109,7 +133,7 @@ const keys::ActionEvent* find_console_press(std::span<const keys::ActionEvent> e
     return nullptr;
 }
 
-/// Whether this repeat is a speed or page action's `repeated` event.
+/// Whether this repeat is an action that still answers while held.
 ///
 /// @param events the current event's action events
 /// @return true when one of those actions repeated
@@ -242,7 +266,7 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         if (match_paused_)
             return false;
         if (match_command_ != MatchCommand::none || pending_build_type_ != 0) {
-            clear_or_cancel_match_command();
+            cancel_match_order();
             return true;
         }
         if (!match_finished_ && !has_local_selection() &&
@@ -250,7 +274,7 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
             show_match_pause_menu();
             return true;
         }
-        clear_or_cancel_match_command();
+        clear_match_selection();
         return true;
     }
     if (id == "order.self-destruct") {
@@ -465,6 +489,28 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     }
     if (id == "camera.classic-view" || id == "camera.unlocked")
         return answer_live_view_key(id);
+    if (id == "camera.zoom-in-key" || id == "camera.zoom-out-key" || id == "camera.zoom-reset")
+        return zoom_match_from_key(id);
+    if (id == "chat.open-allies") {
+        open_allies_chat_line();
+        return true;
+    }
+    // Cancel takes back only an armed order or a placement. Clear drops only
+    // the selection, and leaves an armed order armed.
+    if (id == "order.cancel") {
+        cancel_match_order();
+        return true;
+    }
+    if (id == "select.clear") {
+        clear_match_selection();
+        return true;
+    }
+    if (const int cell = build_cell_number(id); cell != 0) {
+        // Past the last shown build button, and on the orders page, the key
+        // is taken and nothing is pressed: no page turns and no order arms.
+        std::ignore = press_build_cell(cell);
+        return true;
+    }
     return press_shown_panel_action(id, action.phase);
 }
 
@@ -491,14 +537,15 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // The surrender confirmation takes the keys ahead of the chat line and
     // a marker's text, which keep what was typed for after it.
     const bool question = match_question_open();
-    // A held key's repeats press no hotkey but the speed keys and the page
-    // keys: held '+' or '-' goes on changing the game speed, a step with each
-    // repeat, as in 3.1c, and stops at the fastest or the slowest; held ','
-    // or '.' goes on turning the order panel's page, a page and a
-    // nextbuildmenu with each repeat, as in 3.1c, taking the order page into
-    // its turn as a press does. Held Backspace goes on deleting from the chat
-    // line or a marker's text being typed, as held keys go on typing in 3.1c;
-    // held letters arrive as repeated text.
+    // A held key's repeats press no hotkey but the speed keys, the page
+    // keys and the zoom keys: held '+' or '-' goes on changing the game speed,
+    // a step with each repeat, as in 3.1c, and stops at the fastest or the
+    // slowest; held ',' or '.' goes on turning the order panel's page, a page
+    // and a nextbuildmenu with each repeat, as in 3.1c, taking the order page
+    // into its turn as a press does; held zoom-in or zoom-out takes another
+    // wheel step about the battlefield's centre. Held Backspace goes on
+    // deleting from the chat line or a marker's text being typed, as held
+    // keys go on typing in 3.1c; held letters arrive as repeated text.
     const bool deletes_typed_text =
         !question && key.key == SDLK_BACKSPACE && (chat_composing_ || whiteboard_input_.editing);
     const auto events = match_action_events();
@@ -592,25 +639,76 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     return false;
 }
 
-void Runtime::clear_or_cancel_match_command() {
+void Runtime::cancel_match_order() {
     if (!match_)
         return;
-    if (match_command_ != MatchCommand::none || pending_build_type_ != 0) {
-        reset_match_command();
-        pending_build_type_ = 0;
-        oa::sim::gameplay_input::set_pointer_command(
-            match_->state().game, oa::sim::gameplay_input::OrderCommand::default_order
-        );
-        apply_match_hud_for_selection();
-        status_ = "Command cancelled";
+    if (match_command_ == MatchCommand::none && pending_build_type_ == 0)
         return;
-    }
+    reset_match_command();
+    pending_build_type_ = 0;
+    oa::sim::gameplay_input::set_pointer_command(
+        match_->state().game, oa::sim::gameplay_input::OrderCommand::default_order
+    );
+    apply_match_hud_for_selection();
+    status_ = "Command cancelled";
+}
+
+void Runtime::clear_match_selection() {
+    if (!match_)
+        return;
     // The unit info panel over the order panel closes with the selection,
-    // as a click that drops it closes it.
+    // as a click that drops it closes it. An armed order stays armed.
     clear_local_selection();
     close_unit_info();
     apply_match_hud_for_selection();
     status_ = "Selection cleared";
+}
+
+void Runtime::cancel_or_clear_match_command() {
+    if (!match_)
+        return;
+    if (match_command_ != MatchCommand::none || pending_build_type_ != 0)
+        cancel_match_order();
+    else
+        clear_match_selection();
+}
+
+bool Runtime::press_build_cell(int cell) {
+    if (cell < 1 || cell > 12 || !match_hud_ || unit_info_panel_)
+        return false;
+    constexpr auto build_buttons =
+        oa::ui::hud::kCommonUnitButton | oa::ui::hud::kCommonWeaponButton;
+
+    struct ShownButton {
+        std::size_t index;
+        int16_t x;
+        int16_t y;
+    };
+
+    std::vector<ShownButton> shown;
+    const auto& gadgets = match_hud_->layout.gadgets;
+    for (std::size_t index = 0; index < gadgets.size(); ++index) {
+        const auto& gadget = gadgets[index];
+        if (gadget.common.type != oa::ui::gui_layout::GadgetType::button)
+            continue;
+        if (gadget.common.active == 0 || gadget.common.width <= 0 || gadget.common.height <= 0)
+            continue;
+        const auto attributes = static_cast<uint8_t>(gadget.common.common_attributes);
+        if ((attributes & build_buttons) == 0)
+            continue;
+        shown.push_back(ShownButton{index, gadget.common.x, gadget.common.y});
+    }
+    std::stable_sort(
+        shown.begin(), shown.end(), [](const ShownButton& left, const ShownButton& right) {
+            if (left.y != right.y)
+                return left.y < right.y;
+            return left.x < right.x;
+        }
+    );
+    if (static_cast<std::size_t>(cell) > shown.size())
+        return false;
+    activate_match_hud(shown[static_cast<std::size_t>(cell - 1)].index, true);
+    return true;
 }
 
 void Runtime::select_match_unit(float x, float y, int32_t clicks) {

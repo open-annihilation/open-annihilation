@@ -636,7 +636,8 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
         return true;
     const bool shift = (input_modifiers(ModifierUse::selection) & SDL_KMOD_SHIFT) != 0;
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
-        if (event.button.clicks >= 2 && event.button.clicks % 2 == 0 && state.hovered != 0) {
+        const bool doubled = event.button.clicks >= 2 && event.button.clicks % 2 == 0;
+        if (doubled && state.hovered != 0) {
             // A double-click on one of the viewer's units selects every unit of its type.
             const auto* unit = oa::world_unit_at(&world, state.hovered);
             if (unit != nullptr && unit->owner_index == match_local_player_) {
@@ -644,7 +645,36 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
                 select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
                     return slot.unit && slot.unit->type_index == type;
                 });
+                state.pressed = false;
+                return true;
             }
+        }
+        // A double-click on ground or another player's unit, when the jump is
+        // bound, closes the megamap and centres the view there. The gesture's
+        // phase is a double press, which fired_action does not report.
+        // Unbound, another player's unit is not selected and ground is an
+        // ordinary press.
+        bool jump = false;
+        if (doubled) {
+            for (const oa::ui::key_bindings::ActionEvent& fed : match_action_events()) {
+                if (fed.action == "megamap.jump" &&
+                    fed.phase == oa::ui::key_bindings::Phase::double_press) {
+                    jump = true;
+                    break;
+                }
+            }
+        }
+        if (jump) {
+            const auto point = hud::megamap_map_point(state.layout, px, py);
+            set_megamap_open(false);
+            if (point)
+                set_camera_position(
+                    (*point)[0] - visible_map_width() / 2, (*point)[1] - visible_map_height() / 2, 0
+                );
+            state.pressed = false;
+            return true;
+        }
+        if (doubled && state.hovered != 0) {
             state.pressed = false;
             return true;
         }

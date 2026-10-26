@@ -2,7 +2,7 @@
 
 `--check-key-table FILE` starts a headless skirmish, plays every row of `FILE` through `Runtime::dispatch_event`, and compares the effect of each row with the file. The check writes `key-table-observed.tsv` in the working directory, including when a row does not match. It writes any saved toggle back before it exits, so the preferences file is the same after a run as before it.
 
-`base.tsv` is today's game, with no mod: 220 rows. `hacks.tsv` plays those rows again with the twelve catalogue hacks turned on, then the rows that exist only while those hacks answer: 254 rows. Where a hack's action replaces the base action, the hacks row is named by the replacing action. A migration ticket that changes a row updates the table in that ticket and says why in its report.
+`base.tsv` is today's game, with no mod: 222 rows. `hacks.tsv` plays those rows again with the twelve catalogue hacks turned on, then the rows that exist only while those hacks answer: 256 rows. Where a hack's action replaces the base action, the hacks row is named by the replacing action. A migration ticket that changes a row updates the table in that ticket and says why in its report. `new-actions.tsv` plays the actions a layout may bind, with `new-actions/oakeys.yaml`, and with the megamap hack on.
 
 ## Columns
 
@@ -58,7 +58,7 @@ Digits 2 to 9 are one row each, set up as digit 1 is: `group.assign-<n>`, `group
 
 ## Rows left out
 
-These catalogue rows are new or not routed today, so they are not in the tables: `order.cancel`, `select.clear`, `camera.zoom-in-key`, `camera.zoom-out-key`, `camera.zoom-reset`, `build.cell-*`, `chat.open-allies`, `ui.keys-overlay`, `ui.release-pointer`, `megamap.jump`. `select.category-*` is in the tables for a letter the loaded units tag and no named Ctrl action holds (`select.category-w` for `CTRL_W`). `camera.bookmark-*` and `game.health-bars-mode-*` are in the tables too. A bookmark return stores the view, moves it, then recalls, so its effect is the return. The main menu's quick keys, and touch and pad input, have their own checks.
+`ui.keys-overlay` is Primary+`/` in the default, so `base.tsv` and `hacks.tsv` each play it, and Ctrl+`/`, while a building is being placed. Both are `none`: the chord does not turn the building, and the overlay draws nothing. The other new actions stay unbound in the default and are played from `new-actions.tsv`: `build.cell-1` to `build.cell-12` on the number row's places, `camera.zoom-in-key` on `[`, `camera.zoom-out-key` on `]`, `camera.zoom-reset` on `\`, `chat.open-allies`, `ui.release-pointer`, `megamap.jump` on a double-click, `order.cancel` and `select.clear`. `select.category-*` is in the tables for a letter the loaded units tag and no named Ctrl action holds (`select.category-w` for `CTRL_W`). `camera.bookmark-*` and `game.health-bars-mode-*` are in the tables too. A bookmark return stores the view, moves it, then recalls, so its effect is the return. The main menu's quick keys, and touch and pad input, have their own checks.
 
 `ui.quit` is the system's own quit and ends the process, so the table does not play it.
 

@@ -3130,11 +3130,20 @@ class Runtime final : public menu::Host,
     /// @param y canvas y of the point, pixels
     void zoom_match_about(float factor, float x, float y);
 
-    /// Takes back an armed order or a pending building (reloading the panel's page), else clears
-    /// the selection and closes an open unit info panel: the Escape key's first two steps, never
-    /// the in-game menu.
+    /// Takes back an armed order or a placement. With neither, it changes nothing
+    /// and the selection stays. The order panel's page reloads and the status
+    /// line says the command was cancelled. [runtime_hotkeys.cpp]
+    void cancel_match_order();
+
+    /// Clears the selection and closes an open unit info panel. An armed order
+    /// or a placement stays armed. [runtime_hotkeys.cpp]
+    void clear_match_selection();
+
+    /// Takes back an armed order or a placement, and otherwise clears the
+    /// selection and closes an open unit info panel: what a touch or pad clear
+    /// does, never the in-game menu.
     /// [runtime_hotkeys.cpp, extracted by the Interfaces stage]
-    void clear_or_cancel_match_command();
+    void cancel_or_clear_match_command();
 
     /// Arms an order by its order-panel name whatever page the panel shows, as its button does.
     ///
@@ -10819,6 +10828,14 @@ class Runtime final : public menu::Host,
     ///         its repeats or its key's release, which no screen may see
     bool take_full_screen_event(const SDL_Event& event);
 
+    /// Answers the keys overlay before a screen sees the key.
+    ///
+    /// The press is taken and the installed hook is called. With no hook,
+    /// nothing is drawn. A repeat and the key's release reach the screens.
+    ///
+    /// @return true when ui.keys-overlay was pressed
+    bool take_keys_overlay_action();
+
     /// With `--trace-input`, writes the game's window as window_trace_line
     /// says on standard error: where it lies on its display, its state, how
     /// the pointer is held and where the pointer is. Without the option, or
@@ -11951,6 +11968,15 @@ class Runtime final : public menu::Host,
     ///
     /// @return the way chosen
     [[nodiscard]] oa::ui::engine_settings::WindowEdge window_edge_mode() const;
+
+    /// Lets a captured pointer go until the next click on the battlefield.
+    ///
+    /// With Window edge Capture, in a match, the pointer waits as Escape makes
+    /// it wait. Sticky and Free change nothing. The key is taken whenever the
+    /// action is pressed.
+    ///
+    /// @return true when ui.release-pointer was pressed
+    bool take_release_pointer_action();
 
     /// Tells whether a match's battlefield shows, in play: the match runs,
     /// and no game menu, pause screen, settings dialog or message box is
@@ -13752,6 +13778,17 @@ class Runtime final : public menu::Host,
     /// @return true when a button was pressed
     bool press_shown_panel_action(std::string_view id, oa::ui::key_bindings::Phase phase);
 
+    /// Presses the nth shown build button, in reading order (top, then left).
+    ///
+    /// A shown button is a button with the unit or weapon build attribute,
+    /// active and with a size, grayed or not. The press is a left click, so
+    /// the queue modifier builds five. On the orders page, or past the last
+    /// such button, nothing is pressed and no page turns.
+    ///
+    /// @param cell 1 through 12
+    /// @return true when that button was pressed
+    bool press_build_cell(int cell);
+
     /// Answers one match action.
     ///
     /// The effect is the one the key had. False leaves the key to the rest of
@@ -14016,7 +14053,10 @@ class Runtime final : public menu::Host,
     /// (megamap_click) and a right press (megamap_right_press). A left drag
     /// selects a box of the viewer's units, one that takes in none closing
     /// the unit info panel, and a left double-click on one of them every
-    /// unit of its type, in either interface type. A press acts on the icon
+    /// unit of its type, in either interface type. A double-click bound to
+    /// megamap.jump, on ground or another player's unit, closes the megamap
+    /// and centres the view there; one on the viewer's own unit still selects
+    /// every unit of its type. A press acts on the icon
     /// last drawn under it (MegamapState::unit_at), as a finger's tap does
     /// with no frame drawn since it landed.
     /// Presses are taken in the overlays' area where the battlefield would
@@ -15512,6 +15552,12 @@ class Runtime final : public menu::Host,
     /// viewer included.
     void open_chat_line();
 
+    /// Opens the chat line with the allies prefix already typed.
+    ///
+    /// The line begins `a,`, which a sent line reads as allies only. Nothing
+    /// is sent. A watcher opens no line.
+    void open_allies_chat_line();
+
     /// Closes the chat line, drops the typed text and stops text input.
     void close_chat_line();
 
@@ -16936,6 +16982,17 @@ class Runtime final : public menu::Host,
     /// @param follow_pointer the zoom follows the pointer as it moves: the
     ///        wheel's; the touch buttons zoom about the point alone
     void handle_match_zoom(float wheel_y, float pointer_x, float pointer_y, bool follow_pointer);
+
+    /// Zooms from a zoom key about the battlefield's centre.
+    ///
+    /// camera.zoom-in-key and camera.zoom-out-key take one step of the wheel's
+    /// zoom, and a held key keeps stepping. camera.zoom-reset eases to the
+    /// battlefield's own scale. Nothing moves while Mouse wheel zoom is off,
+    /// and the zoom stays within its limits. The key is still taken then.
+    ///
+    /// @param id camera.zoom-in-key, camera.zoom-out-key or camera.zoom-reset
+    /// @return true when the id is one of those keys and a match is showing
+    bool zoom_match_from_key(std::string_view id);
 
     /// Returns the zoom's target after wheel steps (zoom_wheel_).
     ///
@@ -20503,6 +20560,8 @@ class Runtime final : public menu::Host,
     /// Set while the key now being handled was already given to the action
     /// dispatcher. A match hotkey reached any other way feeds its own press.
     bool match_key_already_fed_{};
+    /// Called when the keys overlay is pressed. Null draws nothing.
+    void (*keys_overlay_hook_)(Runtime&) = nullptr;
 
     /// A latch or sticky modifier chip, and when it was turned on.
     struct KeyLatchSeen {
