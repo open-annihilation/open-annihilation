@@ -342,6 +342,7 @@ std::optional<data::catalogue::Kind> kind_from_name(std::string_view text) noexc
         data::catalogue::Kind::oamap,
         data::catalogue::Kind::oamut,
         data::catalogue::Kind::oabrain,
+        data::catalogue::Kind::oakeys,
         data::catalogue::Kind::expansion,
     };
     for (const data::catalogue::Kind kind : kinds) {

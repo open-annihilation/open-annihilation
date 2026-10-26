@@ -4549,6 +4549,8 @@ endif()
 add_subdirectory(tools/oa-tool)
 add_executable(oa-tool tools/oa-tool/main.cpp)
 target_link_libraries(oa-tool PRIVATE oa-tool-commands oa-options)
+# keys picture draws with the text fonts that sit beside the program.
+oa_copy_text_fonts(oa-tool "$<TARGET_FILE_DIR:oa-tool>")
 # The same version line as the game, so `oa-tool --version` matches
 # `open-annihilation --version`. A build without the platform has no
 # engine-build header, and the line names no commit.

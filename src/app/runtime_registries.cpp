@@ -224,7 +224,7 @@ std::string downloads_text(const registry::Descriptor& descriptor) {
 /// Returns a kind of package as the window names it.
 ///
 /// @param kind the kind
-/// @return "mods", "maps", "languages", "expansions", "mutators" or "brains"
+/// @return "mods", "maps", "languages", "expansions", "mutators", "brains" or "key layouts"
 std::string kind_text(oa::data::catalogue::Kind kind) {
     switch (kind) {
     case oa::data::catalogue::Kind::oamod:
@@ -239,6 +239,8 @@ std::string kind_text(oa::data::catalogue::Kind kind) {
         return "mutators";
     case oa::data::catalogue::Kind::oabrain:
         return "brains";
+    case oa::data::catalogue::Kind::oakeys:
+        return "key layouts";
     }
     return "packages";
 }

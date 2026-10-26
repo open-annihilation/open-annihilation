@@ -58,7 +58,7 @@ struct ProbeView {
     std::string address;    ///< the address the player is shown: a host, and a port that is not 80
     std::size_t packages{}; ///< the packages its catalogue lists
     /// The kinds of package the catalogue holds, each as the window names
-    /// it: "mods", "maps", "languages", "expansions", "mutators" or "brains".
+    /// it: "mods", "maps", "languages", "expansions", "mutators", "brains" or "key layouts".
     std::vector<std::string> kinds;
     /// The keys' fingerprints, as a player compares them. For a mirror, the
     /// keys the player already trusts for the registry.

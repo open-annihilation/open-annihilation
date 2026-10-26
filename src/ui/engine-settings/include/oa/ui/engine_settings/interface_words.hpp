@@ -602,6 +602,7 @@ inline constexpr std::string_view interface_words[] = {
     "fps",
     "installing",
     "kB",
+    "key layouts",
     "list from {age}",
     "macOS kept Open Annihilation as the opener of {types}. To choose another, select a {types} "
     "file in Finder, then File › Get Info › Open with › Change All.",
