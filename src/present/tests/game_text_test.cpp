@@ -549,6 +549,34 @@ void keeps_finished_layers() {
     OA_CHECK(!present::modern_text_advance("ab", present::TextFace::label, 1, full));
 }
 
+/// A line's kept layers go at the first forget_undrawn_text_layers that
+/// finds the line not drawn since the call before, and stay while it is
+/// drawn between the calls.
+void forgets_undrawn_layers() {
+    SharedMask shared{};
+    shared.settings.style = {true, true, true, true, present::default_text_size};
+    present::set_game_text_hooks(shared_mask_hooks(shared));
+    constexpr int32_t full = present::game_font_text_size;
+    const auto draw = [] { return present::modern_text("ab", present::TextFace::label, 2, full); };
+    // The kept layers hold the letters they were built from, beside the hooks.
+    const auto kept = [&shared] { return shared.mask.use_count() == 2; };
+    const auto first = draw();
+    OA_CHECK(first && kept());
+    present::forget_undrawn_text_layers();
+    OA_CHECK(kept());
+    const auto again = draw();
+    OA_CHECK(again && same_layers(*again, *first));
+    present::forget_undrawn_text_layers();
+    OA_CHECK(kept());
+    present::forget_undrawn_text_layers();
+    OA_CHECK(shared.mask.use_count() == 1);
+    // Drawn after it went, the line is built anew as it was first.
+    const auto rebuilt = draw();
+    OA_CHECK(rebuilt && same_layers(*rebuilt, *first) && kept());
+    present::forget_text_layers();
+    present::set_game_text_hooks({});
+}
+
 void sizes_text_from_the_setting() {
     // The setting's range, its default a fifth below the game fonts' size.
     OA_CHECK(present::lowest_text_size == 50 && present::highest_text_size == 300);
@@ -715,6 +743,7 @@ int main() {
     leaves_the_layers_to_the_picture_beneath();
     draws_through_the_hooks();
     keeps_finished_layers();
+    forgets_undrawn_layers();
     sizes_text_from_the_setting();
     breaks_lines_into_rows();
     underlines_a_stretch();
