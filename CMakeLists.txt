@@ -2229,7 +2229,7 @@ if(OA_BUILD_PLATFORM)
       find_package(Python3 COMPONENTS Interpreter QUIET)
       if(Python3_Interpreter_FOUND)
         add_test(NAME native-update-download COMMAND ${Python3_EXECUTABLE}
-          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/native_update_download_check.py"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_update_download.py"
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --work-dir "${oa_update_download_dir}")
         set_tests_properties(native-update-download PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
