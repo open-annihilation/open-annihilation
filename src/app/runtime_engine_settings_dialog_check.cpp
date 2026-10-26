@@ -41,6 +41,7 @@
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/text.hpp"
@@ -2710,16 +2711,61 @@ void Runtime::check_engine_settings_window_sizes() {
                 return control;
             };
             const auto focus_access = [&](int32_t control, std::string_view what) {
-                const auto order =
-                    settings::page_settings(settings::Page::accessibility).size() +
-                    static_cast<std::size_t>(settings::ok_control - settings::restore_control + 1) +
-                    settings::page_count;
+                auto* open = engine_settings_dialog();
+                require(open != nullptr, std::string(what) + " was asked with no dialog" + on);
+                const oa::ui::kit::DisplayList list =
+                    settings::geometry::dialog_list(*open, nullptr);
+                // The stops Tab walks: one per row (a strip and a slider are
+                // one control), then the footer, the list and the close mark.
+                // One press past that count walks the whole order from any stop.
+                const std::size_t order = list.tab_order.size();
                 for (std::size_t presses = 0; presses <= order; ++presses) {
                     if (engine_settings_dialog()->focused == control)
                         return;
                     tap(SDLK_TAB);
                 }
                 require(false, "Tab never reached " + std::string(what) + on);
+            };
+            // Slow keys and Bounce keys run from 0 to 1,000 ms by 50. Stop 1 is 50 ms.
+            constexpr int32_t kTimingStops = 21;
+            constexpr int32_t kTimingStop = 1;
+            // Presses the slider's track at a stop. The pointer sets it, so a
+            // timing already on cannot swallow the press the way it swallows a tap.
+            const auto press_stop = [&](int32_t control, std::string_view what) {
+                const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                const settings::LayoutPart* track = find_part(parts_now, control, {});
+                require(track != nullptr, std::string(what) + " is not in view" + on);
+                const int32_t column =
+                    oa::ui::kit::knob_column(track->rect, kTimingStop, kTimingStops);
+                click_window(
+                    layer_window_pixel(placed(), {column, track->rect.y + track->rect.height / 2})
+                );
+            };
+            // One notch toward the player, over the dialog's middle. The wheel
+            // is not a key, so Slow keys cannot hold it back.
+            const auto wheel_down = [&] {
+                const auto place = placed();
+                const SDL_Event motion = window_pointer_event(
+                    sdl_.window,
+                    sdl_.renderer,
+                    SDL_EVENT_MOUSE_MOTION,
+                    layer_window_pixel(place, {place.points_width / 2, place.points_height / 2}),
+                    0
+                );
+                SDL_Event wheel{};
+                wheel.type = SDL_EVENT_MOUSE_WHEEL;
+                wheel.wheel.windowID = motion.motion.windowID;
+                wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+                wheel.wheel.y = -1.0F;
+                wheel.wheel.mouse_x = motion.motion.x;
+                wheel.wheel.mouse_y = motion.motion.y;
+                bool running = true;
+                dispatch_event(wheel, running);
+                require(running, "the wheel in the dialog ended the run" + on);
+            };
+            const auto row_in_view = [&](int32_t control) {
+                const auto parts_now = settings::dialog_layout(*engine_settings_dialog());
+                return find_part(parts_now, control, {}) != nullptr;
             };
             const auto require_now = [&](bool ok, std::string_view what) {
                 require(
@@ -2757,14 +2803,14 @@ void Runtime::check_engine_settings_window_sizes() {
             focus_access(long_press, "Long press");
             tap(SDLK_RIGHT);
             require_now(engine_settings_dialog()->chosen.long_press_ms == 550, "Long press 550 ms");
+            // Left at Off through the rest of the walk. An instant tap is
+            // shorter than Slow keys, and Bounce keys drops a second Tab
+            // inside its window, so neither timing is turned on until every
+            // row has been reached.
             const int32_t slow = named_control("settings.slow-keys");
             focus_access(slow, "Slow keys");
-            tap(SDLK_RIGHT);
-            require_now(engine_settings_dialog()->chosen.slow_keys_ms == 50, "Slow keys 50 ms");
             const int32_t bounce = named_control("settings.bounce-keys");
             focus_access(bounce, "Bounce keys");
-            tap(SDLK_RIGHT);
-            require_now(engine_settings_dialog()->chosen.bounce_keys_ms == 50, "Bounce keys 50 ms");
             const int32_t wheel = named_control("settings.order-wheel");
             focus_access(wheel, "Order wheel");
             click_updates(wheel, "Hold right", "Order wheel's Hold right");
@@ -2802,6 +2848,26 @@ void Runtime::check_engine_settings_window_sizes() {
             focus_access(edge, "Edge scrolling");
             click_updates(edge, "OFF", "Edge scrolling's Off");
             require_now(!engine_settings_dialog()->chosen.edge_scroll, "Edge scrolling Off");
+            // Tab has reached both while they are Off. Focusing Slow keys
+            // leaves Bounce keys under the view. The pointer sets each track:
+            // a key after Slow keys is on is held back, and the wheel, which
+            // is not a key, brings Bounce keys into view.
+            focus_access(slow, "Slow keys");
+            press_stop(slow, "Slow keys");
+            require_now(engine_settings_dialog()->chosen.slow_keys_ms == 50, "Slow keys 50 ms");
+            if (!row_in_view(bounce)) {
+                const auto scrolled = [this] {
+                    const auto* open = engine_settings_dialog();
+                    return open->scroll[static_cast<std::size_t>(open->page)];
+                };
+                const int32_t before = scrolled();
+                wheel_down();
+                require(scrolled() > before, "the wheel did not scroll to Bounce keys" + on);
+                for (int notch = 1; !row_in_view(bounce) && notch < 40; ++notch)
+                    wheel_down();
+            }
+            press_stop(bounce, "Bounce keys");
+            require_now(engine_settings_dialog()->chosen.bounce_keys_ms == 50, "Bounce keys 50 ms");
             std::cout << "engine settings check: Accessibility changed each row on the " << size
                       << " window\n";
 
@@ -2852,20 +2918,48 @@ void Runtime::check_engine_settings_window_sizes() {
                 oa_layer().find("key-editor") != nullptr,
                 "oa.settings.latching.choose did not open the key editor" + on
             );
-            bool latchable_on = false;
-            {
-                std::vector<AutomationControl> controls;
-                oa_layer().automation_controls(controls);
-                for (const AutomationControl& control : controls) {
+            const auto latchable_on = [&] {
+                std::vector<AutomationControl> listed;
+                oa_layer().automation_controls(listed);
+                for (const AutomationControl& control : listed) {
                     if (control.name == "oa.key-editor.filter.latchable" && control.visible &&
                         control.checked)
-                        latchable_on = true;
+                        return true;
                 }
+                return false;
+            };
+            // Regular and Large draw Latchable as a pill that is on. Compact
+            // keeps it in the category menu, past the rows that menu shows
+            // first, so End brings it into view. The menu still marks the
+            // category; the filter row reports that it is on. Escape closes
+            // that menu, and the Escape below leaves Settings.
+            bool filters_in_menu = false;
+            if (!latchable_on()) {
+                std::vector<AutomationControl> listed;
+                oa_layer().automation_controls(listed);
+                int32_t at_x = 0;
+                int32_t at_y = 0;
+                bool category_shown = false;
+                for (const AutomationControl& control : listed) {
+                    if (control.name == "oa.key-editor.category" && control.visible &&
+                        control.window_width > 0 && control.window_height > 0) {
+                        at_x = control.window_x + control.window_width / 2;
+                        at_y = control.window_y + control.window_height / 2;
+                        category_shown = true;
+                        break;
+                    }
+                }
+                require(category_shown, "the key editor shows no category menu" + on);
+                click_window({at_x, at_y});
+                tap(SDLK_END);
+                filters_in_menu = true;
             }
-            require(latchable_on, "the key editor did not open on its Latchable filter" + on);
+            require(latchable_on(), "the key editor did not open on its Latchable filter" + on);
             std::cout << "engine settings check: Accessibility CHOOSE\u2026 opened the key editor "
                          "on Latchable on the "
                       << size << " window\n";
+            if (filters_in_menu)
+                tap(SDLK_ESCAPE);
             tap(SDLK_ESCAPE);
             require(
                 oa_layer().find("key-editor") == nullptr && engine_settings_dialog() != nullptr,

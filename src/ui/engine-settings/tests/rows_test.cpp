@@ -681,6 +681,45 @@ void tab_follows_the_dialogs_focus_order() {
             2,  3,  4,  13, 5,  6,  8,  9,  12, 11, 10, 7, settings::close_x_control
         })
     );
+    // Accessibility: every row, Bounce keys included, then the footer and the
+    // list. A row below the fold stays in the order, and Tab scrolls it into view.
+    settings::Dialog accessibility = controls;
+    accessibility.page = settings::Page::accessibility;
+    OA_CHECK(
+        tab_order(accessibility) == (std::vector<int32_t>{
+                                        18,
+                                        19,
+                                        20,
+                                        21,
+                                        22,
+                                        23,
+                                        24,
+                                        25,
+                                        26,
+                                        27,
+                                        28,
+                                        29,
+                                        30,
+                                        14,
+                                        15,
+                                        16,
+                                        0,
+                                        1,
+                                        2,
+                                        3,
+                                        4,
+                                        13,
+                                        5,
+                                        6,
+                                        8,
+                                        9,
+                                        12,
+                                        11,
+                                        10,
+                                        7,
+                                        settings::close_x_control
+                                    })
+    );
     // Graphics: After zoom, locked while units are drawn whole, takes none.
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
