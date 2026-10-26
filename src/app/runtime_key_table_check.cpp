@@ -252,6 +252,10 @@ SDL_Scancode scancode_named(std::string_view name) {
         {"F2", SDL_SCANCODE_F2},
         {"F3", SDL_SCANCODE_F3},
         {"F4", SDL_SCANCODE_F4},
+        {"F5", SDL_SCANCODE_F5},
+        {"F6", SDL_SCANCODE_F6},
+        {"F7", SDL_SCANCODE_F7},
+        {"F8", SDL_SCANCODE_F8},
         {"F9", SDL_SCANCODE_F9},
         {"F10", SDL_SCANCODE_F10},
         {"F11", SDL_SCANCODE_F11},
@@ -1733,9 +1737,30 @@ void Runtime::check_key_table() {
             settle();
         }
 
+        /// Stores the view, then moves it, before a bookmark return is measured.
+        ///
+        /// The row's key recalls the stored view. The shot taken after this
+        /// move is the view the recall leaves, so the probe is that return.
+        ///
+        /// @param row the row about to play
+        void prepare_bookmark_return(const TableRow& row) {
+            constexpr std::string_view go = "camera.bookmark-go-";
+            if (!row.id.starts_with(go) || row.id.size() != go.size() + 1)
+                return;
+            const char digit = row.id.back();
+            if (digit < '1' || digit > '4')
+                return;
+            const auto function = static_cast<int>(digit - '1');
+            tap(static_cast<SDL_Scancode>(static_cast<int>(SDL_SCANCODE_F5) + function),
+                SDL_KMOD_LCTRL,
+                false);
+            self.set_camera_position(self.match_camera_x_ + 200, self.match_camera_z_, 0);
+        }
+
         std::string play_row(const TableRow& row) {
             reset();
             apply(row);
+            prepare_bookmark_return(row);
             site_word.clear();
             const Shot before = shoot();
             play_gesture(row);

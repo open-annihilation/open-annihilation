@@ -4,8 +4,10 @@
 // Match left-click handling, selection, tracking and squads.
 #include "oa/app/runtime.hpp"
 #include "touch_state.hpp"
+#include "oa/data/defs/categories.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/selection.hpp"
+#include "oa/sim/simulation_state.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <bit>
@@ -572,6 +574,82 @@ void Runtime::select_units_matching(
     selected_match_unit_ = first;
     apply_match_hud_for_selection();
     status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
+}
+
+namespace {
+
+/// Whether a category mask holds any unit type.
+///
+/// @param mask the mask, or null
+/// @return true when some type bit is set
+bool mask_holds_a_type(const oa::data::defs::CategoryMask* mask) {
+    if (mask == nullptr || mask->words == nullptr)
+        return false;
+    for (uint32_t index = 0; index < mask->word_count; ++index) {
+        if (mask->words[index] != 0)
+            return true;
+    }
+    return false;
+}
+
+/// Whether a selectable unit of the local player carries a type the mask names.
+///
+/// @param world units and players
+/// @param mask types the tag names; not null
+/// @return true when selecting the tag would select a unit
+bool local_unit_has_tag(oa::World& world, const oa::data::defs::CategoryMask& mask) {
+    const oa::Player* player = oa::world_player(&world, world.game.local_player_index);
+    if (player == nullptr)
+        return false;
+    uint32_t count = 0;
+    oa::Unit* first = oa::world_player_units(&world, player, &count);
+    if (first == nullptr)
+        return false;
+    for (uint32_t index = 0; index < count; ++index) {
+        oa::Unit& unit = first[index];
+        if (!oa::sim::simulation_state::unit_selectable(world, unit))
+            continue;
+        if (oa::data::defs::category_mask_contains(&mask, unit.type_index))
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
+bool Runtime::select_by_tag(std::string_view word, bool add) {
+    if (!match_ || word.empty())
+        return false;
+    auto& world = match_->state();
+    world.game.local_player_index = match_local_player_;
+    const std::string name{word};
+    const oa::data::defs::CategoryMask* mask =
+        oa::data::defs::category_registry_find(&unit_table_.tables.categories, name.c_str());
+    // A letter whose tag names nothing, or names no unit the player has, does
+    // nothing: the selection and the page stay as they are.
+    if (!mask_holds_a_type(mask) || !local_unit_has_tag(world, *mask))
+        return false;
+    oa::sim::selection::apply_type_mask_selection(world, *mask, add, selection_hooks());
+    adopt_selected_units();
+    int count = 0;
+    for (const auto& slot : match_->world().slots) {
+        if (slot.unit == nullptr || slot.owner_index != match_local_player_ ||
+            (slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
+            continue;
+        ++count;
+    }
+    status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
+    return true;
+}
+
+void Runtime::select_builders_by_movement(bool mobile) {
+    select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
+        const auto* definition = definition_for(slot.unit_index);
+        if (definition == nullptr || !definition->builder)
+            return false;
+        const bool moves = definition->bm_code != 0;
+        return mobile ? moves : !moves;
+    });
 }
 
 } // namespace oa::app

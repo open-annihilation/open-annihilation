@@ -514,6 +514,18 @@ shell_a(const std::wstring& verb, const std::wstring& file, const std::wstring& 
 
 ShellWait
 shell_w(const std::wstring& verb, const std::wstring& file, const std::wstring& parameters) {
+    // Windows 95's shell32 has no ShellExecuteExW, and importing it would stop
+    // the helper loading there, so it is looked up here and the ANSI call
+    // stands in where it is missing.
+    using ShellExecuteWide = BOOL(WINAPI*)(SHELLEXECUTEINFOW*);
+    const HMODULE shell = GetModuleHandleA("shell32.dll");
+    const auto execute = shell != nullptr
+                             ? reinterpret_cast<ShellExecuteWide>(
+                                   reinterpret_cast<void*>(GetProcAddress(shell, "ShellExecuteExW"))
+                               )
+                             : nullptr;
+    if (execute == nullptr)
+        return shell_a(verb, file, parameters);
     SHELLEXECUTEINFOW info{};
     info.cbSize = static_cast<DWORD>(sizeof(info));
     info.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -521,7 +533,7 @@ shell_w(const std::wstring& verb, const std::wstring& file, const std::wstring& 
     info.lpFile = file.c_str();
     info.lpParameters = parameters.empty() ? nullptr : parameters.c_str();
     info.nShow = SW_SHOWNORMAL;
-    if (ShellExecuteExW(&info) == FALSE) {
+    if (execute(&info) == FALSE) {
         const DWORD code = GetLastError();
         if (not_implemented(code))
             return shell_a(verb, file, parameters);
