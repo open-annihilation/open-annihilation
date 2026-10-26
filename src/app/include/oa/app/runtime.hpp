@@ -15947,27 +15947,12 @@ class Runtime final : public menu::Host,
         const std::function<void(const char*)>& enter_line, bool start_strike
     );
 
-    /// Sends a match key to the console's hotkeys.
-    ///
-    /// F4 pins the kills board and '`', or the key below Escape on any layout,
-    /// turns the damage bars on and off. Pause flips the pause bit of
-    /// Game.sim_run_flags and reports it through Extension::pause_changed. In
-    /// a multiplayer game Tab opens and closes the team menu and 'h' opens
-    /// SHARE.GUI. Backslash repeats the last console line under the same rule
-    /// as typing it (where the key below Escape types it, that key turns the
-    /// damage bars on and off instead). F11 toggles the debug keys once the
-    /// passphrase is accepted; while the debug keys are on, '=', ']', 'i' and
-    /// 'm' go to the
-    /// debug dispatcher instead of their normal use. Ctrl+F10 starts a film
-    /// capture.
-    ///
-    /// @param key keyboard event
-    /// @return false when the key is not a console hotkey or there is no match
-    bool handle_console_hotkey(const SDL_KeyboardEvent& key);
-
     /// Runs one console hotkey code: the host and the dispatch.
     ///
-    /// No match console does nothing. [runtime_console.cpp]
+    /// No match console does nothing. While a mod's key remaps are on, the
+    /// repeat code is handed over as Insert, which the console runs as the
+    /// last line. F11 sets the status to "Debug keys on" or "Debug keys off".
+    /// [runtime_console.cpp]
     ///
     /// @param code the console hotkey code
     void run_console_hotkey(uint32_t code);
@@ -20183,6 +20168,9 @@ class Runtime final : public menu::Host,
     /// apply to the key that armed it and a chord still sees them after consume.
     bool sticky_event_{};
     uint8_t sticky_event_mods_{};
+    /// Set while the key now being handled was already given to the action
+    /// dispatcher. A match hotkey reached any other way feeds its own press.
+    bool match_key_already_fed_{};
 
     /// A latch or sticky modifier chip, and when it was turned on.
     struct KeyLatchSeen {

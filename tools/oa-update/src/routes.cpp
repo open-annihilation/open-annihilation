@@ -4,6 +4,7 @@
 #include "oa/update_helper/routes.hpp"
 
 #include "oa/update_helper/paths.hpp"
+#include "oa/update_helper/route_windows.hpp"
 
 #include <algorithm>
 #include <utility>
@@ -95,6 +96,10 @@ std::vector<Operation>
 plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
     if (why != nullptr)
         why->clear();
+    if (plan.route == oa::app::update::Route::windows_installer)
+        return windows_installer_operations(plan, staged, why);
+    if (plan.route == oa::app::update::Route::windows_folder)
+        return windows_folder_operations(plan, staged, why);
     if (plan.route == oa::app::update::Route::linux_versions)
         return linux_operations(plan, staged, why);
     if (plan.route == oa::app::update::Route::check_folder)

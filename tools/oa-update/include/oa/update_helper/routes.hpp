@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Turning a plan into journal operations. This build carries out the plain
-// folder route and the Linux versions folder. The other routes produce none.
+// folder route, the two Windows routes and the Linux versions folder. The
+// other routes produce none.
 #pragma once
 
 #include "oa/app/update/plan.hpp"
@@ -19,9 +20,10 @@ namespace oa::update_helper {
 ///
 /// `check-folder` moves the install's top-level entries into
 /// `<updates>/previous/`, then the staged top folder's entries into the
-/// install. `linux-versions` converts a flat folder into `versions/` on the
-/// first update, then stages the new version beside a `next` link. The
-/// caller adds the preferences copy and the state file.
+/// install. The Windows routes build their own lists. `linux-versions`
+/// converts a flat folder into `versions/` on the first update, then stages
+/// the new version beside a `next` link. The caller adds the preferences
+/// copy and the state file for the plain folder and the Linux route.
 ///
 /// @param plan the plan
 /// @param staged the staging folder, holding one top folder

@@ -3400,6 +3400,36 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
             return true;
         }
     }
+    // A caption set while the panel is open gives its button a letter the
+    // file never stored, so no binding owns it. While a line is being typed
+    // the dispatcher searches only that line's keys, so a button's own letter
+    // is not among them either. That letter still presses the button. A
+    // binding that already owns the button keeps its key once typing ends.
+    const auto typed = std::tolower(static_cast<int>(key.key));
+    const bool typing = input_contexts().text_entry;
+    for (std::size_t index = 1; index < gadgets.size(); ++index) {
+        const auto& gadget = gadgets[index];
+        const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+        if (gadget.common.active == 0 || button == nullptr || button->grayed_out ||
+            button->quick_key == 0 ||
+            std::tolower(static_cast<unsigned char>(button->quick_key)) != typed)
+            continue;
+        if (!typing) {
+            const std::string action_id = gui_action_id(shown, gadget.common.name);
+            bool owned = false;
+            for (const GuiQuickKey& quick : gui_quick_keys_) {
+                if (quick.action == action_id) {
+                    owned = true;
+                    break;
+                }
+            }
+            if (owned)
+                continue;
+        }
+        answered_key_ = typed;
+        activate_match_hud(index);
+        return true;
+    }
     return false;
 }
 

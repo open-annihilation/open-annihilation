@@ -899,6 +899,11 @@ if(BUILD_TESTING)
   target_link_libraries(oa-game-directory-test PRIVATE oa-app-game-directory oa-app-headers oa-formats-hpi
     oa-platform-preferences oa-platform-shims oa-test-game-data oa-options)
   add_test(NAME game-directory COMMAND oa-game-directory-test)
+  # Each console action's key code, and an id the console does not run.
+  add_executable(oa-app-console-actions-test src/app/console_actions_test.cpp
+    src/app/console_actions.cpp)
+  target_link_libraries(oa-app-console-actions-test PRIVATE oa-ui-console oa-test-support oa-options)
+  add_test(NAME app-console-actions COMMAND oa-app-console-actions-test)
   # The composed mount of the chosen bundles, in the game's own order, matches
   # a scan of one folder that holds the same files. Battle Tactics off keeps
   # totala4.hpi inside the first ten plain archives. Music and movies are
@@ -1233,7 +1238,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_live_unit_overlays.cpp
   src/app/runtime_effects.cpp
   src/app/runtime_effect_composition.cpp
-  src/app/runtime_console.cpp src/app/runtime_console_options.cpp src/app/runtime_console_debug.cpp
+  src/app/runtime_console.cpp src/app/console_actions.cpp src/app/runtime_console_options.cpp
+  src/app/runtime_console_debug.cpp
   src/app/runtime_console_sound.cpp src/app/runtime_console_display.cpp
   src/app/runtime_console_units.cpp
   src/app/runtime_console_cheats.cpp src/app/runtime_poster.cpp

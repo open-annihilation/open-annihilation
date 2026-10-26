@@ -1737,7 +1737,17 @@ void Runtime::advance_input_actions(bool& running) {
             continue;
         SDL_Event replay = slot.event;
         slot = {};
-        dispatch_after_actions(replay, running);
+        // The dispatcher admitted this down just now and its actions are the
+        // frame's events. The hotkey handler must not feed it again: a second
+        // down would be held back once more.
+        match_key_already_fed_ = true;
+        try {
+            dispatch_after_actions(replay, running);
+        } catch (...) {
+            match_key_already_fed_ = false;
+            throw;
+        }
+        match_key_already_fed_ = false;
     }
 }
 
