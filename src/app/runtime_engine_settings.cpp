@@ -1847,12 +1847,22 @@ layout_in_use(const library::Listing& listing, std::string_view per_mod, std::st
     return {};
 }
 
+/// Tells whether an id is the base game, not a mod.
+///
+/// Overrides are kept under `ta-3.1c`. The profile the base game resolves
+/// to carries `base-game`. Neither is a mod the Key layout row names.
+///
+/// @param id a profile id
+/// @return true when the id is empty or names the base game
+bool base_game_profile(std::string_view id) {
+    return id.empty() || id == oa::data::mod_profile::base_game_id || id == "base-game";
+}
+
 } // namespace
 
 void Runtime::fill_settings_key_layout(settings::Dialog& dialog) {
     const auto* profile = mod_profile();
-    if (profile != nullptr && !profile->id.empty() &&
-        profile->id != oa::data::mod_profile::base_game_id) {
+    if (profile != nullptr && !base_game_profile(profile->id)) {
         dialog.played_mod = profile->name.empty() ? profile->id : profile->name;
         dialog.played_mod_id = profile->id;
     } else {
@@ -1911,7 +1921,7 @@ void Runtime::refresh_settings_key_layout_summary(settings::Dialog& dialog) {
 }
 
 void Runtime::apply_key_layout_preference(settings::Dialog& dialog) {
-    if (dialog.played_mod_id.empty() || dialog.played_mod_id == oa::data::mod_profile::base_game_id)
+    if (base_game_profile(dialog.played_mod_id))
         return;
     const std::string key = std::string(settings::key::keys_layout) + "." + dialog.played_mod_id;
     std::string chosen = dialog.chosen.key_layout_for_mod;
