@@ -256,6 +256,9 @@ bool guard_skipped(int argc, char** argv, const Options& options) {
     return false;
 }
 
+// The early guard runs where a helper can take a start back: Windows and macOS.
+#if defined(_WIN32) || (defined(__APPLE__) && !TARGET_OS_IPHONE)
+
 /// The file this process was started from. Empty when the system will not name it.
 fs::path guard_executable() {
 #if defined(_WIN32)
@@ -287,8 +290,6 @@ fs::path guard_executable() {
     if (_NSGetExecutablePath(buffer.data(), &size) != 0)
         return {};
     return fs::path(buffer.data());
-#else
-    return {};
 #endif
 }
 
@@ -400,13 +401,10 @@ bool guard_spawn(const fs::path& helper, const fs::path& plan_file, std::string&
         return false;
     }
     return true;
-#else
-    (void)helper;
-    (void)plan_file;
-    why = "this system has no early guard";
-    return false;
 #endif
 }
+
+#endif
 
 } // namespace
 
