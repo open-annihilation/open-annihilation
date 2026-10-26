@@ -430,6 +430,9 @@ if(BUILD_TESTING)
   add_executable(oa-app-view-rules-test src/app/view_rules_test.cpp)
   target_link_libraries(oa-app-view-rules-test PRIVATE oa-app-view-rules oa-test-support oa-options)
   add_test(NAME app-view-rules COMMAND oa-app-view-rules-test)
+  add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
+  target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
+  add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
 endif()
 # The game's three icons (branding/, made by tools/make_icons.py), each
 # embedded as a PNG file. The 256-pixel pictures: the app icon is the
