@@ -578,6 +578,67 @@ void Runtime::check_console_debug_commands(const std::function<void(const char*)
         throw std::runtime_error(
             "console check: DebugBreak did not reach the crash tests as the game does"
         );
+
+    // The passphrase is still accepted. F11 turns the debug keys on, and M
+    // steps the overlay without arming Move. With the key remaps resolved
+    // again, F10 turns the debug keys off and backslash repeats no line.
+    if ((console::console_flags(game) & console::console_flag::developer) == 0)
+        throw std::runtime_error("console check: the passphrase was not accepted");
+    const auto overlay_before = game.debug_overlay;
+    const auto outcome_before = game.outcome_flags;
+    const auto command_before = match_command_;
+    const bool remaps_before = console_->state.key_remaps;
+    const auto profile_before = game.profiling;
+    const std::string saved_line(console_->state.last_command);
+    bool running = true;
+    // This check calls handle_sdl_event directly, so the hotkey handler feeds
+    // the press. down is the key's own state, as a real press has it set.
+    const auto press_key = [&](SDL_Keycode key_code, SDL_Scancode key_scan) {
+        SDL_Event event{};
+        event.type = SDL_EVENT_KEY_DOWN;
+        event.key.key = key_code;
+        event.key.scancode = key_scan;
+        event.key.down = true;
+        handle_sdl_event(event, running);
+    };
+    press_key(SDLK_F11, SDL_SCANCODE_F11);
+    if ((game.outcome_flags & console::outcome_flag::debug_keys) == 0 || status_ != "Debug keys on")
+        throw std::runtime_error("console check: F11 did not turn the debug keys on");
+    press_key(SDLK_M, SDL_SCANCODE_M);
+    const int overlay_expected = overlay_before == 4 ? 0 : static_cast<int>(overlay_before) + 1;
+    if (static_cast<int>(game.debug_overlay) != overlay_expected ||
+        match_command_ != command_before)
+        throw std::runtime_error("console check: M did not step the overlay without arming Move");
+    game.profiling = 0;
+    std::snprintf(console_->state.last_command, sizeof console_->state.last_command, "profile");
+    press_key(SDLK_INSERT, SDL_SCANCODE_INSERT);
+    if (game.profiling != 0)
+        throw std::runtime_error("console check: Insert repeated a line without the key remaps");
+    press_key(SDLK_BACKSLASH, SDL_SCANCODE_BACKSLASH);
+    if (game.profiling != 1)
+        throw std::runtime_error("console check: backslash did not repeat the last line");
+    game.profiling = 0;
+    console_->state.key_remaps = true;
+    ensure_key_bindings(false);
+    press_key(SDLK_F10, SDL_SCANCODE_F10);
+    if ((game.outcome_flags & console::outcome_flag::debug_keys) != 0 ||
+        status_ != "Debug keys off")
+        throw std::runtime_error("console check: F10 did not turn the debug keys off");
+    press_key(SDLK_BACKSLASH, SDL_SCANCODE_BACKSLASH);
+    if (game.profiling != 0)
+        throw std::runtime_error("console check: backslash repeated a line with the key remaps");
+    press_key(SDLK_INSERT, SDL_SCANCODE_INSERT);
+    if (game.profiling != 1)
+        throw std::runtime_error("console check: Insert did not repeat the last line");
+    game.profiling = profile_before;
+    game.debug_overlay = overlay_before;
+    game.outcome_flags = outcome_before;
+    console_->state.key_remaps = remaps_before;
+    std::snprintf(
+        console_->state.last_command, sizeof console_->state.last_command, "%s", saved_line.c_str()
+    );
+    ensure_key_bindings(false);
+    oa::sim::messages::clear_messages(game);
 }
 
 } // namespace oa::app

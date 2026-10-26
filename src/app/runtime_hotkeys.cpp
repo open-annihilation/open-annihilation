@@ -3,6 +3,7 @@
 
 // Match hotkeys, selection commands and overlays.
 #include "oa/app/runtime.hpp"
+#include "console_actions.hpp"
 #include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
 #include "oa/data/input_actions/actions.hpp"
@@ -90,6 +91,20 @@ const keys::ActionEvent* find_pressed(
             if (fed.action == id)
                 return &fed;
         }
+    }
+    return nullptr;
+}
+
+/// The pressed console action in this event, when one has a key code.
+///
+/// @param events the current event's action events
+/// @return that event, or null
+const keys::ActionEvent* find_console_press(std::span<const keys::ActionEvent> events) {
+    for (const keys::ActionEvent& fed : events) {
+        if (fed.phase != keys::Phase::pressed)
+            continue;
+        if (console_code(fed.action))
+            return &fed;
     }
     return nullptr;
 }
@@ -386,10 +401,11 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         status_ = "Center";
         return true;
     }
-    // A multiplayer game's 'h' reached the console's hotkeys above; outside one
-    // it does nothing.
-    if (id == "game.share-panel")
+    // H opens SHARE in a shared game and is taken in every game.
+    if (id == "game.share-panel") {
+        run_console_hotkey(static_cast<uint32_t>('h'));
         return true;
+    }
     // 'n' centres the view on the next local unit not yet visited and marks
     // the local units then on screen visited; it selects nothing.
     if (id == "camera.next-unit") {
@@ -433,13 +449,13 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
 bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     if (screen_ != Screen::match || !match_)
         return false;
-    // The event may arrive here without passing through dispatch_event, which
-    // is where a key is fed. A check also leaves the down flag clear and names
-    // the press by the event type, so that press is fed here. A down that
-    // dispatch_event already fed stays as it is: feeding it again is a second
-    // down with no up, which lets a latch go and drops a sticky modifier
-    // before this handler reads the action.
-    if (!key.down) {
+    // dispatch_event feeds a key before the screen sees it. A check, and any
+    // other caller, hands the key here directly. The down flag is the key's
+    // own state, including a held key's repeat, so it does not say whether
+    // the dispatcher has seen this press. Feeding a press that was already
+    // given is a second down with no up, which lets a latch go and drops a
+    // sticky modifier before this handler reads the action.
+    if (!match_key_already_fed_) {
         SDL_Event fed_event{};
         fed_event.key = key;
         fed_event.type = SDL_EVENT_KEY_DOWN;
@@ -517,8 +533,18 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     // match opens, take the keys they answer while they hold the keyboard.
     if (press_match_panel_key(key))
         return true;
-    if (handle_console_hotkey(key))
-        return true;
+    // The console's actions come before Escape and the play keys, so a shared
+    // game's Tab opens the allies menu and, with the debug keys on, '=', ']',
+    // I and M do not change the speed, press a quick key or arm Move.
+    if (const keys::ActionEvent* console_press = find_console_press(events)) {
+        if (match_console() != nullptr) {
+            const std::optional<uint32_t> hotkey = console_code(console_press->action);
+            if (hotkey) {
+                run_console_hotkey(*hotkey);
+                return true;
+            }
+        }
+    }
     if (const keys::ActionEvent* back = find_pressed(events, {"game.back"}))
         return handle_match_action(*back);
     if (match_paused_)
