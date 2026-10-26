@@ -7,6 +7,7 @@
 #include "oa/data/defs/categories.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/selection.hpp"
+#include "oa/sim/simulation_state.hpp"
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <bit>
@@ -591,6 +592,29 @@ bool mask_holds_a_type(const oa::data::defs::CategoryMask* mask) {
     return false;
 }
 
+/// Whether a selectable unit of the local player carries a type the mask names.
+///
+/// @param world units and players
+/// @param mask types the tag names; not null
+/// @return true when selecting the tag would select a unit
+bool local_unit_has_tag(oa::World& world, const oa::data::defs::CategoryMask& mask) {
+    const oa::Player* player = oa::world_player(&world, world.game.local_player_index);
+    if (player == nullptr)
+        return false;
+    uint32_t count = 0;
+    oa::Unit* first = oa::world_player_units(&world, player, &count);
+    if (first == nullptr)
+        return false;
+    for (uint32_t index = 0; index < count; ++index) {
+        oa::Unit& unit = first[index];
+        if (!oa::sim::simulation_state::unit_selectable(world, unit))
+            continue;
+        if (oa::data::defs::category_mask_contains(&mask, unit.type_index))
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 bool Runtime::select_by_tag(std::string_view word, bool add) {
@@ -601,15 +625,10 @@ bool Runtime::select_by_tag(std::string_view word, bool add) {
     const std::string name{word};
     const oa::data::defs::CategoryMask* mask =
         oa::data::defs::category_registry_find(&unit_table_.tables.categories, name.c_str());
-    if (!mask_holds_a_type(mask)) {
-        if (!add) {
-            clear_local_selection();
-            selected_match_unit_ = 0;
-            apply_match_hud_for_selection();
-        }
-        status_ = "No units";
+    // A letter whose tag names nothing, or names no unit the player has, does
+    // nothing: the selection and the page stay as they are.
+    if (!mask_holds_a_type(mask) || !local_unit_has_tag(world, *mask))
         return false;
-    }
     oa::sim::selection::apply_type_mask_selection(world, *mask, add, selection_hooks());
     adopt_selected_units();
     int count = 0;

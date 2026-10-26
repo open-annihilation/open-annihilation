@@ -13547,16 +13547,15 @@ class Runtime final : public menu::Host,
     /// Selects the local player's units of one category tag, anywhere on the map.
     ///
     /// One press. Shift adds those units to the selection; without Shift the
-    /// selection becomes just those units. A tag no loaded unit uses selects
-    /// nothing and says "No units", and with Shift the units already selected
-    /// stay. This is the one route every Ctrl+letter tag selection takes.
+    /// selection becomes just those units. A tag no loaded unit uses, or that
+    /// none of the player's units have, leaves the selection and the page as
+    /// they are. This is the one route every Ctrl+letter tag selection takes.
     /// [runtime_selection.cpp]
     ///
     /// @param word the category name, such as CTRL_B
     /// @param add true to keep the units already selected
-    /// @return false when there is no match, or the tag names nothing; true when
-    ///     the selection was set from the tag, including when none of its units
-    ///     are on the map
+    /// @return false when the selection is left as it is; true when units of
+    ///     the tag were selected
     bool select_by_tag(std::string_view word, bool add);
 
     /// Selects every local builder that can move, or every one that stays put.
