@@ -168,4 +168,23 @@ float SurfaceCache::fetch(float x, float z) const noexcept {
         std::size_t(z / (16.0F * stride_)) * width_ + std::size_t(x / (16.0F * stride_));
     return index < fetch_.size() ? fetch_[index] : 0;
 }
+
+float SurfaceCache::smooth_fetch(float x, float z) const noexcept {
+    if (!std::isfinite(x) || !std::isfinite(z) || x < 0 || z < 0 || x >= world_width_ ||
+        z >= world_height_ || width_ == 0 || height_ == 0 ||
+        fetch_.size() < std::size_t(width_) * height_)
+        return 0;
+    const float edge = 16.0F * float(stride_);
+    const float across = x / edge - 0.5F, down = z / edge - 0.5F;
+    const int column = int(std::floor(across)), row = int(std::floor(down));
+    const float tx = across - float(column), tz = down - float(row);
+    const auto at = [&](int c, int r) {
+        c = std::clamp(c, 0, int(width_) - 1);
+        r = std::clamp(r, 0, int(height_) - 1);
+        return fetch_[std::size_t(r) * width_ + std::size_t(c)];
+    };
+    const float upper = at(column, row) + (at(column + 1, row) - at(column, row)) * tx;
+    const float lower = at(column, row + 1) + (at(column + 1, row + 1) - at(column, row + 1)) * tx;
+    return upper + (lower - upper) * tz;
+}
 } // namespace oa::app::renderer_water

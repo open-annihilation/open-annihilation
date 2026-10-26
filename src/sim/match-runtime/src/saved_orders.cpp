@@ -219,12 +219,7 @@ void Match::visit_saved_orders(
     const auto& unit = units_[index];
     for (auto* head : {unit.primary, unit.secondary}) {
         for_each_primary_uncycled(head, [&](sim::simulation_state::Order* order) {
-            const RuntimeOrder* record = nullptr;
-            for (const auto& candidate : orders_)
-                if (&candidate->order == order) {
-                    record = candidate.get();
-                    break;
-                }
+            const auto* record = runtime_order(order);
             if (record == nullptr)
                 return;
             const auto kind = order->kind;
@@ -391,7 +386,7 @@ sim::simulation_state::Order& Match::restore_saved_order(
     order.next = nullptr;
     *tail = &order;
     tail = &order.next;
-    orders_.push_back(std::move(entry));
+    adopt_order(std::move(entry));
     return order;
 }
 

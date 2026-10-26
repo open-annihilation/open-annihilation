@@ -131,6 +131,31 @@ struct TextClip {
     int32_t bottom{};
 };
 
+/// Draws FNT-font glyphs on an RGB screen as formats::fnt::raster_text
+/// places them, each covered pixel inside the clip in the palette's colour
+/// of its glyph pixel's index. Only the pixels the glyphs can cover are
+/// visited.
+///
+/// @param[in,out] surface the screen
+/// @param font the FNT font
+/// @param text the glyphs, one byte each
+/// @param x the pen column
+/// @param y the pen row raster_text takes
+/// @param palette the screen's palette
+/// @param clip the pixels that may change
+/// @param light_row the light-table row each index is lit through, or nullptr
+///        to draw the indices as they are
+void draw_fnt_glyphs(
+    Surface& surface,
+    const formats::fnt::Font& font,
+    std::string_view text,
+    int32_t x,
+    int32_t y,
+    const PaletteBytes& palette,
+    const TextClip& clip,
+    const uint8_t* light_row = nullptr
+);
+
 /// Draws a line of FNT-font game text on an RGB screen, the modern fonts
 /// drawing what the settings give them.
 ///

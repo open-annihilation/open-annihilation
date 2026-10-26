@@ -15,6 +15,8 @@
 #include <limits>
 #include <memory>
 #include <new>
+#include <string>
+#include <string_view>
 #include <unordered_set>
 
 namespace oa {
@@ -53,15 +55,6 @@ char ascii_upper(char value) noexcept {
     return value >= 'a' && value <= 'z' ? static_cast<char>(value - ('a' - 'A')) : value;
 }
 
-bool equal_nocase(std::string_view a, std::string_view b) noexcept {
-    if (a.size() != b.size())
-        return false;
-    for (std::size_t i = 0; i < a.size(); ++i)
-        if (ascii_upper(a[i]) != ascii_upper(b[i]))
-            return false;
-    return true;
-}
-
 // Archive data transform `out = position ^ ~in ^ key`; a zero key is a no-op.
 void decrypt_at(std::span<uint8_t> bytes, uint8_t key, uint64_t position) noexcept {
     if (key == 0)
@@ -74,6 +67,69 @@ void decrypt_at(std::span<uint8_t> bytes, uint8_t key, uint64_t position) noexce
             static_cast<uint8_t>(position + i) ^ static_cast<uint8_t>(~data[i]) ^ key
         );
 }
+
+/// Folds one character of an archive path: ASCII letters in upper case and
+/// '\\' as '/'.
+///
+/// @param value the character
+/// @return the folded character
+char path_fold(char value) noexcept {
+    return value == '\\' ? '/' : ascii_upper(value);
+}
+
+// The 64-bit FNV-1a hash's starting value and multiplier.
+constexpr uint64_t kFnvOffsetBasis = 0xcbf29ce484222325ULL;
+constexpr uint64_t kFnvPrime = 0x100000001b3ULL;
+
+/// Continues a 64-bit FNV-1a hash over text folded as path_fold() folds it.
+///
+/// @param hash the hash so far; kFnvOffsetBasis to start one
+/// @param text the characters hashed next
+/// @return the hash with them
+uint64_t folded_hash(uint64_t hash, std::string_view text) noexcept {
+    for (const char value : text) {
+        hash ^= static_cast<unsigned char>(path_fold(value));
+        hash *= kFnvPrime;
+    }
+    return hash;
+}
+
+/// Orders archive paths by their characters as path_fold() folds them, a
+/// shorter path before a longer one it begins.
+///
+/// @param left one path
+/// @param right the other
+/// @return negative when left comes first, zero when they fold alike,
+///         positive when right comes first
+int folded_compare(std::string_view left, std::string_view right) noexcept {
+    const std::size_t common = std::min(left.size(), right.size());
+    for (std::size_t i = 0; i < common; ++i) {
+        const auto a = static_cast<unsigned char>(path_fold(left[i]));
+        const auto b = static_cast<unsigned char>(path_fold(right[i]));
+        if (a != b)
+            return a < b ? -1 : 1;
+    }
+    if (left.size() == right.size())
+        return 0;
+    return left.size() < right.size() ? -1 : 1;
+}
+
+/// Compares archive paths as path_fold() folds them.
+struct FoldedPathEqual {
+    /// Tells whether two paths fold alike.
+    ///
+    /// @param left one path
+    /// @param right the other
+    /// @return true when every folded character matches
+    bool operator()(std::string_view left, std::string_view right) const noexcept {
+        if (left.size() != right.size())
+            return false;
+        for (std::size_t i = 0; i < left.size(); ++i)
+            if (path_fold(left[i]) != path_fold(right[i]))
+                return false;
+        return true;
+    }
+};
 
 /// Returns whether a step of opening an archive failed.
 ///
@@ -258,6 +314,17 @@ struct HpiArchive::Impl {
     uint64_t archive_size{};
     uint8_t key{};
     std::vector<ArchiveNode> nodes;
+
+    // One record a lookup reaches, by the hash of its '/'-joined path.
+    struct IndexedPath {
+        uint64_t hash{}; ///< folded_hash of the path from kFnvOffsetBasis
+        uint32_t node{};
+    };
+
+    // Every record a lookup reaches, in order of hash.
+    std::vector<IndexedPath> paths;
+    // The directory that holds each node; 0 for the root's records and the root.
+    std::vector<uint32_t> parents;
     // The lock is held only while a read copies stored bytes from the
     // source; decrypting and decompressing run outside it, so reads on
     // several threads decode at the same time.
@@ -315,7 +382,83 @@ struct HpiArchive::Impl {
             };
         nodes.push_back(ArchiveNode{"", formats::hpi::EntryFlagDirectory});
         std::unordered_set<uint32_t> visited;
-        return parse_directory(block, root, 0, visited, 0);
+        if (const auto parsed = parse_directory(block, root, 0, visited, 0); failed(parsed))
+            return parsed;
+        parents.assign(nodes.size(), 0);
+        index_paths(0, kFnvOffsetBasis);
+        std::sort(paths.begin(), paths.end(), [](const IndexedPath& a, const IndexedPath& b) {
+            return a.hash < b.hash || (a.hash == b.hash && a.node < b.node);
+        });
+        paths.shrink_to_fit();
+        return {};
+    }
+
+    /// Records the path of every record a lookup reaches below a directory.
+    ///
+    /// Of the records of one directory whose names match ignoring ASCII
+    /// case, a lookup takes the last, so only that one is recorded and only
+    /// its subtree is walked. A name that holds '\\' or '/' never matches
+    /// one part of a path and is not recorded.
+    ///
+    /// @param directory node index of the directory
+    /// @param hash folded_hash of the directory's path; unused for the root
+    void index_paths(uint32_t directory, uint64_t hash) {
+        const ArchiveNode& parent = nodes[directory];
+        // The records of each name sit together, ignoring ASCII case, the
+        // last of them at the end. Sorting keeps the cost of a directory
+        // the same whatever its names hash to.
+        std::vector<uint32_t> named;
+        named.reserve(parent.child_count);
+        for (uint32_t i = 0; i < parent.child_count; ++i) {
+            const uint32_t index = parent.first_child + i;
+            parents[index] = directory;
+            if (nodes[index].name.find_first_of("\\/") == std::string::npos)
+                named.push_back(index);
+        }
+        std::sort(named.begin(), named.end(), [this](uint32_t a, uint32_t b) {
+            const int order = folded_compare(nodes[a].name, nodes[b].name);
+            return order < 0 || (order == 0 && a < b);
+        });
+        // The last record of each name, in the directory's order.
+        std::vector<uint32_t> last;
+        for (std::size_t at = 0; at < named.size(); ++at)
+            if (at + 1 == named.size() ||
+                !FoldedPathEqual{}(nodes[named[at]].name, nodes[named[at + 1]].name))
+                last.push_back(named[at]);
+        std::sort(last.begin(), last.end());
+        const uint64_t prefix = directory == 0 ? kFnvOffsetBasis : folded_hash(hash, "/");
+        for (const uint32_t index : last) {
+            const ArchiveNode& node = nodes[index];
+            const uint64_t path_hash = folded_hash(prefix, node.name);
+            paths.push_back({path_hash, index});
+            if (node.directory())
+                index_paths(index, path_hash);
+        }
+    }
+
+    /// Tells whether a node is the record a path names: its name and those
+    /// of the directories above it, matched ignoring ASCII case, joined by
+    /// '\\' or '/'.
+    ///
+    /// @param node an indexed node
+    /// @param path the path
+    /// @return true when the path names the node
+    [[nodiscard]] bool names_node(uint32_t node, std::string_view path) const noexcept {
+        std::size_t end = path.size();
+        for (uint32_t at = node;;) {
+            const std::string& name = nodes[at].name;
+            if (end < name.size() ||
+                !FoldedPathEqual{}(path.substr(end - name.size(), name.size()), name))
+                return false;
+            end -= name.size();
+            const uint32_t above = parents[at];
+            if (above == 0)
+                return end == 0;
+            if (end == 0 || (path[end - 1] != '\\' && path[end - 1] != '/'))
+                return false;
+            --end;
+            at = above;
+        }
     }
 
     /// Checks that the last 36 bytes equal Trailer, apart from its four year characters.
@@ -454,35 +597,33 @@ struct HpiArchive::Impl {
         return {};
     }
 
+    /// Resolves a path, or the directory of all but its last part.
+    ///
+    /// @param entry_path '\\'- or '/'-separated path
+    /// @param stop_before_last true to resolve the directory that holds the last part
+    /// @return the node index, or nullopt
     [[nodiscard]] std::optional<uint32_t>
     walk(std::string_view entry_path, bool stop_before_last) const noexcept {
-        uint32_t directory = 0;
-        std::size_t begin = 0;
-        for (;;) {
-            std::size_t end = begin;
-            while (end < entry_path.size() && entry_path[end] != '\\' && entry_path[end] != '/')
-                ++end;
-            const bool last = end == entry_path.size();
-            if (last && stop_before_last)
-                return directory;
-            const std::string_view segment = entry_path.substr(begin, end - begin);
-            const ArchiveNode& parent = nodes[directory];
-            std::optional<uint32_t> match;
-            for (uint32_t i = parent.child_count; i-- > 0;) {
-                if (equal_nocase(nodes[parent.first_child + i].name, segment)) {
-                    match = parent.first_child + i;
-                    break;
-                }
-            }
-            if (!match)
-                return std::nullopt;
-            if (last)
-                return match;
-            if (!nodes[*match].directory())
-                return std::nullopt;
-            directory = *match;
-            begin = end + 1;
+        if (stop_before_last) {
+            const auto separator = entry_path.find_last_of("\\/");
+            if (separator == std::string_view::npos)
+                return 0u;
+            entry_path = entry_path.substr(0, separator);
         }
+        const uint64_t hash = folded_hash(kFnvOffsetBasis, entry_path);
+        auto at = std::lower_bound(
+            paths.begin(), paths.end(), hash, [](const IndexedPath& path, uint64_t wanted) {
+                return path.hash < wanted;
+            }
+        );
+        for (; at != paths.end() && at->hash == hash; ++at) {
+            if (!names_node(at->node, entry_path))
+                continue;
+            if (stop_before_last && !nodes[at->node].directory())
+                return std::nullopt;
+            return at->node;
+        }
+        return std::nullopt;
     }
 
     /// Reads stored bytes at `offset` from the source.
@@ -497,11 +638,20 @@ struct HpiArchive::Impl {
 
     /// Copies file node `index`'s decoded bytes from `position` into `output`.
     ///
+    /// @param index file node index
+    /// @param position first decoded byte wanted
+    /// @param[out] output receives the bytes
+    /// @param chunks the node's chunk table, or null to read it for this call
     /// @return the count copied, short when a stored entry runs past the end
     ///         of the archive; or the error, at its archive offset, of a
-    ///         chunk that cannot be read or decoded
-    [[nodiscard]] Decoded<uint32_t>
-    read_range(uint32_t index, uint32_t position, std::span<uint8_t> output) const {
+    ///         chunk or size table that cannot be read or decoded, or
+    ///         out_of_range for a chunk table of another node
+    [[nodiscard]] Decoded<uint32_t> read_range(
+        uint32_t index,
+        uint32_t position,
+        std::span<uint8_t> output,
+        const formats::hpi::ChunkTable* chunks
+    ) const {
         if (index >= nodes.size() || nodes[index].directory())
             return DecodeError{DecodeCode::out_of_range, 0, "HPI node is not a file"};
         const ArchiveNode& node = nodes[index];
@@ -514,28 +664,37 @@ struct HpiArchive::Impl {
             decrypt_at(output.first(got), key, at);
             return static_cast<uint32_t>(got);
         }
-        std::size_t copied = 0;
-        return decode_blocks(node, position, wanted, [&](const uint8_t* bytes, std::size_t count) {
-            std::memcpy(output.data() + copied, bytes, count);
-            copied += count;
-        });
+        formats::hpi::ChunkTable read_now;
+        if (chunks == nullptr) {
+            auto table = chunk_table(index);
+            if (!table.ok())
+                return table.error;
+            read_now = std::move(*table.value);
+            chunks = &read_now;
+        } else if (chunks->node != index || chunks->offsets.size() != chunk_count(node) + 1U) {
+            return DecodeError{
+                DecodeCode::out_of_range, node.data_offset, "HPI chunk table is another entry's"
+            };
+        }
+        return decode_blocks(*chunks, position, output.first(wanted));
     }
 
-    /// Decodes the chunks of a compressed file node that hold `wanted`
-    /// bytes from `position`, handing each chunk's part to `take` in order.
+    /// Returns how many chunks a compressed file node is stored in.
     ///
-    /// @param node the file node; compressed
-    /// @param position first decoded byte wanted
-    /// @param wanted count of bytes wanted; within the entry
-    /// @param take called with each part's bytes and count
-    /// @return the count handed on; or the error, at its archive offset, of
-    ///         a chunk or size table that cannot be read or decoded
-    template <class Take>
-    [[nodiscard]] Decoded<uint32_t> decode_blocks(
-        const ArchiveNode& node, uint32_t position, std::size_t wanted, Take&& take
-    ) const {
-        const uint32_t chunks =
-            node.size / formats::hpi::BlockBytes + (node.size % formats::hpi::BlockBytes != 0);
+    /// @param node the file node
+    /// @return its decoded size in 64 KiB blocks, rounded up
+    [[nodiscard]] static uint32_t chunk_count(const ArchiveNode& node) noexcept {
+        return node.size / formats::hpi::BlockBytes + (node.size % formats::hpi::BlockBytes != 0);
+    }
+
+    /// Reads and decrypts a compressed file node's chunk-size table.
+    ///
+    /// @param index file node index; a compressed file
+    /// @return where each chunk is stored; or truncated, at the node's data
+    ///         offset, for a table past the end of the archive
+    [[nodiscard]] Decoded<formats::hpi::ChunkTable> chunk_table(uint32_t index) const {
+        const ArchiveNode& node = nodes[index];
+        const uint32_t chunks = chunk_count(node);
         std::vector<uint8_t> table(static_cast<std::size_t>(chunks) * 4U);
         if (read_stored(node.data_offset, table) != table.size())
             return DecodeError{
@@ -544,56 +703,83 @@ struct HpiArchive::Impl {
                 "HPI chunk size table lies past the end of the archive"
             };
         decrypt_at(table, key, node.data_offset);
+        formats::hpi::ChunkTable result;
+        result.node = index;
+        result.offsets.resize(static_cast<std::size_t>(chunks) + 1U);
+        // Summed at 64 bits, so stored sizes cannot wrap the offset back
+        // into the archive; a chunk past its end reads short.
+        uint64_t at = static_cast<uint64_t>(node.data_offset) + table.size();
+        for (uint32_t i = 0; i < chunks; ++i) {
+            result.offsets[i] = at;
+            at += load_le32(table.data() + i * 4U);
+        }
+        result.offsets[chunks] = at;
+        return result;
+    }
 
-        // Every byte of these buffers is written before it is read, so they
-        // are allocated without being filled.
-        const auto decoded_bytes =
-            std::make_unique_for_overwrite<uint8_t[]>(formats::hpi::BlockBytes);
-        const std::span<uint8_t> decoded(decoded_bytes.get(), formats::hpi::BlockBytes);
+    /// Decodes the chunks of a compressed file node that hold `output.size()`
+    /// bytes from `position` into `output`, in order.
+    ///
+    /// A chunk wanted whole decodes straight into `output`; one wanted in
+    /// part decodes into a buffer of its own, and its part is copied.
+    ///
+    /// @param chunks the chunk table of a compressed file node
+    /// @param position first decoded byte wanted
+    /// @param[out] output receives the bytes; within the entry
+    /// @return the count decoded; or the error, at its archive offset, of
+    ///         a chunk that cannot be read or decoded
+    [[nodiscard]] Decoded<uint32_t> decode_blocks(
+        const formats::hpi::ChunkTable& chunks, uint32_t position, std::span<uint8_t> output
+    ) const {
+        // Every byte of this buffer is written before it is read, so it is
+        // allocated without being filled, and only once a chunk needs it.
+        std::unique_ptr<uint8_t[]> part_bytes;
         std::size_t copied = 0;
         uint32_t cursor = position;
-        uint32_t loaded = std::numeric_limits<uint32_t>::max();
-        while (copied < wanted) {
+        while (copied < output.size()) {
             const uint32_t block_index = cursor / formats::hpi::BlockBytes;
-            if (block_index != loaded) {
-                // Summed at 64 bits, so stored sizes cannot wrap the offset
-                // back into the archive; a chunk past its end reads short.
-                uint64_t at = static_cast<uint64_t>(node.data_offset) + table.size();
-                for (uint32_t i = 0; i < block_index; ++i)
-                    at += load_le32(table.data() + i * 4U);
-                const uint32_t stored = load_le32(table.data() + block_index * 4U);
-                if (stored > kMaxStoredChunkSize)
-                    return DecodeError{
-                        DecodeCode::limit_exceeded,
-                        at,
-                        "stored HPI chunk exceeds the 1 MiB safety limit"
-                    };
-                // Each chunk gets a buffer of exactly its size, so a read past
-                // the chunk is a read past the allocation, which the sanitizer
-                // build reports.
-                const auto chunk_bytes = std::make_unique_for_overwrite<uint8_t[]>(stored);
-                const std::span<uint8_t> chunk(chunk_bytes.get(), stored);
-                if (read_stored(at, chunk) != chunk.size())
-                    return DecodeError{
-                        DecodeCode::truncated, at, "HPI chunk lies past the end of the archive"
-                    };
-                decrypt_at(chunk, key, at);
-                // Bytes a short chunk leaves unwritten read as zero.
-                std::memset(decoded.data(), 0, decoded.size());
-                const auto status = unsquash_archive_block(decoded, chunk);
-                if (status != formats::hpi::SquashStatus::ok)
-                    return DecodeError{
-                        DecodeCode::malformed,
-                        at,
-                        squash_status_name(status),
-                        static_cast<uint16_t>(status)
-                    };
-                loaded = block_index;
-            }
             const uint32_t offset = cursor % formats::hpi::BlockBytes;
             const std::size_t count =
-                std::min<std::size_t>(formats::hpi::BlockBytes - offset, wanted - copied);
-            take(decoded.data() + offset, count);
+                std::min<std::size_t>(formats::hpi::BlockBytes - offset, output.size() - copied);
+            const bool whole = count == formats::hpi::BlockBytes;
+            if (!whole && part_bytes == nullptr)
+                part_bytes = std::make_unique_for_overwrite<uint8_t[]>(formats::hpi::BlockBytes);
+            const std::span<uint8_t> decoded =
+                whole ? output.subspan(copied, formats::hpi::BlockBytes)
+                      : std::span<uint8_t>(part_bytes.get(), formats::hpi::BlockBytes);
+            const uint64_t at = chunks.offsets[block_index];
+            // The difference is one size of the table, so it fits 32 bits.
+            const auto stored = static_cast<uint32_t>(chunks.offsets[block_index + 1U] - at);
+            if (stored > kMaxStoredChunkSize)
+                return DecodeError{
+                    DecodeCode::limit_exceeded,
+                    at,
+                    "stored HPI chunk exceeds the 1 MiB safety limit"
+                };
+            // Each chunk gets a buffer of exactly its size, so a read past
+            // the chunk is a read past the allocation, which the sanitizer
+            // build reports.
+            const auto chunk_bytes = std::make_unique_for_overwrite<uint8_t[]>(stored);
+            const std::span<uint8_t> chunk(chunk_bytes.get(), stored);
+            if (read_stored(at, chunk) != chunk.size())
+                return DecodeError{
+                    DecodeCode::truncated, at, "HPI chunk lies past the end of the archive"
+                };
+            decrypt_at(chunk, key, at);
+            const auto status = unsquash_archive_block(decoded, chunk);
+            if (status != formats::hpi::SquashStatus::ok)
+                return DecodeError{
+                    DecodeCode::malformed,
+                    at,
+                    squash_status_name(status),
+                    static_cast<uint16_t>(status)
+                };
+            // A decoded chunk holds its unpacked size; the bytes of a short
+            // chunk past that read as zero.
+            const uint32_t unpacked = load_le32(chunk.data() + squash_field::unpacked_size);
+            std::memset(decoded.data() + unpacked, 0, decoded.size() - unpacked);
+            if (!whole)
+                std::memcpy(output.data() + copied, decoded.data() + offset, count);
             copied += count;
             cursor += static_cast<uint32_t>(count);
         }
@@ -662,7 +848,23 @@ std::optional<uint32_t> HpiArchive::lookup_directory(std::string_view path) cons
 
 Decoded<uint32_t>
 HpiArchive::read_node_range(uint32_t index, uint32_t position, std::span<uint8_t> output) const {
-    return impl_->read_range(index, position, output);
+    return impl_->read_range(index, position, output, nullptr);
+}
+
+Decoded<uint32_t> HpiArchive::read_node_range(
+    uint32_t index,
+    uint32_t position,
+    std::span<uint8_t> output,
+    const formats::hpi::ChunkTable& chunks
+) const {
+    return impl_->read_range(index, position, output, &chunks);
+}
+
+Decoded<formats::hpi::ChunkTable> HpiArchive::read_chunk_table(uint32_t index) const {
+    if (index >= impl_->nodes.size() || impl_->nodes[index].directory() ||
+        impl_->nodes[index].compression == 0)
+        return DecodeError{DecodeCode::out_of_range, 0, "HPI node is not a compressed file"};
+    return impl_->chunk_table(index);
 }
 
 Decoded<std::vector<uint8_t>> HpiArchive::read_node(uint32_t index) const {
@@ -693,16 +895,27 @@ Decoded<std::vector<uint8_t>> HpiArchive::read_node(uint32_t index) const {
             // The archive holds every stored byte, so the buffer is no
             // larger than what it gives.
             bytes.resize(node.size);
-            read = impl_->read_range(index, 0, bytes);
+            read = impl_->read_range(index, 0, bytes, nullptr);
         } else {
             // Room is set aside for the claimed size, and only the chunks
-            // that decode fill it.
+            // that decode fill it, each decoded straight into its place.
             bytes.reserve(node.size);
-            read = impl_->decode_blocks(
-                node, 0, node.size, [&](const uint8_t* decoded, std::size_t count) {
-                    bytes.insert(bytes.end(), decoded, decoded + count);
-                }
-            );
+            auto table = impl_->chunk_table(index);
+            if (!table.ok())
+                return table.error;
+            uint32_t decoded = 0;
+            while (decoded < node.size) {
+                const uint32_t count = std::min(node.size - decoded, formats::hpi::BlockBytes);
+                bytes.resize(static_cast<std::size_t>(decoded) + count);
+                read = impl_->decode_blocks(
+                    *table.value, decoded, std::span<uint8_t>(bytes).subspan(decoded, count)
+                );
+                if (!read.ok())
+                    break;
+                decoded += count;
+            }
+            if (read.ok())
+                read = decoded;
         }
     } catch (const std::bad_alloc&) {
         return DecodeError{

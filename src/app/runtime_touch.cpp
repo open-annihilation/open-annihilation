@@ -703,7 +703,7 @@ float TouchDispatchAccess::points_to_pixels(const Runtime& runtime, float points
 }
 
 void TouchDispatchAccess::send_mouse(
-    Runtime& runtime, uint32_t type, float x, float y, uint8_t clicks
+    Runtime& runtime, uint32_t type, float x, float y, uint8_t clicks, uint8_t button
 ) {
     SDL_Event event{};
     event.type = type;
@@ -717,7 +717,7 @@ void TouchDispatchAccess::send_mouse(
         event.button.timestamp = SDL_GetTicksNS();
         event.button.windowID = 0;
         event.button.which = SDL_TOUCH_MOUSEID;
-        event.button.button = SDL_BUTTON_LEFT;
+        event.button.button = button;
         event.button.down = type == SDL_EVENT_MOUSE_BUTTON_DOWN;
         event.button.clicks = clicks;
         event.button.x = x;
@@ -1079,6 +1079,7 @@ void TouchDispatchAccess::reset_fingers(Runtime& runtime) {
     dispatch.finger_count = 0;
     dispatch.finger_point.reset();
     dispatch.box_active = false;
+    dispatch.megamap_drag = false;
     dispatch.scroll_active = false;
     dispatch.ghost_drag = false;
     dispatch.auto_scrolling = false;

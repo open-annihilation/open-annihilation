@@ -1402,6 +1402,7 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // So does Include in device backups, on the game files themselves.
     if (chosen.game_files_backed_up != before.game_files_backed_up)
         EngineSettingsState::apply_game_files_backups(*this, chosen.game_files_backed_up);
+    apply_key_timings();
 }
 
 const oa::data::mod_profile::ModProfile* Runtime::mod_profile() const noexcept {

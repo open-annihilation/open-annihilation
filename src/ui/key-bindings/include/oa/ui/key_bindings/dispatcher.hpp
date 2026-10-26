@@ -43,16 +43,126 @@ struct Contexts {
     bool text_entry{};     ///< a chat line, a marker's text or a save name is being typed
 };
 
-/// How long a double press and a long press wait. The caller counts the time.
+/// How long a key must be held, how soon a bounce is ignored, and how double
+/// presses, long presses and repeating keys are timed. The caller counts the time.
+///
+/// A zero `double_press_ms`, `repeat_delay_ms` or `repeat_rate` is kept by
+/// `clamped`: the caller decides what zero means. The app uses the system's
+/// double-click time and the system's key repeat.
 struct Timings {
-    uint32_t double_press_ms = 500; ///< two downs of one key at most this far apart
-    uint32_t long_press_ms = 500;   ///< how long a `:hold` chord waits
+    uint32_t slow_keys_ms{
+        0
+    }; ///< a key counts only after it has been held this long; 0 waits nothing
+    uint32_t bounce_keys_ms{
+        0
+    }; ///< a second press of the same key this soon is ignored; 0 ignores nothing
+    uint32_t double_press_ms =
+        500; ///< two downs of one key at most this far apart; 0 is left for the caller
+    uint32_t long_press_ms = 500; ///< how long a `:hold` chord waits
+    uint32_t repeat_delay_ms{
+        0
+    }; ///< a repeating key waits this long before its first repeat; 0 uses the system's
+    uint32_t repeat_rate{0}; ///< repeats per second after that delay; 0 uses the system's
+};
+
+/// The shortest slow-keys wait, in milliseconds.
+inline constexpr uint32_t slow_keys_least = 0;
+/// The longest slow-keys wait, in milliseconds.
+inline constexpr uint32_t slow_keys_most = 1000;
+/// The shortest bounce-keys window, in milliseconds.
+inline constexpr uint32_t bounce_keys_least = 0;
+/// The longest bounce-keys window, in milliseconds.
+inline constexpr uint32_t bounce_keys_most = 1000;
+/// The shortest double-press window, in milliseconds. Zero is not in this range.
+inline constexpr uint32_t double_press_least = 200;
+/// The longest double-press window, in milliseconds.
+inline constexpr uint32_t double_press_most = 1000;
+/// The shortest long-press wait, in milliseconds.
+inline constexpr uint32_t long_press_least = 200;
+/// The longest long-press wait, in milliseconds.
+inline constexpr uint32_t long_press_most = 1000;
+/// The shortest key-repeat delay, in milliseconds. Zero is not in this range.
+inline constexpr uint32_t repeat_delay_least = 150;
+/// The longest key-repeat delay, in milliseconds.
+inline constexpr uint32_t repeat_delay_most = 1000;
+/// The slowest key-repeat rate, in repeats per second. Zero is not in this range.
+inline constexpr uint32_t repeat_rate_least = 2;
+/// The fastest key-repeat rate, in repeats per second.
+inline constexpr uint32_t repeat_rate_most = 30;
+/// The narrowest drag that still counts as a click, in pixels of the 640×480 game.
+inline constexpr uint32_t drag_threshold_least = 32;
+/// The widest drag that still counts as a click, in pixels of the 640×480 game.
+inline constexpr uint32_t drag_threshold_most = 96;
+
+/// Holds one timing inside its range.
+///
+/// Zero stays zero when `keep_zero` is set, so a stored "use the system's"
+/// value is not rewritten as the shortest allowed time.
+///
+/// @param value the timing
+/// @param least the shortest value, used when `value` is below it
+/// @param most the longest value, used when `value` is above it
+/// @param keep_zero true when zero means the system's own timing
+/// @return `value` held to the range
+[[nodiscard]] inline uint32_t
+bounded_timing(uint32_t value, uint32_t least, uint32_t most, bool keep_zero) noexcept {
+    if (keep_zero && value == 0)
+        return 0;
+    if (value < least)
+        return least;
+    if (value > most)
+        return most;
+    return value;
+}
+
+/// Holds every timing inside its range.
+///
+/// Zero stays zero for the double-press window, the repeat delay and the
+/// repeat rate. A long press of zero becomes `long_press_least`.
+///
+/// @param timings the timings a setting or a caller supplied
+/// @return the same timings, each held to its range
+[[nodiscard]] inline Timings clamped(Timings timings) noexcept {
+    timings.slow_keys_ms =
+        bounded_timing(timings.slow_keys_ms, slow_keys_least, slow_keys_most, false);
+    timings.bounce_keys_ms =
+        bounded_timing(timings.bounce_keys_ms, bounce_keys_least, bounce_keys_most, false);
+    timings.double_press_ms =
+        bounded_timing(timings.double_press_ms, double_press_least, double_press_most, true);
+    timings.long_press_ms =
+        bounded_timing(timings.long_press_ms, long_press_least, long_press_most, false);
+    timings.repeat_delay_ms =
+        bounded_timing(timings.repeat_delay_ms, repeat_delay_least, repeat_delay_most, true);
+    timings.repeat_rate =
+        bounded_timing(timings.repeat_rate, repeat_rate_least, repeat_rate_most, true);
+    return timings;
+}
+
+/// The game ticks a drag may last and still be a click, for one pixel threshold.
+///
+/// The pixel limit is the threshold. The tick limit grows in proportion,
+/// `0x19 × threshold / 32`, rounded down, so one setting widens both. At
+/// `drag_threshold_least` the result is 0x19, which is 3.1c's.
+///
+/// @param drag_threshold the pixel limit, in pixels of the 640×480 game
+/// @return the tick limit
+[[nodiscard]] constexpr uint32_t drag_click_ticks(uint32_t drag_threshold) noexcept {
+    return uint32_t{0x19} * drag_threshold / 32U;
+}
+
+/// What the app does with the key that `feed` was given, besides the action events.
+enum class LegacyGate : uint8_t {
+    deliver, ///< the key reaches the rest of the game now
+    hold,    ///< the key is held back until `advance` admits it
+    drop,    ///< the key is ignored, and so is the rest of the game's reading of it
 };
 
 /// What `feed`, `advance` or `release_all` produced.
 struct Fed {
-    std::vector<ActionEvent> events{}; ///< the action events, in the order they happened
-    bool bound{};                      ///< a binding matched the event
+    std::vector<ActionEvent> events{};      ///< the action events, in the order they happened
+    bool bound{};                           ///< a binding matched the event
+    LegacyGate legacy{LegacyGate::deliver}; ///< what the app does with the key that was fed
+    std::vector<InputEvent> admitted{};     ///< keys `advance` admitted, each once, at its own time
 };
 
 /// Which keys are held, as the app reads them when a modifier role is judged.
@@ -114,7 +224,10 @@ class Dispatcher {
     /// @param platform the platform
     void set_platform(Platform platform);
 
-    /// Replaces the double-press and hold times.
+    /// Replaces the key timings.
+    ///
+    /// `clamped` holds each one to its range first. A key already held back
+    /// keeps the admit time it was given.
     ///
     /// @param timings the times, in milliseconds
     void set_timings(Timings timings);
@@ -139,17 +252,30 @@ class Dispatcher {
     /// own key goes down or up. An up for a key that never went down gives
     /// nothing.
     ///
+    /// With slow keys, a key down is held back (`LegacyGate::hold`) until
+    /// `advance` has seen it held for `slow_keys_ms`; it then fires once, at
+    /// that time. A release before then drops the down and the release. With
+    /// bounce keys, a down of the same key within `bounce_keys_ms` of its last
+    /// accepted release is dropped, and so is that down's release. Mouse
+    /// buttons, the wheel and keys fed while text is being typed are never
+    /// held back or dropped. When a repeat delay and a repeat rate are both
+    /// set, a platform repeat is not turned into `repeated`.
+    ///
     /// @param event the key, button or wheel
     /// @return the action events, and whether a binding matched
     [[nodiscard]] Fed feed(const InputEvent& event);
 
-    /// Fires each `:hold` chord that has been down for `long_press_ms`.
+    /// Admits each held-back key whose time has come, fires each `:hold` chord
+    /// that has been down for `long_press_ms`, and fires each repeating key
+    /// whose own delay and rate have come.
     ///
-    /// A hold fires once. An earlier `advance` does not fire it, and a later
-    /// one does not fire it again.
+    /// A held-back key fires once, from here, at the time it was due, and a
+    /// later `advance` does not fire it again. A hold fires once. An earlier
+    /// `advance` does not fire it, and a later one does not fire it again.
+    /// One call emits every repeat that became due since the previous one.
     ///
     /// @param now_ms the time, in milliseconds, from the same clock as the events
-    /// @return the `held` events
+    /// @return the admitted keys, the `held` events and the `repeated` events
     [[nodiscard]] Fed advance(uint64_t now_ms);
 
     /// Releases every held action and deactivates every modifier role.
@@ -175,6 +301,16 @@ class Dispatcher {
     /// @return true while the role is active
     [[nodiscard]] bool
     role_active(std::string_view action, uint8_t modifiers_now, const HeldKeys& keys_held) const;
+
+    /// Reports whether a key of the action's chords is down.
+    ///
+    /// A modifier never stops it. A chord that is only a modifier is skipped.
+    /// This is not decided from the key events `feed` saw.
+    ///
+    /// @param action the action id
+    /// @param keys_held which key positions are held
+    /// @return true while one of that action's keys is held
+    [[nodiscard]] bool chord_key_held(std::string_view action, const HeldKeys& keys_held) const;
 
   private:
 

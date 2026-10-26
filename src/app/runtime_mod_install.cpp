@@ -1105,18 +1105,20 @@ void Runtime::tell_mod_installs() {
         const LayerScreen* top = oa_layer_ ? oa_layer_->top() : nullptr;
         return top != nullptr && top->name() == library_screen_name;
     };
-    // A map pack, a mutator or a brain from a catalogue: an oamap, oamut or
-    // oabrain package whose origin is one. It asks nothing, and installs
-    // with no prompt off the settled main menu.
+    // A map pack, a mutator, a brain or a key layout from a catalogue: an
+    // oamap, oamut, oabrain or oakeys package whose origin is one. It asks
+    // nothing, and installs with no prompt off the settled main menu.
     const auto catalogue_map_pack = [](const install::OpenedPackage& waiting) {
         const install::PackageKind* kind = install::kind_for_file(waiting.file);
         return kind != nullptr &&
-               (kind->name == "oamap" || kind->name == "oamut" || kind->name == "oabrain") &&
+               (kind->name == "oamap" || kind->name == "oamut" || kind->name == "oabrain" ||
+                kind->name == "oakeys") &&
                waiting.origin.kind == install::OriginKind::catalogue;
     };
-    // Takes a catalogue map pack, mutator or brain first in the inbox and
-    // installs it with no prompt. One whose plan asked waits, as it does off
-    // the main menu, for the settled main menu of a run someone watches.
+    // Takes a catalogue map pack, mutator, brain or key layout first in the
+    // inbox and installs it with no prompt. One whose plan asked waits, as
+    // it does off the main menu, for the settled main menu of a run someone
+    // watches.
     const auto take_catalogue_map = [&]() -> bool {
         if (state.stage != ModInstallState::Stage::idle || state.prompt != nullptr ||
             !state.catalogue_question.empty())
@@ -1131,7 +1133,8 @@ void Runtime::tell_mod_installs() {
         begin_package(*opened_file);
         return true;
     };
-    // In a run nobody watches, a catalogue map pack, mutator or brain installs
+    // In a run nobody watches, a catalogue map pack, mutator, brain or key
+    // layout installs
     // only while the player is getting one: the map browser is the top screen,
     // or GET MAP or GET MUTATORS shows over the battle room. Otherwise it
     // waits in the inbox, as a chosen mod does with the Library closed, so a
@@ -1145,7 +1148,7 @@ void Runtime::tell_mod_installs() {
     if (!settled) {
         state.settled_frames = 0;
         // Nothing starts while a match loads or runs. A catalogue map pack,
-        // mutator or brain, a language pack or an expansion otherwise installs
+        // mutator, brain or key layout, a language pack or an expansion otherwise installs
         // here, with no prompt; every other package waits.
         if (match_ != nullptr || screen_ == Screen::loading || screen_ == Screen::match)
             return;
@@ -1181,7 +1184,7 @@ void Runtime::tell_mod_installs() {
         return;
     // A run nobody watches leaves the packages waiting for one someone does,
     // except a catalogue language pack and a catalogue expansion, which ask
-    // nothing; a catalogue map pack, mutator or brain while the player is
+    // nothing; a catalogue map pack, mutator, brain or key layout while the player is
     // getting a map pack, which installs with no prompt;
     // and a mod chosen in the Library while the Library is the top screen,
     // which asks and installs as it does for a player watching, the folders
@@ -1248,16 +1251,16 @@ void Runtime::tell_mod_installs() {
         take_handed_mod_files();
     }
     // A catalogue language pack, a catalogue expansion, and a catalogue map
-    // pack, mutator or brain that asks nothing, install here with nothing
-    // shown, as they do off this menu. One whose plan asks is put back for
-    // the take below, which shows the question.
+    // pack, mutator, brain or key layout that asks nothing, install here with
+    // nothing shown, as they do off this menu. One whose plan asks is put
+    // back for the take below, which shows the question.
     if (take_catalogue_language())
         return;
     if (take_catalogue_expansion())
         return;
     if (take_catalogue_map())
         return;
-    // A catalogue map pack, mutator or brain that needed a question waited for this menu.
+    // A catalogue map pack, mutator, brain or key layout that needed a question waited for this menu.
     state.catalogue_question.clear();
     state.quiet = false;
     if (take_chosen_mod())

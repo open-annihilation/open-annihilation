@@ -202,6 +202,14 @@
 	it=5–10;
 	}
 
+[*** The launch gives a computer player side {side}, which computer players cannot take in this game.]
+	{
+	de=*** Der Start gibt einem Computerspieler die Seite {side}, die Computerspieler in diesem Spiel nicht nehmen können.;
+	fr=*** Le lancement donne à un joueur ordinateur le camp {side}, que les joueurs ordinateur ne peuvent pas prendre dans cette partie.;
+	es=*** El lanzamiento da a un jugador de ordenador el bando {side}, que los jugadores de ordenador no pueden tomar en esta partida.;
+	it=*** L'avvio dà a un giocatore computer la fazione {side}, che i giocatori computer non possono prendere in questa partita.;
+	}
+
 [*** The launch names side {side}, which this game does not have.]
 	{
 	de=*** Der Start nennt die Seite {side}, die dieses Spiel nicht hat.;
@@ -896,6 +904,14 @@
 	fr=Une autre copie d'Open Annihilation modifie ton dossier de cerveaux. Réessaie une fois qu'elle a fini.;
 	es=Otra copia de Open Annihilation está cambiando tu carpeta de cerebros. Inténtalo de nuevo cuando termine.;
 	it=Un'altra copia di Open Annihilation sta modificando la tua cartella dei cervelli. Riprova quando ha finito.;
+	}
+
+[Another copy of Open Annihilation is changing your Keys folder. Try again once it has finished.]
+	{
+	de=Eine andere Kopie von Open Annihilation ändert deinen Ordner Keys. Versuche es erneut, wenn sie fertig ist.;
+	fr=Une autre copie d'Open Annihilation modifie ton dossier Keys. Réessaie une fois qu'elle a fini.;
+	es=Otra copia de Open Annihilation está cambiando tu carpeta Keys. Inténtalo de nuevo cuando termine.;
+	it=Un'altra copia di Open Annihilation sta modificando la tua cartella Keys. Riprova quando ha finito.;
 	}
 
 [Another copy of Open Annihilation is changing your Maps folder. Try again once it has finished.]
@@ -4386,6 +4402,14 @@
 	it=INSTALLA CERVELLO;
 	}
 
+[INSTALL KEY LAYOUT]
+	{
+	de=TASTENBELEGUNG INSTALLIEREN;
+	fr=INSTALLER LA DISPOSITION DES TOUCHES;
+	es=INSTALAR DISTRIBUCIÓN DE TECLAS;
+	it=INSTALLA DISPOSIZIONE DEI TASTI;
+	}
+
 [INSTALL LANGUAGE]
 	{
 	de=SPRACHE INSTALLIEREN;
@@ -4432,6 +4456,14 @@
 	fr=INSTALLATION DE L'EXTENSION;
 	es=INSTALANDO LA EXPANSIÓN;
 	it=INSTALLAZIONE DELL'ESPANSIONE;
+	}
+
+[INSTALLING KEY LAYOUT]
+	{
+	de=TASTENBELEGUNG WIRD INSTALLIERT;
+	fr=INSTALLATION DE LA DISPOSITION DES TOUCHES;
+	es=INSTALANDO DISTRIBUCIÓN DE TECLAS;
+	it=INSTALLAZIONE DELLA DISPOSIZIONE DEI TASTI;
 	}
 
 [INSTALLING LANGUAGE]
@@ -4650,6 +4682,14 @@
 	it=Installare l'espansione {name}?;
 	}
 
+[Install the key layout {name} {version}?]
+	{
+	de=Die Tastenbelegung {name} {version} installieren?;
+	fr=Installer la disposition des touches {name} {version} ?;
+	es=¿Instalar la distribución de teclas {name} {version}?;
+	it=Installare la disposizione dei tasti {name} {version}?;
+	}
+
 [Install the language {endonym} ({english})?]
 	{
 	de=Die Sprache {endonym} ({english}) installieren?;
@@ -4834,6 +4874,14 @@
 	it=Contiene più di {limit} cartelle, più di quante ne possa avere un cervello.;
 	}
 
+[It holds more than {limit} folders, more than a key layout may take.]
+	{
+	de=Es enthält mehr als {limit} Ordner, mehr als eine Tastenbelegung haben darf.;
+	fr=Il contient plus de {limit} dossiers, plus qu'une disposition des touches ne peut en avoir.;
+	es=Contiene más de {limit} carpetas, más de las que puede tener una distribución de teclas.;
+	it=Contiene più di {limit} cartelle, più di quante ne possa avere una disposizione dei tasti.;
+	}
+
 [It holds more than {limit} folders, more than a map pack may take.]
 	{
 	de=Es enthält mehr als {limit} Ordner, mehr als ein Kartenpaket haben darf.;
@@ -4888,6 +4936,14 @@
 	fr=Il ne contient pas d'oaexp.yaml à sa racine, ni dans un seul dossier à sa racine.;
 	es=No contiene oaexp.yaml en su nivel superior, ni en una sola carpeta en su nivel superior.;
 	it=Non contiene oaexp.yaml in cima, né in una sola cartella in cima.;
+	}
+
+[It holds no oakeys.yaml at its top, or in a single folder at its top.]
+	{
+	de=Es enthält kein oakeys.yaml ganz oben oder in einem einzelnen Ordner ganz oben.;
+	fr=Il ne contient pas d'oakeys.yaml à sa racine, ni dans un seul dossier à sa racine.;
+	es=No contiene oakeys.yaml en su nivel superior, ni en una sola carpeta en su nivel superior.;
+	it=Non contiene oakeys.yaml in cima, né in una sola cartella in cima.;
 	}
 
 [It holds no oamap.yaml at its top, or in a single folder at its top.]
@@ -5018,6 +5074,14 @@
 	it=Servono {size} liberi, e il disco della tua cartella Brains ha {free}.;
 	}
 
+[It needs {size} free, and the disk holding your Keys folder has {free}.]
+	{
+	de=Es braucht {size} frei, und der Datenträger mit deinem Ordner Keys hat {free}.;
+	fr=Il lui faut {size} de libre, et le disque de ton dossier Keys a {free}.;
+	es=Necesita {size} libres, y el disco de tu carpeta Keys tiene {free}.;
+	it=Servono {size} liberi, e il disco della tua cartella Keys ha {free}.;
+	}
+
 [It needs {size} free, and the disk holding your Maps folder has {free}.]
 	{
 	de=Es braucht {size} frei, und der Datenträger mit deinem Ordner Maps hat {free}.;
@@ -5082,6 +5146,14 @@
 	it=Si estrae in {size} da {packed}, molto più di quanto occupino i file di un cervello.;
 	}
 
+[It unpacks to {size} from {packed}, far more than a key layout's files take.]
+	{
+	de=Es entpackt sich auf {size} aus {packed}, weit mehr, als die Dateien einer Tastenbelegung brauchen.;
+	fr=Il se décompresse en {size} depuis {packed}, bien plus que les fichiers d'une disposition des touches.;
+	es=Se descomprime a {size} desde {packed}, mucho más de lo que ocupan los archivos de una distribución de teclas.;
+	it=Si estrae in {size} da {packed}, molto più di quanto occupino i file di una disposizione dei tasti.;
+	}
+
 [It unpacks to {size} from {packed}, far more than a map pack's files take.]
 	{
 	de=Es entpackt sich auf {size} aus {packed}, weit mehr, als die Dateien eines Kartenpakets brauchen.;
@@ -5112,6 +5184,14 @@
 	fr=Il se décompresse en {size}, plus que les {limit} qu'un cerveau peut prendre.;
 	es=Se descomprime a {size}, más del {limit} que puede ocupar un cerebro.;
 	it=Si estrae in {size}, più del {limit} che un cervello può occupare.;
+	}
+
+[It unpacks to {size}, more than the {limit} a key layout may take.]
+	{
+	de=Es entpackt sich auf {size}, mehr als die {limit}, die eine Tastenbelegung haben darf.;
+	fr=Il se décompresse en {size}, plus que les {limit} qu'une disposition des touches peut prendre.;
+	es=Se descomprime a {size}, más del {limit} que puede ocupar una distribución de teclas.;
+	it=Si estrae in {size}, più del {limit} che una disposizione dei tasti può occupare.;
 	}
 
 [It unpacks to {size}, more than the {limit} a map pack may take.]
@@ -5314,6 +5394,22 @@
 	it=Il suo oaexp.yaml supera i 256 KiB.;
 	}
 
+[Its oakeys.yaml has errors:]
+	{
+	de=Sein oakeys.yaml hat Fehler:;
+	fr=Son oakeys.yaml a des erreurs :;
+	es=Su oakeys.yaml tiene errores:;
+	it=Il suo oakeys.yaml ha errori:;
+	}
+
+[Its oakeys.yaml is larger than 256 KiB.]
+	{
+	de=Sein oakeys.yaml ist größer als 256 KiB.;
+	fr=Son oakeys.yaml dépasse 256 Kio.;
+	es=Su oakeys.yaml supera los 256 KiB.;
+	it=Il suo oakeys.yaml supera i 256 KiB.;
+	}
+
 [Its oamap.yaml has errors:]
 	{
 	de=Sein oamap.yaml hat Fehler:;
@@ -5496,6 +5592,30 @@
 	fr=LANGUE ET TEXTE;
 	es=IDIOMA Y TEXTO;
 	it=LINGUA E TESTO;
+	}
+
+[KEY LAYOUT INSTALLED]
+	{
+	de=TASTENBELEGUNG INSTALLIERT;
+	fr=DISPOSITION DES TOUCHES INSTALLÉE;
+	es=DISTRIBUCIÓN DE TECLAS INSTALADA;
+	it=DISPOSIZIONE DEI TASTI INSTALLATA;
+	}
+
+[KEY LAYOUT NOT INSTALLED]
+	{
+	de=TASTENBELEGUNG NICHT INSTALLIERT;
+	fr=DISPOSITION DES TOUCHES NON INSTALLÉE;
+	es=DISTRIBUCIÓN DE TECLAS NO INSTALADA;
+	it=DISPOSIZIONE DEI TASTI NON INSTALLATA;
+	}
+
+[KEY LAYOUT UPDATED]
+	{
+	de=TASTENBELEGUNG AKTUALISIERT;
+	fr=DISPOSITION DES TOUCHES MISE À JOUR;
+	es=DISTRIBUCIÓN DE TECLAS ACTUALIZADA;
+	it=DISPOSIZIONE DEI TASTI AGGIORNATA;
 	}
 
 [LANGUAGE INSTALLED]
@@ -8082,6 +8202,14 @@
 	it=REINSTALLA CERVELLO;
 	}
 
+[REINSTALL KEY LAYOUT]
+	{
+	de=TASTENBELEGUNG NEU INSTALLIEREN;
+	fr=RÉINSTALLER LA DISPOSITION DES TOUCHES;
+	es=REINSTALAR DISTRIBUCIÓN DE TECLAS;
+	it=REINSTALLA DISPOSIZIONE DEI TASTI;
+	}
+
 [REINSTALL LANGUAGE]
 	{
 	de=SPRACHE NEU INSTALLIEREN;
@@ -8192,6 +8320,14 @@
 	fr=REMPLACER LES FICHIERS DU JEU;
 	es=REEMPLAZAR LOS ARCHIVOS DEL JUEGO;
 	it=SOSTITUISCI I FILE DI GIOCO;
+	}
+
+[REPLACE KEY LAYOUT]
+	{
+	de=TASTENBELEGUNG ERSETZEN;
+	fr=REMPLACER LA DISPOSITION DES TOUCHES;
+	es=REEMPLAZAR DISTRIBUCIÓN DE TECLAS;
+	it=SOSTITUISCI DISPOSIZIONE DEI TASTI;
 	}
 
 [REPLACE LANGUAGE]
@@ -9682,6 +9818,22 @@
 	it=Passare a {title} ora? Il gioco ricarica i dati per il nuovo mod e torna al menu principale. Le altre impostazioni restano.;
 	}
 
+[Switching off {name}…]
+	{
+	de={name} wird ausgeschaltet…;
+	fr=Désactivation de {name}…;
+	es=Desactivando {name}…;
+	it=Disattivazione di {name}…;
+	}
+
+[Switching on {name}…]
+	{
+	de={name} wird eingeschaltet…;
+	fr=Activation de {name}…;
+	es=Activando {name}…;
+	it=Attivazione di {name}…;
+	}
+
 [Switching to {name} restarts the game's files, then loads this save.]
 	{
 	de=Der Wechsel zu {name} lädt die Spieldateien neu und dann diesen Spielstand.;
@@ -10258,6 +10410,14 @@
 	it=La cartella {name} non contiene questo cervello. Resta com'è.;
 	}
 
+[The folder {name} does not hold this key layout. It is left as it is.]
+	{
+	de=Der Ordner {name} enthält diese Tastenbelegung nicht. Er bleibt, wie er ist.;
+	fr=Le dossier {name} ne contient pas cette disposition des touches. Il est laissé tel quel.;
+	es=La carpeta {name} no contiene esta distribución de teclas. Se deja como está.;
+	it=La cartella {name} non contiene questa disposizione dei tasti. Resta com'è.;
+	}
+
 [The folder {name} does not hold this map pack. It is left as it is.]
 	{
 	de=Der Ordner {name} enthält dieses Kartenpaket nicht. Er bleibt, wie er ist.;
@@ -10506,6 +10666,14 @@
 	it=I nuovi file di gioco si usano dal prossimo avvio di Open Annihilation. Aggiungere o rimuovere file aspetta fino ad allora.;
 	}
 
+[The id {id} is kept for your own changes.]
+	{
+	de=Die Kennung {id} ist für deine eigenen Änderungen reserviert.;
+	fr=L'identifiant {id} est gardé pour tes propres changements.;
+	es=El identificador {id} está reservado para tus propios cambios.;
+	it=L'identificatore {id} è tenuto per le tue modifiche.;
+	}
+
 [The pack holds {name}, which no map uses.]
 	{
 	de=Das Paket enthält {name}, das keine Karte nutzt.;
@@ -10544,6 +10712,14 @@
 	fr=Le paquet contient {name}, en dehors des fichiers qu'un cerveau peut contenir.;
 	es=El paquete contiene {name}, fuera de los archivos que puede tener un cerebro.;
 	it=Il pacchetto contiene {name}, fuori dai file che un cervello può avere.;
+	}
+
+[The package holds {name}, outside the files a key layout may hold.]
+	{
+	de=Das Paket enthält {name}, außerhalb der Dateien, die eine Tastenbelegung haben darf.;
+	fr=Le paquet contient {name}, en dehors des fichiers qu'une disposition des touches peut contenir.;
+	es=El paquete contiene {name}, fuera de los archivos que puede tener una distribución de teclas.;
+	it=Il pacchetto contiene {name}, fuori dai file che una disposizione dei tasti può avere.;
 	}
 
 [The package holds {name}, outside the folders a mutator may hold.]
@@ -11378,12 +11554,28 @@
 	it=AGGIORNA TUTTO;
 	}
 
+[This version cannot use:]
+	{
+	de=Diese Version kann nicht verwenden:;
+	fr=Cette version ne peut pas utiliser :;
+	es=Esta versión no puede usar:;
+	it=Questa versione non può usare:;
+	}
+
 [UPDATE BRAIN]
 	{
 	de=GEHIRN AKTUALISIEREN;
 	fr=METTRE À JOUR LE CERVEAU;
 	es=ACTUALIZAR CEREBRO;
 	it=AGGIORNA CERVELLO;
+	}
+
+[UPDATE KEY LAYOUT]
+	{
+	de=TASTENBELEGUNG AKTUALISIEREN;
+	fr=METTRE À JOUR LA DISPOSITION DES TOUCHES;
+	es=ACTUALIZAR DISTRIBUCIÓN DE TECLAS;
+	it=AGGIORNA DISPOSIZIONE DEI TASTI;
 	}
 
 [UPDATE LANGUAGE]
@@ -12434,6 +12626,22 @@
 	it=La tua cartella Brains non ha un nome di cartella libero per esso.;
 	}
 
+[Your Keys folder changed while this key layout was being installed; nothing was changed. Open the file again.]
+	{
+	de=Dein Ordner Keys hat sich geändert, während diese Tastenbelegung installiert wurde. Es wurde nichts geändert. Öffne die Datei erneut.;
+	fr=Ton dossier Keys a changé pendant l'installation de cette disposition des touches. Rien n'a été changé. Ouvre le fichier à nouveau.;
+	es=Tu carpeta Keys cambió mientras se instalaba esta distribución de teclas. No se cambió nada. Abre el archivo de nuevo.;
+	it=La tua cartella Keys è cambiata mentre questa disposizione dei tasti veniva installata. Non è stato cambiato nulla. Apri di nuovo il file.;
+	}
+
+[Your Keys folder has no free folder name for it.]
+	{
+	de=Dein Ordner Keys hat keinen freien Ordnernamen dafür.;
+	fr=Ton dossier Keys n'a aucun nom de dossier libre pour elle.;
+	es=Tu carpeta Keys no tiene un nombre de carpeta libre para ella.;
+	it=La tua cartella Keys non ha un nome di cartella libero per essa.;
+	}
+
 [Your Maps folder changed while this map pack was being installed; nothing was changed. Open the file again.]
 	{
 	de=Dein Ordner Maps hat sich geändert, während dieses Kartenpaket installiert wurde. Es wurde nichts geändert. Öffne die Datei erneut.;
@@ -12752,6 +12960,14 @@
 	fr=et;
 	es=y;
 	it=e;
+	}
+
+[and {n} more]
+	{
+	de=und {n} weitere;
+	fr=et {n} de plus;
+	es=y {n} más;
+	it=e altri {n};
 	}
 
 [anywhere the file picker reaches]
@@ -14560,6 +14776,14 @@
 	fr={name} de {installed} est installé. Le remplacer par {name} de {new} ? Celui de {installed} est gardé, et RESTAURER le ramène.;
 	es={name} de {installed} está instalado. ¿Reemplazarlo por {name} de {new}? El de {installed} se conserva, y REVERTIR lo trae de vuelta.;
 	it={name} da {installed} è installato. Sostituirlo con {name} da {new}? Quello da {installed} viene tenuto, e RIPRISTINA lo riporta.;
+	}
+
+[{name} is installed. Choose USE in the Library's Keys tab to play with it.]
+	{
+	de={name} ist installiert. Wähle BENUTZEN im Tab Keys der Bibliothek, um damit zu spielen.;
+	fr={name} est installée. Choisis UTILISER dans l'onglet Keys de la Bibliothèque pour jouer avec.;
+	es={name} está instalada. Elige USAR en la pestaña Keys de la Biblioteca para jugar con ella.;
+	it={name} è installata. Scegli USA nella scheda Keys della Biblioteca per giocare con essa.;
 	}
 
 [{name} is installed. Choose it for a computer player when you set up a game.]

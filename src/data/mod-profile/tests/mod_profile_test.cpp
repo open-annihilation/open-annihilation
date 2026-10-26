@@ -743,6 +743,52 @@ void test_blocks() {
         const auto& hidden = room_other.resolution->profile.identity.battle_room_hidden_sides;
         OA_CHECK(hidden.count == 1 && hidden.items[0] == 3);
     }
+    // The sides a computer player may take: an empty list hashes as a profile
+    // without the key; naming a side changes the full hash and not the sim hash.
+    const ResolveResult computers_none =
+        resolve(profile_text("minimal", "identity:\n  computer-player-sides: []\n"));
+    const ResolveResult computers_arm =
+        resolve(profile_text("minimal", "identity:\n  computer-player-sides: [0]\n"));
+    OA_CHECK(computers_none.resolution && computers_arm.resolution);
+    if (computers_none.resolution && computers_arm.resolution && left_out.resolution) {
+        const auto& base = left_out.resolution->profile;
+        OA_CHECK(computers_none.resolution->profile.full_hash == base.full_hash);
+        OA_CHECK(computers_none.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(computers_arm.resolution->profile.sim_hash == base.sim_hash);
+        OA_CHECK(computers_arm.resolution->profile.full_hash != base.full_hash);
+        const auto& taken = computers_arm.resolution->profile.identity.computer_player_sides;
+        OA_CHECK(taken.count == 1 && taken.items[0] == 0);
+    }
+    OA_CHECK(refused_with(
+        profile_text("computer-side-past", "identity:\n  computer-player-sides: [5]\n"),
+        "side 5 is past the 5 sides of limits.sides"
+    ));
+    const ResolveResult computers_wide = resolve(profile_text(
+        "computer-sides", "limits: {sides: 7}\nidentity:\n  computer-player-sides: [5]\n"
+    ));
+    OA_CHECK(computers_wide.resolution.has_value());
+    if (computers_wide.resolution) {
+        const auto& taken = computers_wide.resolution->profile.identity.computer_player_sides;
+        OA_CHECK(taken.count == 1 && taken.items[0] == 5);
+    }
+    OA_CHECK(refused_with(
+        profile_text(
+            "computer-skirmish-hidden",
+            "identity:\n  computer-player-sides: [1]\n  skirmish-hidden-sides: [1]\n"
+        ),
+        "hidden from the skirmish"
+    ));
+    OA_CHECK(refused_with(
+        profile_text(
+            "computer-room-hidden",
+            "identity:\n  computer-player-sides: [1]\n  battle-room-hidden-sides: [1]\n"
+        ),
+        "hidden from the battle room"
+    ));
+    OA_CHECK(refused_with(
+        profile_text("computer-side-ceiling", "identity:\n  computer-player-sides: [32]\n"),
+        "is outside [0, 31]"
+    ));
     // At five sides, side 5 is past the limit. With seven sides, 5 and 6 are
     // hidden: view scope, so the full hash moves and the sim hash does not.
     OA_CHECK(refused_with(

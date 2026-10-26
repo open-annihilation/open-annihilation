@@ -30,8 +30,8 @@ relationship, keeping every layer that reaches past the frame.
   draw a rendered frame with its own width, height and origin.
 
 `parse` keeps every simple frame's decoded pixels and coverage by default.
-With `PixelData::checked` it decodes and checks them all the same, so a file
-parses or fails exactly as it would, and keeps none: the archive holds each
+With `PixelData::checked` it checks them as decoding would, so a file
+parses or fails exactly as it would, and keeps nothing: the archive holds each
 frame's size, origin, duration and layers, and where each simple frame's
 pixel data lies in the file (`pixel_data_offset`, `pixel_data_bytes`).
 `parse_sequence` then decodes one sequence of the file, by its place in the

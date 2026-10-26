@@ -3,6 +3,7 @@
 
 // Match left-click handling, selection, tracking and squads.
 #include "oa/app/runtime.hpp"
+#include "touch_state.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/selection.hpp"
 #include <SDL3/SDL.h>
@@ -76,7 +77,13 @@ void Runtime::handle_match_left_click(float x, float y, int32_t clicks) {
             issue_pointer_ground_blast(x, y, queueing());
         return;
     }
-    const bool force_attack = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0;
+    // The role replaces the keyboard's Ctrl. The pad's FORCE is not asked here; the click's
+    // pulse still carries the Ctrl that pulse holds for this press, as the keyboard read did.
+    uint32_t click_pulse = 0;
+    if (const auto* touch = touch_state_if_made())
+        click_pulse = static_cast<uint32_t>(touch->dispatch.pulse);
+    const bool force_attack =
+        modifier_role_active("order.force-modifier") || (click_pulse & SDL_KMOD_CTRL) != 0;
     if ((match_command_ == MatchCommand::none && !force_attack) ||
         match_command_ == MatchCommand::move || match_command_ == MatchCommand::repair ||
         match_command_ == MatchCommand::guard) {
@@ -152,7 +159,10 @@ bool Runtime::issue_pointer_unit_orders(float x, float y, int32_t clicks, bool q
         select_match_unit(x, y, clicks);
         return true;
     case input::ClickAction::clear_selection:
+        // The unit info panel over the order panel closes with it, as over
+        // open ground.
         clear_local_selection();
+        close_unit_info();
         apply_match_hud_for_selection();
         return true;
     case input::ClickAction::issue_command:
@@ -560,16 +570,6 @@ void Runtime::select_units_matching(
     selected_match_unit_ = first;
     apply_match_hud_for_selection();
     status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
-}
-
-int Runtime::squad_from_key(const SDL_KeyboardEvent& key) const {
-    if (key.scancode >= SDL_SCANCODE_1 && key.scancode <= SDL_SCANCODE_9)
-        return static_cast<int>(key.scancode - SDL_SCANCODE_1) + 1;
-    if (key.scancode >= SDL_SCANCODE_KP_1 && key.scancode <= SDL_SCANCODE_KP_9)
-        return static_cast<int>(key.scancode - SDL_SCANCODE_KP_1) + 1;
-    if (key.key >= SDLK_1 && key.key <= SDLK_9)
-        return static_cast<int>(key.key - SDLK_1) + 1;
-    return 0;
 }
 
 } // namespace oa::app

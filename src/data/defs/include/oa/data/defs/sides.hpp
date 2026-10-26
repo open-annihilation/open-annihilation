@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <vector>
 
 namespace oa::data::defs {
 
@@ -21,27 +22,51 @@ inline constexpr std::size_t side_panel_gaf_capacity = 0x1e;
 // Bytes of a side's font name, its terminating NUL included.
 inline constexpr std::size_t side_font_name_capacity = 0x100;
 
-/// Sides one table can hold: the most a profile's `limits.sides` may ask for.
+/// The most sides one load reads. The inline arrays hold the five sides a
+/// stock game has; sides past those live in SideTable::extra_sides, sized to
+/// the sides the load read, never to this ceiling.
 inline constexpr std::size_t side_table_capacity = oa::data::limits::highest_sides;
 static_assert(side_table_capacity >= OA_SIDE_COUNT);
 
+/// One side past the five the inline arrays hold, with the names its section gave.
+struct ExtraSide {
+    /// The side record. Its side_index is its index in the table, from 5 up.
+    Side side{};
+    /// Its intgaf: the GAF in anims/ that holds its panels. Empty when the section has no intgaf key.
+    char panel_gaf[side_panel_gaf_capacity]{};
+    /// Its font: the FNT in fonts/ its resource numbers and unit panel use. Empty when the section has no font key.
+    char font_name[side_font_name_capacity]{};
+    /// The section has an intgaf key, an empty name included.
+    bool has_panel_gaf{};
+    /// The section has a font key, an empty name included.
+    bool has_font{};
+};
+
 struct SideTable {
-    Side sides[side_table_capacity]{};
+    Side sides[OA_SIDE_COUNT]{};
     uint32_t count{};
     uint32_t limit{};                  // sides this load could take
     uint32_t past_limit{};             // SIDE sections from SIDE<limit> on, left out unread
     char error[side_error_capacity]{}; // set when a required rectangle is missing
-    // Each side's intgaf: the GAF in anims/ that holds its PANELTOP,
-    // PANELSIDE and PANELBOT.
-    char panel_gaf[side_table_capacity][side_panel_gaf_capacity]{};
-    // Each side's font: the FNT in fonts/ that its resource numbers and unit
-    // panel are drawn in.
-    char font_name[side_table_capacity][side_font_name_capacity]{};
-    // Whether each side's section has an intgaf key, and a font key: a side
-    // without one has no panels, or no font of its own, and one with it
-    // needs the file it names, an empty name included.
-    bool has_panel_gaf[side_table_capacity]{};
-    bool has_font[side_table_capacity]{};
+    // Each of the five sides' intgaf: the GAF in anims/ that holds its
+    // PANELTOP, PANELSIDE and PANELBOT.
+    char panel_gaf[OA_SIDE_COUNT][side_panel_gaf_capacity]{};
+    // Each of the five sides' font: the FNT in fonts/ that its resource
+    // numbers and unit panel are drawn in.
+    char font_name[OA_SIDE_COUNT][side_font_name_capacity]{};
+    // Whether each of the five sides' section has an intgaf key, and a font
+    // key: a side without one has no panels, or no font of its own, and one
+    // with it needs the file it names, an empty name included.
+    bool has_panel_gaf[OA_SIDE_COUNT]{};
+    bool has_font[OA_SIDE_COUNT]{};
+    /// Sides from the sixth on, one entry per side the load read. Empty when the load read five or fewer.
+    std::vector<ExtraSide> extra_sides{};
+
+    static_assert(sizeof(sides) / sizeof(sides[0]) == OA_SIDE_COUNT);
+    static_assert(sizeof(panel_gaf) / sizeof(panel_gaf[0]) == OA_SIDE_COUNT);
+    static_assert(sizeof(font_name) / sizeof(font_name[0]) == OA_SIDE_COUNT);
+    static_assert(sizeof(has_panel_gaf) / sizeof(has_panel_gaf[0]) == OA_SIDE_COUNT);
+    static_assert(sizeof(has_font) / sizeof(has_font[0]) == OA_SIDE_COUNT);
 };
 
 // A file a side's SIDEDATA section names.
@@ -72,6 +97,64 @@ struct SideFontResolver {
 /// @return index of the side in its table
 [[nodiscard]] uint32_t side_index(const Side* side) noexcept;
 
+/// Returns the side record at `index`.
+///
+/// The five inline slots are always present, including ones no section
+/// filled. A later index is present only when the load read that side.
+///
+/// @param table side table
+/// @param index side index, from 0
+/// @return the record, or null when the table does not hold that side
+[[nodiscard]] const Side* side_at(const SideTable& table, uint32_t index) noexcept;
+
+/// Returns the panel GAF name at `index`.
+///
+/// The name is the side's intgaf, empty when its section has no such key.
+/// The five inline names are always present.
+///
+/// @param table side table
+/// @param index side index, from 0
+/// @return the name, or null when the table does not hold that side
+[[nodiscard]] const char* panel_gaf_of(const SideTable& table, uint32_t index) noexcept;
+
+/// Returns the font name at `index`.
+///
+/// The name is the side's font, empty when its section has no such key.
+/// The five inline names are always present.
+///
+/// @param table side table
+/// @param index side index, from 0
+/// @return the name, or null when the table does not hold that side
+[[nodiscard]] const char* font_name_of(const SideTable& table, uint32_t index) noexcept;
+
+/// Reports whether the side at `index` has an intgaf key.
+///
+/// An empty name still counts. A side the table does not hold has none.
+///
+/// @param table side table
+/// @param index side index, from 0
+/// @return true when that side's section has an intgaf key
+[[nodiscard]] bool side_has_panel_gaf(const SideTable& table, uint32_t index) noexcept;
+
+/// Reports whether the side at `index` has a font key.
+///
+/// An empty name still counts. A side the table does not hold has none.
+///
+/// @param table side table
+/// @param index side index, from 0
+/// @return true when that side's section has a font key
+[[nodiscard]] bool side_has_font(const SideTable& table, uint32_t index) noexcept;
+
+/// Copies the side records in index order.
+///
+/// The result always covers the five inline slots, so a caller that reads
+/// the first five still sees the zeroed ones when fewer sections loaded.
+/// Further records are the sides the load read.
+///
+/// @param table side table
+/// @return the records; its size is the greater of five and table.count
+[[nodiscard]] std::vector<Side> side_records(const SideTable& table);
+
 /// Reads x1/y1/x2/y2 of a named sub-section of the side section at the document cursor.
 ///
 /// The cursor is restored afterwards. Missing keys read as 0.
@@ -96,12 +179,16 @@ bool side_load_rect(
 
 /// Loads SIDE0, SIDE1, ... until one is missing or `side_limit` sides are read.
 ///
-/// Each side reads name, nameprefix, commander, intgaf (into panel_gaf, up to
-/// 29 characters), font (into font_name, and through `fonts`), energycolor,
-/// metalcolor, its HUD rectangles in the game's read order and
-/// RELOAD1..RELOAD3; has_panel_gaf and has_font tell which of the two keys
-/// its section has. The table is zeroed first and every visited slot gets its
-/// index. At most side_table_capacity sides are read. `limit` stores that
+/// Each side reads name, nameprefix, commander, intgaf (into its panel GAF
+/// name, up to 29 characters), font (into its font name, and through
+/// `fonts`), energycolor, metalcolor, its HUD rectangles in the game's read
+/// order and RELOAD1..RELOAD3; side_has_panel_gaf and side_has_font tell
+/// which of the two keys its section has. The inline slots are cleared and
+/// any sides past the fifth are dropped. Each of the five inline slots the
+/// load visits gets its index, including the first missing section when that
+/// section is one of those five. A section from SIDE5 on is stored only when
+/// it is read, so the extra storage matches the sides read and not the
+/// ceiling. At most side_table_capacity sides are read. `limit` stores that
 /// cap. When the cap was reached, sections from `SIDE<limit>` on are counted
 /// into `past_limit` and left unread: their keys and rectangles are not
 /// touched, so a broken section past the limit refuses nothing.

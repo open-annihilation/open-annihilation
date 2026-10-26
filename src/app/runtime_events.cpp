@@ -255,7 +255,9 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // With the Mouse wheel zoom setting off the wheel does nothing here.
         if (!engine_settings().wheel_zoom || !convert_event_to_frame(sdl_.renderer, event))
             return;
-        handle_match_zoom(event.wheel.y, event.wheel.mouse_x, event.wheel.mouse_y, true);
+        handle_match_zoom(
+            pointer_zoom_amount(event.wheel.y), event.wheel.mouse_x, event.wheel.mouse_y, true
+        );
         return;
     }
     if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::map_selection &&
@@ -312,6 +314,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         match_pointer_known_ =
             screen_ == Screen::match && event_mouse_id(event) != SDL_TOUCH_MOUSEID;
         update_pointer(x, y);
+        // Select boxes and orders; command looks, clears and orders as the
+        // right button does. The interface mode decides what each press means.
+        const uint8_t select_button = match_select_button();
+        const uint8_t command_button = match_command_button();
         // The release of a press that ended a middle-click pan, before a
         // panel or the whiteboard can take it. A left order is given on
         // the release.
@@ -325,8 +331,12 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             zoom_focus_ = {true, x, y};
         // Only a left press the radar acted on (below) leaves its release
         // nothing to do; any other left press clears that mark.
-        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == SDL_BUTTON_LEFT)
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == select_button)
             radar_left_press_held_ = false;
+        // An open unit info panel takes a press on it, and the release that
+        // ends it, before anything under it; the side column takes none.
+        if (unit_info_pointer(event, x, y))
+            return;
         // The commander placement (setup.commander-warp) takes the pointer
         // first; ui.resource-panel's panel floats over the battlefield and
         // takes it next; ui.build-tools' drag with the snap override key
@@ -347,7 +357,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             released_hud = std::exchange(match_hud_held_, std::nullopt);
         else if (
             screen_ == Screen::match && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-            (event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT)
+            (event.button.button == select_button || event.button.button == command_button)
         )
             match_hud_held_ = hovered_;
         // A press on a scroll bar or its arrow, and the release of a held
@@ -358,7 +368,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // battlefield's, as in 3.1c, and a radar scroll or mouse look its
         // press starts follows the pointer until the button comes up.
         const bool beside_menu = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-                                 event.button.button == SDL_BUTTON_RIGHT &&
+                                 event.button.button == command_button &&
                                  right_press_beside_menu(x, y);
         const bool pointer_mode =
             match_ && (match_->state().game.mouse_look_active != 0 ||
@@ -375,7 +385,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         if (screen_ == Screen::match && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
             (!match_paused_ || beside_menu) && !match_finished_ && !hovered_ && match_ &&
             !placed_hud_covers(x, y)) {
-            if (event.button.button == SDL_BUTTON_RIGHT) {
+            if (event.button.button == command_button) {
                 // ui.selection-shortcuts takes a right double-click too.
                 if (!selection_shortcut_double_click(x, y, event.button.clicks))
                     handle_match_right_press(x, y);
@@ -386,7 +396,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             // the view with the pointer until the button comes up, as the
             // left-click interface's right press does.
             namespace input = oa::sim::gameplay_input;
-            if (event.button.button == SDL_BUTTON_LEFT) {
+            if (event.button.button == select_button) {
                 // The pick is wanted for what it writes into the Game block
                 // (the pointer's unit, armed order and ground), which the
                 // radar scroll reads; the cursor it returns is not needed.
@@ -406,7 +416,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             }
         }
         if (screen_ == Screen::match && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
-            event.button.button == SDL_BUTTON_LEFT && !match_paused_ && !match_finished_ &&
+            event.button.button == select_button && !match_paused_ && !match_finished_ &&
             match_command_ == MatchCommand::none && !hovered_ && !radar_contains(x, y) &&
             !placed_hud_covers(x, y) && x >= static_cast<float>(match_layout_.left) &&
             y >= static_cast<float>(match_layout_.top) &&
@@ -420,7 +430,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         if (screen_ == Screen::match && event.type == SDL_EVENT_MOUSE_MOTION && match_drag_)
             track_match_drag();
         if (screen_ == Screen::match && event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
-            event.button.button == SDL_BUTTON_LEFT) {
+            event.button.button == select_button) {
             if (match_finished_ || std::exchange(radar_left_press_held_, false)) {
                 match_drag_.reset();
                 return;
@@ -452,7 +462,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             return;
         }
         if (screen_ == Screen::match && event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
-            event.button.button == SDL_BUTTON_RIGHT) {
+            event.button.button == command_button) {
             if (match_paused_ || match_finished_)
                 return;
             // The right button on a unit or weapon build button is the same

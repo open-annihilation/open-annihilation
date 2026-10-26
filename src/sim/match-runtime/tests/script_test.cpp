@@ -139,6 +139,66 @@ int main() {
         failed_callback = true;
     }));
     CHECK(!failed_callback);
+    CHECK(!parameter_script.call_no_arguments(ScriptFunction::create, true, [&](int32_t) {
+        failed_callback = true;
+    }));
+    CHECK(!failed_callback);
+    // A fixed engine function starts the first script with its exact name, as
+    // the same call by name does; a name differing only in case is not it.
+    auto fixed_cob = std::make_shared<oa::formats::cob::CobProgram>();
+    fixed_cob->code = {
+        opcode::push_constant,
+        1,
+        opcode::return_,
+        opcode::push_constant,
+        2,
+        opcode::return_,
+        opcode::push_constant,
+        3,
+        opcode::return_,
+        opcode::push_local,
+        0,
+        opcode::pop_static,
+        0,
+        opcode::push_constant,
+        31,
+        opcode::pop_local,
+        0,
+        opcode::return_
+    };
+    fixed_cob->entry_points = {0, 3, 6, 9};
+    fixed_cob->scripts = {{"rockunit", 0}, {"RockUnit", 3}, {"RockUnit", 6}, {"SweetSpot", 9}};
+    fixed_cob->header.static_variable_count = 1;
+    ScriptInstance fixed(fixed_cob, vmhost, 30);
+    CHECK(fixed.find(ScriptFunction::rock_unit) == 1 && fixed.find("RockUnit") == 1);
+    CHECK(fixed.find(ScriptFunction::sweet_spot) == 3);
+    CHECK(fixed.find(ScriptFunction::create) == -1 && fixed.find(ScriptFunction::killed) == -1);
+    CHECK(fixed.find(static_cast<ScriptFunction>(0xff)) == fixed.find(ScriptFunction::create));
+    const std::array<int32_t, 2> rock{-4, 6};
+    returned = -1;
+    CHECK(fixed.call(ScriptFunction::rock_unit, rock, true, [&](int32_t n) { returned = n; }));
+    CHECK(returned == 2);
+    returned = -1;
+    CHECK(!fixed.call(ScriptFunction::hit_by_weapon, rock, true, [&](int32_t n) { returned = n; }));
+    CHECK(returned == 0);
+    returned = -1;
+    const std::array<int32_t, 5> too_many{};
+    CHECK(!fixed.call(ScriptFunction::rock_unit, too_many, true, [&](int32_t n) { returned = n; }));
+    CHECK(returned == 0);
+    returned = -1;
+    CHECK(fixed.call_with_locals(ScriptFunction::rock_unit, four, 1, true, [&](int32_t n) {
+        returned = n;
+    }));
+    CHECK(returned == 2);
+    std::array<int32_t, 4> spot{9, 0, 0, 0};
+    CHECK(fixed.query(ScriptFunction::sweet_spot, spot));
+    CHECK(spot[0] == 31 && fixed.vm().static_value(0) == 9);
+    std::array<int32_t, 4> missing{5, 6, 7, 8};
+    CHECK(!fixed.query(ScriptFunction::query_primary, missing));
+    CHECK(missing == (std::array<int32_t, 4>{5, 6, 7, 8}));
+    // An instance without a program finds no fixed function.
+    ScriptInstance empty(nullptr, vmhost, 30);
+    CHECK(empty.find(ScriptFunction::create) == -1);
     oa::sim::unit_spawn::LegacyWorld world(2);
     world.types()[1].simulation.maximum_health = 100;
     world.load_types();

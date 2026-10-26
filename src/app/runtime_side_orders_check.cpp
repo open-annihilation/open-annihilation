@@ -93,8 +93,8 @@ void Runtime::check_side_orders() {
     for (std::size_t side = 0; side < side_table_.count; ++side) {
         if (side < 32 && ((hidden_sides >> side) & 1u) != 0)
             continue;
-        const auto side_name =
-            field_text(side_table_.sides[side].name, sizeof side_table_.sides[side].name);
+        const oa::Side* loaded = oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side));
+        const auto side_name = field_text(loaded->name, sizeof loaded->name);
         const auto fail = [&side_name](const std::string& what) {
             throw std::runtime_error("side orders check: " + side_name + ": " + what);
         };
@@ -360,12 +360,8 @@ void Runtime::check_side_orders() {
             fail(move_name + " did not send " + unit_name(commander) + " toward the clicked point");
         done.push_back(move_name);
 
-        report +=
-            (report.empty() ? "" : "; ") + side_name + " (" +
-            field_text(
-                side_table_.sides[side].name_prefix, sizeof side_table_.sides[side].name_prefix
-            ) +
-            "):";
+        report += (report.empty() ? "" : "; ") + side_name + " (" +
+                  field_text(loaded->name_prefix, sizeof loaded->name_prefix) + "):";
         for (const auto& entry : done)
             report += " " + entry;
     }

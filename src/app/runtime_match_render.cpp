@@ -12,6 +12,7 @@
 #include "presentation_interpolation.hpp"
 #include "world_draws.hpp"
 #include "renderer_weapon_style.hpp"
+#include "xrgb_conversion.hpp"
 #include "oa/base/float_precision.hpp"
 #include "oa/present/model/model_draw.hpp"
 #include "oa/present/model/rgb_bridge.hpp"
@@ -820,6 +821,102 @@ renderer::ButtonCondition Runtime::match_button_condition(std::size_t index) con
     return renderer::ButtonCondition::normal;
 }
 
+void Runtime::compose_match_hud() {
+    // The HUD is drawn into the memory of the layer the frame before last
+    // showed, so that a frame takes none of its own.
+    renderer::Surface hud = std::move(spare_match_hud_);
+    if (director_ != nullptr && !director_->presentation.show_interface) {
+        // No interface: the HUD layer stays empty.
+        hud.width = 0;
+        hud.height = 0;
+        hud.rgb.clear();
+    } else if (match_hud_) {
+        // The bars reach the window's right edge: past 640 columns on a
+        // window wider than the interface, or beside a narrowed side column.
+        extend_match_bars(kBattlefieldLeft + match_layout_.bar_columns());
+        std::vector<renderer::ButtonPresentation> buttons;
+        for (std::size_t index = 0; index < match_hud_->layout.gadgets.size(); ++index) {
+            if (const auto frame = greyed_picture_frame(match_hud_->layout.gadgets[index])) {
+                buttons.push_back(
+                    {match_hud_->layout.gadgets[index].common.name,
+                     renderer::ButtonCondition::disabled,
+                     frame,
+                     std::nullopt,
+                     std::nullopt}
+                );
+                continue;
+            }
+            // The order page's status buttons draw a grayed state instead of hiding.
+            const auto status_frame = match_status_frame(index);
+            const auto condition = match_button_condition(index);
+            // A multi-stage button (RESTART.GUI's Difficulty) shows its stage.
+            const auto& gadget = match_hud_->layout.gadgets[index];
+            std::optional<std::size_t> stage;
+            if (const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+                button != nullptr && button->stages > 1) {
+                if (const auto found = widget_text_stages_.find(gadget.common.name);
+                    found != widget_text_stages_.end())
+                    stage = found->second;
+            }
+            buttons.push_back(
+                {gadget.common.name,
+                 condition,
+                 status_frame ? status_frame : stage,
+                 stage,
+                 std::nullopt}
+            );
+            // The button's quick key is underlined in its caption, and the
+            // record holding the keyboard focus is ringed while the match's
+            // panels take the keyboard.
+            if (const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields))
+                buttons.back().quick_key = static_cast<char>(button->quick_key);
+            buttons.back().focused =
+                match_panels_keyboard_ && static_cast<int32_t>(index) == match_hud_focus_;
+        }
+        // A team panel's logos, row icons and recipient list.
+        std::vector<renderer::ListPresentation> lists;
+        present_team_panel(buttons, lists);
+        const auto hud_start = std::chrono::steady_clock::now();
+        renderer::render_screen_into(hud, *match_hud_, buttons, lists);
+        if (auto* scrolls = hud_scrolls()) {
+            renderer::refresh_layout_scrolls(*scrolls, match_hud_->layout);
+            renderer::draw_layout_scrolls(
+                hud,
+                renderer::grayed_paint(*match_hud_, hud_gray_table_),
+                &hud_own_art_,
+                match_hud_->sprites,
+                *scrolls,
+                0,
+                0
+            );
+        }
+        // A placed dialog's panels below go under it as it is composed.
+        if (match_hud_placement_ == 0)
+            compose_panels_below(hud);
+        place_preferences_rows(hud);
+        compose_match_dialog(hud);
+        phase_times_.hud += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - hud_start
+        )
+                                .count();
+    } else if (
+        match_chrome_.width == static_cast<uint32_t>(kCanvasWidth) &&
+        match_chrome_.height == static_cast<uint32_t>(kCanvasHeight) &&
+        match_chrome_.rgb.size() == static_cast<std::size_t>(kCanvasWidth * kCanvasHeight * 3)
+    ) {
+        hud.width = match_chrome_.width;
+        hud.height = match_chrome_.height;
+        hud.rgb.assign(match_chrome_.rgb.begin(), match_chrome_.rgb.end());
+    } else {
+        hud.width = static_cast<uint32_t>(kCanvasWidth);
+        hud.height = static_cast<uint32_t>(kCanvasHeight);
+        hud.rgb.assign(static_cast<std::size_t>(kCanvasWidth * kCanvasHeight * 3), 0);
+    }
+    spare_match_hud_ = std::move(match_hud_cpu_);
+    match_hud_cpu_ = std::move(hud);
+    ++accelerated_.hud_revision;
+}
+
 void Runtime::render_match_surface() {
     // A failed rotated frame puts the view back classic, so the second draw
     // draws the battlefield as the classic tiers do.
@@ -981,96 +1078,7 @@ bool Runtime::draw_match_surface() {
     // The sweep that has just opened the menu shows the sound page on this
     // frame, so the HUD drawn below is that page and not the tabs alone.
     advance_options_lightbar();
-    // The HUD is drawn into the memory of the layer the frame before last
-    // showed, so that a frame takes none of its own.
-    renderer::Surface hud = std::move(spare_match_hud_);
-    if (bare) {
-        // No interface: the HUD layer stays empty.
-        hud.width = 0;
-        hud.height = 0;
-        hud.rgb.clear();
-    } else if (match_hud_) {
-        // The bars reach the window's right edge: past 640 columns on a
-        // window wider than the interface, or beside a narrowed side column.
-        extend_match_bars(kBattlefieldLeft + match_layout_.bar_columns());
-        std::vector<renderer::ButtonPresentation> buttons;
-        for (std::size_t index = 0; index < match_hud_->layout.gadgets.size(); ++index) {
-            if (const auto frame = greyed_picture_frame(match_hud_->layout.gadgets[index])) {
-                buttons.push_back(
-                    {match_hud_->layout.gadgets[index].common.name,
-                     renderer::ButtonCondition::disabled,
-                     frame,
-                     std::nullopt,
-                     std::nullopt}
-                );
-                continue;
-            }
-            // The order page's status buttons draw a grayed state instead of hiding.
-            const auto status_frame = match_status_frame(index);
-            const auto condition = match_button_condition(index);
-            // A multi-stage button (RESTART.GUI's Difficulty) shows its stage.
-            const auto& gadget = match_hud_->layout.gadgets[index];
-            std::optional<std::size_t> stage;
-            if (const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
-                button != nullptr && button->stages > 1) {
-                if (const auto found = widget_text_stages_.find(gadget.common.name);
-                    found != widget_text_stages_.end())
-                    stage = found->second;
-            }
-            buttons.push_back(
-                {gadget.common.name,
-                 condition,
-                 status_frame ? status_frame : stage,
-                 stage,
-                 std::nullopt}
-            );
-            // The button's quick key is underlined in its caption, and the
-            // record holding the keyboard focus is ringed while the match's
-            // panels take the keyboard.
-            if (const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields))
-                buttons.back().quick_key = static_cast<char>(button->quick_key);
-            buttons.back().focused =
-                match_panels_keyboard_ && static_cast<int32_t>(index) == match_hud_focus_;
-        }
-        // A team panel's logos, row icons and recipient list.
-        std::vector<renderer::ListPresentation> lists;
-        present_team_panel(buttons, lists);
-        const auto hud_start = std::chrono::steady_clock::now();
-        renderer::render_screen_into(hud, *match_hud_, buttons, lists);
-        if (auto* scrolls = hud_scrolls()) {
-            renderer::refresh_layout_scrolls(*scrolls, match_hud_->layout);
-            renderer::draw_layout_scrolls(
-                hud,
-                renderer::grayed_paint(*match_hud_, hud_gray_table_),
-                &hud_own_art_,
-                match_hud_->sprites,
-                *scrolls,
-                0,
-                0
-            );
-        }
-        // A placed dialog's panels below go under it as it is composed.
-        if (match_hud_placement_ == 0)
-            compose_panels_below(hud);
-        place_preferences_rows(hud);
-        compose_match_dialog(hud);
-        phase_times_.hud += std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                std::chrono::steady_clock::now() - hud_start
-        )
-                                .count();
-    } else if (
-        match_chrome_.width == static_cast<uint32_t>(kCanvasWidth) &&
-        match_chrome_.height == static_cast<uint32_t>(kCanvasHeight) &&
-        match_chrome_.rgb.size() == static_cast<std::size_t>(kCanvasWidth * kCanvasHeight * 3)
-    ) {
-        hud.width = match_chrome_.width;
-        hud.height = match_chrome_.height;
-        hud.rgb.assign(match_chrome_.rgb.begin(), match_chrome_.rgb.end());
-    } else {
-        hud.width = static_cast<uint32_t>(kCanvasWidth);
-        hud.height = static_cast<uint32_t>(kCanvasHeight);
-        hud.rgb.assign(static_cast<std::size_t>(kCanvasWidth * kCanvasHeight * 3), 0);
-    }
+    compose_match_hud();
     // What the presentation and the picture-keeping readers learn of the frame.
     accelerated_.frame = scaling;
     accelerated_.frame_alpha = presentation_alpha();
@@ -1082,7 +1090,6 @@ bool Runtime::draw_match_surface() {
     accelerated_.frame_offset =
         processor_below_one ? oa::present::world_renderer::ViewOffset{} : drawn_offset;
     accelerated_.frame_shift = card_world ? view_shift() : std::array<double, 2>{};
-    ++accelerated_.hud_revision;
     const int32_t scene_w = scaling.scene_width;
     const int32_t scene_h = scaling.scene_height;
     const auto terrain_pixels =
@@ -1131,17 +1138,12 @@ bool Runtime::draw_match_surface() {
     }
     // The world layer is the battlefield alone; the HUD stays in 640x480
     // source space until presentation (or compose_match_frame) scales it.
-    spare_match_hud_ = std::move(match_hud_cpu_);
-    match_hud_cpu_ = std::move(hud);
     auto& scene_layer = scaling.apart ? match_scene_cpu_ : match_world_cpu_;
     scene_layer.width = static_cast<uint32_t>(scene_w);
     scene_layer.height = static_cast<uint32_t>(scene_h);
     scene_layer.rgb.resize(terrain_pixels);
     if (card_world) {
-        const std::array<uint8_t, 3> key = full_overlay_key();
-        uint8_t* pixel = scene_layer.rgb.data();
-        for (std::size_t left = terrain_pixels / 3U; left != 0; --left, pixel += 3)
-            std::memcpy(pixel, key.data(), 3);
+        fill_rgb24(scene_layer.rgb.data(), terrain_pixels / 3U, full_overlay_key());
         note_full_canvas_pixels(scene_layer.rgb.data());
     } else if (!live_world) {
         std::memcpy(scene_layer.rgb.data(), match_terrain_cache_.rgb.data(), terrain_pixels);
@@ -2309,15 +2311,15 @@ bool Runtime::draw_match_surface() {
     // by the view's offset, to the nearest screen pixel.
     auto painted = viewport;
     align_order_overlay_viewport(painted);
-    // Over the fog tiles: the local player's order overlays while Shift is
-    // held (asked of the keyboard, not the pointer word), so that orders
+    // Over the fog tiles: the local player's order overlays while the queue
+    // modifier is held (asked of that role, not the pointer word), so that orders
     // queued onto never-mapped or unseen ground stay in view (in 3.1c the
     // smoke and the fog cover them), then the HUD overlay's outline of the
     // build site or the drag box. The fog's profile category takes the time
     // of both.
     if (!bare) {
-        if (!live_renderer_active() && (control_key_down(oa::ui::gui_input::ControlKey::shift) ||
-                                        virtual_shift(ModifierUse::order)))
+        if (!live_renderer_active() &&
+            (modifier_role_active("order.queue-modifier") || virtual_shift(ModifierUse::order)))
             // What the pass drew is for the checks alone.
             std::ignore = draw_order_overlays(world_surface, painted);
         if (build_queue_drag_ && build_queue_drag_->moved)

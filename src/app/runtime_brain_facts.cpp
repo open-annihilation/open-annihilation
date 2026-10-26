@@ -58,7 +58,7 @@ oa::data::brain_facts::GameFacts Runtime::brain_game_facts() const {
     facts.mod = oa::data::brain_facts::mod_facts_of(mod_profile());
     facts.mod.sides.reserve(side_table_.count);
     for (uint32_t side_index = 0; side_index < side_table_.count; ++side_index) {
-        const Side& side = side_table_.sides[side_index];
+        const Side& side = *oa::data::defs::side_at(side_table_, side_index);
         oa::data::brain_facts::SideFacts stored;
         stored.name = text_of(side.name, sizeof side.name);
         stored.prefix = text_of(side.name_prefix, sizeof side.name_prefix);

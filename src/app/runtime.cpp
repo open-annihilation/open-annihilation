@@ -423,8 +423,12 @@ Runtime::Runtime(
     // stays closed then. A bundle this start's setup already copied and
     // checked is answered from that result and is not read again.
     phase_began = oa::platform::tick_ms();
-    const char* content_line = options_.restarts > 0 ? "Applying your changes"
-                                                     : "Checking your copy of Total Annihilation";
+    // A switch of the mod in the Library says what it switches.
+    const std::string_view applying = options_.restart_line.empty()
+                                          ? std::string_view("Applying your changes")
+                                          : std::string_view(options_.restart_line);
+    const std::string_view content_line =
+        options_.restarts > 0 ? applying : "Checking your copy of Total Annihilation";
     run_progress(content_line, [this](LongWork& work) {
         const auto note = [](uint32_t files_done, uint32_t files_total, void* context) -> bool {
             auto& held = *static_cast<LongWork*>(context);
@@ -467,7 +471,7 @@ Runtime::Runtime(
     // table and the fonts: 3.1c's command line, else the setting, else the
     // operating system's.
     phase_began = oa::platform::tick_ms();
-    run_progress("Applying your changes", [this](LongWork&) { start_language(); });
+    run_progress(applying, [this](LongWork&) { start_language(); });
     mark_phase("language", phase_began);
     // SIDEDATA, and the sides' interface art and fonts it names, from the
     // language's folders first.
@@ -1071,6 +1075,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_timing) {
+            check_key_timing();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_megamap_clicks) {
             check_megamap_clicks();
             flush_preferences();
@@ -1185,7 +1194,7 @@ void Runtime::run_frame(bool& running) {
     while (SDL_PollEvent(&event))
         dispatch_event(event, running);
     // Holds finish on the frame's clock, after this frame's events.
-    advance_input_actions();
+    advance_input_actions(running);
     // Whatever showed or hid the system's pointer since the last frame, the
     // rule holds again before this frame is drawn; so does the window's
     // frame, for the screen the events left.
@@ -1273,8 +1282,14 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // While an input method composes, the keys it uses are its own.
     if (take_composition_event(event))
         return;
-    // The action events are kept. Nothing acts on them.
-    feed_input_actions(event);
+    // The action events are kept. Nothing acts on them. A key held back or
+    // dropped here does not reach the screen.
+    if (feed_input_actions(event))
+        return;
+    dispatch_after_actions(event, running);
+}
+
+void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
     // Alt+Enter switches between full screen and a window on every screen,
     // before the screen or a screen package sees the key; its repeats reach
     // no screen either, so a held Alt+Enter never opens the chat line or

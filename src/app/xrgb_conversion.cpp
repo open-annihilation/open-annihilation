@@ -84,10 +84,54 @@ namespace {
 /// Most palette entries overlay_key_colour reads.
 constexpr std::size_t most_palette_entries = 256;
 
+/// Most bytes fill_rgb24 copies at once: whole pixels, few enough that the
+/// block copied from stays in the processor's cache.
+constexpr std::size_t fill_rgb24_block_bytes = 3U * 16384U;
+
+/// Converts one row of a painted canvas into ARGB8888 overlay words:
+/// transparent where `transparent` says a pixel was not painted, else the
+/// canvas's colour, through the gamma table when `apply_gamma` holds, opaque.
+///
+/// @param painted the row's first pixel, 3 bytes a pixel
+/// @param at the byte offset of the row's first pixel in the canvas
+/// @param width pixels in the row
+/// @param[out] row the row's `width` words
+/// @param table the gamma table; read only when `apply_gamma` holds
+/// @param transparent tells, from a pixel's bytes and its byte offset in the
+///        canvas, whether it is left transparent
+/// @return true when the row holds an opaque pixel
+template <bool apply_gamma, typename Transparent>
+bool convert_overlay_row(
+    const uint8_t* painted,
+    std::size_t at,
+    uint32_t width,
+    uint32_t* row,
+    const std::array<uint8_t, 256>* table,
+    Transparent& transparent
+) noexcept {
+    bool opaque = false;
+    for (uint32_t x = 0; x < width; ++x, painted += 3, at += 3) {
+        if (transparent(painted, at)) {
+            row[x] = 0;
+            continue;
+        }
+        opaque = true;
+        if constexpr (apply_gamma)
+            row[x] = overlay_opaque | (static_cast<uint32_t>((*table)[painted[0]]) << 16) |
+                     (static_cast<uint32_t>((*table)[painted[1]]) << 8) |
+                     static_cast<uint32_t>((*table)[painted[2]]);
+        else
+            row[x] = overlay_opaque | (static_cast<uint32_t>(painted[0]) << 16) |
+                     (static_cast<uint32_t>(painted[1]) << 8) | static_cast<uint32_t>(painted[2]);
+    }
+    return opaque;
+}
+
 /// Converts a painted canvas into an ARGB8888 overlay in bands: transparent
 /// where `transparent` says a pixel was not painted, else the canvas's
 /// colour through the gamma table, opaque; the bands that hold an opaque
-/// pixel noted.
+/// pixel noted. A row `row_transparent` finds wholly unpainted is cleared
+/// at once, without its pixels being looked at one by one.
 ///
 /// @param canvas the painted canvas, `width` * 3 bytes a row
 /// @param width pixels in a row
@@ -99,7 +143,10 @@ constexpr std::size_t most_palette_entries = 256;
 /// @param pool threads to convert the bands on; null for the calling thread
 /// @param transparent tells, from a pixel's bytes and its byte offset in the
 ///        canvas, whether it is left transparent
-template <typename Transparent>
+/// @param row_transparent tells, from a row's first pixel, its byte offset
+///        in the canvas and its width, whether every pixel of the row is
+///        left transparent
+template <typename Transparent, typename RowTransparent>
 void convert_overlay_bands(
     const uint8_t* canvas,
     uint32_t width,
@@ -109,7 +156,8 @@ void convert_overlay_bands(
     const std::array<uint8_t, 256>* gamma,
     std::span<uint8_t> opaque_bands,
     platform::job_pool::Pool* pool,
-    Transparent&& transparent
+    Transparent&& transparent,
+    RowTransparent&& row_transparent
 ) noexcept {
     const uint32_t bands = platform::job_pool::bands_of_rows(height, xrgb_band_rows);
     if (opaque_bands.size() < bands)
@@ -120,20 +168,17 @@ void convert_overlay_bands(
         bool opaque = false;
         for (uint32_t y = first_row; y < end_row; ++y) {
             auto* row = reinterpret_cast<uint32_t*>(pixels + static_cast<std::size_t>(y) * pitch);
-            auto at = static_cast<std::size_t>(y) * width * 3U;
+            const auto at = static_cast<std::size_t>(y) * width * 3U;
             const uint8_t* painted = canvas + at;
-            for (uint32_t x = 0; x < width; ++x, painted += 3, at += 3) {
-                if (transparent(painted, at)) {
-                    row[x] = 0;
-                    continue;
-                }
-                opaque = true;
-                const auto level = [gamma](uint8_t value) {
-                    return static_cast<uint32_t>(gamma != nullptr ? (*gamma)[value] : value);
-                };
-                row[x] = overlay_opaque | (level(painted[0]) << 16) | (level(painted[1]) << 8) |
-                         level(painted[2]);
+            if (row_transparent(painted, at, width)) {
+                std::memset(row, 0, static_cast<std::size_t>(width) * sizeof(uint32_t));
+                continue;
             }
+            const bool row_opaque =
+                gamma != nullptr
+                    ? convert_overlay_row<true>(painted, at, width, row, gamma, transparent)
+                    : convert_overlay_row<false>(painted, at, width, row, gamma, transparent);
+            opaque = opaque || row_opaque;
         }
         opaque_bands[band] = opaque ? 1 : 0;
     });
@@ -164,6 +209,9 @@ void convert_rgb24_overlay_argb(
         [base](const uint8_t* painted, std::size_t at) {
             const uint8_t* under = base + at;
             return painted[0] == under[0] && painted[1] == under[1] && painted[2] == under[2];
+        },
+        [base](const uint8_t* painted, std::size_t at, uint32_t width) {
+            return std::memcmp(painted, base + at, static_cast<std::size_t>(width) * 3U) == 0;
         }
     );
 }
@@ -192,6 +240,42 @@ std::array<uint8_t, 3> overlay_key_colour(std::span<const uint8_t> palette) noex
     };
 }
 
+void find_changed_rgb24_bands(
+    const uint8_t* rgb,
+    const uint8_t* previous,
+    uint32_t width,
+    uint32_t height,
+    std::span<uint8_t> changed
+) noexcept {
+    const uint32_t bands = platform::job_pool::bands_of_rows(height, xrgb_band_rows);
+    if (changed.size() < bands)
+        return;
+    const std::size_t row_bytes = static_cast<std::size_t>(width) * 3U;
+    for (uint32_t band = 0; band < bands; ++band) {
+        const uint32_t first_row = band * xrgb_band_rows;
+        const uint32_t end_row = std::min(height, first_row + xrgb_band_rows);
+        const std::size_t at = static_cast<std::size_t>(first_row) * row_bytes;
+        const std::size_t bytes = static_cast<std::size_t>(end_row - first_row) * row_bytes;
+        changed[band] = std::memcmp(rgb + at, previous + at, bytes) != 0 ? 1 : 0;
+    }
+}
+
+void fill_rgb24(uint8_t* rgb, std::size_t pixels, std::array<uint8_t, 3> colour) noexcept {
+    if (pixels == 0)
+        return;
+    // One pixel written, then what is filled copied after itself, doubling
+    // each time, and past fill_rgb24_block_bytes the first block copied on
+    // until the picture is full.
+    const std::size_t total = pixels * 3U;
+    std::memcpy(rgb, colour.data(), 3);
+    std::size_t filled = 3;
+    while (filled < total) {
+        const std::size_t copied = std::min({filled, total - filled, fill_rgb24_block_bytes});
+        std::memcpy(rgb + filled, rgb, copied);
+        filled += copied;
+    }
+}
+
 void convert_rgb24_keyed_overlay_argb(
     const uint8_t* canvas,
     std::array<uint8_t, 3> key,
@@ -214,6 +298,15 @@ void convert_rgb24_keyed_overlay_argb(
         pool,
         [key](const uint8_t* painted, std::size_t) {
             return painted[0] == key[0] && painted[1] == key[1] && painted[2] == key[2];
+        },
+        [key](const uint8_t* painted, std::size_t, uint32_t width) {
+            // A row holds the key alone when its first pixel is the key and
+            // each of its bytes equals the byte one pixel further on.
+            return width == 0 ||
+                   (std::memcmp(painted, key.data(), 3) == 0 &&
+                    std::memcmp(
+                        painted, painted + 3, (static_cast<std::size_t>(width) - 1U) * 3U
+                    ) == 0);
         }
     );
 }

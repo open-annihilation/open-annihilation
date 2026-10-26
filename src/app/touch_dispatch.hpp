@@ -99,6 +99,8 @@ struct TouchDispatch {
     float last_tap_y{};        ///< where that tap lifted, canvas pixels
     uint8_t last_tap_clicks{}; ///< the clicks that tap gave (1 or 2)
     bool box_active{};         ///< a battlefield box drag holds the left button
+    bool megamap_drag{};       ///< a one-finger drag on the open megamap holds its left button
+    bool megamap_placed{};     ///< the last tap on the open megamap placed a building
     bool scroll_active{};      ///< a one-finger drag moves the camera
     bool ghost_drag{};         ///< a one-finger drag moves the building's ghost
     float drag_last_x{};       ///< the scrolling finger's previous canvas point
@@ -155,7 +157,7 @@ struct TouchDispatchAccess {
     /// @param points the distance, points
     /// @return canvas pixels
     [[nodiscard]] static float points_to_pixels(const Runtime& runtime, float points);
-    /// Sends a synthetic left-button mouse event through dispatch_event, marked as a finger's
+    /// Sends a synthetic mouse event through dispatch_event, marked as a finger's
     /// (which = SDL_TOUCH_MOUSEID) at canvas coordinates (windowID 0).
     ///
     /// @param runtime the runtime
@@ -163,7 +165,16 @@ struct TouchDispatchAccess {
     /// @param x canvas pixels
     /// @param y canvas pixels
     /// @param clicks the clicks a button event counts
-    static void send_mouse(Runtime& runtime, uint32_t type, float x, float y, uint8_t clicks);
+    /// @param button the button of a button event: the left, or the right for the right press
+    ///        a tap gives on the open megamap
+    static void send_mouse(
+        Runtime& runtime,
+        uint32_t type,
+        float x,
+        float y,
+        uint8_t clicks,
+        uint8_t button = SDL_BUTTON_LEFT
+    );
     /// Sends a whole synthetic left click: motion, press and release at one point.
     ///
     /// @param runtime the runtime
@@ -388,6 +399,8 @@ struct TouchDispatchAccess {
     static void battlefield_hover(Runtime& runtime, float x, float y);
     /// Gives a battlefield tap: the unit nearest the finger, then a click (or, in the
     /// right-click interface, the right press an order needs), then the latches are used.
+    /// On the open megamap the tap is the mouse's click there, at the finger, a right press
+    /// sent as the mouse's, so the megamap takes it (Runtime::megamap_pointer).
     ///
     /// @param runtime the runtime
     /// @param x canvas pixels
@@ -402,7 +415,8 @@ struct TouchDispatchAccess {
     /// @param y canvas pixels
     /// @return canvas pixels; the pointer is left there
     [[nodiscard]] static std::array<float, 2> fat_finger_point(Runtime& runtime, float x, float y);
-    /// Starts a one-finger drag on the battlefield: the ghost, the map or a box.
+    /// Starts a one-finger drag on the battlefield: the ghost, the map or a box; on the open
+    /// megamap, the megamap's box.
     ///
     /// @param runtime the runtime
     /// @param gesture the drag_began gesture
@@ -446,7 +460,9 @@ struct TouchDispatchAccess {
     ///
     /// @param runtime the runtime
     static void confirm_placement(Runtime& runtime);
-    /// Opens the radial order menu at a held point (SPEC 7.4).
+    /// Opens the radial order menu at a held point (SPEC 7.4); on the open megamap for the icon
+    /// and the ground under it, whose orders are the megamap's click there, and none while a
+    /// panel holds the match.
     ///
     /// @param runtime the runtime
     /// @param x canvas pixels

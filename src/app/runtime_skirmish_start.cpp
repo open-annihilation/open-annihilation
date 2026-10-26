@@ -583,23 +583,39 @@ void Runtime::bootstrap_match(const MatchBootstrap& bootstrap) {
     // campaign and a network start keep the side they were given.
     if (bootstrap.seat_roster && bootstrap.place_commanders && !bootstrap.multiplayer &&
         !campaign_mission_) {
+        const uint32_t skirmish_hidden = oa::data::defs::skirmish_hidden_sides();
+        const uint32_t allowed_sides = oa::data::defs::computer_player_sides();
+        const uint32_t computer_hidden = allowed_sides == 0 ? 0U : ~allowed_sides;
         for (std::size_t player_slot = 0; player_slot < skirmish_settings_.slots.size();
              ++player_slot) {
             auto& setup = skirmish_settings_.slots[player_slot];
             if (setup.controller == entry::controller::disabled)
                 continue;
-            if (setup.side < static_cast<int32_t>(side_table_.count))
+            const bool computer = setup.controller == entry::controller::computer;
+            const bool past = setup.side >= static_cast<int32_t>(side_table_.count);
+            const bool disallowed =
+                computer && setup.side >= 0 && setup.side < 32 &&
+                (computer_hidden & (1U << static_cast<uint32_t>(setup.side))) != 0;
+            if (!past && !disallowed)
                 continue;
             const int32_t chosen = setup.side;
             const int32_t played = skirmish::offered_side(
                 chosen,
                 static_cast<int32_t>(side_table_.count),
-                oa::data::defs::skirmish_hidden_sides()
+                skirmish_hidden | (computer ? computer_hidden : 0U)
             );
             setup.side = played;
-            std::cerr << "open-annihilation: side data: player " << player_slot << " chose side "
-                      << chosen << ", which this match's side data does not have; it plays side "
-                      << played << '\n';
+            if (!past) {
+                std::cerr << "open-annihilation: side data: computer player " << player_slot
+                          << " chose side " << chosen
+                          << ", which computer players cannot take in this game; it plays side "
+                          << played << '\n';
+            } else {
+                std::cerr << "open-annihilation: side data: player " << player_slot
+                          << " chose side " << chosen
+                          << ", which this match's side data does not have; it plays side "
+                          << played << '\n';
+            }
         }
     }
     // The weapons, every WEAPONS\*.TDF section into its ID's slot. A lava

@@ -10,6 +10,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -68,6 +69,19 @@ void set_input_hints() {
             SDL_GetError()
         );
     }
+}
+
+void set_mouse_double_click_time(uint32_t milliseconds) {
+    if (milliseconds == 0) {
+        (void)SDL_ResetHint(SDL_HINT_MOUSE_DOUBLE_CLICK_TIME);
+        return;
+    }
+    const std::string text = std::to_string(milliseconds);
+    if (SDL_SetHint(SDL_HINT_MOUSE_DOUBLE_CLICK_TIME, text.c_str()))
+        return;
+    // An environment variable of the hint's name keeps the system's time.
+    if (SDL_getenv(SDL_HINT_MOUSE_DOUBLE_CLICK_TIME) != nullptr)
+        return;
 }
 
 } // namespace oa::app

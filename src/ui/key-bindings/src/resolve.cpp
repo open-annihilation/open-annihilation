@@ -610,18 +610,92 @@ void apply_mod(
     }
 }
 
-/// Swaps group.select-n with build.page-n for n from 1 to 9.
+/// Flips the Alt bit of one chord. Select groups without Alt turns
+/// Alt+Shift+1 into Shift+1, and a chord that named no Alt gains it.
+///
+/// @param chord the chord
+void flip_alt(Chord& chord) {
+    chord.modifiers = static_cast<uint8_t>(chord.modifiers ^ static_cast<uint8_t>(Modifier::alt));
+}
+
+/// Swaps group.select-n with build.page-n, then flips Alt on group.add-n.
+///
+/// A chord the flipped key lands on, in a layer the add meets, is dropped.
+/// Where the page kept an Alt chord, it also keeps that chord with Shift, so
+/// Alt+Shift+1 is an exact page and not a tie with the add. The layout and
+/// the player's own changes are left as they were given.
 ///
 /// @param rows the actions
-void swap_number_keys(std::vector<Row>& rows) {
+/// @param lost chords that lose
+/// @param input the keyboard the same-key test reads
+void swap_number_keys(std::vector<Row>& rows, std::vector<Lost>& lost, const ResolveInput& input) {
     for (int number = 1; number <= 9; ++number) {
-        const std::string select = "group.select-" + std::to_string(number);
-        const std::string page = "build.page-" + std::to_string(number);
-        Row* select_row = find_row(rows, select);
-        Row* page_row = find_row(rows, page);
-        if (select_row == nullptr || page_row == nullptr)
+        const std::string suffix = std::to_string(number);
+        Row* select_row = find_row(rows, "group.select-" + suffix);
+        Row* page_row = find_row(rows, "build.page-" + suffix);
+        if (select_row != nullptr && page_row != nullptr)
+            std::swap(select_row->chords, page_row->chords);
+
+        Row* add_row = find_row(rows, "group.add-" + suffix);
+        if (add_row == nullptr)
             continue;
-        std::swap(select_row->chords, page_row->chords);
+        for (Held& held : add_row->chords)
+            flip_alt(held.chord);
+        std::vector<Chord> landed;
+        landed.reserve(add_row->chords.size());
+        for (const Held& held : add_row->chords)
+            landed.push_back(held.chord);
+        const std::string winner = add_row->id;
+        const uint32_t add_contexts = add_row->contexts;
+        for (Row& other : rows) {
+            if (&other == add_row || !layers_meet(other.contexts, add_contexts))
+                continue;
+            std::vector<Held> kept;
+            kept.reserve(other.chords.size());
+            for (const Held& held : other.chords) {
+                bool landed_on = false;
+                for (const Chord& chord : landed) {
+                    if (same_key(held.chord, chord, input.keyboard))
+                        landed_on = true;
+                }
+                if (!landed_on) {
+                    kept.push_back(held);
+                    continue;
+                }
+                lose(
+                    lost,
+                    other.id,
+                    held.chord,
+                    held.step,
+                    LostReason::number_swap,
+                    winner,
+                    held.line,
+                    held.column
+                );
+            }
+            other.chords = std::move(kept);
+        }
+        // Alt+Shift+1 must be the page. The page's Alt+1 matches it only with
+        // an extra Shift, and the add's Shift+1 matches it with an extra Alt,
+        // so the two tie and the earlier action would win. An exact chord on
+        // the page is searched first.
+        if (page_row == nullptr)
+            continue;
+        const std::vector<Held> alt_chords = page_row->chords;
+        for (const Held& held : alt_chords) {
+            if (held.chord.modifiers != static_cast<uint8_t>(Modifier::alt))
+                continue;
+            Held extra = held;
+            extra.chord.modifiers =
+                static_cast<uint8_t>(extra.chord.modifiers | static_cast<uint8_t>(Modifier::shift));
+            bool already = false;
+            for (const Held& kept : page_row->chords) {
+                if (same_key(kept.chord, extra.chord, input.keyboard))
+                    already = true;
+            }
+            if (!already)
+                page_row->chords.push_back(extra);
+        }
     }
 }
 
@@ -925,7 +999,7 @@ Resolved resolve(const ResolveInput& input) {
     if (input.own != nullptr)
         apply_file(*input.own, Step::own, true, rows, resolved.lost, resolved.unknown, input);
     if (input.number_keys_select_groups)
-        swap_number_keys(rows);
+        swap_number_keys(rows, resolved.lost, input);
     apply_fixed(rows, resolved.lost, input);
     trim_chords(rows, resolved.lost);
 

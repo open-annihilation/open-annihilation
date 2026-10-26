@@ -237,7 +237,8 @@ bool Runtime::order_command_available(std::string_view name) {
 std::string Runtime::match_side_name_prefix() const {
     const auto side = match_view_side();
     if (side < side_table_.count) {
-        const auto& prefix = side_table_.sides[side].name_prefix;
+        const auto& prefix =
+            oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side))->name_prefix;
         return std::string(prefix, strnlen(prefix, sizeof prefix));
     }
     auto prefix = match_side_prefix();
@@ -290,7 +291,8 @@ int Runtime::side_column_page_rows() {
         }
     }
     for (std::size_t side = 0; side < side_table_.count; ++side) {
-        const auto& field = side_table_.sides[side].name_prefix;
+        const auto& field =
+            oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side))->name_prefix;
         const std::string prefix(field, strnlen(field, sizeof field));
         hud::format_general_page_name(name, sizeof name, prefix.c_str());
         measure(name);
@@ -383,14 +385,13 @@ oa::ui::hud::BuildPanelHost Runtime::build_panel_host() {
     // x5 is the build buttons' Shift while touch controls are on.
     host.shift_down = [](void* user) {
         const auto& self = *static_cast<Runtime*>(user);
-        return self.control_key_down(oa::ui::gui_input::ControlKey::shift) ||
+        return self.modifier_role_active("build.queue-modifier") ||
                self.virtual_shift(ModifierUse::build_button);
     };
-    // ui.selection-shortcuts: with Ctrl held a shift-click steps by 100.
+    // ui.selection-shortcuts: with the hundred modifier held a shift-click steps by 100.
     if (ui_rules().selection_shortcuts.enabled)
-        host.shift_step = oa::sim::selection::shift_queue_step(
-            control_key_down(oa::ui::gui_input::ControlKey::control)
-        );
+        host.shift_step =
+            oa::sim::selection::shift_queue_step(modifier_role_active("build.hundred-modifier"));
     host.change_queue = [](void* user, const char* name, oa::Unit& builder, int32_t count) {
         auto& self = *static_cast<Runtime*>(user);
         const auto type_for_name = [](void* context, const char* unit_name) {

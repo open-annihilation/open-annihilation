@@ -10,6 +10,7 @@
 #include <atomic>
 #include <cstdint>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <new>
@@ -17,9 +18,20 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace oa {
 namespace {
@@ -159,6 +171,46 @@ bool stays_inside(const std::filesystem::path& root, const std::filesystem::path
         if (!at.has_relative_path())
             return false;
     }
+}
+
+/// Tells whether a host entry, as it is now, is a plain file or folder: not
+/// a link, a junction or, on Windows, any other reparse point, which the
+/// system may follow elsewhere.
+///
+/// @param path the entry
+/// @return false for a link or an entry whose kind cannot be read
+bool plain_entry(const std::filesystem::path& path) noexcept {
+#if defined(_WIN32)
+    const DWORD attributes = ::GetFileAttributesW(path.c_str());
+    return attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_REPARSE_POINT) == 0;
+#else
+    std::error_code error;
+    const auto own = std::filesystem::symlink_status(path, error).type();
+    return !error && (own == std::filesystem::file_type::regular ||
+                      own == std::filesystem::file_type::directory);
+#endif
+}
+
+/// Tells whether a file a lookup found below a folder lies inside it, as
+/// the file system is now.
+///
+/// When the file and every folder between it and the root are plain, the
+/// path lies inside the root as it names it; otherwise it is resolved and
+/// compared with the root, as stays_inside() does.
+///
+/// @param root the folder
+/// @param path the file: the root joined with the names of the parts
+/// @param parts how many names the path adds to the root
+/// @return true when the file lies inside the folder
+bool found_inside(
+    const std::filesystem::path& root, const std::filesystem::path& path, std::size_t parts
+) {
+    auto at = path;
+    for (std::size_t part = 0; part < parts; ++part, at = at.parent_path())
+        if (!plain_entry(at))
+            return stays_inside(root, path);
+    return true;
 }
 
 std::vector<uint8_t> read_loose(const std::filesystem::path& path) {
@@ -383,6 +435,76 @@ find_loose_directory(const std::filesystem::path& root, const std::string& key) 
     if (!key.empty() && !stays_inside(root, candidate))
         return std::nullopt;
     return candidate;
+}
+
+/// Tells whether a folded path is another one or lies below it, whole
+/// '/'-separated parts compared.
+///
+/// @param head the folded path above; empty lies above every path
+/// @param path the folded path tested
+/// @return true when `path` is `head` or lies below it
+bool path_within(std::string_view head, std::string_view path) noexcept {
+    return head.empty() || path == head ||
+           (path.size() > head.size() && path.starts_with(head) && path[head.size()] == '/');
+}
+
+/// Joins two folded paths with '/', leaving out the separator beside an empty one.
+///
+/// @param head the folded path of a folder
+/// @param name the folded name of a record in it
+/// @return the folded path of the record
+std::string joined_key(std::string_view head, std::string_view name) {
+    std::string key;
+    key.reserve(head.size() + 1 + name.size());
+    key.append(head);
+    if (!head.empty() && !name.empty())
+        key.push_back('/');
+    key.append(name);
+    return key;
+}
+
+/// Hands on the folded path of every file record of an archive that a
+/// listing of a folder could take, in stored depth-first order.
+///
+/// A record's folded path is its '/'-joined path through the archive,
+/// folded as normalized_path() folds it, so every record entries() lists
+/// under the folder's path is handed on, duplicates and records a lookup
+/// cannot reach among them. Subtrees whose records cannot lie in the folder,
+/// or, unless `recursive`, deeper than its own files, are not walked.
+///
+/// @param archive the archive
+/// @param folder folded path of the folder, '/'-separated; empty for the root
+/// @param recursive true when the listing takes files below the folder's subfolders too
+/// @param take called with each folded path
+template <class Take>
+void archive_listing(
+    const HpiArchive& archive, std::string_view folder, bool recursive, Take&& take
+) {
+    const auto nodes = archive.nodes();
+    // Whether a folder of this folded path can hold records the listing takes.
+    const auto worth_walking = [&](std::string_view key) {
+        if (path_within(key, folder))
+            return true;
+        if (!path_within(folder, key))
+            return false;
+        if (recursive || key == folder)
+            return true;
+        const auto rest = folder.empty() ? key : key.substr(folder.size() + 1);
+        return rest.find('/') == std::string_view::npos;
+    };
+    const auto visit = [&](const auto& self, uint32_t directory, const std::string& key) -> void {
+        const ArchiveNode& parent = nodes[directory];
+        for (uint32_t i = 0; i < parent.child_count; ++i) {
+            const auto index = parent.first_child + i;
+            const ArchiveNode& node = nodes[index];
+            std::string child = joined_key(key, normalized_path(node.name));
+            if (!node.directory())
+                take(std::move(child));
+            else if (worth_walking(child))
+                self(self, index, child);
+        }
+    };
+    visit(visit, 0, std::string());
 }
 
 } // namespace
@@ -1556,6 +1678,8 @@ struct ResourceFile {
     uint32_t position = 0;
     // Decoded 64 KiB block of a chunked entry, dropped on crossing a block.
     std::vector<uint8_t> block;
+    // Where a chunked entry's chunks are stored, read with its first block.
+    std::optional<formats::hpi::ChunkTable> chunks;
     // The pack layer this handle was opened from, kept until close.
     std::shared_ptr<const AssetStore::PackLayer> pack_layer;
     // The mutator layer this handle was opened from, kept until close.
@@ -1627,10 +1751,24 @@ struct AssetStore::LooseIndex {
         bool ambiguous = false;     // several entries fold to this name
     };
 
+    // Hashes a folded name, so that a part of a key finds it without a copy.
+    struct NameHash {
+        using is_transparent = void;
+
+        /// Hashes a name.
+        ///
+        /// @param name the folded name
+        /// @return its hash
+        std::size_t operator()(std::string_view name) const noexcept {
+            return std::hash<std::string_view>{}(name);
+        }
+    };
+
     // One folder's listing.
     struct Folder {
-        std::size_t entry_count = 0;                     // entries the listing held
-        std::unordered_map<std::string, Child> children; // keyed by folded name
+        std::size_t entry_count = 0; // entries the listing held
+        // Keyed by folded name.
+        std::unordered_map<std::string, Child, NameHash, std::equal_to<>> children;
     };
 
     explicit LooseIndex(std::size_t limit) : entry_limit(limit) {}
@@ -1979,17 +2117,24 @@ AssetStore::loose_path_in(std::size_t root, const std::string& key) const {
     if (!loose_index_ || !loose_index_->enabled.load())
         return loose_path_listed_in(root, key);
     const base::threads::LockGuard guard(loose_index_->lock);
-    auto loose = loose_roots_[root];
+    // The folder listed next. It points into a kept listing, which the next
+    // listing drops only after it has finished reading the folder.
+    const std::filesystem::path* loose = &loose_roots_[root];
     // Each folder's listings are kept under its own index, so that layered
     // folders never answer for each other.
-    const std::string tag = std::to_string(root) + '|';
-    std::string folder = tag;
+    std::string folder = std::to_string(root) + '|';
+    const std::size_t tag = folder.size();
+    // Whether a file found lies inside the root is checked as its path is
+    // now, not as it was listed: a folder on it may since have become a link.
+    std::size_t parts = 0;
     for (std::size_t begin = 0; begin < key.size();) {
         const auto end = key.find('/', begin);
-        const auto part = key.substr(begin, end == std::string::npos ? end : end - begin);
+        const auto part = std::string_view(key).substr(
+            begin, end == std::string::npos ? std::string_view::npos : end - begin
+        );
         if (part == "." || part == "..")
             fail("asset path contains traversal");
-        const auto* listing = loose_index_->listing(folder, loose);
+        const auto* listing = loose_index_->listing(folder, *loose);
         if (listing == nullptr)
             return loose_index_->enabled.load() ? std::nullopt : loose_path_listed_in(root, key);
         const auto child = listing->children.find(part);
@@ -1997,14 +2142,17 @@ AssetStore::loose_path_in(std::size_t root, const std::string& key) const {
             return std::nullopt;
         if (child->second.ambiguous)
             fail("ambiguous loose asset case: " + key);
+        ++parts;
         if (end == std::string::npos)
-            return child->second.regular && stays_inside(loose_roots_[root], child->second.path)
+            return child->second.regular &&
+                           found_inside(loose_roots_[root], child->second.path, parts)
                        ? std::optional(child->second.path)
                        : std::nullopt;
         if (!child->second.directory)
             return std::nullopt;
-        loose = child->second.path;
-        folder = tag + key.substr(0, end);
+        loose = &child->second.path;
+        folder.resize(tag);
+        folder.append(key, 0, end);
         begin = end + 1;
     }
     return std::nullopt;
@@ -2660,8 +2808,19 @@ int32_t AssetStore::read(ResourceFile* file, std::span<uint8_t> output) {
     while (copied < wanted) {
         const uint32_t base = file->position & ~(formats::hpi::BlockBytes - 1U);
         if (file->block.empty()) {
+            if (!file->chunks) {
+                auto table = file->archive->read_chunk_table(file->node);
+                // A table that cannot be read ends the read, as a chunk does.
+                if (!table.ok()) {
+                    if (table.error.code == base::bytes::DecodeCode::truncated)
+                        return -1;
+                    fail_entry_read(table.error, *file->archive_path, node);
+                }
+                file->chunks = std::move(*table.value);
+            }
             file->block.assign(std::min<uint32_t>(formats::hpi::BlockBytes, file->size - base), 0);
-            const auto read = file->archive->read_node_range(file->node, base, file->block);
+            const auto read =
+                file->archive->read_node_range(file->node, base, file->block, *file->chunks);
             if (!read.ok()) {
                 file->block.clear();
                 // A chunk that cannot be read ends the read; one that fails
@@ -2849,12 +3008,13 @@ std::vector<std::string> AssetStore::list_resources(
                 append(item);
     }
     // Names only: read() resolves the winning content in the same mount order.
+    const std::string_view folder =
+        std::string_view(prefix).substr(0, prefix.empty() ? 0 : prefix.size() - 1);
     for (const auto& mounted : mounts_)
-        for (const auto& entry : mounted.archive.entries()) {
-            const auto key = normalized_path(entry.path);
+        archive_listing(mounted.archive, folder, recursive, [&](std::string key) {
             if (matches(key) && !claim(key))
-                result.push_back(key);
-        }
+                result.push_back(std::move(key));
+        });
     if (include_pack_layer)
         if (const auto layer = pack_layer_snapshot())
             for (const auto& entry : layer->entries)

@@ -954,6 +954,45 @@ void test_ranged_frames() {
     OA_CHECK(!failure.has_value() && reads.reads == reads_before);
 }
 
+/// A frame decoded for one frame's draws is the same decoded frame, not
+/// decoded again, in the next frame's draws, which note it among the
+/// frames they use; the list lets its decoded frames go once they take more
+/// than the bytes it keeps.
+void test_decoded_frames_kept() {
+    const std::array<uint16_t, 3> sides{4, 8, 4};
+    const auto file = raw_frames_file(sides);
+    const auto decoded = gaf::parse(file);
+    OA_CHECK(decoded.ok());
+    if (!decoded.ok())
+        return;
+    const auto& frames = decoded.archive->sequences[0].frames;
+    const auto rendered_as_normal = [&](const gaf::RenderedFrame* rendered, std::size_t index) {
+        const auto normal = gaf::render_normal(frames[index]);
+        return rendered != nullptr && normal.ok() && rendered->pixels == normal.frame->pixels &&
+               rendered->coverage == normal.frame->coverage;
+    };
+    oa::app::WorldDrawList list;
+    const auto* first = oa::app::decoded_frame(list, frames[0]);
+    OA_CHECK(rendered_as_normal(first, 0));
+    OA_CHECK(oa::app::decoded_frame(list, frames[0]) == first);
+    const auto* second = oa::app::decoded_frame(list, frames[1]);
+    OA_CHECK(rendered_as_normal(second, 1));
+    // 4 by 4 and 8 by 8 pixels, each with a byte of coverage.
+    OA_CHECK(list.kept_decoded.size() == 2 && list.kept_decoded_bytes == 2U * (16U + 64U));
+
+    oa::app::clear_world_draws(list);
+    OA_CHECK(list.decoded_of.empty() && list.kept_decoded.size() == 2);
+    OA_CHECK(oa::app::decoded_frame(list, frames[1]) == second);
+    OA_CHECK(list.decoded_of.size() == 1 && list.decoded_of.at(&frames[1]) == second);
+    OA_CHECK(rendered_as_normal(second, 1));
+
+    list.kept_decoded_bytes = oa::app::decoded_frames_kept_bytes + 1U;
+    oa::app::clear_world_draws(list);
+    OA_CHECK(list.kept_decoded.empty() && list.kept_decoded_bytes == 0);
+    OA_CHECK(rendered_as_normal(oa::app::decoded_frame(list, frames[0]), 0));
+    OA_CHECK(list.kept_decoded.size() == 1);
+}
+
 /// Returns a frame whose pixels all differ: red the column, green the row,
 /// blue the two mixed.
 ///
@@ -1312,5 +1351,6 @@ int main() {
     test_frame_cache_over_budget();
     test_frame_cache_order();
     test_ranged_frames();
+    test_decoded_frames_kept();
     return oa::test::check_exit_status();
 }

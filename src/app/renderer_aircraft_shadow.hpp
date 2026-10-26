@@ -9,25 +9,47 @@
 #include <vector>
 
 namespace oa::app::renderer_aircraft_shadow {
-/// Bounded altitude-dependent footprint, density and silhouette blur.
-struct Style {
-    float spread{1};
-    float opacity{1};
-    uint32_t radius{};
-};
+/// Altitude, in map pixels above the ground or water under an aircraft,
+/// from which its shadow takes the wider soft edge; a fighter's and a
+/// bomber's cruise heights are above it.
+inline constexpr float wide_edge_altitude = 96;
+/// The blur radius of a shadow's soft edge below wide_edge_altitude, in
+/// pixels of the game's picture; the edge fades out over twice as many.
+inline constexpr uint32_t narrow_edge_radius = 1;
+/// The blur radius from wide_edge_altitude up, in pixels of the game's picture.
+inline constexpr uint32_t wide_edge_radius = 2;
 
-/// Keep landed aircraft tight and dark; soften and fade high aircraft continuously.
-inline Style style(float altitude) noexcept {
-    const float height = std::isfinite(altitude) ? std::clamp(altitude / 192.0F, 0.0F, 1.0F) : 0;
-    const float amount = height * height * (3 - 2 * height);
-    return {1 + amount * 0.45F, 1 - amount * 0.7F, static_cast<uint32_t>(std::lround(amount * 8))};
+/// Returns the blur radius of an aircraft shadow's soft edge.
+///
+/// Only the edge follows the height: the shadow keeps the game's place,
+/// size and darkness at every altitude, as on the other tiers.
+///
+/// @param altitude height above the ground or water under the aircraft, in map pixels
+/// @return narrow_edge_radius near the ground, wide_edge_radius from
+///     wide_edge_altitude up
+inline uint32_t edge_radius(float altitude) noexcept {
+    return std::isfinite(altitude) && altitude >= wide_edge_altitude ? wide_edge_radius
+                                                                     : narrow_edge_radius;
 }
 
-/// Pad a binary silhouette by twice the radius, then apply two separable box blurs.
-/// Each pass uses a running sum, so the cost is bounded by image area rather than radius.
+/// Gives a binary silhouette a soft edge, padded by twice the radius.
+///
+/// Two separable box blurs of the silhouette, at twice their strength, lie
+/// under the silhouette itself, so that every pixel the silhouette covers
+/// keeps its full alpha and the edge fades from it to nothing past it.
+/// Each pass uses a running sum, so the cost is bounded by image area
+/// rather than radius.
+///
+/// @param binary the silhouette, a row after another, nonzero where it covers
+/// @param width the silhouette's width, at most 2048 pixels
+/// @param height the silhouette's height, at most 2048 pixels
+/// @param radius the blur radius, in pixels; one above wide_edge_radius is taken as it
+/// @return the alpha, 0 to 255, of width plus four radii by height plus
+///     four radii pixels, or none for a silhouette of no size, too large or
+///     shorter than its size
 inline std::vector<uint8_t>
 soften(std::span<const uint8_t> binary, uint32_t width, uint32_t height, uint32_t radius) {
-    radius = std::min(radius, 8U);
+    radius = std::min(radius, wide_edge_radius);
     if (width == 0 || height == 0 || width > 2048 || height > 2048 ||
         binary.size() < static_cast<std::size_t>(width) * height)
         return {};
@@ -40,6 +62,7 @@ soften(std::span<const uint8_t> binary, uint32_t width, uint32_t height, uint32_
             alpha[(y + padding) * columns + x + padding] = binary[y * width + x] ? 255 : 0;
     if (radius == 0)
         return alpha;
+    const std::vector<uint8_t> solid = alpha;
     std::vector<uint8_t> scratch(alpha.size());
     const int32_t reach = static_cast<int32_t>(radius);
     const uint32_t divisor = radius * 2 + 1;
@@ -69,6 +92,8 @@ soften(std::span<const uint8_t> binary, uint32_t width, uint32_t height, uint32_
             }
         }
     }
+    for (std::size_t i = 0; i < alpha.size(); ++i)
+        alpha[i] = std::max(solid[i], static_cast<uint8_t>(std::min(255, alpha[i] * 2)));
     return alpha;
 }
 } // namespace oa::app::renderer_aircraft_shadow

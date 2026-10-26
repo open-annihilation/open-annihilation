@@ -498,7 +498,7 @@ facts::GameFacts make_facts(
     game.mod.sides.clear();
     game.mod.sides.reserve(sides.count);
     for (uint32_t index = 0; index < sides.count; ++index) {
-        const Side& side = sides.sides[index];
+        const Side& side = *defs::side_at(sides, index);
         facts::SideFacts stored;
         stored.name = text_of(side.name, sizeof side.name);
         stored.prefix = text_of(side.name_prefix, sizeof side.name_prefix);
@@ -977,9 +977,8 @@ std::optional<BrainCheckReport> check_seated(
         problem = "side " + std::to_string(request.side) + " is not one of this game's sides";
         return std::nullopt;
     }
-    const std::string commander = text_of(
-        side_table.sides[request.side].commander, sizeof side_table.sides[request.side].commander
-    );
+    const Side* chosen = defs::side_at(side_table, request.side);
+    const std::string commander = text_of(chosen->commander, sizeof chosen->commander);
     if (commander.empty()) {
         problem = "side " + std::to_string(request.side) + " names no commander";
         return std::nullopt;
@@ -1049,7 +1048,8 @@ std::optional<BrainCheckReport> check_seated(
     match->configure_outcomes(0, local_allies, false);
 
     oa::World& world = match->state();
-    match->bind_sides(side_table.sides, side_table.count);
+    const std::vector<oa::Side> records = defs::side_records(side_table);
+    match->bind_sides(records, side_table.count);
     world.player_info[brain_player].side = request.side;
 
     sim::unit_spawn::Slot* slot = match->create(

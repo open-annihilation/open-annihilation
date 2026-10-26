@@ -40,10 +40,12 @@ void Runtime::record_pointer_event(const SDL_Event& event) {
         return;
     auto& game = match_->state().game;
     uint32_t keys = game.pointer_state[2] & (input::pointer_key_left | input::pointer_key_right);
-    const auto button_key = [](uint8_t button) -> uint32_t {
-        if (button == SDL_BUTTON_LEFT)
+    // The select button is the pointer word's left bit, and the command
+    // button its right bit, so a stock layout still sets the same bits.
+    const auto button_key = [this](uint8_t button) -> uint32_t {
+        if (button == match_select_button())
             return input::pointer_key_left;
-        if (button == SDL_BUTTON_RIGHT)
+        if (button == match_command_button())
             return input::pointer_key_right;
         return 0;
     };
@@ -182,9 +184,11 @@ bool Runtime::follow_pointer_modes(const SDL_Event& event) {
     }
     if ((input::pointer_flags(game) & input::pointer_radar_scroll) == 0)
         return false;
+    // The scroll ends on the button that started it. The flag is the one this
+    // interface accepts: the left-click interface ends on its command button.
     if (event.type == SDL_EVENT_MOUSE_BUTTON_UP &&
-        (event.button.button == SDL_BUTTON_LEFT || event.button.button == SDL_BUTTON_RIGHT) &&
-        input::end_radar_scroll(game, event.button.button == SDL_BUTTON_RIGHT))
+        event.button.button == pointer_radar_scroll_button() &&
+        input::end_radar_scroll(game, pointer_interface_is_left_click()))
         return true;
     center_camera_on_radar_point(pointer_x_, pointer_y_);
     return true;
@@ -197,6 +201,12 @@ void Runtime::handle_match_right_press(float x, float y) {
     // The frame's pointer pass: the unit under the pointer, the armed
     // command, the pointer area and the ground under it.
     update_pointer(x, y);
+    // A press on the unit info panel is the panel's, as a left click is: OK
+    // closes it, and its face takes the press with nothing done. A mouse's
+    // press there goes to the panel before it gets here (unit_info_pointer);
+    // a touch tap in the right-click interface comes here directly.
+    if (click_unit_info(x, y))
+        return;
     // The pick is wanted for what it writes into the Game block, which the
     // press reads; the cursor it returns is not needed.
     std::ignore = pick_match_cursor();
@@ -213,9 +223,11 @@ void Runtime::handle_match_right_press(float x, float y) {
         return;
     case input::RightPress::clear_selection:
         // The selection marks drop, then the order panel is rebuilt. Every
-        // panel over it closes first: an open in-game menu closes and the
-        // match it held runs again, as F2 resumes it, as in 3.1c.
+        // panel over it closes first: the unit info panel closes, and an
+        // open in-game menu closes and the match it held runs again, as F2
+        // resumes it, as in 3.1c.
         clear_local_selection();
+        close_unit_info();
         if (match_paused_)
             resume_match_pause();
         else
@@ -259,7 +271,10 @@ void Runtime::issue_pointer_ground_orders(float x, float y, bool queue) {
     case input::ClickAction::select_unit:
         return;
     case input::ClickAction::clear_selection:
+        // As a right press that drops the selection, it closes the unit
+        // info panel over the order panel.
         clear_local_selection();
+        close_unit_info();
         apply_match_hud_for_selection();
         return;
     case input::ClickAction::issue_command:

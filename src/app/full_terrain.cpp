@@ -362,4 +362,362 @@ uint32_t append_terrain_mosaic(
     return quads;
 }
 
+namespace {
+
+/// Where a pass landed the map pixels of one axis in its target: evenly
+/// between the target pixels `start` and `end` it landed the map pixels
+/// `from` and `to` at, and past them at the view's scale.
+struct Landing {
+    double from{};
+    double to{};
+    float start{};
+    float end{};
+    float origin{};
+    int32_t camera{};
+    double scale{1.0};
+
+    [[nodiscard]] float at(double map_pixel) const noexcept {
+        if (!(from < to) || map_pixel < from || map_pixel > to)
+            return static_cast<float>(origin + (map_pixel - camera) * scale);
+        return static_cast<float>(start + (end - start) * (map_pixel - from) / (to - from));
+    }
+};
+
+/// A rectangle of the terrain's picture to draw again moved: its map
+/// pixels, where the pass landed them and its texture coordinates there.
+struct MovedRect {
+    double left{};
+    double top{};
+    double right{};
+    double bottom{};
+    Landing across;
+    Landing down;
+    float u0{};
+    float v0{};
+    float u1{};
+    float v1{};
+};
+
+/// Cuts one axis of a moved rectangle: its edges, any lines the pass drew
+/// on between them, and the motion grid's lines.
+void cut_axis_lines(
+    double from,
+    double to,
+    uint32_t spacing,
+    std::span<const double> drawn,
+    std::vector<double>& lines
+) {
+    lines.clear();
+    lines.push_back(from);
+    for (double line = (std::floor(from / spacing) + 1.0) * spacing; line < to; line += spacing)
+        lines.push_back(line);
+    for (const double line : drawn)
+        if (line > from && line < to)
+            lines.push_back(line);
+    lines.push_back(to);
+    std::sort(lines.begin(), lines.end());
+    lines.erase(std::unique(lines.begin(), lines.end()), lines.end());
+}
+
+/// The scratch arrays one moved rectangle is cut into.
+struct MovedScratch {
+    std::vector<double> across;
+    std::vector<double> down;
+    std::vector<std::array<float, 2>> offsets;
+    std::vector<card::Index> vertices;
+};
+
+/// Appends the squares of a moved rectangle that move: each corner where
+/// the pass drew it, moved by the motion there in target pixels, its
+/// texture coordinate that of its unmoved place; a corner the squares
+/// share is one vertex.
+///
+/// @return squares appended
+uint32_t append_moved_rect(
+    card::CardFrame& frame,
+    const ArtMotion& motion,
+    const MovedRect& rect,
+    std::span<const double> drawn_across,
+    std::span<const double> drawn_down,
+    float scale,
+    const card::Colour& colour,
+    std::vector<card::Index>& indices,
+    MovedScratch& scratch
+) {
+    if (!(rect.left < rect.right) || !(rect.top < rect.bottom))
+        return 0;
+    cut_axis_lines(rect.left, rect.right, motion.spacing, drawn_across, scratch.across);
+    cut_axis_lines(rect.top, rect.bottom, motion.spacing, drawn_down, scratch.down);
+    const std::size_t columns = scratch.across.size();
+    const std::size_t rows = scratch.down.size();
+    scratch.offsets.resize(columns * rows);
+    bool moves = false;
+    for (std::size_t row = 0; row < rows; ++row)
+        for (std::size_t column = 0; column < columns; ++column) {
+            const auto offset = motion.at(scratch.across[column], scratch.down[row]);
+            scratch.offsets[row * columns + column] = offset;
+            moves = moves || offset[0] != 0.0F || offset[1] != 0.0F;
+        }
+    if (!moves)
+        return 0;
+    constexpr card::Index none = ~card::Index{0};
+    scratch.vertices.assign(columns * rows, none);
+    const auto vertex = [&](std::size_t column, std::size_t row) {
+        auto& index = scratch.vertices[row * columns + column];
+        if (index != none)
+            return index;
+        const double x = scratch.across[column];
+        const double y = scratch.down[row];
+        const auto& offset = scratch.offsets[row * columns + column];
+        const auto u = static_cast<float>(
+            rect.u0 + (rect.u1 - rect.u0) * (x - rect.left) / (rect.right - rect.left)
+        );
+        const auto v = static_cast<float>(
+            rect.v0 + (rect.v1 - rect.v0) * (y - rect.top) / (rect.bottom - rect.top)
+        );
+        index = static_cast<card::Index>(frame.vertices.size());
+        frame.vertices.push_back(
+            {rect.across.at(x) + offset[0] * scale,
+             rect.down.at(y) + offset[1] * scale,
+             colour,
+             u,
+             v}
+        );
+        return index;
+    };
+    const auto moved = [&](std::size_t column, std::size_t row) {
+        const auto& offset = scratch.offsets[row * columns + column];
+        return offset[0] != 0.0F || offset[1] != 0.0F;
+    };
+    uint32_t squares = 0;
+    for (std::size_t row = 0; row + 1 < rows; ++row)
+        for (std::size_t column = 0; column + 1 < columns; ++column) {
+            if (!moved(column, row) && !moved(column + 1, row) && !moved(column, row + 1) &&
+                !moved(column + 1, row + 1))
+                continue;
+            // The diagonal from the top-left corner to the bottom-right, as
+            // card::append_quad lays a quad out.
+            const card::Index top_left = vertex(column, row);
+            const card::Index top_right = vertex(column + 1, row);
+            const card::Index bottom_right = vertex(column + 1, row + 1);
+            const card::Index bottom_left = vertex(column, row + 1);
+            indices.insert(
+                indices.end(),
+                {top_left, top_right, bottom_right, top_left, bottom_right, bottom_left}
+            );
+            ++squares;
+        }
+    return squares;
+}
+
+/// Appends a draw batch of a run of indices just appended to the frame.
+void append_moved_batch(
+    card::CardFrame& frame,
+    card::PageHandle page,
+    uint8_t level,
+    const TerrainPass& pass,
+    std::span<const card::Index> indices,
+    card::TargetHandle target,
+    const card::Rect* scissor
+) {
+    if (indices.empty())
+        return;
+    card::Batch batch;
+    batch.operation = card::Operation::draw;
+    batch.target = target;
+    batch.page = page;
+    batch.level = level;
+    batch.blend = pass.blend;
+    batch.sampling = pass.sampling;
+    batch.scissored = scissor != nullptr;
+    if (scissor != nullptr)
+        batch.scissor = *scissor;
+    batch.first_index = static_cast<card::Index>(frame.indices.size());
+    batch.index_count = static_cast<uint32_t>(indices.size());
+    frame.indices.insert(frame.indices.end(), indices.begin(), indices.end());
+    frame.batches.push_back(batch);
+}
+
+/// Tells whether a motion can move the art: a grid on the tile edge's
+/// divisors with an offset for every point, not all of them zero.
+bool can_move(const ArtMotion& motion) noexcept {
+    return motion.spacing != 0 && gw::tile_edge % motion.spacing == 0 && motion.columns != 0 &&
+           motion.rows != 0 &&
+           motion.offsets.size() == static_cast<std::size_t>(motion.columns) * motion.rows &&
+           !motion.still();
+}
+
+} // namespace
+
+uint32_t append_moved_terrain_tiles(
+    card::CardFrame& frame,
+    const gw::TerrainAtlas& atlas,
+    std::span<const card::PageHandle> pages,
+    const TerrainView& view,
+    const TerrainPass& pass,
+    const ArtMotion& motion,
+    card::TargetHandle target,
+    const card::Rect* scissor
+) {
+    if (pass.level >= gw::tile_level_count || pages.size() < atlas.pages.size() ||
+        !can_move(motion))
+        return 0;
+    TileRange range = visible_tiles(atlas, view);
+    if (range.first_column >= range.end_column || range.first_row >= range.end_row)
+        return 0;
+    // A tile past the view's edge can move its art into it.
+    range.first_column -= range.first_column > 0 ? 1U : 0U;
+    range.first_row -= range.first_row > 0 ? 1U : 0U;
+    range.end_column = std::min(range.end_column + 1U, atlas.grid_width);
+    range.end_row = std::min(range.end_row + 1U, atlas.grid_height);
+    const auto edge_at = [&](double map_pixel, float origin, int32_t camera) {
+        const auto at = static_cast<float>(
+            static_cast<double>(origin) + (map_pixel - static_cast<double>(camera)) * view.scale
+        );
+        return view.whole_pixels ? std::round(at) : at;
+    };
+    const card::Colour colour{1.0F, 1.0F, 1.0F, pass.alpha};
+    std::vector<std::vector<card::Index>> page_indices(atlas.pages.size());
+    MovedScratch scratch;
+    uint32_t squares = 0;
+    constexpr double edge = gw::tile_edge;
+    for (uint32_t row = range.first_row; row < range.end_row; ++row)
+        for (uint32_t column = range.first_column; column < range.end_column; ++column) {
+            const auto cell = static_cast<std::size_t>(row) * atlas.grid_width + column;
+            const auto rect = gw::tile_rect(atlas, atlas.grid[cell], pass.level);
+            if (!rect || rect->page >= atlas.pages.size())
+                continue;
+            const auto& level = atlas.pages[rect->page].levels[pass.level];
+            MovedRect moved;
+            moved.left = column * edge;
+            moved.top = row * edge;
+            moved.right = moved.left + edge;
+            moved.bottom = moved.top + edge;
+            // Within the tile, the pass's quad lands its art evenly between
+            // the corners it landed.
+            moved.across = {
+                moved.left,
+                moved.right,
+                edge_at(moved.left, view.origin_x, view.camera_x),
+                edge_at(moved.right, view.origin_x, view.camera_x),
+                view.origin_x,
+                view.camera_x,
+                view.scale
+            };
+            moved.down = {
+                moved.top,
+                moved.bottom,
+                edge_at(moved.top, view.origin_y, view.camera_y),
+                edge_at(moved.bottom, view.origin_y, view.camera_y),
+                view.origin_y,
+                view.camera_y,
+                view.scale
+            };
+            moved.u0 = static_cast<float>(rect->x) / static_cast<float>(level.width);
+            moved.v0 = static_cast<float>(rect->y) / static_cast<float>(level.height);
+            moved.u1 = static_cast<float>(rect->x + rect->edge) / static_cast<float>(level.width);
+            moved.v1 = static_cast<float>(rect->y + rect->edge) / static_cast<float>(level.height);
+            squares += append_moved_rect(
+                frame, motion, moved, {}, {}, view.scale, colour, page_indices[rect->page], scratch
+            );
+        }
+    for (std::size_t page = 0; page < atlas.pages.size(); ++page)
+        append_moved_batch(
+            frame, pages[page], pass.level, pass, page_indices[page], target, scissor
+        );
+    return squares;
+}
+
+uint32_t append_moved_terrain_mosaic(
+    card::CardFrame& frame,
+    const MosaicLevel& mosaic,
+    std::span<const card::PageHandle> pages,
+    const TerrainView& view,
+    const TerrainPass& pass,
+    const ArtMotion& motion,
+    card::TargetHandle target,
+    const card::Rect* scissor
+) {
+    if (pass.level != mosaic.level || pages.size() < mosaic.chunks.size() || !(view.scale > 0.0F) ||
+        !can_move(motion))
+        return 0;
+    const double scale = view.scale;
+    const double texel_pixels = static_cast<double>(1U << mosaic.level);
+    // The view's map pixels, as append_terrain_mosaic clips the chunks to
+    // them, and a grid spacing past them, from where art moves into view.
+    const double view_left = view.camera_x - static_cast<double>(view.margin) / scale;
+    const double view_top = view.camera_y - static_cast<double>(view.margin) / scale;
+    const double view_right = view.camera_x + static_cast<double>(view.width) / scale;
+    const double view_bottom = view.camera_y + static_cast<double>(view.height) / scale;
+    const double reach = motion.spacing;
+    const auto land = [&](double map_pixel, float origin, int32_t camera) {
+        const auto at = static_cast<float>(origin + (map_pixel - camera) * scale);
+        return view.whole_pixels ? std::round(at) : at;
+    };
+    const card::Colour colour{1.0F, 1.0F, 1.0F, pass.alpha};
+    MovedScratch scratch;
+    std::vector<card::Index> indices;
+    uint32_t squares = 0;
+    for (std::size_t index = 0; index < mosaic.chunks.size(); ++index) {
+        const MosaicChunk& chunk = mosaic.chunks[index];
+        const double drawn_left = static_cast<double>(chunk.drawn_x) * texel_pixels;
+        const double drawn_top = static_cast<double>(chunk.drawn_y) * texel_pixels;
+        const double drawn_right =
+            static_cast<double>(chunk.drawn_x + chunk.drawn_width) * texel_pixels;
+        const double drawn_bottom =
+            static_cast<double>(chunk.drawn_y + chunk.drawn_height) * texel_pixels;
+        MovedRect moved;
+        moved.left = std::max(view_left - reach, drawn_left);
+        moved.top = std::max(view_top - reach, drawn_top);
+        moved.right = std::min(view_right + reach, drawn_right);
+        moved.bottom = std::min(view_bottom + reach, drawn_bottom);
+        if (!(moved.left < moved.right) || !(moved.top < moved.bottom))
+            continue;
+        // The part append_terrain_mosaic drew lands its art evenly between
+        // the edges it landed; past them, at the view's scale.
+        const double base_left = std::max(view_left, drawn_left);
+        const double base_top = std::max(view_top, drawn_top);
+        const double base_right = std::min(view_right, drawn_right);
+        const double base_bottom = std::min(view_bottom, drawn_bottom);
+        moved.across = {
+            base_left,
+            base_right,
+            land(base_left, view.origin_x, view.camera_x),
+            land(base_right, view.origin_x, view.camera_x),
+            view.origin_x,
+            view.camera_x,
+            scale
+        };
+        moved.down = {
+            base_top,
+            base_bottom,
+            land(base_top, view.origin_y, view.camera_y),
+            land(base_bottom, view.origin_y, view.camera_y),
+            view.origin_y,
+            view.camera_y,
+            scale
+        };
+        moved.u0 = static_cast<float>(
+            (moved.left / texel_pixels - static_cast<double>(chunk.x)) / chunk.width
+        );
+        moved.v0 = static_cast<float>(
+            (moved.top / texel_pixels - static_cast<double>(chunk.y)) / chunk.height
+        );
+        moved.u1 = static_cast<float>(
+            (moved.right / texel_pixels - static_cast<double>(chunk.x)) / chunk.width
+        );
+        moved.v1 = static_cast<float>(
+            (moved.bottom / texel_pixels - static_cast<double>(chunk.y)) / chunk.height
+        );
+        const std::array<double, 2> drawn_across{base_left, base_right};
+        const std::array<double, 2> drawn_down{base_top, base_bottom};
+        indices.clear();
+        squares += append_moved_rect(
+            frame, motion, moved, drawn_across, drawn_down, view.scale, colour, indices, scratch
+        );
+        append_moved_batch(frame, pages[index], 0, pass, indices, target, scissor);
+    }
+    return squares;
+}
+
 } // namespace oa::app::full_terrain

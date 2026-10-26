@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Full's actual SDL postprocessing seam at ordinary, HiDPI and moved-target scales.
+// Full's actual SDL postprocessing seam at ordinary, HiDPI and moved-target
+// scales, reading the world back or adding light to it.
 #include "full_effects.hpp"
 #include "renderer_effects.hpp"
 #include "oa/test/check.hpp"
@@ -13,8 +14,15 @@
 
 namespace {
 
-void run_case(int density, bool moved, bool fractional_shift = false, bool cropped = false) {
+void run_case(
+    int density,
+    bool moved,
+    bool fractional_shift = false,
+    bool cropped = false,
+    oa::app::full_effects::Pass pass = oa::app::full_effects::Pass::world
+) {
     using namespace oa::app::full_effects;
+    const bool light = pass == Pass::light;
     SDL_Surface* canvas = SDL_CreateSurface(80 * density, 60 * density, SDL_PIXELFORMAT_RGBA32);
     SDL_Renderer* renderer = canvas ? SDL_CreateSoftwareRenderer(canvas) : nullptr;
     OA_CHECK(renderer != nullptr);
@@ -78,6 +86,15 @@ void run_case(int density, bool moved, bool fractional_shift = false, bool cropp
                                                 : 30 * density
                                     )
                 );
+                // The light pass is given opaque black, never the world.
+                if (light)
+                    for (uint32_t y = 0; y < image.height; ++y)
+                        for (uint32_t x = 0; x < image.width; ++x) {
+                            const auto* pixel = image.bytes.data() + y * image.pitch + x * 4;
+                            OA_CHECK(
+                                pixel[0] == 0 && pixel[1] == 0 && pixel[2] == 0 && pixel[3] == 255
+                            );
+                        }
                 // Exact-view sources include the later resolver shift. Adding
                 // the same shift to the target origin keeps their pre-resolve
                 // pixels aligned with the rounded-view scene.
@@ -100,7 +117,10 @@ void run_case(int density, bool moved, bool fractional_shift = false, bool cropp
                         }
                     }
             },
-            cropped ? &bounds : nullptr
+            cropped ? &bounds : nullptr,
+            {},
+            nullptr,
+            pass
         );
         OA_CHECK(error.empty());
         if (!error.empty())
@@ -145,8 +165,12 @@ void run_case(int density, bool moved, bool fractional_shift = false, bool cropp
             const int scale = moved ? 2 : density;
             const int left = moved ? 1 : field.x;
             const int top = moved ? 1 : field.y;
+            // Drawn back in place, or added to the world's 80, 90, 100.
             const auto* effect = at((left + 8) * scale, (top + 6) * scale);
-            OA_CHECK(effect[0] == 0 && effect[1] == 255 && effect[2] == 0);
+            OA_CHECK(effect[0] == (light ? 80 : 0) && effect[1] == 255);
+            OA_CHECK(effect[2] == (light ? 100 : 0));
+            const auto* unlit = at((left + 7) * scale, (top + 5) * scale);
+            OA_CHECK(unlit[0] == 80 && unlit[1] == 90 && unlit[2] == 100);
             const auto* hud = at(0, 0);
             OA_CHECK(hud[0] == 30 && hud[1] == 40 && hud[2] == 50);
             const auto* mark = at((left + 16) * scale, (top + 12) * scale);
@@ -219,11 +243,89 @@ std::vector<uint8_t> heat_picture(bool cropped) {
     return result;
 }
 
-/// The memory guard is asked for the readback, its copy and the grown
-/// upload together; refused, the pass reads, processes and draws nothing and
-/// leaves the renderer as it was. Allowed, a later pass draws as usual.
-void guarded_case() {
+/// The light pass adds to the world exactly what the world pass paints
+/// into it: lights that overlap and a channel they raise past 255.
+///
+/// @param pass the pass that draws the lights
+/// @param cropped true to read or light only the lights' bounds
+/// @return the window's pixels
+std::vector<uint8_t> lit_picture(oa::app::full_effects::Pass pass, bool cropped) {
+    using namespace oa::app;
+    SDL_Surface* canvas = SDL_CreateSurface(80, 60, SDL_PIXELFORMAT_RGBA32);
+    SDL_Renderer* renderer = canvas ? SDL_CreateSoftwareRenderer(canvas) : nullptr;
+    OA_CHECK(renderer != nullptr);
+    if (!renderer) {
+        SDL_DestroySurface(canvas);
+        return {};
+    }
+    // Green from 200 up, which the lights raise past 255.
+    for (int x = 0; x < 80; ++x) {
+        SDL_SetRenderDrawColor(
+            renderer, static_cast<uint8_t>(x * 3), static_cast<uint8_t>(200 + x % 50), 60, 255
+        );
+        const SDL_FRect stripe{float(x), 0, 1, 60};
+        SDL_RenderFillRect(renderer, &stripe);
+    }
+    {
+        full_effects::Upload upload;
+        const SDL_FRect bounds{8, 4, 26, 24};
+        const auto failure = full_effects::compose(
+            renderer,
+            upload,
+            {10, 8, 40, 30},
+            nullptr,
+            1,
+            [&](const full_effects::Pixels& image) {
+                // A light with a glow and a second light over part of it;
+                // neither is hot enough to distort.
+                const renderer_effects::Source sources[]{
+                    {18 - image.origin_x,
+                     14 - image.origin_y,
+                     0,
+                     9,
+                     1,
+                     1,
+                     0.6F,
+                     0.2F,
+                     1.5F,
+                     0.8F,
+                     0,
+                     0},
+                    {24 - image.origin_x, 18 - image.origin_y, 0, 8, 1, 0.3F, 1, 0.5F, 2, 0, 0, 0}
+                };
+                renderer_effects::compose(
+                    {image.bytes, int(image.width), int(image.height), int(image.pitch), 4, {}, {}},
+                    sources,
+                    {true, true, true},
+                    0.75
+                );
+            },
+            cropped ? &bounds : nullptr,
+            {},
+            nullptr,
+            pass
+        );
+        OA_CHECK(failure.empty());
+        SDL_RenderPresent(renderer);
+    }
+    const auto* bytes = static_cast<const uint8_t*>(canvas->pixels);
+    std::vector<uint8_t> result(bytes, bytes + canvas->pitch * canvas->h);
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroySurface(canvas);
+    return result;
+}
+
+/// The memory guard is asked for the readback and its copy, or the light,
+/// and the grown upload together; refused, the pass reads, processes and
+/// draws nothing and leaves the renderer as it was. Allowed, a later pass
+/// draws as usual.
+///
+/// @param pass the pass guarded
+void guarded_case(oa::app::full_effects::Pass pass) {
     using namespace oa::app::full_effects;
+    const bool light = pass == Pass::light;
+    // The readback and its RGBA copy, or the light.
+    const uint64_t copies = light ? 1U : 2U;
     SDL_Surface* canvas = SDL_CreateSurface(80, 60, SDL_PIXELFORMAT_RGBA32);
     SDL_Renderer* renderer = canvas ? SDL_CreateSoftwareRenderer(canvas) : nullptr;
     OA_CHECK(renderer != nullptr);
@@ -262,13 +364,15 @@ void guarded_case() {
         [&](uint64_t bytes) {
             asked.push_back(bytes);
             return false;
-        }
+        },
+        nullptr,
+        pass
     );
     OA_CHECK(!refused.empty());
     OA_CHECK(!called);
     OA_CHECK(upload.texture == nullptr);
-    // The readback and its copy, and the upload it would have made.
-    OA_CHECK(asked.size() == 1 && asked[0] == 3U * 40U * 30U * 4U);
+    // What the pass holds, and the upload it would have made.
+    OA_CHECK(asked.size() == 1 && asked[0] == (copies + 1) * 40U * 30U * 4U);
     SDL_Rect restored_clip{};
     OA_CHECK(SDL_GetRenderClipRect(renderer, &restored_clip));
     OA_CHECK(restored_clip.x == clip.x && restored_clip.w == clip.w);
@@ -279,18 +383,23 @@ void guarded_case() {
     OA_CHECK(at(20, 20)[0] == 30 && at(20, 20)[1] == 40 && at(20, 20)[2] == 50);
     // Allowed, the pass draws; an upload large enough is not asked for again.
     asked.clear();
-    for (int pass = 0; pass < 2; ++pass)
+    const auto allow = [&](uint64_t bytes) {
+        asked.push_back(bytes);
+        return true;
+    };
+    for (int attempt = 0; attempt < 2; ++attempt)
         OA_CHECK(
-            compose(renderer, upload, field, nullptr, 1, paint_green, nullptr, [&](uint64_t bytes) {
-                asked.push_back(bytes);
-                return true;
-            }).empty()
+            compose(renderer, upload, field, nullptr, 1, paint_green, nullptr, allow, nullptr, pass)
+                .empty()
         );
     OA_CHECK(
-        asked.size() == 2 && asked[0] == 3U * 40U * 30U * 4U && asked[1] == 2U * 40U * 30U * 4U
+        asked.size() == 2 && asked[0] == (copies + 1) * 40U * 30U * 4U &&
+        asked[1] == copies * 40U * 30U * 4U
     );
     SDL_RenderPresent(renderer);
-    OA_CHECK(at(20, 20)[0] == 0 && at(20, 20)[1] == 255 && at(20, 20)[2] == 0);
+    // Drawn in place, or added twice to the world's 30, 40, 50.
+    OA_CHECK(at(20, 20)[0] == (light ? 30 : 0) && at(20, 20)[1] == 255);
+    OA_CHECK(at(20, 20)[2] == (light ? 50 : 0));
     upload.reset();
     SDL_DestroyRenderer(renderer);
     SDL_DestroySurface(canvas);
@@ -308,6 +417,26 @@ int main() {
     run_case(2, false, false, true);
     run_case(1, true, false, true);
     run_case(2, true, true, true);
-    guarded_case();
+    using oa::app::full_effects::Pass;
+    run_case(1, false, false, false, Pass::light);
+    run_case(2, false, false, false, Pass::light);
+    run_case(1, true, false, false, Pass::light);
+    run_case(2, true, true, false, Pass::light);
+    run_case(2, false, false, true, Pass::light);
+    run_case(2, true, true, true, Pass::light);
+    for (const bool cropped : {false, true}) {
+        const auto lit = lit_picture(Pass::world, cropped);
+        OA_CHECK(lit == lit_picture(Pass::light, cropped));
+        // The first light's centre is raised to 255 in red and green; the
+        // stripes away from the lights keep their colour.
+        constexpr std::size_t pitch = 80 * 4;
+        OA_CHECK(lit.size() == pitch * 60);
+        if (lit.size() == pitch * 60) {
+            OA_CHECK(lit[22 * pitch + 28 * 4] == 255 && lit[22 * pitch + 28 * 4 + 1] == 255);
+            OA_CHECK(lit[5 * pitch + 5 * 4] == 15 && lit[5 * pitch + 5 * 4 + 1] == 205);
+        }
+    }
+    guarded_case(Pass::world);
+    guarded_case(Pass::light);
     return oa::test::check_exit_status();
 }

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The kind table holds oamod, then oamap, then oalang, then expansion, then
-// oamut, then oabrain. A made-up kind, built here and not in the table,
+// oamut, then oabrain, then oakeys. A made-up kind, built here and not in the table,
 // installs, replaces, rolls back and recovers through the same unpacking
 // and renames, and its own names are the only ones it leaves in its root
 // while it works.
@@ -254,13 +254,14 @@ bool commit_unpacked(
 
 void test_table() {
     const auto kinds = install::package_kinds();
-    OA_CHECK(kinds.size() == 6);
+    OA_CHECK(kinds.size() == 7);
     OA_CHECK(kinds[0].name == "oamod");
     OA_CHECK(kinds[1].name == "oamap");
     OA_CHECK(kinds[2].name == "oalang");
     OA_CHECK(kinds[3].name == "expansion");
     OA_CHECK(kinds[4].name == "oamut");
     OA_CHECK(kinds[5].name == "oabrain");
+    OA_CHECK(kinds[6].name == "oakeys");
     OA_CHECK(install::find_kind("oamod") == &install::mod_kind());
     const install::PackageKind* maps = install::find_kind("oamap");
     OA_CHECK(maps != nullptr && maps == &kinds[1]);
@@ -319,6 +320,24 @@ void test_table() {
         OA_CHECK(brain_names.restore == ".oabrain-restore-");
         OA_CHECK(brain_names.discard == ".oabrain-discard-");
         OA_CHECK(brain_names.lock == ".oabrain-lock");
+    }
+    const install::PackageKind* layouts = install::find_kind("oakeys");
+    OA_CHECK(layouts != nullptr && layouts == &kinds[6]);
+    OA_CHECK(layouts != nullptr && layouts->extension == ".oakeys");
+    OA_CHECK(layouts != nullptr && layouts->manifest == "oakeys.yaml");
+    OA_CHECK(layouts != nullptr && layouts->root_folder == "Keys");
+    OA_CHECK(layouts != nullptr && layouts->check_staged == nullptr);
+    OA_CHECK(install::kind_for_file("a.oakeys") == layouts);
+    OA_CHECK(install::kind_for_file("x.OAKEYS") == layouts);
+    if (layouts != nullptr) {
+        const install::FolderNames layout_names = install::folder_names(*layouts);
+        OA_CHECK(layout_names.reserved == ".oakeys-");
+        OA_CHECK(layout_names.staging == ".oakeys-staging-");
+        OA_CHECK(layout_names.old == ".oakeys-old-");
+        OA_CHECK(layout_names.replaced == ".oakeys-replaced-");
+        OA_CHECK(layout_names.restore == ".oakeys-restore-");
+        OA_CHECK(layout_names.discard == ".oakeys-discard-");
+        OA_CHECK(layout_names.lock == ".oakeys-lock");
     }
     OA_CHECK(install::kind_for_file("a.zip") == nullptr);
     OA_CHECK(install::kind_for_file("a.oamod.zip") == nullptr);

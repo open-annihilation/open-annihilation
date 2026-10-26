@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The live renderer's scene, fragment stage (renderer_live_gpu.cpp): the
-// atlas's terrain levels, sprites and models, the water's surface, shore
-// and underwater light, lit and blended. tools/make_live_shaders.py
+// atlas's terrain levels, the water's art moved by its fine ripples,
+// sprites and models, the water's shore and underwater light, lit and
+// blended. tools/make_live_shaders.py
 // compiles it for every graphics interface the renderer draws with.
 #version 450
 
@@ -50,23 +51,30 @@ vec4 terrain_level(vec2 origin, vec2 local, uint mip) {
     return texture(atlas_linear, position / vec2(textureSize(atlas_linear, 0)));
 }
 
-float water_hash(ivec2 cell) {
-    uint hash = uint(cell.x) * 0x8da6b343u ^ uint(cell.y) * 0xd8163841u;
-    hash ^= hash >> 13;
-    hash *= 0x85ebca6bu;
-    hash ^= hash >> 16;
-    return float(hash & 65535u) / 65535.0;
-}
+// Water ripples' fine ripples (renderer_water_surface.hpp's art_waves),
+// as the vertex stage's swells: heading, wavelength, speed and amplitude.
+const vec4 water_ripples[2] = vec4[2](vec4(0.37, 29.0, 1.35, 0.6), vec4(-0.82, 23.0, 1.1, 0.45));
 
-float water_noise(vec2 point) {
-    const ivec2 cell = ivec2(floor(point));
-    vec2 weight = fract(point);
-    weight = weight * weight * (3.0 - 2.0 * weight);
-    return mix(
-        mix(water_hash(cell), water_hash(cell + ivec2(1, 0)), weight.x),
-        mix(water_hash(cell + ivec2(0, 1)), water_hash(cell + ivec2(1, 1)), weight.x),
-        weight.y
-    );
+// How far the fine ripples move the water's art at a point under the
+// water, in texels: the vertex stage moves the ground by the swells, which
+// its corners are too far apart for.
+vec2 water_fine_offset(vec3 world) {
+    const float depth = camera.water_scene.x - world.y;
+    const float strength = camera.water.x * camera.water_scene.z * camera.water_scene.w *
+                           camera.water_wind.z * smoothstep(0.0, 12.0, depth);
+    if (depth <= 0.0 || strength <= 0.0)
+        return vec2(0.0);
+    const vec2 flow = camera.water_wind.xy;
+    const vec2 point = vec2(world.x, world.z + depth * 0.5);
+    vec2 offset = vec2(0.0);
+    for (int wave = 0; wave < 2; ++wave) {
+        const vec4 ripple = water_ripples[wave];
+        const vec2 heading = vec2(flow.x * cos(ripple.x) - flow.y * sin(ripple.x),
+                                  flow.x * sin(ripple.x) + flow.y * cos(ripple.x));
+        const float travel = dot(heading, point - camera.water_drift.xy * ripple.z);
+        offset += heading * ripple.w * sin(travel * 6.283185307 / ripple.y);
+    }
+    return offset * strength;
 }
 
 void main() {
@@ -77,25 +85,24 @@ void main() {
     if (in_terrain.z == -4.0) {
         colour = vec4(0.66, 0.85, 0.92, 1.0);
     } else if (in_terrain.z == -2.0) {
+        // Coastal waves' foam, as renderer_water_surface.hpp's foam_cover
+        // and foam_alpha give it: a wash along the shore and two trains of
+        // crests running in to it, gentler on sheltered water.
         const float depth = in_terrain.x;
-        const vec2 medium = in_world.xz - camera.water_drift.xy * 0.65;
-        const vec2 long_wave = in_world.xz - camera.water_drift.xy * 0.28;
-        const vec2 fine_point = in_world.xz - camera.water_drift.xy * 1.35;
-        const float broad = 0.65 * water_noise(medium / vec2(34.0, 22.0)) +
-                            0.35 * water_noise((long_wave + vec2(37.0, -19.0)) / vec2(79.0, 53.0));
-        const float fine = water_noise((fine_point + vec2(11.0, -7.0)) / vec2(8.0, 11.0));
-        const float ripple = mix(
-            smoothstep(0.48, 0.82, broad), smoothstep(0.48, 0.82, fine), camera.water_scene.w * 0.4
-        );
-        const float wind_strength = 0.12 + 0.88 * camera.water_wind.z;
         const float shore = (1.0 - smoothstep(3.0, 24.0, depth)) * smoothstep(0.0, 1.0, depth);
-        const float crest = pow(max(0.0, sin(depth * 0.9 + time * 1.1)), 8.0);
-        const float following = pow(max(0.0, sin(depth * 0.67 + time * 0.83 + 1.4)), 8.0);
-        const float foam =
-            shore * (crest * 0.7 + following * 0.3) * camera.water.y * in_terrain.y * 0.090;
-        const float sheen = ripple * camera.water.x * 0.14 * wind_strength;
+        const float crest = 0.5 + 0.5 * sin(depth * 0.8 + time * 1.2);
+        const float following = 0.5 + 0.5 * sin(depth * 0.55 + time * 0.9 + 1.4);
+        const float cover =
+            depth < 24.0 ? shore * (0.3 + 0.7 * (0.65 * crest * crest * crest +
+                                                 0.35 * following * following * following))
+                         : 0.0;
+        const float shelter = 0.35 + 0.65 * clamp(in_terrain.y, 0.0, 1.0);
+        const float foam = min(
+            0.85,
+            camera.water.y * shelter * (0.12 + 0.88 * camera.water_wind.z) * cover
+        );
         const float visibility = in_attenuation.x;
-        colour = vec4(vec3(0.72, 0.86, 0.90), (foam + sheen) * visibility * detail);
+        colour = vec4(vec3(0.88, 0.94, 0.97), foam * visibility * detail);
     } else if (in_terrain.z > 0.0) {
         const vec2 local = in_uv * atlas_size - in_terrain.xy;
         const float footprint =
@@ -103,13 +110,15 @@ void main() {
         const float lod = clamp(log2(max(footprint, 1.0)), 0.0, 5.0);
         const uint lower = uint(floor(lod));
         const uint upper = min(lower + 1u, 5u);
+        // The art the fine ripples move here, within its own tile.
+        const vec2 art = local - water_fine_offset(in_world);
         if (footprint <= 1.0) {
-            const vec2 position = in_terrain.xy + clamp(local, vec2(0.5), vec2(31.5));
+            const vec2 position = in_terrain.xy + clamp(art, vec2(0.5), vec2(31.5));
             colour = texture(atlas_nearest, position / atlas_size);
         } else {
             colour = mix(
-                terrain_level(in_terrain.xy, local, lower),
-                terrain_level(in_terrain.xy, local, upper),
+                terrain_level(in_terrain.xy, art, lower),
+                terrain_level(in_terrain.xy, art, upper),
                 fract(lod)
             );
         }
@@ -117,12 +126,12 @@ void main() {
             const vec2 grey_origin = in_terrain.xy + vec2(32.0, 0.0);
             vec4 grey;
             if (footprint <= 1.0) {
-                const vec2 position = grey_origin + clamp(local, vec2(0.5), vec2(31.5));
+                const vec2 position = grey_origin + clamp(art, vec2(0.5), vec2(31.5));
                 grey = texture(atlas_nearest, position / atlas_size);
             } else {
                 grey = mix(
-                    terrain_level(grey_origin, local, lower),
-                    terrain_level(grey_origin, local, upper),
+                    terrain_level(grey_origin, art, lower),
+                    terrain_level(grey_origin, art, upper),
                     fract(lod)
                 );
             }

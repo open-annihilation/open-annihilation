@@ -333,9 +333,11 @@ on:
   `{ini: Section/Key}` or `{registry: Name}`;
 - a constraint between parameters broken, such as a unit limit default
   above its maximum;
-- more `identity.side-names` than `limits.sides`, a hidden side numbered
-  at or past `limits.sides`, or a hidden-side list that offers no side,
-  checked once the limits have resolved
+- more `identity.side-names` than `limits.sides`, a hidden side or a
+  computer-player side numbered at or past `limits.sides`, a hidden-side
+  list that offers no side, or a computer-player list whose every side is
+  hidden from the skirmish or from the battle room, checked once the limits
+  have resolved
   ([6.1](#61-identity), [6.3](#63-limits));
 - a data key bound to a meaning whose hack is off;
 - a hack this engine does not implement yet;
@@ -761,6 +763,7 @@ Identity keys are written directly under `identity`.
 | `watcher-side-frame` | The frame of the battle room's `SIDEx` art that a watching player's side button shows. 3.1c shows frame 2, the art after Arm and Core; a mod whose SIDEDATA adds sides, and whose art puts its watcher picture further on, names that frame. The frame is not compared with `limits.sides`. | `2` | integer, 0 to 63 | view |
 | `skirmish-hidden-sides` | The SIDEDATA sides, by number from 0, that the skirmish Side button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them, and a skirmish saved on one opens on the next side offered. The battle room still offers them, and the sides keep their data. Each number must be below `limits.sides`, and at least one side stays offered; a list that fails either is refused once the limits have resolved. | `[]` | up to 31 distinct integers, 0 to 31 | view |
 | `battle-room-hidden-sides` | The SIDEDATA sides, by number from 0, that the battle room's SIDE button never offers, such as a spare side a mod keeps only so that its `SIDEx` art lines up. The button steps past them as it cycles, and leaving watch lands on the first side offered. The skirmish has its own key; a launch file can still name such a side, and the sides keep their data. Each number must be below `limits.sides`, and at least one side stays offered; a list that fails either is refused once the limits have resolved. | `[]` | up to 31 distinct integers, 0 to 31 | view |
+| `computer-player-sides` | SIDEDATA sides, by number, that computer players may take in the skirmish and the battle room; empty lets them take every side. Sides below the profile's limits.sides; a human player still chooses any side offered. | `[]` | up to 31 distinct integers, 0 to 31, below limits.sides | view |
 
 ### 6.2 `layout`
 
@@ -1045,7 +1048,7 @@ profile, are [the OAMUT standard](../mutators/oamut-standard.md).
 | --- | --- |
 | Unit scripts | `set ARMORED` turns on `DamageModifier`; a negative `EnergyUse` is paid out while the unit is activated; a script can attach and drop any unit, and attaching to piece −1 hides the passenger; scripts may scan every unit slot in one tick without sleeping; `MoveRate` calls reach ground units. |
 | Deaths and wrecks | `setSFXoccupy` codes reach `Killed`; corpse types up to 25; wrecks that turn into further wrecks over several steps. |
-| AI and builds | Build orders named `MAKENUKE` and `MAKEANTI` become stockpile orders; manual fire of the third weapon works with an empty second weapon. |
+| AI and builds | Build orders named `MAKENUKE` and `MAKEANTI` become stockpile orders: from the build buttons and a computer player's factories, as in 3.1c, and from a computer player's builders, which in 3.1c place such a round as a unit; manual fire of the third weapon works with an empty second weapon. |
 | Sides | A side's HUD panels come from the GAF its SIDEDATA `intgaf` names, its resource numbers and unit panel are drawn in the font its `font` names, and its resource bars come from its own `SIDEn` section; the rest of its interface, such as its general build pages, follows its `nameprefix`. A unit page draws the panel art its GUI names, `ARMPAN` or `ARMPAN2` for a third side whose pages are the `nameprefix`'s templates; when the side's `intgaf` holds art named by that GAF's stem without `INT` and the page's name without its side, `RUMPAN2` in `RUMINT.gaf` for `ARMPAN2`, the side's own is drawn instead. Commanders and build lists come from SIDEDATA, never from fixed unit names. The skirmish side button shows the `SIDEx` frame of the side it has chosen, for every SIDEDATA side, where 3.1c's two-stage button wraps back to Arm after Core. With more than five sides, a left click on the skirmish Side button and on the battle room's SIDE button steps forward, and a right click steps back, skipping a hidden side and wrapping. With five sides or fewer a right click still steps forward. A side whose `SIDEx` art has no frame shows its SIDEDATA name. The side tile is looked up as `<nameprefix>guisidetile.pcx` before the Arm and Core tiles. Order pages are named with the side's `nameprefix`, and the pointer reads a button's action from its name with that prefix taken off. |
 | Transports | A script may drop every passenger at once; a blocked drop cell is handled as 3.1c handles it. |
 | Loading | Missing weapons, sounds, fonts and sprite sequences; unknown unit names in AI profiles; misspelled SIDEDATA sections; duplicate unit and feature names; a missing semicolon; brackets inside weapon names; non-square footprints of mobile units; maps without a terrain file. Each loads as 3.1c loads it. |
@@ -1131,7 +1134,7 @@ change it, so two profiles that mean the same thing hash the same.
   strings, media, the visual
   hacks and every view value.
 
-Six keys were added after grammar 1's first release. The canonical form
+Seven keys were added after grammar 1's first release. The canonical form
 leaves each out while it stays at its baseline, so every profile that
 leaves them there keeps the sim hash and the full hash it had:
 
@@ -1139,6 +1142,7 @@ leaves them there keeps the sim hash and the full hash it had:
 - `identity.watcher-side-frame`, 2;
 - `identity.skirmish-hidden-sides`, an empty list;
 - `identity.battle-room-hidden-sides`, an empty list;
+- `identity.computer-player-sides`, an empty list;
 - `limits.weapon-types`, 256;
 - `limits.sides`, 5.
 
