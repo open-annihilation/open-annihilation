@@ -780,6 +780,9 @@ struct Runtime::KeyBindingsState {
     bool number_keys{};
     /// The order file stem the last resolution used.
     std::string order_stem{};
+    /// The category letters the last resolution used. A match that loads units
+    /// after the menu's resolution has to build the category actions.
+    std::string categories{};
     /// The shown panel stem the last resolution used.
     std::string shown_stem{};
     uint64_t map_generation{};
@@ -1246,9 +1249,10 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     const bool number_keys = EngineSettingsState::live_switch_alt(*this);
     const std::string order_stem = order_side_stem();
     const std::string shown_stem = shown_hud_stem();
+    const std::string categories = loaded_category_letters();
     const bool bindings_same = state.ready && !map_changed && state.hacks == hacks &&
                                state.scheme == scheme && state.number_keys == number_keys &&
-                               state.order_stem == order_stem;
+                               state.order_stem == order_stem && state.categories == categories;
     if (bindings_same && state.shown_stem == shown_stem)
         return;
 
@@ -1308,6 +1312,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     state.scheme = scheme;
     state.number_keys = number_keys;
     state.order_stem = order_stem;
+    state.categories = categories;
     state.shown_stem = shown_stem;
     state.ready = true;
     if (!keep_held)

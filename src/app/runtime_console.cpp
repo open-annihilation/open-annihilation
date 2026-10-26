@@ -36,6 +36,7 @@
 #include "oa/ui/hud/share_panel.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/present/game_text.hpp"
+#include "oa/present/world_renderer/world_camera.hpp"
 #include "match_fault.hpp"
 
 #include <SDL3/SDL.h>
@@ -786,6 +787,24 @@ void Runtime::list_save_files(
     }
 }
 
+void Runtime::store_camera_bookmark(int32_t slot) {
+    if (!match_ || slot < 0 || slot >= oa::present::world_renderer::camera_slot_count)
+        return;
+    bind_match_view();
+    oa::present::world_renderer::camera_store_slot(match_->state().game, slot);
+}
+
+void Runtime::recall_camera_bookmark(int32_t slot) {
+    if (!match_ || slot < 0 || slot >= oa::present::world_renderer::camera_slot_count)
+        return;
+    stop_match_tracking();
+    auto& game = match_->state().game;
+    oa::present::world_renderer::camera_recall_slot(game, slot);
+    set_camera_position(
+        static_cast<int32_t>(game.camera_x), static_cast<int32_t>(game.camera_y), 0
+    );
+}
+
 void Runtime::run_console_hotkey(uint32_t code) {
     console::Console* con = match_console();
     if (con == nullptr)
@@ -797,7 +816,8 @@ void Runtime::run_console_hotkey(uint32_t code) {
     uint32_t presented = code;
     if (con->key_remaps && code == console::hotkey::repeat_command)
         presented = console::hotkey::insert;
-    // Callbacks the runtime does not provide stay unbound.
+    // Callbacks the runtime does not provide stay unbound. Category selection
+    // and the view bookmarks are the console's own route.
     console::HotkeyHost host{};
     host.context = this;
     host.shift_down = [](void* context) {
@@ -839,6 +859,17 @@ void Runtime::run_console_hotkey(uint32_t code) {
     };
     host.begin_movie_capture = [](void* context, const char* path) {
         runtime_of(context)->begin_film_capture(path);
+    };
+    host.select_by_category = [](void* context, const char* category, bool add) {
+        if (category == nullptr)
+            return;
+        runtime_of(context)->select_by_tag(category, add);
+    };
+    host.store_camera = [](void* context, int32_t slot) {
+        runtime_of(context)->store_camera_bookmark(slot);
+    };
+    host.recall_camera = [](void* context, int32_t slot) {
+        runtime_of(context)->recall_camera_bookmark(slot);
     };
     console::hotkey_dispatch(con, &host, presented);
     sync_effects_toggle(match_.get(), *con);

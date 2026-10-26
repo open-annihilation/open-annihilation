@@ -4,6 +4,7 @@
 // Match left-click handling, selection, tracking and squads.
 #include "oa/app/runtime.hpp"
 #include "touch_state.hpp"
+#include "oa/data/defs/categories.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
 #include "oa/sim/selection.hpp"
 #include <SDL3/SDL.h>
@@ -572,6 +573,64 @@ void Runtime::select_units_matching(
     selected_match_unit_ = first;
     apply_match_hud_for_selection();
     status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
+}
+
+namespace {
+
+/// Whether a category mask holds any unit type.
+///
+/// @param mask the mask, or null
+/// @return true when some type bit is set
+bool mask_holds_a_type(const oa::data::defs::CategoryMask* mask) {
+    if (mask == nullptr || mask->words == nullptr)
+        return false;
+    for (uint32_t index = 0; index < mask->word_count; ++index) {
+        if (mask->words[index] != 0)
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
+bool Runtime::select_by_tag(std::string_view word, bool add) {
+    if (!match_ || word.empty())
+        return false;
+    auto& world = match_->state();
+    world.game.local_player_index = match_local_player_;
+    const std::string name{word};
+    const oa::data::defs::CategoryMask* mask =
+        oa::data::defs::category_registry_find(&unit_table_.tables.categories, name.c_str());
+    if (!mask_holds_a_type(mask)) {
+        if (!add) {
+            clear_local_selection();
+            selected_match_unit_ = 0;
+            apply_match_hud_for_selection();
+        }
+        status_ = "No units";
+        return false;
+    }
+    oa::sim::selection::apply_type_mask_selection(world, *mask, add, selection_hooks());
+    adopt_selected_units();
+    int count = 0;
+    for (const auto& slot : match_->world().slots) {
+        if (slot.unit == nullptr || slot.owner_index != match_local_player_ ||
+            (slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
+            continue;
+        ++count;
+    }
+    status_ = count == 0 ? "No units" : std::to_string(count) + " selected";
+    return true;
+}
+
+void Runtime::select_builders_by_movement(bool mobile) {
+    select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
+        const auto* definition = definition_for(slot.unit_index);
+        if (definition == nullptr || !definition->builder)
+            return false;
+        const bool moves = definition->bm_code != 0;
+        return mobile ? moves : !moves;
+    });
 }
 
 } // namespace oa::app

@@ -281,27 +281,36 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         show_match_page_by_key(page - 1);
         return true;
     }
-    // Shift+1, Shift+3 and Shift+8 are damage-bar chords until they are
-    // routed. They do what the digit with Shift did: a build page, or with
-    // Select groups without Alt the group added.
-    int damage_digit = 0;
-    if (id == "game.health-bars-mode-1")
-        damage_digit = 1;
-    else if (id == "game.health-bars-mode-2")
-        damage_digit = 3;
-    else if (id == "game.health-bars-mode-3")
-        damage_digit = 8;
-    if (damage_digit != 0) {
-        const bool switch_alt =
-            (match_->state().game.graphics_flags & oa::ui::console::graphics_flag::switch_alt) != 0;
-        if (switch_alt)
-            select_squad(damage_digit, true);
-        else
-            show_match_page_by_key(damage_digit - 1);
+    // The five damage-bar keys all toggle the bars. With Select groups
+    // without Alt, Shift+1, Shift+3 and Shift+8 are group adds by the key
+    // resolution, so this handler never sees those chords then.
+    if (id == "game.health-bars") {
+        run_console_hotkey(static_cast<uint32_t>('`'));
         return true;
     }
-    if (id == "game.health-bars" || id == "game.health-bars-mode-4") {
-        run_console_hotkey(static_cast<uint32_t>('`'));
+    if (id == "game.health-bars-mode-1") {
+        run_console_hotkey(static_cast<uint32_t>('!'));
+        return true;
+    }
+    if (id == "game.health-bars-mode-2") {
+        run_console_hotkey(static_cast<uint32_t>('#'));
+        return true;
+    }
+    if (id == "game.health-bars-mode-3") {
+        run_console_hotkey(static_cast<uint32_t>('*'));
+        return true;
+    }
+    if (id == "game.health-bars-mode-4") {
+        run_console_hotkey(static_cast<uint32_t>('~'));
+        return true;
+    }
+    if (const int stored = action_number(id, "camera.bookmark-set-"); stored >= 1 && stored <= 4) {
+        run_console_hotkey(oa::ui::console::hotkey::control_f5 + static_cast<uint32_t>(stored - 1));
+        return true;
+    }
+    if (const int recalled = action_number(id, "camera.bookmark-go-");
+        recalled >= 1 && recalled <= 4) {
+        run_console_hotkey(oa::ui::console::hotkey::f5 + static_cast<uint32_t>(recalled - 1));
         return true;
     }
     if (id == "select.all") {
@@ -316,32 +325,40 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
         select_and_follow_commander(true);
         return true;
     }
-    if (id == "select.builders" || id == "select.idle-builders") {
+    if (id == "select.idle-builders") {
         const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
         if (selection_shortcut_key(SDLK_B, shift))
             return true;
-        select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-            const auto* def = definition_for(slot.unit_index);
-            return def && def->builder && def->bm_code != 0;
-        });
+        select_builders_by_movement(true);
         return true;
     }
-    if (id == "select.factories" || id == "select.idle-factories") {
+    if (id == "select.idle-factories") {
         const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
         if (selection_shortcut_key(SDLK_F, shift))
             return true;
-        select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-            const auto* def = definition_for(slot.unit_index);
-            return def && def->builder && def->bm_code == 0;
-        });
+        select_builders_by_movement(false);
         return true;
     }
-    if (id == "select.aircraft") {
-        select_units_matching([&](const oa::sim::unit_spawn::Slot& slot) {
-            const auto* def = definition_for(slot.unit_index);
-            return def && def->can_fly;
-        });
+    if (id == "select.builders" || id == "select.factories" || id == "select.aircraft") {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        const char* tag = "CTRL_V";
+        if (id == "select.builders")
+            tag = "CTRL_B";
+        else if (id == "select.factories")
+            tag = "CTRL_F";
+        select_by_tag(tag, shift);
         return true;
+    }
+    constexpr std::string_view category = "select.category-";
+    if (id.starts_with(category) && id.size() == category.size() + 1) {
+        const char letter = id.back();
+        if (letter >= 'a' && letter <= 'z') {
+            const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+            std::string word = "CTRL_";
+            word.push_back(static_cast<char>(letter - 'a' + 'A'));
+            select_by_tag(word, shift);
+            return true;
+        }
     }
     if (id == "select.on-screen" || id == "select.armed-on-screen") {
         const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;

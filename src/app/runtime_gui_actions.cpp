@@ -8,12 +8,15 @@
 #include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
 
+#include "oa/data/defs/categories.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/data/defs/sides.hpp"
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/ui/gui_layout.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -52,6 +55,49 @@ std::string stem_of_resource(std::string_view path) {
     const auto dot = file.find_last_of('.');
     const auto stem = dot == std::string_view::npos ? file : file.substr(0, dot);
     return gui_key_piece(stem);
+}
+
+/// The lower-case letter of a `CTRL_<letter>` name, or 0.
+///
+/// The name is exactly those six characters. A longer category is not a
+/// letter tag.
+///
+/// @param name the category name, or null
+/// @return the letter, or 0
+char ctrl_letter(const char* name) {
+    if (name == nullptr)
+        return 0;
+    constexpr char prefix[] = "CTRL_";
+    for (int index = 0; index < 5; ++index) {
+        if (name[index] == '\0')
+            return 0;
+        const auto have = static_cast<unsigned char>(name[index]);
+        const auto want = static_cast<unsigned char>(prefix[index]);
+        if (std::toupper(have) != want)
+            return 0;
+    }
+    if (name[5] == '\0' || name[6] != '\0')
+        return 0;
+    const auto last = static_cast<unsigned char>(name[5]);
+    if (last >= 'a' && last <= 'z')
+        return static_cast<char>(last);
+    if (last >= 'A' && last <= 'Z')
+        return static_cast<char>(last - 'A' + 'a');
+    return 0;
+}
+
+/// Whether a category mask holds any unit type.
+///
+/// @param mask the mask
+/// @return true when some type bit is set
+bool mask_holds_a_type(const oa::data::defs::CategoryMask& mask) {
+    if (mask.words == nullptr)
+        return false;
+    for (uint32_t index = 0; index < mask.word_count; ++index) {
+        if (mask.words[index] != 0)
+            return true;
+    }
+    return false;
 }
 
 /// The stem of a `gui.` action id, between the two dots.
@@ -145,7 +191,30 @@ keys::ModData Runtime::gui_mod_data(std::string_view order_stem) const {
             row.gadget = key.gadget;
         mod.keys.push_back(std::move(row));
     }
+    mod.categories = loaded_category_letters();
     return mod;
+}
+
+std::string Runtime::loaded_category_letters() const {
+    const oa::data::defs::CategoryRegistry& registry = unit_table_.tables.categories;
+    std::string letters;
+    if (registry.entries == nullptr || registry.masks == nullptr)
+        return letters;
+    for (uint32_t index = 0; index < registry.count; ++index) {
+        const char letter = ctrl_letter(registry.entries[index].name);
+        if (letter == 0)
+            continue;
+        const uint32_t mask_index = registry.entries[index].mask;
+        if (mask_index >= registry.count)
+            continue;
+        if (!mask_holds_a_type(registry.masks[mask_index]))
+            continue;
+        if (letters.find(letter) != std::string::npos)
+            continue;
+        letters.push_back(letter);
+    }
+    std::sort(letters.begin(), letters.end());
+    return letters;
 }
 
 void Runtime::apply_shown_gui_file(keys::Resolved& resolved, std::string_view shown) const {
