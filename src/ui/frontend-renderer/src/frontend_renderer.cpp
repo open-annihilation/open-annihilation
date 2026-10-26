@@ -1049,16 +1049,14 @@ void draw_list_box(
     }
 }
 
-/// Lays a GUI layout out over a screen's art, its texts in the game's
-/// language, and binds its buttons as the panel's first draw does.
+/// Parses a GUI layout, its texts in the game's language.
 ///
-/// @param[in,out] screen The art; it takes the layout
 /// @param name The layout's name, for an error
 /// @param layout The layout's GUI file
+/// @return The layout
 /// @throws std::runtime_error when the layout is malformed
-void lay_out_screen(
-    ScreenResources& screen, const std::string& name, std::span<const uint8_t> layout
-) {
+ui::gui_layout::Layout
+parse_screen_layout(const std::string& name, std::span<const uint8_t> layout) {
     // The panel's texts in the game's language, as 3.1c's GUI loader
     // translates them.
     auto parsed_layout = ui::gui_layout::parse(layout, ui::gui_layout::game_translation_lookup());
@@ -1067,16 +1065,15 @@ void lay_out_screen(
             "cannot parse GUI layout '" + name + "': " + parsed_layout.error->message
         );
     }
-    screen.layout = std::move(*parsed_layout.layout);
-    bind_screen_buttons(screen, 0);
+    return std::move(*parsed_layout.layout);
 }
 
 ScreenResources load_screen_with_layout(
     AssetStore& assets, const ScreenAssetNames& names, std::span<const uint8_t> layout
 ) {
     ScreenResources result = load_screen_art(assets, names);
-    lay_out_screen(result, names.layout, layout);
-    return result;
+    auto parsed = parse_screen_layout(names.layout, layout);
+    return lay_out_screen(std::move(result), std::move(parsed));
 }
 
 } // namespace
@@ -1084,12 +1081,7 @@ ScreenResources load_screen_with_layout(
 ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& names) {
     ScreenResources result;
     if (!names.background.empty()) {
-        // The background in the language's folder when the game data has it
-        // there (bitmaps-German), as 3.1c looks first.
-        std::string background = names.background;
-        if (const auto variant = data::languages::language_folder_path(background);
-            variant && assets.file_size(*variant) > 0)
-            background = *variant;
+        const std::string background = screen_background_path(assets, names.background);
         result.background =
             ui::decoded::require(decode_pcx(assets.read(background).bytes), background);
     }
@@ -1146,10 +1138,27 @@ ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& name
 
 ScreenResources
 load_screen_layout(AssetStore& assets, const ScreenResources& art, const std::string& layout) {
-    const auto bytes = assets.read(layout).bytes;
-    ScreenResources result = art;
-    lay_out_screen(result, layout, bytes);
-    return result;
+    auto parsed = read_screen_layout(assets, layout);
+    return lay_out_screen(art, std::move(parsed));
+}
+
+ui::gui_layout::Layout read_screen_layout(AssetStore& assets, const std::string& layout) {
+    return parse_screen_layout(layout, assets.read(layout).bytes);
+}
+
+ScreenResources lay_out_screen(ScreenResources art, ui::gui_layout::Layout layout) {
+    art.layout = std::move(layout);
+    bind_screen_buttons(art, 0);
+    return art;
+}
+
+std::string screen_background_path(AssetStore& assets, const std::string& background) {
+    // The background in the language's folder when the game data has it
+    // there (bitmaps-German), as 3.1c looks first.
+    if (auto variant = data::languages::language_folder_path(background);
+        variant && assets.file_size(*variant) > 0)
+        return std::move(*variant);
+    return background;
 }
 
 std::string_view staged_caption(std::string_view text, std::size_t stage) noexcept {
