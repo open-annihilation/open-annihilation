@@ -1853,7 +1853,7 @@ actions:
     when: [no-wheel-zoom]
     kind: press
     source: [ui.megamap]
-    default: ["Tab", "Shift+Tab"]
+    default: ["Tab"]
     words: {name: "Megamap", description: "The megamap on or off"}
   megamap.open-wheel:
     area: megamap
