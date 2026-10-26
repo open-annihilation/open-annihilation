@@ -305,7 +305,7 @@ up to four threads, one on a machine of one or two logical processors.
 `OA_DRAW_THREADS` (1 to 32) sets the count for every run of the game a test
 starts, and `--draw-threads N` for one run; every count draws the same
 frames, which `native-draw-threads`, `world-draw-bands`,
-`app-xrgb-conversion`, `present-surface-band`,
+`app-xrgb-conversion`, `app-renderer-effects`, `present-surface-band`,
 `model-render-rgb-bridge` and `model-render-mesh-raster`
 check. To run the whole suite on one drawing thread, or on many:
 

@@ -349,7 +349,8 @@ void Runtime::compose_match_effect_pixels(
          depths},
         projected,
         {true, true, settings.heat_distortion != 0},
-        static_cast<double>(match_->simulation().tick) / 30.0
+        static_cast<double>(match_->simulation().tick) / 30.0,
+        draw_pool_.get()
     );
 }
 
