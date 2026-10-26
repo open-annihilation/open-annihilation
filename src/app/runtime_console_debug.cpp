@@ -591,6 +591,8 @@ void Runtime::check_console_debug_commands(const std::function<void(const char*)
     const auto profile_before = game.profiling;
     const std::string saved_line(console_->state.last_command);
     bool running = true;
+    // This check calls handle_sdl_event directly, so the hotkey handler feeds
+    // the press. down is the key's own state, as a real press has it set.
     const auto press_key = [&](SDL_Keycode key_code, SDL_Scancode key_scan) {
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;

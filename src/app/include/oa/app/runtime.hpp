@@ -19958,6 +19958,9 @@ class Runtime final : public menu::Host,
     /// apply to the key that armed it and a chord still sees them after consume.
     bool sticky_event_{};
     uint8_t sticky_event_mods_{};
+    /// Set while the key now being handled was already given to the action
+    /// dispatcher. A match hotkey reached any other way feeds its own press.
+    bool match_key_already_fed_{};
 
     /// A latch or sticky modifier chip, and when it was turned on.
     struct KeyLatchSeen {

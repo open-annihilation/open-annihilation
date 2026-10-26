@@ -1303,6 +1303,19 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
 
     if (feed_input_actions(event))
         return;
+    // The screen handlers run after the feed. A key they answer must not be
+    // fed again: that second down lets a latch go.
+    const bool key_event = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;
+
+    struct FedGuard {
+        bool& flag;
+
+        ~FedGuard() { flag = false; }
+    };
+
+    [[maybe_unused]] FedGuard fed_guard{match_key_already_fed_};
+    if (key_event)
+        match_key_already_fed_ = true;
     dispatch_after_actions(event, running);
 }
 

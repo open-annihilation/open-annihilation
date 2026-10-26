@@ -436,13 +436,13 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
 bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     if (screen_ != Screen::match || !match_)
         return false;
-    // The event may arrive here without passing through dispatch_event, which
-    // is where a key is fed. A check also leaves the down flag clear and names
-    // the press by the event type, so that press is fed here. A down that
-    // dispatch_event already fed stays as it is: feeding it again is a second
-    // down with no up, which lets a latch go and drops a sticky modifier
-    // before this handler reads the action.
-    if (!key.down) {
+    // dispatch_event feeds a key before the screen sees it. A check, and any
+    // other caller, hands the key here directly. The down flag is the key's
+    // own state, including a held key's repeat, so it does not say whether
+    // the dispatcher has seen this press. Feeding a press that was already
+    // given is a second down with no up, which lets a latch go and drops a
+    // sticky modifier before this handler reads the action.
+    if (!match_key_already_fed_) {
         SDL_Event fed_event{};
         fed_event.key = key;
         fed_event.type = SDL_EVENT_KEY_DOWN;

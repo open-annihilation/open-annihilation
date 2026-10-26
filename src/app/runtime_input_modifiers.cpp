@@ -206,11 +206,15 @@ void Runtime::press_match_key(SDL_Keycode key, SDL_Keymod mods) {
     dispatch.pulse = mods;
     try {
         feed_input_actions(event);
+        // This press was just fed. The hotkey handler must not feed it again.
+        match_key_already_fed_ = true;
         std::ignore = handle_match_hotkey(event.key);
     } catch (...) {
+        match_key_already_fed_ = false;
         dispatch.pulse = before;
         throw;
     }
+    match_key_already_fed_ = false;
     dispatch.pulse = before;
 }
 
