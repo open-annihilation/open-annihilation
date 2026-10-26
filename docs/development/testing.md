@@ -611,6 +611,13 @@ step times the frame. The fixture is a test extension, so only a build
 configured with `-DOA_RECORD_EXTENSION_HOOKS=ON` combines it and runs this
 check.
 
+The MCP server in [tools/mcp](../../tools/mcp/README.md) has two checks:
+`mcp-server-selftest` drives its tools against a stand-in endpoint and
+needs no installation, and `native-mcp-server`
+(`tools/check_native_mcp_server.py`) starts the server as an MCP client
+does and has it start the game on the dummy drivers, go from the main menu
+to Single Player and back, take a picture and quit.
+
 ### The renderer
 
 The game makes its renderer by walking SDL's render drivers and makes it
@@ -751,7 +758,9 @@ pressed look of a resting finger and a finger sliding off), the two-finger
 tap, pinch and pan keeping the map under the fingers, the order wheel
 (Patrol, its QUEUE hub ending PATROL with its pick, latched QUEUE
 keeping the 3.1c PATROL button lit until QUEUE goes off, Info, a greyed
-place), building placement (a drag moving the ghost under the finger, a
+place), the unit info panel taking the finger (the side column's ATTACK
+doing nothing under it, a drag from it drawing no box even with ATTACK
+armed, a box that selects nothing and OK closing it), building placement (a drag moving the ghost under the finger, a
 hold near the ghost placing it there, a double tap or a hold away from it
 placing where the finger is, a refused site staying armed, QUEUE keeping the
 placement for the next site, CANCEL, CLEAR and a two-finger tap ending
@@ -1340,6 +1349,13 @@ scratch mod folder whose ARMCOM unit file, taken from the installation with
 `oa-tool asset-extract`, carries the same values: a match without mutators
 steers as 3.1c does, so there a commander must step more than a cell past
 its point.
+`native-spawn-heights` (`tools/check_native_spawn_heights.py`) points at
+markers a stage places on Coast To Coast and enters unit names on the chat
+line: a shipyard, a floating torpedo launcher and a floating metal maker
+on the deep water must stand on their build grid at the sea level less
+their waterlines, a solar collector on a hill at the lowest corner under
+its footprint, read from the map with `oa-tool asset-extract`, and a patrol
+boat at a placed one's height, each to the end of the run.
 
 ## Writing a test
 

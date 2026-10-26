@@ -1743,11 +1743,60 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             );
         };
 
+        // Water ripples move the map's own water art: wherever the terrain
+        // is drawn below, its passes are drawn again where the art moves,
+        // before the fog's passes over them.
+        ft::ArtMotion water_art;
+        {
+            renderer_water_classic::Inputs ripples;
+            ripples.map = &*selected_tnt_;
+            ripples.view.zoom = zoom;
+            ripples.ripples = engine_settings().water_ripples / 100.0F;
+            ripples.wind = water_wind();
+            const double reach = 2.0 * oa::present::gpu_world::tile_edge;
+            water_art = renderer_water_classic::art_motion(
+                ripples,
+                view.camera_x - reach,
+                view.camera_y - reach,
+                view.camera_x + bf_w / zoom + reach,
+                view.camera_y + bf_h / zoom + reach
+            );
+        }
+        const auto append_moved_art = [&](const ft::TerrainView& where,
+                                          std::span<const ft::TerrainPass> passes,
+                                          card::TargetHandle target,
+                                          const card::Rect* scissor) {
+            if (water_art.offsets.empty())
+                return;
+            for (const ft::TerrainPass& pass : passes) {
+                const std::size_t mosaic = pass.level - ft::first_mosaic_level;
+                if (pass.level >= ft::first_mosaic_level && mosaic < ft::mosaic_level_count &&
+                    !full.mosaic_pages[mosaic].empty())
+                    ft::append_moved_terrain_mosaic(
+                        frame,
+                        full.mosaics[mosaic],
+                        full.mosaic_pages[mosaic],
+                        where,
+                        pass,
+                        water_art,
+                        target,
+                        scissor
+                    );
+                else
+                    ft::append_moved_terrain_tiles(
+                        frame, full.atlas, full.pages, where, pass, water_art, target, scissor
+                    );
+            }
+        };
+
         // The stages, over the last list the planner built: what they read,
         // and the sight the sprite stage tells the fog's state from; none
         // when the match cannot say, which draws every sprite in colour.
         auto& models = match_models();
         full::ModelFrameInputs model_inputs;
+        // Each of the frame's vertices' world height where the model stage
+        // drew it at one: what the ships' reflections mirror.
+        std::vector<float> vertex_heights;
         model_inputs.draws = &models.draws;
         model_inputs.world = &match_->world().record;
         model_inputs.library = &models.library;
@@ -1831,6 +1880,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.water_surface = water_surface();
                 water.disturbances = water_disturbances();
                 water.wind = water_wind();
+                water.art = &water_art;
+                vertex_heights.clear();
+                model_inputs.vertex_heights = water.reflections > 0 ? &vertex_heights : nullptr;
                 model_inputs.water_shimmer =
                     selected_tnt_->sea_level > 0
                         ? water.shimmer * std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
@@ -1859,13 +1911,12 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                                 water_coverage[index], sim::visibility_state::SightReading::player
                             ));
                 };
-                renderer_water_classic::surface(frame, water);
                 {
                     full::SpriteFrame sprites(sprite_inputs, full.sprite_pages, hooks, frame);
                     std::size_t before = frame.vertices.size();
                     full.models.emit_shadows(model_inputs, scene, full.executor, frame);
                     full.frame_vertices.shadows += frame.vertices.size() - before;
-                    for (const WorldDraw& draw : models.draws.draws) {
+                    const auto emit_draw = [&](const WorldDraw& draw) {
                         before = frame.vertices.size();
                         const auto first_water_index = frame.indices.size();
                         if (full::sprite_kind(draw.kind)) {
@@ -1875,10 +1926,26 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                             full.models.emit_draw(model_inputs, scene, draw, full.executor, frame);
                             full.frame_vertices.models += frame.vertices.size() - before;
                         }
+                        water.vertex_heights = vertex_heights;
                         renderer_water_classic::objects(
                             frame, water, models.draws, draw, before, first_water_index
                         );
-                    }
+                    };
+                    // What lies on the sea bed first, under the water's foam,
+                    // rings and splashes, then everything else in the list's
+                    // order over them.
+                    const bool water_surface_drawn = renderer_water_classic::surface_drawn(water);
+                    const auto lies_on_sea_bed = [&](const WorldDraw& draw) {
+                        return water_surface_drawn &&
+                               renderer_water_classic::on_sea_bed(water, models.draws, draw);
+                    };
+                    for (const WorldDraw& draw : models.draws.draws)
+                        if (lies_on_sea_bed(draw))
+                            emit_draw(draw);
+                    renderer_water_classic::surface(frame, water);
+                    for (const WorldDraw& draw : models.draws.draws)
+                        if (!lies_on_sea_bed(draw))
+                            emit_draw(draw);
                     full.sprites = sprites.finish();
                 }
                 if (full.sprites.pages_overflowed && !full.overflow_logged) {
@@ -2169,6 +2236,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             quads += ft::append_terrain_tiles(
                 frame, full.atlas, full.pages, target_view, pass, full.world_target, nullptr
             );
+            append_moved_art(target_view, {&pass, 1}, full.world_target, nullptr);
             const std::array<full_fog::GreyedLevel, 1> levels{{{pass.level, pass.sampling, 1.0F}}};
             append_unseen(target_view, levels, full.world_target, nullptr);
             // Size pixels per layout pixel, so that the texture holds the
@@ -2212,6 +2280,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 quads += ft::append_terrain_tiles(
                     frame, full.atlas, full.pages, target_view, pass, full.target, nullptr
                 );
+                append_moved_art(target_view, {&pass, 1}, full.target, nullptr);
                 const std::array<full_fog::GreyedLevel, 1> levels{
                     {{pass.level, pass.sampling, 1.0F}}
                 };
@@ -2238,6 +2307,7 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 quads += ft::append_terrain_tiles(
                     frame, full.atlas, full.pages, view, pass, card::TargetHandle{}, &battlefield
                 );
+                append_moved_art(view, {&pass, 1}, card::TargetHandle{}, &battlefield);
                 const std::array<full_fog::GreyedLevel, 1> levels{
                     {{pass.level, pass.sampling, 1.0F}}
                 };
@@ -2304,6 +2374,12 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     );
                 levels[index] = {pass.level, pass.sampling, 1.0F};
             }
+            append_moved_art(
+                over_view,
+                {full.plan.passes.data(), full.plan.pass_count},
+                over_target,
+                over_scissor
+            );
             // The second pass is blended over the first at its alpha, so it
             // carries that share of the picture and the first the rest.
             if (full.plan.pass_count == 2) {
@@ -2387,6 +2463,11 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     static_cast<float>(image.row_offset)
                 );
             };
+            // Light only adds to the world, which the card adds it to as it
+            // is; heat distortion moves the world's pixels, which are read
+            // back, the processor waiting for the card to finish the world.
+            const full_effects::Pass pass =
+                match_effects_distort() ? full_effects::Pass::world : full_effects::Pass::light;
             std::string failure(forced_effects_failure);
             if (!effects_fault)
                 failure = full_effects::compose(
@@ -2397,9 +2478,10 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                     moved ? full.moved_target_factor : 1U,
                     process,
                     &effect_bounds,
-                    // The readback is a buffer the frame can do without.
+                    // The readback or the light is a buffer the frame can do without.
                     [this](uint64_t bytes) { return accelerated_buffer_fits(bytes); },
-                    full.final_target
+                    full.final_target,
+                    pass
                 );
             // A failed effects pass leaves the card's world as it drew it:
             // the frame goes on without the effects, and Full stays.

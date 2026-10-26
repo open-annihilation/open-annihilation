@@ -503,7 +503,9 @@ uint32_t TickHost::GroundMissions::pickup() {
     case 3:
         return wait_until_not_busy(ground::target_lost_event);
     case 2:
-        start_transport_script("TransportPickup", {int32_t{cargo->record.id}, 0, 0, 0});
+        start_transport_script(
+            ScriptFunction::transport_pickup, {int32_t{cargo->record.id}, 0, 0, 0}
+        );
         speak(ground::speech_cargo_loaded);
         ++attempts;
         wait_ticks(ground::transport_script_wait);
@@ -544,7 +546,9 @@ uint32_t TickHost::GroundMissions::unload() {
         const auto packed = std::bit_cast<int32_t>(
             (std::bit_cast<uint32_t>(to[0]) & 0xffff0000u) + std::bit_cast<uint32_t>(to[2] >> 16)
         );
-        start_transport_script("TransportDrop", {int32_t{cargo->record.id}, packed, 0, 0});
+        start_transport_script(
+            ScriptFunction::transport_drop, {int32_t{cargo->record.id}, packed, 0, 0}
+        );
         ++attempts;
         wait_ticks(ground::transport_script_wait);
         return ground::next_phase;

@@ -165,9 +165,6 @@ class Parser {
     std::span<const uint8_t> bytes_;
     PixelData pixels_ = PixelData::decoded;
     uint16_t largest_side_ = UINT16_MAX; // widest and tallest frame or layer accepted
-    // A checked frame's pixels and coverage are decoded here and not kept.
-    std::vector<uint8_t> checked_pixels_;
-    std::vector<uint8_t> checked_coverage_;
     std::optional<Error> error_;
     std::size_t total_frame_records_ = 0;
     std::size_t total_decoded_bytes_ = 0;
@@ -344,27 +341,26 @@ class Parser {
             output.pixel_data_bytes = static_cast<uint32_t>(data_bytes);
         }
 
-        // Only kept pixels count towards the decoded total: a checked frame
-        // reuses the parser's own buffers.
-        if (pixels_ == PixelData::decoded) {
-            if (pixel_count >
-                (limit::total_decoded_bytes - total_decoded_bytes_) / decoded_bytes_per_pixel) {
-                return set_error(
-                    ErrorCode::pixel_limit, at, "GAF decoded buffers exceed portable limit"
-                );
-            }
-            total_decoded_bytes_ += pixel_count * decoded_bytes_per_pixel;
+        // A checked frame keeps nothing: raw pixels need only lie in the
+        // file, and compressed rows are checked without being written.
+        if (pixels_ == PixelData::checked)
+            return pixel_count == 0 || !output.compressed ||
+                   decode_compressed(data_at, output, nullptr, nullptr);
+        // Only kept pixels count towards the decoded total.
+        if (pixel_count >
+            (limit::total_decoded_bytes - total_decoded_bytes_) / decoded_bytes_per_pixel) {
+            return set_error(
+                ErrorCode::pixel_limit, at, "GAF decoded buffers exceed portable limit"
+            );
         }
-        // A checked frame decodes into the parser's own buffers and keeps nothing.
-        auto& kept_pixels = pixels_ == PixelData::decoded ? output.pixels : checked_pixels_;
-        auto& kept_coverage = pixels_ == PixelData::decoded ? output.coverage : checked_coverage_;
-        kept_pixels.assign(pixel_count, output.transparency_index);
-        kept_coverage.assign(pixel_count, 0);
+        total_decoded_bytes_ += pixel_count * decoded_bytes_per_pixel;
+        output.pixels.assign(pixel_count, output.transparency_index);
+        output.coverage.assign(pixel_count, 0);
         if (pixel_count == 0)
             return true;
         // Plain pointers keep the per-pixel loop free of calls in unoptimised builds.
-        uint8_t* const pixels = kept_pixels.data();
-        uint8_t* const coverage = kept_coverage.data();
+        uint8_t* const pixels = output.pixels.data();
+        uint8_t* const coverage = output.coverage.data();
         if (!output.compressed) {
             std::memcpy(pixels, bytes_.data() + data_at, pixel_count);
             cover_raw_pixels(pixels, coverage, pixel_count, output.transparency_index);
@@ -410,8 +406,9 @@ class Parser {
     /// @param at input offset of the first row's length word
     /// @param output the frame's size
     /// @param[out] pixels width * height palette indices, filled beforehand
-    ///     with the transparency index
-    /// @param[out] coverage width * height bytes, zero beforehand
+    ///     with the transparency index; null to check the rows and write nothing
+    /// @param[out] coverage width * height bytes, zero beforehand; null
+    ///     when `pixels` is
     /// @return true when every row decoded; else error() holds why
     [[nodiscard]] bool
     decode_compressed(std::size_t at, const Frame& output, uint8_t* pixels, uint8_t* coverage) {
@@ -449,8 +446,10 @@ class Parser {
                         );
                     const auto value = input[row_at++];
                     count = std::min(count, width - x);
-                    std::memset(pixels + y * width + x, value, count);
-                    std::memset(coverage + y * width + x, 1, count);
+                    if (pixels != nullptr) {
+                        std::memset(pixels + y * width + x, value, count);
+                        std::memset(coverage + y * width + x, 1, count);
+                    }
                     x += count;
                 } else {
                     count = static_cast<std::size_t>(command >> compression::counted_shift) +
@@ -462,8 +461,10 @@ class Parser {
                             row_at - 1,
                             "literal GAF run lacks visible bytes"
                         );
-                    std::memcpy(pixels + y * width + x, input + row_at, count);
-                    std::memset(coverage + y * width + x, 1, count);
+                    if (pixels != nullptr) {
+                        std::memcpy(pixels + y * width + x, input + row_at, count);
+                        std::memset(coverage + y * width + x, 1, count);
+                    }
                     row_at += count;
                     x += count;
                 }

@@ -372,6 +372,10 @@ build_text_layers(const TextMask& mask, const TextStyle& style, int32_t thicknes
 
 /// Draws a line in the modern fonts with the borders the settings choose.
 ///
+/// The layers of the lines drawn last are kept, at most 256 lines and
+/// 16 MiB of them, so a line drawn again with the same letters and borders
+/// is laid from them rather than built anew.
+///
 /// @param text UTF-8 text
 /// @param face the game font it stands in for
 /// @param scale screen pixels to a game pixel, 1 or more: the size and the
@@ -384,6 +388,24 @@ build_text_layers(const TextMask& mask, const TextStyle& style, int32_t thicknes
 [[nodiscard]] std::optional<TextLayers> modern_text(
     std::string_view text, TextFace face, int32_t scale, int32_t size, bool allow_background = true
 );
+
+/// Gives how far the pen moves past a line drawn in the modern fonts with
+/// the borders the settings choose, without building the line's layers.
+///
+/// @param text UTF-8 text
+/// @param face the game font it stands in for
+/// @param scale screen pixels to a game pixel, 1 or more
+/// @param size the text size, in percent of the face's own, held to the
+///        sizes offered
+/// @return the advance modern_text gives the same line; none when the
+///         modern fonts cannot draw it
+[[nodiscard]] std::optional<int32_t>
+modern_text_advance(std::string_view text, TextFace face, int32_t scale, int32_t size);
+
+/// Drops the layers modern_text keeps of the lines it drew last, so that
+/// each line is built anew when it is next drawn. Installing hooks drops
+/// them too.
+void forget_text_layers() noexcept;
 
 /// Gives the longest start of a text whose modern line fits a width.
 ///

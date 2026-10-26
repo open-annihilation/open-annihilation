@@ -70,12 +70,11 @@ bool MatchTickAccess::list_holds(
 ) {
     if (place.node == nullptr)
         return false;
-    const auto found = match.target_observers_.find(&unit);
-    if (found == match.target_observers_.end())
+    auto* const* head = match.observer_head(unit);
+    if (head == nullptr)
         return false;
     std::size_t steps = overlay_order_budget;
-    for (auto* cursor = found->second; cursor != nullptr && steps-- > 0;
-         cursor = cursor->observer_next) {
+    for (auto* cursor = *head; cursor != nullptr && steps-- > 0; cursor = cursor->observer_next) {
         if (cursor == place.node)
             return true;
     }

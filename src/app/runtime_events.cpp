@@ -333,6 +333,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // nothing to do; any other left press clears that mark.
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == select_button)
             radar_left_press_held_ = false;
+        // An open unit info panel takes a press on it, and the release that
+        // ends it, before anything under it; the side column takes none.
+        if (unit_info_pointer(event, x, y))
+            return;
         // The commander placement (setup.commander-warp) takes the pointer
         // first; ui.resource-panel's panel floats over the battlefield and
         // takes it next; ui.build-tools' drag with the snap override key

@@ -165,18 +165,20 @@ a preferences file can set each one, or turn it off at 0%, for a render.
 Each effect's percent comes from `--effect NAME=PERCENT` on the command
 line where it names the effect, else from the run's preferences, else from
 its default. On the card the default is Full's, since the card draws the
-render on Full whatever Hardware acceleration the preferences store: 100%
-for Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
-distortion, as for the water's four. A render on the card with a fresh
-`--preferences-file` therefore draws every effect at 100%, and an effect
-the file stores (`open-annihilation.weapon-lighting.intensity` and the
-like, or its earlier On or Off key) keeps the file's percent. On the
-processor an unstored effect follows the stored Hardware acceleration, as
-in the game: 100% with Full, 0% below it. The run changes nothing the
+render on Full whatever Hardware acceleration the preferences store: 20%
+for Coloured weapon lighting and Nanolathe glow, 30% for Wreck glow, 40%
+for Heat distortion, and the water's own defaults, 60% for Water ripples,
+30% for Coastal waves, and 100% for Underwater shimmer and Naval
+reflections. A render on the card with a fresh `--preferences-file`
+therefore draws every effect at those percents, and an effect the file
+stores (`open-annihilation.weapon-lighting.intensity` and the like, or its
+earlier On or Off key) keeps the file's percent. On the processor an
+unstored effect follows the stored Hardware acceleration, as in the game:
+its default with Full, 0% below it. The run changes nothing the
 preferences store, and its first lines say the percents the card draws at:
 
 ```text
-director: the graphics card draws its effects at weapon-lighting 100%, nanolathe-lighting 100%, ...
+director: the graphics card draws its effects at weapon-lighting 20%, nanolathe-lighting 20%, ...
 ```
 
 `--effect` takes an effect's name, `weapon-lighting`,

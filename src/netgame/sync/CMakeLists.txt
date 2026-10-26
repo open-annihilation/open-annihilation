@@ -8,7 +8,7 @@ add_library(oa::netgame::sync ALIAS oa-netgame-sync)
 target_include_directories(oa-netgame-sync PUBLIC include)
 target_compile_features(oa-netgame-sync PUBLIC cxx_std_20)
 target_link_libraries(oa-netgame-sync PUBLIC oa-data-unit-definitions oa-data-campaign oa-formats-tdf
-  PRIVATE oa-base-bytes oa-data-defs)
+  PRIVATE oa-base-bytes oa-data-defs oa-formats-hpi)
 
 if(BUILD_TESTING)
   add_executable(oa-netgame-sync-test tests/sync_test.cpp)

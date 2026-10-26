@@ -34,7 +34,8 @@ std::string compose(
     const std::function<void(const Pixels&)>& process,
     const SDL_FRect* effect_bounds,
     const std::function<bool(uint64_t bytes)>& fits,
-    SDL_Texture* final_target
+    SDL_Texture* final_target,
+    Pass pass
 ) {
     RenderState saved(renderer);
     std::optional<RenderState> moved_state;
@@ -125,24 +126,38 @@ std::string compose(
         origin_y += float(top) / scale_y;
     }
     if (area.w > 0 && area.h > 0) {
-        // The readback and its RGBA copy are held at once, with the upload
-        // when it must grow to take them.
+        // The readback and its RGBA copy are held at once, or the light
+        // pass's layer alone, with the upload when it must grow to take them.
+        const bool read_world = pass == Pass::world;
         const uint64_t area_bytes = uint64_t(area.w) * uint64_t(area.h) * pixel_bytes;
-        uint64_t held = 2 * area_bytes;
+        uint64_t held = (read_world ? 2 : 1) * area_bytes;
         if (!upload.texture || upload.width < area.w || upload.height < area.h)
             held += uint64_t(std::max(upload.width, area.w)) *
                     uint64_t(std::max(upload.height, area.h)) * pixel_bytes;
         if (fits && !fits(held))
-            return "the effects readback of " + std::to_string(area.w) + "x" +
-                   std::to_string(area.h) + " would leave too little memory";
+            return "the effects " + std::string(read_world ? "readback" : "light") + " of " +
+                   std::to_string(area.w) + "x" + std::to_string(area.h) +
+                   " would leave too little memory";
         using SurfaceOwner = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
-        SurfaceOwner read(SDL_RenderReadPixels(renderer, &area), SDL_DestroySurface);
-        SurfaceOwner rgba(
-            read ? SDL_ConvertSurface(read.get(), SDL_PIXELFORMAT_RGBA32) : nullptr,
-            SDL_DestroySurface
-        );
+        SurfaceOwner rgba(nullptr, SDL_DestroySurface);
+        if (read_world) {
+            // Reading waits for the card to finish the world.
+            const SurfaceOwner read(SDL_RenderReadPixels(renderer, &area), SDL_DestroySurface);
+            rgba.reset(read ? SDL_ConvertSurface(read.get(), SDL_PIXELFORMAT_RGBA32) : nullptr);
+        } else {
+            // Opaque black, to which the light is added; the card adds the
+            // layer to the world at its full alpha.
+            rgba.reset(SDL_CreateSurface(area.w, area.h, SDL_PIXELFORMAT_RGBA32));
+            if (rgba && !SDL_FillSurfaceRect(
+                            rgba.get(), nullptr, SDL_MapSurfaceRGBA(rgba.get(), 0, 0, 0, 255)
+                        ))
+                rgba.reset();
+        }
         if (!rgba)
-            return ("reading the effects world: " + std::string(SDL_GetError()));
+            return (
+                (read_world ? "reading the effects world: " : "making the effects light: ") +
+                std::string(SDL_GetError())
+            );
         process(
             {{static_cast<uint8_t*>(rgba->pixels), static_cast<std::size_t>(rgba->pitch) * rgba->h},
              static_cast<uint32_t>(rgba->w),
@@ -175,7 +190,9 @@ std::string compose(
         const SDL_Rect updated{0, 0, rgba->w, rgba->h};
         const SDL_FRect source{0, 0, static_cast<float>(rgba->w), static_cast<float>(rgba->h)};
         if (!SDL_UpdateTexture(upload.texture, &updated, rgba->pixels, rgba->pitch) ||
-            !SDL_SetTextureBlendMode(upload.texture, SDL_BLENDMODE_NONE) ||
+            !SDL_SetTextureBlendMode(
+                upload.texture, read_world ? SDL_BLENDMODE_NONE : SDL_BLENDMODE_ADD
+            ) ||
             !SDL_SetTextureScaleMode(upload.texture, SDL_SCALEMODE_NEAREST) ||
             !SDL_RenderTexture(renderer, upload.texture, &source, &destination))
             return ("presenting the effects world: " + std::string(SDL_GetError()));

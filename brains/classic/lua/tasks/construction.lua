@@ -2,8 +2,10 @@
 -- SPDX-License-Identifier: GPL-3.0-only
 
 -- The builders' tick. Each builder places a weighted pick near the base,
--- and an idle one patrols home. A capturing builder builds only while the
--- player is under the withhold count and the hold tick has passed.
+-- and an idle one patrols home. A pick that is a round for the builder's
+-- weapon is queued as a factory's pick is, and stockpiled. A capturing
+-- builder builds only while the player is under the withhold count and the
+-- hold tick has passed.
 -- @quirk ai.builder-withhold-threshold moves only the build limit: an idle
 -- capturing builder still circles the base from five build-capable units.
 
@@ -97,6 +99,16 @@ local function captures(row)
     return ((row.abilities or 0) & ability_capture) ~= 0
 end
 
+-- A round for the builder's first weapon to stockpile: the type's unit name
+-- holds MAKENUKE or MAKEANTI, as the build queue tells it.
+local function stockpile_round(row)
+    if type(row) ~= "table" or type(row.unit_name) ~= "string" then
+        return false
+    end
+    return string.find(row.unit_name, "MAKENUKE", 1, true) ~= nil
+        or string.find(row.unit_name, "MAKEANTI", 1, true) ~= nil
+end
+
 function construction.run(seat, squad)
     local me = seat.me
     if me == nil or type(me.squad_size) ~= "function" then
@@ -132,7 +144,10 @@ function construction.run(seat, squad)
                 local _, busy = unit:head_order()
                 if not held_back and busy ~= true then
                     local pick = build.pick(seat, unit)
-                    if pick ~= 0 then
+                    if pick ~= 0 and stockpile_round(seat.types[pick]) then
+                        -- A round is no unit to place: the queue stockpiles it.
+                        unit:queue(pick, 1)
+                    elseif pick ~= 0 then
                         local position = unit.position
                         local builder_at = {
                             x = raw_of(position.x),

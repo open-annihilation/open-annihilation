@@ -513,12 +513,12 @@ class TickHost::GroundMissions {
     /// Starts a transport script with four locals, the first passed as its
     /// argument, stepping it at once; nothing happens without a script.
     ///
-    /// @param name script name; the lookup is case-sensitive
+    /// @param function engine function whose exact COB name is started
     /// @param locals values of the four locals
-    void start_transport_script(const char* name, const std::array<int32_t, 4>& locals) {
+    void start_transport_script(ScriptFunction function, const std::array<int32_t, 4>& locals) {
         auto* instance = host.match.instance(s.unit_index);
         if (instance && instance->script())
-            (void)instance->script()->call_with_locals(name, locals, 1, true);
+            (void)instance->script()->call_with_locals(function, locals, 1, true);
     }
 
     /// Returns the unit a weapon slot aims at.
@@ -591,7 +591,7 @@ class TickHost::GroundMissions {
             created.extra.command_flags &= static_cast<uint8_t>(~ground::order_has_target);
         if (!point)
             created.extra.command_flags &= static_cast<uint8_t>(~ground::order_has_point);
-        host.match.orders_.push_back(std::move(entry));
+        host.match.adopt_order(std::move(entry));
         if (aimed && (created.extra.command_flags & ground::order_has_target))
             retarget(created, aimed);
         return created;

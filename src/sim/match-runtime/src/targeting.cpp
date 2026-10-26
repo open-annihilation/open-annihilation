@@ -13,6 +13,9 @@
 #include "oa/sim/ground_orders/orders.hpp"
 #include "oa/sim/match_runtime/command.hpp"
 #include <cmath>
+#include <memory>
+#include <span>
+#include <utility>
 
 namespace oa::sim::match_runtime {
 namespace {
@@ -21,6 +24,24 @@ int16_t high_word(uint32_t value) {
 }
 
 constexpr uint32_t fire_at_will = 2u << OA_UNIT_FLAG_FIRE_ORDER_SHIFT;
+
+/// Finds the slot whose view is a unit: the slot at the unit's id, or, when
+/// that slot views another unit, the slot found by walking the pool. Each
+/// slot views a unit of its own, so at most one slot matches.
+///
+/// @param slots The pool's slots.
+/// @param unit Unit to find.
+/// @return Its slot, or null when no slot views it.
+sim::unit_spawn::Slot*
+slot_viewing(std::span<sim::unit_spawn::Slot> slots, const sim::simulation_state::Unit& unit) {
+    const auto id = unit.record.id;
+    if (id < slots.size() && slots[id].unit == &unit)
+        return &slots[id];
+    for (auto& candidate : slots)
+        if (candidate.unit == &unit)
+            return &candidate;
+    return nullptr;
+}
 } // namespace
 
 class TargetHost final : public sim::combat_state::IntelligenceHost,
@@ -84,40 +105,12 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
         }
         const auto environment = *match.strategic_environment_;
         auto& state = match.strategic_states_.at(player);
-        std::vector<sim::combat_state::StrategicType> types(match.input_.types.size());
-        state.owned_counts.assign(types.size(), 0);
-        for (std::size_t id = 1; id < types.size(); ++id) {
-            const auto& fields = match.input_.fields[id];
-            if (!fields.definition || !fields.runtime_metadata) {
-                match.fault_.note("strategic type requires resolved definition metadata");
-                return;
-            }
-            const auto& definition = *fields.definition;
-            auto& type = types[id];
-            type.flags = match.input_.types[id].simulation.flags;
-            type.abilities = (definition.can_attack ? sim::combat_state::ability_can_attack : 0u) |
-                             (definition.can_load ? sim::combat_state::ability_can_load : 0u);
-            type.makes_metal = static_cast<uint8_t>(definition.makes_metal);
-            type.min_water_depth = fields.runtime_metadata->min_water_depth;
-            type.radar_distance = definition.radar_distance;
-            type.sonar_distance = definition.sonar_distance;
-            type.build_cost_energy = static_cast<float>(definition.build_cost_energy);
-            type.build_cost_metal = static_cast<float>(definition.build_cost_metal);
-            type.energy_make = definition.energy_make;
-            type.energy_use = definition.energy_use;
-            type.extracts_metal = definition.extracts_metal;
-            type.wind_generator = definition.wind_generator;
-            type.tidal_generator = definition.tidal_generator;
-            const auto binding = sim::combat_state::bind_unit_weapons(
-                match.input_.weapons, {definition.weapon1, definition.weapon2, definition.weapon3}
-            );
-            for (std::size_t i = 0; i < 3; ++i) {
-                const auto& weapon = *binding.weapons.definitions[i];
-                type.weapons[i] = {
-                    weapon.registry_index, weapon.default_damage, weapon.range_world_units
-                };
-            }
-        }
+        state.owned_counts.assign(match.input_.types.size(), 0);
+        if (!list_strategic_types())
+            return;
+        const std::span<const sim::combat_state::StrategicType> types{
+            match.strategic_types_.get(), match.input_.types.size()
+        };
         // The knowledge walk clears and recounts own completed live units before
         // the refresh draw. No unit-mutating callbacks intervene between that
         // scan and this callback.
@@ -170,7 +163,7 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
         return match.fields(slot(source.identity)).definition->sight_distance;
     }
 
-    std::span<const sim::combat_state::TargetUnit>
+    std::span<sim::combat_state::TargetUnit>
     gather_nearby(uint8_t owner, const std::array<uint32_t, 3>& center, int32_t radius) override {
         if (owner >= match.sightings_.size()) {
             match.fault_.note("target partition outside player sightings");
@@ -327,6 +320,53 @@ class TargetHost final : public sim::combat_state::IntelligenceHost,
 
   private:
 
+    /// Lists what the strategic refresh reads of every unit type, by type
+    /// index, the first time a refresh asks; the types and their weapons stay
+    /// as the match loaded them, so later refreshes read the same list.
+    ///
+    /// @return False, with the fault noted, while a type has no resolved
+    ///     definition; the list is then made again at the next refresh.
+    bool list_strategic_types() {
+        if (match.strategic_types_)
+            return true;
+        const auto count = match.input_.types.size();
+        auto types = std::make_unique<sim::combat_state::StrategicType[]>(count);
+        for (std::size_t id = 1; id < count; ++id) {
+            const auto& fields = match.input_.fields[id];
+            if (!fields.definition || !fields.runtime_metadata) {
+                match.fault_.note("strategic type requires resolved definition metadata");
+                return false;
+            }
+            const auto& definition = *fields.definition;
+            auto& type = types[id];
+            type.flags = match.input_.types[id].simulation.flags;
+            type.abilities = (definition.can_attack ? sim::combat_state::ability_can_attack : 0u) |
+                             (definition.can_load ? sim::combat_state::ability_can_load : 0u);
+            type.makes_metal = static_cast<uint8_t>(definition.makes_metal);
+            type.min_water_depth = fields.runtime_metadata->min_water_depth;
+            type.radar_distance = definition.radar_distance;
+            type.sonar_distance = definition.sonar_distance;
+            type.build_cost_energy = static_cast<float>(definition.build_cost_energy);
+            type.build_cost_metal = static_cast<float>(definition.build_cost_metal);
+            type.energy_make = definition.energy_make;
+            type.energy_use = definition.energy_use;
+            type.extracts_metal = definition.extracts_metal;
+            type.wind_generator = definition.wind_generator;
+            type.tidal_generator = definition.tidal_generator;
+            const auto binding = sim::combat_state::bind_unit_weapons(
+                match.input_.weapons, {definition.weapon1, definition.weapon2, definition.weapon3}
+            );
+            for (std::size_t i = 0; i < 3; ++i) {
+                const auto& weapon = *binding.weapons.definitions[i];
+                type.weapons[i] = {
+                    weapon.registry_index, weapon.default_damage, weapon.range_world_units
+                };
+            }
+        }
+        match.strategic_types_ = std::move(types);
+        return true;
+    }
+
     /// Returns what the reach test reads of a unit: its position, the whole
     /// world units of its type's model top, its flags and its type's flags.
     ///
@@ -352,12 +392,7 @@ sim::simulation_state::Unit* Match::find_automatic_target(sim::simulation_state:
 sim::simulation_state::Unit* Match::search_automatic_target(
     sim::simulation_state::Unit& unit, const sim::combat_state::TargetSearchRequest& request
 ) {
-    sim::unit_spawn::Slot* slot = nullptr;
-    for (auto& candidate : slots_)
-        if (candidate.unit == &unit) {
-            slot = &candidate;
-            break;
-        }
+    auto* slot = slot_viewing(slots_, unit);
     if (!slot) {
         fault_.note("target source outside pool");
         return nullptr;
@@ -409,14 +444,8 @@ bool Match::weapon_can_reach(uint16_t source, uint16_t target, uint8_t weapon) {
 bool Match::issue_automatic_attack(
     sim::simulation_state::Unit& source, sim::simulation_state::Unit& target
 ) {
-    sim::unit_spawn::Slot* from = nullptr;
-    sim::unit_spawn::Slot* to = nullptr;
-    for (auto& slot : slots_) {
-        if (slot.unit == &source)
-            from = &slot;
-        if (slot.unit == &target)
-            to = &slot;
-    }
+    const auto* from = slot_viewing(slots_, source);
+    const auto* to = slot_viewing(slots_, target);
     if (!from || !to) {
         fault_.note("attack identities outside match pool");
         return false;

@@ -106,6 +106,9 @@ class SoftwareMixer {
 
     MixerLock lock_;
     std::vector<MixerStream*> streams_;
+    /// The streams open when the current mix() call began; room for every
+    /// open stream is kept, so a mix does not allocate it.
+    std::vector<MixerStream*> mixing_;
     std::vector<int32_t> sum_; ///< the mix of one call, with mixer_sum_bits fraction bits
 };
 

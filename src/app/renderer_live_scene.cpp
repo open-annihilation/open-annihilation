@@ -5,6 +5,7 @@
 #include "renderer_effect_sources.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
+#include "renderer_water_surface.hpp"
 
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/sim/visibility_state.hpp"
@@ -743,6 +744,23 @@ void terrain(const Inputs& in, Scene& scene) {
 }
 
 /// Drapes a cutout over the exact terrain triangles, preserving its painted footprint.
+/// Moves a corner lying under the water by the swells the vertex stage
+/// moves the ground under it by (shaders/live_scene_vertex.glsl), so that
+/// what lies on the sea bed moves with the water's art; a corner standing
+/// out of the water stays.
+void move_with_swells(const Inputs& in, Vertex& vertex) {
+    const float depth = float(in.sea_level) - vertex.height;
+    if (in.sea_level <= 0 || !(depth > 0) || !(in.water.ripples > 0) || !(in.water.detail > 0))
+        return;
+    const auto offset =
+        renderer_water_surface::art_offset(vertex.x, vertex.z + depth * 0.5F, in.water.wind, 0);
+    const float share = std::clamp(in.water.ripples, 0.0F, 2.0F) *
+                        std::clamp(in.water.detail, 0.0F, 1.0F) *
+                        renderer_water_surface::art_depth_weight(depth);
+    vertex.x += offset[0] * share;
+    vertex.z += offset[1] * share;
+}
+
 void decal(
     const Inputs& in,
     Scene& scene,
@@ -853,6 +871,7 @@ void decal(
                     };
                     if (soft_edges)
                         corners[corner].terrain_size = -1;
+                    move_with_swells(in, corners[corner]);
                 }
                 polygon(scene, std::span(corners).first(clipped.count));
             }
@@ -928,21 +947,20 @@ void unit_shadows(const Inputs& in, Scene& scene) {
         const float altitude = std::max(0.0F, position.y / fixed_scale - receiver);
         const bool aircraft = (flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && altitude > 0;
         if (aircraft && image.width <= 256 && image.height <= 256) {
-            const auto style = renderer_aircraft_shadow::style(altitude);
+            const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
             uint64_t key = hash_start;
             const auto hash = [&](uint64_t value) { key = (key ^ value) * hash_multiplier; };
             hash(image.width);
             hash(image.height);
-            hash(style.radius);
+            hash(radius);
             for (const auto value : coverage)
                 hash(value);
             auto cached = scene.aircraft_shadow_materials.find(key);
             if (cached == scene.aircraft_shadow_materials.end()) {
-                auto alpha = renderer_aircraft_shadow::soften(
-                    coverage, image.width, image.height, style.radius
-                );
-                const uint32_t width = image.width + style.radius * 4;
-                const uint32_t height = image.height + style.radius * 4;
+                auto alpha =
+                    renderer_aircraft_shadow::soften(coverage, image.width, image.height, radius);
+                const uint32_t width = image.width + radius * 4;
+                const uint32_t height = image.height + radius * 4;
                 std::vector<uint8_t> black(alpha.size());
                 const auto rectangle = material(
                     scene,
@@ -961,24 +979,12 @@ void unit_shadows(const Inputs& in, Scene& scene) {
                     scene.aircraft_shadow_materials.clear();
                 cached = scene.aircraft_shadow_materials.emplace(key, rectangle).first;
             }
-            const float padding = static_cast<float>(style.radius) * 2.0F;
-            const float left = position.x / fixed_scale + model::shadow_offset_x -
-                               (image.origin_x + padding) * style.spread;
-            const float top = position.z / fixed_scale - receiver * height_lift -
-                              (image.origin_y + padding) * style.spread;
-            decal(
-                in,
-                scene,
-                cached->second,
-                left,
-                top,
-                opacity * style.opacity,
-                true,
-                nullptr,
-                style.spread,
-                true,
-                style.radius > 0
-            );
+            const float padding = static_cast<float>(radius) * 2.0F;
+            const float left =
+                position.x / fixed_scale + model::shadow_offset_x - (image.origin_x + padding);
+            const float top =
+                position.z / fixed_scale - receiver * height_lift - (image.origin_y + padding);
+            decal(in, scene, cached->second, left, top, opacity, true, nullptr, 1, true, true);
         } else {
             const auto rect = material(
                 scene, *in.palette, image.width, image.height, pixels, coverage, -1, Fog::black
@@ -2360,6 +2366,8 @@ void sprites(const Inputs& in, Scene& scene, bool ground_pass) {
             if (submerged_effect) {
                 result.terrain_size = -5;
                 result.terrain_x = in.sea_level - origin_h;
+            } else if (!facing) {
+                move_with_swells(in, result);
             }
             return result;
         };
@@ -2456,10 +2464,16 @@ void water_disturbances(const Inputs& in, Scene& scene) {
     }
 }
 
-/// Adds a transparent water sheet only over the already visible wet ground triangles.
+/// Adds a transparent water sheet for the coastal waves only over the
+/// already visible wet ground triangles of the shallows, where the
+/// fragment stage's foam lies: none over deep water, so that however far
+/// the view zooms out the budget holds the whole shore. Water ripples need
+/// none: they move the ground's own art (shaders/live_scene_vertex.glsl).
 void water_surface(const Inputs& in, Scene& scene) {
-    if (in.water.detail <= 0 || (in.water.ripples <= 0 && in.water.coastal_waves <= 0))
+    if (in.water.detail <= 0 || in.water.coastal_waves <= 0)
         return;
+    // The foam fades out by this depth, in map pixels.
+    constexpr float foam_depth = 24;
     constexpr std::size_t vertex_budget = 196608;
     const auto begin = scene.vertices.size();
     for (std::size_t index = 0; index + 2 < scene.terrain_vertex_count &&
@@ -2472,6 +2486,11 @@ void water_surface(const Inputs& in, Scene& scene) {
                 triangle.begin(),
                 triangle.end(),
                 [&](const Vertex& vertex) { return vertex.height >= in.sea_level; }
+            ) ||
+            std::all_of(
+                triangle.begin(),
+                triangle.end(),
+                [&](const Vertex& vertex) { return vertex.height <= in.sea_level - foam_depth; }
             ) ||
             std::all_of(triangle.begin(), triangle.end(), [](const Vertex& vertex) {
                 return vertex.brightness == 0;

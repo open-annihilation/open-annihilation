@@ -29,6 +29,7 @@
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/screen.hpp"
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -127,6 +128,11 @@ struct LibraryFeed {
     void (*keep_brain_verdict)(
         void* context, std::string_view id, const oa::ui::library::Verdict& verdict
     ){};
+    /// Tells whether inputs lists the installed packages yet: a Library
+    /// opened again after a soft restart waits for them
+    /// (Runtime::reopen_kept_library), so that no entry moves as they
+    /// arrive. Null: inputs lists them from its first call.
+    bool (*installed_listed)(void* context){};
 };
 
 /// Which kind of check a job on the Library's one queue is.
@@ -284,6 +290,28 @@ struct KeptUpdate {
     std::string to{};   ///< what the update installs
 };
 
+/// The longest a run a switch of the mod in the Library began waits, from
+/// its first frame on the main menu, for the Library's feed to list the
+/// installed packages before it opens the Library again anyway, and for the
+/// main menu to let it open at all, in milliseconds. A Library that has not
+/// opened by then is dropped.
+inline constexpr uint32_t kept_library_wait_ms = 5000;
+
+/// What the Library showed when a switch of the mod from it ended a run.
+/// The next run opens it again with them.
+struct Runtime::LibraryReturn {
+    oa::ui::library::Tab tab{oa::ui::library::Tab::active}; ///< the tab shown
+    /// Each tab's own filter, by Tab's order.
+    std::array<oa::ui::library::Filter, oa::ui::library::tab_total> filters{};
+    std::string tag{};                                  ///< the tag shown; empty for every tag
+    std::string query{};                                ///< the search
+    std::optional<oa::ui::library::EntryId> selected{}; ///< the entry selected; none for none
+    int32_t selected_row{-1}; ///< its place among the entries shown, from 0; -1 for none
+    int32_t list_scroll{};    ///< how far the list was scrolled, in points
+    bool details_open{};      ///< the selected entry's details were open
+    bool details_page{};      ///< they showed as their own page
+};
+
 /// The Library's host: its model and screen state, its feed, the pictures
 /// it holds, the updates it keeps for the queue and its worker.
 struct Runtime::LibraryHost {
@@ -402,6 +430,23 @@ struct Runtime::LibraryHost {
     /// Whether the last mutator of the list resolved for an id declares the
     /// maps layer.
     std::map<std::string, bool, std::less<>> shown_maps{};
+    /// The entry a Library opened again after a soft restart selects once
+    /// its feed lists it, while the player has not selected another; none
+    /// for none (select_kept).
+    std::optional<oa::ui::library::EntryId> kept_selection{};
+    /// The selection the Library showed as kept_selection was last applied.
+    std::optional<oa::ui::library::EntryId> kept_selection_shown{};
+
+    /// Selects kept_selection when it shows, and forgets it then. Until it
+    /// shows, the visible mod with the same key is selected, when there is
+    /// one: the catalogue that names its registry may not have arrived yet.
+    /// A selection it changes is brought into view (ScreenState::reveal_row).
+    void select_kept();
+
+    /// Returns the selected entry's place among the visible entries.
+    ///
+    /// @return its place from 0; -1 while none is selected
+    [[nodiscard]] int32_t selected_row() const;
 
     /// Starts the worker when it has not started.
     ///
@@ -656,6 +701,13 @@ struct Runtime::LibraryHost {
     static void own_keep_brain_verdict(
         void* context, std::string_view id, const oa::ui::library::Verdict& verdict
     );
+
+    /// The runtime's own feed: whether the worker has listed the installed
+    /// packages since the run began.
+    ///
+    /// @param context the runtime
+    /// @return true once a search has run
+    static bool own_installed_listed(void* context);
 
     /// The key a brain check is about now: the installed copy's id, version
     /// and package SHA-256, and the played mod's id and version. Nothing

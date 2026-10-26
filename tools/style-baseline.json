@@ -11,7 +11,7 @@
    "tier-virtual": 16
   },
   "src/sim/combat-state/src/combat_state.cpp": {
-   "tier-heap-container": 3
+   "tier-heap-container": 2
   },
   "src/sim/gameplay-input/include/oa/sim/gameplay_input/input.hpp": {
    "tier-heap-container": 1
@@ -58,7 +58,7 @@
    "tier-heap-container": 11
   },
   "src/sim/match-runtime/include/oa/sim/match_runtime.hpp": {
-   "tier-heap-container": 29,
+   "tier-heap-container": 28,
    "tier-virtual": 4
   },
   "src/sim/match-runtime/include/oa/sim/match_runtime/attack_orders.hpp": {
@@ -88,9 +88,6 @@
   },
   "src/sim/match-runtime/src/match.cpp": {
    "tier-heap-container": 2
-  },
-  "src/sim/match-runtime/src/targeting.cpp": {
-   "tier-heap-container": 1
   },
   "src/sim/match-runtime/src/tick_missions_ground.cpp": {
    "tier-heap-container": 1

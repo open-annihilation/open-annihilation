@@ -5,15 +5,18 @@
 // zoom, which levels of the terrain atlas are drawn, how each is sampled and
 // blended and whether a target stands between the pages and the window;
 // and the quads of the terrain tiles a view shows, appended to a card
-// command list (card.hpp) from the atlas's pages (terrain_atlas.hpp). Pure:
-// no SDL and no Runtime. runtime_full.cpp uploads the pages, builds each
+// command list (card.hpp) from the atlas's pages (terrain_atlas.hpp), and
+// the same terrain drawn again where Water ripples move its art. Pure: no
+// SDL and no Runtime. runtime_full.cpp uploads the pages, builds each
 // frame with these and runs it.
 #pragma once
 
 #include "oa/app/card.hpp"
 #include "oa/present/gpu_world/terrain_atlas.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -212,6 +215,120 @@ uint32_t append_terrain_mosaic(
     std::span<const card::PageHandle> pages,
     const TerrainView& view,
     const TerrainPass& pass,
+    card::TargetHandle target,
+    const card::Rect* scissor
+);
+
+/// How far the map's art moves at each point of a grid of map pixels, as
+/// Water ripples move the water's art (renderer_water_classic::art_motion):
+/// the points `spacing` map pixels apart from first_x, first_y, `columns`
+/// across and `rows` down. Between the points the motion is the bilinear
+/// blend of the four around; past the grid, and where an offset is zero,
+/// the art stays where the terrain's passes drew it.
+struct ArtMotion {
+    uint32_t spacing{}; ///< map pixels between points: 4, 8, 16 or 32, a divisor of tile_edge
+    int32_t first_x{};  ///< the first column's map pixel, a multiple of spacing
+    int32_t first_y{};  ///< the first row's map pixel, a multiple of spacing
+    uint32_t columns{};
+    uint32_t rows{};
+    /// Map pixels across and down that the art at each point moves by, row by row.
+    std::vector<std::array<float, 2>> offsets;
+
+    /// Returns true when no point moves the art.
+    [[nodiscard]] bool still() const noexcept {
+        for (const auto& offset : offsets)
+            if (offset[0] != 0.0F || offset[1] != 0.0F)
+                return false;
+        return true;
+    }
+
+    /// Returns how far the art at a map point moves: the blend of the grid's
+    /// four points around it; zero past the grid.
+    [[nodiscard]] std::array<float, 2> at(double x, double y) const noexcept {
+        if (spacing == 0 || columns == 0 || rows == 0 ||
+            offsets.size() < static_cast<std::size_t>(columns) * rows)
+            return {};
+        const double across = (x - first_x) / spacing;
+        const double down = (y - first_y) / spacing;
+        if (!(across >= 0.0) || !(down >= 0.0) || across > columns - 1.0 || down > rows - 1.0)
+            return {};
+        const uint32_t column = std::min(static_cast<uint32_t>(across), columns - 1U);
+        const uint32_t row = std::min(static_cast<uint32_t>(down), rows - 1U);
+        const uint32_t next_column = std::min(column + 1U, columns - 1U);
+        const uint32_t next_row = std::min(row + 1U, rows - 1U);
+        const auto tx = static_cast<float>(across - column);
+        const auto ty = static_cast<float>(down - row);
+        const auto point = [&](uint32_t c, uint32_t r) -> const std::array<float, 2>& {
+            return offsets[static_cast<std::size_t>(r) * columns + c];
+        };
+        const auto& a = point(column, row);
+        const auto& b = point(next_column, row);
+        const auto& c = point(column, next_row);
+        const auto& d = point(next_column, next_row);
+        std::array<float, 2> blend{};
+        for (std::size_t axis = 0; axis < 2; ++axis) {
+            const float upper = a[axis] + (b[axis] - a[axis]) * tx;
+            const float lower = c[axis] + (d[axis] - c[axis]) * tx;
+            blend[axis] = upper + (lower - upper) * ty;
+        }
+        return blend;
+    }
+};
+
+/// Draws a view's terrain at a pass's level again where `motion` moves it,
+/// over the pass's tiles: each tile, within the tiles the view shows and
+/// one more on every side, cut into squares of motion.spacing map pixels,
+/// and each square whose art moves drawn with its corners moved by the
+/// motion at them and its texels those of where it lay, so that the art
+/// itself moves. A square that does not move is left out: the tile under
+/// it already shows it. The squares meet wherever their corners do, since
+/// a corner's motion depends on its place alone, and a tile's corners land
+/// where append_terrain_tiles lands them, so that the art meets the
+/// unmoved terrain around it. One batch a page, in page order, at the
+/// pass's sampling, blend and alpha.
+///
+/// @param[in,out] frame the frame
+/// @param atlas the map's atlas
+/// @param pages the executor's page for each page of the atlas, in order
+/// @param view the view the pass drew
+/// @param pass the pass the terrain was drawn by
+/// @param motion how far the art moves
+/// @param target the target the squares are drawn into; none for the window
+/// @param scissor the pixels of the target the draw may write; null for all
+/// @return squares appended
+uint32_t append_moved_terrain_tiles(
+    card::CardFrame& frame,
+    const oa::present::gpu_world::TerrainAtlas& atlas,
+    std::span<const card::PageHandle> pages,
+    const TerrainView& view,
+    const TerrainPass& pass,
+    const ArtMotion& motion,
+    card::TargetHandle target,
+    const card::Rect* scissor
+);
+
+/// Draws a view's terrain from a level's mosaic again where `motion` moves
+/// it, as append_moved_terrain_tiles draws the tiles: each chunk's drawn
+/// part the view shows, a grid spacing past the view on every side, cut
+/// into squares on the grid's lines and the chunk's edges, and each square
+/// that moves drawn moved. One batch a chunk.
+///
+/// @param[in,out] frame the frame
+/// @param mosaic the level's mosaic, its level the pass's
+/// @param pages the executor's page for each chunk, in order
+/// @param view the view the pass drew
+/// @param pass the pass the terrain was drawn by
+/// @param motion how far the art moves
+/// @param target the target the squares are drawn into; none for the window
+/// @param scissor the pixels of the target the draw may write; null for all
+/// @return squares appended; 0 where the pass's level is not the mosaic's
+uint32_t append_moved_terrain_mosaic(
+    card::CardFrame& frame,
+    const MosaicLevel& mosaic,
+    std::span<const card::PageHandle> pages,
+    const TerrainView& view,
+    const TerrainPass& pass,
+    const ArtMotion& motion,
     card::TargetHandle target,
     const card::Rect* scissor
 );

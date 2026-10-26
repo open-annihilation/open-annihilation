@@ -9,6 +9,7 @@
 #include <bit>
 #include <limits>
 #include <memory>
+#include <utility>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -375,21 +376,19 @@ UnitIdentity select_automatic_target(
         return 0;
     const bool owner_override = source.owner_present && source.owner_status == 2;
     const auto radius = host.search_radius(source, request);
-    const auto nearby = host.gather_nearby(source.owner_spatial_index, source.position, radius);
-    std::vector<const TargetUnit*> candidates;
-    candidates.reserve(nearby.size());
-    for (const auto& candidate : nearby)
-        candidates.push_back(&candidate);
+    // The candidates not drawn yet are the front `remaining` entries; a drawn
+    // one is swapped with the last of them and drops out of the front.
+    const auto candidates = host.gather_nearby(source.owner_spatial_index, source.position, radius);
+    size_t remaining = candidates.size();
     UnitIdentity category_match = 0, ordinary = 0;
     int32_t category_match_score = std::numeric_limits<int32_t>::max();
     int32_t ordinary_score = std::numeric_limits<int32_t>::max();
-    for (uint32_t sampled = 0; sampled < target_search_sample_limit && !candidates.empty();
-         ++sampled) {
-        const auto selected = host.random_bounded(static_cast<uint32_t>(candidates.size()));
-        const auto index = selected < candidates.size() ? static_cast<size_t>(selected) : size_t{};
-        const auto& candidate = *candidates[index];
-        candidates[index] = candidates.back();
-        candidates.pop_back();
+    for (uint32_t sampled = 0; sampled < target_search_sample_limit && remaining != 0; ++sampled) {
+        const auto selected = host.random_bounded(static_cast<uint32_t>(remaining));
+        const auto index = selected < remaining ? static_cast<size_t>(selected) : size_t{};
+        --remaining;
+        std::swap(candidates[index], candidates[remaining]);
+        const auto& candidate = candidates[remaining];
         if (!unit_is_live_target(candidate.unit_flags) ||
             ((candidate.type_auto_target_flags & candidate_type_auto_target_flag) == 0 &&
              !owner_override && !host.global_target_override()) ||

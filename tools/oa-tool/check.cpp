@@ -11,12 +11,14 @@
 
 #include "arguments.hpp"
 #include "check_brain.hpp"
+#include "check_keys.hpp"
 #include "check_map.hpp"
 #include "check_mutator.hpp"
 #include "command.hpp"
 
 #include "oa/app/package_install/oamod.hpp"
 #include "oa/base/sha256.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/content_bundles.hpp"
 #include "oa/data/content_bundles/expansion_package.hpp"
 #include "oa/data/languages/language_pack.hpp"
@@ -34,10 +36,12 @@
 #include <limits>
 #include <optional>
 #include <ostream>
+#include <random>
 #include <span>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -768,6 +772,25 @@ void append_brain_problems(
     check_brain_files(entries_of(package), manifest, problems, checked);
 }
 
+/// Checks an opened key layout and appends each problem.
+///
+/// Warnings stay on `checked`. They replace the package's own warnings:
+/// the installer keeps a layout warning as text the player sees, not as a
+/// package warning.
+///
+/// @param package the key layout
+/// @param[in,out] problems the problems
+/// @param[out] checked the layout's facts and warnings
+void append_keys_problems(
+    const install::Package& package, std::vector<std::string>& problems, KeysChecked& checked
+) {
+    checked = {};
+    oa::formats::oakeys::Manifest manifest;
+    if (!read_oakeys_manifest(entries_of(package), manifest, problems))
+        return;
+    check_keys_files(entries_of(package), manifest, problems, checked);
+}
+
 /// Writes the report and returns the exit code.
 ///
 /// @param file the package's path
@@ -777,14 +800,18 @@ void append_brain_problems(
 /// @param map_request the game and the mods a map pack is checked against; null
 ///        when the file is not an accepted map pack
 /// @param[in,out] output receives the report
-/// @return exit_done when there is no problem, otherwise exit_failed
+/// @param strict a key layout with a warning is refused; other kinds ignore it
+/// @param display_file the file fact, when it is not `file`'s own name
+/// @return exit_done when the package is accepted, otherwise exit_failed
 int report(
     const fs::path& file,
     const std::optional<FileHash>& hashed,
     const install::PackageResult& opened,
     bool as_json,
     const MapCheckRequest* map_request,
-    Output& output
+    Output& output,
+    bool strict,
+    std::string_view display_file
 ) {
     const install::PackageKind* kind = install::kind_for_file(file);
     const install::Package* package = opened.package ? &*opened.package : nullptr;
@@ -794,7 +821,13 @@ int report(
     std::vector<std::string> problems;
     std::vector<std::string> warnings;
     if (package == nullptr) {
-        problems.push_back(refusal_sentence(kind, opened.problem));
+        // A key-layout folder is checked before it is a package. Its lines
+        // already name each problem, so they are not led by another kind's
+        // refusal sentence.
+        const bool named_lines =
+            !display_file.empty() && kind == nullptr && !opened.problem.lines.empty();
+        if (!named_lines)
+            problems.push_back(refusal_sentence(kind, opened.problem));
         for (const std::string& line : opened.problem.lines)
             if (!line.empty())
                 problems.push_back(line);
@@ -846,18 +879,28 @@ int report(
     if (oabrain)
         append_brain_problems(*package, problems, brain);
 
+    const bool oakeys = package != nullptr && kind != nullptr && kind->name == "oakeys";
+    KeysChecked keys;
+    if (oakeys) {
+        append_keys_problems(*package, problems, keys);
+        warnings = std::move(keys.warnings);
+    }
+    // --strict is opt-in and changes only a key layout. Another kind's ok,
+    // and every key of its report, stay as they are.
+    const bool refused = !problems.empty() || (strict && oakeys && !warnings.empty());
+
     json::JsonWriter writer;
     writer.begin_object();
     writer.key("check");
     writer.integer(check_format);
     writer.key("ok");
-    writer.boolean(problems.empty());
+    writer.boolean(!refused);
     writer.key("problems");
     write_strings(writer, problems);
     writer.key("warnings");
     write_strings(writer, warnings);
     writer.key("file");
-    writer.string(file_name_of(file));
+    writer.string(display_file.empty() ? file_name_of(file) : std::string{display_file});
     if (kind != nullptr)
         write_text(writer, "kind", kind->name);
     if (oalang && language.read) {
@@ -867,7 +910,7 @@ int report(
         write_text(writer, "name", package->incoming.name);
         write_text(writer, "version", package->incoming.version);
         writer.key("revision");
-        if (oamut || oabrain)
+        if (oamut || oabrain || oakeys)
             writer.null();
         else
             writer.integer(package->incoming.revision);
@@ -896,6 +939,8 @@ int report(
             describe_oamut(*package, writer, mutator);
         else if (oabrain)
             describe_oabrain(*package, writer, brain);
+        else if (oakeys)
+            describe_oakeys(*package, writer, keys);
     }
     writer.end_object();
 
@@ -910,9 +955,186 @@ int report(
             print_fact(output.out, {}, *parsed);
         if (!fit_lines.empty())
             output.out << fit_lines;
-        output.out << "result: " << (problems.empty() ? "ok" : "refused") << '\n';
+        output.out << "result: " << (refused ? "refused" : "ok") << '\n';
     }
-    return problems.empty() ? exit_done : exit_failed;
+    return refused ? exit_failed : exit_done;
+}
+
+/// Tells whether two texts are equal with ASCII letters folded.
+///
+/// @param left one text
+/// @param right the other
+/// @return true when they are equal
+bool same_ascii(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto fold = [](unsigned char byte) {
+            return byte >= 'A' && byte <= 'Z' ? static_cast<unsigned char>(byte - 'A' + 'a') : byte;
+        };
+        if (fold(static_cast<unsigned char>(left[index])) !=
+            fold(static_cast<unsigned char>(right[index])))
+            return false;
+    }
+    return true;
+}
+
+/// Tells whether a folder's top holds oakeys.yaml, without regard to case.
+///
+/// @param folder the folder
+/// @return true when a file there is named oakeys.yaml
+bool folder_holds_oakeys(const fs::path& folder) {
+    std::error_code listed;
+    if (!fs::is_directory(fs::symlink_status(folder, listed)))
+        return false;
+    try {
+        for (const fs::directory_entry& entry : fs::directory_iterator(folder)) {
+            std::error_code status_error;
+            const fs::file_status status = entry.symlink_status(status_error);
+            if (status_error || fs::is_symlink(status) || fs::is_directory(status))
+                continue;
+            if (same_ascii(file_name_of(entry.path()), oa::formats::oakeys::manifest_file))
+                return true;
+        }
+    } catch (const std::exception&) {
+        return false;
+    }
+    return false;
+}
+
+/// The refusal when a key-layout folder also holds another manifest.
+///
+/// Empty when oakeys.yaml is the only manifest at the top.
+///
+/// @param folder the folder
+/// @return the sentence, or empty
+std::string keys_manifest_conflict(const fs::path& folder) {
+    static constexpr std::string_view names[] = {
+        "oamod.yaml",
+        "language.yaml",
+        "oamap.yaml",
+        "oaexp.yaml",
+        "oamut.yaml",
+        "oabrain.yaml",
+    };
+    std::string found;
+    int count = 0;
+    try {
+        for (const fs::directory_entry& entry : fs::directory_iterator(folder)) {
+            std::error_code status_error;
+            const fs::file_status status = entry.symlink_status(status_error);
+            if (status_error || fs::is_symlink(status) || !fs::is_regular_file(status))
+                continue;
+            const std::string name = file_name_of(entry.path());
+            for (const std::string_view known : names) {
+                if (!same_ascii(name, known))
+                    continue;
+                ++count;
+                found.assign(known);
+                break;
+            }
+        }
+    } catch (const std::exception&) {
+        return "the folder cannot be listed";
+    }
+    if (count == 0)
+        return {};
+    if (count == 1)
+        return "the folder holds both oakeys.yaml and " + found;
+    return "the folder holds more than one manifest";
+}
+
+/// Removes a path when it is destroyed.
+class RemoveFile {
+  public:
+
+    /// Takes the path to remove.
+    ///
+    /// @param path the path
+    explicit RemoveFile(fs::path path) : path_(std::move(path)) {}
+
+    RemoveFile(const RemoveFile&) = delete;
+    RemoveFile& operator=(const RemoveFile&) = delete;
+
+    /// Removes the path, when it is still held.
+    ~RemoveFile() { remove(); }
+
+    /// Removes the path now.
+    void remove() {
+        if (path_.empty())
+            return;
+        std::error_code error;
+        fs::remove(path_, error);
+        path_.clear();
+    }
+
+  private:
+
+    fs::path path_{};
+};
+
+/// A throwaway .oakeys name. Tests run at the same time, so the name is random.
+///
+/// @return a path under the temporary directory
+fs::path temporary_oakeys() {
+    std::random_device device;
+    std::ostringstream text;
+    text << std::hex << device() << device() << device();
+    return fs::temp_directory_path() / ("K44-oakeys-" + text.str() + ".oakeys");
+}
+
+/// Checks a folder whose top holds oakeys.yaml.
+///
+/// A folder with a problem is reported in memory and nothing is left behind.
+/// A folder the installer would accept is packed with the key-layout packer,
+/// opened, and then the temporary package is deleted. The report's file and
+/// hash are the folder's name and the packed bytes.
+///
+/// @param folder the folder
+/// @param as_json print one JSON object
+/// @param strict a warning refuses the layout
+/// @param[in,out] output receives the report
+/// @return the report's exit code
+int check_key_folder(const fs::path& folder, bool as_json, bool strict, Output& output) {
+    const std::string shown = file_name_of(folder);
+    install::PackageResult refused;
+    const std::string conflict = keys_manifest_conflict(folder);
+    if (!conflict.empty()) {
+        refused.problem.lines.push_back(conflict);
+        return report(folder, std::nullopt, refused, as_json, nullptr, output, strict, shown);
+    }
+    const KeyFolder inspected = inspect_key_folder(folder);
+    if (!inspected.have_files || !inspected.problems.empty()) {
+        refused.problem.lines = inspected.problems;
+        if (refused.problem.lines.empty())
+            refused.problem.lines.push_back("oakeys.yaml: it cannot be read");
+        return report(folder, std::nullopt, refused, as_json, nullptr, output, strict, shown);
+    }
+
+    std::string pack_problem;
+    const std::optional<std::vector<uint8_t>> bytes =
+        oa::data::key_library::package_bytes(inspected.files, &pack_problem);
+    if (!bytes) {
+        refused.problem.lines.push_back(
+            pack_problem.empty() ? std::string{"the key layout cannot be packed"} : pack_problem
+        );
+        return report(folder, std::nullopt, refused, as_json, nullptr, output, strict, shown);
+    }
+
+    const fs::path temporary = temporary_oakeys();
+    RemoveFile cleanup(temporary);
+    std::string write_problem;
+    if (!oa::data::key_library::write_package(temporary, *bytes, &write_problem)) {
+        refused.problem.lines.push_back(
+            write_problem.empty() ? std::string{"the key layout cannot be packed"} : write_problem
+        );
+        return report(folder, std::nullopt, refused, as_json, nullptr, output, strict, shown);
+    }
+    FileHash hashed;
+    hashed.size = static_cast<uint64_t>(bytes->size());
+    hashed.digest = sha256::digest_of(*bytes);
+    const install::PackageResult opened = install::open_package(temporary);
+    return report(temporary, hashed, opened, as_json, nullptr, output, strict, shown);
 }
 
 } // namespace
@@ -980,6 +1202,7 @@ int run_check(std::span<const std::string> arguments, Output& output) {
         {"mod", true, true},
         {"accept-unimplemented-hacks", false, false},
         {"json", false, false},
+        {"strict", false, false},
     };
     std::string problem;
     const std::optional<Arguments> parsed = parse_arguments(arguments, options, problem);
@@ -1011,6 +1234,15 @@ int run_check(std::span<const std::string> arguments, Output& output) {
     }
 
     const fs::path file = path_of(parsed->positional[0]);
+    const bool strict = parsed->flags.contains("strict");
+    std::error_code directory_error;
+    if (fs::is_directory(fs::symlink_status(file, directory_error)) && folder_holds_oakeys(file)) {
+        if (game_dir != nullptr) {
+            report_usage(output, "option '--game-dir' is not for a key layout");
+            return exit_usage;
+        }
+        return check_key_folder(file, parsed->flags.contains("json"), strict, output);
+    }
     const std::optional<FileHash> hashed = hash_file(file);
     install::PackageOptions package_options{};
     package_options.accept_unimplemented_hacks =
@@ -1029,6 +1261,10 @@ int run_check(std::span<const std::string> arguments, Output& output) {
     }
     if (kind != nullptr && kind->name == "oabrain" && game_dir != nullptr) {
         report_usage(output, "option '--game-dir' is not for a brain");
+        return exit_usage;
+    }
+    if (kind != nullptr && kind->name == "oakeys" && game_dir != nullptr) {
+        report_usage(output, "option '--game-dir' is not for a key layout");
         return exit_usage;
     }
     const bool accepted_map = package != nullptr && kind != nullptr && kind->name == "oamap";
@@ -1054,7 +1290,9 @@ int run_check(std::span<const std::string> arguments, Output& output) {
         opened,
         parsed->flags.contains("json"),
         map_request ? &*map_request : nullptr,
-        output
+        output,
+        strict,
+        {}
     );
 }
 

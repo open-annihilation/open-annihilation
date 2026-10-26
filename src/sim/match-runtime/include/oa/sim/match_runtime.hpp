@@ -1711,6 +1711,17 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     uint8_t
     footprint_height(uint16_t type, int32_t cell_x, int32_t cell_z, uint8_t facing = 0) const;
 
+    /// Places a building created finished where 3.1c places one, as a
+    /// mission's units and the unit-name cheat place theirs: the point snaps
+    /// to the footprint's grid (snap_build_position) and stands at the height
+    /// its yard takes there (footprint_height), so a shipyard on water stands
+    /// its waterline below the sea. Any other type keeps the point; its
+    /// creation fits its height.
+    ///
+    /// @param type Type index; 0 or one past the table keeps the point.
+    /// @param[in,out] position Signed 16.16 point.
+    void snap_to_build_grid(uint16_t type, FixedVec3& position) const;
+
     /// Returns the facing a building of a type may be placed in
     /// (units.build-rotation).
     ///
@@ -3119,6 +3130,20 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param viewer The viewing player of this pass.
     /// @param scan_own_units Whether its own radar and sonar units stamp.
     void scan_picture_pass(uint8_t picture, const oa::Player& viewer, bool scan_own_units);
+    /// Visits the units around a point as for_each_unit_in_radius does,
+    /// following the bucket links of the spatial projections as they stand
+    /// instead of refreshing every projection first.
+    ///
+    /// @param centre Signed 16.16 centre.
+    /// @param radius Radius, signed 16.16.
+    /// @param visit Called once per unit found, in bucket order.
+    /// @param context Passed to `visit`.
+    void walk_units_in_radius(
+        const sim::ground_orders::Point& centre,
+        int32_t radius,
+        void (*visit)(void* context, sim::unit_spawn::Slot& slot),
+        void* context
+    );
     /// Tells whether the contact scan lets a jammer jam the viewing player's
     /// radar picture: always in 3.1c; under intel.allied-jammers-ignored not
     /// when the viewer allies the jammer's owner, nor for a local watcher or
@@ -3320,6 +3345,7 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
         RuntimeOrder* observer_next{};
         /// Set once the order's unreachable goal was reported; not saved or hashed.
         bool path_failure_reported{};
+        RuntimeOrder* bucket_next{}; // next record of the same order_buckets_ entry
     };
 
     // What TickHost::owned gives for an order the match does not own, and
@@ -3338,7 +3364,17 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @return The spare order, cleared, outside every queue.
     sim::simulation_state::Order& refused_order() noexcept;
 
-    std::map<sim::simulation_state::Unit*, RuntimeOrder*> target_observers_;
+    // The head of each pool unit's list of observing orders (through
+    // RuntimeOrder::observer_next), at the unit's place in units_; null while
+    // no order watches the unit. One entry per pool unit, allocated when the
+    // match starts.
+    std::unique_ptr<RuntimeOrder*[]> target_observers_;
+    /// Returns the head of a unit's list of observing orders.
+    ///
+    /// @param unit Unit of the pool.
+    /// @return Its entry of target_observers_, or null for a unit outside the
+    ///     pool.
+    RuntimeOrder** observer_head(const sim::simulation_state::Unit& unit) noexcept;
     /// Makes every order that targets the dead unit lose it, emptying the
     /// unit's list of observing orders.
     ///
@@ -3370,6 +3406,29 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param entry Order to check.
     void check_target_observer(const RuntimeOrder& entry) const noexcept;
     std::vector<std::unique_ptr<RuntimeOrder>> orders_;
+    // Bits of an order's address that pick its order_buckets_ entry.
+    static constexpr unsigned order_bucket_bits = 10;
+    // The records of orders_, each on the list (through
+    // RuntimeOrder::bucket_next) of the entry its order's address picks, so
+    // that finding an order's record walks only that list. Which entry a
+    // record is on changes how long a search takes, never what it finds;
+    // nothing walks the entries in turn.
+    std::array<RuntimeOrder*, std::size_t{1} << order_bucket_bits> order_buckets_{};
+    /// Picks the order_buckets_ entry of an order.
+    ///
+    /// @param order Order.
+    /// @return Index into order_buckets_.
+    static std::size_t order_bucket(const sim::simulation_state::Order* order) noexcept;
+    /// Adds a record to the match's orders, after every other one.
+    ///
+    /// @param entry Record to add.
+    /// @return The added record.
+    RuntimeOrder& adopt_order(std::unique_ptr<RuntimeOrder> entry);
+    /// Removes a record from the match's orders, keeping the others in their
+    /// order. A record the match does not own is left alone.
+    ///
+    /// @param record Record to remove.
+    void drop_order(const RuntimeOrder& record);
     SelectionState selection_;
     WindState wind_;
     sim::world_environment::WindState environment_wind_{};
@@ -3473,6 +3532,9 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     uint32_t seen_work_room_{};
     std::vector<sim::combat_state::TargetUnit> sighting_query_;
     std::array<sim::combat_state::StrategicRefreshState, 10> strategic_states_;
+    // What the strategic refresh reads of each unit type, by type index,
+    // listed at the first refresh and kept for the match; null until then.
+    std::unique_ptr<sim::combat_state::StrategicType[]> strategic_types_;
     std::optional<StrategicEnvironment> strategic_environment_;
     std::vector<sim::combat_state::TargetUnit> target_projection_;
     // Per player: the unit slot the weapon sweep visited last.
@@ -3510,6 +3572,11 @@ class Match final : private SpawnSubsystems, private UnitValueHost {
     /// @param order Order, or null.
     /// @return The record, or null when the match does not own the order.
     RuntimeOrder* runtime_order(const sim::simulation_state::Order* order);
+    /// Finds the match's record of an order.
+    ///
+    /// @param order Order, or null.
+    /// @return The record, or null when the match does not own the order.
+    const RuntimeOrder* runtime_order(const sim::simulation_state::Order* order) const;
     /// Raises an event on every order that observes a unit.
     ///
     /// @param unit Observed unit.

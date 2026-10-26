@@ -443,8 +443,7 @@ Match::RuntimeOrder& TickHost::AirAttackMissions::new_order(
         entry->extra.command_flags &= static_cast<uint8_t>(~order_has_destination);
     if (!target)
         entry->extra.command_flags &= static_cast<uint8_t>(~order_has_target);
-    auto& created = *entry;
-    host.match.orders_.push_back(std::move(entry));
+    auto& created = host.match.adopt_order(std::move(entry));
     if (target && (created.extra.command_flags & order_has_target))
         host.match.link_target_observer(created, target);
     return created;

@@ -39,6 +39,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace oa::app {
 namespace {
@@ -513,26 +514,135 @@ uint32_t Runtime::render_texture_limit() const {
     return render_run_ ? render_run_->host->texture_limit() : 0;
 }
 
+namespace {
+
+/// What a streaming texture holds since upload_rgb24_frame last uploaded
+/// into it. It is kept among the texture's properties, so that it goes
+/// with the texture: a texture made again, at a new size or after the
+/// device went, starts without one and is uploaded whole.
+struct UploadedFrame {
+    std::vector<uint8_t> rgb; ///< the surface's bytes the texture holds
+    uint32_t width{};         ///< the surface's pixels in a row
+    uint32_t height{};        ///< its rows
+    /// The display gamma the texture's pixels went through; unset for a
+    /// gamma of 1.
+    std::optional<std::array<uint8_t, 256>> gamma;
+    /// The bands of xrgb_band_rows rows that differ from the surface, one
+    /// entry a band.
+    std::vector<uint8_t> changed;
+};
+
+/// The name of the texture property that holds its UploadedFrame.
+constexpr const char* uploaded_frame_property = "oa.uploaded_rgb24_frame";
+
+/// Lets a texture's UploadedFrame go with the texture's properties.
+///
+/// @param value the UploadedFrame
+void free_uploaded_frame(void*, void* value) {
+    delete static_cast<UploadedFrame*>(value);
+}
+
+} // namespace
+
 void Runtime::upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& source) {
     if (texture == nullptr || source.rgb.empty())
         return;
-    void* pixels = nullptr;
-    int pitch = 0;
-    if (!SDL_LockTexture(texture, nullptr, &pixels, &pitch))
-        throw_present_error("SDL_LockTexture");
+    const auto* gamma = gamma_identity_ ? nullptr : &gamma_table_;
     // XRGB8888 and ARGB8888 take the same opaque words.
-    const auto convert =
-        texture->format == SDL_PIXELFORMAT_RGB565 ? convert_rgb24_rgb565 : convert_rgb24_xrgb;
-    convert(
-        source.rgb.data(),
-        source.width,
-        source.height,
-        static_cast<uint8_t*>(pixels),
-        static_cast<std::size_t>(pitch),
-        gamma_identity_ ? nullptr : &gamma_table_,
-        draw_pool_.get()
+    const bool rgb565 = texture->format == SDL_PIXELFORMAT_RGB565;
+    const SDL_PropertiesID properties = SDL_GetTextureProperties(texture);
+    auto* uploaded = properties != 0
+                         ? static_cast<UploadedFrame*>(
+                               SDL_GetPointerProperty(properties, uploaded_frame_property, nullptr)
+                           )
+                         : nullptr;
+    const std::size_t row_bytes = static_cast<std::size_t>(source.width) * 3U;
+    const bool same_frame = uploaded != nullptr && uploaded->width == source.width &&
+                            uploaded->height == source.height &&
+                            uploaded->rgb.size() == source.rgb.size() &&
+                            source.rgb.size() >= row_bytes * source.height &&
+                            uploaded->gamma.has_value() == (gamma != nullptr) &&
+                            (gamma == nullptr || *uploaded->gamma == *gamma);
+    if (!same_frame) {
+        void* pixels = nullptr;
+        int pitch = 0;
+        if (!SDL_LockTexture(texture, nullptr, &pixels, &pitch))
+            throw_present_error("SDL_LockTexture");
+        (rgb565 ? convert_rgb24_rgb565 : convert_rgb24_xrgb)(
+            source.rgb.data(),
+            source.width,
+            source.height,
+            static_cast<uint8_t*>(pixels),
+            static_cast<std::size_t>(pitch),
+            gamma,
+            draw_pool_.get()
+        );
+        SDL_UnlockTexture(texture);
+        if (properties == 0)
+            return;
+        if (uploaded == nullptr) {
+            uploaded = new UploadedFrame;
+            if (!SDL_SetPointerPropertyWithCleanup(
+                    properties, uploaded_frame_property, uploaded, free_uploaded_frame, nullptr
+                ))
+                // SDL let the record go already; every upload stays whole.
+                return;
+        }
+        uploaded->rgb = source.rgb;
+        uploaded->width = source.width;
+        uploaded->height = source.height;
+        uploaded->gamma.reset();
+        if (gamma != nullptr)
+            uploaded->gamma = *gamma;
+        uploaded->changed.assign(
+            platform::job_pool::bands_of_rows(source.height, xrgb_band_rows), 0
+        );
+        return;
+    }
+    // Only the bands that differ from what the texture holds are uploaded,
+    // a run of neighbouring bands at once.
+    find_changed_rgb24_bands(
+        source.rgb.data(), uploaded->rgb.data(), source.width, source.height, uploaded->changed
     );
-    SDL_UnlockTexture(texture);
+    const auto bands = static_cast<uint32_t>(uploaded->changed.size());
+    for (uint32_t band = 0; band < bands;) {
+        if (uploaded->changed[band] == 0) {
+            ++band;
+            continue;
+        }
+        uint32_t end = band + 1;
+        while (end < bands && uploaded->changed[end] != 0)
+            ++end;
+        const uint32_t first_row = band * xrgb_band_rows;
+        const uint32_t end_row = std::min(source.height, end * xrgb_band_rows);
+        const SDL_Rect rows{
+            0,
+            static_cast<int>(first_row),
+            static_cast<int>(source.width),
+            static_cast<int>(end_row - first_row)
+        };
+        void* pixels = nullptr;
+        int pitch = 0;
+        if (!SDL_LockTexture(texture, &rows, &pixels, &pitch))
+            throw_present_error("SDL_LockTexture");
+        const uint8_t* from = source.rgb.data() + static_cast<std::size_t>(first_row) * row_bytes;
+        (rgb565 ? convert_rgb24_rgb565 : convert_rgb24_xrgb)(
+            from,
+            source.width,
+            end_row - first_row,
+            static_cast<uint8_t*>(pixels),
+            static_cast<std::size_t>(pitch),
+            gamma,
+            draw_pool_.get()
+        );
+        SDL_UnlockTexture(texture);
+        std::memcpy(
+            uploaded->rgb.data() + static_cast<std::size_t>(first_row) * row_bytes,
+            from,
+            static_cast<std::size_t>(end_row - first_row) * row_bytes
+        );
+        band = end;
+    }
 }
 
 void Runtime::upload_rgb24_tiles(
