@@ -320,13 +320,54 @@ void fit_control(kit::RowView& shown, int32_t available_width, const TextWidth& 
         std::min(std::max(shown.control_width, widest + 16), std::max(available_width, int32_t{1}));
 }
 
+/// The mark between a layout's name and its count of changes, as the
+/// catalogue writes it: a space, a middle dot and a space.
+constexpr std::string_view key_layout_mark = " \xC2\xB7 ";
+
+/// Shortens a Key layout value to a room, keeping the count of changes.
+///
+/// The count is the text from the last " · ". A value that fits is returned
+/// whole. Otherwise the name is shortened with an ellipsis and the count is
+/// kept whole. Empty when the count itself does not fit, so the caller can
+/// give the value a wider line.
+///
+/// @param text the value, name and count
+/// @param room the room, in points
+/// @param width_of a text's width in the regular font
+/// @return the value as it fits; empty when the count does not fit
+std::string fit_key_layout_summary(std::string_view text, int32_t room, const TextWidth& width_of) {
+    if (room <= 0)
+        return {};
+    if (width_of(text) <= room)
+        return std::string(text);
+    const std::size_t mark = text.rfind(key_layout_mark);
+    if (mark == std::string_view::npos)
+        return kit::fit(text, room, width_of);
+    const std::string_view count = text.substr(mark);
+    if (width_of(count) > room)
+        return {};
+    const std::string_view layout_name = text.substr(0, mark);
+    int32_t name_room = room - width_of(count);
+    std::string fitted = kit::fit(layout_name, std::max(name_room, int32_t{0}), width_of);
+    std::string shown = fitted + std::string(count);
+    while (width_of(shown) > room && name_room > 0) {
+        --name_room;
+        fitted = kit::fit(layout_name, name_room, width_of);
+        shown = fitted + std::string(count);
+    }
+    if (width_of(shown) <= room && !fitted.empty())
+        return shown;
+    return std::string(count);
+}
+
 /// Widens a switch, a row of buttons or SHOW AGAIN to the caption in the
 /// small font. A label that does not fit beside its control takes the whole
 /// line and the control drops under it. When the label and the lock do not
 /// fit on the label line, on any row, the lock drops under the label and the
 /// label keeps its width: the whole line, or the room beside a control that
-/// stays. An estimated measure leaves the class's boxes, which the layout
-/// tests pin; place_rows makes the same drop from the estimate.
+/// stays. Key layout keeps its count of changes and shortens only the name.
+/// An estimated measure leaves the class's boxes, which the layout tests pin;
+/// place_rows makes the same drop from the estimate.
 ///
 /// @param[in,out] shown the row
 /// @param available_width the section's width
@@ -388,7 +429,7 @@ void fit_measured(
             shown.value_columns = wanted;
     }
     if (shown.kind == kit::RowKind::value_and_button && !shown.value.empty()) {
-        const int32_t value_width = (*regular)(shown.value);
+        int32_t value_width = (*regular)(shown.value);
         const int32_t label_w = shown.label.empty() ? 0 : (*regular)(shown.label);
         const int32_t button = shown.control_width > 0
                                    ? shown.control_width
@@ -398,14 +439,39 @@ void fit_measured(
                                                        ? shown.lock_columns
                                                        : oa::ui::kit::compact_metrics.lock_width) +
                                                       label_gap;
+        // Key layout stays beside the label and EDIT KEYS when that room
+        // holds the value. Otherwise the name shortens and the value stands
+        // on the button's line. A count that does not fit left of the button
+        // is fitted to the whole line, and the button drops under the value.
+        if (shown.id == "key-layout") {
+            const int32_t beside =
+                available_width - (label_w > 0 ? label_w + label_gap : 0) - label_gap - button;
+            const int32_t dropped = available_width - label_gap - button;
+            if (value_width > beside) {
+                std::string fitted = fit_key_layout_summary(shown.value, beside, *regular);
+                if (!fitted.empty()) {
+                    shown.value = std::move(fitted);
+                } else {
+                    fitted = fit_key_layout_summary(
+                        shown.value, std::max(dropped, int32_t{0}), *regular
+                    );
+                    if (fitted.empty())
+                        fitted = fit_key_layout_summary(shown.value, available_width, *regular);
+                    if (!fitted.empty())
+                        shown.value = std::move(fitted);
+                    shown.control_below = true;
+                }
+                value_width = (*regular)(shown.value);
+            }
+        }
         // The value drops onto the button's line only when it does not fit
         // beside the label and the button. The lock drops under the label
         // instead of taking that room, and never takes the button's place.
         const int32_t without =
             (label_w > 0 ? label_w + label_gap : 0) + value_width + label_gap + button;
-        if (without > available_width)
+        if (!shown.control_below && without > available_width)
             shown.control_below = true;
-        else if (lock > 0 && without + lock > available_width)
+        else if (!shown.control_below && lock > 0 && without + lock > available_width)
             shown.lock_below = true;
     }
     if (shown.label.empty())
@@ -518,6 +584,50 @@ kit::RowView row_view(
     return shown;
 }
 
+/// Gives Key layout the whole line when its count does not fit left of EDIT
+/// KEYS, and puts the button on the line under the value. The rows under it
+/// move down by that line. A value that already fits is left where place_rows
+/// put it, so a short summary keeps the line the layout tests pin.
+///
+/// @param[in,out] placed the section's rows
+/// @param regular a text's width in the regular font; null or an estimate leaves the rows
+void give_key_layout_its_line(kit::PlacedRows& placed, const TextWidth* regular) {
+    if (regular == nullptr || estimated_measure(*regular))
+        return;
+    const int32_t step =
+        oa::ui::kit::compact_metrics.regular_line + oa::ui::kit::compact_metrics.hint_gap;
+    for (std::size_t index = 0; index < placed.rows.size(); ++index) {
+        kit::PlacedRow& key_row = placed.rows[index];
+        if (key_row.view.id != "key-layout" || !key_row.view.control_below ||
+            key_row.view.value.empty() || key_row.value.width <= 0 ||
+            key_row.control_area.width <= 0)
+            continue;
+        if ((*regular)(key_row.view.value) <= key_row.value.width)
+            continue;
+        const int32_t button_row = key_row.control_area.y;
+        key_row.value.x = placed.left;
+        key_row.value.width = std::max(placed.right - placed.left, int32_t{1});
+        key_row.control_area.y += step;
+        if (key_row.lock_area.height > 0 && key_row.lock_area.y >= button_row)
+            key_row.lock_area.y += step;
+        for (kit::Rect& hint : key_row.hints)
+            if (hint.y >= button_row)
+                hint.y += step;
+        key_row.height += step;
+        for (std::size_t later = index + 1; later < placed.rows.size(); ++later) {
+            kit::PlacedRow& following = placed.rows[later];
+            following.top += step;
+            following.label.y += step;
+            following.lock_area.y += step;
+            following.control_area.y += step;
+            following.value.y += step;
+            for (kit::Rect& hint : following.hints)
+                hint.y += step;
+        }
+        placed.bottom += step;
+    }
+}
+
 Rows place_section(
     const Dialog& dialog,
     Page page,
@@ -567,6 +677,7 @@ Rows place_section(
                      oa::data::languages::TextNeeds::game_fonts;
     placement.first_control = first_row_control;
     kit::PlacedRows kit_rows = kit::place_rows(views, placement);
+    give_key_layout_its_line(kit_rows, regular_width);
     Rows rows{};
     rows.bottom = kit_rows.bottom;
     rows.rows.reserve(kit_rows.rows.size());
@@ -2990,8 +3101,16 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             int32_t value_span = span_of(view.value);
             const int32_t label_span = view.label.empty() ? 0 : span_of(view.label);
             const int32_t room = std::max(label_box.width - layout::label_gap, int32_t{1});
-            if (label_span + layout::label_gap + value_span > label_box.width)
-                value_span = std::min(value_span, std::max(room / 2, int32_t{1}));
+            // Previous version keeps half the line when the two do not fit.
+            // Key layout has already shortened its name to the room beside
+            // the label, so the value keeps that room rather than half of it.
+            if (label_span + layout::label_gap + value_span > label_box.width) {
+                if (row.setting == Setting::key_layout)
+                    value_span =
+                        std::max(label_box.width - label_span - layout::label_gap, int32_t{1});
+                else
+                    value_span = std::min(value_span, std::max(room / 2, int32_t{1}));
+            }
             value_span = std::min(value_span, label_box.width);
             value_box = {
                 label_box.x + label_box.width - value_span,
