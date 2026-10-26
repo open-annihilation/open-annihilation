@@ -16055,9 +16055,10 @@ class Runtime final : public menu::Host,
 
     /// Moves the view to a bookmark and stops following a unit.
     ///
-    /// An empty bookmark jumps to the map corner. A slot other than 0, 1, 2 or
-    /// 3 does nothing. The SelectSquad sound is played by the console key that
-    /// calls this. [runtime_console.cpp]
+    /// The view returns to the stored place, including a view that looked past
+    /// the map's edge. An empty bookmark jumps to the map corner. A slot other
+    /// than 0, 1, 2 or 3 does nothing. The SelectSquad sound is played by the
+    /// console key that calls this. [runtime_console.cpp]
     ///
     /// @param slot bookmark 0 to 3
     void recall_camera_bookmark(int32_t slot);

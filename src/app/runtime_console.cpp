@@ -799,10 +799,16 @@ void Runtime::recall_camera_bookmark(int32_t slot) {
         return;
     stop_match_tracking();
     auto& game = match_->state().game;
+    // The slot holds the view that was stored, which may sit past the map's
+    // edge. Recalling through the game block clamps that place to the corner,
+    // so the live view takes the slot itself.
+    const int32_t stored_x = game.camera_slot_x[slot];
+    const int32_t stored_y = game.camera_slot_y[slot];
     oa::present::world_renderer::camera_recall_slot(game, slot);
-    set_camera_position(
-        static_cast<int32_t>(game.camera_x), static_cast<int32_t>(game.camera_y), 0
-    );
+    set_camera_position(stored_x, stored_y, 0);
+    bind_match_view();
+    game.camera_target_x = static_cast<int32_t>(game.camera_x);
+    game.camera_target_y = static_cast<int32_t>(game.camera_y);
 }
 
 void Runtime::run_console_hotkey(uint32_t code) {
