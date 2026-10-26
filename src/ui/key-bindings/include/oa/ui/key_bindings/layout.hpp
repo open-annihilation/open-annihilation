@@ -55,8 +55,9 @@ struct GuiKey {
 
 /// The mod data resolution reads. Gathering it is another ticket's work.
 struct ModData {
-    std::vector<GuiKey> keys{}; ///< the GUI quick keys, in the mod's order
-    std::string categories{};   ///< the category letters the loaded units use
+    std::vector<GuiKey> keys{};      ///< the GUI quick keys, in the mod's order
+    std::string categories{};        ///< the category letters the loaded units use
+    std::vector<std::string> tags{}; ///< category words, as the data spells them
 };
 
 /// Which pointer scheme the player is using.

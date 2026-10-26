@@ -43,9 +43,11 @@ constexpr Area k_areas[]{
 
 constexpr std::string_view gui_source[]{"data"};
 constexpr std::string_view select_category_source[]{"3.1c", "data"};
+constexpr std::string_view select_tag_source[]{"data"};
 constexpr Family k_families[]{
-    {"gui", "menus", uint32_t{4}, Kind::press, By::letter, std::span<const std::string_view>(gui_source), std::string_view{}, "orders", uint32_t{16}},
-    {"select.category", "selection", uint32_t{16}, Kind::press, By::letter, std::span<const std::string_view>(select_category_source), "Ctrl+<letter>", std::string_view{}, uint32_t{0}},
+    {"gui", "menus", uint32_t{4}, Kind::press, By::letter, std::span<const std::string_view>(gui_source), std::string_view{}, "orders", uint32_t{16}, Words{}},
+    {"select.category", "selection", uint32_t{16}, Kind::press, By::letter, std::span<const std::string_view>(select_category_source), "Ctrl+<letter>", std::string_view{}, uint32_t{0}, Words{}},
+    {"select.tag", "selection", uint32_t{16}, Kind::press, By::letter, std::span<const std::string_view>(select_tag_source), std::string_view{}, std::string_view{}, uint32_t{0}, Words{"Select {word}", "Selects your units tagged {word}: those on screen, then the whole map on a second press."}},
 };
 
 constexpr std::string_view k_hack_ids[]{"console.key-remaps", "teams.alliance-menu-all-game-types", "ui.build-preview", "ui.build-tools", "ui.click-snap", "ui.display-modes", "ui.megamap", "ui.options-dialog", "ui.resource-panel", "ui.selection-shortcuts", "ui.whiteboard", "units.build-rotation"};

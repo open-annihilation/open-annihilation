@@ -40,18 +40,21 @@ struct ActionFacts {
 const actions::Family* family_of(std::string_view id) {
     std::string_view wanted;
     constexpr std::string_view gui = "gui.";
+    constexpr std::string_view tag = "select.tag-";
+    constexpr std::string_view category = "select.category-";
     if (id.size() > gui.size() && id.starts_with(gui)) {
         wanted = "gui";
-    } else {
-        constexpr std::string_view category = "select.category-";
-        if (id.size() != category.size() + 1 || !id.starts_with(category))
-            return nullptr;
+    } else if (id.size() > tag.size() && id.starts_with(tag)) {
+        wanted = "select.tag";
+    } else if (id.size() == category.size() + 1 && id.starts_with(category)) {
         const char letter = id.back();
         const bool lower = letter >= 'a' && letter <= 'z';
         const bool upper = letter >= 'A' && letter <= 'Z';
         if (!lower && !upper)
             return nullptr;
         wanted = "select.category";
+    } else {
+        return nullptr;
     }
     for (const actions::Family& family : actions::families()) {
         if (family.id == wanted)

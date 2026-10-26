@@ -7,6 +7,7 @@
 #include "oa/test/check.hpp"
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
+#include "oa/ui/key_bindings/tags.hpp"
 
 #include "oa/data/input_actions/actions.hpp"
 
@@ -897,6 +898,61 @@ void gui_files_clash_only_when_shown_together() {
     OA_CHECK(!clash_of(keys::find_clashes(resolved, input), "gui.ridge.defend", "gui.other.ok"));
 }
 
+/// A Category word maps to one action, and a tag the data lacks stays unknown.
+void tag_words_resolve() {
+    OA_CHECK(keys::tag_action_id("KBOT") == "select.tag-kbot");
+    OA_CHECK(keys::tag_action_id("LEVEL1") == "select.tag-level1");
+    OA_CHECK(keys::tag_action_id("CTRL_W") == "select.category-w");
+    OA_CHECK(keys::tag_action_id("CTRL_B") == "select.builders");
+    OA_CHECK(keys::tag_action_id("CTRL_C") == "select.commander");
+    OA_CHECK(keys::tag_action_id("CTRL_F") == "select.factories");
+    OA_CHECK(keys::tag_action_id("CTRL_V") == "select.aircraft");
+    OA_CHECK(keys::tag_action_id("CTRL_S") == "select.tag-ctrl-s");
+    OA_CHECK(keys::tag_action_id("RIDGE_SCOUT") == "select.tag-ridge-scout");
+    OA_CHECK(keys::tag_action_id("A.B").empty());
+    OA_CHECK(keys::tag_action_id("_X").empty());
+
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    keys::ModData mod;
+    mod.tags = {"KBOT", "CTRL_W", "CTRL_B"};
+    keys::ResolveInput input = fresh(us);
+    input.mod = &mod;
+    const Resolved made = keys::resolve(input);
+    const Bound* kbot = find_bound(made, "select.tag-kbot");
+    OA_CHECK(kbot != nullptr && kbot->chords.empty());
+    int tag_rows = 0;
+    for (const Bound& bound : made.actions) {
+        if (bound.id.starts_with("select.tag-"))
+            ++tag_rows;
+    }
+    OA_CHECK(tag_rows == 1);
+    OA_CHECK(find_bound(made, "select.category-w") == nullptr);
+    OA_CHECK(find_bound(made, "select.builders") != nullptr);
+
+    keys::Layout missing;
+    missing.bindings.push_back(binding("select.tag-ridge-scout", {"Y"}, 1, 1));
+    keys::ResolveInput missing_input = fresh(us);
+    missing_input.chosen = &missing;
+    const Resolved unknown = keys::resolve(missing_input);
+    OA_CHECK(find_bound(unknown, "select.tag-ridge-scout") == nullptr);
+    OA_CHECK(unknown.unknown.size() == 1);
+    if (unknown.unknown.size() == 1) {
+        OA_CHECK(unknown.unknown[0].action == "select.tag-ridge-scout");
+        OA_CHECK(unknown.unknown[0].chords.size() == 1);
+        if (unknown.unknown[0].chords.size() == 1)
+            OA_CHECK(unknown.unknown[0].chords[0] == must_parse("Y"));
+    }
+
+    keys::ModData present;
+    present.tags = {"RIDGE_SCOUT"};
+    keys::ResolveInput present_input = fresh(us);
+    present_input.mod = &present;
+    present_input.chosen = &missing;
+    const Resolved bound_scout = keys::resolve(present_input);
+    OA_CHECK(chords_are(find_bound(bound_scout, "select.tag-ridge-scout"), {"Y"}));
+    OA_CHECK(bound_scout.unknown.empty());
+}
+
 /// Both resource-row double-clicks stay bound. Precedence does not delete a chord.
 void resource_rows_keep_both_chords() {
     const keys::KeyboardMap us = keys::KeyboardMap::us();
@@ -931,6 +987,7 @@ int main() {
     hacks_on_order_does_not_matter();
     fifth_chord_is_too_many();
     gui_files_clash_only_when_shown_together();
+    tag_words_resolve();
     resource_rows_keep_both_chords();
     return oa::test::check_exit_status();
 }
