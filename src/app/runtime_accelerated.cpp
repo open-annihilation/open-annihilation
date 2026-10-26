@@ -399,7 +399,9 @@ void Runtime::present_accelerated_match_layers(bool dialogs) {
         );
     const auto* gamma = gamma_identity_ ? nullptr : &gamma_table_;
     const auto upload_start = std::chrono::steady_clock::now();
-    upload_rgb24_frame(match_hud_tex_, match_hud_cpu_);
+    upload_rgb24_frame(
+        match_hud_tex_, match_hud_cpu_, accelerated_.hud_revision, &spare_match_hud_
+    );
     if (magnified) {
         // The scene's upload and the overlay's conversion and upload.
         state.scene.upload_rgb24(

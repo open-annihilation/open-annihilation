@@ -1040,6 +1040,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_hold_confirm) {
+            check_hold_confirm();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_paused_save) {
             check_paused_save();
             flush_preferences();
@@ -1205,6 +1210,8 @@ void Runtime::run_frame(bool& running) {
         dispatch_event(event, running);
     // Holds finish on the frame's clock, after this frame's events.
     advance_input_actions(running);
+    // A hold to confirm fires while the press is still down, on this clock.
+    tick_hold_confirm();
     // Whatever showed or hid the system's pointer since the last frame, the
     // rule holds again before this frame is drawn; so does the window's
     // frame, for the screen the events left.
@@ -1270,8 +1277,14 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     remap_keypad_enter(event);
     // Each key press, whichever screen takes it, forgets the quick key the
     // last one answered a panel with; the press records its own again.
-    if (event.type == SDL_EVENT_KEY_DOWN)
+    if (event.type == SDL_EVENT_KEY_DOWN) {
         answered_key_ = 0;
+        hold_key_scancode_ = static_cast<uint16_t>(event.key.scancode);
+    }
+    if (event.type == SDL_EVENT_KEY_UP)
+        release_hold_confirm_key(static_cast<uint16_t>(event.key.scancode));
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_UP)
+        release_hold_confirm_button(static_cast<uint8_t>(event.button.button));
     // Shift let go after an order or a building was queued with it returns
     // to the default order before any event that follows acts: a click just
     // after the release gives the default order.

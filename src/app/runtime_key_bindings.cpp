@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -804,6 +805,27 @@ struct Runtime::KeyBindingsState {
     std::string signature{};
     /// The resolved layout's helpers.toggle, chosen then the player's own.
     std::vector<std::string> toggle{};
+    /// helpers.hold-to-confirm, chosen then the player's own. Unset means every
+    /// confirmable action. Set, even empty, means only those ids.
+    std::optional<std::vector<std::string>> hold_to_confirm{};
+
+    /// One press that must be held before self-destruct or Yes runs.
+    struct HoldSession {
+        keys::HoldConfirm hold{}; ///< the press
+        std::string title{};      ///< the card's title, in English
+        std::string chord{};      ///< the chord as display_text writes it
+        bool click{false};        ///< the press was a click, so the card says the button
+        bool button{false};       ///< the ring sits on a button
+        bool swallow{false};      ///< this button's release must not activate it
+        uint16_t scancode{0};     ///< the key that started a keyboard hold
+        uint8_t mouse_button{0};  ///< the button that started a click hold
+        std::size_t gadget{0};    ///< the button's gadget, when the ring sits on one
+        bool clock_pinned{false}; ///< progress reads pinned_now, for a replayed fill
+        uint64_t pinned_now{0};   ///< the clock replay_hold_confirm froze
+        Runtime::ConfirmHoldKind kind{Runtime::ConfirmHoldKind::none}; ///< which action fires
+    };
+
+    HoldSession hold_session{};
 
     /// A shared latch this key is holding, so its release toggles that latch.
     struct SharedPress {
@@ -916,12 +938,14 @@ void Runtime::load_key_bindings() {
     bool has_chosen = false;
     std::string base_id = "oa-default";
     std::optional<std::vector<std::string>> chosen_toggle;
+    std::optional<std::vector<std::string>> chosen_hold;
 
     const auto use_builtin = [&] {
         base = keys::Base::oa_default;
         has_chosen = false;
         base_id = "oa-default";
         chosen_toggle.reset();
+        chosen_hold.reset();
     };
     const auto use_manifest = [&](const oakeys::Manifest& manifest, bool refuse_errors) {
         keys::Layout layout;
@@ -943,6 +967,7 @@ void Runtime::load_key_bindings() {
         chosen = std::move(layout);
         has_chosen = true;
         chosen_toggle = manifest.helpers.toggle;
+        chosen_hold = manifest.helpers.hold_to_confirm;
     };
 
     if (options_.keys_reset) {
@@ -1173,6 +1198,12 @@ void Runtime::load_key_bindings() {
     if (apply_own && have_own_manifest && !own_broken && own_manifest.helpers.toggle)
         merged = *own_manifest.helpers.toggle;
     state.toggle = std::move(merged);
+    std::optional<std::vector<std::string>> holds;
+    if (chosen_hold)
+        holds = *chosen_hold;
+    if (apply_own && have_own_manifest && !own_broken && own_manifest.helpers.hold_to_confirm)
+        holds = *own_manifest.helpers.hold_to_confirm;
+    state.hold_to_confirm = std::move(holds);
     state.signature = signature_now();
     state.ready = false;
 }
@@ -1256,6 +1287,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
         return keys::pointer_keys_bindings(made, pointer_keys);
     };
     keys::Resolved resolved = resolved_for(order_stem, shown_stem);
+    resolved.hold_to_confirm = state.hold_to_confirm;
     // A shown-file change keeps the same action ids, so a held page key, a
     // latch and a key held back stay. Anything else replaces the bindings.
     const bool keep_held = bindings_same && same_action_ids(state.dispatcher.bindings(), resolved);
@@ -1435,6 +1467,235 @@ void Runtime::apply_key_timings() {
     key_bindings_state_->pointer_keys.set_double_press_ms(double_press);
 }
 
+bool Runtime::selection_counting_down() const {
+    if (match_ == nullptr)
+        return false;
+    const std::vector<uint16_t> ids = selected_local_ids();
+    for (const uint16_t id : ids) {
+        if (match_->self_destruct_remaining(id) > 0)
+            return true;
+    }
+    return false;
+}
+
+bool Runtime::confirm_action_needs_hold(std::string_view id) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !engine_settings().hold_to_confirm)
+        return false;
+    return keys::needs_hold(key_bindings_state_->dispatcher.bindings(), id, true);
+}
+
+bool Runtime::begin_confirm_hold(
+    std::string_view id,
+    ConfirmHoldKind kind,
+    uint16_t scancode,
+    bool from_button,
+    uint8_t mouse_button,
+    std::size_t gadget
+) {
+    if (kind == ConfirmHoldKind::self_destruct && selection_counting_down())
+        return false;
+    if (kind == ConfirmHoldKind::yes && !match_question_open())
+        return false;
+    if (!confirm_action_needs_hold(id))
+        return false;
+    KeyBindingsState& state = *key_bindings_state_;
+    if (state.hold_session.hold.active())
+        return true;
+    keys::HoldConfirm::Target target;
+    if (from_button && match_hud_ && gadget < match_hud_->layout.gadgets.size()) {
+        const auto centre = hud_gadget_centre(gadget);
+        const auto& common = match_hud_->layout.gadgets[gadget].common;
+        const int width = std::max(
+            1,
+            static_cast<int>(std::lround(static_cast<double>(common.width) * match_layout_.scale))
+        );
+        const int height = std::max(
+            1,
+            static_cast<int>(std::lround(static_cast<double>(common.height) * match_layout_.scale))
+        );
+        target.button = true;
+        target.width = width;
+        target.height = height;
+        target.x = centre.x - width / 2;
+        target.y = centre.y - height / 2;
+    } else {
+        target.x = static_cast<int32_t>(std::lround(static_cast<double>(match_pointer_x_)));
+        target.y = static_cast<int32_t>(std::lround(static_cast<double>(match_pointer_y_)));
+    }
+    KeyBindingsState::HoldSession& session = state.hold_session;
+    session.hold.start(id, SDL_GetTicks(), target);
+    session.clock_pinned = false;
+    session.kind = kind;
+    session.click = from_button;
+    session.button = target.button;
+    session.swallow = from_button;
+    session.scancode = from_button ? uint16_t{0} : scancode;
+    session.mouse_button = from_button ? mouse_button : uint8_t{0};
+    session.gadget = gadget;
+    session.title.clear();
+    if (const oa::data::input_actions::Action* entry = actions::find(id))
+        session.title.assign(entry->words.name.begin(), entry->words.name.end());
+    else if (id == "gui.yesorno.choice1")
+        session.title = "Yes";
+    session.chord.clear();
+    for (const keys::Bound& bound : state.dispatcher.bindings().actions) {
+        if (bound.id != id || bound.chords.empty())
+            continue;
+        session.chord = keys::display_text(
+            bound.chords.front().chord, state.dispatcher.keyboard(), state.platform
+        );
+        break;
+    }
+    return true;
+}
+
+bool Runtime::start_self_destruct_hold(
+    uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget
+) {
+    return begin_confirm_hold(
+        "order.self-destruct",
+        ConfirmHoldKind::self_destruct,
+        scancode,
+        from_button,
+        mouse_button,
+        gadget
+    );
+}
+
+bool Runtime::start_yes_hold(
+    uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget
+) {
+    return begin_confirm_hold(
+        "gui.yesorno.choice1", ConfirmHoldKind::yes, scancode, from_button, mouse_button, gadget
+    );
+}
+
+void Runtime::cancel_hold_confirm() {
+    hold_confirm_ate_release_ = false;
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState::HoldSession& session = key_bindings_state_->hold_session;
+    session.clock_pinned = false;
+    session.hold.cancel();
+    session.kind = ConfirmHoldKind::none;
+    session.swallow = false;
+    session.click = false;
+    session.button = false;
+}
+
+void Runtime::release_hold_confirm_key(uint16_t scancode) {
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState::HoldSession& session = key_bindings_state_->hold_session;
+    if (session.kind == ConfirmHoldKind::none || session.click)
+        return;
+    if (session.scancode != scancode)
+        return;
+    session.hold.release();
+}
+
+void Runtime::release_hold_confirm_button(uint8_t button) {
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState::HoldSession& session = key_bindings_state_->hold_session;
+    if (!session.click || session.mouse_button != button)
+        return;
+    if (session.swallow)
+        hold_confirm_ate_release_ = true;
+    session.swallow = false;
+    session.hold.release();
+}
+
+bool Runtime::take_hold_confirm_release() {
+    const bool ate = hold_confirm_ate_release_;
+    hold_confirm_ate_release_ = false;
+    return ate;
+}
+
+void Runtime::replay_hold_confirm(uint32_t elapsed_ms) {
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState::HoldSession& session = key_bindings_state_->hold_session;
+    if (session.kind == ConfirmHoldKind::none)
+        return;
+    const std::string id = session.hold.id();
+    const keys::HoldConfirm::Target target = session.hold.target();
+    const uint64_t now = SDL_GetTicks();
+    const uint64_t began = now >= elapsed_ms ? now - elapsed_ms : 0;
+    session.hold.start(id, began, target);
+    // The draw reads this clock, so a later millisecond does not move the fill.
+    session.clock_pinned = true;
+    session.pinned_now = now;
+}
+
+void Runtime::tick_hold_confirm() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState::HoldSession& session = key_bindings_state_->hold_session;
+    if (session.kind == ConfirmHoldKind::none)
+        return;
+    session.clock_pinned = false;
+    if (session.kind == ConfirmHoldKind::yes && !match_question_open()) {
+        cancel_hold_confirm();
+        return;
+    }
+    if (!engine_settings().hold_to_confirm) {
+        cancel_hold_confirm();
+        return;
+    }
+    const uint32_t long_press = key_bindings_state_->dispatcher.timings().long_press_ms;
+    const keys::HoldState state = session.hold.tick(SDL_GetTicks(), long_press);
+    if (state == keys::HoldState::none) {
+        session.kind = ConfirmHoldKind::none;
+        return;
+    }
+    if (state != keys::HoldState::done)
+        return;
+    const auto kind = session.kind;
+    const std::size_t gadget = session.gadget;
+    const bool swallow = session.swallow;
+    session.hold.cancel();
+    session.kind = ConfirmHoldKind::none;
+    session.click = false;
+    session.button = false;
+    session.swallow = false;
+    // The button is still down. Its release must not activate.
+    if (swallow)
+        hold_confirm_ate_release_ = true;
+    if (kind == ConfirmHoldKind::self_destruct && match_ != nullptr) {
+        const std::vector<uint16_t> ids = selected_local_ids();
+        match_->toggle_self_destruct(ids);
+        status_ = "Self-destruct";
+    } else if (kind == ConfirmHoldKind::yes)
+        activate_match_hud(gadget);
+}
+
+Runtime::HoldConfirmDraw Runtime::hold_confirm_draw() const {
+    HoldConfirmDraw draw;
+    if (key_bindings_state_ == nullptr)
+        return draw;
+    const KeyBindingsState::HoldSession& session = key_bindings_state_->hold_session;
+    if (!session.hold.active())
+        return draw;
+    const keys::HoldConfirm::Target& target = session.hold.target();
+    draw.show = true;
+    draw.button = session.button;
+    draw.click = session.click;
+    draw.x = target.x;
+    draw.y = target.y;
+    draw.width = target.width;
+    draw.height = target.height;
+    const uint64_t now = session.clock_pinned ? session.pinned_now : SDL_GetTicks();
+    draw.progress =
+        session.hold.progress(now, key_bindings_state_->dispatcher.timings().long_press_ms);
+    draw.long_press_ms = key_bindings_state_->dispatcher.timings().long_press_ms;
+    draw.gadget = session.gadget;
+    draw.title = session.title;
+    draw.chord = session.chord;
+    return draw;
+}
+
 bool Runtime::feed_input_actions(const SDL_Event& event) {
     const bool keymap_changed = event.type == SDL_EVENT_KEYMAP_CHANGED;
     ensure_key_bindings(keymap_changed);
@@ -1450,6 +1711,7 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
         sticky_event_mods_ = 0;
         key_latch_seen_.clear();
         key_latch_chips_drawn_.clear();
+        cancel_hold_confirm();
         refresh_pointer_modifiers();
         trace_fed_actions(state.events);
         forget_held_back_keys();

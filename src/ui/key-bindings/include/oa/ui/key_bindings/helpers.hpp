@@ -16,6 +16,100 @@
 
 namespace oa::ui::key_bindings {
 
+struct Resolved;
+
+/// What a hold to confirm is doing.
+enum class HoldState {
+    none,    ///< no hold is running
+    waiting, ///< the press is still short of the long-press time
+    done,    ///< the long-press time has passed and the press is still held
+};
+
+/// A press that must be held before a dangerous action runs.
+///
+/// The caller passes the time. The hold does not read a clock. The action
+/// fires when `tick` first reports `done`, while the press is still held.
+/// `release` before that, or `cancel`, leaves it unfired.
+class HoldConfirm {
+  public:
+
+    /// Where the ring is drawn, in match canvas pixels.
+    struct Target {
+        bool button{false}; ///< a button's rectangle; otherwise the pointer's point
+        int32_t x{0};       ///< the point, or the rectangle's left
+        int32_t y{0};       ///< the point, or the rectangle's top
+        int32_t width{0};   ///< the rectangle's width; 0 for a point
+        int32_t height{0};  ///< the rectangle's height; 0 for a point
+    };
+
+    /// A press began. A hold already running is replaced.
+    ///
+    /// @param id the action id
+    /// @param now_ms the time, in milliseconds
+    /// @param target where the ring is drawn
+    void start(std::string_view id, uint64_t now_ms, Target target);
+
+    /// The press ended before the hold finished. The next tick reports none.
+    void release();
+
+    /// Advances the hold.
+    ///
+    /// @param now_ms the time, in milliseconds
+    /// @param long_press_ms the long-press time, in milliseconds
+    /// @return none when no hold is running or the press already ended, waiting
+    ///     while the press is short of the time, or done once the time has passed
+    [[nodiscard]] HoldState tick(uint64_t now_ms, uint32_t long_press_ms);
+
+    /// Ends the hold. It does not fire.
+    void cancel();
+
+    /// Reports whether a press is still held for confirmation.
+    ///
+    /// @return true from start until release or cancel
+    [[nodiscard]] bool active() const;
+
+    /// How far the hold has filled, in thousandths of the long-press time.
+    ///
+    /// @param now_ms the time, in milliseconds
+    /// @param long_press_ms the long-press time, in milliseconds
+    /// @return 0 when no hold is running, else 0 to 1000
+    [[nodiscard]] int32_t progress(uint64_t now_ms, uint32_t long_press_ms) const;
+
+    /// The action id of the hold that is running.
+    ///
+    /// @return the id; empty when none is running
+    [[nodiscard]] const std::string& id() const;
+
+    /// Where the ring is drawn.
+    ///
+    /// @return the target passed to start
+    [[nodiscard]] const Target& target() const;
+
+  private:
+
+    /// Drops the hold.
+    void clear();
+
+    std::string id_{};      ///< the action id
+    Target target_{};       ///< where the ring is drawn
+    uint64_t started_ms_{}; ///< when the press began
+    bool started_{};        ///< a hold is running
+    bool released_{};       ///< the press ended before the next tick
+};
+
+/// Reports whether an action needs a hold before it runs.
+///
+/// The setting off never needs one. Otherwise the action must be confirmable,
+/// and the resolved layout must either name no hold-to-confirm list or name
+/// the action in that list. A list that is present and empty names nothing.
+/// `gui.yesorno.choice1` is confirmable: it is the Yes of the surrender question.
+///
+/// @param resolved the bindings in use
+/// @param action the action id
+/// @param setting_on whether Hold to confirm is on
+/// @return true when the press must be held
+[[nodiscard]] bool needs_hold(const Resolved& resolved, std::string_view action, bool setting_on);
+
 /// QUEUE, ADD, the status strip and the other latchable holds, one per action id.
 ///
 /// A press is active at once. A release toggles the latch only when the press

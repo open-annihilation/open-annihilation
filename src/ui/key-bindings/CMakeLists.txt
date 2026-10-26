@@ -14,6 +14,7 @@ add_library(oa-ui-key-bindings
   src/dispatcher.cpp
   src/latches.cpp
   src/pointer_keys.cpp
+  src/confirm.cpp
   src/timing.cpp
   src/layout_file.cpp
   src/legacy_keys.cpp)
@@ -55,6 +56,12 @@ if(BUILD_TESTING)
     oa-test-support oa-options)
   add_test(NAME ui-key-bindings-pointer-keys COMMAND oa-ui-key-bindings-pointer-keys-exe)
   set_tests_properties(ui-key-bindings-pointer-keys PROPERTIES TIMEOUT 30)
+  # Which confirmable actions need a hold, and a hold that finishes while held.
+  add_executable(oa-ui-key-bindings-confirm-exe tests/confirm_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-confirm-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-confirm COMMAND oa-ui-key-bindings-confirm-exe)
+  set_tests_properties(ui-key-bindings-confirm PROPERTIES TIMEOUT 30)
 
   # Slow keys, bounce keys, the player's times and the drag's tick limit.
   add_executable(oa-ui-key-bindings-timing-exe tests/timing_test.cpp)

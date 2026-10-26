@@ -22,10 +22,15 @@ the other frontend screens. The explicit names matter: the renderer does not
 infer that every screen follows the main-menu convention. `load_screen_art`
 loads the same names but the layout, and `load_screen_layout` lays a layout
 out over such art, reading only its GUI file: the two give what `load_screen`
-gives. The match's side column loads its art once a match and lays each of
-its pages out over it, so that a page a click opens reads one small file;
-`screen_art_test.cpp` (`frontend-screen-art`) checks the installed game's Arm
-pages and in-game menu so.
+gives. `read_screen_layout` and `lay_out_screen` are the two halves of
+`load_screen_layout`: the first reads and parses the GUI file, the second lays
+it out over art it takes, moved rather than copied when the caller moves it
+in, and `screen_background_path` names the file `load_screen_art` reads a
+background from. The match's side column loads its art once a match and hands
+it from page to page, each laid out over it, so that a page a click opens
+reads one small file and the art is held once; `screen_art_test.cpp`
+(`frontend-screen-art`) checks the installed game's Arm pages and in-game menu
+so, copied and handed on.
 
 `render_screen` draws a loaded screen into a new surface; `render_screen_into`
 draws it the same way into a surface the caller keeps, whose memory is used

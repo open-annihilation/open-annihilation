@@ -1829,6 +1829,11 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error on a failure. [runtime_key_latches_check.cpp]
     void check_key_latches();
 
+    /// Checks Hold to confirm on a skirmish: self-destruct, the order button
+    /// and the surrender question. Throws std::runtime_error on a failure.
+    /// [runtime_hold_confirm_check.cpp]
+    void check_hold_confirm();
+
     /// Checks MULTI on the main menu.
     ///
     /// The extensions' check_multiplayer_menu hooks check the multiplayer
@@ -3729,17 +3734,29 @@ class Runtime final : public menu::Host,
     };
 
     /// The art every page of the match's side column is drawn with, read
-    /// once a match (match_hud_art).
+    /// once a match (match_hud_art) and held once: the page shown draws with
+    /// it, and the next page takes it from that page (take_match_hud_art).
     struct MatchHudArt {
         std::size_t side{};     ///< the viewed side it was read for
         std::string tile;       ///< the side tile it was read for
         std::string panel;      ///< the side's interface GAF it was read for
         std::string font;       ///< the side's SIDEDATA font it was read for
         std::string read_panel; ///< the interface GAF read; empty when it could not be
+        /// The side tile's file as read, which each page after the first
+        /// decodes again for the background it draws its chrome over.
+        std::vector<uint8_t> tile_file;
         /// load_screen_art's resources, with no layout, captioned in the
-        /// shown language.
+        /// shown language, until the first page takes them; from then on
+        /// the page shown holds them (lent).
         renderer::ScreenResources screen;
-        /// The side's font; none when the side names none or it cannot be read.
+        std::size_t common_sequences = 0; ///< commongui.gaf's, the first of the art's sprites
+        /// The sequences of its own GAF the page shown put before the art's.
+        std::size_t page_sequences = 0;
+        bool lent = false;       ///< the page shown (match_hud_) holds the art
+        bool names_font = false; ///< the side names a font that could be read
+        /// The side's font until the art's first page takes it as
+        /// match_small_font_, which its later pages keep; none when the side
+        /// names none or it cannot be read.
         std::optional<oa::formats::fnt::Font> side_font;
     };
 
@@ -3748,14 +3765,27 @@ class Runtime final : public menu::Host,
     /// interface GAF in the shown language's captions, and the side's font.
     ///
     /// The art is read from the game's files as the match's first page
-    /// loads, and again only when the side's files are others, so that a
-    /// page reads only its own GUI file and GAF (load_match_hud_layout).
+    /// loads, and again only when the side's files are others or the page
+    /// holding it was dropped, so that a page reads only its own GUI file
+    /// and GAF (load_match_hud_layout).
     ///
     /// @param layout the page it is wanted for, named in a report of art that
     ///        cannot be read
     /// @return the art; null when it cannot be read even without the side's
     ///         interface GAF, which is reported on stderr
-    const MatchHudArt* match_hud_art(const std::string& layout);
+    MatchHudArt* match_hud_art(const std::string& layout);
+    /// Takes the side column's art for the page about to be laid out over it.
+    ///
+    /// The art's first page takes it from match_hud_art_; each later page
+    /// takes it from the page shown, which drew with it and gives it back
+    /// without the sequences it added and with the side tile decoded again
+    /// in place of the background it drew over. The art is moved, never
+    /// copied, so that the match holds it once.
+    ///
+    /// @param art the art match_hud_art returned
+    /// @return the art, with no layout; the page shown, if it held the art,
+    ///         is left holding none, to be replaced
+    renderer::ScreenResources take_match_hud_art(MatchHudArt& art);
     /// Loads an in-match panel layout as the match HUD with the viewed side's chrome.
     ///
     /// The panel's buttons keep their states and their GUI file's quick keys;
@@ -10700,12 +10730,26 @@ class Runtime final : public menu::Host,
     /// Uploads an RGB24 surface into a texture of the opaque layers' formats
     /// (opaque_layer_format) through the display gamma.
     ///
+    /// A frame that follows the one the texture holds, given unchanged as
+    /// `before`, uploads only its bands of xrgb_band_rows rows that differ
+    /// from it; any other frame is uploaded whole. The texture keeps the
+    /// number of the frame it holds, never its pixels.
+    ///
     /// Throws PresentError when the texture cannot be locked.
     ///
     /// @param texture XRGB8888, ARGB8888 or RGB565 texture of the surface's
     ///        size; null uploads nothing
     /// @param source RGB surface
-    void upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& source);
+    /// @param frame the caller's number for the surface's frame, one more
+    ///        than the frame before's
+    /// @param before the frame numbered one less, as it was uploaded and
+    ///        since unchanged; null uploads the surface whole
+    void upload_rgb24_frame(
+        SDL_Texture* texture,
+        const renderer::Surface& source,
+        uint64_t frame = 0,
+        const renderer::Surface* before = nullptr
+    );
 
     /// Uploads an RGB24 surface into a texture or its tiles, of the opaque
     /// layers' formats, through the display gamma as upload_rgb24_frame does.
@@ -18450,8 +18494,9 @@ class Runtime final : public menu::Host,
     oa::Image match_chrome_{};
     std::optional<renderer::ScreenResources> match_hud_;
     std::string match_hud_panel_; // GUI file of match_hud_, as its loader named it
-    /// The side column's art (match_hud_art); dropped as a match loads and
-    /// ends and as the language shown or its packs change.
+    /// The side column's art (match_hud_art), held by match_hud_ while it
+    /// is lent; dropped as a match loads and ends and as the language shown
+    /// or its packs change.
     std::optional<MatchHudArt> match_hud_art_;
     /// Where draw_match_bars repeats the top bar's art right of PANELTOP.
     oa::ui::hud::TopBarPieces top_bar_pieces_{};
@@ -18625,6 +18670,121 @@ class Runtime final : public menu::Host,
     /// Draws those chips centred on the battlefield, 6 points under its top.
     /// [runtime_hud.cpp]
     void draw_key_latch_chips();
+
+    /// What the hold ring and its card draw from the press that is running.
+    struct HoldConfirmDraw {
+        bool show{false};            ///< a hold is running
+        bool button{false};          ///< the ring sits on a button
+        bool click{false};           ///< the card names the button rather than a chord
+        int32_t x{0};                ///< the point, or the button's left, in match canvas pixels
+        int32_t y{0};                ///< the point, or the button's top
+        int32_t width{0};            ///< the button's width; 0 for the pointer
+        int32_t height{0};           ///< the button's height; 0 for the pointer
+        int32_t progress{0};         ///< how far the ring has filled, in thousandths
+        uint32_t long_press_ms{500}; ///< the long-press time the card names
+        std::size_t gadget{0};       ///< the button, when the ring sits on one
+        std::string title{};         ///< the card's title, in English
+        std::string chord{};         ///< the chord, as a screen shows it
+    };
+
+    /// The hold that is running, or an empty draw when none is.
+    /// [runtime_key_bindings.cpp]
+    [[nodiscard]] HoldConfirmDraw hold_confirm_draw() const;
+
+    /// Draws the hold ring and its card. A pointer's ring is on the battlefield.
+    /// A button's ring is on that button. The card stays on the battlefield,
+    /// clear of the side column. [runtime_hud.cpp]
+    void draw_hold_ring();
+
+    /// Starts a hold for self-destruct, or reports that the press should act now.
+    ///
+    /// A countdown that is already running is not held: the caller toggles it off.
+    ///
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is the order button
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the button's gadget
+    /// @return true when the press is held and must not act yet
+    bool start_self_destruct_hold(
+        uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget
+    );
+
+    /// Starts a hold for Yes on the surrender question.
+    ///
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is a click
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the Yes button
+    /// @return true when the press is held and must not act yet
+    bool
+    start_yes_hold(uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget);
+
+    /// Ends the hold without firing. [runtime_key_bindings.cpp]
+    void cancel_hold_confirm();
+
+    /// The key went up. A hold that key started ends without firing.
+    ///
+    /// @param scancode the key
+    void release_hold_confirm_key(uint16_t scancode);
+
+    /// The mouse button went up. A hold that button started ends without firing,
+    /// and its release is remembered so the button does not activate.
+    ///
+    /// @param button the mouse button
+    void release_hold_confirm_button(uint8_t button);
+
+    /// Reports, once, that the button release just seen must not activate.
+    ///
+    /// @return true when a hold swallowed that release
+    [[nodiscard]] bool take_hold_confirm_release();
+
+    /// Runs the held action when the long-press time has passed and the press
+    /// is still held. A release, Escape, a lost focus or the question closing
+    /// ends it with nothing done. [runtime_key_bindings.cpp]
+    void tick_hold_confirm();
+
+    /// Places the running hold as though it began this long ago.
+    ///
+    /// The hold-to-confirm check uses it to draw one fill twice.
+    ///
+    /// @param elapsed_ms how far the hold has come, in milliseconds
+    void replay_hold_confirm(uint32_t elapsed_ms);
+
+    /// Reports whether a selected unit's self-destruct countdown is running.
+    ///
+    /// @return true when one selected unit still has time left
+    [[nodiscard]] bool selection_counting_down() const;
+
+    /// Reports whether Hold to confirm asks this action for a hold.
+    ///
+    /// @param id the action id
+    /// @return true when the setting is on and the layout's rule names it
+    bool confirm_action_needs_hold(std::string_view id);
+
+    /// Which held press fires.
+    enum class ConfirmHoldKind : uint8_t {
+        none,          ///< no hold
+        self_destruct, ///< order.self-destruct
+        yes,           ///< the surrender question's Yes
+    };
+
+    /// Starts the hold `start_self_destruct_hold` and `start_yes_hold` share.
+    ///
+    /// @param id the action id
+    /// @param kind which action fires
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is a click
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the button's gadget
+    /// @return true when the press is held and must not act yet
+    bool begin_confirm_hold(
+        std::string_view id,
+        ConfirmHoldKind kind,
+        uint16_t scancode,
+        bool from_button,
+        uint8_t mouse_button,
+        std::size_t gadget
+    );
 
     /// Whether a keyboard latch other than QUEUE, ADD or x5 is on.
     ///
@@ -19441,7 +19601,10 @@ class Runtime final : public menu::Host,
     TiledTexture match_dialog_tex_;
     renderer::Surface match_hud_cpu_{};
     // The HUD layer the frame before showed, whose memory the next frame's
-    // HUD is drawn into.
+    // HUD is drawn into. Until then the HUD's upload sends only the bands
+    // that differ from it (upload_rgb24_frame), which holds while the HUD
+    // layer is drawn on only between its composition (compose_match_hud)
+    // and its upload.
     renderer::Surface spare_match_hud_{};
     renderer::Surface match_world_cpu_{};
     /// The health bars the last match frame drew, in the order drawn, in
@@ -20107,6 +20270,20 @@ class Runtime final : public menu::Host,
     uint64_t key_latch_seen_next_{1};
     /// The chip texts last drawn, including an overflow chip. Empty when none show.
     std::vector<std::string> key_latch_chips_drawn_{};
+    /// The key of the press being handled, so a hold can tell which key lets it go.
+    uint16_t hold_key_scancode_{0};
+    /// The button release just seen started a hold, so that release activates nothing.
+    bool hold_confirm_ate_release_{false};
+    /// The hold ring snaps to quarters. No setting turns this on. The check sets it.
+    bool hold_confirm_reduced_motion_{false};
+    /// The pointer ring was drawn this frame.
+    bool hold_ring_drawn_{false};
+    int32_t hold_ring_done_{0};     ///< the ring's done, in the same units as hold_ring_whole_
+    int32_t hold_ring_whole_{1};    ///< the ring's whole
+    bool hold_ring_reduced_{false}; ///< the ring was drawn with reduced motion
+    int32_t hold_ring_x_{0};        ///< the pointer ring's left, in battlefield surface pixels
+    int32_t hold_ring_y_{0};        ///< the pointer ring's top
+    int32_t hold_ring_side_{0};     ///< the pointer ring's side, in surface pixels
     /// The pointer roles copied from those bindings. Empty until the first resolution.
     PointerRoleTable pointer_roles_{};
     /// Set once the view settings have been read, so a later mod change loads again.

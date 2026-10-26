@@ -215,6 +215,14 @@ left and Let go, and `clear` releasing a held button. It resolves
 Faster while `=` stays, that a player's own NumpadAdd stays, and that
 pointer keys off changes nothing.
 
+`ui-key-bindings-confirm` (`tests/confirm_test.cpp`) checks the hold rule
+and `HoldConfirm`. With the setting off, nothing needs a hold. With it on
+and no list, a confirmable action needs one and an action that is not
+confirmable does not. A list that names the action needs the hold. A list
+that leaves it out does not. The hold is `done` at the long-press time and
+not before. A release at 90% reports `none`. Progress at the quarters is
+0, 250, 500, 750 and 1000 thousandths.
+
 `ui-key-bindings-timing` (`tests/timing_test.cpp`) walks synthetic
 timelines: a slow-key tap of 100 ms fires nothing and a hold fires once at
 300 ms; a bounce at 200 ms is dropped and one at 400 ms is kept, including
@@ -232,6 +240,24 @@ keeps a zero that means the system's own time.
 numbers the library holds: every scancode SDL names is in the position table
 or in `scancodes_without_code`, every table entry equals SDL's scancode for
 that key, and every named key's key code equals SDL's.
+
+## Hold to confirm
+
+`needs_hold` is the rule. Hold to confirm off never asks for a hold. On, a
+confirmable action needs the long-press time when the resolved layout names
+no `hold-to-confirm` list, or names that action in the list. A list that is
+present and empty names nothing. `order.self-destruct` is confirmable in the
+registry. `gui.yesorno.choice1`, the Yes of the surrender question, is
+confirmable by this rule: a made `gui.` action has no registry row.
+
+`HoldConfirm` keeps one press. `start` names the action, the time and a
+target: the pointer's point, or a button's rectangle, in match canvas pixels.
+`tick` reports `waiting` until the long-press time and `done` once it has
+passed, while the press is still held. `release` before that, or `cancel`,
+makes the next tick report `none`. `progress` is how far the ring has filled,
+in thousandths. The app fires the action when `tick` reports `done` and then
+cancels the hold, so the ring goes and a key that is still down does not
+fire again.
 
 ## Limitations
 

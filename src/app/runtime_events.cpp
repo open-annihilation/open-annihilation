@@ -314,6 +314,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         match_pointer_known_ =
             screen_ == Screen::match && event_mouse_id(event) != SDL_TOUCH_MOUSEID;
         update_pointer(x, y);
+        // A hold's button came up. Remember it before any path returns, so the
+        // release does not activate and a later click is not swallowed.
+        const bool held_release =
+            event.type == SDL_EVENT_MOUSE_BUTTON_UP && take_hold_confirm_release();
         // Select boxes and orders; command looks, clears and orders as the
         // right button does. The interface mode decides what each press means.
         const uint8_t select_button = match_select_button();
@@ -360,6 +364,20 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             (event.button.button == select_button || event.button.button == command_button)
         )
             match_hud_held_ = hovered_;
+        // A left press on self-destruct, or on the surrender question's Yes,
+        // starts a hold. The release then activates nothing. Stopping a
+        // countdown stays the release's toggle.
+        if (screen_ == Screen::match && event.type == SDL_EVENT_MOUSE_BUTTON_DOWN &&
+            event.button.button == select_button && hovered_ && match_hud_ &&
+            *hovered_ < match_hud_->layout.gadgets.size()) {
+            const auto& pressed_gadget = match_hud_->layout.gadgets[*hovered_];
+            const std::string_view pressed_name = pressed_gadget.common.name;
+            const std::string_view pressed_action = match_hud_action(pressed_name);
+            if (!match_paused_ && (pressed_action == "SELFD" || pressed_action == "DESTRUCT"))
+                (void)start_self_destruct_hold(0, true, select_button, *hovered_);
+            else if (match_question_open() && pressed_name == "CHOICE1")
+                (void)start_yes_hold(0, true, select_button, *hovered_);
+        }
         // A press on a scroll bar or its arrow, and the release of a held
         // one, belong to the bar alone.
         if (route_scroll_pointer(event, x, y))
@@ -458,7 +476,7 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
             }
             match_drag_.reset();
             if (hovered_ && match_hud_) {
-                if (released_hud == hovered_)
+                if (released_hud == hovered_ && !held_release)
                     activate_match_hud(*hovered_);
                 return;
             }
