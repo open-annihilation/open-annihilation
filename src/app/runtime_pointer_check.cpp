@@ -388,8 +388,20 @@ void Runtime::check_pointer_interfaces() {
     // selection, and find none to drop, open the unit's page and the side's
     // idle page again; each reads only its GUI file, never the side column's
     // art, read once a match (match_hud_art), which cost every right press a
-    // frame's time.
+    // frame's time. Each takes the art from the page before it, copying
+    // none of it: the match holds it once, as each page held it when it was
+    // read for every page.
     {
+        const auto first_icon = [this]() -> const oa::formats::gaf::Frame* {
+            if (!match_hud_ || !match_hud_art_ || !match_hud_art_->lent)
+                return nullptr;
+            const auto& sequences = match_hud_->sprites.sequences;
+            const auto first = match_hud_art_->page_sequences;
+            if (first >= sequences.size() || sequences[first].frames.empty())
+                return nullptr;
+            return &sequences[first].frames.front();
+        };
+        const auto* icon = first_icon();
         PanelReads reads;
         assets_.observe_lookups({&reads, count_panel_read});
         select_only(peewee);
@@ -402,6 +414,12 @@ void Runtime::check_pointer_interfaces() {
             "left-click interface: the pages a selection and the right presses opened read the "
             "side column's art " +
                 std::to_string(reads.art) + " times"
+        );
+        require(
+            icon != nullptr && first_icon() == icon &&
+                match_hud_art_->screen.sprites.sequences.empty(),
+            "left-click interface: the pages a selection and the right presses opened copied "
+            "the side column's art"
         );
     }
 

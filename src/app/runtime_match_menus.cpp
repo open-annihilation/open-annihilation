@@ -1562,10 +1562,13 @@ Runtime::side_panel_art_name(const std::string& side_gaf, const std::string& pag
     return stem + page_panel.substr(3);
 }
 
-const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
+Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
     auto panel = match_side_panel_gaf();
     const auto tile = "bitmaps/" + match_side_prefix() + "guisidetile.pcx";
     const auto font = match_side_font();
+    // Art lent to a page went with the page when it was dropped.
+    if (match_hud_art_ && match_hud_art_->lent && !match_hud_)
+        match_hud_art_.reset();
     if (match_hud_art_ && match_hud_art_->tile == tile && match_hud_art_->panel == panel &&
         match_hud_art_->font == font)
         return &*match_hud_art_;
@@ -1581,11 +1584,18 @@ const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
     // read, is drawn as none named.
     for (;;) {
         try {
+            // The side tile is kept as read, for each page to decode the
+            // background it draws its chrome over: the art's first page
+            // takes the background decoded here.
+            const auto tile_path = renderer::screen_background_path(assets_, tile);
+            art.tile_file = assets_.read(tile_path).bytes;
             // Command icons live in commongui.gaf; the side's chrome lives in
             // the GAF its intgaf names.
             art.screen = renderer::load_screen_art(
-                assets_, {{}, tile, "palettes/guipal.pal", "anims/commongui.gaf", panel}
+                assets_, {{}, {}, "palettes/guipal.pal", "anims/commongui.gaf", panel}
             );
+            art.screen.background =
+                oa::ui::decoded::require(oa::decode_pcx(art.tile_file), tile_path);
             // The order buttons and the bars' words in the shown language.
             caption_gaf_pictures("anims/commongui.gaf", art.screen.sprites);
             if (!panel.empty())
@@ -1599,6 +1609,7 @@ const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
         }
     }
     art.read_panel = panel;
+    art.common_sequences = art.screen.sprites.sequences.size();
     // A font a mod lacks, or that cannot be read, is drawn as none named
     // (load_match_hud_layout).
     if (!font.empty())
@@ -1608,8 +1619,30 @@ const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
         } catch (const std::exception& error) {
             std::cerr << "match font " << font << " unavailable: " << error.what() << '\n';
         }
+    art.names_font = art.side_font.has_value();
     match_hud_art_ = std::move(art);
     return &*match_hud_art_;
+}
+
+renderer::ScreenResources Runtime::take_match_hud_art(MatchHudArt& art) {
+    if (!art.lent) {
+        art.lent = true;
+        return std::move(art.screen);
+    }
+    // The page shown gives the art back: commongui's sequences without its
+    // own GAF's before them and the side's and its gadgets' after them, and
+    // the side tile decoded again, as the art read it, in place of the
+    // background the page drew its chrome over.
+    renderer::ScreenResources screen = std::move(*match_hud_);
+    auto& sequences = screen.sprites.sequences;
+    const auto first = std::min(art.page_sequences, sequences.size());
+    const auto last = std::min(first + art.common_sequences, sequences.size());
+    sequences.erase(sequences.begin() + static_cast<std::ptrdiff_t>(last), sequences.end());
+    sequences.erase(sequences.begin(), sequences.begin() + static_cast<std::ptrdiff_t>(first));
+    screen.layout = {};
+    screen.background = {};
+    screen.background = oa::ui::decoded::require(oa::decode_pcx(art.tile_file), art.tile);
+    return screen;
 }
 
 bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::SidePage side_page) {
@@ -1619,15 +1652,19 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     hud_scrolls_count_ = 0;
     // Every page is drawn with the side's art, which is read once a match
     // (match_hud_art): a page reads only its own GUI file and GAF.
-    const auto* art = match_hud_art(layout);
+    auto* art = match_hud_art(layout);
     if (art == nullptr)
         return false;
+    // The page takes the art from the page shown (take_match_hud_art), once
+    // its GUI file is read: a page that cannot be read leaves that one shown.
+    oa::ui::gui_layout::Layout laid_out;
     try {
-        match_hud_ = renderer::load_screen_layout(assets_, art->screen, layout);
+        laid_out = renderer::read_screen_layout(assets_, layout);
     } catch (const std::exception& error) {
         std::cerr << "match HUD '" << layout << "' unavailable: " << error.what() << '\n';
         return false;
     }
+    match_hud_ = renderer::lay_out_screen(take_match_hud_art(*art), std::move(laid_out));
     const std::string& panel = art->read_panel;
     match_hud_panel_ = layout;
     match_hud_side_page_ = side_page;
@@ -1659,6 +1696,7 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     {
         oa::formats::gaf::Archive own;
         append_gaf_file(own, "anims/" + stem + ".GAF");
+        art->page_sequences = own.sequences.size();
         auto& hud_sequences = match_hud_->sprites.sequences;
         hud_sequences.insert(
             hud_sequences.begin(),
@@ -1669,7 +1707,7 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     // The side's GAF's sequences come after commongui's, captioned as the
     // shared sprites read from the same file are.
     if (!panel.empty()) {
-        const auto& side = art->screen.shared_sprites.sequences;
+        const auto& side = match_hud_->shared_sprites.sequences;
         auto& hud_sequences = match_hud_->sprites.sequences;
         hud_sequences.insert(hud_sequences.end(), side.begin(), side.end());
     }
@@ -1700,10 +1738,12 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     // message lines, the font of the GUI text drawn last, or COMIX from the
     // load screen before any. The engine draws them in COMIX in every case.
     // A font a mod lacks, or that cannot be read, is drawn as none named.
-    match_side_names_font_ = art->side_font.has_value();
-    if (match_side_names_font_)
-        match_small_font_ = art->side_font;
-    else
+    // The art's first page takes the side's font, and its later pages keep
+    // it, so that the match holds it once.
+    match_side_names_font_ = art->names_font;
+    if (art->side_font)
+        match_small_font_ = std::exchange(art->side_font, std::nullopt);
+    else if (!match_side_names_font_)
         match_small_font_ = message_font_ ? message_font_ : small_font_;
     // The bars' rows are black from column 128 on under the side art and
     // the bars' art, as the game's screen is under its bars.

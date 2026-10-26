@@ -3330,16 +3330,28 @@ class Runtime final : public menu::Host,
     };
 
     /// The art every page of the match's side column is drawn with, read
-    /// once a match (match_hud_art).
+    /// once a match (match_hud_art) and held once: the page shown draws with
+    /// it, and the next page takes it from that page (take_match_hud_art).
     struct MatchHudArt {
         std::string tile;       ///< the side tile it was read for
         std::string panel;      ///< the side's interface GAF it was read for
         std::string font;       ///< the side's SIDEDATA font it was read for
         std::string read_panel; ///< the interface GAF read; empty when it could not be
+        /// The side tile's file as read, which each page after the first
+        /// decodes again for the background it draws its chrome over.
+        std::vector<uint8_t> tile_file;
         /// load_screen_art's resources, with no layout, captioned in the
-        /// shown language.
+        /// shown language, until the first page takes them; from then on
+        /// the page shown holds them (lent).
         renderer::ScreenResources screen;
-        /// The side's font; none when the side names none or it cannot be read.
+        std::size_t common_sequences = 0; ///< commongui.gaf's, the first of the art's sprites
+        /// The sequences of its own GAF the page shown put before the art's.
+        std::size_t page_sequences = 0;
+        bool lent = false;       ///< the page shown (match_hud_) holds the art
+        bool names_font = false; ///< the side names a font that could be read
+        /// The side's font until the art's first page takes it as
+        /// match_small_font_, which its later pages keep; none when the side
+        /// names none or it cannot be read.
         std::optional<oa::formats::fnt::Font> side_font;
     };
 
@@ -3348,14 +3360,27 @@ class Runtime final : public menu::Host,
     /// interface GAF in the shown language's captions, and the side's font.
     ///
     /// The art is read from the game's files as the match's first page
-    /// loads, and again only when the side's files are others, so that a
-    /// page reads only its own GUI file and GAF (load_match_hud_layout).
+    /// loads, and again only when the side's files are others or the page
+    /// holding it was dropped, so that a page reads only its own GUI file
+    /// and GAF (load_match_hud_layout).
     ///
     /// @param layout the page it is wanted for, named in a report of art that
     ///        cannot be read
     /// @return the art; null when it cannot be read even without the side's
     ///         interface GAF, which is reported on stderr
-    const MatchHudArt* match_hud_art(const std::string& layout);
+    MatchHudArt* match_hud_art(const std::string& layout);
+    /// Takes the side column's art for the page about to be laid out over it.
+    ///
+    /// The art's first page takes it from match_hud_art_; each later page
+    /// takes it from the page shown, which drew with it and gives it back
+    /// without the sequences it added and with the side tile decoded again
+    /// in place of the background it drew over. The art is moved, never
+    /// copied, so that the match holds it once.
+    ///
+    /// @param art the art match_hud_art returned
+    /// @return the art, with no layout; the page shown, if it held the art,
+    ///         is left holding none, to be replaced
+    renderer::ScreenResources take_match_hud_art(MatchHudArt& art);
     /// Loads an in-match panel layout as the match HUD with the viewed side's chrome.
     ///
     /// The panel's buttons keep their states and their GUI file's quick keys;
@@ -17860,8 +17885,9 @@ class Runtime final : public menu::Host,
     oa::Image match_chrome_{};
     std::optional<renderer::ScreenResources> match_hud_;
     std::string match_hud_panel_; // GUI file of match_hud_, as its loader named it
-    /// The side column's art (match_hud_art); dropped as a match loads and
-    /// ends and as the language shown or its packs change.
+    /// The side column's art (match_hud_art), held by match_hud_ while it
+    /// is lent; dropped as a match loads and ends and as the language shown
+    /// or its packs change.
     std::optional<MatchHudArt> match_hud_art_;
     /// Where draw_match_bars repeats the top bar's art right of PANELTOP.
     oa::ui::hud::TopBarPieces top_bar_pieces_{};
