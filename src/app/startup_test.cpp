@@ -392,6 +392,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-mod-switch", &Options::check_mod_switch, {}},
         {"--check-map-packs", &Options::check_map_packs, {}},
         {"--check-map-browser", &Options::check_map_browser, {}},
+        {"--check-key-editor", &Options::check_key_editor, {}},
         {"--check-mutator-button", &Options::check_mutator_button, {}},
         {"--check-mutator-room", &Options::check_mutator_room, {}},
         {"--check-brain-room", &Options::check_brain_room, {}},

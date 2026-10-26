@@ -277,6 +277,8 @@ add_subdirectory(src/ui/touch-gestures)
 add_subdirectory(src/ui/touch-hud)
 # Chords: letters, key positions, names and how an event matches.
 add_subdirectory(src/ui/key-bindings)
+# The key editor: the list of every rebindable action.
+add_subdirectory(src/ui/key-editor)
 add_subdirectory(src/ui/game-files)
 # The in-engine game folder chooser's model.
 add_subdirectory(src/ui/folder-chooser)
@@ -1319,6 +1321,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/oa_layer.cpp
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_map_browser.cpp
+  src/app/runtime_key_editor.cpp
   src/app/runtime_mutator_picker.cpp
   src/app/runtime_brain_picker.cpp
   src/app/oa_button_focus.cpp
@@ -1409,6 +1412,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_pack_lists_check.cpp
   src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
+  src/app/runtime_key_editor_check.cpp
   src/app/runtime_mutator_picker_check.cpp
   src/app/runtime_brain_picker_check.cpp
   src/app/runtime_brain_seats_check.cpp
@@ -1469,7 +1473,7 @@ set(oa_game_libraries oa-formats-hpi oa-formats-json oa-app-game-options oa-app-
   oa-app-brain-match
   oa-app-brain-seats
   oa-app-seat-chat
-  oa-ui-key-bindings oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
+  oa-ui-key-bindings oa-ui-key-editor oa-ui-pad-controls oa-ui-folder-chooser oa-platform-game-installs oa-platform-file-types
   oa-data-content-bundles
   oa-ui-frontend-multiplayer oa-ui-library oa-ui-map-browser oa-ui-mutator-picker
   oa-ui-brain-picker
@@ -2336,6 +2340,23 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_map_browser_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED map-browser-clean)
+      # The key editor over Settings at 640x480, 1280x720 and 1920x1080, then
+      # the list's edits, the save, a paused skirmish and Developer Mode.
+      # Each run starts from a clean folder, so the player's own layout is
+      # the one this run saves.
+      set(oa_key_editor_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-editor")
+      file(MAKE_DIRECTORY "${oa_key_editor_dir}")
+      add_test(NAME key-editor-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_editor_dir}/Open Annihilation" "${oa_key_editor_dir}/key-editor.conf")
+      set_tests_properties(key-editor-clean PROPERTIES FIXTURES_SETUP key-editor-clean)
+      add_test(NAME native-key-editor COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-editor
+        --preferences-file "${oa_key_editor_dir}/key-editor.conf"
+        --user-folder "${oa_key_editor_dir}/Open Annihilation")
+      set_tests_properties(native-key-editor PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_editor_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-editor-clean)
       # The mutator picker over the main menu, on a feed of made-up mutators,
       # at 640x480, 1280x720, 1920x1080 and 2560x1440: the mended On order,
       # every row's grip and switch, one download and the waiting words, the

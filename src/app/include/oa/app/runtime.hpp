@@ -70,6 +70,7 @@
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/mutator_picker/model.hpp"
+#include "oa/ui/key_editor/model.hpp"
 #include "oa/ui/brain_picker/model.hpp"
 #include "oa/data/content_bundles/content_choice.hpp"
 #include "oa/data/mutators/choice.hpp"
@@ -441,6 +442,18 @@ struct MutatorPickerRequest {
     /// chosen. The picker then says so. Callers that leave it false open on
     /// a chosen set, or on none.
     bool remembered{false};
+};
+
+/// What a caller hands the key editor.
+struct KeyEditorRequest {
+    /// True when Settings is the screen under the editor. Refused when a
+    /// modal screen other than Settings is up, and when Settings is up
+    /// without this set.
+    bool over_settings{false};
+    /// The filter the list opens on. Unset opens on All.
+    std::optional<oa::ui::key_editor::Filter> filter{};
+    /// The action the list opens on. Empty opens with none chosen.
+    std::string select{};
 };
 
 /// One computer player a match will seat with a brain.
@@ -2727,6 +2740,25 @@ class Runtime final : public menu::Host,
     ///
     /// @return the scancode, or SDL_SCANCODE_UNKNOWN when that press is absent
     [[nodiscard]] SDL_Scancode order_attack_press_scancode();
+
+    /// Fills the key editor from the layout in use, the player's own file and
+    /// the installed layouts. The own helpers are the own file's, not the
+    /// merged ones. [runtime_key_bindings.cpp]
+    ///
+    /// @param[out] inputs the editor's inputs
+    void fill_key_editor(oa::ui::key_editor::EditorInputs& inputs);
+
+    /// Writes the editor's save: each layout it made, then the player's own
+    /// file, the layout preference, and SwitchAlt when it changed. Clears the
+    /// load signature before the bindings are read again, so a key just taken
+    /// off stops firing. A write that fails leaves the editor's caller to
+    /// show the reason; the signature is cleared only after the own file is
+    /// written.
+    ///
+    /// @param saved what the editor's result names
+    /// @param[out] error why it was not written; empty on success
+    /// @return true when the files were written and the bindings reloaded
+    bool save_key_editor(const oa::ui::key_editor::SaveResult& saved, std::string& error);
 
     /// Loads the layout for this run and the player's own changes, and imports stored keys once.
     ///
@@ -6795,6 +6827,18 @@ class Runtime final : public menu::Host,
     /// @return false when the picker cannot open
     bool open_mutator_picker(MutatorPickerRequest request);
 
+    /// Opens the key editor on the OA layer.
+    ///
+    /// On the menus it is centred at its size class's dialog size. In a match
+    /// it shows the pause menu first, as Settings does, and sits beside the
+    /// side column. Refused without the layer's fonts, while it is already
+    /// open, while a modal OA screen other than Settings is up, and while
+    /// Settings is up without `over_settings`.
+    ///
+    /// @param request whether it opens over Settings, and the list it opens on
+    /// @return false when the editor cannot open
+    bool open_key_editor(KeyEditorRequest request);
+
     /// Opens the brain picker on the OA layer, over the screen that asked.
     ///
     /// The list comes from the feed: the runtime's own feed lists the brains
@@ -7372,6 +7416,9 @@ class Runtime final : public menu::Host,
     /// The map browser, a screen of the OA layer named map-browser.
     struct MapBrowserScreen;
 
+    /// The key editor, a screen of the OA layer named key-editor.
+    struct KeyEditorScreen;
+
     /// The mutator picker, a screen of the OA layer named mutator-picker.
     struct MutatorPickerScreen;
 
@@ -7527,6 +7574,14 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_map_browser();
+
+    /// Runs --check-key-editor: the editor over Settings at 640x480, 1280x720
+    /// and 1920x1080, then the list's edits, the save, a paused skirmish, and
+    /// Developer Mode. Writes each window as key-editor-<w>x<h>.ppm, and the
+    /// match's as key-editor-match-<w>x<h>.ppm, when --snapshot names a file.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_editor();
 
     /// Writes --check-mutator-picker's and --check-brain-picker's registry
     /// list into the player's folder, every built-in registry turned off,

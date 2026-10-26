@@ -455,6 +455,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-map-pack-lists` | Installs a map pack while both map lists exist. |
 | `--check-mod-map-settings` | Checks a mod's settings for a map pack's map, with `--mod-dir`. |
 | `--check-map-browser` | Checks the map browser at four window sizes. |
+| `--check-key-editor` | Checks the key editor at 640x480, 1280x720 and 1920x1080, on the menus and in a paused skirmish. |
 | `--check-mutator-button` | Checks Mutators on the skirmish setup and the campaign launch at 640x480 and 1280x720: the button's size and place, its badge and count, Tab, Down, a finger's reach, Y, the remembered set and the set a start hands on. |
 | `--check-mutator-room` | Hosts a battle room alone and checks Mutators above Select Map, as large as it, at 640x480 and 1280x720, its count, the remembered multiplayer set, the chat lines, and the button while the room's options are locked. |
 | `--check-brain-room` | Hosts a battle room alone and checks each computer row's brain button at 640x480 and 1280x720: the label, the greyed difficulty, the picker, every computer seat, the hover card, and the button meeting no control of the room but its row's empty screen-size column. |

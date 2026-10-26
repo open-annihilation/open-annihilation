@@ -338,6 +338,14 @@
 	it=*** {player} gioca a Total Annihilation 3.1c, che non può giocare con i mutatori.;
 	}
 
+[+{n}]
+	{
+	de=+{n};
+	fr=+{n};
+	es=+{n};
+	it=+{n};
+	}
+
 [A]
 	{
 	de=A;
@@ -488,6 +496,22 @@
 	fr=Un nombre aléatoire qui permet à {name} d'arrêter les téléchargements automatiques. Désactivé, tu peux parcourir la Bibliothèque, mais les téléchargements sont coupés. Le contenu installé continue de fonctionner.;
 	es=Un número aleatorio que permite a {name} detener las descargas automáticas. Desactivado, puedes explorar la Biblioteca, pero las descargas están apagadas. El contenido instalado sigue funcionando.;
 	it=Un numero casuale che permette a {name} di fermare i download automatici. Disattivato, puoi sfogliare la Biblioteca, ma i download sono spenti. I contenuti installati continuano a funzionare.;
+	}
+
+[A seat]
+	{
+	de=Ein Platz;
+	fr=Une place;
+	es=Un puesto;
+	it=Un posto;
+	}
+
+[A selection]
+	{
+	de=Eine Auswahl;
+	fr=Une sélection;
+	es=Una selección;
+	it=Una selezione;
 	}
 
 [A shaded box behind each line of game text.]
@@ -808,6 +832,14 @@
 	fr=Tout;
 	es=Todo;
 	it=Tutto;
+	}
+
+[All categories]
+	{
+	de=Alle Kategorien;
+	fr=Toutes les catégories;
+	es=Todas las categorías;
+	it=Tutte le categorie;
 	}
 
 [All files match]
@@ -1474,6 +1506,14 @@
 	it=Opzioni di pattuglia e guardia dei costruttori;
 	}
 
+[Building]
+	{
+	de=Bauen;
+	fr=Construction;
+	es=Construcción;
+	it=Costruzione;
+	}
+
 [Built in]
 	{
 	de=Integriert;
@@ -1536,6 +1576,14 @@
 	fr=Indications de boutons;
 	es=Indicaciones de botones;
 	it=Suggerimenti dei pulsanti;
+	}
+
+[C]
+	{
+	de=C;
+	fr=C;
+	es=C;
+	it=C;
 	}
 
 [CANCEL]
@@ -1890,6 +1938,14 @@
 	it=Celle a cui un clic di recupero si aggancia a un relitto.;
 	}
 
+[Changed]
+	{
+	de=Geändert;
+	fr=Modifié;
+	es=Cambiado;
+	it=Modificato;
+	}
+
 [Changes]
 	{
 	de=Ändert;
@@ -1906,6 +1962,14 @@
 	it=Cambia la partita: non classificata su Core Prime;
 	}
 
+[Chat]
+	{
+	de=Chat;
+	fr=Discussion;
+	es=Chat;
+	it=Chat;
+	}
+
 [Chat Extension Channel]
 	{
 	de=Chat-Erweiterungskanal;
@@ -1920,6 +1984,14 @@
 	fr=Discute dans n'importe quelle langue avec les joueurs qui l'ont, les autres voient ? pour les lettres qui leur manquent.;
 	es=Chatea en cualquier idioma con jugadores que lo tienen, otros ven ? para las letras que les faltan.;
 	it=Chatta in qualsiasi lingua con i giocatori che ce l'hanno, gli altri vedono ? per le lettere che non hanno.;
+	}
+
+[Chat line]
+	{
+	de=Chatzeile;
+	fr=Ligne de discussion;
+	es=Línea de chat;
+	it=Riga di chat;
 	}
 
 [Check for content updates]
@@ -2106,6 +2178,14 @@
 	it=Scegli una mappa;
 	}
 
+[Choose an action]
+	{
+	de=Eine Aktion wählen;
+	fr=Choisir une action;
+	es=Elegir una acción;
+	it=Scegli un'azione;
+	}
+
 [Choose another place]
 	{
 	de=Anderen Ort wählen;
@@ -2216,6 +2296,14 @@
 	fr=Cercle;
 	es=Círculo;
 	it=Cerchio;
+	}
+
+[Clashes]
+	{
+	de=Konflikte;
+	fr=Conflits;
+	es=Conflictos;
+	it=Conflitti;
 	}
 
 [Classic]
@@ -2578,6 +2666,14 @@
 	it=Personalizzato;
 	}
 
+[D]
+	{
+	de=D;
+	fr=D;
+	es=D;
+	it=D;
+	}
+
 [D-GUN]
 	{
 	de=D-GUN;
@@ -2722,6 +2818,22 @@
 	it=TRASCINA PER MUOVERE · DOPPIO TOCCO O TIENI PREMUTO PER POSIZIONARE;
 	}
 
+[DUPLICATE…]
+	{
+	de=DUPLIZIEREN…;
+	fr=DUPLIQUER…;
+	es=DUPLICAR…;
+	it=DUPLICA…;
+	}
+
+[Debug keys]
+	{
+	de=Debug-Tasten;
+	fr=Touches de débogage;
+	es=Teclas de depuración;
+	it=Tasti di debug;
+	}
+
 [Default]
 	{
 	de=Standard;
@@ -2760,6 +2872,14 @@
 	fr=Développeur;
 	es=Desarrollador;
 	it=Sviluppatore;
+	}
+
+[Developer mode]
+	{
+	de=Entwicklermodus;
+	fr=Mode développeur;
+	es=Modo de desarrollo;
+	it=Modalità sviluppatore;
 	}
 
 [Different from the host: a file does not match.]
@@ -3250,6 +3370,14 @@
 	it=Ogni parte delle schermate proprie di OA, in ciascuno dei suoi stati, a questa dimensione.;
 	}
 
+[Everywhere]
+	{
+	de=Überall;
+	fr=Partout;
+	es=En todas partes;
+	it=Ovunque;
+	}
+
 [Experimental]
 	{
 	de=Experimentell;
@@ -3722,6 +3850,14 @@
 	it=Schermo intero a questa dimensione, o una finestra di essa. Si applica quando premi OK.;
 	}
 
+[G]
+	{
+	de=G;
+	fr=G;
+	es=G;
+	it=G;
+	}
+
 [GAME FILES]
 	{
 	de=SPIELDATEIEN;
@@ -4130,6 +4266,14 @@
 	it=Gruppo: tocca per selezionarlo, tocca di nuovo per centrarlo, tieni premuto per memorizzare la selezione.;
 	}
 
+[Groups]
+	{
+	de=Gruppen;
+	fr=Groupes;
+	es=Grupos;
+	it=Gruppi;
+	}
+
 [Guard Respects Hold Position]
 	{
 	de=Bewachen achtet auf Position halten;
@@ -4192,6 +4336,14 @@
 	fr=Variantes;
 	es=Variantes;
 	it=Varianti;
+	}
+
+[Hacks on]
+	{
+	de=Hacks an;
+	fr=Hacks en marche;
+	es=Hacks encendidos;
+	it=Hack accesi;
 	}
 
 [Haptics]
@@ -4290,6 +4442,14 @@
 	it=Balistica ad arco alto;
 	}
 
+[Hold]
+	{
+	de=Halten;
+	fr=Maintien;
+	es=Mantener;
+	it=Tenuta;
+	}
+
 [Hold delay]
 	{
 	de=Halteverzögerung;
@@ -4304,6 +4464,14 @@
 	fr=Tenir la position;
 	es=Mantener posición;
 	it=Tieni la posizione;
+	}
+
+[Hold to confirm]
+	{
+	de=Halten zum Bestätigen;
+	fr=Maintenir pour confirmer;
+	es=Mantener para confirmar;
+	it=Tieni premuto per confermare;
 	}
 
 [Hold to self-destruct]
@@ -5546,12 +5714,28 @@
 	it=CONTINUA A COPIARE;
 	}
 
+[KEEP EDITING]
+	{
+	de=WEITER BEARBEITEN;
+	fr=CONTINUER;
+	es=SEGUIR EDITANDO;
+	it=CONTINUA A MODIFICARE;
+	}
+
 [KEEP IT]
 	{
 	de=BEHALTEN;
 	fr=GARDER;
 	es=CONSERVAR;
 	it=TIENILO;
+	}
+
+[KEEP THEM]
+	{
+	de=BEHALTEN;
+	fr=LES GARDER;
+	es=CONSERVARLOS;
+	it=TIENILE;
 	}
 
 [KEEP WHAT WAS COPIED]
@@ -5594,6 +5778,14 @@
 	it=Tieni premuto {chord}: l'anello si riempie in {seconds} s. Lascia per annullare.;
 	}
 
+[Keep your {n} changes on top of {layout}?]
+	{
+	de=Deine {n} Änderungen über {layout} behalten?;
+	fr=Garder tes {n} changements par-dessus {layout} ?;
+	es=¿Conservas tus {n} cambios encima de {layout}?;
+	it=Tieni le tue {n} modifiche sopra {layout}?;
+	}
+
 [Key layout packages (.oakeys)]
 	{
 	de=Tastenbelegungs-Pakete (.oakeys);
@@ -5616,6 +5808,14 @@
 	fr=Touches;
 	es=Teclas;
 	it=Tasti;
+	}
+
+[Kind]
+	{
+	de=Art;
+	fr=Genre;
+	es=Tipo;
+	it=Tipo;
 	}
 
 [L]
@@ -5666,6 +5866,14 @@
 	it=DISPOSIZIONE DEI TASTI AGGIORNATA;
 	}
 
+[KEYS]
+	{
+	de=TASTEN;
+	fr=TOUCHES;
+	es=TECLAS;
+	it=TASTI;
+	}
+
 [LANGUAGE INSTALLED]
 	{
 	de=SPRACHE INSTALLIERT;
@@ -5712,6 +5920,22 @@
 	fr=FICHIER DE LANCEMENT NON OUVERT;
 	es=ARCHIVO DE LANZAMIENTO NO ABIERTO;
 	it=FILE DI AVVIO NON APERTO;
+	}
+
+[LAYOUT]
+	{
+	de=BELEGUNG;
+	fr=DISPOSITION;
+	es=DISTRIBUCIÓN;
+	it=DISPOSIZIONE;
+	}
+
+[LEAVE]
+	{
+	de=VERLASSEN;
+	fr=PARTIR;
+	es=SALIR;
+	it=ESCI;
 	}
 
 [LOAD]
@@ -5818,6 +6042,22 @@
 	it=Più grande;
 	}
 
+[Latch]
+	{
+	de=Einrasten;
+	fr=Verrou;
+	es=Fijar;
+	it=Blocco;
+	}
+
+[Latchable]
+	{
+	de=Einrastbar;
+	fr=Verrouillable;
+	es=Fijable;
+	it=Bloccabile;
+	}
+
 [Latest]
 	{
 	de=Neueste;
@@ -5848,6 +6088,14 @@
 	fr=Appris;
 	es=Aprendido;
 	it=Appreso;
+	}
+
+[Leave without saving {n} changes?]
+	{
+	de={n} Änderungen ohne Speichern verlassen?;
+	fr=Partir sans enregistrer {n} changements ?;
+	es=¿Sales sin guardar {n} cambios?;
+	it=Esci senza salvare {n} modifiche?;
 	}
 
 [Left out]
@@ -6314,6 +6562,14 @@
 	it=Mappe;
 	}
 
+[Match]
+	{
+	de=Partie;
+	fr=Partie;
+	es=Partida;
+	it=Partita;
+	}
+
 [Maximum frame rate]
 	{
 	de=Maximale Bildrate;
@@ -6368,6 +6624,14 @@
 	fr=Échelle du menu;
 	es=Escala del menú;
 	it=Scala del menu;
+	}
+
+[Menus]
+	{
+	de=Menüs;
+	fr=Menus;
+	es=Menús;
+	it=Menu;
 	}
 
 [Mex snap radius]
@@ -6450,6 +6714,14 @@
 	it=Font moderni per il testo di gioco, inclusa l'internazionalizzazione.;
 	}
 
+[Modifier]
+	{
+	de=Modifikator;
+	fr=Modificateur;
+	es=Modificador;
+	it=Modificatore;
+	}
+
 [Mods]
 	{
 	de=Mods;
@@ -6472,6 +6744,14 @@
 	fr=D'autres langues sont dans la Bibliothèque.;
 	es=Hay más idiomas en la Biblioteca.;
 	it=Altre lingue sono nella Biblioteca.;
+	}
+
+[Mouse button {button}]
+	{
+	de=Maustaste {button};
+	fr=Bouton de souris {button};
+	es=Botón del ratón {button};
+	it=Pulsante del mouse {button};
 	}
 
 [Mouse wheel zoom]
@@ -6504,6 +6784,14 @@
 	fr=Films;
 	es=Películas;
 	it=Filmati;
+	}
+
+[Multiplayer]
+	{
+	de=Mehrspieler;
+	fr=Multijoueur;
+	es=Multijugador;
+	it=Multigiocatore;
 	}
 
 [Music]
@@ -6616,6 +6904,14 @@
 	fr=MAINTENANT;
 	es=AHORA;
 	it=ORA;
+	}
+
+[Name this layout]
+	{
+	de=Diese Belegung benennen;
+	fr=Nommer cette disposition;
+	es=Nombrar esta distribución;
+	it=Dai un nome a questa disposizione;
 	}
 
 [Nanolathe glow]
@@ -7018,6 +7314,14 @@
 	it=Nessun aggiornamento.;
 	}
 
+[No wheel zoom]
+	{
+	de=Kein Radzoom;
+	fr=Pas de zoom à la molette;
+	es=Sin zoom con la rueda;
+	it=Senza zoom con la rotella;
+	}
+
 [None]
 	{
 	de=Keine;
@@ -7160,6 +7464,14 @@
 	fr=Non mis en œuvre par ce moteur.;
 	es=No implementado por este motor.;
 	it=Non implementato da questo motore.;
+	}
+
+[Not in this version]
+	{
+	de=Nicht in dieser Version;
+	fr=Pas dans cette version;
+	es=No está en esta versión;
+	it=Non in questa versione;
 	}
 
 [Not in use: an error stopped it for this run.]
@@ -7322,12 +7634,44 @@
 	it=Non è stato cambiato nulla.;
 	}
 
+[Number keys select groups]
+	{
+	de=Zifferntasten wählen Gruppen;
+	fr=Les touches numériques sélectionnent les groupes;
+	es=Las teclas numéricas seleccionan grupos;
+	it=I tasti numerici selezionano i gruppi;
+	}
+
+[Number keys select groups: {state}]
+	{
+	de=Zifferntasten wählen Gruppen: {state};
+	fr=Les touches numériques sélectionnent les groupes : {state};
+	es=Las teclas numéricas seleccionan grupos: {state};
+	it=I tasti numerici selezionano i gruppi: {state};
+	}
+
+[O]
+	{
+	de=O;
+	fr=O;
+	es=O;
+	it=O;
+	}
+
 [OA can't tell whether {to} changes the game's rules. If it does, saved games from {from} won't load under it. {From} is kept, and ROLL BACK brings it back.]
 	{
 	de=OA kann nicht sagen, ob {to} die Spielregeln ändert. Wenn ja, lassen sich Speicherstände von {from} darunter nicht laden. {From} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
 	fr=OA ne peut pas dire si {to} change les règles du jeu. Si c'est le cas, les parties sauvegardées de {from} ne se chargeront pas dessous. {From} est conservé, et RESTAURER le ramène.;
 	es=OA no puede decir si {to} cambia las reglas del juego. Si lo hace, las partidas guardadas de {from} no cargarán con él. {From} se conserva, y REVERTIR lo trae de vuelta.;
 	it=OA non può dire se {to} cambia le regole del gioco. Se lo fa, i salvataggi di {from} non si caricano sotto di esso. {From} viene conservato, e RIPRISTINA lo riporta.;
+	}
+
+[OA default]
+	{
+	de=OA-Standard;
+	fr=OA par défaut;
+	es=OA predeterminado;
+	it=OA predefinito;
 	}
 
 [OA looks for a newer Open Annihilation once a day when it starts. It never installs one until you say so.]
@@ -7554,6 +7898,14 @@
 	it=Spento per questa partita: in una partita condivisa, Completo;
 	}
 
+[Off in Settings › Accessibility]
+	{
+	de=Aus in Einstellungen › Barrierefreiheit;
+	fr=Éteint dans Réglages › Accessibilité;
+	es=Apagado en Ajustes › Accesibilidad;
+	it=Spento in Impostazioni › Accessibilità;
+	}
+
 [Off: it plays as 3.1c.]
 	{
 	de=Aus: es spielt als 3.1c.;
@@ -7762,6 +8114,14 @@
 	it=Le impostazioni proprie di Open Annihilation: controlli, grafica, dimensione dell'interfaccia, download e i tuoi file.;
 	}
 
+[Open Annihilation's screens]
+	{
+	de=Bildschirme von Open Annihilation;
+	fr=Écrans d'Open Annihilation;
+	es=Pantallas de Open Annihilation;
+	it=Schermate di Open Annihilation;
+	}
+
 [Open Annihilation, or another copy of it, is still changing its folder. Try again in a moment.]
 	{
 	de=Open Annihilation, oder eine andere Kopie davon, ändert seinen Ordner noch. Versuch es gleich noch einmal.;
@@ -7906,6 +8266,14 @@
 	it=Fino a che l'intera mappa entra nella vista. In Grafica, Unità allontanate dice come appaiono le unità.;
 	}
 
+[P]
+	{
+	de=P;
+	fr=P;
+	es=P;
+	it=P;
+	}
+
 [PATROL]
 	{
 	de=PATROUILLIEREN;
@@ -8018,6 +8386,14 @@
 	it=PREC.: mostra la pagina di costruzione precedente.;
 	}
 
+[Panels]
+	{
+	de=Leisten;
+	fr=Panneaux;
+	es=Paneles;
+	it=Pannelli;
+	}
+
 [Past After zoom, each unit is a dot of its owner's colour, framed while selected.]
 	{
 	de=Jenseits von Nach dem Zoom ist jede Einheit ein Punkt ihrer Farbe des Besitzers, umrahmt solange gewählt.;
@@ -8090,6 +8466,14 @@
 	it=Posizionamento dal costruttore;
 	}
 
+[Placing]
+	{
+	de=Platzieren;
+	fr=Placement;
+	es=Colocación;
+	it=Posizionamento;
+	}
+
 [Platform]
 	{
 	de=Plattform;
@@ -8138,6 +8522,14 @@
 	it=Accelerazione del puntatore;
 	}
 
+[Pointer keys]
+	{
+	de=Zeigertasten;
+	fr=Touches du pointeur;
+	es=Teclas del puntero;
+	it=Tasti del puntatore;
+	}
+
 [Pointer speed]
 	{
 	de=Zeigergeschwindigkeit;
@@ -8152,6 +8544,14 @@
 	fr=Base préconstruite;
 	es=Base preconstruida;
 	it=Base precostruita;
+	}
+
+[Press]
+	{
+	de=Druck;
+	fr=Appui;
+	es=Pulsación;
+	it=Pressione;
 	}
 
 [Previous]
@@ -8346,6 +8746,14 @@
 	it=RIMUOVI LA CARTELLA VECCHIA;
 	}
 
+[RENAME…]
+	{
+	de=UMBENENNEN…;
+	fr=RENOMMER…;
+	es=RENOMBRAR…;
+	it=RINOMINA…;
+	}
+
 [REPAIR]
 	{
 	de=REPARIEREN;
@@ -8448,6 +8856,14 @@
 	fr=RÉINITIALISER;
 	es=RESTABLECER;
 	it=REIMPOSTA;
+	}
+
+[RESET TO {layout}]
+	{
+	de=ZURÜCKSETZEN AUF {layout};
+	fr=RÉINITIALISER SUR {layout};
+	es=RESTABLECER A {layout};
+	it=REIMPOSTA SU {layout};
 	}
 
 [RESTART NOW]
@@ -8730,6 +9146,14 @@
 	it=Tasso di riparazione;
 	}
 
+[Repeat]
+	{
+	de=Wiederholung;
+	fr=Répétition;
+	es=Repetición;
+	it=Ripetizione;
+	}
+
 [Replace]
 	{
 	de=Ersetzen;
@@ -8922,6 +9346,14 @@
 	it=STESSO TIPO;
 	}
 
+[SAVE]
+	{
+	de=SPEICHERN;
+	fr=ENREGISTRER;
+	es=GUARDAR;
+	it=SALVA;
+	}
+
 [SAVED GAMES MOVED]
 	{
 	de=SPEICHERSTÄNDE VERSCHOBEN;
@@ -8992,6 +9424,14 @@
 	fr=AUTODESTRUCTION : maintiens pour lancer ou arrêter le compte à rebours de la sélection.;
 	es=AUTODESTRUCCIÓN: mantén para iniciar o detener la cuenta atrás de la selección.;
 	it=AUTODISTRUZIONE: tieni premuto per avviare o fermare il conto alla rovescia della selezione.;
+	}
+
+[SET THEM ASIDE]
+	{
+	de=BEISEITELEGEN;
+	fr=LES METTRE DE CÔTÉ;
+	es=DEJARLOS APARTE;
+	it=METTILE DA PARTE;
 	}
 
 [SETTINGS]
@@ -9242,6 +9682,14 @@
 	it=Scorri per zoomare il campo di battaglia avanti e indietro.;
 	}
 
+[Search actions, or press a key]
+	{
+	de=Aktionen suchen, oder eine Taste drücken;
+	fr=Chercher des actions, ou appuyer sur une touche;
+	es=Buscar acciones, o pulsar una tecla;
+	it=Cerca azioni, o premi un tasto;
+	}
+
 [Search languages]
 	{
 	de=Sprachen suchen;
@@ -9306,6 +9754,14 @@
 	it=Cerca aggiornamenti;
 	}
 
+[Search, or press a key]
+	{
+	de=Suchen, oder eine Taste drücken;
+	fr=Chercher, ou appuyer sur une touche;
+	es=Buscar, o pulsar una tecla;
+	it=Cerca, o premi un tasto;
+	}
+
 [Seat {n}]
 	{
 	de=Platz {n};
@@ -9354,12 +9810,28 @@
 	it=Seleziona i gruppi senza Alt;
 	}
 
+[Selection]
+	{
+	de=Auswahl;
+	fr=Sélection;
+	es=Selección;
+	it=Selezione;
+	}
+
 [Selection Shortcuts]
 	{
 	de=Auswahlkürzel;
 	fr=Raccourcis de sélection;
 	es=Atajos de selección;
 	it=Scorciatoie di selezione;
+	}
+
+[Selection box]
+	{
+	de=Auswahlrahmen;
+	fr=Cadre de sélection;
+	es=Caja de selección;
+	it=Riquadro di selezione;
 	}
 
 [Selective Weapon Use]
@@ -9448,6 +9920,14 @@
 	fr=Les réglages n'ont pas été enregistrés.;
 	es=Los ajustes no se guardaron.;
 	it=Le impostazioni non sono state salvate.;
+	}
+
+[Settle {n} clashes to save]
+	{
+	de=Kläre {n} Konflikte, um zu speichern;
+	fr=Règle {n} conflits pour enregistrer;
+	es=Resuelve {n} conflictos para guardar;
+	it=Sistema {n} conflitti per salvare;
 	}
 
 [Several Local AI Players]
@@ -9560,6 +10040,14 @@
 	fr=Clés de signature;
 	es=Claves de firma;
 	it=Chiavi di firma;
+	}
+
+[Single player]
+	{
+	de=Einzelspieler;
+	fr=Un joueur;
+	es=Un jugador;
+	it=Un giocatore;
 	}
 
 [Size]
@@ -9954,6 +10442,14 @@
 	it=predefinito di sistema;
 	}
 
+[T]
+	{
+	de=T;
+	fr=T;
+	es=T;
+	it=T;
+	}
+
 [TA 3.1c]
 	{
 	de=TA 3.1c;
@@ -10104,6 +10600,14 @@
 	fr=Prend effet au prochain démarrage.;
 	es=Tiene efecto desde el próximo inicio.;
 	it=Ha effetto dal prossimo avvio.;
+	}
+
+[Tap to turn it on, tap again to turn it off.]
+	{
+	de=Tippe, um es einzuschalten, tippe noch einmal, um es auszuschalten.;
+	fr=Touche pour l'allumer, touche encore pour l'éteindre.;
+	es=Toca para encenderlo, toca otra vez para apagarlo.;
+	it=Tocca per accenderlo, tocca di nuovo per spegnerlo.;
 	}
 
 [Teaching]
@@ -10690,6 +11194,14 @@
 	it=L'installer della demo di Total Annihilation (1997).;
 	}
 
+[The key in the {key} place]
+	{
+	de=Die Taste an der Stelle {key};
+	fr=La touche à la place {key};
+	es=La tecla en el lugar {key};
+	it=Il tasto nel posto {key};
+	}
+
 [The largest whole-number scale that fits: smaller menus, every pixel square.]
 	{
 	de=Der größte ganzzahlige Maßstab, der passt: kleinere Menüs, jedes Pixel quadratisch.;
@@ -10704,6 +11216,22 @@
 	fr=La dernière partie a planté avec {names}. Oublie l'ensemble et le bouton Mutateurs s'ouvrira vide la prochaine fois. Rien n'est désinstallé.;
 	es=La última partida se cerró de golpe con {names}. Olvida el conjunto y el botón Mutadores se abrirá vacío la próxima vez. No se desinstala nada.;
 	it=L'ultima partita si è chiusa di colpo con {names}. Dimentica il set e il pulsante Mutatori si aprirà vuoto la prossima volta. Non si disinstalla niente.;
+	}
+
+[The layout was not saved: {reason}]
+	{
+	de=Die Belegung wurde nicht gespeichert: {reason};
+	fr=La disposition n'a pas été enregistrée : {reason};
+	es=La distribución no se guardó: {reason};
+	it=La disposizione non è stata salvata: {reason};
+	}
+
+[The letter {key}, wherever your keyboard has it]
+	{
+	de=Der Buchstabe {key}, wo auch immer deine Tastatur ihn hat;
+	fr=La lettre {key}, là où ton clavier l'a;
+	es=La letra {key}, donde la tenga tu teclado;
+	it=La lettera {key}, dovunque la abbia la tua tastiera;
 	}
 
 [The map list does not hold this map.]
@@ -11072,6 +11600,14 @@
 	fr=La vue reste sur la carte, comme le jeu la gardait. Avec plus que la carte dans la vue, elle est centrée.;
 	es=La vista se queda en el mapa, como el juego la mantenía. Con más que el mapa en la vista, se centra.;
 	it=La vista resta sulla mappa, come il gioco la teneva. Con più della mappa nella vista, viene centrata.;
+	}
+
+[The {key} key]
+	{
+	de=Die Taste {key};
+	fr=La touche {key};
+	es=La tecla {key};
+	it=Il tasto {key};
 	}
 
 [Then {package} · {phase}]
@@ -11594,6 +12130,14 @@
 	it=Due pulsanti per tutto ciò che Open Annihilation aggiunge;
 	}
 
+[U]
+	{
+	de=U;
+	fr=U;
+	es=U;
+	it=U;
+	}
+
 [UI kit gallery]
 	{
 	de=Galerie des Oberflächenbausatzes;
@@ -11802,6 +12346,14 @@
 	it=INTERFACCIA UTENTE;
 	}
 
+[Unbound]
+	{
+	de=Unbelegt;
+	fr=Sans touche;
+	es=Sin tecla;
+	it=Senza tasto;
+	}
+
 [Underwater shimmer]
 	{
 	de=Unterwasserflimmern;
@@ -11856,6 +12408,14 @@
 	fr=Corrections des voix d'unités;
 	es=Correcciones de las voces de unidad;
 	it=Correzioni delle voci delle unità;
+	}
+
+[Unit info]
+	{
+	de=Einheiteninfo;
+	fr=Infos de l'unité;
+	es=Info de la unidad;
+	it=Info dell'unità;
 	}
 
 [Unit limit]
@@ -12154,6 +12714,14 @@
 	it=Usa {size} su questo {device}.;
 	}
 
+[V]
+	{
+	de=V;
+	fr=V;
+	es=V;
+	it=V;
+	}
+
 [VIEW…]
 	{
 	de=ANSEHEN…;
@@ -12298,6 +12866,14 @@
 	it=Voto: rifiuta {player} ({yes} sì/{no} no/{voters}, {seconds}s);
 	}
 
+[W]
+	{
+	de=W;
+	fr=W;
+	es=W;
+	it=W;
+	}
+
 [WELCOME]
 	{
 	de=WILLKOMMEN;
@@ -12360,6 +12936,14 @@
 	fr=Revois la langue, les fonctions en ligne et les boutons OA.;
 	es=Repasa el idioma, las funciones en línea y los botones de OA.;
 	it=Rivedi la lingua, le funzioni in linea e i pulsanti di OA.;
+	}
+
+[Watching]
+	{
+	de=Zuschauen;
+	fr=Observation;
+	es=Observación;
+	it=Osservazione;
 	}
 
 [Water ripples]
@@ -12442,6 +13026,22 @@
 	it=Cosa fanno i costruttori in pattuglia. Si applica dalla prossima partita.;
 	}
 
+[Wheel]
+	{
+	de=Rad;
+	fr=Molette;
+	es=Rueda;
+	it=Rotella;
+	}
+
+[Wheel zoom]
+	{
+	de=Radzoom;
+	fr=Zoom à la molette;
+	es=Zoom con la rueda;
+	it=Zoom con la rotella;
+	}
+
 [Where the files are]
 	{
 	de=Wo die Dateien sind;
@@ -12490,6 +13090,14 @@
 	it=Passi interi;
 	}
 
+[Window]
+	{
+	de=Fenster;
+	fr=Fenêtre;
+	es=Ventana;
+	it=Finestra;
+	}
+
 [Window edge]
 	{
 	de=Fensterrand;
@@ -12504,6 +13112,14 @@
 	fr=Capture;
 	es=Captura;
 	it=Cattura;
+	}
+
+[Categories]
+	{
+	de=Kategorien;
+	fr=Catégories;
+	es=Categorías;
+	it=Categorie;
 	}
 
 [Edge stickiness]
@@ -13082,6 +13698,14 @@
 	it=e;
 	}
 
+[and {n} changes of your own]
+	{
+	de=und {n} eigene Änderungen;
+	fr=et {n} changements à toi;
+	es=y {n} cambios tuyos;
+	it=e {n} modifiche tue;
+	}
+
 [and {n} more]
 	{
 	de=und {n} weitere;
@@ -13144,6 +13768,14 @@
 	fr=par {author};
 	es=por {author};
 	it=di {author};
+	}
+
+[by {author} · {version}]
+	{
+	de=von {author} · {version};
+	fr=par {author} · {version};
+	es=de {author} · {version};
+	it=di {author} · {version};
 	}
 
 [cannot check]
@@ -13410,6 +14042,22 @@
 	it=fps;
 	}
 
+[game paused]
+	{
+	de=Spiel pausiert;
+	fr=partie en pause;
+	es=partida en pausa;
+	it=partita in pausa;
+	}
+
+[held]
+	{
+	de=gehalten;
+	fr=maintenu;
+	es=mantenido;
+	it=tenuto;
+	}
+
 [hides {count} file]
 	{
 	de=blendet {count} Datei aus;
@@ -13424,6 +14072,14 @@
 	fr=masque {count} fichiers;
 	es=oculta {count} archivos;
 	it=nasconde {count} file;
+	}
+
+[hold to confirm]
+	{
+	de=halten zum Bestätigen;
+	fr=maintenir pour confirmer;
+	es=mantener para confirmar;
+	it=tenere premuto per confermare;
 	}
 
 [icon, manual or help file]
@@ -13528,6 +14184,14 @@
 	fr=dispositions des touches;
 	es=distribuciones de teclas;
 	it=disposizioni dei tasti;
+	}
+
+[latches]
+	{
+	de=rastet ein;
+	fr=se verrouille;
+	es=se fija;
+	it=si blocca;
 	}
 
 [later than {version}]
@@ -13994,6 +14658,14 @@
 	it=la cartella che hai scelto;
 	}
 
+[the mod's data]
+	{
+	de=den Daten des Mods;
+	fr=les données du mod;
+	es=los datos del mod;
+	it=i dati del mod;
+	}
+
 [the new copy]
 	{
 	de=die neue Kopie;
@@ -14162,6 +14834,22 @@
 	it=in attesa;
 	}
 
+[while playing]
+	{
+	de=beim Spielen;
+	fr=en jouant;
+	es=al jugar;
+	it=mentre giochi;
+	}
+
+[while watching]
+	{
+	de=beim Zuschauen;
+	fr=en observant;
+	es=al observar;
+	it=mentre guardi;
+	}
+
 [working out the time left]
 	{
 	de=die verbleibende Zeit wird ermittelt;
@@ -14328,6 +15016,22 @@
 	fr={changes} En attente de retrait : {names}.;
 	es={changes} En espera de quitarse: {names}.;
 	it={changes} In attesa di rimozione: {names}.;
+	}
+
+[{chords}, from the mod's order panel ({gadget})]
+	{
+	de={chords}, aus dem Befehlsfeld des Mods ({gadget});
+	fr={chords}, depuis le panneau d'ordres du mod ({gadget});
+	es={chords}, del panel de órdenes del mod ({gadget});
+	it={chords}, dal pannello degli ordini del mod ({gadget});
+	}
+
+[{chords}, from {source}]
+	{
+	de={chords}, aus {source};
+	fr={chords}, depuis {source};
+	es={chords}, de {source};
+	it={chords}, da {source};
 	}
 
 [{counts} · {count} missing]
@@ -14770,6 +15474,14 @@
 	it={language} · integrato;
 	}
 
+[{layout} · {n} changes]
+	{
+	de={layout} · {n} Änderungen;
+	fr={layout} · {n} changements;
+	es={layout} · {n} cambios;
+	it={layout} · {n} modifiche;
+	}
+
 [{left} and {right}]
 	{
 	de={left} und {right};
@@ -14896,6 +15608,14 @@
 	fr={names} s'éteint aussi : il a besoin de {name}.;
 	es={names} también se apaga: necesita {name}.;
 	it={names} si spegne anche: ha bisogno di {name}.;
+	}
+
+[{name} ({count})]
+	{
+	de={name} ({count});
+	fr={name} ({count});
+	es={name} ({count});
+	it={name} ({count});
 	}
 
 [{name} came with {dependant}]
@@ -16114,6 +16834,14 @@
 	it=· non è compatibile con questo mod;
 	}
 
+[· your change]
+	{
+	de=· deine Änderung;
+	fr=· ton changement;
+	es=· tu cambio;
+	it=· la tua modifica;
+	}
+
 [‹ DOWNLOADS]
 	{
 	de=‹ DOWNLOADS;
@@ -16168,6 +16896,14 @@
 	fr=COPIE;
 	es=COPIA;
 	it=COPIA;
+	}
+
+[Camera]
+	{
+	de=Kamera;
+	fr=Caméra;
+	es=Cámara;
+	it=Telecamera;
 	}
 
 [Quit]

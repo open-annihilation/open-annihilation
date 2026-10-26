@@ -1,0 +1,1698 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// The key editor's layout: one kit window, the list of actions and the
+// chosen action's details. Named widths are minimums. Buttons grow to the
+// words they show.
+#include "oa/ui/key_editor/screen.hpp"
+
+#include "list_geom.hpp"
+#include "menu_geom.hpp"
+#include "screen_controls.hpp"
+
+#include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_editor/text.hpp"
+#include "oa/ui/kit/chrome.hpp"
+#include "oa/ui/kit/components.hpp"
+#include "oa/ui/kit/controls.hpp"
+#include "oa/ui/kit/keys.hpp"
+#include "oa/ui/kit/text.hpp"
+
+#include <algorithm>
+#include <cstdint>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace oa::ui::key_editor {
+namespace {
+
+namespace keys = oa::ui::key_bindings;
+
+/// The window the editor is laid out in.
+struct Window {
+    int32_t width{};       ///< the window's width, in points
+    int32_t height{};      ///< the window's height, in points
+    int32_t left{};        ///< the content's left column
+    int32_t right{};       ///< the column after the content's last
+    int32_t body_top{};    ///< the first row under the header's rule
+    int32_t footer_rule{}; ///< the row of the line over the footer
+    int32_t footer_top{};  ///< the footer's first row
+    int32_t button_top{};  ///< the footer's buttons' top row
+    int32_t gap{};         ///< the rows between stacked parts
+};
+
+/// Controls kept aside until a press can try the menu first.
+struct Built {
+    kit::DisplayList list{};             ///< the items, and controls not yet ordered
+    std::vector<kit::Control> menu{};   ///< the open menu's items, tried first
+    std::vector<kit::Control> rest{};   ///< every other control, in the order added
+    std::vector<kit::ControlId> tabs{}; ///< Tab's order, without the close mark
+    kit::ControlId close{kit::no_control}; ///< the close mark, last in Tab's order
+    bool number_keys{false};            ///< the Groups switch was placed
+    std::vector<kit::ControlId> details{}; ///< the details' controls, top to bottom
+};
+
+/// True when a rectangle holds any point.
+///
+/// @param rect the rectangle
+/// @return true when it is wide and high
+bool roomy(const kit::Rect& rect) noexcept {
+    return rect.width > 0 && rect.height > 0;
+}
+
+/// Moves controls added since `from` into `into`.
+///
+/// @param[in,out] list the display list
+/// @param[out] into where the controls go
+/// @param from the first control added for this part
+void steal(kit::DisplayList& list, std::vector<kit::Control>& into, std::size_t from) {
+    for (std::size_t index = from; index < list.controls.size(); ++index)
+        into.push_back(std::move(list.controls[index]));
+    list.controls.resize(from);
+}
+
+/// Appends an item and returns it.
+///
+/// @param[in,out] list the display list
+/// @param role what it is
+/// @param rect where it is
+/// @return the item
+kit::Item& add_item(kit::DisplayList& list, kit::Role role, kit::Rect rect) {
+    kit::Item item;
+    item.role = role;
+    item.rect = rect;
+    list.items.push_back(std::move(item));
+    return list.items.back();
+}
+
+/// Appends a text cut to its rectangle.
+///
+/// @param[in,out] built the layout
+/// @param fonts the fonts
+/// @param rect the rectangle
+/// @param text the words
+/// @param font which font
+/// @param ink the colour
+void add_line(
+    Built& built,
+    const kit::Fonts& fonts,
+    kit::Rect rect,
+    std::string text,
+    kit::FontRole font,
+    kit::Colour ink
+) {
+    if (!roomy(rect))
+        return;
+    text = kit::cut_to_width(fonts, font, text, rect.width);
+    kit::Item& item = add_item(built.list, kit::Role::text, rect);
+    item.text = std::move(text);
+    item.font = font;
+    item.colour = ink;
+    item.align = kit::Align::left;
+}
+
+/// True when the pointer is over a control or holds it.
+///
+/// @param state the pointer
+/// @param id the control
+/// @return true when it is hot
+bool hot(const ScreenState& state, kit::ControlId id) noexcept {
+    return state.interaction.hovered == id || state.interaction.pressed == id;
+}
+
+/// True when a press is held on a control and the pointer is still over it.
+///
+/// @param state the pointer
+/// @param id the control
+/// @return true when it is held
+bool held(const ScreenState& state, kit::ControlId id) noexcept {
+    return state.interaction.pressed == id && state.interaction.hovered == id;
+}
+
+/// True when the keyboard focus is shown on a control.
+///
+/// @param state the focus
+/// @param id the control
+/// @return true when it is shown there
+bool focused_on(const ScreenState& state, kit::ControlId id) noexcept {
+    return state.interaction.focus_shown && state.interaction.focused == id;
+}
+
+/// A button's width: the kit's button, or the caption when that is wider.
+///
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param caption the words
+/// @return the width, in points
+int32_t button_width(const kit::Fonts& fonts, const kit::Metrics& metrics, std::string_view caption) {
+    const int32_t text = kit::text_width(fonts, kit::FontRole::small, caption);
+    return std::max(metrics.button_width, text);
+}
+
+/// A switch's width, wide enough for both captions.
+///
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param off_caption the Off half
+/// @param on_caption the On half
+/// @return the width, in points
+int32_t switch_width(
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    std::string_view off_caption,
+    std::string_view on_caption
+) {
+    const int32_t off = kit::text_width(fonts, kit::FontRole::small, off_caption);
+    const int32_t on = kit::text_width(fonts, kit::FontRole::small, on_caption);
+    const int32_t need = std::max(off, on) * 2 + 2;
+    return std::max(metrics.switch_width, need);
+}
+
+/// Drops the last character of a UTF-8 string.
+///
+/// @param[in,out] text the text
+void pop_char(std::string& text) {
+    if (text.empty())
+        return;
+    text.pop_back();
+    while (!text.empty() && (static_cast<unsigned char>(text.back()) & 0xc0U) == 0x80U)
+        text.pop_back();
+}
+
+/// Cuts a tracked heading so its tracked width fits a room.
+///
+/// @param fonts the fonts
+/// @param text the words
+/// @param room the room, in points
+/// @param tracking the extra columns after each glyph
+/// @return the words that fit
+std::string fit_tracked(
+    const kit::Fonts& fonts, std::string_view text, int32_t room, int32_t tracking
+) {
+    if (room <= 0)
+        return {};
+    if (kit::tracked_width(fonts, kit::FontRole::regular, text, tracking) <= room)
+        return std::string(text);
+    std::string cut(text);
+    while (!cut.empty() &&
+           kit::tracked_width(fonts, kit::FontRole::regular, cut + "...", tracking) > room)
+        pop_char(cut);
+    if (cut.empty())
+        return {};
+    return cut + "...";
+}
+
+/// The window for a frame.
+///
+/// @param frame the frame
+/// @return the window
+Window window_of(const kit::Frame& frame) {
+    const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const kit::Point size = window_size(frame);
+    Window window;
+    window.width = size.x;
+    window.height = size.y;
+    window.left = metrics.padding;
+    window.right = std::max(size.x - metrics.edge - metrics.padding, window.left);
+    window.body_top = metrics.edge + metrics.header_height + 1;
+    window.footer_rule = size.y - metrics.edge - metrics.footer_height - 1;
+    window.footer_top = window.footer_rule + 1;
+    window.button_top = window.footer_top + (metrics.footer_height - metrics.button_height) / 2;
+    window.gap = metrics.paragraph_gap;
+    return window;
+}
+
+/// Appends the header. The kit keeps Compact's places at every class, and
+/// the fit of the title is judged on those places.
+///
+/// @param[in,out] built the layout
+/// @param editor the words and the layout
+/// @param state the match, for the paused note
+/// @param fonts the fonts
+/// @param window the window
+/// @param compact Compact's title is Keys
+void add_header(
+    Built& built,
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const Window& window,
+    bool compact
+) {
+    const kit::Metrics& compact_metrics = kit::compact_metrics;
+    const int32_t tracking = compact_metrics.heading_tracking;
+    const int32_t right_inset = compact_metrics.button_height + compact_metrics.header_gap;
+    const int32_t title_left =
+        compact_metrics.padding + compact_metrics.mark_side + compact_metrics.header_gap;
+    const int32_t right_edge =
+        window.width - compact_metrics.edge - compact_metrics.padding - right_inset;
+    const std::string title_word =
+        compact ? show(editor.text(), words::keys) : show(editor.text(), words::source_oa);
+    const std::string second_word = compact ? std::string{} : show(editor.text(), words::keys);
+    std::string version;
+    if (compact) {
+        version = fill(
+            show(editor.text(), words::compact_context),
+            {{"layout", editor.layout_name()}, {"n", std::to_string(editor.changes())}}
+        );
+    }
+    if (state.in_match) {
+        const std::string paused = show(editor.text(), words::game_paused);
+        if (version.empty())
+            version = paused;
+        else
+            version += " · " + paused;
+    }
+    const int32_t second_natural = second_word.empty()
+                                       ? 0
+                                       : kit::tracked_width(
+                                             fonts, kit::FontRole::regular, second_word, tracking
+                                         );
+    const int32_t second_gap = second_word.empty() ? 0 : compact_metrics.header_gap;
+    int32_t version_room = 0;
+    if (!version.empty())
+        version_room = std::min(
+            kit::text_width(fonts, kit::FontRole::small, version),
+            std::max((right_edge - title_left) / 3, int32_t{0})
+        );
+    int32_t title_room = right_edge - title_left - second_gap - second_natural;
+    if (version_room > 0)
+        title_room -= compact_metrics.header_gap + version_room;
+    std::string second = second_word;
+    int32_t second_width = second_natural;
+    if (title_room < 8) {
+        version_room = 0;
+        title_room = right_edge - title_left - second_gap - second_natural;
+    }
+    if (title_room < 8) {
+        second.clear();
+        second_width = 0;
+        title_room = std::max(right_edge - title_left, int32_t{0});
+    }
+    const std::string title = fit_tracked(fonts, title_word, std::max(title_room, int32_t{0}), tracking);
+    const int32_t title_width =
+        kit::tracked_width(fonts, kit::FontRole::regular, title, tracking);
+    const int32_t words_right = title_left + title_width +
+                                (second.empty() ? 0 : compact_metrics.header_gap + second_width);
+    const int32_t version_left_limit =
+        window.width - compact_metrics.edge - compact_metrics.padding;
+    int32_t version_fit = std::max(version_left_limit - words_right - compact_metrics.header_gap, int32_t{0});
+    version = kit::cut_to_width(fonts, kit::FontRole::small, version, version_fit);
+    const int32_t version_width = kit::text_width(fonts, kit::FontRole::small, version);
+
+    kit::HeaderLook look;
+    look.width = window.width;
+    look.tracking = tracking;
+    look.right_inset = right_inset;
+    look.mark = true;
+    look.title = title;
+    look.title_width = title_width;
+    look.second = second;
+    look.second_width = second.empty() ? 0 : second_width;
+    look.version = version;
+    look.version_width = version_width;
+    const int32_t header_rule = compact_metrics.edge + compact_metrics.header_height;
+    add_item(built.list, kit::Role::header, {0, 0, window.width, header_rule + 1}).look =
+        std::move(look);
+
+    const int32_t side = compact_metrics.button_height;
+    const kit::Rect rect{
+        window.width - compact_metrics.edge - compact_metrics.padding - side,
+        compact_metrics.edge + (compact_metrics.header_height - side) / 2,
+        side,
+        side,
+    };
+    kit::ButtonLook button;
+    button.style = kit::ButtonStyle::quiet;
+    button.mark = kit::ButtonMark::close;
+    button.hovered = hot(state, controls::close_mark);
+    button.held = held(state, controls::close_mark);
+    const std::size_t before = built.list.controls.size();
+    kit::add_button(built.list, rect, button, controls::close_mark, std::string(name_close));
+    steal(built.list, built.rest, before);
+    built.close = controls::close_mark;
+}
+
+/// Appends one button and steals its control.
+///
+/// @param[in,out] built the layout
+/// @param rect the button
+/// @param look its look
+/// @param id its number
+/// @param name its name
+/// @param tab true when Tab stops on it
+void place_button(
+    Built& built,
+    const kit::Rect& rect,
+    const kit::ButtonLook& look,
+    kit::ControlId id,
+    std::string name,
+    bool tab
+) {
+    const std::size_t before = built.list.controls.size();
+    kit::add_button(built.list, rect, look, id, std::move(name));
+    steal(built.list, built.rest, before);
+    if (tab)
+        built.tabs.push_back(id);
+}
+
+/// A drop-down's text cut to the field.
+///
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param field the field's width
+/// @param text the words
+/// @return the words that fit
+std::string choice_text(
+    const kit::Fonts& fonts, const kit::Metrics& metrics, int32_t field, std::string text
+) {
+    const int32_t room =
+        std::max(field - metrics.choice_text_inset - metrics.choice_arrow_room, int32_t{0});
+    return kit::cut_to_width(fonts, kit::FontRole::regular, text, room);
+}
+
+/// Appends a drop-down.
+///
+/// @param[in,out] built the layout
+/// @param state the pointer
+/// @param rect the field
+/// @param text the words it shows
+/// @param id its number
+/// @param name its name
+/// @param open true when its menu is open
+void place_choice(
+    Built& built,
+    const ScreenState& state,
+    const kit::Rect& rect,
+    std::string text,
+    kit::ControlId id,
+    std::string name,
+    bool open
+) {
+    kit::ChoiceLook look;
+    look.text = std::move(text);
+    look.hovered = hot(state, id);
+    look.open = open;
+    const std::size_t before = built.list.controls.size();
+    kit::add_choice(built.list, rect, look, id, std::move(name));
+    steal(built.list, built.rest, before);
+    built.tabs.push_back(id);
+}
+
+/// The layout's summary under the drop-down: who wrote it, and the player's changes.
+///
+/// @param[in,out] built the layout
+/// @param editor the editor
+/// @param fonts the fonts
+/// @param rect the row
+void add_summary(
+    Built& built, const Editor& editor, const kit::Fonts& fonts, const kit::Rect& rect
+) {
+    const std::string by = fill(
+        show(editor.text(), words::by_author),
+        {{"author", editor.layout_author()}, {"version", editor.layout_version()}}
+    );
+    const std::string own = fill(
+        show(editor.text(), words::own_changes), {{"n", std::to_string(editor.changes())}}
+    );
+    const std::string shown = by + "  " + own;
+    add_line(built, fonts, rect, shown, kit::FontRole::small, kit::colour::hint);
+    if (!roomy(rect))
+        return;
+    kit::Control control;
+    control.id = controls::summary;
+    control.rect = rect;
+    control.enabled = true;
+    control.focusable = false;
+    control.name = std::string(name_summary);
+    control.kind = kit::ControlKind::area;
+    control.text = kit::cut_to_width(fonts, kit::FontRole::small, shown, rect.width);
+    built.rest.push_back(std::move(control));
+}
+
+/// One filter's caption.
+///
+/// @param editor the editor
+/// @param state the category
+/// @param filter which filter
+/// @param word its name
+/// @return the caption
+std::string pill_caption(
+    const Editor& editor, const ScreenState& state, Filter filter, std::string_view word
+) {
+    const std::string label = show(editor.text(), word);
+    const std::string count = std::to_string(editor.rows(state.category, filter, "").size());
+    return fill(show(editor.text(), words::filter_count), {{"filter", label}, {"count", count}});
+}
+
+/// Appends the filter pills, wrapping onto another row when one does not fit.
+///
+/// @param[in,out] built the layout
+/// @param editor the editor
+/// @param state the filter
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param left the row's left
+/// @param right the column after the row
+/// @param top the row's top
+/// @return the row under the pills
+int32_t add_pills(
+    Built& built,
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    int32_t left,
+    int32_t right,
+    int32_t top
+) {
+    const Filter filters[] = {
+        Filter::all, Filter::changed, Filter::clashes, Filter::unbound, Filter::latchable
+    };
+    const kit::ControlId ids[] = {
+        controls::filter_all, controls::filter_changed, controls::filter_clashes,
+        controls::filter_unbound, controls::filter_latchable
+    };
+    const std::string_view names[] = {
+        name_filter_all, name_filter_changed, name_filter_clashes, name_filter_unbound,
+        name_filter_latchable
+    };
+    const std::string_view words_of[] = {
+        words::filter_all, words::filter_changed, words::filter_clashes, words::filter_unbound,
+        words::filter_latchable
+    };
+    const int32_t height = kit::pill_height();
+    int32_t x = left;
+    int32_t y = top;
+    for (int index = 0; index < 5; ++index) {
+        kit::PillLook look;
+        look.text = pill_caption(editor, state, filters[index], words_of[index]);
+        look.state = state.filter == filters[index] ? kit::PillState::active : kit::PillState::inactive;
+        look.hovered = hot(state, ids[index]);
+        look.focused = focused_on(state, ids[index]);
+        int32_t width = kit::pill_width(fonts, look);
+        const int32_t room = std::max(right - left, int32_t{0});
+        if (width > room && room > 0) {
+            look.text = kit::cut_to_width(fonts, kit::FontRole::small, look.text, std::max(room - 8, int32_t{0}));
+            width = std::min(kit::pill_width(fonts, look), room);
+        }
+        if (x > left && x + width > right) {
+            x = left;
+            y += height + metrics.button_gap;
+        }
+        const kit::Rect rect{x, y, std::min(width, std::max(right - x, int32_t{0})), height};
+        if (roomy(rect)) {
+            const std::size_t before = built.list.controls.size();
+            kit::add_pill(built.list, rect, look, ids[index], std::string(names[index]));
+            steal(built.list, built.rest, before);
+            built.tabs.push_back(ids[index]);
+        }
+        x += width + metrics.chip_gap;
+    }
+    return y + height;
+}
+
+/// Appends Large's nav.
+///
+/// @param[in,out] built the layout
+/// @param editor the categories
+/// @param state the chosen category
+/// @param fonts the fonts
+/// @param area the nav's column
+void add_nav(
+    Built& built,
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Rect& area
+) {
+    const std::vector<CategoryEntry> categories = editor.categories();
+    if (!roomy(area) || categories.empty())
+        return;
+    const int32_t count = static_cast<int32_t>(categories.size());
+    int32_t entry_h = std::max(kit::metrics_of(kit::SizeClass::large).regular_line + 4, int32_t{12});
+    if (entry_h * count > area.height)
+        entry_h = std::max(area.height / count, int32_t{1});
+    kit::NavLook look;
+    look.area = area;
+    look.rule_column = area.x + area.width;
+    std::vector<kit::ControlId> ids;
+    std::vector<std::string> names;
+    std::vector<bool> heading;
+    int32_t y = area.y;
+    int32_t index = 0;
+    for (const CategoryEntry& category : categories) {
+        if (y + entry_h > area.y + area.height)
+            break;
+        const bool rule = category.id.starts_with("heading.");
+        std::string caption = category.id == "all" ? show(editor.text(), words::all_categories)
+                                                    : category.title;
+        if (!rule) {
+            if (!category.letter.empty())
+                caption = category.letter + " " + caption;
+            caption += " (" + std::to_string(category.count) + ")";
+        }
+        caption = kit::cut_to_width(fonts, kit::FontRole::small, caption, std::max(area.width - 8, int32_t{0}));
+        kit::NavEntry entry;
+        entry.rect = {area.x, y, area.width, entry_h};
+        entry.caption = caption;
+        entry.selected = !rule && category.id == state.category;
+        const kit::ControlId id = controls::nav_first + static_cast<kit::ControlId>(index);
+        entry.hovered = hot(state, id);
+        entry.focused = focused_on(state, id);
+        look.entries.push_back(std::move(entry));
+        ids.push_back(id);
+        const std::string name = std::string(name_nav_prefix) + category.id;
+        names.push_back(name);
+        heading.push_back(rule);
+        if (!rule)
+            built.tabs.push_back(id);
+        y += entry_h;
+        ++index;
+    }
+    if (look.entries.empty())
+        return;
+    const std::size_t before = built.list.controls.size();
+    kit::add_nav(built.list, look, ids, names);
+    steal(built.list, built.rest, before);
+    for (std::size_t place = 0; place < heading.size() && place < built.rest.size(); ++place) {
+        // The nav's controls were just appended, so they are the tail.
+    }
+    const std::size_t tail = built.rest.size() - heading.size();
+    for (std::size_t place = 0; place < heading.size(); ++place) {
+        kit::Control& control = built.rest[tail + place];
+        if (heading[place])
+            control.focusable = false;
+        control.text = look.entries[place].caption;
+    }
+}
+
+/// A chord chip's look.
+///
+/// @param editor the keyboard
+/// @param chord the chord
+/// @param mark the mark on its last key
+/// @return the look
+kit::ChordChipLook chip_of(const Editor& editor, const keys::Chord& chord, kit::KeyMark mark) {
+    kit::ChordChipLook look;
+    look.mark = mark;
+    const std::vector<keys::KeyCap> caps = keys::keycaps(chord, editor.keyboard(), editor.platform());
+    for (const keys::KeyCap& cap : caps) {
+        if (cap.word) {
+            if (!look.gesture.empty())
+                look.gesture.push_back(' ');
+            look.gesture += cap.text;
+        } else {
+            look.keys.push_back(cap.text);
+        }
+    }
+    if (look.keys.empty() && look.gesture.empty())
+        look.none_text = keys::display_text(chord, editor.keyboard(), editor.platform());
+    return look;
+}
+
+/// The category's letter and tint for a row.
+///
+/// @param categories the categories
+/// @param id the category
+/// @param[out] tint the tint
+/// @param[out] letter the letter
+void category_mark(
+    const std::vector<CategoryEntry>& categories,
+    std::string_view id,
+    kit::KeyTint& tint,
+    std::string& letter
+) {
+    for (const CategoryEntry& category : categories) {
+        if (category.id == id) {
+            tint = category.tint;
+            letter = category.letter;
+            return;
+        }
+    }
+    tint = kit::KeyTint::none;
+    letter.clear();
+}
+
+/// Appends the list, its rows and, when Groups is in view, Number keys select groups.
+///
+/// @param[in,out] built the layout
+/// @param editor the editor
+/// @param state the list's scroll and the chosen row
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param size_class the class, for the row height and how many chips show
+/// @param pane the list's column, including its scroll bar
+/// @param window the window, so the scroll bar stays inside it
+void add_list(
+    Built& built,
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    kit::SizeClass size_class,
+    const kit::Rect& pane,
+    const Window& window
+) {
+    if (!roomy(pane))
+        return;
+    const std::vector<Row> shown_rows = editor.rows(state.category, state.filter, state.search.text);
+    const std::vector<Slot> slots = list_slots(editor, state);
+    const std::vector<CategoryEntry> categories = editor.categories();
+    const int32_t row_h = list_row_height(size_class);
+    const int32_t content_h = static_cast<int32_t>(slots.size()) * row_h;
+    const bool scrolling = content_h > pane.height;
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const int32_t bar_gap = metrics.button_gap;
+    const int32_t port_w =
+        scrolling ? std::max(pane.width - well_width - bar_gap, int32_t{0}) : pane.width;
+    const kit::Rect port{pane.x, pane.y, port_w, pane.height};
+    int32_t offset = state.list_scroll;
+    const int32_t limit = std::max(content_h - port.height, int32_t{0});
+    if (offset < 0)
+        offset = 0;
+    if (offset > limit)
+        offset = limit;
+
+    const bool compact = size_class == kit::SizeClass::compact;
+    for (std::size_t index = 0; index < slots.size(); ++index) {
+        const Slot& slot = slots[index];
+        const kit::Rect full{
+            port.x,
+            port.y + static_cast<int32_t>(index) * row_h - offset,
+            port.width,
+            row_h,
+        };
+        const kit::Rect shown = kit::intersect(full, port);
+        if (!roomy(shown))
+            continue;
+        const bool whole = shown.y == full.y && shown.height == full.height;
+        if (slot.kind == Slot::Kind::heading) {
+            kit::HeadingLook heading;
+            heading.text = kit::cut_to_width(fonts, kit::FontRole::small, slot.text, shown.width);
+            add_item(built.list, kit::Role::heading, shown).look = std::move(heading);
+            continue;
+        }
+        if (slot.kind == Slot::Kind::number_keys) {
+            const std::string off_caption = show(editor.text(), words::state_off);
+            const std::string on_caption = show(editor.text(), words::state_on);
+            const int32_t width = std::min(
+                switch_width(fonts, metrics, off_caption, on_caption),
+                std::max(shown.width - metrics.list_row_inset, int32_t{0})
+            );
+            const std::string label = show(editor.text(), words::number_keys);
+            const int32_t label_w = std::max(shown.width - width - metrics.list_row_gap, int32_t{0});
+            add_line(
+                built,
+                fonts,
+                {shown.x + metrics.list_row_inset, shown.y, label_w, shown.height},
+                label,
+                kit::FontRole::small,
+                kit::colour::text
+            );
+            if (whole && width > 0) {
+                kit::SwitchLook toggle;
+                toggle.on = editor.number_keys();
+                toggle.hovered = hot(state, controls::number_keys);
+                toggle.off_caption = off_caption;
+                toggle.on_caption = on_caption;
+                const kit::Rect rect{
+                    shown.x + shown.width - width - metrics.list_row_inset,
+                    shown.y + (shown.height - metrics.button_height) / 2,
+                    width,
+                    metrics.button_height,
+                };
+                if (roomy(rect) && kit::wholly_in(rect, port)) {
+                    const std::size_t before = built.list.controls.size();
+                    kit::add_switch(
+                        built.list, rect, toggle, controls::number_keys, std::string(name_number_keys)
+                    );
+                    steal(built.list, built.rest, before);
+                    built.number_keys = true;
+                }
+            }
+            continue;
+        }
+        const Row* row = nullptr;
+        for (const Row& candidate : shown_rows) {
+            if (candidate.id == slot.id) {
+                row = &candidate;
+                break;
+            }
+        }
+        if (row == nullptr)
+            continue;
+        kit::KeyTint tint = kit::KeyTint::none;
+        std::string letter;
+        category_mark(categories, row->category, tint, letter);
+        kit::ListRowLook look;
+        look.badge_text = letter;
+        look.badge_colour = kit::colour::hint;
+        look.title = row->name;
+        look.by = row->aside;
+        look.selected = state.selected == row->id;
+        const kit::ControlId id =
+            controls::row_first + static_cast<kit::ControlId>(static_cast<int32_t>(index));
+        look.hovered = hot(state, id);
+        if (whole) {
+            const std::size_t before = built.list.controls.size();
+            const std::string name = row_control_name(row->id, index);
+            kit::add_list_row(built.list, shown, look, id, name);
+            steal(built.list, built.rest, before);
+            if (!built.rest.empty()) {
+                std::string value = row->name;
+                for (const keys::Chord& chord : row->chords) {
+                    value.push_back(' ');
+                    value += keys::display_text(chord, editor.keyboard(), editor.platform());
+                }
+                built.rest.back().text = std::move(value);
+                built.rest.back().checked = state.selected == row->id;
+            }
+        } else {
+            add_item(built.list, kit::Role::list_row, shown).look = look;
+        }
+
+        const int32_t chip_h = std::max(shown.height - 4, int32_t{1});
+        const int32_t chip_top = shown.y + (shown.height - chip_h) / 2;
+        const int32_t chord_room = std::min(
+            size_class == kit::SizeClass::large ? large_chord_width : shown.width / 2,
+            std::max(shown.width / 2, int32_t{0})
+        );
+        int32_t chip_right = shown.x + shown.width - metrics.list_row_inset;
+        const int32_t chip_left = std::max(chip_right - chord_room, shown.x);
+        std::size_t drawn = 0;
+        const std::size_t most = compact ? 1 : row->chords.size();
+        for (std::size_t chord_at = 0; chord_at < row->chords.size() && drawn < most; ++chord_at) {
+            const kit::ChordChipLook chip =
+                chip_of(editor, row->chords[chord_at], chord_at + 1 == row->chords.size() ? row->mark
+                                                                                          : kit::KeyMark::none);
+            const int32_t natural = kit::chord_chip_width(fonts, chip);
+            if (natural <= 0 || chip_right - natural < chip_left)
+                break;
+            chip_right -= natural;
+            const kit::Rect chip_rect{chip_right, chip_top, natural, chip_h};
+            if (roomy(chip_rect) && kit::wholly_in(chip_rect, shown))
+                kit::add_chord_chip(built.list, chip_rect, chip, kit::no_control, {});
+            chip_right -= metrics.chip_gap;
+            ++drawn;
+        }
+        if (drawn < row->chords.size()) {
+            const std::string more = fill(
+                show(editor.text(), words::more_chords),
+                {{"n", std::to_string(row->chords.size() - drawn)}}
+            );
+            const int32_t more_w = kit::text_width(fonts, kit::FontRole::small, more);
+            if (chip_right - more_w >= chip_left) {
+                chip_right -= more_w;
+                add_line(
+                    built,
+                    fonts,
+                    {chip_right, shown.y, more_w, shown.height},
+                    more,
+                    kit::FontRole::small,
+                    kit::colour::hint
+                );
+            }
+        } else if (row->chords.empty() && row->mark != kit::KeyMark::none) {
+            kit::KeycapLook cap;
+            cap.letter = letter;
+            cap.tint = tint;
+            cap.mark = row->mark;
+            const int32_t side = std::min(chip_h, int32_t{16});
+            const kit::Rect cap_rect{
+                shown.x + shown.width - side - metrics.list_row_inset, chip_top, side, side
+            };
+            if (kit::wholly_in(cap_rect, shown))
+                kit::add_keycap(built.list, cap_rect, cap, kit::no_control, {});
+        }
+        if (row->read_only)
+            add_item(built.list, kit::Role::locked_fade, shown);
+    }
+
+    kit::Control list_control;
+    list_control.id = controls::list;
+    list_control.rect = port;
+    list_control.enabled = true;
+    list_control.focusable = true;
+    list_control.name = std::string(name_list);
+    list_control.kind = kit::ControlKind::list;
+    built.rest.push_back(std::move(list_control));
+    built.tabs.push_back(controls::list);
+
+    if (!scrolling)
+        return;
+    const kit::Rect well{port.x + port.width + bar_gap, pane.y, well_width, pane.height};
+    const kit::Rect whole{0, 0, window.width, window.height};
+    if (!roomy(well) || !kit::wholly_in(well, whole))
+        return;
+    kit::ScrollArea area;
+    area.view = port;
+    area.well = well;
+    area.content_height = content_h;
+    area.limit = limit;
+    area.offset = offset;
+    kit::ScrollBarLook bar;
+    bar.thumb = area.thumb(metrics.least_thumb_height);
+    bar.hot = state.bar == ScreenState::Bar::list || hot(state, controls::list_bar);
+    add_item(built.list, kit::Role::scroll_bar, well).look = bar;
+    kit::Control control;
+    control.id = controls::list_bar;
+    control.rect = well;
+    control.enabled = true;
+    control.focusable = false;
+    control.name = std::string(name_list_bar);
+    control.kind = kit::ControlKind::scroll_bar;
+    built.rest.push_back(std::move(control));
+}
+
+/// One thing the details stack, in content points.
+struct Piece {
+    enum class Kind : uint8_t { text, button, toggle, chip };
+    Kind kind{Kind::text};                 ///< what it is
+    int32_t y{};                           ///< its top, in the content
+    int32_t height{};                      ///< its height
+    int32_t x{};                           ///< its left, in the content
+    int32_t width{};                       ///< its width
+    std::string text{};                    ///< a line or a caption
+    kit::FontRole font{kit::FontRole::small}; ///< a line's font
+    kit::Colour ink{kit::colour::text};    ///< a line's colour
+    kit::ControlId id{kit::no_control};    ///< a control's number
+    std::string name{};                    ///< a control's name
+    bool enabled{true};                    ///< a control can be pressed
+    bool on{};                             ///< a switch is on
+    kit::ButtonStyle style{kit::ButtonStyle::plain}; ///< a button's style
+    kit::ButtonMark mark{kit::ButtonMark::none}; ///< a button's mark
+    kit::ChordChipLook chip{};             ///< a chord chip
+};
+
+/// The chosen action's pieces, top to bottom. `reset_in_body` is false on
+/// Compact's page, where RESET is a footer button.
+///
+/// @param editor the editor
+/// @param state the chosen action
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param width the content's width
+/// @param reset_in_body true when RESET sits in the details
+/// @return the pieces
+std::vector<Piece> detail_pieces(
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    int32_t width,
+    bool reset_in_body
+) {
+    std::vector<Piece> pieces;
+    if (width <= 0)
+        return pieces;
+    int32_t y = 0;
+    auto text = [&](std::string words, kit::FontRole font, kit::Colour ink) {
+        Piece piece;
+        piece.kind = Piece::Kind::text;
+        piece.y = y;
+        piece.height = font == kit::FontRole::regular ? metrics.regular_line : metrics.small_line;
+        piece.width = width;
+        piece.text = std::move(words);
+        piece.font = font;
+        piece.ink = ink;
+        y += piece.height + 2;
+        pieces.push_back(std::move(piece));
+    };
+    if (state.selected.empty()) {
+        text(show(editor.text(), words::choose_action), kit::FontRole::regular, kit::colour::hint);
+        return pieces;
+    }
+    const Details action = editor.details(state.selected);
+    if (action.id.empty()) {
+        text(show(editor.text(), words::choose_action), kit::FontRole::regular, kit::colour::hint);
+        return pieces;
+    }
+    text(action.name, kit::FontRole::regular, kit::colour::text);
+    if (!action.where.empty())
+        text(action.where, kit::FontRole::small, kit::colour::hint);
+    if (!action.description.empty())
+        text(action.description, kit::FontRole::small, kit::colour::text);
+    if (!action.kind.empty())
+        text(show(editor.text(), words::fact_kind) + "  " + action.kind, kit::FontRole::small, kit::colour::hint);
+    if (!action.base.empty())
+        text(show(editor.text(), words::fact_base) + "  " + action.base, kit::FontRole::small, kit::colour::hint);
+    if (!action.works_with.empty())
+        text(show(editor.text(), words::fact_works) + "  " + action.works_with, kit::FontRole::small,
+             kit::colour::hint);
+    text(show(editor.text(), words::keys_heading), kit::FontRole::small, kit::colour::quiet);
+
+    kit::KeyMark row_mark = kit::KeyMark::none;
+    for (const Row& row : editor.rows(std::string_view{}, Filter::all, "")) {
+        if (row.id == action.id) {
+            row_mark = row.mark;
+            break;
+        }
+    }
+    const int32_t button_side = metrics.button_height;
+    for (std::size_t index = 0; index < action.chords.size(); ++index) {
+        const ChordDetail& chord = action.chords[index];
+        const kit::KeyMark mark = chord.fixed ? kit::KeyMark::fixed : row_mark;
+        Piece chip;
+        chip.kind = Piece::Kind::chip;
+        chip.y = y;
+        chip.height = std::max(button_side, int32_t{16});
+        chip.chip = chip_of(editor, chord.chord, mark);
+        const int32_t remove_w = chord.removable ? button_side + metrics.button_gap : 0;
+        chip.width = std::min(
+            kit::chord_chip_width(fonts, chip.chip), std::max(width - remove_w, int32_t{0})
+        );
+        pieces.push_back(std::move(chip));
+        if (chord.removable && width >= button_side) {
+            Piece button;
+            button.kind = Piece::Kind::button;
+            button.y = y;
+            button.height = button_side;
+            button.width = button_side;
+            button.x = width - button_side;
+            button.mark = kit::ButtonMark::close;
+            button.id = controls::chord_first + static_cast<kit::ControlId>(static_cast<int32_t>(index));
+            button.name = std::string(name_chord_prefix) + std::to_string(index + 1) + ".remove";
+            pieces.push_back(std::move(button));
+        }
+        y += std::max(button_side, int32_t{16}) + 2;
+        if (!chord.explanation.empty())
+            text(chord.explanation, kit::FontRole::small, kit::colour::hint);
+    }
+
+    const std::string off_caption = show(editor.text(), words::state_off);
+    const std::string on_caption = show(editor.text(), words::state_on);
+    auto toggle = [&](bool offered, bool on, kit::ControlId id, std::string_view name, std::string_view word,
+                      std::string_view hint) {
+        if (!offered)
+            return;
+        text(show(editor.text(), word), kit::FontRole::small, kit::colour::text);
+        Piece piece;
+        piece.kind = Piece::Kind::toggle;
+        piece.y = y;
+        piece.height = metrics.button_height;
+        piece.width = std::min(switch_width(fonts, metrics, off_caption, on_caption), width);
+        piece.on = on;
+        piece.id = id;
+        piece.name = std::string(name);
+        piece.text = off_caption;
+        y += piece.height + 2;
+        pieces.push_back(std::move(piece));
+        if (!hint.empty())
+            text(show(editor.text(), hint), kit::FontRole::small, kit::colour::hint);
+    };
+    toggle(action.latch_offered, action.latch_on, controls::detail_latch, name_latch, words::latch,
+           words::latch_hint);
+    toggle(
+        action.confirm_offered, action.confirm_on, controls::detail_confirm, name_confirm,
+        words::hold_to_confirm, {}
+    );
+    if (action.confirm_setting_off)
+        text(show(editor.text(), words::confirm_off), kit::FontRole::small, kit::colour::quiet);
+    if (reset_in_body && !action.read_only && !action.reset.empty()) {
+        Piece button;
+        button.kind = Piece::Kind::button;
+        button.y = y;
+        button.height = metrics.button_height;
+        button.text = action.reset;
+        const int32_t natural = button_width(fonts, metrics, button.text);
+        if (natural > width)
+            button.text = kit::cut_to_width(fonts, kit::FontRole::small, button.text, width);
+        button.width = std::min(std::max(button_width(fonts, metrics, button.text), metrics.button_width), width);
+        button.id = controls::detail_reset;
+        button.name = std::string(name_detail_reset);
+        pieces.push_back(std::move(button));
+    }
+    return pieces;
+}
+
+/// Appends the details, scrolled, and the controls that lie wholly in view.
+///
+/// @param[in,out] built the layout
+/// @param editor the editor
+/// @param state the details' scroll
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param pane the details' column, including its scroll bar
+/// @param reset_in_body true when RESET sits in the details
+/// @param window the window, so a scroll bar is not placed outside it
+void add_details(
+    Built& built,
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    const kit::Rect& pane,
+    bool reset_in_body,
+    const Window& window
+) {
+    if (!roomy(pane))
+        return;
+    const bool scrolling_guess = true;
+    const int32_t well_width = metrics.scroll_thumb_width + 2;
+    const int32_t bar_gap = metrics.button_gap;
+    const std::vector<Piece> measured =
+        detail_pieces(editor, state, fonts, metrics, std::max(pane.width - well_width - bar_gap, int32_t{0}),
+                      reset_in_body);
+    int32_t content_h = 0;
+    for (const Piece& piece : measured)
+        content_h = std::max(content_h, piece.y + piece.height);
+    const bool scrolling = content_h > pane.height;
+    const int32_t port_w =
+        scrolling ? std::max(pane.width - well_width - bar_gap, int32_t{0}) : pane.width;
+    const std::vector<Piece> pieces =
+        scrolling ? measured : detail_pieces(editor, state, fonts, metrics, port_w, reset_in_body);
+    if (!scrolling) {
+        content_h = 0;
+        for (const Piece& piece : pieces)
+            content_h = std::max(content_h, piece.y + piece.height);
+    }
+    const kit::Rect port{pane.x, pane.y, port_w, pane.height};
+    int32_t offset = state.details_scroll;
+    const int32_t limit = std::max(content_h - port.height, int32_t{0});
+    if (offset < 0)
+        offset = 0;
+    if (offset > limit)
+        offset = limit;
+    const std::string off_caption = show(editor.text(), words::state_off);
+    const std::string on_caption = show(editor.text(), words::state_on);
+    for (const Piece& piece : pieces) {
+        const kit::Rect full{port.x + piece.x, port.y + piece.y - offset, piece.width, piece.height};
+        if (!roomy(full) || !kit::wholly_in(full, port))
+            continue;
+        if (piece.kind == Piece::Kind::text) {
+            add_line(built, fonts, full, piece.text, piece.font, piece.ink);
+            continue;
+        }
+        if (piece.kind == Piece::Kind::chip) {
+            kit::add_chord_chip(built.list, full, piece.chip, kit::no_control, {});
+            continue;
+        }
+        if (piece.kind == Piece::Kind::toggle) {
+            kit::SwitchLook toggle;
+            toggle.on = piece.on;
+            toggle.hovered = hot(state, piece.id);
+            toggle.off_caption = off_caption;
+            toggle.on_caption = on_caption;
+            const std::size_t before = built.list.controls.size();
+            kit::add_switch(built.list, full, toggle, piece.id, piece.name);
+            steal(built.list, built.rest, before);
+            built.details.push_back(piece.id);
+            continue;
+        }
+        kit::ButtonLook button;
+        button.caption = piece.text;
+        button.style = piece.style;
+        button.mark = piece.mark;
+        button.enabled = piece.enabled;
+        button.hovered = hot(state, piece.id);
+        button.held = held(state, piece.id);
+        const std::size_t before = built.list.controls.size();
+        kit::add_button(built.list, full, button, piece.id, piece.name);
+        steal(built.list, built.rest, before);
+        built.details.push_back(piece.id);
+    }
+    static_cast<void>(scrolling_guess);
+    if (!scrolling)
+        return;
+    const kit::Rect well{port.x + port.width + bar_gap, pane.y, well_width, pane.height};
+    const kit::Rect whole{0, 0, window.width, window.height};
+    if (!roomy(well) || !kit::wholly_in(well, whole))
+        return;
+    kit::ScrollArea area;
+    area.view = port;
+    area.well = well;
+    area.content_height = content_h;
+    area.limit = limit;
+    area.offset = offset;
+    kit::ScrollBarLook bar;
+    bar.thumb = area.thumb(metrics.least_thumb_height);
+    bar.hot = state.bar == ScreenState::Bar::details || hot(state, controls::details_bar);
+    add_item(built.list, kit::Role::scroll_bar, well).look = bar;
+    kit::Control control;
+    control.id = controls::details_bar;
+    control.rect = well;
+    control.enabled = true;
+    control.focusable = false;
+    control.name = std::string(name_details_bar);
+    control.kind = kit::ControlKind::scroll_bar;
+    built.rest.push_back(std::move(control));
+}
+
+/// Appends the footer band, its note and its buttons, from the right.
+///
+/// @param[in,out] built the layout
+/// @param editor the editor
+/// @param state the pointer, and whether SAVE is the page's
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param window the window
+/// @param page Compact's details page
+/// @param compact Compact's MORE
+/// @param large Large's number-keys aside
+void add_footer(
+    Built& built,
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    const Window& window,
+    bool page,
+    bool compact,
+    bool large
+) {
+    kit::FooterBandLook band;
+    band.width = window.width;
+    band.rule_row = window.footer_rule;
+    add_item(built.list, kit::Role::footer_band, {0, window.footer_rule, window.width, window.height - window.footer_rule})
+        .look = band;
+
+    struct FootButton {
+        kit::ControlId id{};
+        std::string name{};
+        std::string caption{};
+        bool accent{};
+        bool enabled{true};
+    };
+    std::vector<FootButton> buttons;
+    auto add = [&](kit::ControlId id, std::string_view name, std::string caption, bool accent, bool enabled) {
+        FootButton button;
+        button.id = id;
+        button.name = std::string(name);
+        button.caption = std::move(caption);
+        button.accent = accent;
+        button.enabled = enabled;
+        buttons.push_back(std::move(button));
+    };
+    if (page) {
+        add(controls::back, name_back, show(editor.text(), words::back), false, true);
+        const Details action = editor.details(state.selected);
+        std::string reset = action.reset.empty() ? show(editor.text(), words::reset) : action.reset;
+        add(controls::detail_reset, name_detail_reset, std::move(reset), false, !action.read_only && !action.id.empty());
+    } else if (compact) {
+        add(controls::more, name_more, show(editor.text(), words::more), false, true);
+    } else {
+        add(controls::restore, name_restore, show(editor.text(), words::restore), false, true);
+    }
+    if (!page)
+        add(controls::cancel, name_cancel, show(editor.text(), words::cancel), false, true);
+    add(controls::save, name_save, show(editor.text(), words::save), true, editor.can_save());
+
+    int32_t total = 0;
+    std::vector<int32_t> widths;
+    for (const FootButton& button : buttons) {
+        const int32_t width = button_width(fonts, metrics, button.caption);
+        widths.push_back(width);
+        total += width;
+    }
+    if (!buttons.empty())
+        total += metrics.button_gap * (static_cast<int32_t>(buttons.size()) - 1);
+    int32_t x = window.right - total;
+    if (x < window.left)
+        x = window.left;
+    const int32_t note_right = std::max(x - metrics.button_gap, window.left);
+    const int32_t note_w = note_right - window.left;
+    std::string note;
+    if (editor.clashes() > 0) {
+        note = fill(
+            show(editor.text(), words::settle), {{"n", std::to_string(editor.clashes())}}
+        );
+    } else if (large && !page) {
+        note = fill(
+            show(editor.text(), words::number_keys_state),
+            {{"state", show(editor.text(), editor.number_keys() ? words::state_on : words::state_off)}}
+        );
+    }
+    if (!note.empty() && note_w > 8) {
+        const kit::Rect rect{window.left, window.button_top, note_w, metrics.button_height};
+        note = kit::cut_to_width(fonts, kit::FontRole::small, note, note_w);
+        add_line(built, fonts, rect, note, kit::FontRole::small, kit::colour::hint);
+        kit::Control control;
+        control.id = controls::footer_note;
+        control.rect = rect;
+        control.enabled = true;
+        control.focusable = false;
+        control.name = std::string(name_footer_note);
+        control.kind = kit::ControlKind::area;
+        control.text = note;
+        built.rest.push_back(std::move(control));
+    }
+    for (std::size_t index = 0; index < buttons.size(); ++index) {
+        const FootButton& button = buttons[index];
+        int32_t width = widths[index];
+        if (x + width > window.right)
+            width = std::max(window.right - x, int32_t{0});
+        const kit::Rect rect{x, window.button_top, width, metrics.button_height};
+        if (roomy(rect)) {
+            kit::ButtonLook look;
+            look.caption = button.caption;
+            if (kit::text_width(fonts, kit::FontRole::small, look.caption) > rect.width)
+                look.caption = kit::cut_to_width(fonts, kit::FontRole::small, look.caption, rect.width);
+            look.style = button.accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+            look.enabled = button.enabled;
+            look.hovered = hot(state, button.id);
+            look.held = held(state, button.id);
+            place_button(built, rect, look, button.id, button.name, true);
+        }
+        x += widths[index] + metrics.button_gap;
+    }
+}
+
+/// Appends the open menu over the window.
+///
+/// @param[in,out] built the layout
+/// @param editor the editor
+/// @param state the menu
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param window the window
+/// @param field the drop-down's field
+/// @param compact Compact's filters live in the category menu
+void add_menu(
+    Built& built,
+    const Editor& editor,
+    const ScreenState& state,
+    const kit::Fonts& fonts,
+    const kit::Metrics& metrics,
+    const Window& window,
+    const kit::Rect& field,
+    bool compact
+) {
+    if (state.menu == Menu::none || !roomy(field))
+        return;
+    const std::vector<MenuEntry> entries = menu_entries(editor, state.menu, state, compact);
+    if (entries.empty())
+        return;
+    const kit::Rect menu = kit::choice_menu(field, entries.size(), window.footer_rule);
+    const kit::Rect whole{0, 0, window.width, window.height};
+    if (!kit::wholly_in(menu, whole))
+        return;
+    const int32_t shown_count = kit::shown_choices(entries.size());
+    const int32_t count = static_cast<int32_t>(entries.size());
+    int32_t first = state.menu_first;
+    if (first < 0)
+        first = 0;
+    if (first > std::max(count - shown_count, int32_t{0}))
+        first = std::max(count - shown_count, int32_t{0});
+    int32_t marked = state.menu_marked;
+    if (marked < 0 || marked >= count)
+        marked = -1;
+    kit::ChoiceMenuLook look;
+    look.first = first;
+    look.total = count;
+    look.chosen = menu_chosen(editor, state.menu, state, entries);
+    look.marked = marked;
+    look.focus_shown = state.interaction.focus_shown;
+    look.items.resize(entries.size());
+    for (int32_t index = 0; index < count; ++index) {
+        const MenuEntry& entry = entries[static_cast<std::size_t>(index)];
+        kit::ChoiceMenuRow row;
+        row.divider = entry.kind == MenuKind::divider;
+        row.choosable = !row.divider;
+        row.id = entry.name;
+        look.items[static_cast<std::size_t>(index)] = row;
+        const bool visible = index >= first && index < first + shown_count;
+        if (row.divider) {
+            if (visible) {
+                const kit::Rect box = kit::choice_item(menu, index - first);
+                look.shown.push_back(kit::cut_to_width(
+                    fonts,
+                    kit::FontRole::regular,
+                    entry.caption,
+                    std::max(box.width - metrics.choice_item_text_inset, int32_t{0})
+                ));
+            }
+            continue;
+        }
+        kit::Control control;
+        control.id = controls::menu_first + index;
+        control.name = entry.name;
+        control.kind = kit::ControlKind::list_item;
+        control.focusable = false;
+        control.checked = index == look.chosen;
+        if (visible) {
+            const kit::Rect box = kit::choice_item(menu, index - first);
+            const std::string caption = kit::cut_to_width(
+                fonts,
+                kit::FontRole::regular,
+                entry.caption,
+                std::max(box.width - metrics.choice_item_text_inset, int32_t{0})
+            );
+            look.shown.push_back(caption);
+            control.rect = box;
+            control.text = caption;
+            control.enabled = true;
+        } else {
+            control.enabled = false;
+            control.text = entry.caption;
+        }
+        built.menu.push_back(std::move(control));
+    }
+    add_item(built.list, kit::Role::choice_menu, menu).look = std::move(look);
+}
+
+/// Appends the focus ring for the focused control, when it sits inside the window.
+///
+/// @param[in,out] built the layout
+/// @param state the focus
+/// @param metrics the size class
+/// @param window the window
+void add_focus(Built& built, const ScreenState& state, const kit::Metrics& metrics, const Window& window) {
+    if (!state.interaction.focus_shown || state.interaction.focused == kit::no_control)
+        return;
+    if (state.interaction.focused == controls::search)
+        return;
+    const kit::Rect whole{0, 0, window.width, window.height};
+    for (const kit::Control& control : built.rest) {
+        if (control.id != state.interaction.focused || !control.focusable)
+            continue;
+        if (!kit::wholly_in(kit::grown(control.rect, metrics.focus_inset), whole))
+            return;
+        const bool on_edge = control.kind == kit::ControlKind::list;
+        kit::add_focus_ring(built.list, control.rect, !on_edge);
+        return;
+    }
+}
+
+/// Shares a row's leftover width with the search.
+///
+/// @param content the row's width
+/// @param[in,out] layout the layout field's width
+/// @param[in,out] category the category field's width
+/// @param[in,out] search the search field's width
+/// @param gaps the gaps between the fields that are present
+void share_row(int32_t content, int32_t& layout, int32_t& category, int32_t& search, int32_t gaps) {
+    search = content - layout - category - gaps;
+    auto give = [&](int32_t& slot) {
+        if (search >= 40 || slot <= 40)
+            return;
+        const int32_t spare = std::min(slot - 40, 40 - search);
+        if (spare > 0) {
+            slot -= spare;
+            search += spare;
+        }
+    };
+    if (search < 40) {
+        give(layout);
+        give(category);
+    }
+    if (search < 0)
+        search = 0;
+}
+
+/// Lays the editor out. `page` is Compact's details page.
+///
+/// @param editor the editor
+/// @param state the screen's state
+/// @param frame the frame
+/// @param fonts the fonts
+/// @param page the details page
+/// @return the display list
+kit::DisplayList lay(
+    const Editor& editor, const ScreenState& state, const kit::Frame& frame, const kit::Fonts& fonts, bool page
+) {
+    Built built;
+    const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const bool compact = frame.size_class == kit::SizeClass::compact;
+    const bool large = frame.size_class == kit::SizeClass::large;
+    const Window window = window_of(frame);
+    const int32_t content_w = std::max(window.right - window.left, int32_t{0});
+    add_item(built.list, kit::Role::fill, {0, 0, window.width, window.height}).colour = kit::colour::panel;
+    add_header(built, editor, state, fonts, window, compact);
+
+    kit::Rect layout_field{};
+    kit::Rect category_field{};
+    kit::Rect more_field{};
+    int32_t y = window.body_top + metrics.paragraph_gap / 2;
+    if (!page) {
+        int32_t layout_w = 0;
+        int32_t category_w = 0;
+        int32_t search_w = 0;
+        int32_t gaps = 0;
+        if (large) {
+            layout_w = large_layout_width;
+            search_w = large_search_width;
+            gaps = metrics.button_gap;
+        } else if (!compact) {
+            layout_w = regular_layout_width;
+            category_w = regular_category_width;
+            search_w = regular_search_width;
+            gaps = metrics.button_gap * 2;
+        } else {
+            layout_w = 120;
+            category_w = compact_category_width;
+            gaps = metrics.button_gap * 2;
+        }
+        const std::string layout_label = show(editor.text(), words::layout);
+        const int32_t label_w = kit::text_width(fonts, kit::FontRole::small, layout_label);
+        const int32_t label_gap = label_w > 0 ? metrics.button_gap : 0;
+        const int32_t fields_w = std::max(content_w - label_w - label_gap, int32_t{0});
+        if (layout_w + category_w + search_w + gaps > fields_w)
+            share_row(fields_w, layout_w, category_w, search_w, gaps);
+        else
+            search_w = fields_w - layout_w - category_w - gaps;
+        const std::string placeholder_word =
+            show(editor.text(), large ? words::search_actions : words::search_short);
+        const int32_t search_need =
+            kit::text_width(fonts, kit::FontRole::regular, placeholder_word) + metrics.field_inset * 3 +
+            metrics.magnifier_side;
+        const int32_t layout_floor =
+            kit::text_width(fonts, kit::FontRole::regular, editor.layout_name()) +
+            metrics.choice_text_inset + metrics.choice_arrow_room;
+        if (search_w < search_need && layout_w > layout_floor) {
+            const int32_t take = std::min(layout_w - layout_floor, search_need - search_w);
+            layout_w -= take;
+            search_w += take;
+        }
+        int32_t x = window.left;
+        const int32_t field_h = metrics.field_height;
+        if (label_w > 0) {
+            add_line(
+                built,
+                fonts,
+                {x, y, label_w, field_h},
+                layout_label,
+                kit::FontRole::small,
+                kit::colour::quiet
+            );
+            x += label_w + label_gap;
+        }
+        if (layout_w > 0) {
+            layout_field = {x, y, layout_w, field_h};
+            const std::string text = choice_text(fonts, metrics, layout_w, editor.layout_name());
+            place_choice(built, state, layout_field, text, controls::layout_choice, std::string(name_layout),
+                         state.menu == Menu::layout);
+            x += layout_w + metrics.button_gap;
+        }
+        if (!compact && !large && category_w > 0) {
+            // Regular's category sits with the layout and the search.
+        }
+        if (category_w > 0 && !large) {
+            // Compact and Regular both have the drop-down. On Regular it is
+            // placed after the search below, so keep its width and place it last
+            // when this is Regular.
+        }
+        if (compact && category_w > 0) {
+            category_field = {x, y, category_w, field_h};
+            std::string shown = show(editor.text(), words::all_categories);
+            for (const CategoryEntry& category : editor.categories()) {
+                if (category.id == state.category) {
+                    shown = category.id == "all" ? show(editor.text(), words::all_categories) : category.title;
+                    break;
+                }
+            }
+            place_choice(
+                built, state, category_field, choice_text(fonts, metrics, category_w, shown),
+                controls::category, std::string(name_category), state.menu == Menu::category
+            );
+            x += category_w + metrics.button_gap;
+        }
+        if (search_w > 0) {
+            const kit::Rect rect{x, y, search_w, field_h};
+            kit::SearchLook search;
+            search.field = state.search;
+            search.focused = focused_on(state, controls::search);
+            search.hovered = hot(state, controls::search);
+            search.magnifier = true;
+            // Large has room for the long placeholder. Regular and Compact use the short one.
+            std::string placeholder =
+                show(editor.text(), large ? words::search_actions : words::search_short);
+            const int32_t room = kit::field_text_rect(rect, search).width;
+            if (kit::text_width(fonts, kit::FontRole::regular, placeholder) > room)
+                placeholder =
+                    kit::cut_to_width(fonts, kit::FontRole::regular, placeholder, std::max(room, int32_t{0}));
+            search.placeholder = std::move(placeholder);
+            const std::size_t before = built.list.controls.size();
+            kit::add_search(built.list, rect, search, controls::search, std::string(name_search));
+            steal(built.list, built.rest, before);
+            built.tabs.push_back(controls::search);
+            x += search_w + metrics.button_gap;
+        }
+        if (!compact && !large && category_w > 0) {
+            category_field = {x, y, category_w, field_h};
+            std::string shown = show(editor.text(), words::all_categories);
+            for (const CategoryEntry& category : editor.categories()) {
+                if (category.id == state.category) {
+                    shown = category.id == "all" ? show(editor.text(), words::all_categories) : category.title;
+                    break;
+                }
+            }
+            place_choice(
+                built, state, category_field, choice_text(fonts, metrics, category_w, shown),
+                controls::category, std::string(name_category), state.menu == Menu::category
+            );
+        }
+        y += field_h + metrics.paragraph_gap / 2;
+        const int32_t summary_h = metrics.small_line;
+        add_summary(built, editor, fonts, {window.left, y, content_w, summary_h});
+        y += summary_h + metrics.paragraph_gap / 2;
+        if (!compact)
+            y = add_pills(built, editor, state, fonts, metrics, window.left, window.right, y) +
+                metrics.paragraph_gap / 2;
+    }
+
+    const int32_t body_h = std::max(window.footer_rule - y, int32_t{0});
+    const kit::Rect body{window.left, y, content_w, body_h};
+    if (page) {
+        add_details(built, editor, state, fonts, metrics, body, false, window);
+    } else if (compact) {
+        add_list(built, editor, state, fonts, metrics, frame.size_class, body, window);
+    } else if (large) {
+        const int32_t nav_w = std::min(large_nav_width, content_w);
+        int32_t details_w = std::min(large_details_width, std::max(content_w - nav_w - metrics.padding, int32_t{0}));
+        int32_t list_w = content_w - nav_w - details_w - metrics.padding * 2;
+        if (list_w < 80) {
+            details_w = std::max(details_w - (80 - list_w), int32_t{0});
+            list_w = content_w - nav_w - details_w - metrics.padding * 2;
+        }
+        if (list_w < 0)
+            list_w = 0;
+        add_nav(built, editor, state, fonts, {window.left, y, nav_w, body_h});
+        const int32_t list_x = window.left + nav_w + metrics.padding;
+        add_list(
+            built, editor, state, fonts, metrics, frame.size_class,
+            {list_x, y, std::max(list_w, int32_t{0}), body_h}, window
+        );
+        const int32_t details_x = list_x + std::max(list_w, int32_t{0}) + metrics.padding;
+        add_details(
+            built, editor, state, fonts, metrics,
+            {details_x, y, std::max(window.right - details_x, int32_t{0}), body_h}, true, window
+        );
+    } else {
+        int32_t details_w = std::min(regular_details_width, std::max(content_w / 3, int32_t{0}));
+        int32_t list_w = content_w - details_w - metrics.padding;
+        if (list_w < 80) {
+            details_w = std::max(content_w - 80 - metrics.padding, int32_t{0});
+            list_w = content_w - details_w - metrics.padding;
+        }
+        add_list(
+            built, editor, state, fonts, metrics, frame.size_class,
+            {window.left, y, std::max(list_w, int32_t{0}), body_h}, window
+        );
+        const int32_t details_x = window.left + std::max(list_w, int32_t{0}) + metrics.padding;
+        add_details(
+            built, editor, state, fonts, metrics,
+            {details_x, y, std::max(window.right - details_x, int32_t{0}), body_h}, true, window
+        );
+    }
+
+    add_footer(built, editor, state, fonts, metrics, window, page, compact, large);
+    if (page) {
+        // Tab: the page's controls, BACK, RESET, SAVE, then the close mark.
+        // place_button already appended BACK, RESET and SAVE. The details
+        // were recorded first. Rebuild so the page's controls lead.
+        std::vector<kit::ControlId> order = built.details;
+        for (const kit::ControlId id : built.tabs) {
+            if (id == controls::back || id == controls::detail_reset || id == controls::save)
+                order.push_back(id);
+        }
+        built.tabs = std::move(order);
+    } else {
+        std::vector<kit::ControlId> order;
+        auto take = [&](kit::ControlId id) {
+            for (const kit::ControlId tab : built.tabs) {
+                if (tab == id)
+                    order.push_back(id);
+            }
+        };
+        take(controls::layout_choice);
+        take(controls::search);
+        take(controls::category);
+        for (const kit::ControlId tab : built.tabs) {
+            if (tab >= controls::nav_first && tab < controls::row_first)
+                order.push_back(tab);
+        }
+        take(controls::filter_all);
+        take(controls::filter_changed);
+        take(controls::filter_clashes);
+        take(controls::filter_unbound);
+        take(controls::filter_latchable);
+        take(controls::list);
+        if (built.number_keys)
+            order.push_back(controls::number_keys);
+        for (const kit::ControlId id : built.details)
+            order.push_back(id);
+        take(controls::restore);
+        take(controls::more);
+        take(controls::cancel);
+        take(controls::save);
+        built.tabs = std::move(order);
+    }
+    if (built.close != kit::no_control)
+        built.tabs.push_back(built.close);
+
+    add_focus(built, state, metrics, window);
+    kit::Rect menu_field{};
+    if (state.menu == Menu::layout)
+        menu_field = layout_field;
+    else if (state.menu == Menu::category)
+        menu_field = category_field;
+    else if (state.menu == Menu::more) {
+        for (const kit::Control& control : built.rest) {
+            if (control.id == controls::more)
+                more_field = control.rect;
+        }
+        menu_field = more_field;
+    }
+    add_menu(built, editor, state, fonts, metrics, window, menu_field, compact);
+
+    kit::DisplayList laid = std::move(built.list);
+    laid.controls.clear();
+    for (kit::Control& control : built.menu)
+        laid.controls.push_back(std::move(control));
+    for (kit::Control& control : built.rest)
+        laid.controls.push_back(std::move(control));
+    laid.tab_order = std::move(built.tabs);
+    static_cast<void>(more_field);
+    return laid;
+}
+
+} // namespace
+
+kit::Point window_size(const kit::Frame& frame) noexcept {
+    const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    kit::Point size{metrics.dialog_width, metrics.dialog_height};
+    if (frame.area.width > 0)
+        size.x = std::min(size.x, frame.area.width);
+    if (frame.area.height > 0)
+        size.y = std::min(size.y, frame.area.height);
+    return size;
+}
+
+kit::DisplayList editor_layout(
+    const Editor& editor, const ScreenState& state, const kit::Frame& frame, const kit::Fonts& fonts
+) {
+    if (frame.size_class == kit::SizeClass::compact && state.details_page)
+        return details_page_layout(editor, state, frame, fonts);
+    return lay(editor, state, frame, fonts, false);
+}
+
+kit::DisplayList details_page_layout(
+    const Editor& editor, const ScreenState& state, const kit::Frame& frame, const kit::Fonts& fonts
+) {
+    return lay(editor, state, frame, fonts, true);
+}
+
+} // namespace oa::ui::key_editor

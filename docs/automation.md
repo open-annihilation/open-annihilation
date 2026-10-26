@@ -166,7 +166,7 @@ every request's fields and answers, and the errors it is refused with.
 
 Open Annihilation's own screens (the OA button and the main menu's
 Settings button, Settings, a notice, a prompt, and every later one: the
-Library, the map browser, the gallery) are drawn by the engine's UI kit,
+Library, the map browser, the key editor, the gallery) are drawn by the engine's UI kit,
 and `controls` lists them under names of one scheme, so that a journey
 presses them by name as it presses the original screens' controls.
 
@@ -323,6 +323,28 @@ showed ([after a switch](library.md#after-a-switch)). Until it does, for
 at most five seconds, the switch's work dialog, `oa.work`, may show over
 the main menu, its one part the label `oa.progress.body` with its words,
 such as "Switching on Ridge…": a journey waits for `oa.library` there.
+
+### The key editor
+
+The key editor (`dialog` `oa.key-editor`) lists every rebindable action.
+Its names are the module's
+([src/ui/key-editor](../src/ui/key-editor/README.md#the-screen)):
+
+| Control | Name | Kind, and what it reports |
+|---|---|---|
+| LAYOUT ▾ | `oa.key-editor.layout` | button. Items `oa.key-editor.layout.<id>`, `.duplicate` and `.rename` |
+| The search | `oa.key-editor.search` | text field |
+| The category drop-down | `oa.key-editor.category` | button, at Regular and Compact. Items `oa.key-editor.category.<id>`, and at Compact the filters |
+| A Large nav entry | `oa.key-editor.nav.<id>` | button |
+| A filter pill | `oa.key-editor.filter.all`, `.changed`, `.clashes`, `.unbound`, `.latchable` | button, its text the name and the count |
+| A row | `oa.key-editor.row.<id>` | list, its text the action's name and its chords |
+| Number keys select groups | `oa.key-editor.number-keys` | check box, at the head of Groups. Parts `oa.key-editor.number-keys.off` and `.on` |
+| A chord's ✕ | `oa.key-editor.detail.chord.<n>.remove` | button, numbered from 1. A fixed chord has none |
+| Latch, Hold to confirm | `oa.key-editor.detail.latch`, `oa.key-editor.detail.confirm` | check box. Parts `.off` and `.on` |
+| The footer | `oa.key-editor.restore`, `.cancel`, `.save` | button. Compact's MORE is `oa.key-editor.more`, and its details page's BACK is `oa.key-editor.back` |
+| The summary | `oa.key-editor.summary` | label, its text the words shown |
+
+A question over the editor keeps the prompt's names: `oa.prompt.leave`, `oa.prompt.keep-editing`, `oa.prompt.keep-them`, `oa.prompt.set-aside`, `oa.prompt.cancel` and `oa.prompt.body`. On a menu that question is the prompt screen. In a match the same question is `oa.key-editor-prompt`, because a prompt does not place there, and its controls stay `oa.prompt.*`. The name field is `oa.key-editor.name.field`, with `oa.key-editor.name.cancel` and `oa.key-editor.name.save`, on `oa.key-editor-name`. A failed save's notice is `oa.notice` on a menu and `oa.key-editor-notice` in a match.
 
 ## Input
 

@@ -755,6 +755,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_editor) {
+            check_key_editor();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();
