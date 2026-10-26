@@ -749,6 +749,8 @@ actions:
     by: letter
     source: [3.1c]
     default: ["Ctrl+Shift+C"]
+    pad: commander
+    touch: select.commander
     words: {name: "Add commander", description: "Adds the commander"}
   select.same-type:
     area: selection
@@ -758,6 +760,7 @@ actions:
     by: letter
     source: [3.1c]
     default: ["Ctrl+Z"]
+    pad: select_type
     touch: select.same_type
     words: {name: "Select same type", description: "Every unit of a selected unit's type"}
   select.idle-builders:
@@ -822,6 +825,7 @@ actions:
     kind: press
     source: [OA]
     default: ["Tab"]
+    pad: team_menu
     words: {name: "Next primary", description: "Next selected unit becomes primary"}
   select.previous-primary:
     area: selection
@@ -831,6 +835,7 @@ actions:
     kind: press
     source: [3.1c]
     default: ["Shift+Tab"]
+    pad: share_panel
     words: {name: "Previous primary", description: "Previous selected unit becomes primary"}
   select.clear:
     area: selection
@@ -1232,6 +1237,7 @@ actions:
     by: letter
     source: [OA]
     default: ["Shift+T"]
+    pad: follow
     words: {name: "Follow previous", description: "Follows the previous selected unit"}
   camera.next-unit:
     area: camera
@@ -1616,6 +1622,7 @@ actions:
     kind: press
     source: [3.1c]
     default: ["Shift+F1", "Ctrl+Shift+F1"]
+    pad: unit_info
     words: {name: "Pin unit", description: "Pins the unit under the pointer"}
   game.kill-board:
     area: game

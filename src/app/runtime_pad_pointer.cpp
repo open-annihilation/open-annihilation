@@ -688,7 +688,9 @@ void PadAccess::tick_pointer(
                                          : nullptr;
             if ((flick == pc::Flick::left || flick == pc::Flick::right) && definition != nullptr &&
                 definition->builder)
-                match_key(runtime, flick == pc::Flick::left ? SDLK_COMMA : SDLK_PERIOD);
+                runtime.press_match_action(
+                    flick == pc::Flick::left ? "build.page-previous" : "build.page-next"
+                );
         }
         // The D-pad's held zoom (sticks scheme).
         if (elapsed_ns > 0) {

@@ -2855,14 +2855,15 @@ class Runtime final : public menu::Host,
     /// No-op outside a running match. [runtime_input_modifiers.cpp]
     void refresh_pointer_modifiers();
 
-    /// Runs a key through handle_match_hotkey as if pressed with `mods`.
+    /// Presses an action in a match, as a key that starts it would, whatever chord the layout
+    /// gives the action.
     ///
-    /// `mods` are held as the pulse for the call, so every input_modifiers read sees them.
+    /// A hack that stands in for the action is pressed instead while that hack is on. No
+    /// modifier pulse is held. Outside a match this does nothing.
     /// [runtime_input_modifiers.cpp]
     ///
-    /// @param key the key pressed
-    /// @param mods SDL_Keymod bits held with it
-    void press_match_key(SDL_Keycode key, SDL_Keymod mods);
+    /// @param action the action id
+    void press_match_action(std::string_view action);
 
     /// Rewrites a hardware key event with Cmd held into its alternate, removing Cmd.
     ///
