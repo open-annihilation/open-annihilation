@@ -171,10 +171,15 @@ bool unpack_package(
             remove_stage(stage);
             return false;
         }
+        // Windows will not remove the stage while this file is open.
+        const auto drop_stage = [&]() {
+            out.close();
+            remove_stage(stage);
+        };
         zip::EntryStream stream;
         if (!stream.open(hooks, static_cast<uint64_t>(size), entry, zip_error)) {
             set_error(error, "the package could not be unpacked");
-            remove_stage(stage);
+            drop_stage();
             return false;
         }
         zip::SinkHooks sink;
@@ -186,7 +191,7 @@ bool unpack_package(
                 break;
             if (stepped == zip::StreamStep::failed) {
                 set_error(error, "the package could not be unpacked");
-                remove_stage(stage);
+                drop_stage();
                 return false;
             }
         }

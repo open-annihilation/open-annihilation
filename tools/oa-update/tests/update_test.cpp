@@ -444,10 +444,16 @@ void unpacking() {
     std::string error;
     OA_CHECK(helper::unpack_package(good_path, stage, top, &error));
     const fs::path hello_path = stage / helper::path_from(std::string(top) + "/hello.txt");
-    std::ifstream hello_file(hello_path, std::ios::binary);
-    const std::string hello_text(
-        (std::istreambuf_iterator<char>(hello_file)), std::istreambuf_iterator<char>()
-    );
+    // The reader is closed before the stage is removed. Windows will not
+    // remove a folder while a file in it is open, and a later refusal would
+    // then still see the stage.
+    std::string hello_text;
+    {
+        std::ifstream hello_file(hello_path, std::ios::binary);
+        hello_text.assign(
+            std::istreambuf_iterator<char>(hello_file), std::istreambuf_iterator<char>()
+        );
+    }
     OA_CHECK(hello_text == "hello");
 #if !defined(_WIN32)
     const fs::path executable = stage / helper::path_from(std::string(top) + "/open-annihilation");
