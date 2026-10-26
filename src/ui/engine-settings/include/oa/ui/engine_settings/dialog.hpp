@@ -121,7 +121,7 @@ inline constexpr std::size_t page_count = 19;
 /// Touch, Controller and Game files, ten without them; a mod's options have
 /// five.
 inline constexpr std::size_t most_listed_pages = 13;
-/// Windows and Linux register the seven file types at run time, and macOS
+/// Windows and Linux register the eight file types at run time, and macOS
 /// chooses whether this copy is the default opener of each, so System lists
 /// a switch for each. iOS takes the types from the app and has no way to
 /// choose a default opener, so System shows a text row. Android does not
@@ -292,7 +292,7 @@ enum class Setting : uint8_t {
     /// part of Open Annihilation's own screens (DialogAction::show_gallery);
     /// it changes no setting
     kit_gallery,
-    /// File Type Registration: the heading over the seven file-type switches,
+    /// File Type Registration: the heading over the eight file-type switches,
     /// with the group's hint. It changes no setting.
     file_type_registration,
     file_type_oamod,    ///< Mod packages (.oamod): a switch
@@ -301,6 +301,7 @@ enum class Setting : uint8_t {
     file_type_oareg,    ///< Registry files (.oareg): a switch
     file_type_oamut,    ///< Mutator packages (.oamut): a switch
     file_type_oabrain,  ///< Brain packages (.oabrain): a switch
+    file_type_oakeys,   ///< Key layout packages (.oakeys): a switch
     file_type_oalaunch, ///< Launch files (.oalaunch): a switch
     /// File types: the text row iOS shows in place of the switches.
     /// It changes no setting.

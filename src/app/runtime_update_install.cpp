@@ -279,6 +279,7 @@ fs::path helper_path(const fs::path& folder) {
 #endif
 }
 
+#if defined(__APPLE__) && defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
 /// Reveals the bundle in Finder. A build that starts no program only says so.
 void reveal_in_finder(const std::string& bundle) {
 #if !defined(__APPLE__) || OA_PROCESS_SPAWNING == 0
@@ -313,6 +314,7 @@ void reveal_in_finder(const std::string& bundle) {
     SDL_DestroyProcess(process);
 #endif
 }
+#endif
 
 /// A recorded helper start. The caller has already stored the path and the
 /// arguments, and this build starts nothing.

@@ -257,6 +257,9 @@ inline constexpr std::string_view file_type_oamut = "open-annihilation.file-type
 /// "on" or "off" (EngineSettings::file_type_oabrain). Absent, or any text
 /// other than off, the game opens brain packages.
 inline constexpr std::string_view file_type_oabrain = "open-annihilation.file-types.oabrain";
+/// "on" or "off" (EngineSettings::file_type_oakeys). Absent, or any text
+/// other than off, the game opens key layout packages.
+inline constexpr std::string_view file_type_oakeys = "open-annihilation.file-types.oakeys";
 /// "on" or "off" (EngineSettings::file_type_oalaunch). Absent, or any text
 /// other than off, the game opens launch files.
 inline constexpr std::string_view file_type_oalaunch = "open-annihilation.file-types.oalaunch";
@@ -1305,6 +1308,7 @@ struct EngineSettings {
     bool file_type_oareg{true};   ///< the game opens registry files (.oareg)
     bool file_type_oamut{true};   ///< the game opens mutator packages (.oamut)
     bool file_type_oabrain{true}; ///< the game opens brain packages (.oabrain)
+    bool file_type_oakeys{true};  ///< the game opens key layout packages (.oakeys)
     /// The game opens launch files (.oalaunch), which start it in their
     /// battle room, as -c does.
     bool file_type_oalaunch{true};

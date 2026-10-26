@@ -21,8 +21,8 @@ struct SwitchType {
     std::string_view extension{};       ///< its type's extension, without its dot
 };
 
-/// The seven switches, in the order System lists them.
-constexpr std::array<SwitchType, 7> switch_types{{
+/// The eight switches, in the order System lists them.
+constexpr std::array<SwitchType, 8> switch_types{{
     {&EngineSettings::file_type_oamod, &file_types::TypeSet::mod, file_types::mod_extension},
     {&EngineSettings::file_type_oamap, &file_types::TypeSet::map, file_types::map_extension},
     {&EngineSettings::file_type_oalang,
@@ -35,6 +35,7 @@ constexpr std::array<SwitchType, 7> switch_types{{
      &file_types::TypeSet::mutator,
      file_types::mutator_extension},
     {&EngineSettings::file_type_oabrain, &file_types::TypeSet::brain, file_types::brain_extension},
+    {&EngineSettings::file_type_oakeys, &file_types::TypeSet::keys, file_types::keys_extension},
     {&EngineSettings::file_type_oalaunch,
      &file_types::TypeSet::launch,
      file_types::launch_extension},

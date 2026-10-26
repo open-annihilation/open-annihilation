@@ -256,6 +256,7 @@ inline constexpr std::string_view interface_words[] = {
     "Items",
     "Keep Allied Victory",
     "Keep Remote Player Colours",
+    "Key layout packages (.oakeys)",
     "Key Remaps",
     "Keys",
     "LANGUAGE",

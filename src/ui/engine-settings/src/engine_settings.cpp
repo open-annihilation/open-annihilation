@@ -835,6 +835,7 @@ EngineSettings read_settings(
     settings.file_type_oareg = file_type_on(values, key::file_type_oareg);
     settings.file_type_oamut = file_type_on(values, key::file_type_oamut);
     settings.file_type_oabrain = file_type_on(values, key::file_type_oabrain);
+    settings.file_type_oakeys = file_type_on(values, key::file_type_oakeys);
     settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
     settings.slow_keys_ms = access_number(values, key::access_slow_keys, 0, 0, 1000, false);
     settings.bounce_keys_ms = access_number(values, key::access_bounce_keys, 0, 0, 1000, false);
@@ -1444,6 +1445,7 @@ void write_settings(
     store_file_type(key::file_type_oareg, &EngineSettings::file_type_oareg);
     store_file_type(key::file_type_oamut, &EngineSettings::file_type_oamut);
     store_file_type(key::file_type_oabrain, &EngineSettings::file_type_oabrain);
+    store_file_type(key::file_type_oakeys, &EngineSettings::file_type_oakeys);
     store_file_type(key::file_type_oalaunch, &EngineSettings::file_type_oalaunch);
     // Restore defaults keeps the overrides: Restore profile values clears them.
     if (!profile_id.empty() && chosen.hack_overrides != opened.hack_overrides) {

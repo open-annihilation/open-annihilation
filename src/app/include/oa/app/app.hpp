@@ -838,7 +838,7 @@ struct Options {
     // and none for the second.
     bool check_mod_warning = false;
     // --open FILE and --install-mod FILE, repeated, and the bare arguments
-    // that name a .oamod, .oalang, .oamap, .oamut, .oabrain or .oareg file, any case: files to
+    // that name a .oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg file, any case: files to
     // open once the main menu shows; absolute, in the order given.
     std::vector<fs::path> open_files;
     // Installs made-up mod packages through each of the main menu's

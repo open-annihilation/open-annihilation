@@ -699,7 +699,7 @@ actions:
     source: [3.1c]
     default: ["Ctrl+B"]
     touch: select.builders
-    words: {name: "Select builders", description: "Every mobile builder"}
+    words: {name: "Select builders", description: "Units tagged CTRL_B"}
   select.factories:
     area: selection
     order: 3
@@ -709,7 +709,7 @@ actions:
     source: [3.1c]
     default: ["Ctrl+F"]
     touch: select.factories
-    words: {name: "Select factories", description: "Every factory"}
+    words: {name: "Select factories", description: "Units tagged CTRL_F"}
   select.aircraft:
     area: selection
     order: 4
@@ -719,7 +719,7 @@ actions:
     source: [3.1c]
     default: ["Ctrl+V"]
     touch: select.aircraft
-    words: {name: "Select aircraft", description: "Units that can fly"}
+    words: {name: "Select aircraft", description: "Units tagged CTRL_V"}
   select.on-screen:
     area: selection
     order: 5
