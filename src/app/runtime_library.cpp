@@ -117,12 +117,6 @@ constexpr std::string_view kOwnModWord = "mod";
 /// The author's name a mod's or a map pack's manifest gives when nobody is
 /// known (docs/mods/oamod-standard.md): the details name no author for it.
 constexpr std::string_view kUnknownAuthor = "unknown";
-/// The modifier that holds the Library's Find: Cmd on macOS, Ctrl elsewhere.
-#ifdef SDL_PLATFORM_MACOS
-constexpr uint16_t kCommandModifier = SDL_KMOD_GUI;
-#else
-constexpr uint16_t kCommandModifier = SDL_KMOD_CTRL;
-#endif
 
 /// Returns one of the Library's words in the language shown.
 ///
@@ -2978,34 +2972,35 @@ struct Runtime::LibraryScreen final : LayerScreen {
         return take(library::library_key(host.model, host.state, list_, pressed));
     }
 
-    /// Takes the Library's own keys before the kit's: Cmd+F on macOS and
-    /// Ctrl+F elsewhere, and `/` outside the search, find; Ctrl+Tab and
-    /// Ctrl+Shift+Tab move between the tabs; F5 presses the header's
-    /// refresh icon; the settings' shortcut opens Settings over the Library.
+    /// Takes the Library's own actions before the kit's keys: find, refresh
+    /// and the two tab actions, and the settings action, which opens Settings
+    /// over the Library. A plain `/` typed into the search stays text.
     ///
-    /// @param sdl_key the key's SDL keycode
-    /// @param modifiers SDL_Keymod bits
     /// @return what the Library did; pass for every other key
-    LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
-        if (Runtime::engine_settings_shortcut(sdl_key, modifiers))
+    LayerAnswer shortcut(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) override {
+        namespace bindings = oa::ui::key_bindings;
+        if (const auto* settings_action = runtime_.fired_action("ui.settings");
+            settings_action != nullptr && settings_action->phase == bindings::Phase::pressed)
             return take({.action = library::Action::settings, .redraw = true});
         LibraryHost& host = runtime_.library_host();
-        if (sdl_key == SDLK_F5) {
+        if (runtime_.fired_action("ui.screen-refresh") != nullptr) {
             if (!library::can_check_now(host.model))
                 return LayerAnswer::none;
             return take({.action = library::Action::check_now, .redraw = true});
         }
         std::optional<library::ScreenCommand> command;
-        if (sdl_key == SDLK_F && (modifiers & kCommandModifier) != 0)
-            command = library::ScreenCommand::find;
-        else if (sdl_key == SDLK_TAB && (modifiers & SDL_KMOD_CTRL) != 0)
-            command = (modifiers & SDL_KMOD_SHIFT) != 0 ? library::ScreenCommand::previous_tab
-                                                        : library::ScreenCommand::next_tab;
-        else if (
-            sdl_key == SDLK_SLASH && (modifiers & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) == 0 &&
-            !library::focused_field(host.state, list_)
-        )
-            command = library::ScreenCommand::find;
+        if (const auto* find = runtime_.fired_action("ui.screen-find"); find != nullptr) {
+            const bool typed_slash = find->chord.kind == bindings::TriggerKind::character &&
+                                     find->chord.character == U'/' && find->chord.modifiers == 0;
+            if (!(typed_slash && library::focused_field(host.state, list_)))
+                command = library::ScreenCommand::find;
+        }
+        if (!command) {
+            if (runtime_.fired_action("ui.screen-next-tab") != nullptr)
+                command = library::ScreenCommand::next_tab;
+            else if (runtime_.fired_action("ui.screen-previous-tab") != nullptr)
+                command = library::ScreenCommand::previous_tab;
+        }
         if (!command)
             return LayerAnswer::pass;
         return take(library::library_command(host.model, host.state, list_, *command));

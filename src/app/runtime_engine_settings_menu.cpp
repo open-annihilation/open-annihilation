@@ -391,10 +391,13 @@ int Runtime::EngineSettingsMenuHost::button_event(ScreenContext* context, void*)
         host.settings_pressed = false;
         return 0;
     }
-    if (input.kind == ScreenInputKind::key_down &&
-        engine_settings_shortcut(input.key, input.modifiers)) {
-        runtime.open_engine_settings_from_menu();
-        return 1;
+    if (input.kind == ScreenInputKind::key_down) {
+        const auto* settings_action = runtime.fired_action("ui.settings");
+        if (settings_action != nullptr &&
+            settings_action->phase == oa::ui::key_bindings::Phase::pressed) {
+            runtime.open_engine_settings_from_menu();
+            return 1;
+        }
     }
     int32_t x = 0;
     int32_t y = 0;
@@ -926,6 +929,23 @@ void Runtime::request_engine_settings() {
         open_engine_settings_from_menu();
     else if (screen_ == Screen::match)
         open_engine_settings_in_match();
+}
+
+bool Runtime::take_settings_action() {
+    const auto* settings_action = fired_action("ui.settings");
+    if (settings_action == nullptr ||
+        settings_action->phase != oa::ui::key_bindings::Phase::pressed)
+        return false;
+    // The Library open over Settings goes back to Settings itself. Every
+    // other screen opens Settings, and the key reaches no screen after that.
+    if (oa_layer_ != nullptr) {
+        const LayerScreen* shown = oa_layer_->top();
+        if (shown != nullptr && shown->name() == library_screen_name &&
+            oa_layer_->find("settings") != nullptr)
+            return false;
+    }
+    request_engine_settings();
+    return true;
 }
 
 bool Runtime::take_engine_settings_request(const SDL_Event& event) {

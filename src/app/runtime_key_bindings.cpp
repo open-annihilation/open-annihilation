@@ -8,6 +8,7 @@
 
 #include "oa/app/runtime.hpp"
 
+#include "gui_actions.hpp"
 #include "device_state.hpp"
 #include "oa/app/input_hints.hpp"
 #include "engine_settings_state.hpp"
@@ -76,6 +77,60 @@ uint32_t context_bit(std::string_view name) {
             return uint32_t{1} << static_cast<uint32_t>(index);
     }
     return 0;
+}
+
+/// The stem of a `gui.` action id, between the two dots.
+///
+/// @param id the action id
+/// @return the stem, or empty when the id is not a gui action
+std::string_view gui_id_stem(std::string_view id) {
+    constexpr std::string_view prefix = "gui.";
+    if (!id.starts_with(prefix))
+        return {};
+    const std::string_view rest = id.substr(prefix.size());
+    const auto dot = rest.find('.');
+    if (dot == std::string_view::npos)
+        return rest;
+    return rest.substr(0, dot);
+}
+
+/// Leaves the menus' letters to the GUI files on screen.
+///
+/// Every gathered file's letters start in the menus. A file that is not the one
+/// on screen loses that context, so a letter answers the button the player sees.
+///
+/// @param[in,out] resolved the bindings just resolved
+/// @param stems the file stems on screen, folded as a gui id's
+void keep_current_menu_letters(keys::Resolved& resolved, const std::vector<std::string>& stems) {
+    const uint32_t menus = context_bit("menus");
+    if (menus == 0)
+        return;
+    for (keys::Bound& bound : resolved.actions) {
+        if (!bound.id.starts_with("gui.") || (bound.contexts & menus) == 0)
+            continue;
+        const std::string_view stem = gui_id_stem(bound.id);
+        bool shown = false;
+        for (const std::string& current : stems) {
+            if (stem == current) {
+                shown = true;
+                break;
+            }
+        }
+        if (!shown)
+            bound.contexts &= ~menus;
+    }
+}
+
+/// The file stem of a GUI path, folded as a gui id's piece.
+///
+/// @param path a GUI file path
+/// @return the stem
+std::string menu_stem_of(std::string_view path) {
+    const auto slash = path.find_last_of("/\\");
+    const std::string_view file = slash == std::string_view::npos ? path : path.substr(slash + 1);
+    const auto dot = file.find('.');
+    const std::string_view stem = dot == std::string_view::npos ? file : file.substr(0, dot);
+    return gui_key_piece(stem);
 }
 
 /// The bit of a condition, or 0 when the table has no such name.
@@ -849,6 +904,8 @@ struct Runtime::KeyBindingsState {
     std::string categories{};
     /// The shown panel stem the last resolution used.
     std::string shown_stem{};
+    /// The menu GUI stems the last resolution used.
+    std::vector<std::string> menu_stems{};
     uint64_t map_generation{};
     bool ready{};
     /// Pointer keys were on when these bindings were resolved.
@@ -1499,7 +1556,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
                                state.scheme == scheme && state.number_keys == number_keys &&
                                state.pointer_keys_on == pointer_keys &&
                                state.order_stem == order_stem && state.categories == categories;
-    if (bindings_same && state.shown_stem == shown_stem)
+    if (bindings_same && state.shown_stem == shown_stem && state.menu_stems == menu_gui_stems_)
         return;
 
     // The mod list is a local of the lambda. resolve copies what it keeps, and
@@ -1520,6 +1577,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
         input.mod = &mod;
         keys::Resolved made = keys::resolve(input);
         apply_shown_gui_file(made, panel_stem);
+        keep_current_menu_letters(made, menu_gui_stems_);
         return keys::pointer_keys_bindings(made, pointer_keys);
     };
     keys::Resolved resolved = resolved_for(order_stem, shown_stem);
@@ -1564,6 +1622,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     state.order_stem = order_stem;
     state.categories = categories;
     state.shown_stem = shown_stem;
+    state.menu_stems = menu_gui_stems_;
     state.ready = true;
     if (!keep_held)
         rebuild_pointer_roles(state.dispatcher.bindings());
@@ -1597,9 +1656,11 @@ keys::Contexts Runtime::input_contexts() {
     contexts.active = context_bit("global");
     // A modal Open Annihilation screen takes the input, so the match and the
     // menus are not searched under it.
-    if (oa_layer().modal_shown(screen_ == Screen::match)) {
+    const bool on_match = screen_ == Screen::match;
+    const bool modal_layer = oa_layer().modal_shown(on_match);
+    if (modal_layer) {
         contexts.active |= context_bit("oa-screens");
-    } else if (screen_ == Screen::match && match_ != nullptr) {
+    } else if (on_match && match_ != nullptr) {
         contexts.active |= context_bit("match");
         const bool watcher = (current_extension_state() & extension_state::local_watcher) != 0;
         contexts.active |= watcher ? context_bit("watch") : context_bit("play");
@@ -1617,9 +1678,13 @@ keys::Contexts Runtime::input_contexts() {
             contexts.active |= context_bit("placing");
         if (match_drag_.has_value())
             contexts.active |= context_bit("box");
-    } else if (screen_ != Screen::match) {
+    } else if (!on_match) {
         contexts.active |= context_bit("menus");
     }
+    // A screen that shows without taking every key is searched too, so its own
+    // keys still answer while a menu or the match has the rest.
+    if (!modal_layer && oa_layer().shows(on_match))
+        contexts.active |= context_bit("oa-screens");
 
     contexts.text_entry = chat_composing_ || whiteboard_input_.editing || save_dialog_open();
     if (multiplayer_session())
@@ -2019,6 +2084,74 @@ std::span<const keys::ActionEvent> Runtime::match_action_events() const {
     if (key_bindings_state_ == nullptr)
         return {};
     return key_bindings_state_->events;
+}
+
+const keys::ActionEvent* Runtime::fired_action(std::string_view id) const {
+    if (key_bindings_state_ == nullptr)
+        return nullptr;
+    for (const keys::ActionEvent& fed : key_bindings_state_->events) {
+        if (fed.action != id)
+            continue;
+        if (fed.phase == keys::Phase::pressed || fed.phase == keys::Phase::repeated)
+            return &fed;
+    }
+    return nullptr;
+}
+
+std::string Runtime::screen_action_for_key(uint32_t key, uint16_t sdl_mods) const {
+    if (key_bindings_state_ != nullptr) {
+        for (const keys::ActionEvent& fed : key_bindings_state_->events) {
+            if (!fed.action.starts_with("ui.screen-"))
+                continue;
+            if (fed.phase != keys::Phase::pressed && fed.phase != keys::Phase::repeated)
+                continue;
+            return std::string(fed.action);
+        }
+    }
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return {};
+    keys::InputEvent input;
+    input.kind = keys::InputKind::key;
+    input.down = true;
+    input.key_code = key;
+    input.modifiers = binding_modifiers(static_cast<SDL_Keymod>(sdl_mods));
+    const keys::Resolved& resolved = key_bindings_state_->dispatcher.bindings();
+    const keys::KeyboardMap& keyboard = key_bindings_state_->dispatcher.keyboard();
+    const keys::Platform where = key_bindings_state_->platform;
+    std::string best;
+    int best_rank = -1;
+    for (const keys::Bound& bound : resolved.actions) {
+        if (!bound.id.starts_with("ui.screen-"))
+            continue;
+        for (const keys::BoundChord& binding : bound.chords) {
+            if (keys::match(binding.chord, input, keyboard, where) == keys::Match::none)
+                continue;
+            const int ranked = keys::rank(binding.chord);
+            if (ranked > best_rank) {
+                best_rank = ranked;
+                best = bound.id;
+            }
+        }
+    }
+    return best;
+}
+
+void Runtime::set_menu_gui(std::string_view path) {
+    menu_gui_stems_.clear();
+    add_menu_gui(path);
+}
+
+void Runtime::add_menu_gui(std::string_view path) {
+    if (path.empty())
+        return;
+    std::string stem = menu_stem_of(path);
+    if (stem.empty())
+        return;
+    for (const std::string& have : menu_gui_stems_) {
+        if (have == stem)
+            return;
+    }
+    menu_gui_stems_.push_back(std::move(stem));
 }
 
 bool Runtime::action_key_held(std::string_view action) {

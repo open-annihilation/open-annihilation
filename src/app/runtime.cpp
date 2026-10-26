@@ -1337,18 +1337,25 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     };
 
     [[maybe_unused]] FedGuard fed_guard{match_key_already_fed_};
-    if (key_event)
+    if (key_event || event.type == SDL_EVENT_MOUSE_WHEEL)
         match_key_already_fed_ = true;
     dispatch_after_actions(event, running);
 }
 
 void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
-    // Alt+Enter switches between full screen and a window on every screen,
-    // before the screen or a screen package sees the key; its repeats reach
-    // no screen either, so a held Alt+Enter never opens the chat line or
-    // presses a dialog's default button.
+    // The full-screen action switches between full screen and a window on
+    // every screen, before the screen or a screen package sees the key; its
+    // repeats reach no screen either, so a held chord never opens the chat
+    // line or presses a dialog's default button.
     if (take_full_screen_event(event))
         return;
+    // The settings action opens Settings on every screen, as Alt+Enter
+    // switches full screen, and before a screen sees the key. The Library
+    // open over Settings is the exception: that screen goes back to Settings.
+    if (take_settings_action()) {
+        apply_screen_request();
+        return;
+    }
     // The macOS application menu's Settings… item asks for the settings on
     // whatever screen shows.
     if (take_engine_settings_request(event)) {
@@ -1853,6 +1860,7 @@ void Runtime::load(Screen screen) {
             layout, "", desc->assets.palette, desc->assets.sprites, desc->assets.shared_sprites
         };
         resources_ = renderer::load_screen(assets_, names);
+        set_menu_gui(layout);
         // The panel's pictures in the shown language.
         caption_gaf_pictures(names.sprites, resources_.sprites);
         caption_gaf_pictures(names.shared_sprites, resources_.shared_sprites);
@@ -1866,6 +1874,8 @@ void Runtime::load(Screen screen) {
         // is not needed.
         if (background != nullptr)
             std::ignore = load_named_background(background, false, false, false);
+    } else {
+        set_menu_gui("");
     }
     if (desc->enter != nullptr)
         desc->enter(&context, desc->state);

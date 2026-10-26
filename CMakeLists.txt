@@ -3757,6 +3757,19 @@ endforeach()
       set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Escape still closes the chat line and Settings when every other key
+      # the layout names has moved.
+      set(oa_key_table_escape_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-escape-kept")
+      file(MAKE_DIRECTORY "${oa_key_table_escape_dir}")
+      add_test(NAME native-key-table-escape-kept COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/escape-kept.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/escape-kept"
+        --preferences-file "${oa_key_table_escape_dir}/key-table.conf")
+      set_tests_properties(native-key-table-escape-kept PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_escape_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same rows with Attack on Q and Stop on J.
       set(oa_key_table_moved_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-moved-orders")
       file(MAKE_DIRECTORY "${oa_key_table_moved_dir}")

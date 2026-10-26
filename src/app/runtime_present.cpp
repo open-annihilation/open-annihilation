@@ -394,7 +394,19 @@ void Runtime::initialize_sdl() {
 }
 
 bool Runtime::take_full_screen_event(const SDL_Event& event) {
-    return oa::app::take_full_screen_event(sdl_.window, full_screen_switch_, event);
+    const bool key_event = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;
+    // Loading and a movie hand the event here without the run's feed. The
+    // layout's chord is known only after that feed. A key the bindings hold
+    // back is not the switch until they admit it; its release is still taken,
+    // so a held chord's key can come up.
+    if (key_event && !match_key_already_fed_ && feed_input_actions(event) &&
+        event.type == SDL_EVENT_KEY_DOWN)
+        return false;
+    const oa::ui::key_bindings::ActionEvent* full_screen = fired_action("ui.full-screen");
+    const bool switch_chord = event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat &&
+                              full_screen != nullptr &&
+                              full_screen->phase == oa::ui::key_bindings::Phase::pressed;
+    return oa::app::take_full_screen_event(sdl_.window, full_screen_switch_, event, switch_chord);
 }
 
 void Runtime::trace_window(std::string_view reason) {

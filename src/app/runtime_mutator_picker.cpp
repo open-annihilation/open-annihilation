@@ -64,13 +64,6 @@ namespace kit = oa::ui::kit;
 namespace picker = oa::ui::mutator_picker;
 namespace library = oa::ui::library;
 
-/// The modifier that holds Find: Cmd on macOS, Ctrl elsewhere.
-#ifdef SDL_PLATFORM_MACOS
-constexpr uint16_t kCommandModifier = SDL_KMOD_GUI;
-#else
-constexpr uint16_t kCommandModifier = SDL_KMOD_CTRL;
-#endif
-
 /// The setting a mutator uses when its manifest names no clash mode.
 constexpr std::string_view kClashPreference = "mutators.clash-default";
 
@@ -1040,18 +1033,15 @@ struct Runtime::MutatorPickerScreen final : LayerScreen {
         return take(picker::picker_key(picker_, state_, list_, pressed));
     }
 
-    LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
-        std::optional<picker::ScreenCommand> command;
-        if (sdl_key == SDLK_F && (modifiers & kCommandModifier) != 0)
-            command = picker::ScreenCommand::find;
-        else if (
-            sdl_key == SDLK_SLASH && (modifiers & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) == 0 &&
-            !picker::focused_field(state_, list_)
-        )
-            command = picker::ScreenCommand::find;
-        if (!command)
+    LayerAnswer shortcut(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) override {
+        const auto* find = runtime_.fired_action("ui.screen-find");
+        if (find == nullptr)
             return LayerAnswer::pass;
-        return take(picker::picker_command(picker_, state_, list_, *command));
+        const bool typed_slash = find->chord.kind == oa::ui::key_bindings::TriggerKind::character &&
+                                 find->chord.character == U'/' && find->chord.modifiers == 0;
+        if (typed_slash && picker::focused_field(state_, list_))
+            return LayerAnswer::pass;
+        return take(picker::picker_command(picker_, state_, list_, picker::ScreenCommand::find));
     }
 
     LayerAnswer pad_action(oa::ui::pad_controls::Action action) override {

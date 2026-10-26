@@ -537,12 +537,15 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
         }
         return true;
     }
-    // The surrender confirmation answers Enter as No, its Enter default;
-    // escape_match_menu answers its Escape.
-    if (match_paused_ && key.key == SDLK_RETURN && enter_match_menu())
+    // The surrender confirmation answers its accept action as No, its Enter
+    // default; escape_match_menu answers its cancel action.
+    const auto* menu_accept = fired_action("ui.menu-accept");
+    const bool menu_accept_down =
+        menu_accept != nullptr && menu_accept->phase == keys::Phase::pressed;
+    if (match_paused_ && menu_accept_down && enter_match_menu())
         return true;
-    // The unit info panel's Enter and Escape defaults are both DONE, and so
-    // is that button's gui action.
+    // The unit info panel's accept and cancel actions are both DONE, and so
+    // is that button's gui action. Space is the panel's.
     if (unit_info_panel_) {
         const std::string done_action = gui_action_id("UNITINFOx", kUnitInfoDone);
         bool done_pressed = false;
@@ -550,7 +553,10 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
             if (fed.phase == keys::Phase::pressed && fed.action == done_action)
                 done_pressed = true;
         }
-        if (key.key == SDLK_RETURN || key.key == SDLK_ESCAPE || done_pressed) {
+        const auto* menu_cancel = fired_action("ui.menu-cancel");
+        const bool menu_cancel_down =
+            menu_cancel != nullptr && menu_cancel->phase == keys::Phase::pressed;
+        if (menu_accept_down || menu_cancel_down || done_pressed) {
             press_unit_info_done();
             return true;
         }

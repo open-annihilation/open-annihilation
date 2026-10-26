@@ -37,7 +37,7 @@
 #   left-click-default  a pointer role's chord in the left-click interface
 #   target        where a pointer or wheel action lands
 #   gadget        the order-panel gadget word the action presses
-#   fixed         true only for Escape's one fixed job (chat.cancel)
+#   fixed         true only for Escape's fixed job (chat.cancel, ui.screen-cancel)
 #   latchable     a hold or modifier that may latch
 #   confirmable   an action that may require a hold to confirm
 #   repeatable    a repeat action the repeat helper may apply to
@@ -1995,7 +1995,7 @@ actions:
   ui.settings:
     area: window
     order: 1
-    context: [global]
+    context: [global, chat]
     kind: press
     by: letter
     source: [OA]
@@ -2004,7 +2004,7 @@ actions:
   ui.full-screen:
     area: window
     order: 2
-    context: [global]
+    context: [global, chat]
     kind: press
     source: [OA]
     default: ["Alt+Enter"]
@@ -2032,3 +2032,262 @@ actions:
     kind: press
     source: [OA]
     words: {name: "Quit", description: "Quits"}
+  ui.screen-accept:
+    area: window
+    order: 6
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Enter"]
+    words: {name: "Accept", description: "Accepts the screen, or presses the focused control"}
+  ui.screen-cancel:
+    area: window
+    order: 7
+    context: [oa-screens]
+    kind: press
+    source: [OA]
+    default: ["Escape"]
+    fixed: true
+    words: {name: "Cancel screen", description: "Closes the screen on top"}
+  ui.screen-up:
+    area: window
+    order: 8
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Up"]
+    words: {name: "Up", description: "Moves the focus up"}
+  ui.screen-down:
+    area: window
+    order: 9
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Down"]
+    words: {name: "Down", description: "Moves the focus down"}
+  ui.screen-left:
+    area: window
+    order: 10
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Left"]
+    words: {name: "Left", description: "Moves the focus left, or steps a control"}
+  ui.screen-right:
+    area: window
+    order: 11
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Right"]
+    words: {name: "Right", description: "Moves the focus right, or steps a control"}
+  ui.screen-press:
+    area: window
+    order: 12
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Space"]
+    words: {name: "Press", description: "Presses the focused control"}
+  ui.screen-focus-next:
+    area: window
+    order: 13
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Tab"]
+    words: {name: "Next control", description: "Moves the focus to the next control"}
+  ui.screen-focus-previous:
+    area: window
+    order: 14
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Shift+Tab"]
+    words: {name: "Previous control", description: "Moves the focus to the previous control"}
+  ui.screen-page-up:
+    area: window
+    order: 15
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["PageUp"]
+    words: {name: "Page up", description: "Scrolls up"}
+  ui.screen-page-down:
+    area: window
+    order: 16
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["PageDown"]
+    words: {name: "Page down", description: "Scrolls down"}
+  ui.screen-home:
+    area: window
+    order: 17
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Home"]
+    words: {name: "Home", description: "Scrolls to the top, or moves to the start of a text field"}
+  ui.screen-end:
+    area: window
+    order: 18
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["End"]
+    words: {name: "End", description: "Scrolls to the end, or moves to the end of a text field"}
+  ui.screen-yes:
+    area: window
+    order: 19
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Y"]
+    words: {name: "Yes", description: "Answers yes"}
+  ui.screen-no:
+    area: window
+    order: 20
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["N"]
+    words: {name: "No", description: "Answers no"}
+  ui.screen-info:
+    area: window
+    order: 21
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["F1"]
+    words: {name: "Information", description: "Shows more about what the focus is on"}
+  ui.screen-paste:
+    area: window
+    order: 22
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Primary+V", "Ctrl+V"]
+    words: {name: "Paste", description: "Pastes the clipboard into the focused text field"}
+  ui.screen-find:
+    area: window
+    order: 23
+    context: [oa-screens]
+    kind: repeat
+    by: letter
+    source: [OA]
+    default: ["Primary+F", "/"]
+    words: {name: "Find", description: "Finds on the screen"}
+  ui.screen-refresh:
+    area: window
+    order: 24
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["F5"]
+    words: {name: "Refresh", description: "Refreshes the screen"}
+  ui.screen-next-tab:
+    area: window
+    order: 25
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Ctrl+Tab"]
+    words: {name: "Next tab", description: "Shows the next tab"}
+  ui.screen-previous-tab:
+    area: window
+    order: 26
+    context: [oa-screens]
+    kind: repeat
+    source: [OA]
+    default: ["Ctrl+Shift+Tab"]
+    words: {name: "Previous tab", description: "Shows the previous tab"}
+  ui.menu-accept:
+    area: menus
+    order: 1
+    context: [menus, panel, unit-info]
+    kind: press
+    source: [3.1c]
+    default: ["Enter"]
+    words: {name: "Accept", description: "Presses the focused button, or the screen's default"}
+  ui.menu-cancel:
+    area: menus
+    order: 2
+    context: [menus, panel, unit-info]
+    kind: repeat
+    source: [3.1c]
+    default: ["Escape"]
+    words: {name: "Cancel menu", description: "Closes the menu, or answers its cancel"}
+  ui.menu-press:
+    area: menus
+    order: 3
+    context: [menus, panel, unit-info]
+    kind: press
+    source: [3.1c]
+    default: ["Space"]
+    words: {name: "Press button", description: "Presses the focused button"}
+  ui.menu-focus-next:
+    area: menus
+    order: 4
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Tab"]
+    words: {name: "Next button", description: "Moves the focus to the next button"}
+  ui.menu-focus-previous:
+    area: menus
+    order: 5
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Shift+Tab"]
+    words: {name: "Previous button", description: "Moves the focus to the previous button"}
+  ui.menu-focus-up:
+    area: menus
+    order: 6
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    words: {name: "Focus up", description: "Moves the focus up. Up itself steps a list"}
+  ui.menu-focus-down:
+    area: menus
+    order: 7
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    words: {name: "Focus down", description: "Moves the focus down. Down itself steps a list"}
+  ui.menu-focus-left:
+    area: menus
+    order: 8
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Left"]
+    words: {name: "Focus left", description: "Moves the focus left from a button"}
+  ui.menu-focus-right:
+    area: menus
+    order: 9
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Right"]
+    words: {name: "Focus right", description: "Moves the focus right from a button"}
+  ui.menu-list-up:
+    area: menus
+    order: 10
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Up", "WheelUp"]
+    words: {name: "List up", description: "Steps a list up, or moves the focus up from a button"}
+  ui.menu-list-down:
+    area: menus
+    order: 11
+    context: [menus]
+    kind: repeat
+    source: [3.1c]
+    default: ["Down", "WheelDown"]
+    words: {name: "List down", description: "Steps a list down, or moves the focus down from a button"}

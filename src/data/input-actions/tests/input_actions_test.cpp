@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The generated action table: its count and order, the rows the catalogue
-// calls out, the one fixed chord, and the exclusive conditions.
+// calls out, Escape's fixed chords, and the exclusive conditions.
 
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/test/check.hpp"
@@ -18,7 +18,7 @@ namespace actions = oa::data::input_actions;
 
 // The catalogue's ranges, written out. select.category-<x> is a family, and
 // watch.player-view-<n> is the one action watch.player-view.
-constexpr size_t catalogue_count = 198;
+constexpr size_t catalogue_count = 230;
 
 /// Compares a chord list with the chords the test names.
 ///
@@ -144,6 +144,17 @@ int main() {
         const std::string_view want[]{"Escape"};
         OA_CHECK(same_chords(cancel->defaults, want));
     }
+    const actions::Action* screen_cancel = actions::find("ui.screen-cancel");
+    OA_CHECK(screen_cancel != nullptr);
+    if (screen_cancel != nullptr) {
+        OA_CHECK(screen_cancel->fixed);
+        const std::string_view want[]{"Escape"};
+        OA_CHECK(same_chords(screen_cancel->defaults, want));
+    }
+    const actions::Action* menu_cancel = actions::find("ui.menu-cancel");
+    OA_CHECK(menu_cancel != nullptr);
+    if (menu_cancel != nullptr)
+        OA_CHECK(!menu_cancel->fixed);
 
     const actions::Action* settings = actions::find("ui.settings");
     OA_CHECK(settings != nullptr);
@@ -166,7 +177,7 @@ int main() {
         OA_CHECK(!quit->fixed);
     }
     for (const actions::Action& action : rows) {
-        if (action.id == "chat.cancel")
+        if (action.id == "chat.cancel" || action.id == "ui.screen-cancel")
             OA_CHECK(action.fixed);
         else
             OA_CHECK(!action.fixed);

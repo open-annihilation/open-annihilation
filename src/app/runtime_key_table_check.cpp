@@ -98,6 +98,7 @@ struct Prepared {
     bool marker = false;
     bool macos = false;
     bool escape_menu = false;
+    bool settings = false;
 };
 
 struct TableRow {
@@ -208,6 +209,7 @@ SDL_Scancode scancode_named(std::string_view name) {
         {"G", SDL_SCANCODE_G},
         {"H", SDL_SCANCODE_H},
         {"I", SDL_SCANCODE_I},
+        {"J", SDL_SCANCODE_J},
         {"K", SDL_SCANCODE_K},
         {"L", SDL_SCANCODE_L},
         {"M", SDL_SCANCODE_M},
@@ -554,6 +556,8 @@ Prepared parse_setup(std::string_view text) {
             prepared.debug_keys = true;
         else if (key == "escape-menu" && value.empty())
             prepared.escape_menu = true;
+        else if (key == "screen" && value == "settings")
+            prepared.settings = true;
         else
             fail("unknown setup word " + std::string(word));
     }
@@ -1442,6 +1446,11 @@ void Runtime::check_key_table() {
                 tap(SDL_SCANCODE_F1, SDL_KMOD_NONE, false);
             if (prepared.unit_info && !self.unit_info_panel_)
                 fail(row.id + " did not open the unit info");
+            if (prepared.settings) {
+                self.open_engine_settings_in_match();
+                if (self.engine_settings_dialog() == nullptr)
+                    fail(row.id + " did not open the settings");
+            }
             if (row.id == "whiteboard.wipe" || row.id == "whiteboard.move" ||
                 row.id == "whiteboard.erase") {
                 const auto at = battlefield_centre();
