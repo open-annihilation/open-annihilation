@@ -17217,3 +17217,243 @@
 	es={name} · {n} cambios tuyos;
 	it={name} · {n} modifiche tue;
 	}
+
+[A key counts only after it is held this long. For a hand that brushes keys.]
+	{
+	de=Eine Taste zählt erst, wenn du sie so lange hältst. Für eine Hand, die Tasten streift.;
+	fr=Une touche ne compte qu'après être tenue aussi longtemps. Pour une main qui frôle les touches.;
+	es=Una tecla cuenta solo cuando la mantienes pulsada este tiempo. Para una mano que roza las teclas.;
+	it=Un tasto conta solo dopo che lo tieni premuto così a lungo. Per una mano che sfiora i tasti.;
+	}
+
+[A second press of the same key this soon is ignored.]
+	{
+	de=Ein zweiter Druck derselben Taste so kurz danach wird übergangen.;
+	fr=Une deuxième pression de la même touche, si tôt, est ignorée.;
+	es=Una segunda pulsación de la misma tecla tan pronto se ignora.;
+	it=Una seconda pressione dello stesso tasto, così presto, viene ignorata.;
+	}
+
+[A tapped Shift, Ctrl or Alt holds for the next key or click. Tap twice to lock it.]
+	{
+	de=Ein angetipptes Umschalt, Strg oder Alt bleibt für die nächste Taste oder den nächsten Klick. Tippe zweimal, um es festzuhalten.;
+	fr=Un appui bref sur Maj, Ctrl ou Alt reste pour la touche ou le clic suivant. Appuie deux fois pour le verrouiller.;
+	es=Un toque en Mayús, Ctrl o Alt se queda para la siguiente tecla o clic. Toca dos veces para fijarlo.;
+	it=Un tocco su Maiusc, Ctrl o Alt resta per il tasto o il clic successivo. Tocca due volte per bloccarlo.;
+	}
+
+[ACCESSIBILITY]
+	{
+	de=BARRIEREFREIHEIT;
+	fr=ACCESSIBILITÉ;
+	es=ACCESIBILIDAD;
+	it=ACCESSIBILITÀ;
+	}
+
+[Accessibility]
+	{
+	de=Barrierefreiheit;
+	fr=Accessibilité;
+	es=Accesibilidad;
+	it=Accessibilità;
+	}
+
+[Bounce keys]
+	{
+	de=Prellende Tasten;
+	fr=Touches à rebond;
+	es=Teclas con rebote;
+	it=Tasti a rimbalzo;
+	}
+
+[CHOOSE…]
+	{
+	de=WÄHLEN…;
+	fr=CHOISIR…;
+	es=ELEGIR…;
+	it=SCEGLI…;
+	}
+
+[Double press]
+	{
+	de=Doppeldruck;
+	fr=Double appui;
+	es=Doble pulsación;
+	it=Doppia pressione;
+	}
+
+[Drag threshold]
+	{
+	de=Ziehgrenze;
+	fr=Seuil de glisser;
+	es=Umbral de arrastre;
+	it=Soglia di trascinamento;
+	}
+
+[Edge scrolling]
+	{
+	de=Randscrollen;
+	fr=Défilement au bord;
+	es=Desplazamiento en el borde;
+	it=Scorrimento al bordo;
+	}
+
+[Hold keys that latch]
+	{
+	de=Tasten, die einrasten;
+	fr=Touches qui s'enclenchent;
+	es=Teclas que se quedan;
+	it=Tasti che restano;
+	}
+
+[Hold middle]
+	{
+	de=Mitte halten;
+	fr=Maintenir milieu;
+	es=Mantener centro;
+	it=Tieni centro;
+	}
+
+[Hold right]
+	{
+	de=Rechts halten;
+	fr=Maintenir droit;
+	es=Mantener der.;
+	it=Tieni destro;
+	}
+
+[Holding a mouse button opens the order wheel at the pointer.]
+	{
+	de=Eine gehaltene Maustaste öffnet das Befehlsrad am Zeiger.;
+	fr=Maintenir un bouton de la souris ouvre la roue des ordres au pointeur.;
+	es=Mantener un botón del ratón abre la rueda de órdenes en el puntero.;
+	it=Tenere premuto un pulsante del mouse apre la ruota degli ordini sul puntatore.;
+	}
+
+[How far a press may move and still be a click.]
+	{
+	de=Wie weit ein Druck wandern darf und trotzdem ein Klick bleibt.;
+	fr=Jusqu'où un appui peut bouger et rester un clic.;
+	es=Cuánto puede moverse una pulsación y seguir siendo un clic.;
+	it=Quanto può spostarsi una pressione e restare un clic.;
+	}
+
+[How long a hold is: hold to confirm, and keys bound to a hold.]
+	{
+	de=Wie lange ein Halten dauert: Halten zum Bestätigen, und Tasten, die an ein Halten gebunden sind.;
+	fr=Combien de temps dure un maintien : maintenir pour confirmer, et les touches liées à un maintien.;
+	es=Cuánto dura una pulsación larga: mantener para confirmar, y las teclas ligadas a un mantenimiento.;
+	it=Quanto dura una pressione: tieni premuto per confermare, e i tasti legati a una pressione.;
+	}
+
+[How soon a held camera, speed or page key repeats, and how fast.]
+	{
+	de=Wie bald eine gehaltene Kamera-, Geschwindigkeits- oder Seitentaste sich wiederholt, und wie schnell.;
+	fr=Après combien de temps une touche de caméra, de vitesse ou de page tenue se répète, et à quel rythme.;
+	es=Cuándo empieza a repetirse una tecla de cámara, de velocidad o de página mantenida, y a qué ritmo.;
+	it=Dopo quanto un tasto di camera, di velocità o di pagina tenuto si ripete, e quanto in fretta.;
+	}
+
+[Key repeat delay]
+	{
+	de=Tastenwiederholung, Verzögerung;
+	fr=Délai de répétition;
+	es=Retardo de repetición;
+	it=Ritardo di ripetizione;
+	}
+
+[Key repeat rate]
+	{
+	de=Tastenwiederholung, Tempo;
+	fr=Vitesse de répétition;
+	es=Velocidad de repetición;
+	it=Velocità di ripetizione;
+	}
+
+[Long press]
+	{
+	de=Langes Halten;
+	fr=Appui long;
+	es=Pulsación larga;
+	it=Pressione lunga;
+	}
+
+[Off stops the view scrolling while the pointer rests at the window's edge.]
+	{
+	de=Aus hält die Ansicht an, solange der Zeiger am Fensterrand ruht.;
+	fr=Arrêt arrête le défilement de la vue tant que le pointeur repose au bord de la fenêtre.;
+	es=Apagado detiene el desplazamiento de la vista mientras el puntero descansa en el borde de la ventana.;
+	it=Spento ferma lo scorrimento della vista mentre il puntatore resta sul bordo della finestra.;
+	}
+
+[Order wheel]
+	{
+	de=Befehlsrad;
+	fr=Roue des ordres;
+	es=Rueda de órdenes;
+	it=Ruota degli ordini;
+	}
+
+[Queue and the status strip latch: tap on, tap off. A chip shows each one on.]
+	{
+	de=Warteschlange und die Statusleiste rasten ein: tippen an, tippen aus. Ein Plättchen zeigt jede an.;
+	fr=La file et la barre d'état s'enclenchent : un appui allume, un appui éteint. Une pastille montre chacune allumée.;
+	es=La cola y la barra de estado se quedan: un toque enciende, un toque apaga. Una ficha muestra cada una encendida.;
+	it=La coda e la barra di stato restano: un tocco accende, un tocco spegne. Un tassello mostra ciascuna accesa.;
+	}
+
+[Self-destruct, surrender and quitting need a long press. A ring fills as you hold.]
+	{
+	de=Selbstzerstörung, Aufgabe und Beenden brauchen ein langes Halten. Ein Ring füllt sich, während du hältst.;
+	fr=L'autodestruction, l'abandon et quitter demandent un appui long. Un anneau se remplit pendant que tu maintiens.;
+	es=La autodestrucción, la rendición y salir necesitan una pulsación larga. Un anillo se llena mientras mantienes.;
+	it=L'autodistruzione, la resa e l'uscita chiedono una pressione lunga. Un anello si riempie mentre tieni premuto.;
+	}
+
+[Slow keys]
+	{
+	de=Langsame Tasten;
+	fr=Touches lentes;
+	es=Teclas lentas;
+	it=Tasti lenti;
+	}
+
+[Sticky modifiers]
+	{
+	de=Einrastende Zusatztasten;
+	fr=Modificateurs rémanents;
+	es=Modificadores persistentes;
+	it=Modificatori permanenti;
+	}
+
+[The numpad moves the pointer; 5 clicks, 0 right-clicks.]
+	{
+	de=Das Ziffernfeld bewegt den Zeiger. 5 klickt, 0 klickt rechts.;
+	fr=Le pavé numérique déplace le pointeur. 5 clique, 0 clique à droite.;
+	es=El teclado numérico mueve el puntero. 5 hace clic, 0 hace clic derecho.;
+	it=Il tastierino sposta il puntatore. 5 fa clic, 0 fa clic destro.;
+	}
+
+[Two presses this close are a double press, and two clicks a double click.]
+	{
+	de=Zwei Drücke so kurz nacheinander sind ein Doppeldruck, und zwei Klicks ein Doppelklick.;
+	fr=Deux appuis aussi rapprochés sont un double appui, et deux clics un double clic.;
+	es=Dos pulsaciones tan seguidas son una doble pulsación, y dos clics un doble clic.;
+	it=Due pressioni così ravvicinate sono una doppia pressione, e due clic un doppio clic.;
+	}
+
+[a second]
+	{
+	de=pro Sekunde;
+	fr=par seconde;
+	es=por segundo;
+	it=al secondo;
+	}
+
+[px]
+	{
+	de=px;
+	fr=px;
+	es=px;
+	it=px;
+	}

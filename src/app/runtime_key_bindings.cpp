@@ -3200,4 +3200,16 @@ bool Runtime::save_key_editor(const editor::SaveResult& saved, std::string& erro
     return true;
 }
 
+uint32_t Runtime::latched_action_count() const {
+    if (key_bindings_state_ == nullptr)
+        return 0;
+    uint32_t count = 0;
+    for (const std::string& id : key_bindings_state_->toggle) {
+        const oa::data::input_actions::Action* action = oa::data::input_actions::find(id);
+        if (action != nullptr && action->latchable)
+            ++count;
+    }
+    return count;
+}
+
 } // namespace oa::app

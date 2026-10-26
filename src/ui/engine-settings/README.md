@@ -68,6 +68,19 @@ the locks a running game puts on them (`settings_locks`).
 | | HUD scaling: whether a game's side column and bars grow with the window, up to twice the original game's size, or keep its size | Off, On | On | `open-annihilation.hud-scaling` |
 | | Interface size, a drop-down, when OK is pressed: how large Open Annihilation's own screens (Settings, its notices and its prompts) are drawn, held to the largest step at which Compact's dialog fits the window, and in a match Settings no larger than the side column's scale ([Sizes](#sizes)) | Auto (the window's own scale), 100%, 150% (offered only while the dialog shows Use modern fonts for game text On), 200%, 300%, 400% | Auto | `open-annihilation.interface-size` (`automatic`, `100`, `150`, `200`, `300` or `400`; `150` read with the modern fonts Off reads as 100%; any other text, `0` among them, reads as Auto) |
 | | Escape opens the game menu | Off, On | On on macOS, Off elsewhere and with `--preferences-file` | `open-annihilation.escape-opens-menu` |
+| Accessibility, listed in every dialog of the engine's settings, after User Interface and before Touch | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and CHOOSE…, which opens the key editor on Latchable. EDIT KEYS… on Key layout still opens on All | the count, as "2 of 7", and CHOOSE… | | none. The count is the host's (`Dialog::latched_count`) |
+| | Sticky modifiers: a tapped Shift, Ctrl or Alt holds for the next key or click; a second tap locks it | Off, On | Off | `open-annihilation.access.sticky-modifiers` |
+| | Hold to confirm: self-destruct, surrender and quitting need a long press, and a ring fills while it is held | Off, On | Off | `open-annihilation.access.hold-to-confirm` |
+| | Long press: how long a hold is, for Hold to confirm and for keys bound to a hold | 200 to 1000 ms, steps of 50 | 500 ms | `open-annihilation.access.long-press-ms` |
+| | Slow keys: a key counts only after it is held this long | Off, then 50 to 1000 ms, steps of 50 | Off | `open-annihilation.access.slow-keys-ms` |
+| | Bounce keys: a second press of the same key this soon is ignored | Off, then 50 to 1000 ms, steps of 50 | Off | `open-annihilation.access.bounce-keys-ms` |
+| | Order wheel: holding that mouse button opens the order wheel at the pointer | Off, Hold right, Hold middle | Off | `open-annihilation.access.order-wheel` (`off`, `hold-right` or `hold-middle`) |
+| | Pointer keys: the numpad moves the pointer; 5 clicks, 0 right-clicks | Off, On | Off | `open-annihilation.access.pointer-keys` |
+| | Double press: how close two presses, or two clicks, are and still count as one double | System (the system's double-click time), then 200 to 1000 ms, steps of 50 | System | `open-annihilation.access.double-press-ms` |
+| | Key repeat delay: how soon a held camera, speed or page key repeats | System (the system's repeat), then 150 to 1000 ms, steps of 50 | System | `open-annihilation.access.repeat-delay-ms` |
+| | Key repeat rate: how fast that key then repeats | System (the system's repeat), then 2 to 30 a second | System | `open-annihilation.access.repeat-rate` |
+| | Drag threshold: how far a press may move and still be a click | 32 to 96 px, steps of 8 | 32 px | `open-annihilation.access.drag-threshold` |
+| | Edge scrolling: Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys, and the touch edge band while a drag is held, keep moving the view | Off, On | On | `open-annihilation.access.edge-scroll` |
 | Touch, listed only while the game has touch controls | One-finger drag | Automatic (a selection box on a tablet, scrolling on a phone), Box, Scroll | Automatic | `open-annihilation.touch-drag` (`automatic`, `box` or `scroll`) |
 | | Hold delay | 250 to 700 ms, steps of 50; a stored delay is held to the range and put on its nearest step | 350 ms | `open-annihilation.touch-hold-delay` |
 | | QUEUE and ADD | Stay on, One action | Stay on | `open-annihilation.touch-latches` (`stay-on` or `one-action`) |
@@ -461,9 +474,9 @@ edge and hairline rules, and one green accent for what is selected:
   ANNIHILATION SETTINGS" and the version, with "Shared game - still
   running" in amber while a shared game keeps running;
 - the sections down the left (Controls, Engine Limits, Language & Text,
-  Graphics, User Interface, Touch while the game has touch controls,
-  Controller once a gamepad has sent input, and Game files where the host
-  lists it, then Downloads, Updates, Game Content, then System),
+  Graphics, User Interface, Accessibility, Touch while the game has touch
+  controls, Controller once a gamepad has sent input, and Game files where
+  the host lists it, then Downloads, Updates, Game Content, then System),
   Developer at the foot after a line, the open one marked;
 - the open section's heading and rows: a label, a hint of one or two lines,
   and an Off/On switch, a level strip (Off, 2x, 4x, 8x, 16x for Enhanced
@@ -518,23 +531,22 @@ focus, and a press on it leaves the focus where it is. While a press is held
 the wheel and the scroll keys do nothing, so only a drag of the scroll bar
 scrolls then. No scroll changes a setting or moves the focus.
 
-Controls are numbered: the sections' entries 0 to 12, each its place among
+Controls are numbered: the sections' entries 0 to 13, each its place among
 the sections with Touch, Controller, Game files, Downloads, System, Game
-Content and Updates whether or not the first three are listed (Touch 5,
-Controller 6, Developer 7, Game files 8, Downloads 9, System 10, Game
-Content 11, Updates 12, so a dialog without Touch has no control 5, one
-without Controller no control 6, and one without Game files no control 8).
-Touch, Controller and Developer keep their numbers in every dialog (a
-mod's options' 0 to 4). Restore defaults is 13, Cancel 14, OK 15, the
-scroll bar 16, and the open section's rows from 17, with no upper end. The
-list draws its entries by their place in the list it shows, and the focus
-walks that list, so the dialog without Touch, Controller or Game files
-draws and answers exactly as it did before they were added. Downloads,
-Updates, Game Content and System are always in that list. At Compact, the
-list of thirteen sections (Touch, Controller and Game files all listed)
+Content, Updates and Accessibility whether or not the first three are
+listed (Touch 5, Controller 6, Developer 7, Game files 8, Downloads 9,
+System 10, Game Content 11, Updates 12, Accessibility 13, so a dialog
+without Touch has no control 5, one without Controller no control 6, and
+one without Game files no control 8). Touch, Controller and Developer keep
+their numbers in every dialog (a mod's options' 0 to 4). Restore defaults
+is 14, Cancel 15, OK 16, the scroll bar 17, and the open section's rows
+from 18, with no upper end. The list draws its entries by their place in
+the list it shows, and the focus walks that list. Downloads, Updates, Game
+Content, System and Accessibility are always in that list. At Compact, the
+list of fourteen sections (Touch, Controller and Game files all listed)
 scrolls, the open entry kept in view and Developer pinned under the
-divider. A shorter list keeps the layout it had: gaps while the gapped
-entries fit, and no gaps once they would pass the divider.
+divider. A shorter list keeps gaps while the gapped entries fit, and no
+gaps once they would pass the divider.
 
 The Touch section is listed only while the game has touch controls:
 `Dialog::touch`, which the host gives `open_dialog` and keeps with
@@ -1367,7 +1379,7 @@ lock, and lists that scroll or open over their field;
 the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's five rows, Menu scaling, Window frame, HUD scaling, Interface size and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Interface size's drop-down
+the requests to try the graphics card afresh; User Interface's five rows, Menu scaling, Window frame, HUD scaling, Interface size and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's thirteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while EDIT KEYS… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the
@@ -1499,9 +1511,10 @@ alone, unlocked, at Compact and 2× (960 by 648), in the installed game's
 fonts (`OA_GAME_DIR`). The header shows the shipped app icon, the plates,
 cropped to the pixels that show (`branding/open-annihilation-256.png`). It writes one PNG a section, under the names
 `docs/images/settings/` uses (`controls-1.png`, `language-1.png`,
-`graphics-1.png`, `downloads-1.png`, `system-1.png`, `updates-1.png`, and
+`graphics-1.png`, `downloads-1.png`, `system-1.png`, `updates-1.png`,
+`accessibility-1.png`, and
 `page_word` plus `.png` for the others), and `controls-2.png`,
-`downloads-2.png`, `system-2.png` with those sections scrolled to their
+`downloads-2.png`, `system-2.png`, `accessibility-2.png` with those sections scrolled to their
 ends, and `updates-2.png` with a release offered. The
 rows a host fills (Your files, Game files, Downloads' install ID, Game
 Content) are the defaults the manual describes. The data test

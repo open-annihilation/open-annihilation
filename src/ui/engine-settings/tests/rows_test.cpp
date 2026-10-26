@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 103> kExpected{{
+constexpr std::array<Expected, 116> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -176,11 +176,24 @@ constexpr std::array<Expected, 103> kExpected{{
     {Setting::key_layout, RowKind::value_and_button, "Key layout", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::key_layout_for_mod, RowKind::choice, "Key layout with {mod}", 1, 1, 1, 200, 0, false, Lock::none, nullptr},
     {Setting::show_keys_on_buttons, RowKind::toggle, "Show keys on buttons", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::latching, RowKind::value_and_button, "Hold keys that latch", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::sticky_modifiers, RowKind::toggle, "Sticky modifiers", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::hold_to_confirm, RowKind::toggle, "Hold to confirm", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::long_press, RowKind::slider, "Long press", 1, 1, 17, 0, 0, false, Lock::none, nullptr},
+    {Setting::slow_keys, RowKind::slider, "Slow keys", 1, 1, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::bounce_keys, RowKind::slider, "Bounce keys", 1, 1, 21, 0, 0, false, Lock::none, nullptr},
+    {Setting::order_wheel, RowKind::levels, "Order wheel", 1, 1, 3, 76, 3, false, Lock::none, nullptr},
+    {Setting::pointer_keys, RowKind::toggle, "Pointer keys", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::double_press, RowKind::slider, "Double press", 1, 1, 18, 0, 0, false, Lock::none, nullptr},
+    {Setting::repeat_delay, RowKind::slider, "Key repeat delay", 1, 1, 19, 0, 0, false, Lock::none, nullptr},
+    {Setting::repeat_rate, RowKind::slider, "Key repeat rate", 1, 1, 30, 0, 0, false, Lock::none, nullptr},
+    {Setting::drag_threshold, RowKind::slider, "Drag threshold", 1, 1, 9, 0, 0, false, Lock::none, nullptr},
+    {Setting::edge_scroll, RowKind::toggle, "Edge scrolling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::show_keys_on_buttons) + 1,
+    kExpected.size() == static_cast<std::size_t>(Setting::edge_scroll) + 1,
     "every setting has its row"
 );
 
@@ -501,7 +514,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 25> kStoredChoices{{
+constexpr std::array<StoredChoice, 26> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -527,6 +540,7 @@ constexpr std::array<StoredChoice, 25> kStoredChoices{{
     {Setting::zoomed_out_after, settings::key::zoomed_out_after},
     {Setting::window_frame, settings::key::window_frame},
     {Setting::interface_size, settings::key::interface_size},
+    {Setting::order_wheel, settings::key::order_wheel},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {
@@ -661,21 +675,71 @@ void tab_follows_the_dialogs_focus_order() {
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
     OA_CHECK(
-        tab_order(controls) == (std::vector<int32_t>{17, 18, 19, 20, 21,
-                                                     22, 23, 24, 13, 14,
-                                                     15, 0,  1,  2,  3,
-                                                     4,  5,  6,  8,  9,
-                                                     12, 11, 10, 7,  settings::close_x_control})
+        tab_order(controls) ==
+        (std::vector<int32_t>{
+            18, 19, 20, 21, 22, 23, 24, 25, 14, 15, 16, 0, 1,
+            2,  3,  4,  13, 5,  6,  8,  9,  12, 11, 10, 7, settings::close_x_control
+        })
+    );
+    // Accessibility: every row, Bounce keys included, then the footer and the
+    // list. A row below the fold stays in the order, and Tab scrolls it into view.
+    settings::Dialog accessibility = controls;
+    accessibility.page = settings::Page::accessibility;
+    OA_CHECK(
+        tab_order(accessibility) == (std::vector<int32_t>{
+                                        18,
+                                        19,
+                                        20,
+                                        21,
+                                        22,
+                                        23,
+                                        24,
+                                        25,
+                                        26,
+                                        27,
+                                        28,
+                                        29,
+                                        30,
+                                        14,
+                                        15,
+                                        16,
+                                        0,
+                                        1,
+                                        2,
+                                        3,
+                                        4,
+                                        13,
+                                        5,
+                                        6,
+                                        8,
+                                        9,
+                                        12,
+                                        11,
+                                        10,
+                                        7,
+                                        settings::close_x_control
+                                    })
     );
     // Graphics: After zoom, locked while units are drawn whole, takes none.
     settings::Dialog graphics = controls;
     graphics.page = settings::Page::graphics;
-    OA_CHECK(
-        tab_order(graphics) ==
-        (std::vector<int32_t>{17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 28,
-                              29, 30, 31, 32, 33, 13, 14, 15, 0,  1,  2,
-                              3,  4,  5,  6,  8,  9,  12, 11, 10, 7,  settings::close_x_control})
-    );
+    OA_CHECK(tab_order(graphics) == (std::vector<int32_t>{18, 19,
+                                                          20, 21,
+                                                          22, 23,
+                                                          24, 25,
+                                                          26, 27,
+                                                          29, 30,
+                                                          31, 32,
+                                                          33, 34,
+                                                          14, 15,
+                                                          16, 0,
+                                                          1,  2,
+                                                          3,  4,
+                                                          13, 5,
+                                                          6,  8,
+                                                          9,  12,
+                                                          11, 10,
+                                                          7,  settings::close_x_control}));
     // Developer with its first area open: its rows, UI kit gallery's SHOW
     // last of them, its list's headers, Show Active Only and Restore profile
     // values, then the rest.
@@ -685,13 +749,11 @@ void tab_follows_the_dialogs_focus_order() {
     developer.developer.areas_open[0] = 1;
     OA_CHECK(
         tab_order(developer) ==
-        (std::vector<int32_t>{17, 18, 19, 22, 23, 24, 25,
-                              26, 27, 28, 29, 30, 31, 32,
-                              33, 34, 35, 36, 37, 38, 39,
-                              40, 41, 42, 43, 44, 45, 46,
-                              47, 48, 20, 21, 13, 14, 15,
-                              0,  1,  2,  3,  4,  5,  6,
-                              8,  9,  12, 11, 10, 7,  settings::close_x_control})
+        (std::vector<int32_t>{18, 19, 20, 23, 24, 25, 26, 27, 28, 29,
+                              30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+                              40, 41, 42, 43, 44, 45, 46, 47, 48, 49,
+                              21, 22, 14, 15, 16, 0,  1,  2,  3,  4,
+                              13, 5,  6,  8,  9,  12, 11, 10, 7,  settings::close_x_control})
     );
 }
 
@@ -757,10 +819,47 @@ void updates_names_its_ways() {
     );
 }
 
+/// Accessibility's sliders name both ends, and 0 is Off or System.
+void accessibility_captions_name_both_ends() {
+    const settings::Dialog dialog = engine_dialog();
+    const geometry::SettingsModel model = model_of(dialog);
+    const auto caption = [&model](Setting setting, int32_t stop) {
+        return kit::row_caption(geometry::row_spec(setting), model, stop);
+    };
+    const auto last = [&model](Setting setting) {
+        return kit::row_count(geometry::row_spec(setting), model) - 1;
+    };
+    OA_CHECK(caption(Setting::long_press, 0) == "200 ms");
+    OA_CHECK(caption(Setting::long_press, 6) == "500 ms");
+    OA_CHECK(caption(Setting::long_press, last(Setting::long_press)) == "1000 ms");
+    OA_CHECK(caption(Setting::slow_keys, 0) == "Off");
+    OA_CHECK(caption(Setting::slow_keys, last(Setting::slow_keys)) == "1000 ms");
+    OA_CHECK(caption(Setting::bounce_keys, 0) == "Off");
+    OA_CHECK(caption(Setting::bounce_keys, last(Setting::bounce_keys)) == "1000 ms");
+    OA_CHECK(caption(Setting::double_press, 0) == "System");
+    OA_CHECK(caption(Setting::double_press, 1) == "200 ms");
+    OA_CHECK(caption(Setting::double_press, last(Setting::double_press)) == "1000 ms");
+    OA_CHECK(caption(Setting::repeat_delay, 0) == "System");
+    OA_CHECK(caption(Setting::repeat_delay, 1) == "150 ms");
+    OA_CHECK(caption(Setting::repeat_delay, last(Setting::repeat_delay)) == "1000 ms");
+    OA_CHECK(caption(Setting::repeat_rate, 0) == "System");
+    OA_CHECK(caption(Setting::repeat_rate, 1) == "2 a second");
+    OA_CHECK(caption(Setting::repeat_rate, last(Setting::repeat_rate)) == "30 a second");
+    OA_CHECK(caption(Setting::drag_threshold, 0) == "32 px");
+    OA_CHECK(caption(Setting::drag_threshold, last(Setting::drag_threshold)) == "96 px");
+    OA_CHECK(caption(Setting::order_wheel, 0) == "Off");
+    OA_CHECK(caption(Setting::order_wheel, 1) == "Hold right");
+    OA_CHECK(caption(Setting::order_wheel, 2) == "Hold middle");
+    const kit::RowView latch = kit::view_of(geometry::row_spec(Setting::latching), model, {});
+    OA_CHECK(latch.value == "0 of 7");
+    OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "CHOOSE…");
+}
+
 } // namespace
 
 int main() {
     every_setting_has_its_row();
+    accessibility_captions_name_both_ends();
     each_row_reads_its_own_lock();
     every_row_and_choice_has_an_id_of_one_word();
     every_section_names_its_controls_and_keeps_their_order();

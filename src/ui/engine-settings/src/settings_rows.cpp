@@ -12,6 +12,7 @@
 #include "geometry.hpp"
 #include "language_page.hpp"
 
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/platform/display_modes.hpp"
 #include "oa/ui/kit/text.hpp"
@@ -45,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::show_keys_on_buttons) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::edge_scroll) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -118,6 +119,22 @@ constexpr std::array<Setting, 5> kUserInterfaceRows{
     Setting::hud_scaling,
     Setting::interface_size,
     Setting::escape_opens_menu,
+};
+/// Accessibility's rows: the helpers, each applying as it is changed.
+constexpr std::array<Setting, 13> kAccessibilityRows{
+    Setting::latching,
+    Setting::sticky_modifiers,
+    Setting::hold_to_confirm,
+    Setting::long_press,
+    Setting::slow_keys,
+    Setting::bounce_keys,
+    Setting::order_wheel,
+    Setting::pointer_keys,
+    Setting::double_press,
+    Setting::repeat_delay,
+    Setting::repeat_rate,
+    Setting::drag_threshold,
+    Setting::edge_scroll,
 };
 /// Language's rows: the language first, and the text size right
 /// under the switch it needs.
@@ -259,62 +276,34 @@ constexpr std::span<const Setting> kSystemRows = file_types_switchable
 
 /// What each section shows, in Page's order.
 constexpr std::array<std::span<const Setting>, page_count> kPageRows{
-    kControlsRows,
-    kEngineLimitsRows,
-    kLanguageRows,
-    kGraphicsRows,
-    kUserInterfaceRows,
-    kTouchRows,
-    kControllerRows,
-    kDeveloperRows,
-    kGameFilesRows,
-    kDownloadsRows,
-    kSystemRows,
-    {},
-    kUpdatesRows,
-    kModKeysRows,
-    kModPatrolRows,
-    kModGuardRows,
-    kModToolsRows,
-    kModChatRows,
-    {},
+    kControlsRows,      kEngineLimitsRows,  kLanguageRows,   kGraphicsRows,
+    kUserInterfaceRows, kTouchRows,         kControllerRows, kDeveloperRows,
+    kGameFilesRows,     kDownloadsRows,     kSystemRows,     {},
+    kUpdatesRows,       kAccessibilityRows, kModKeysRows,    kModPatrolRows,
+    kModGuardRows,      kModToolsRows,      kModChatRows,    {},
 };
 /// Each section's name, as its list entry shows it, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageNames{
-    "Controls", "Engine Limits", "Language & Text", "Graphics",   "User Interface",
-    "Touch",    "Controller",    "Developer",       "Game files", "Downloads",
-    "System",   "Game Content",  "Updates",         "Keys",       "Patrolling",
-    "Guarding", "Build tools",   "Snap & chat",     "",
+    "Controls",   "Engine Limits", "Language & Text", "Graphics",      "User Interface",
+    "Touch",      "Controller",    "Developer",       "Game files",    "Downloads",
+    "System",     "Game Content",  "Updates",         "Accessibility", "Keys",
+    "Patrolling", "Guarding",      "Build tools",     "Snap & chat",   "",
 };
 /// Each section's heading, in capitals, in Page's order.
 constexpr std::array<std::string_view, page_count> kPageHeadings{
-    "CONTROLS",
-    "ENGINE LIMITS",
-    "LANGUAGE & TEXT",
-    "GRAPHICS",
-    "USER INTERFACE",
-    "TOUCH",
-    "CONTROLLER",
-    "DEVELOPER",
-    "GAME FILES",
-    "DOWNLOADS",
-    "SYSTEM",
-    "GAME CONTENT",
-    "UPDATES",
-    "MOD KEYS",
-    "PATROLLING BUILDERS",
-    "GUARDING BUILDERS",
-    "BUILD TOOLS",
-    "SNAP & CHAT",
-    "",
+    "CONTROLS",          "ENGINE LIMITS", "LANGUAGE & TEXT", "GRAPHICS",
+    "USER INTERFACE",    "TOUCH",         "CONTROLLER",      "DEVELOPER",
+    "GAME FILES",        "DOWNLOADS",     "SYSTEM",          "GAME CONTENT",
+    "UPDATES",           "ACCESSIBILITY", "MOD KEYS",        "PATROLLING BUILDERS",
+    "GUARDING BUILDERS", "BUILD TOOLS",   "SNAP & CHAT",     "",
 };
 /// Each section's automation word, in kebab case, in Page's order.
 /// Engine Limits' word is engine-limits; its enumerator stays common_tweaks.
 constexpr std::array<std::string_view, page_count> kPageWords{
-    "controls",  "engine-limits", "language",  "graphics",   "user-interface",
-    "touch",     "controller",    "developer", "game-files", "downloads",
-    "system",    "game-content",  "updates",   "mod-keys",   "mod-patrol",
-    "mod-guard", "mod-tools",     "mod-chat",  "registered",
+    "controls",   "engine-limits", "language",  "graphics",      "user-interface",
+    "touch",      "controller",    "developer", "game-files",    "downloads",
+    "system",     "game-content",  "updates",   "accessibility", "mod-keys",
+    "mod-patrol", "mod-guard",     "mod-tools", "mod-chat",      "registered",
 };
 static_assert(
     static_cast<std::size_t>(Page::registered) + 1 == page_count,
@@ -355,6 +344,15 @@ constexpr std::array<std::string_view, 3> kViewPastMapEdgeCaptions{"Off", "25%",
 static_assert(
     kViewPastMapEdgeCaptions.size() == view_past_map_edge_choices.size(),
     "every choice of View past the map's edge has its caption"
+);
+/// Order wheel's captions, in kOrderWheelChoices' order.
+constexpr std::array<OrderWheel, 3> kOrderWheelChoices{
+    OrderWheel::off, OrderWheel::hold_right, OrderWheel::hold_middle
+};
+constexpr std::array<std::string_view, 3> kOrderWheelCaptions{"Off", "Hold right", "Hold middle"};
+static_assert(
+    kOrderWheelCaptions.size() == kOrderWheelChoices.size(),
+    "every way of opening the order wheel has its caption"
 );
 /// Fog of War's captions, in fog_of_war_choices' order.
 constexpr std::array<std::string_view, 2> kFogOfWarCaptions{"Classic", "Smooth"};
@@ -589,6 +587,38 @@ struct Linear {
     /// Sets it to a stop's value.
     static void set(SettingsModel& model, int32_t stop) {
         model.settings->*Field = static_cast<Number>(Lowest + on_stops(stop, count(model)) * Step);
+    }
+};
+
+/// A slider whose first stop stores 0 and whose later stops are an equal run
+/// that does not start at 0: the system's own timing, then a range.
+template <uint32_t EngineSettings::* Field, uint32_t First, uint32_t Last, uint32_t Step>
+struct SystemThen {
+    static constexpr int32_t numeric = static_cast<int32_t>((Last - First) / Step + 1);
+
+    /// Returns its stops: the system's own timing, then the run.
+    static int32_t count(const SettingsModel&) { return 1 + numeric; }
+
+    /// Returns the stop nearest its value. 0 is its own stop.
+    static int32_t get(const SettingsModel& model) {
+        const uint32_t value = model.settings->*Field;
+        if (value == 0)
+            return 0;
+        if (value <= First)
+            return 1;
+        const uint32_t steps = static_cast<uint32_t>((value - First + Step / 2) / Step);
+        const uint32_t capped = std::min(steps, static_cast<uint32_t>(numeric - 1));
+        return 1 + static_cast<int32_t>(capped);
+    }
+
+    /// Sets it to a stop's value. The first stop stores 0.
+    static void set(SettingsModel& model, int32_t stop) {
+        const int32_t held = on_stops(stop, count(model));
+        if (held <= 0) {
+            model.settings->*Field = 0;
+            return;
+        }
+        model.settings->*Field = First + static_cast<uint32_t>(held - 1) * Step;
     }
 };
 
@@ -2366,6 +2396,84 @@ constexpr Spec key_layout_for_mod_row() noexcept {
 }
 
 // ---------------------------------------------------------------------------
+// Accessibility.
+
+/// Returns a timing as milliseconds, or Off when it waits nothing.
+template <uint32_t EngineSettings::* Field>
+std::string off_or_ms(const SettingsModel& model) {
+    const uint32_t value = model.settings->*Field;
+    if (value == 0)
+        return std::string(shown_text("Off"));
+    return std::to_string(value) + " " + std::string(shown_text("ms"));
+}
+
+/// Returns a timing as milliseconds.
+template <uint32_t EngineSettings::* Field>
+std::string milliseconds_text(const SettingsModel& model) {
+    return std::to_string(model.settings->*Field) + " " + std::string(shown_text("ms"));
+}
+
+/// Returns a timing as milliseconds, or System when the key stores 0.
+template <uint32_t EngineSettings::* Field>
+std::string system_or_ms(const SettingsModel& model) {
+    const uint32_t value = model.settings->*Field;
+    if (value == 0)
+        return std::string(shown_text("System"));
+    return std::to_string(value) + " " + std::string(shown_text("ms"));
+}
+
+/// Returns how many times a second a key repeats, or System when the key stores 0.
+std::string repeat_rate_text(const SettingsModel& model) {
+    const uint32_t value = model.settings->repeat_rate;
+    if (value == 0)
+        return std::string(shown_text("System"));
+    return std::to_string(value) + " " + std::string(shown_text("a second"));
+}
+
+/// Returns how far a press may move and still be a click.
+std::string drag_threshold_text(const SettingsModel& model) {
+    return std::to_string(model.settings->drag_threshold) + " " + std::string(shown_text("px"));
+}
+
+/// How many actions the registry marks latchable.
+uint32_t latchable_total() {
+    uint32_t count = 0;
+    for (const oa::data::input_actions::Action& action : oa::data::input_actions::actions())
+        if (action.latchable)
+            ++count;
+    return count;
+}
+
+/// Hold keys that latch: how many of the latchable actions are on.
+std::string latching_value(const SettingsModel& model) {
+    const uint32_t on = model.dialog != nullptr ? model.dialog->latched_count : 0;
+    return plain_or_of(latchable_total(), true, on);
+}
+
+/// Hold keys that latch: the count, and CHOOSE….
+constexpr Spec latching_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "latching",
+        "Hold keys that latch",
+        &latching_value,
+        "CHOOSE…",
+        "choose",
+        choose_latch_action,
+        {"Queue and the status strip latch: tap on, tap off. A chip shows each one on.", {}}
+    );
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+using LongPress = Linear<uint32_t, &EngineSettings::long_press_ms, 200, 1000, 50>;
+using SlowKeys = Linear<uint32_t, &EngineSettings::slow_keys_ms, 0, 1000, 50>;
+using BounceKeys = Linear<uint32_t, &EngineSettings::bounce_keys_ms, 0, 1000, 50>;
+using DoublePress = SystemThen<&EngineSettings::double_press_ms, 200, 1000, 50>;
+using RepeatDelay = SystemThen<&EngineSettings::repeat_delay_ms, 150, 1000, 50>;
+using RepeatRate = SystemThen<&EngineSettings::repeat_rate, 2, 30, 1>;
+using DragThreshold = Linear<uint32_t, &EngineSettings::drag_threshold, 32, 96, 8>;
+
+// ---------------------------------------------------------------------------
 // The table.
 
 /// One setting's row: its spec, and what the dialog reads of it besides.
@@ -2754,6 +2862,82 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
          "show-keys-on-buttons",
          "Show keys on buttons",
          {"Order buttons and build cells show their key in a corner.", {}})},
+    {.setting = S::latching, .spec = latching_row()},
+    {.setting = S::sticky_modifiers,
+     .spec = engine_switch<&E::sticky_modifiers>(
+         "sticky-modifiers",
+         "Sticky modifiers",
+         {"A tapped Shift, Ctrl or Alt holds for the next key or click. Tap twice to lock it.", {}}),
+     .copy = &copy_field<&E::sticky_modifiers>},
+    {.setting = S::hold_to_confirm,
+     .spec = engine_switch<&E::hold_to_confirm>(
+         "hold-to-confirm",
+         "Hold to confirm",
+         {"Self-destruct, surrender and quitting need a long press. A ring fills as you hold.", {}}),
+     .copy = &copy_field<&E::hold_to_confirm>},
+    {.setting = S::long_press,
+     .spec = linear<LongPress, &milliseconds_text<&E::long_press_ms>>(
+         "long-press",
+         "Long press",
+         {"How long a hold is: hold to confirm, and keys bound to a hold.", {}}),
+     .copy = &copy_field<&E::long_press_ms>},
+    {.setting = S::slow_keys,
+     .spec = linear<SlowKeys, &off_or_ms<&E::slow_keys_ms>>(
+         "slow-keys",
+         "Slow keys",
+         {"A key counts only after it is held this long. For a hand that brushes keys.", {}}),
+     .copy = &copy_field<&E::slow_keys_ms>},
+    {.setting = S::bounce_keys,
+     .spec = linear<BounceKeys, &off_or_ms<&E::bounce_keys_ms>>(
+         "bounce-keys",
+         "Bounce keys",
+         {"A second press of the same key this soon is ignored.", {}}),
+     .copy = &copy_field<&E::bounce_keys_ms>},
+    {.setting = S::order_wheel,
+     .spec = kit::levels(
+         "order-wheel",
+         "Order wheel",
+         LevelStrip<OrderWheel, 3, kOrderWheelChoices, &E::order_wheel, kOrderWheelCaptions,
+                    &table_word<order_wheel_words, OrderWheel>>::stepper(),
+         order_wheel_level_width,
+         {"Holding a mouse button opens the order wheel at the pointer.", {}}),
+     .copy = &copy_field<&E::order_wheel>},
+    {.setting = S::pointer_keys,
+     .spec = engine_switch<&E::pointer_keys>(
+         "pointer-keys",
+         "Pointer keys",
+         {"The numpad moves the pointer; 5 clicks, 0 right-clicks.", {}}),
+     .copy = &copy_field<&E::pointer_keys>},
+    {.setting = S::double_press,
+     .spec = linear<DoublePress, &system_or_ms<&E::double_press_ms>>(
+         "double-press",
+         "Double press",
+         {"Two presses this close are a double press, and two clicks a double click.", {}}),
+     .copy = &copy_field<&E::double_press_ms>},
+    {.setting = S::repeat_delay,
+     .spec = linear<RepeatDelay, &system_or_ms<&E::repeat_delay_ms>>(
+         "repeat-delay",
+         "Key repeat delay",
+         {"How soon a held camera, speed or page key repeats, and how fast.", {}}),
+     .copy = &copy_field<&E::repeat_delay_ms>},
+    {.setting = S::repeat_rate,
+     .spec = linear<RepeatRate, &repeat_rate_text>(
+         "repeat-rate",
+         "Key repeat rate",
+         {"How soon a held camera, speed or page key repeats, and how fast.", {}}),
+     .copy = &copy_field<&E::repeat_rate>},
+    {.setting = S::drag_threshold,
+     .spec = linear<DragThreshold, &drag_threshold_text>(
+         "drag-threshold",
+         "Drag threshold",
+         {"How far a press may move and still be a click.", {}}),
+     .copy = &copy_field<&E::drag_threshold>},
+    {.setting = S::edge_scroll,
+     .spec = engine_switch<&E::edge_scroll>(
+         "edge-scroll",
+         "Edge scrolling",
+         {"Off stops the view scrolling while the pointer rests at the window's edge.", {}}),
+     .copy = &copy_field<&E::edge_scroll>},
 }};
 // clang-format on
 
@@ -2863,6 +3047,19 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "key-layout",
     "key-layout-for-mod",
     "show-keys-on-buttons",
+    "latching",
+    "sticky-modifiers",
+    "hold-to-confirm",
+    "long-press",
+    "slow-keys",
+    "bounce-keys",
+    "order-wheel",
+    "pointer-keys",
+    "double-press",
+    "repeat-delay",
+    "repeat-rate",
+    "drag-threshold",
+    "edge-scroll",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

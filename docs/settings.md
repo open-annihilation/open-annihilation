@@ -2,10 +2,10 @@
 
 Open Annihilation adds settings of its own to the game: a few controls, the
 unit limit, the language and fonts of the game's text, graphics and the
-size of Open Annihilation's own screens, touch and gamepad controls,
-downloads, whether Open Annihilation looks for a new release, where the
-game keeps your files and which of its file types it opens, and Developer
-Mode. The registries packages come from are a tab
+size of Open Annihilation's own screens, the input helpers, touch and
+gamepad controls, downloads, whether Open Annihilation looks for a new
+release, where the game keeps your files and which of its file types it
+opens, and Developer Mode. The registries packages come from are a tab
 of the Library. They live in one dialog, apart from the game's own
 options, which stay in 3.1c's Options menu. This page shows each section
 of the dialog and says what every setting does, its default, when it takes
@@ -20,7 +20,7 @@ unlocked, at Compact drawn at 2× (960 by 648), with Touch, Controller and
 Game files listed. They are drawn by `oa-ui-engine-settings-pictures`
 ([how to draw them](../src/ui/engine-settings/README.md#the-manuals-pictures)). A section taller
 than the dialog shows its top; Controls, Downloads and System have a second
-picture of their end.
+picture of their end, and Accessibility does too.
 
 ## Contents
 
@@ -31,6 +31,7 @@ picture of their end.
 - [Language & Text](#language)
 - [Graphics](#graphics)
 - [User Interface](#user-interface)
+- [Accessibility](#accessibility)
 - [Touch](#touch)
 - [Controller](#controller)
 - [Game files](#game-files)
@@ -63,13 +64,15 @@ multiplayer game keeps running, and the dialog's header says so in amber:
 "Shared game - still running".
 
 The column on the left lists the sections: Controls, Engine Limits,
-Language & Text, Graphics and User Interface, then Touch while the game
-has touch controls, Controller once a gamepad has been used, and Game
-files in the main menu on an iPhone or an iPad, then Downloads, Updates,
-Game Content, then System, and Developer at its foot under a divider.
-When Touch, Controller and Game files are all listed, that list of
-thirteen sections scrolls so every section can be reached, and Developer
-stays under the line. A shorter list is laid out as before. A section
+Language & Text, Graphics, User Interface and Accessibility, then Touch
+while the game has touch controls, Controller once a gamepad has been
+used, and Game files in the main menu on an iPhone or an iPad, then
+Downloads, Updates, Game Content, then System, and Developer at its foot
+under a divider. When Touch, Controller and Game files are all listed,
+that list of fourteen sections scrolls so every section can be reached,
+and Developer stays under the line. A shorter list keeps gaps while the
+gapped entries fit, and drops them once they would pass the divider. A
+section
 taller than the dialog, such as Graphics, scrolls with the mouse
 wheel, its scroll bar, Page Up, Page Down, Home and End.
 
@@ -687,6 +690,49 @@ applies when you press OK.
   elsewhere. The first Escape cancels an order or clears the selection, as
   in 3.1c; the next opens the in-game menu. Turn it on if F2 is awkward to
   reach, as on many Mac keyboards.
+
+## Accessibility
+
+![The top of the Accessibility section: Hold keys that latch 2 of 7 with CHOOSE…, Sticky modifiers Off, Hold to confirm Off and the start of Long press.](images/settings/accessibility-1.png)
+
+![The end of the Accessibility section: Key repeat rate System, Drag threshold 32 px and Edge scrolling On.](images/settings/accessibility-2.png)
+
+The Accessibility section gathers the input helpers in one place. Each
+setting takes effect at once. The pictures show two of the seven latchable
+actions on, so Hold keys that latch reads "2 of 7".
+
+- **Hold keys that latch** shows how many latchable actions the layout in
+  use has turned on, of how many the game offers, as "2 of 7", and
+  **CHOOSE…**. CHOOSE… opens the key editor on Latchable, over the
+  settings. Key layout's EDIT KEYS… still opens the editor on All. Queue
+  and the status strip latch: tap on, tap off. A chip shows each one on.
+- **Sticky modifiers**, Off or On, Off by default. A tapped Shift, Ctrl or
+  Alt holds for the next key or click. Tap twice to lock it.
+- **Hold to confirm**, Off or On, Off by default. Self-destruct, surrender
+  and quitting need a long press. A ring fills as you hold.
+- **Long press**, 200 to 1000 ms in steps of 50, 500 ms by default: how
+  long a hold is, for Hold to confirm and for keys bound to a hold.
+- **Slow keys**, Off, then 50 to 1000 ms in steps of 50, Off by default. A
+  key counts only after it is held this long, for a hand that brushes
+  keys.
+- **Bounce keys**, Off, then 50 to 1000 ms in steps of 50, Off by default.
+  A second press of the same key this soon is ignored.
+- **Order wheel**, Off, Hold right or Hold middle, Off by default. Holding
+  that mouse button opens the order wheel at the pointer.
+- **Pointer keys**, Off or On, Off by default. The numpad moves the
+  pointer; 5 clicks, 0 right-clicks.
+- **Double press**, System, then 200 to 1000 ms in steps of 50, System by
+  default. System uses the system's double-click time. Two presses this
+  close are a double press, and two clicks a double click.
+- **Key repeat delay**, System, then 150 to 1000 ms in steps of 50, System
+  by default, and **Key repeat rate**, System, then 2 to 30 a second,
+  System by default. System uses the system's repeat. Together they say
+  how soon a held camera, speed or page key repeats, and how fast.
+- **Drag threshold**, 32 to 96 px in steps of 8, 32 px by default: how far
+  a press may move and still be a click.
+- **Edge scrolling**, Off or On, On by default. Off stops the view
+  scrolling while the pointer rests at the window's edge. Arrow keys, and
+  the touch controls' edge band while a drag is held, keep moving the view.
 
 ## Touch
 

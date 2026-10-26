@@ -291,13 +291,21 @@ void section_list_puts_downloads_before_developer() {
                 OA_CHECK(updates + 1 == content);
                 OA_CHECK(content + 1 == system);
                 OA_CHECK(system + 1 == developer);
+                const auto user_interface =
+                    std::find(pages.begin(), pages.end(), Page::user_interface);
+                const auto accessibility =
+                    std::find(pages.begin(), pages.end(), Page::accessibility);
+                OA_CHECK(user_interface != pages.end() && accessibility != pages.end());
+                OA_CHECK(user_interface + 1 == accessibility);
+                OA_CHECK(accessibility < downloads);
                 const int32_t optionals =
                     (touch ? 1 : 0) + (controller ? 1 : 0) + (game_files ? 1 : 0);
-                // Two or three optional sections drop the gap. Three also scroll;
+                // Accessibility makes the plain list ten flowing entries. One
+                // optional section drops the gap; two or three also scroll.
                 // list_item is the content's place, before that scroll.
                 const int32_t stride =
-                    geometry::list_item_height + (optionals >= 2 ? 0 : geometry::list_item_gap);
-                const int32_t downloads_y = geometry::list_first_top + (5 + optionals) * stride;
+                    geometry::list_item_height + (optionals >= 1 ? 0 : geometry::list_item_gap);
+                const int32_t downloads_y = geometry::list_first_top + (6 + optionals) * stride;
                 OA_CHECK(
                     geometry::list_item(Page::downloads, touch, game_files, controller).y ==
                     downloads_y

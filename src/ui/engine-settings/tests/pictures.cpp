@@ -149,7 +149,7 @@ AppIcon load_app_icon() {
 std::string picture_name(Page page) {
     const std::string word(settings::page_word(page));
     if (word == "controls" || word == "language" || word == "graphics" || word == "downloads" ||
-        word == "system" || word == "updates")
+        word == "system" || word == "updates" || word == "accessibility")
         return word + "-1.png";
     return word + ".png";
 }
@@ -190,6 +190,8 @@ void dress(Dialog& dialog) {
     dialog.updates.can_check = true;
     dialog.updates.offered = false;
     dialog.updates.mode = static_cast<int32_t>(settings::UpdateCheck::automatically);
+    // Two of the registry's latchable actions are on, so the row reads "2 of 7".
+    dialog.latched_count = 2;
 }
 
 Dialog section_dialog(Page page) {
@@ -293,13 +295,14 @@ int main(int argc, char** argv) {
             if (!draw_section(dialog, fonts, icon.picture, directory / "updates-2.png"))
                 ok = false;
         }
-        // Controls, Engine Limits, Graphics, Downloads and System scrolled
-        // to their ends: Window edge and Edge stickiness, Weapon types and
-        // Sides under Set by the mod, the water sliders down to Naval
-        // reflections, the downloads' last rows, and the file-type switches
-        // down to Launch files.
+        // Controls, Engine Limits, Graphics, Downloads, System and
+        // Accessibility scrolled to their ends: Window edge and Edge
+        // stickiness, Weapon types and Sides under Set by the mod, the
+        // water sliders down to Naval reflections, the downloads' last
+        // rows, the file-type switches down to Launch files, and Edge
+        // scrolling.
         if (page == Page::controls || page == Page::common_tweaks || page == Page::graphics ||
-            page == Page::downloads || page == Page::system) {
+            page == Page::downloads || page == Page::system || page == Page::accessibility) {
             dialog.scroll[static_cast<std::size_t>(page)] = settings::scroll_limit(dialog);
             const std::string end = std::string(settings::page_word(page)) + "-2.png";
             if (!draw_section(dialog, fonts, icon.picture, directory / end))
