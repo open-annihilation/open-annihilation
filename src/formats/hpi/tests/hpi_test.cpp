@@ -12,14 +12,28 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
 #include <iostream>
+#include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <winioctl.h>
+#endif
 
 namespace {
 
@@ -935,6 +949,51 @@ void asset_store_loose_links() {
     check(store.read("units/loop/units/inside.fbi").bytes == text("inside"), "a loop resolves");
 }
 
+/// A loose folder or file that becomes a link leading outside after the
+/// store listed it is not read, so the archive's file is, as when it was a
+/// link before the listing; a plain file beside it still is.
+void asset_store_loose_links_made_after_listing() {
+    TempDir dir;
+    dir.write("game/maps/near.tnt", text("near"));
+    dir.write("game/units/a.fbi", text("a"));
+    dir.write("game/units/b.fbi", text("b"));
+    dir.write("outside/maps/near.tnt", text("far"));
+    dir.write("outside/secret.fbi", text("secret"));
+    const auto archive = dir.write("game.hpi", archive_of({{"units/a.fbi", text("archived"), 0}}));
+    const auto game = dir.path() / "game";
+    oa::AssetStore store(game);
+    store.mount(archive);
+    check(store.read("maps/near.tnt").bytes == text("near"), "a plain folder is read");
+    check(store.read("units/a.fbi").bytes == text("a"), "a plain file wins over the archive");
+    std::error_code error;
+    fs::remove_all(game / "maps", error);
+    if (!error)
+        fs::create_directory_symlink(dir.path() / "outside" / "maps", game / "maps", error);
+    if (!error)
+        fs::remove(game / "units" / "a.fbi", error);
+    if (!error)
+        fs::create_symlink(dir.path() / "outside" / "secret.fbi", game / "units" / "a.fbi", error);
+    // Some systems report a link made and make none.
+    std::error_code status_error;
+    for (const auto& link : {game / "maps", game / "units" / "a.fbi"})
+        if (!error && !fs::is_symlink(fs::symlink_status(link, status_error)))
+            error = std::make_error_code(std::errc::no_such_file_or_directory);
+    if (error) {
+        std::cout << "skipped the loose links made after listing: " << error.message() << '\n';
+        return;
+    }
+    check(
+        throws([&] { (void)store.read("maps/near.tnt"); }, "asset not found"),
+        "a folder that became a link outside is not read"
+    );
+    check(
+        store.read("units/a.fbi").bytes == text("archived"),
+        "a file that became a link outside gives way"
+    );
+    check(!store.loose_file("units/a.fbi").has_value(), "and is no loose file");
+    check(store.read("units/b.fbi").bytes == text("b"), "a plain file beside it is read");
+}
+
 /// A file over the entry limit is refused before its buffer is made, by
 /// every way the store reads a whole file; one at the limit's size is not.
 void asset_store_refuses_files_over_the_entry_limit() {
@@ -1035,6 +1094,441 @@ void asset_store_loose_listings() {
     );
 }
 
+#ifdef _WIN32
+/// Makes a folder junction through the file system's own calls, and checks
+/// that the system reports the folder as a reparse point.
+///
+/// @param link the junction's path; nothing may exist there
+/// @param target the folder it leads to
+/// @return true when the junction was made
+bool make_junction(const fs::path& link, const fs::path& target) {
+    std::error_code error;
+    fs::path leads_to = fs::absolute(target, error);
+    if (error || ::CreateDirectoryW(link.c_str(), nullptr) == 0)
+        return false;
+    leads_to.make_preferred();
+    // A mount point's reparse data: the tag, the data's length and a
+    // reserved word, then the offsets and lengths in bytes of the target's
+    // NT path and of its plain path, then both paths, each ending in a NUL.
+    const std::wstring substitute = L"\\??\\" + leads_to.wstring();
+    const std::wstring print = leads_to.wstring();
+    constexpr std::size_t kHeaderBytes = 8;
+    constexpr std::size_t kNamesHeaderBytes = 8;
+    const std::size_t substitute_bytes = substitute.size() * sizeof(wchar_t);
+    const std::size_t print_bytes = print.size() * sizeof(wchar_t);
+    const std::size_t names_bytes = substitute_bytes + print_bytes + 2 * sizeof(wchar_t);
+    std::vector<uint8_t> data(kHeaderBytes + kNamesHeaderBytes + names_bytes);
+    const auto put16 = [&](std::size_t at, std::size_t value) {
+        data[at] = static_cast<uint8_t>(value & 0xFFU);
+        data[at + 1] = static_cast<uint8_t>((value >> 8U) & 0xFFU);
+    };
+    oa::base::bytes::store_le32(data.data(), IO_REPARSE_TAG_MOUNT_POINT);
+    put16(4, kNamesHeaderBytes + names_bytes);
+    put16(kHeaderBytes, 0);
+    put16(kHeaderBytes + 2, substitute_bytes);
+    put16(kHeaderBytes + 4, substitute_bytes + sizeof(wchar_t));
+    put16(kHeaderBytes + 6, print_bytes);
+    uint8_t* const names = data.data() + kHeaderBytes + kNamesHeaderBytes;
+    std::memcpy(names, substitute.c_str(), substitute_bytes + sizeof(wchar_t));
+    std::memcpy(
+        names + substitute_bytes + sizeof(wchar_t), print.c_str(), print_bytes + sizeof(wchar_t)
+    );
+    const HANDLE handle = ::CreateFileW(
+        link.c_str(),
+        GENERIC_WRITE,
+        0,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr
+    );
+    bool made = false;
+    if (handle != INVALID_HANDLE_VALUE) {
+        DWORD returned = 0;
+        made = ::DeviceIoControl(
+                   handle,
+                   FSCTL_SET_REPARSE_POINT,
+                   data.data(),
+                   static_cast<DWORD>(data.size()),
+                   nullptr,
+                   0,
+                   &returned,
+                   nullptr
+               ) != 0;
+        ::CloseHandle(handle);
+    }
+    // Some systems accept the call and make no reparse point.
+    const DWORD attributes = ::GetFileAttributesW(link.c_str());
+    made = made && attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+    if (!made)
+        ::RemoveDirectoryW(link.c_str());
+    return made;
+}
+#endif
+
+/// A folder junction that leads outside the loose folder is not read, one
+/// that stays inside is, and a folder that becomes a junction leading
+/// outside after the store listed it is not read, on systems that make
+/// junctions.
+void asset_store_loose_junctions() {
+#ifdef _WIN32
+    TempDir dir;
+    dir.write("game/Units/inside.fbi", text("inside"));
+    dir.write("game/sounds/near.wav", text("near"));
+    dir.write("outside/maps/far.tnt", text("far"));
+    dir.write("outside/sounds/near.wav", text("far"));
+    const auto game = dir.path() / "game";
+    // Each junction is removed before the folder, so that removing the
+    // folder never walks into what a junction leads to.
+    std::vector<fs::path> junctions;
+    const auto junction = [&](const fs::path& link, const fs::path& target) {
+        if (!make_junction(link, target))
+            return false;
+        junctions.push_back(link);
+        return true;
+    };
+    const auto remove_junctions = [&] {
+        for (const auto& made : junctions)
+            ::RemoveDirectoryW(made.c_str());
+    };
+    if (!junction(game / "maps", dir.path() / "outside" / "maps") ||
+        !junction(game / "units2", game / "Units")) {
+        std::cout << "skipped the loose junction cases: no junction made\n";
+        remove_junctions();
+        return;
+    }
+    oa::AssetStore store(game);
+    check(
+        throws([&] { (void)store.read("maps/far.tnt"); }, "asset not found"),
+        "a junction outside is not read"
+    );
+    check(store.read("units2/inside.fbi").bytes == text("inside"), "a junction inside is read");
+    check(store.read("units/inside.fbi").bytes == text("inside"), "a plain folder is read");
+    check(
+        store.read("sounds/near.wav").bytes == text("near"), "a folder is read before it changes"
+    );
+    std::error_code error;
+    fs::remove_all(game / "sounds", error);
+    if (error || !junction(game / "sounds", dir.path() / "outside" / "sounds")) {
+        std::cout << "skipped the junction made after listing: no junction made\n";
+        remove_junctions();
+        return;
+    }
+    check(
+        throws([&] { (void)store.read("sounds/near.wav"); }, "asset not found"),
+        "a folder that became a junction outside is not read"
+    );
+    remove_junctions();
+#endif
+}
+
+/// Folds a resource path as the store's listings do: '\\' as '/', empty
+/// parts and a trailing separator dropped, ASCII letters in lower case.
+///
+/// @param path the path
+/// @return the folded path
+std::string folded_path(std::string_view path) {
+    std::string result;
+    bool previous_slash = true;
+    for (const char raw : path) {
+        const char ch = raw == '\\' ? '/' : raw;
+        if (ch == '/') {
+            if (!previous_slash)
+                result.push_back('/');
+            previous_slash = true;
+            continue;
+        }
+        result.push_back(ch >= 'A' && ch <= 'Z' ? static_cast<char>(ch + ('a' - 'A')) : ch);
+        previous_slash = false;
+    }
+    if (!result.empty() && result.back() == '/')
+        result.pop_back();
+    return result;
+}
+
+/// Lists what a store with no loose files lists from its archives, by
+/// filtering every file record each archive holds.
+///
+/// @param store the store; its folders hold no files and it has no pack layer
+/// @param directory '/'-separated directory
+/// @param extension required suffix, or empty for any
+/// @param recursive true to take files below subfolders too
+/// @return the folded names in mount and stored order, each once
+std::vector<std::string> listed_by_full_scan(
+    const oa::AssetStore& store,
+    std::string_view directory,
+    std::string_view extension,
+    bool recursive
+) {
+    auto prefix = folded_path(directory);
+    if (!prefix.empty())
+        prefix += '/';
+    const auto suffix = folded_path(extension);
+    std::vector<std::string> result;
+    for (std::size_t mount = 0; mount < store.mount_paths().size(); ++mount)
+        for (const auto& entry : store.mounted(mount).entries()) {
+            const auto key = folded_path(entry.path);
+            if (key.starts_with(prefix) &&
+                (recursive || key.find('/', prefix.size()) == std::string::npos) &&
+                (suffix.empty() || key.ends_with(suffix)) &&
+                std::find(result.begin(), result.end(), key) == result.end())
+                result.push_back(key);
+        }
+    return result;
+}
+
+/// Checks that a store lists a directory as the full scan of its archives does.
+///
+/// @param store the store; its folders hold no files and it has no pack layer
+/// @param directory '/'-separated directory
+/// @param extension required suffix, or empty for any
+void check_listing_matches_full_scan(
+    const oa::AssetStore& store, std::string_view directory, std::string_view extension
+) {
+    const std::string what = "'" + std::string(directory) + "' " + std::string(extension);
+    check(
+        store.list_effective_in_mount_order(directory, extension) ==
+            listed_by_full_scan(store, directory, extension, false),
+        "listing " + what + " matches the full scan"
+    );
+    check(
+        store.list_effective_recursive(directory, extension) ==
+            listed_by_full_scan(store, directory, extension, true),
+        "recursive listing " + what + " matches the full scan"
+    );
+}
+
+/// Replaces the one occurrence of a name in an archive's bytes.
+///
+/// @param[in,out] bytes the archive, written with no header key
+/// @param from the name written
+/// @param to the name it becomes, of the same length
+void rename_record(Bytes& bytes, std::string_view from, std::string_view to) {
+    const auto at = std::search(bytes.begin(), bytes.end(), from.begin(), from.end());
+    check(at != bytes.end(), "the archive holds the name " + std::string(from));
+    if (at != bytes.end())
+        std::copy(to.begin(), to.end(), at);
+}
+
+/// A listing takes every record entries() lists under the directory, also
+/// those of a second folder of the same name, a lookup cannot reach, and a
+/// root record whose name holds a separator.
+void asset_store_lists_archive_folders() {
+    TempDir dir;
+    auto bytes = archive_of(
+        {{"guis/a.gui", text("1"), 0},
+         {"guis/sub/d.gui", text("2"), 0},
+         {"guis/e.txt", text("3"), 0},
+         {"gui2/b.gui", text("4"), 0},
+         {"gui2/deep/f.gui", text("5"), 0},
+         {"other/g.gui", text("6"), 0},
+         {"guisxc.gui", text("7"), 0},
+         {"h.gui", text("8"), 0}}
+    );
+    rename_record(bytes, "gui2", "GUIS");
+    rename_record(bytes, "guisxc.gui", "guis\\c.gui");
+    const auto second = archive_of({{"GUIS/A.GUI", text("9"), 0}, {"guis/i.gui", text("0"), 0}});
+    fs::create_directory(dir.path() / "loose");
+    oa::AssetStore store(dir.path() / "loose");
+    store.mount(dir.write("first.hpi", bytes));
+    store.mount(dir.write("second.hpi", second));
+    const auto guis = store.list_effective_in_mount_order("guis", ".gui");
+    for (const auto* name : {"guis/a.gui", "guis/b.gui", "guis/c.gui", "guis/i.gui"})
+        check(
+            std::find(guis.begin(), guis.end(), name) != guis.end(),
+            std::string("the listing of guis takes ") + name
+        );
+    check(guis.size() == 4, "the listing of guis takes each name once");
+    for (const auto* directory : {"", "guis", "GUIS", "guis/sub", "gui2", "other", "missing"})
+        for (const auto* extension : {"", ".gui", ".TXT"})
+            check_listing_matches_full_scan(store, directory, extension);
+}
+
+/// Resolves a path by walking an archive's records part by part: in each
+/// directory the last record whose name matches ignoring ASCII case, a file
+/// before the last part ending the walk.
+///
+/// @param archive the archive
+/// @param path '\\'- or '/'-separated path
+/// @param stop_before_last true to resolve the directory of the last part
+/// @return the node index, or nullopt
+std::optional<uint32_t>
+walked_lookup(const oa::HpiArchive& archive, std::string_view path, bool stop_before_last) {
+    const auto nodes = archive.nodes();
+    const auto upper = [](char c) {
+        return c >= 'a' && c <= 'z' ? static_cast<char>(c - ('a' - 'A')) : c;
+    };
+    const auto same = [&](std::string_view a, std::string_view b) {
+        return a.size() == b.size() &&
+               std::equal(a.begin(), a.end(), b.begin(), [&](char x, char y) {
+                   return upper(x) == upper(y);
+               });
+    };
+    uint32_t directory = 0;
+    std::size_t begin = 0;
+    for (;;) {
+        std::size_t end = begin;
+        while (end < path.size() && path[end] != '\\' && path[end] != '/')
+            ++end;
+        const bool last = end == path.size();
+        if (last && stop_before_last)
+            return directory;
+        const auto part = path.substr(begin, end - begin);
+        const auto& parent = nodes[directory];
+        std::optional<uint32_t> match;
+        for (uint32_t i = parent.child_count; i-- > 0;)
+            if (same(nodes[parent.first_child + i].name, part)) {
+                match = parent.first_child + i;
+                break;
+            }
+        if (!match || last)
+            return match;
+        if (!nodes[*match].directory())
+            return std::nullopt;
+        directory = *match;
+        begin = end + 1;
+    }
+}
+
+/// Checks that an archive resolves paths as a walk of its records does.
+///
+/// @param archive the archive
+/// @param paths the paths looked up
+void check_lookups_match_walk(
+    const oa::HpiArchive& archive, const std::vector<std::string>& paths
+) {
+    for (const auto& path : paths) {
+        check(archive.lookup(path) == walked_lookup(archive, path, false), "lookup of " + path);
+        check(
+            archive.lookup_directory(path) == walked_lookup(archive, path, true),
+            "directory lookup of " + path
+        );
+    }
+}
+
+/// Lookups take the last record of a name, end at a file before the last
+/// part, never match a name that holds a separator, and match empty parts
+/// only to empty names, as a walk of the records does.
+void hpi_lookups_follow_the_records() {
+    TempDir dir;
+    auto bytes = archive_of(
+        {{"guis/a.gui", text("1"), 0},
+         {"gui2/a.gui", text("2"), 0},
+         {"gui2/deep/b.gui", text("3"), 0},
+         {"units/x.fbi", text("4"), 0},
+         {"UNITY", text("5"), 0},
+         {"subxc.gui", text("6"), 0},
+         {"q/zz/e", text("7"), 0},
+         {"plain.txt", text("8"), 0}}
+    );
+    rename_record(bytes, "gui2", "GUIS");
+    rename_record(bytes, "UNITY", "UNITS");
+    rename_record(bytes, "subxc.gui", "sub\\c.gui");
+    rename_record(bytes, "zz", std::string_view("\0z", 2));
+    const auto archive = opened(dir.write("lookups.hpi", bytes));
+    std::vector<std::string> paths{
+        "",
+        "/",
+        "guis",
+        "GUIS/A.GUI",
+        "guis\\a.gui",
+        "guis/deep",
+        "guis/deep/b.gui",
+        "gui2/a.gui",
+        "units/x.fbi",
+        "units",
+        "units/",
+        "sub/c.gui",
+        "sub\\c.gui",
+        "q",
+        "q/",
+        "q//e",
+        "q\\\\e",
+        "q/z/e",
+        "plain.txt",
+        "plain.txt/x",
+        "missing",
+        "missing/x",
+        "guis/",
+        "/guis",
+        "PLAIN.TXT"
+    };
+    for (const auto& entry : archive.entries())
+        paths.push_back(entry.path);
+    check_lookups_match_walk(archive, paths);
+    check(archive.read("guis/a.gui").value == text("2"), "the last folder of a name is read");
+    check(archive.read("q//e").value == text("7"), "an empty part matches an empty name");
+    check(!archive.lookup("units/x.fbi"), "a file of a folder's name ends the lookup");
+    check(!archive.lookup("sub/c.gui"), "a name holding a separator is not a folder");
+}
+
+/// A directory of many records keeps the last record of each name ignoring
+/// ASCII case, as a walk of the records does, and opens in far less time
+/// than a cost growing with the square of its records would take.
+void hpi_large_directory_keeps_the_last_of_each_name() {
+    TempDir dir;
+    constexpr int kNames = 40'000;
+    // Every name in lower case, then in upper case, then every even one in
+    // mixed case: the last spelling of each name holds its round.
+    std::vector<oa::HpiWriteFile> files;
+    files.reserve(3 * kNames);
+    for (int round = 0; round < 3; ++round)
+        for (int number = 0; number < kNames; ++number) {
+            if (round == 2 && number % 2 != 0)
+                continue;
+            const std::string digits = std::to_string(number);
+            const std::string name = round == 0   ? "unit" + digits + ".fbi"
+                                     : round == 1 ? "UNIT" + digits + ".FBI"
+                                                  : "Unit" + digits + ".Fbi";
+            files.push_back({name, text(std::to_string(round)), 0});
+        }
+    const auto path = dir.write("large.hpi", archive_of(files));
+    const auto start = std::chrono::steady_clock::now();
+    const auto archive = opened(path);
+    const auto took = std::chrono::steady_clock::now() - start;
+    check(archive.entries().size() == files.size(), "a large directory keeps every record");
+    check(took < std::chrono::seconds(10), "a directory of 100000 records opens quickly");
+    std::vector<std::string> paths;
+    for (int number = 0; number < kNames; number += 997)
+        for (const int sample : {number, number + 1})
+            paths.push_back("unit" + std::to_string(sample) + ".FBI");
+    check_lookups_match_walk(archive, paths);
+    check(archive.read("UNIT0.fbi").value == text("2"), "the mixed-case last record is read");
+    check(archive.read("unit1.fbi").value == text("1"), "the upper-case last record is read");
+}
+
+/// Every directory of the installed game's archives lists as the full scan
+/// of the archives does.
+///
+/// @param mounts the archives, in mount order
+void asset_store_lists_installed_folders(std::span<const fs::path> mounts) {
+    TempDir dir;
+    fs::create_directory(dir.path() / "loose");
+    oa::AssetStore store(dir.path() / "loose");
+    for (const auto& mount : mounts)
+        store.mount(mount);
+    for (const auto* directory :
+         {"", "guis", "units", "anims", "gamedata", "features", "features/corpses", "scripts"})
+        check_listing_matches_full_scan(store, directory, "");
+    check_listing_matches_full_scan(store, "guis", ".gui");
+    check_listing_matches_full_scan(store, "units", ".fbi");
+    for (std::size_t mount = 0; mount < store.mount_paths().size(); ++mount) {
+        const auto& archive = store.mounted(mount);
+        std::vector<std::string> paths;
+        for (const auto& entry : archive.entries()) {
+            paths.push_back(entry.path);
+            std::string upper = entry.path;
+            for (auto& c : upper)
+                c = c == '/' ? '\\'
+                             : (c >= 'a' && c <= 'z' ? static_cast<char>(c - ('a' - 'A')) : c);
+            paths.push_back(upper);
+            paths.push_back(entry.path + "/x");
+        }
+        check_lookups_match_walk(archive, paths);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -1042,6 +1536,9 @@ int main(int argc, char** argv) {
         const auto root = oa::test::require_game_directory("the installed game's archive order");
         try {
             asset_store_discover_installed_game(root);
+            oa::AssetStore installed(root);
+            (void)installed.discover(oa::test::kGameRevision);
+            asset_store_lists_installed_folders(installed.mount_paths());
         } catch (const std::exception& error) {
             std::cerr << "unexpected exception: " << error.what() << '\n';
             return 1;
@@ -1075,8 +1572,13 @@ int main(int argc, char** argv) {
         asset_store_discover_pins_install_layout();
         asset_store_discover_installation_archive_on_disc_root();
         asset_store_loose_listings();
+        asset_store_lists_archive_folders();
+        hpi_lookups_follow_the_records();
+        hpi_large_directory_keeps_the_last_of_each_name();
         asset_store_names_in_any_script();
         asset_store_loose_links();
+        asset_store_loose_links_made_after_listing();
+        asset_store_loose_junctions();
         asset_store_refuses_files_over_the_entry_limit();
         resource_file_semantics();
     } catch (const std::exception& error) {

@@ -39,4 +39,11 @@ if(BUILD_TESTING)
   target_link_libraries(oa-main-menu-layout-test PRIVATE oa-ui-frontend-renderer oa-test-game-data)
   oa_add_game_data_test(frontend-main-menu-layout oa-main-menu-layout-test)
   set_tests_properties(frontend-main-menu-layout PROPERTIES TIMEOUT 120)
+
+  # The installed game's Arm pages and in-game menu laid out over the side
+  # column's art: as load_screen loads them, reading only their GUI files.
+  add_executable(oa-screen-art-test tests/screen_art_test.cpp)
+  target_link_libraries(oa-screen-art-test PRIVATE oa-ui-frontend-renderer oa-test-game-data)
+  oa_add_game_data_test(frontend-screen-art oa-screen-art-test)
+  set_tests_properties(frontend-screen-art PROPERTIES TIMEOUT 120)
 endif()

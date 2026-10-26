@@ -239,6 +239,8 @@ inline constexpr std::string_view interface_words[] = {
     "Shared game - still running",
     "Show performance statistics",
     "Stay on",
+    "Switching off {name}…",
+    "Switching on {name}…",
     "TAP A TARGET · ✕ TAKES IT BACK",
     "TAP POINTS · QUEUE KEEPS ADDING",
     "TRY AGAIN",

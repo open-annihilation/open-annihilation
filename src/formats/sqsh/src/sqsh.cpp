@@ -14,6 +14,8 @@ namespace {
 // each input byte.
 constexpr std::size_t max_output_per_input_byte =
     (lz77::token_length_mask + lz77::minimum_match_bytes + 1) / 2;
+/// Tokens one flag byte describes, each a literal while its bit is clear.
+constexpr std::size_t literals_per_flag_byte = 8;
 
 } // namespace
 
@@ -69,6 +71,18 @@ Lz77Decoded decode_lz77_into(
         if (cursor == in_size)
             return {written, Lz77Status::truncated, cursor};
         const uint8_t flags = in[cursor++];
+        // Eight literals with room in the output, written without wrapping
+        // around the window, are copied as one run.
+        if (flags == 0 && in_size - cursor >= literals_per_flag_byte &&
+            out_size - written >= literals_per_flag_byte &&
+            write + literals_per_flag_byte <= lz77::dictionary_bytes) {
+            std::memcpy(out + written, in + cursor, literals_per_flag_byte);
+            std::memcpy(dictionary + write, in + cursor, literals_per_flag_byte);
+            cursor += literals_per_flag_byte;
+            written += literals_per_flag_byte;
+            write = (write + literals_per_flag_byte) & lz77::dictionary_mask;
+            continue;
+        }
         for (unsigned mask = 1; mask <= lz77::last_flag_bit; mask <<= 1) {
             if ((flags & mask) == 0) {
                 if (cursor == in_size)
@@ -90,6 +104,26 @@ Lz77Decoded decode_lz77_into(
             if (offset == lz77::terminator_offset)
                 return {written, Lz77Status::ok, cursor};
             const std::size_t count = (token & lz77::token_length_mask) + lz77::minimum_match_bytes;
+            // A match with room in the output, read and written without
+            // wrapping around the window, is copied as one run.
+            if (out_size - written >= count && offset + count <= lz77::dictionary_bytes &&
+                write + count <= lz77::dictionary_bytes) {
+                uint8_t* const run = out + written;
+                if (offset < write && write < offset + count) {
+                    // The match reaches the bytes it writes: past the first
+                    // `write - offset`, each repeats the byte that far back.
+                    const std::size_t distance = write - offset;
+                    std::memcpy(run, dictionary + offset, distance);
+                    for (std::size_t i = distance; i < count; ++i)
+                        run[i] = run[i - distance];
+                } else {
+                    std::memcpy(run, dictionary + offset, count);
+                }
+                std::memcpy(dictionary + write, run, count);
+                written += count;
+                write = (write + count) & lz77::dictionary_mask;
+                continue;
+            }
             // Read after each preceding write: overlapping copies are intentional.
             for (std::size_t i = 0; i < count; ++i) {
                 if (written == out_size)

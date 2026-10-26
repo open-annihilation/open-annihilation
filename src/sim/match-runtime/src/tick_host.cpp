@@ -45,9 +45,8 @@ sim::ground_orders::GroundRuntime& TickHost::ground(sim::simulation_state::Unit&
 }
 
 Match::RuntimeOrder& TickHost::owned(sim::simulation_state::Order& order) {
-    for (auto& entry : match.orders_)
-        if (&entry->order == &order)
-            return *entry;
+    if (auto* record = match.runtime_order(&order))
+        return *record;
     match.fault_.note("order is not owned by match");
     match.spare_order_ = {};
     return match.spare_order_;
@@ -77,10 +76,10 @@ sim::ground_orders::UnitView TickHost::view(
     return {*s.unit, g.geometry, g.movement, g.navigation, s.record.attach_parent != 0, flags};
 }
 
-void TickHost::script(sim::unit_spawn::Slot& s, std::string_view name) {
+void TickHost::script(sim::unit_spawn::Slot& s, ScriptFunction function) {
     auto* u = match.instance(s.unit_index);
     if (u && u->script())
-        u->script()->call_no_arguments(name, true);
+        u->script()->call_no_arguments(function, true);
 }
 
 uint32_t TickHost::unit_abilities(const oa::Unit& unit) const {
@@ -118,8 +117,8 @@ void TickHost::update_wind_generator(oa::Unit& record) {
     }
     const auto direction = static_cast<int32_t>(match.wind_.direction);
     const auto speed = std::bit_cast<int32_t>(match.wind_.speed << 4);
-    instance->script()->call("SetDirection", std::span(&direction, 1), false);
-    instance->script()->call("SetSpeed", std::span(&speed, 1), false);
+    instance->script()->call(ScriptFunction::set_direction, std::span(&direction, 1), false);
+    instance->script()->call(ScriptFunction::set_speed, std::span(&speed, 1), false);
 }
 
 int32_t TickHost::terrain_height_under(oa::Unit& record) {

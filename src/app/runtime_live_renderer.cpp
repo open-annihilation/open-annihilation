@@ -10,6 +10,7 @@
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_scene.hpp"
+#include "renderer_water_surface.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
@@ -380,8 +381,7 @@ bool Runtime::render_live_match_surface() {
             std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
         };
         inputs.water.wind = water_wind();
-        const float fine = std::clamp((zoom - 0.5F) / 0.75F, 0.0F, 1.0F);
-        inputs.water.fine_detail = fine * fine * (3.0F - 2.0F * fine);
+        inputs.water.fine_detail = renderer_water_surface::fine_detail(zoom);
         inputs.water_surface = water_surface();
         inputs.water_disturbances = water_disturbances();
         inputs.nanolathe_lighting = engine_settings().nanolathe_lighting > 0;

@@ -77,6 +77,7 @@
 #include "oa/app/package_install/origin.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/platform/system.hpp"
 #include "oa/app/user_folder.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/data/mutators/verdicts.hpp"
@@ -208,6 +209,9 @@ struct InstallFeed {
     std::atomic<bool> work_started{false}; ///< the worker has entered the check
     /// The runtime, for the real verdict entries swapped in after the fixture.
     Runtime* runtime{};
+    /// The installed packages are listed, as the worker's first search lists
+    /// them: false until the check lists them in a run.
+    bool listed{};
 };
 
 /// The fixture's inputs.
@@ -256,6 +260,14 @@ bool feed_built_in(void* context, std::string_view registry) {
         if (listed.id == registry)
             return listed.built_in;
     return false;
+}
+
+/// Tells whether the fixture lists the installed packages yet.
+///
+/// @param context the fixture
+/// @return true once the check has listed them
+bool feed_installed_listed(void* context) {
+    return static_cast<InstallFeed*>(context)->listed;
 }
 
 /// The verdict `keep_verdict` stored for a mutator. Called on the main thread.
@@ -699,6 +711,7 @@ void Runtime::check_library_install() {
     host.feed = LibraryFeed{
         &fixture, feed_inputs, feed_generation, feed_enqueue, nullptr, nullptr, feed_built_in
     };
+    host.feed.installed_listed = feed_installed_listed;
     host.own_feed = false;
     host.refreshed = false;
 
@@ -809,6 +822,7 @@ void Runtime::check_library_install() {
         fixture.inputs.installed.insert(
             fixture.inputs.installed.end(), beside_mods.begin(), beside_mods.end()
         );
+        fixture.listed = true;
         ++fixture.generation;
     };
     const auto frame = [&] {
@@ -882,6 +896,64 @@ void Runtime::check_library_install() {
         }
         require(oa_layer().top() == nullptr, "a screen stayed over the main menu");
     };
+    // A run PLAY NOW in the Library began, its feed not listing the
+    // installed packages yet. A notice raised as the main menu shows is not
+    // covered by the switch's work dialog, and the Library does not open
+    // over it. Once it is closed the work dialog shows, saying what was
+    // switched, and once the feed lists them the Library opens again over
+    // the main menu as it showed: on Mods, the mod played selected, the work
+    // dialog gone.
+    const auto reopened_after_listing = [&](std::string_view key, std::string_view line) {
+        settings::Notice told;
+        told.title = "CHECK NOTICE";
+        told.paragraphs.push_back({"A notice of the check's, raised at the start.", false});
+        UserFolderState::show_notice(*this, std::move(told), user_folder_, Screen::main_menu);
+        frames();
+        require(
+            saves_notice_shown() && oa_layer().find(WorkScreen::screen_name) == nullptr &&
+                oa_layer().find(library_screen_name) == nullptr,
+            "the switch's work dialog or the Library showed over a notice"
+        );
+        tap(SDLK_RETURN);
+        frames();
+        const std::optional<AutomationControl> said = named("oa.progress.body");
+        require(
+            top_is(WorkScreen::screen_name) && options_.restart_line == line && said &&
+                said->dialog == "oa.work" && said->text.find(line) != std::string::npos &&
+                oa_layer().find(library_screen_name) == nullptr,
+            "the switch's work dialog did not show what was switched before the feed listed the "
+            "installed packages"
+        );
+        list_installed();
+        frames();
+        const library::EntryId played{std::string(kBuiltIn), library::Kind::mod, std::string(key)};
+        require(
+            top_is(library_screen_name) && oa_layer().find(WorkScreen::screen_name) == nullptr &&
+                host.model.tab == library::Tab::mods && host.model.selected == played,
+            "the Library did not open again on Mods with the mod played selected"
+        );
+    };
+    // A run PLAY NOW in the Library began, its feed listing the installed
+    // packages but not yet the mod played: the Library opens again over the
+    // main menu as it showed, on Mods, and selects the mod played once its
+    // feed lists it.
+    const auto reopened_before_listing = [&](std::string_view key) {
+        fixture.listed = true;
+        frames();
+        const library::EntryId played{std::string(kBuiltIn), library::Kind::mod, std::string(key)};
+        require(
+            top_is(library_screen_name) && host.model.tab == library::Tab::mods &&
+                host.model.selected != played,
+            "the Library did not open again on Mods before its feed listed the mod played"
+        );
+        list_installed();
+        frames();
+        require(
+            top_is(library_screen_name) && host.model.tab == library::Tab::mods &&
+                host.model.selected == played,
+            "the Library did not open again on Mods with the mod played selected"
+        );
+    };
     const auto open_the_library = [&] {
         list_installed();
         open_library(library::Tab::mods);
@@ -892,6 +964,73 @@ void Runtime::check_library_install() {
         close_library();
         frame();
         require(oa_layer().top() == nullptr, "the Library did not close");
+    };
+    // The Library as it shows, kept for the next run, and that run's wait
+    // for it. It opens again with its list scrolled as it was while the entry
+    // chosen is where it was, and that entry's row brought into view when it
+    // is not. A Library the run before kept is never handed to the next run,
+    // and one that cannot open by the end of the wait is dropped, so that it
+    // does not open once the main menu is free.
+    const auto kept_library_waits = [&] {
+        keep_library_for_restart();
+        const std::shared_ptr<const LibraryReturn> left = library_return();
+        library_kept_.reset();
+        require(
+            left != nullptr && left->selected && left->selected == host.model.selected &&
+                left->selected_row >= 0 && left->selected_row == host.selected_row(),
+            "the Library was not kept as it showed"
+        );
+        const auto reopened = [&](int32_t row) {
+            close_the_library();
+            auto moved = std::make_shared<LibraryReturn>(*left);
+            moved->selected_row = row;
+            moved->list_scroll = 7;
+            take_library_return(std::move(moved));
+            reopen_kept_library();
+            require(
+                top_is(library_screen_name) && host.model.selected == left->selected &&
+                    host.model.details_open == left->details_open &&
+                    host.state.details_page == left->details_page,
+                "the kept Library did not open again with its entry selected and its details"
+            );
+        };
+        reopened(left->selected_row);
+        require(
+            host.state.list_scroll == 7 && host.state.reveal_row == -1,
+            "the Library opened again did not keep its list's scroll"
+        );
+        reopened(left->selected_row + 1);
+        require(
+            host.state.reveal_row == host.selected_row(),
+            "the Library opened again did not bring the entry chosen into view"
+        );
+        frames();
+        close_the_library();
+
+        settings::Notice told;
+        told.title = "CHECK NOTICE";
+        told.paragraphs.push_back({"A notice of the check's, over the main menu.", false});
+        UserFolderState::show_notice(*this, std::move(told), user_folder_, Screen::main_menu);
+        take_library_return(left);
+        frames();
+        require(
+            saves_notice_shown() && oa_layer().find(library_screen_name) == nullptr &&
+                library_return_ != nullptr && library_return() == nullptr,
+            "a Library the run before kept opened over a notice, or was kept for the next run"
+        );
+        library_return_since_ = oa::platform::tick_ms() - kept_library_wait_ms;
+        frame();
+        require(
+            library_return_ == nullptr,
+            "a Library the run before kept was not dropped at the end of the wait"
+        );
+        tap(SDLK_RETURN);
+        frames();
+        require(
+            oa_layer().top() == nullptr,
+            "a Library the run before kept opened after the wait, once the main menu was free"
+        );
+        std::cout << "library install check: the Library kept for the next run waits for it\n";
     };
     // Shows an entry's details: its row selected, and at Compact its page.
     const auto show_entry = [&](std::string_view row) {
@@ -1348,7 +1487,7 @@ void Runtime::check_library_install() {
     case 1: {
         // 10. ROLL BACK's question over the Library says the game reloads
         // for the mod played; CANCEL changes nothing.
-        settle();
+        reopened_after_listing(kRidge, "Switching on Ridge…");
         require(
             playing(ridge) && mod_profile() != nullptr && mod_profile()->id == kRidge &&
                 revision_in(ridge) == 4,
@@ -1482,6 +1621,8 @@ void Runtime::check_library_install() {
     case 2: {
         // The update was put in place as the mod was switched, and is told.
         require(playing(mods / std::string(kLattice)), "the run does not play Lattice");
+        reopened_before_listing(kLattice);
+        kept_library_waits();
         require(
             revision_in(ridge) == 5 && recorded_from(ridge, kBuiltIn, 2) &&
                 revision_in(kept) == 4 && recorded_from(kept, kBuiltIn, 1) &&
@@ -2038,6 +2179,9 @@ void Runtime::check_library_install() {
         // The last run plays No Mod, as the next start of the check does.
         preference_values_.erase(std::string(settings::key::mod_directory));
         preferences_dirty_ = true;
+        // A Library the run before kept, which this run has not opened, is
+        // not handed on: the next run opens none.
+        take_library_return(std::make_shared<const LibraryReturn>());
         request_soft_restart();
         std::cout << "library install check: run 2 found the held update made and queued the "
                      "updates\n";
@@ -2052,6 +2196,9 @@ void Runtime::check_library_install() {
         // runs the fixture's fake checker, OPEN FOLDER and HOMEPAGE reach the
         // recorders, and UNINSTALL asks and removes the folder. Ridge stays
         // as the previous run left it.
+        require(
+            library_return_ == nullptr, "the run was handed a Library the run before did not keep"
+        );
         settle();
         require(options_.layered_mod_folder.empty(), "the mutator run plays a mod");
         require(revision_in(ridge) == 5, "the mutator run does not find Ridge's fifth revision");

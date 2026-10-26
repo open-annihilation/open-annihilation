@@ -255,10 +255,15 @@ void text_is_drawn_in_the_modern_fonts() {
     kit::box_text(narrow.canvas, kit::FontRole::regular, words, tight, kit::Align::left, kInk);
     const paint::Box fitted = inked(narrow.pixels);
     OA_CHECK(fitted.width == widths[1]);
+#if defined(NDEBUG)
+    // Release builds record nothing.
+    OA_CHECK(kit::text_fit_records().empty());
+#else
     OA_CHECK(!kit::text_fit_records().empty());
     OA_CHECK(kit::text_fit_records().back().wider);
     OA_CHECK(kit::text_fit_records().back().screen == "smooth");
     OA_CHECK(kit::text_fit_records().back().text == words);
+#endif
 
     // Tracking spreads the characters: two pixels a point at 1.5x.
     Smooth tracked(900, 80, kOneAndAHalf, fonts.get());

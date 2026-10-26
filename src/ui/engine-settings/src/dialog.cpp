@@ -1356,8 +1356,8 @@ DialogAction scroll_key(Dialog& dialog, layout::ScrolledRows& open, DialogKey ke
 /// Reports a change of the chosen settings, or only a look's. Hardware
 /// acceleration passing to a higher level, from Off to Basic or Full or
 /// from Basic to Full, asks for the graphics card to be tried afresh, and
-/// leaving or reaching Full turns the four effects off or on
-/// (follow_acceleration_with_effects).
+/// leaving Full turns the four effects off and reaching it sets each to its
+/// own default there (follow_acceleration_with_effects).
 ///
 /// @param[in,out] dialog the dialog, its chosen settings after the event
 /// @param before the chosen settings before the event

@@ -513,9 +513,11 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0)
         return false;
     // A button whose quick key is the typed letter in either case
-    // is clicked (ATTACK 'a', BLAST 'd', STOP 's', ...).
+    // is clicked (ATTACK 'a', BLAST 'd', STOP 's', ...); while the unit info
+    // panel is open the side column's buttons take no key, as they take no
+    // press.
     const auto sym = key.key;
-    if (match_hud_ && sym < 0x80) {
+    if (match_hud_ && sym < 0x80 && !unit_info_panel_) {
         const auto typed = std::tolower(static_cast<int>(sym));
         for (std::size_t i = 0; i < match_hud_->layout.gadgets.size(); ++i) {
             const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(
@@ -545,7 +547,10 @@ void Runtime::clear_or_cancel_match_command() {
         status_ = "Command cancelled";
         return;
     }
+    // The unit info panel over the order panel closes with the selection,
+    // as a click that drops it closes it.
     clear_local_selection();
+    close_unit_info();
     apply_match_hud_for_selection();
     status_ = "Selection cleared";
 }
@@ -660,6 +665,11 @@ void Runtime::box_select_units(int x0, int y0, int x1, int y1, bool add) {
         if (slot.unit != nullptr && slot.owner_index == match_local_player_ &&
             (slot.unit->flags & OA_UNIT_FLAG_SELECTED) != 0)
             ++count;
+    // A box that leaves nothing selected drops the selection as a click
+    // does, and the unit info panel over the order panel closes with it, as
+    // in 3.1c.
+    if (count == 0)
+        close_unit_info();
     status_ = !any ? "No units" : std::to_string(count) + " selected";
 }
 
@@ -1123,9 +1133,9 @@ std::optional<oa::ui::display_layout::Rect> Runtime::unit_info_area() const {
     return oa::ui::display_layout::Rect{x, y, width, height};
 }
 
-bool Runtime::click_unit_info(float x, float y) {
+std::optional<oa::ui::display_layout::Point> Runtime::unit_info_point(float x, float y) const {
     if (!unit_info_panel_ || !unit_info_panel_->screen)
-        return false;
+        return std::nullopt;
     const auto& root = unit_info_panel_->root;
     const auto column = static_cast<int>(x);
     const auto row = static_cast<int>(y);
@@ -1137,22 +1147,58 @@ bool Runtime::click_unit_info(float x, float y) {
         const auto area = unit_info_area();
         if (!area || column < area->x || row < area->y || column >= area->x + area->width ||
             row >= area->y + area->height)
-            return false;
+            return std::nullopt;
         point.x = root.x + (column - area->x) * root.width / area->width;
         point.y = root.y + (row - area->y) * root.height / area->height;
     }
     if (point.x < root.x || point.y < root.y || point.x >= root.x + root.width ||
         point.y >= root.y + root.height)
+        return std::nullopt;
+    return point;
+}
+
+bool Runtime::click_unit_info(float x, float y) {
+    const auto point = unit_info_point(x, y);
+    if (!point)
         return false;
     for (const auto& gadget : unit_info_panel_->screen->layout.gadgets) {
         const auto& control = gadget.common;
-        if (control.name == kUnitInfoDone && point.x >= control.x && point.y >= control.y &&
-            point.x < control.x + control.width && point.y < control.y + control.height) {
+        if (control.name == kUnitInfoDone && point->x >= control.x && point->y >= control.y &&
+            point->x < control.x + control.width && point->y < control.y + control.height) {
             press_unit_info_done();
             break;
         }
     }
     return true;
+}
+
+bool Runtime::unit_info_pointer(const SDL_Event& event, float x, float y) {
+    const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+    if ((!pressed && event.type != SDL_EVENT_MOUSE_BUTTON_UP) ||
+        (event.button.button != SDL_BUTTON_LEFT && event.button.button != SDL_BUTTON_RIGHT))
+        return false;
+    if (!pressed) {
+        // The release of a press the panel took is the panel's wherever it
+        // comes up: over the panel it clicks it, so OK closes it.
+        if (unit_info_pressed_button_ != event.button.button)
+            return false;
+        unit_info_pressed_button_ = 0;
+        std::ignore = click_unit_info(x, y);
+        return true;
+    }
+    unit_info_pressed_button_ = 0;
+    if (!unit_info_panel_ || screen_ != Screen::match || match_paused_ || match_finished_)
+        return false;
+    // A press on the panel is the panel's alone: it starts no box and gives
+    // no order.
+    if (unit_info_point(x, y)) {
+        unit_info_pressed_button_ = event.button.button;
+        return true;
+    }
+    // The panel over the order panel takes the pointer from it, as in 3.1c:
+    // the side column's buttons take no press until it closes, while the
+    // battlefield and the radar take theirs.
+    return hovered_.has_value();
 }
 
 void Runtime::draw_unit_info_panel() {

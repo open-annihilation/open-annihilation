@@ -465,6 +465,90 @@ void draws_through_the_hooks() {
     OA_CHECK(present::game_text_hooks().draw == nullptr);
 }
 
+/// Hooks that draw every line as one mask the test may change in place.
+struct SharedMask {
+    std::shared_ptr<present::TextMask> mask{std::make_shared<present::TextMask>(dot())};
+    present::TextSettings settings{};
+    int32_t calls{};
+};
+
+/// Returns hooks that draw every line as a SharedMask's mask.
+///
+/// @param shared the mask and the settings
+/// @return the hooks
+present::GameTextHooks shared_mask_hooks(SharedMask& shared) {
+    present::GameTextHooks hooks{};
+    hooks.context = &shared;
+    hooks.settings = [](void* context) { return static_cast<SharedMask*>(context)->settings; };
+    hooks.draw = [](
+                     void* context, std::string_view, present::TextFace, int32_t, int32_t
+                 ) -> std::shared_ptr<const present::TextMask> {
+        auto& seen = *static_cast<SharedMask*>(context);
+        ++seen.calls;
+        return seen.mask;
+    };
+    return hooks;
+}
+
+/// Tells whether two lines' layers are the same in every part.
+///
+/// @param layers a line's layers
+/// @param other another's
+/// @return true when they are the same
+bool same_layers(const present::TextLayers& layers, const present::TextLayers& other) {
+    return layers.width == other.width && layers.height == other.height &&
+           layers.baseline == other.baseline && layers.pen == other.pen &&
+           layers.advance == other.advance && layers.fill == other.fill &&
+           layers.outline == other.outline && layers.shadow == other.shadow &&
+           layers.background == other.background && layers.background_top == other.background_top &&
+           layers.background_bottom == other.background_bottom &&
+           layers.drawn_top == other.drawn_top && layers.drawn_bottom == other.drawn_bottom;
+}
+
+void keeps_finished_layers() {
+    SharedMask shared{};
+    shared.settings.style = {true, true, true, true, present::default_text_size};
+    present::set_game_text_hooks(shared_mask_hooks(shared));
+    constexpr int32_t full = present::game_font_text_size;
+    const auto built = [&shared](int32_t scale, bool background) {
+        present::TextStyle style = shared.settings.style;
+        style.background = style.background && background;
+        return present::build_text_layers(*shared.mask, style, present::text_border(scale, full));
+    };
+    // A line drawn again is laid as it was first built, and as the borders
+    // the settings choose would build it now.
+    const auto first = present::modern_text("ab", present::TextFace::label, 2, full);
+    const auto again = present::modern_text("ab", present::TextFace::label, 2, full);
+    OA_CHECK(first && again && same_layers(*first, *again) && same_layers(*again, built(2, true)));
+    const auto unboxed = present::modern_text("ab", present::TextFace::label, 2, full, false);
+    OA_CHECK(unboxed && !unboxed->background && same_layers(*unboxed, built(2, false)));
+    // Letters changed in place are built anew.
+    shared.mask->alpha = {255, 255, 0};
+    const auto changed = present::modern_text("ab", present::TextFace::label, 2, full);
+    OA_CHECK(changed && same_layers(*changed, built(2, true)) && !same_layers(*changed, *first));
+    // So are lines whose borders the settings change.
+    shared.settings.style.outline = false;
+    const auto bare = present::modern_text("ab", present::TextFace::label, 2, full);
+    OA_CHECK(bare && same_layers(*bare, built(2, true)) && !same_layers(*bare, *changed));
+    // The advance alone is the advance of the layers, for every border and
+    // scale.
+    for (const bool outline : {false, true})
+        for (const bool shadow : {false, true})
+            for (const int32_t scale : {1, 2, 3})
+                for (const int32_t size : {present::lowest_text_size, full, 200}) {
+                    shared.settings.style.outline = outline;
+                    shared.settings.style.shadow = shadow;
+                    const auto advance =
+                        present::modern_text_advance("ab", present::TextFace::label, scale, size);
+                    const auto layers =
+                        present::modern_text("ab", present::TextFace::label, scale, size);
+                    OA_CHECK(advance && layers && *advance == layers->advance);
+                }
+    present::forget_text_layers();
+    present::set_game_text_hooks({});
+    OA_CHECK(!present::modern_text_advance("ab", present::TextFace::label, 1, full));
+}
+
 void sizes_text_from_the_setting() {
     // The setting's range, its default a fifth below the game fonts' size.
     OA_CHECK(present::lowest_text_size == 50 && present::highest_text_size == 300);
@@ -630,6 +714,7 @@ int main() {
     lays_text_on_pixels();
     leaves_the_layers_to_the_picture_beneath();
     draws_through_the_hooks();
+    keeps_finished_layers();
     sizes_text_from_the_setting();
     breaks_lines_into_rows();
     underlines_a_stretch();

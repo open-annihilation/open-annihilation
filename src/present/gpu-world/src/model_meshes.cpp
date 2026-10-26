@@ -535,9 +535,12 @@ void vertex_normals(
     std::span<const FixedVector3> points,
     std::vector<VertexNormal>& normals
 ) {
+    // Kept from call to call, so that a frame's lit pieces take no memory.
+    thread_local std::vector<int32_t> uses;
+    thread_local std::vector<VertexNormal> faces;
     const std::size_t first = Builder::first_primitive(prepared);
-    std::vector<int32_t> uses(points.size(), 0);
-    std::vector<VertexNormal> faces(prepared.primitives.size(), VertexNormal{0.0F, 1.0F, 0.0F});
+    uses.assign(points.size(), 0);
+    faces.assign(prepared.primitives.size(), VertexNormal{0.0F, 1.0F, 0.0F});
     normals.assign(points.size(), VertexNormal{0.0F, 0.0F, 0.0F});
     for (std::size_t i = first; i < prepared.primitives.size(); ++i) {
         const uint32_t source = prepared.primitives[i].source_index;

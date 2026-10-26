@@ -10,22 +10,24 @@
 // as the flat draw places it, a carried unit as its carrier composes it.
 // A textured quad is drawn as strips across its rows, so that its texels
 // run as the processor's walk runs them.
-// Within a unit drawn with a depth plane the polygons are drawn in the
-// order the plane shows them: of two that overlap, the one higher where
-// they overlap goes later, and at the same height the one the processor
-// draws later, as the plane keeps a later pixel of the same height; the
-// rest lowest mean depth first. A unit without one keeps the processor's
-// order. A polygon of a unit's picture filled with the image key, which the
-// image leaves clear, draws nothing and cuts what it covers out of the
-// polygons drawn before it. The palette's tables are approximated as the
-// design says: the shade rows as a per-vertex multiplier with a bright page
-// for the rows above unlit, the alpha table as alpha 0.5, the blue table as
-// a halved colour and an additive lift, the nanoframe's bands per polygon
-// with its outline as the processor finds its pixels. The texture frames are placed on sprite
-// pages (sprite_pages.hpp) on first sight, in two variants: keyed, where the
-// image key is transparent as in a cached image, and flat, where it is a
-// colour as in a flat draw. Nothing here writes the match or the planner's
-// state.
+// Within a unit drawn with a depth plane the polygons are drawn in the order
+// the plane shows them: of two that overlap, the one higher where they
+// overlap goes later, and at the same height the one the processor draws
+// later, as the plane keeps a later pixel of the same height; the rest
+// lowest mean depth first. Where no order shows the plane's picture, as
+// where two polygons cross or the overlaps go round in a circle, a polygon
+// leaves out the parts that lie under polygons drawn before it. A unit
+// without one keeps the processor's order. A polygon of a unit's picture
+// filled with the image key, which the image leaves clear, draws nothing and
+// cuts what it covers out of the polygons drawn before it. The palette's
+// tables are approximated as the design says: the shade rows as a per-vertex
+// multiplier with a bright page for the rows above unlit, the alpha table as
+// alpha 0.5, the blue table as a halved colour and an additive lift, the
+// nanoframe's bands per polygon with its outline as the processor finds its
+// pixels. The texture frames are placed on sprite pages (sprite_pages.hpp)
+// on first sight, in two variants: keyed, where the image key is transparent
+// as in a cached image, and flat, where it is a colour as in a flat draw.
+// Nothing here writes the match or the planner's state.
 #include "runtime_full.hpp"
 #include "renderer_water_shading.hpp"
 #include "renderer_aircraft_shadow.hpp"
@@ -37,9 +39,11 @@
 #include "oa/sim/model_runtime/instance.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <numeric>
 #include <span>
 #include <tuple>
@@ -134,6 +138,16 @@ constexpr double fan_weight_tolerance = 1e-6;
 /// be floored to it: the rounding of the interpolation, so that a point
 /// whose depth is whole by its corners takes that depth.
 constexpr double depth_rounding_allowance = 1e-6;
+/// The least area a part of a polygon under one drawn before it takes to be
+/// cut out of it (find_plane_cuts), in square frame pixels at zoom 1: a
+/// quarter of a pixel. The plane decides the frame at zoom 1 pixel by pixel,
+/// so that a smaller part holds a pixel's centre only now and then, and the
+/// order's picture of it shows instead.
+constexpr double least_cut_area = 0.25;
+/// How far below a sloping polygon's depth a later sloping one may lie and
+/// still show over it (shown_margin): half a depth, where the floors of the
+/// two depths are as often the same as not.
+constexpr double sloped_shown_margin = -0.5;
 /// The 64-bit FNV-1a digest a unit's polygon shapes are folded into: its
 /// start and its multiplier.
 constexpr uint64_t shape_digest_start = 0xcbf29ce484222325ULL;
@@ -179,6 +193,10 @@ struct Polygon {
     /// tinted as the blue table tints, halved, then lifted.
     bool underwater{};
     bool water_geometry{};
+    /// Its corners' world heights hold a plane over it (height_x, height_y,
+    /// height_origin), which Underwater shimmer shades by where the polygon
+    /// dips under the water and Naval reflections mirror its corners by.
+    bool height_plane{};
     float height_x{};
     float height_y{};
     float height_origin{};
@@ -202,6 +220,11 @@ struct Polygon {
     bool cut{};
     uint32_t first_piece{};
     uint32_t piece_count{};
+    /// Where it lies under nearer polygons drawn before it, which it leaves
+    /// out (cut_under_nearer): hole_count of the unit's holes from
+    /// first_hole.
+    uint32_t first_hole{};
+    uint32_t hole_count{};
 };
 
 /// Recover physical height over a projected face for waterline clipping.
@@ -223,6 +246,7 @@ void water_plane(Polygon& polygon, std::span<const Corner> corners) {
             determinant;
         polygon.height_origin = a.world_height - polygon.height_x * a.x - polygon.height_y * a.y;
         polygon.water_geometry = true;
+        polygon.height_plane = true;
         break;
     }
 }
@@ -504,6 +528,47 @@ struct PolygonExtent {
     int32_t highest{};
 };
 
+/// A part of a polygon across which its depth runs along one plane: the
+/// whole polygon where its corners lie on one, else a fan triangle from its
+/// first corner, as depth_at walks them. Its corners are point_count plane
+/// points from first_point, in the polygon's winding, and its depth at a
+/// point (x, y) is x * along_x + y * along_y + at_origin.
+struct DepthFace {
+    uint32_t first_point{};
+    uint32_t point_count{};
+    double along_x{};
+    double along_y{};
+    double at_origin{};
+};
+
+/// A convex part of the frame, point_count of a list of plane points from
+/// first_point, in the winding of the polygons it was cut from.
+struct PlaneCut {
+    uint32_t first_point{};
+    uint32_t point_count{};
+};
+
+/// A hole placed on the surface (leave_out_holes): edge_count of the lines
+/// along its edges from first_edge, and the box round it, in pixels of the
+/// target.
+struct HoleBox {
+    uint32_t first_edge{};
+    uint32_t edge_count{};
+    double left{};
+    double right{};
+    double top{};
+    double bottom{};
+};
+
+/// The line along an edge of a hole placed on the surface (leave_out_holes):
+/// a point (x, y) lies inside it where across * y - down * x + offset is
+/// above 0, on it where that is 0.
+struct HoleEdge {
+    double across{};
+    double down{};
+    double offset{};
+};
+
 /// Scratch of the order a unit's depth plane gives its polygons, kept from
 /// unit to unit.
 struct PlaneOrderScratch {
@@ -523,12 +588,38 @@ struct PlaneOrderScratch {
     std::vector<PlanePoint> shared;
     std::vector<PlanePoint> clipped;
     std::vector<Polygon> ordered;
+    std::vector<uint32_t> places; ///< each polygon's place in the drawing order
+    std::vector<DepthFace> earlier_faces;
+    std::vector<DepthFace> later_faces;
+    std::vector<PlanePoint> earlier_points;
+    std::vector<PlanePoint> later_points;
+    std::vector<double> levels;
+    /// The parts found to cut, each with the place of the polygon it cuts,
+    /// and their points.
+    std::vector<std::pair<uint32_t, PlaneCut>> found_cuts;
+    std::vector<PlanePoint> found_points;
 };
 
 /// A unit's polygon order, kept while its polygons keep their shape.
 struct KeptPlaneOrder {
     uint64_t shape{};            ///< the digest of the shape the order was found for
     std::vector<uint32_t> order; ///< the polygons by their place in the processor's order
+    /// Where each polygon in drawing order lies under one drawn before it
+    /// (find_plane_cuts): its cuts from first_cut[k] to first_cut[k + 1],
+    /// their points placed from the first corner of the processor's first
+    /// polygon.
+    std::vector<uint32_t> first_cut;
+    std::vector<PlaneCut> cuts;
+    std::vector<PlanePoint> cut_points;
+};
+
+/// The cuts of a unit's polygons in drawing order (KeptPlaneOrder), with the
+/// frame pixel their points are placed from.
+struct PlaneCuts {
+    std::span<const uint32_t> first_cut;
+    std::span<const PlaneCut> cuts;
+    std::span<const PlanePoint> points;
+    PlanePoint origin{};
 };
 
 /// Twice the signed area of the triangle a point and an edge make, positive
@@ -578,6 +669,48 @@ bool depth_at(
     return false;
 }
 
+/// Keeps the part of a convex polygon of plane points on the inner side of
+/// the line along an edge of a polygon of positive winding.
+///
+/// @param shape the convex polygon's points, in their turn
+/// @param from the edge's first corner
+/// @param to its second
+/// @param[out] kept the part on that side, its points in the same turn
+void clip_to_edge(
+    std::span<const PlanePoint> shape,
+    const PlanePoint& from,
+    const PlanePoint& to,
+    std::vector<PlanePoint>& kept
+) {
+    kept.clear();
+    for (size_t m = 0; m < shape.size(); ++m) {
+        const PlanePoint& here = shape[m];
+        const PlanePoint& next = shape[(m + 1) % shape.size()];
+        const double here_side = edge_side(from, to, here);
+        const double next_side = edge_side(from, to, next);
+        if (here_side >= 0.0)
+            kept.push_back(here);
+        if ((here_side >= 0.0) != (next_side >= 0.0)) {
+            const double along = here_side / (here_side - next_side);
+            kept.push_back(
+                {here.x + along * (next.x - here.x), here.y + along * (next.y - here.y)}
+            );
+        }
+    }
+}
+
+/// Twice the signed area of a polygon of plane points, positive for
+/// positive winding.
+double twice_plane_area(std::span<const PlanePoint> shape) noexcept {
+    double sum = 0.0;
+    for (size_t m = 0; m < shape.size(); ++m) {
+        const PlanePoint& here = shape[m];
+        const PlanePoint& next = shape[(m + 1) % shape.size()];
+        sum += here.x * next.y - next.x * here.y;
+    }
+    return sum;
+}
+
 /// Finds the centre of the area two polygons of positive winding share,
 /// taking them as convex.
 ///
@@ -600,23 +733,12 @@ bool shared_centre(
     for (const Corner& corner : second)
         shared.push_back(plane_point(corner, origin));
     for (size_t k = 0; k < first.size() && !shared.empty(); ++k) {
-        const PlanePoint from = plane_point(first[k], origin);
-        const PlanePoint to = plane_point(first[(k + 1) % first.size()], origin);
-        clipped.clear();
-        for (size_t m = 0; m < shared.size(); ++m) {
-            const PlanePoint& here = shared[m];
-            const PlanePoint& next = shared[(m + 1) % shared.size()];
-            const double here_side = edge_side(from, to, here);
-            const double next_side = edge_side(from, to, next);
-            if (here_side >= 0.0)
-                clipped.push_back(here);
-            if ((here_side >= 0.0) != (next_side >= 0.0)) {
-                const double along = here_side / (here_side - next_side);
-                clipped.push_back(
-                    {here.x + along * (next.x - here.x), here.y + along * (next.y - here.y)}
-                );
-            }
-        }
+        clip_to_edge(
+            shared,
+            plane_point(first[k], origin),
+            plane_point(first[(k + 1) % first.size()], origin),
+            clipped
+        );
         shared.swap(clipped);
     }
     if (shared.size() < 3)
@@ -745,16 +867,42 @@ polygon_shape(std::span<const Corner> corners, std::span<const Polygon> polygons
     return digest;
 }
 
+/// Returns how far below the depth of the earlier of two polygons, in the
+/// processor's order, the later's may lie where the plane still shows the
+/// later: the plane keeps a pixel whose floored depth is not below the
+/// floored depth there. Over one lying flat at a whole depth the later
+/// shows from that depth up, so by none; lying flat itself, at a whole
+/// depth, it shows over all that lies less than a whole depth higher, so
+/// by all but the rounding of the interpolation; over a slope, sloping, by
+/// half a depth, between where the floors could take either.
+///
+/// @param earlier the earlier polygon's extent
+/// @param later the later's
+/// @return the margin, from 0 down to just above -1
+double shown_margin(const PolygonExtent& earlier, const PolygonExtent& later) noexcept {
+    const bool earlier_flat = earlier.lowest == earlier.highest;
+    const bool later_flat = later.lowest == later.highest;
+    if (earlier_flat && !later_flat)
+        return -depth_rounding_allowance;
+    if (later_flat && !earlier_flat)
+        return depth_rounding_allowance - 1.0;
+    return sloped_shown_margin;
+}
+
 /// Finds the order a unit's depth plane shows its polygons in.
 ///
 /// The polygons come in the processor's order. Of two that overlap, the
-/// later in the result is the one the plane shows where they overlap: the
-/// higher there, its depth floored as the plane keeps it, and at the same
-/// height the one the processor draws later, which the plane lets over a
-/// pixel of the same height. Where the overlaps leave the order open, as
+/// later in the result is the one the plane shows at the centre of their
+/// overlap: the higher there, or at the same height the one the processor
+/// draws later, which the plane lets over a pixel of the same floored
+/// height (shown_margin). Where the overlaps leave the order open, as
 /// for polygons apart, the lower mean depth goes first and the processor's
-/// order among equals; where they contradict one another, the lowest mean
-/// depth left goes next. The same shape anywhere gives the same order.
+/// order among equals; where they contradict one another, the polygon left
+/// with the fewest left to go under it goes next, the lowest mean depth
+/// among those. The same shape anywhere gives the same order.
+/// Where two polygons cross, or the overlaps contradict one another, the
+/// order cannot show the plane's picture alone, and find_plane_cuts finds
+/// what each polygon must leave out of its own.
 ///
 /// @param corners the frame's corners
 /// @param polygons the unit's polygons, at least one
@@ -839,8 +987,7 @@ void find_plane_order(
                     !depth_at(corners_of(earlier), origin, centre, earlier_depth) ||
                     !depth_at(corners_of(later), origin, centre, later_depth))
                     continue;
-                later_shows = std::floor(later_depth + depth_rounding_allowance) >=
-                              std::floor(earlier_depth + depth_rounding_allowance);
+                later_shows = later_depth - earlier_depth >= shown_margin(under, over);
             }
             edges.emplace_back(later_shows ? earlier : later, later_shows ? later : earlier);
         }
@@ -884,10 +1031,17 @@ void find_plane_order(
                 next = candidate;
         }
         if (next == count) {
-            // The overlaps go round in a circle: the lowest mean depth left.
+            // The overlaps go round in a circle: of the polygons left, the
+            // one with the fewest left to go under it, the lowest mean depth
+            // among those.
             while (placed[by_mean[lowest_left]] != 0)
                 ++lowest_left;
-            next = by_mean[lowest_left];
+            for (uint32_t rank = lowest_left; rank < count; ++rank) {
+                const uint32_t candidate = by_mean[rank];
+                if (placed[candidate] == 0 &&
+                    (next == count || unders_left[candidate] < unders_left[next]))
+                    next = candidate;
+            }
         }
         placed[next] = 1;
         order.push_back(next);
@@ -901,15 +1055,234 @@ void find_plane_order(
     }
 }
 
+/// Gathers the faces of a polygon of positive winding across which its
+/// depth runs along one plane (DepthFace): the whole polygon where every
+/// corner lies on the plane of its first fan triangle, else each fan
+/// triangle of area.
+///
+/// @param corners the polygon's corners
+/// @param origin the corner the faces are placed from
+/// @param[out] faces its faces
+/// @param[out] points their corners
+void depth_faces(
+    std::span<const Corner> corners,
+    const Corner& origin,
+    std::vector<DepthFace>& faces,
+    std::vector<PlanePoint>& points
+) {
+    faces.clear();
+    points.clear();
+    // The plane through three corners, as a face of them.
+    const auto plane_of = [&](size_t a, size_t b, size_t c, DepthFace& face) {
+        const PlanePoint pa = plane_point(corners[a], origin);
+        const PlanePoint pb = plane_point(corners[b], origin);
+        const PlanePoint pc = plane_point(corners[c], origin);
+        const double twice_area = edge_side(pa, pb, pc);
+        if (twice_area <= 0.0)
+            return false;
+        const double rise_b = static_cast<double>(corners[b].depth - corners[a].depth);
+        const double rise_c = static_cast<double>(corners[c].depth - corners[a].depth);
+        face.along_x = (rise_b * (pc.y - pa.y) - rise_c * (pb.y - pa.y)) / twice_area;
+        face.along_y = (rise_c * (pb.x - pa.x) - rise_b * (pc.x - pa.x)) / twice_area;
+        face.at_origin = corners[a].depth - face.along_x * pa.x - face.along_y * pa.y;
+        return true;
+    };
+    for (size_t k = 1; k + 1 < corners.size(); ++k) {
+        DepthFace face;
+        if (!plane_of(0, k, k + 1, face))
+            continue;
+        if (faces.empty()) {
+            bool flat = true;
+            for (const Corner& corner : corners) {
+                const PlanePoint point = plane_point(corner, origin);
+                const double off =
+                    face.along_x * point.x + face.along_y * point.y + face.at_origin - corner.depth;
+                flat = flat && std::abs(off) <= depth_rounding_allowance;
+            }
+            if (flat) {
+                face.first_point = 0;
+                face.point_count = static_cast<uint32_t>(corners.size());
+                for (const Corner& corner : corners)
+                    points.push_back(plane_point(corner, origin));
+                faces.push_back(face);
+                return;
+            }
+        }
+        face.first_point = static_cast<uint32_t>(points.size());
+        face.point_count = 3;
+        points.insert(
+            points.end(),
+            {plane_point(corners[0], origin),
+             plane_point(corners[k], origin),
+             plane_point(corners[k + 1], origin)}
+        );
+        faces.push_back(face);
+    }
+}
+
+/// Returns the depth a face's plane gives a point, on the face or past it.
+double depth_on(const DepthFace& face, const PlanePoint& point) noexcept {
+    return face.along_x * point.x + face.along_y * point.y + face.at_origin;
+}
+
+/// Finds where each polygon, drawn in a depth plane's order
+/// (find_plane_order), lies under one drawn before it, which a whole order
+/// cannot show: where two polygons cross, the one drawn later shows over
+/// the other on both sides of the line they cross along, and where the
+/// overlaps contradict one another, a polygon is drawn over one the plane
+/// shows over it. Of each two that overlap, the area they share is the
+/// later's in the processor's order where its depth there is not below the
+/// earlier's by more than their shown_margin, and the earlier's elsewhere;
+/// the parts of it that are the polygon drawn first's, taken a face of each
+/// at a time (depth_faces), are cuts of the polygon drawn second, which leaves
+/// them out (cut_under_nearer), so that every point shows the polygon the
+/// plane shows there whatever the order. Two whose every point the order
+/// already shows as the plane does, the one wholly higher drawn later, are
+/// not cut.
+///
+/// @param corners the frame's corners
+/// @param polygons the unit's polygons in the processor's order, as find_plane_order took them
+/// @param[in,out] scratch the scratch find_plane_order left its overlaps in
+/// @param[in,out] entry the order found, whose cuts this sets
+void find_plane_cuts(
+    std::span<const Corner> corners,
+    std::span<const Polygon> polygons,
+    PlaneOrderScratch& scratch,
+    KeptPlaneOrder& entry
+) {
+    const auto count = static_cast<uint32_t>(polygons.size());
+    const Corner& origin = corners[polygons.front().first_corner];
+    const auto corners_of = [&](uint32_t index) {
+        const Polygon& polygon = polygons[index];
+        return corners.subspan(polygon.first_corner, polygon.corner_count);
+    };
+    auto& places = scratch.places;
+    places.assign(count, 0);
+    for (uint32_t place = 0; place < entry.order.size(); ++place)
+        places[entry.order[place]] = place;
+    auto& found = scratch.found_cuts;
+    auto& points = scratch.found_points;
+    auto& shared = scratch.shared;
+    auto& clipped = scratch.clipped;
+    auto& levels = scratch.levels;
+    found.clear();
+    points.clear();
+    for (const auto& [under, over] : scratch.edges) {
+        const uint32_t earlier = std::min(under, over);
+        const uint32_t later = std::max(under, over);
+        const PolygonExtent& earlier_extent = scratch.extents[earlier];
+        const PolygonExtent& later_extent = scratch.extents[later];
+        const bool agrees_throughout = earlier_extent.highest <= later_extent.lowest ||
+                                       later_extent.highest < earlier_extent.lowest;
+        const bool drawn_in_order = places[under] < places[over];
+        if (agrees_throughout && drawn_in_order)
+            continue;
+        const uint32_t first = drawn_in_order ? under : over;
+        const uint32_t second = drawn_in_order ? over : under;
+        const double margin = shown_margin(earlier_extent, later_extent);
+        // Where the polygon drawn first shows: below the margin when it is
+        // the earlier, at or above it when it is the later.
+        const double first_side = first == later ? 1.0 : -1.0;
+        depth_faces(corners_of(earlier), origin, scratch.earlier_faces, scratch.earlier_points);
+        depth_faces(corners_of(later), origin, scratch.later_faces, scratch.later_points);
+        for (const DepthFace& earlier_face : scratch.earlier_faces) {
+            const std::span<const PlanePoint> earlier_points(
+                scratch.earlier_points.data() + earlier_face.first_point, earlier_face.point_count
+            );
+            for (const DepthFace& later_face : scratch.later_faces) {
+                const auto later_points =
+                    std::span<const PlanePoint>(scratch.later_points)
+                        .subspan(later_face.first_point, later_face.point_count);
+                shared.assign(later_points.begin(), later_points.end());
+                for (size_t k = 0; k < earlier_points.size() && shared.size() >= 3; ++k) {
+                    clip_to_edge(
+                        shared,
+                        earlier_points[k],
+                        earlier_points[(k + 1) % earlier_points.size()],
+                        clipped
+                    );
+                    shared.swap(clipped);
+                }
+                if (shared.size() < 3 || twice_plane_area(shared) < 2.0 * least_shared_area)
+                    continue;
+                // The share is the first's where this level is not below 0;
+                // it runs straight across the share, so it is cut along a line.
+                levels.clear();
+                bool any = false;
+                for (const PlanePoint& point : shared) {
+                    const double rise =
+                        depth_on(later_face, point) - depth_on(earlier_face, point) - margin;
+                    levels.push_back(first_side * rise);
+                    any = any || levels.back() >= 0.0;
+                }
+                if (!any)
+                    continue;
+                clipped.clear();
+                for (size_t m = 0; m < shared.size(); ++m) {
+                    const size_t n = (m + 1) % shared.size();
+                    if (levels[m] >= 0.0)
+                        clipped.push_back(shared[m]);
+                    if ((levels[m] >= 0.0) != (levels[n] >= 0.0)) {
+                        const double along = levels[m] / (levels[m] - levels[n]);
+                        clipped.push_back(
+                            {shared[m].x + along * (shared[n].x - shared[m].x),
+                             shared[m].y + along * (shared[n].y - shared[m].y)}
+                        );
+                    }
+                }
+                // Without the points the cuts doubled where they passed
+                // through a corner.
+                shared.clear();
+                for (const PlanePoint& point : clipped)
+                    if (shared.empty() || point.x != shared.back().x || point.y != shared.back().y)
+                        shared.push_back(point);
+                while (shared.size() > 1 && shared.back().x == shared.front().x &&
+                       shared.back().y == shared.front().y)
+                    shared.pop_back();
+                clipped.swap(shared);
+                if (clipped.size() < 3 || twice_plane_area(clipped) < 2.0 * least_cut_area)
+                    continue;
+                found.emplace_back(
+                    places[second],
+                    PlaneCut{
+                        static_cast<uint32_t>(points.size()), static_cast<uint32_t>(clipped.size())
+                    }
+                );
+                points.insert(points.end(), clipped.begin(), clipped.end());
+            }
+        }
+    }
+    // The cuts by the place of the polygon they cut, in the order found.
+    std::stable_sort(found.begin(), found.end(), [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+    entry.first_cut.assign(count + 1, 0);
+    entry.cuts.clear();
+    entry.cut_points.clear();
+    for (const auto& [place, cut] : found) {
+        ++entry.first_cut[place + 1];
+        entry.cuts.push_back({static_cast<uint32_t>(entry.cut_points.size()), cut.point_count});
+        const auto from = points.begin() + static_cast<std::ptrdiff_t>(cut.first_point);
+        entry.cut_points.insert(
+            entry.cut_points.end(), from, from + static_cast<std::ptrdiff_t>(cut.point_count)
+        );
+    }
+    for (uint32_t place = 0; place < count; ++place)
+        entry.first_cut[place + 1] += entry.first_cut[place];
+}
+
 /// Orders a unit's polygons as its depth plane shows them (find_plane_order),
 /// with the order kept for the unit while its polygons keep their shape.
+///
+/// The cuts found with the order (find_plane_cuts) are kept with it.
 ///
 /// @param unit_key the unit's draw state, which the order is kept by
 /// @param corners the frame's corners
 /// @param[in,out] polygons the unit's polygons, reordered
 /// @param[in,out] scratch the scratch
 /// @param[in,out] kept the orders kept by unit
-void order_as_depth_plane(
+/// @return the cuts of the polygons in their new order, which the next call changes
+PlaneCuts order_as_depth_plane(
     const void* unit_key,
     std::span<const Corner> corners,
     std::vector<Polygon>& polygons,
@@ -917,20 +1290,63 @@ void order_as_depth_plane(
     std::unordered_map<const void*, KeptPlaneOrder>& kept
 ) {
     if (polygons.empty())
-        return;
+        return {};
     const uint64_t shape = polygon_shape(corners, polygons);
     if (kept.size() >= most_kept_plane_orders && !kept.contains(unit_key))
         kept.clear();
     KeptPlaneOrder& entry = kept[unit_key];
     if (entry.order.size() != polygons.size() || entry.shape != shape) {
         find_plane_order(corners, polygons, scratch, entry.order);
+        find_plane_cuts(corners, polygons, scratch, entry);
         entry.shape = shape;
     }
+    const Corner& origin = corners[polygons.front().first_corner];
     auto& ordered = scratch.ordered;
     ordered.clear();
     for (const uint32_t index : entry.order)
         ordered.push_back(polygons[index]);
     polygons.swap(ordered);
+    return {
+        entry.first_cut,
+        entry.cuts,
+        entry.cut_points,
+        {static_cast<double>(origin.x), static_cast<double>(origin.y)}
+    };
+}
+
+/// Leaves out of a polygon's pieces what lies inside a convex part of the
+/// frame of positive winding: each piece keeps its parts outside the part's
+/// edges, taken one edge at a time, an edge of no length, where two of the
+/// part's corners meet, dividing nothing.
+///
+/// @param[in,out] left the pieces, each convex
+/// @param region the part's corners, in frame pixels at zoom 1
+/// @param[in,out] kept scratch, the pieces left
+/// @param[in,out] rest scratch, a piece's part inside the edges so far
+/// @param[in,out] side scratch, the part on one side of an edge
+void cut_away(
+    std::vector<std::vector<CutPoint>>& left,
+    std::span<const PlanePoint> region,
+    std::vector<std::vector<CutPoint>>& kept,
+    std::vector<CutPoint>& rest,
+    std::vector<CutPoint>& side
+) {
+    kept.clear();
+    for (const std::vector<CutPoint>& piece : left) {
+        rest = piece;
+        for (size_t k = 0; k < region.size() && rest.size() >= 3; ++k) {
+            const PlanePoint& from = region[k];
+            const PlanePoint& to = region[(k + 1) % region.size()];
+            if (from.x == to.x && from.y == to.y)
+                continue;
+            keep_side(rest, from, to, false, side);
+            if (side.size() >= 3 && twice_cut_area(side) >= 2.0 * least_shared_area)
+                kept.push_back(side);
+            keep_side(rest, from, to, true, side);
+            rest.swap(side);
+        }
+    }
+    left.swap(kept);
 }
 
 } // namespace
@@ -953,7 +1369,7 @@ struct ModelStage::Impl {
     std::unordered_map<const void*, bool> keyed_texels;
     std::unordered_map<const Model*, MeshEntry> meshes;
 
-    /// Cached blurred aircraft silhouettes; at most 256 pages of 256 square texels.
+    /// Cached soft-edged aircraft silhouettes; at most 256 pages of 256 square texels.
     struct AircraftShadow {
         card::PageHandle page{};
         uint32_t width{}, height{}, radius{}, image_builds{};
@@ -983,6 +1399,12 @@ struct ModelStage::Impl {
     std::vector<std::vector<CutPoint>> cut_kept;
     std::vector<CutPoint> cut_rest;
     std::vector<CutPoint> cut_side;
+    std::vector<PlanePoint> cut_region;
+    std::vector<std::vector<CutPoint>> cut_clears;
+    /// The parts of the frame the unit's polygons leave out under nearer
+    /// polygons (cut_under_nearer), their points in frame pixels at zoom 1.
+    std::vector<PlaneCut> holes;
+    std::vector<PlanePoint> hole_points;
     std::vector<OutlineRun> outline_runs;
     /// The primitives a nanoframe's outline is found from: their corners,
     /// and how many corners each takes and whether it fills the image.
@@ -1262,7 +1684,11 @@ class Emitter {
     );
     void
     apply_water_and_digger(size_t first_polygon, int32_t lift_threshold, bool own, bool digger);
+    void cut_under_nearer(const PlaneCuts& cuts);
     void cut_under_clearing(size_t first_polygon, size_t end_polygon);
+    void pieces_of(const Polygon& polygon, std::vector<std::vector<CutPoint>>& pieces) const;
+    void keep_pieces(Polygon& polygon, std::span<const std::vector<CutPoint>> pieces);
+    void leave_out_holes(const Canvas& surface, const Polygon& polygon);
     void add_flat_object(
         const Object& object,
         const draw::PreparedObject& prepared,
@@ -1310,7 +1736,8 @@ class Emitter {
         const ModelDraw& drawn, const Canvas& surface, card::Blend blend, bool unfinished_pass
     );
     void shadow_of_projectile(const ProjectileDraw& shot, const Canvas& surface);
-    /// Emits a cached, padded silhouette with altitude-dependent blur and opacity.
+    /// Emits a cached, padded silhouette at the shadows' own darkness and
+    /// place, its edge softened a little more at altitude.
     bool aircraft_shadow(
         const Unit& unit,
         const draw::ModelState& state,
@@ -1359,6 +1786,19 @@ class Emitter {
     /// A textured quad's strips, built beside its corners and triangles.
     std::vector<card::Vertex> strip_vertices_;
     std::vector<card::Index> strip_indices_;
+    /// A polygon's triangles with its holes left out, and the scratch the
+    /// cutting works in (leave_out_holes).
+    std::vector<card::Vertex> hole_vertices_;
+    std::vector<card::Index> hole_indices_;
+    std::vector<card::Vertex> hole_points_;
+    std::vector<uint32_t> hole_ends_;
+    std::vector<card::Vertex> hole_next_points_;
+    std::vector<uint32_t> hole_next_ends_;
+    std::vector<card::Vertex> hole_rest_;
+    std::vector<card::Vertex> hole_inner_;
+    std::vector<double> hole_sides_;
+    std::vector<HoleEdge> hole_edges_;
+    std::vector<HoleBox> hole_boxes_;
 };
 
 uint64_t Emitter::frame_number(const void* key) {
@@ -1575,7 +2015,7 @@ void Emitter::add_piece_polygons(
             corner.x = placed.x;
             corner.y = placed.y;
             corner.depth = placed.depth;
-            if (in_.water_shimmer > 0 && model.unit) {
+            if ((in_.water_shimmer > 0 || in_.vertex_heights != nullptr) && model.unit) {
                 corner.world_height =
                     points[source].y / 65536.0F + model.unit->position.y / 65536.0F;
                 submerged_corner = submerged_corner || corner.world_height < in_.water_sea_level;
@@ -1612,11 +2052,16 @@ void Emitter::add_piece_polygons(
             continue;
         }
         polygon.depth = static_cast<int32_t>(depth_sum / run.corner_count);
-        if (in_.water_shimmer > 0 && model.unit && submerged_corner)
+        if (model.unit &&
+            ((in_.water_shimmer > 0 && submerged_corner) || in_.vertex_heights != nullptr)) {
             water_plane(
                 polygon,
                 std::span(impl_.corners.data() + polygon.first_corner, polygon.corner_count)
             );
+            // Shaded by the shimmer only where it dips under the water.
+            polygon.water_geometry =
+                polygon.water_geometry && in_.water_shimmer > 0 && submerged_corner;
+        }
         if (textured) {
             polygon.bright = highest_row >= first_bright_row;
             for (uint32_t k = 0; k < run.corner_count; ++k) {
@@ -1815,19 +2260,85 @@ void Emitter::apply_water_and_digger(
     }
 }
 
+/// Returns the pieces of a polygon as clearing leaves it: the pieces cut
+/// from it, or its corners whole; its holes (cut_under_nearer) are not cut.
+///
+/// @param polygon the polygon
+/// @param[out] pieces its pieces
+void Emitter::pieces_of(const Polygon& polygon, std::vector<std::vector<CutPoint>>& pieces) const {
+    if (!polygon.cut) {
+        pieces.resize(1);
+        pieces[0].clear();
+        for (const Corner& corner : std::span<const Corner>(
+                 impl_.corners.data() + polygon.first_corner, polygon.corner_count
+             ))
+            pieces[0].push_back(cut_point_of(corner));
+        return;
+    }
+    pieces.resize(polygon.piece_count);
+    for (uint32_t p = 0; p < polygon.piece_count; ++p) {
+        const CutPiece& piece = impl_.cut_pieces[polygon.first_piece + p];
+        const auto first =
+            impl_.cut_points.begin() + static_cast<std::ptrdiff_t>(piece.first_point);
+        pieces[p].assign(first, first + static_cast<std::ptrdiff_t>(piece.point_count));
+    }
+}
+
+/// Makes a polygon drawn as pieces cut from it, adding them to the unit's
+/// cut pieces.
+///
+/// @param[in,out] polygon the polygon
+/// @param pieces the pieces it keeps, none when nothing of it is left
+void Emitter::keep_pieces(Polygon& polygon, std::span<const std::vector<CutPoint>> pieces) {
+    polygon.cut = true;
+    polygon.first_piece = static_cast<uint32_t>(impl_.cut_pieces.size());
+    polygon.piece_count = static_cast<uint32_t>(pieces.size());
+    for (const std::vector<CutPoint>& piece : pieces) {
+        CutPiece kept_piece;
+        kept_piece.first_point = static_cast<uint32_t>(impl_.cut_points.size());
+        kept_piece.point_count = static_cast<uint32_t>(piece.size());
+        impl_.cut_pieces.push_back(kept_piece);
+        impl_.cut_points.insert(impl_.cut_points.end(), piece.begin(), piece.end());
+    }
+}
+
+/// Gives a depth-plane unit's polygons, in drawing order, the holes they
+/// leave out where the plane shows polygons drawn before them
+/// (find_plane_cuts), so that those show through there; the holes are cut
+/// out of the triangles each polygon is drawn as (leave_out_holes).
+///
+/// @param cuts the polygons' cuts, as order_as_depth_plane gave them
+void Emitter::cut_under_nearer(const PlaneCuts& cuts) {
+    auto& polygons = impl_.polygons;
+    if (cuts.first_cut.size() != polygons.size() + 1)
+        return;
+    for (size_t i = 0; i < polygons.size(); ++i) {
+        Polygon& polygon = polygons[i];
+        polygon.first_hole = static_cast<uint32_t>(impl_.holes.size());
+        polygon.hole_count = cuts.first_cut[i + 1] - cuts.first_cut[i];
+        for (uint32_t c = cuts.first_cut[i]; c < cuts.first_cut[i + 1]; ++c) {
+            const PlaneCut& cut = cuts.cuts[c];
+            impl_.holes.push_back(
+                {static_cast<uint32_t>(impl_.hole_points.size()), cut.point_count}
+            );
+            for (const PlanePoint& point : cuts.points.subspan(cut.first_point, cut.point_count))
+                impl_.hole_points.push_back({point.x + cuts.origin.x, point.y + cuts.origin.y});
+        }
+    }
+}
+
 /// Clears from a unit's picture what its polygons of the image key cover, as
 /// the processor's picture of the unit leaves the key's pixels clear, so
 /// that the ground shows there: each polygon drawn before one that clears
 /// and sharing area with it keeps only its pieces outside that one, and the
 /// polygons that clear draw nothing. One that faces away clears nothing, as
-/// it fills nothing. A model hides its pieces sunk below the ground behind
-/// walls of the key so.
+/// it fills nothing, and one with holes under nearer polygons
+/// (cut_under_nearer) clears nothing there. A model hides its pieces sunk
+/// below the ground behind walls of the key so.
 ///
 /// @param first_polygon the picture's first polygon, in drawing order
 /// @param end_polygon one past its last
 void Emitter::cut_under_clearing(size_t first_polygon, size_t end_polygon) {
-    impl_.cut_pieces.clear();
-    impl_.cut_points.clear();
     auto& polygons = impl_.polygons;
     end_polygon = std::min(end_polygon, polygons.size());
     const auto corners_of = [this](const Polygon& polygon) {
@@ -1838,9 +2349,6 @@ void Emitter::cut_under_clearing(size_t first_polygon, size_t end_polygon) {
     const auto clearing = [&](const Polygon& polygon) {
         return polygon.clears && polygon.corner_count >= 3 && winding(corners_of(polygon)) > 0;
     };
-    const auto plane_of = [](const Corner& corner) {
-        return PlanePoint{static_cast<double>(corner.x), static_cast<double>(corner.y)};
-    };
     if (std::none_of(
             polygons.begin() + static_cast<std::ptrdiff_t>(first_polygon),
             polygons.begin() + static_cast<std::ptrdiff_t>(end_polygon),
@@ -1848,9 +2356,10 @@ void Emitter::cut_under_clearing(size_t first_polygon, size_t end_polygon) {
         ))
         return;
     auto& left = impl_.cut_left;
-    auto& kept = impl_.cut_kept;
-    auto& rest = impl_.cut_rest;
-    auto& side = impl_.cut_side;
+    auto& region = impl_.cut_region;
+    // What each polygon that clears clears: its corners, or the pieces
+    // left of it.
+    std::vector<std::vector<CutPoint>>& clears = impl_.cut_clears;
     for (size_t i = first_polygon; i < end_polygon; ++i) {
         Polygon& polygon = polygons[i];
         if (polygon.clears || polygon.corner_count < 3)
@@ -1868,41 +2377,31 @@ void Emitter::cut_under_clearing(size_t first_polygon, size_t end_polygon) {
             if (!shared_centre(over_corners, corners, corners[0], impl_.plane_order, centre))
                 continue;
             if (!cut) {
-                left.resize(1);
-                left[0].clear();
-                for (const Corner& corner : corners)
-                    left[0].push_back(cut_point_of(corner));
+                pieces_of(polygon, left);
                 cut = true;
             }
-            // Each piece outside the clearing polygon's edges, one edge at a
-            // time; what lies inside them all is cleared.
-            kept.clear();
-            for (const std::vector<CutPoint>& piece : left) {
-                rest = piece;
-                for (size_t k = 0; k < over_corners.size() && rest.size() >= 3; ++k) {
-                    const PlanePoint from = plane_of(over_corners[k]);
-                    const PlanePoint to = plane_of(over_corners[(k + 1) % over_corners.size()]);
-                    keep_side(rest, from, to, false, side);
-                    if (side.size() >= 3 && twice_cut_area(side) >= 2.0 * least_shared_area)
-                        kept.push_back(side);
-                    keep_side(rest, from, to, true, side);
-                    rest.swap(side);
-                }
+            // What it clears: where it shows, its pieces but its holes.
+            pieces_of(over, clears);
+            for (uint32_t h = over.first_hole; h < over.first_hole + over.hole_count; ++h) {
+                const PlaneCut& hole = impl_.holes[h];
+                cut_away(
+                    clears,
+                    std::span<const PlanePoint>(impl_.hole_points)
+                        .subspan(hole.first_point, hole.point_count),
+                    impl_.cut_kept,
+                    impl_.cut_rest,
+                    impl_.cut_side
+                );
             }
-            left.swap(kept);
+            for (const std::vector<CutPoint>& clear : clears) {
+                region.clear();
+                for (const CutPoint& point : clear)
+                    region.push_back({point.x, point.y});
+                cut_away(left, region, impl_.cut_kept, impl_.cut_rest, impl_.cut_side);
+            }
         }
-        if (!cut)
-            continue;
-        polygon.cut = true;
-        polygon.first_piece = static_cast<uint32_t>(impl_.cut_pieces.size());
-        polygon.piece_count = static_cast<uint32_t>(left.size());
-        for (const std::vector<CutPoint>& piece : left) {
-            CutPiece kept_piece;
-            kept_piece.first_point = static_cast<uint32_t>(impl_.cut_points.size());
-            kept_piece.point_count = static_cast<uint32_t>(piece.size());
-            impl_.cut_pieces.push_back(kept_piece);
-            impl_.cut_points.insert(impl_.cut_points.end(), piece.begin(), piece.end());
-        }
+        if (cut)
+            keep_pieces(polygon, left);
     }
     for (size_t i = first_polygon; i < end_polygon; ++i)
         if (polygons[i].clears)
@@ -2202,13 +2701,244 @@ bool Emitter::walk_strips(const Canvas& surface, std::span<const Corner> corners
     return true;
 }
 
-void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page) {
-    if (polygon.water_geometry && in_.water_shimmer > 0) {
-        const auto height_of = [&](const card::Vertex& vertex) {
-            const float x = (vertex.x - surface.origin_x) / scale_;
-            const float y = (vertex.y - surface.origin_y) / scale_;
-            return polygon.height_origin + polygon.height_x * x + polygon.height_y * y;
+/// Leaves out of the triangles vertices_ and indices_ hold the holes of a
+/// polygon (cut_under_nearer), placed on the surface: each triangle keeps
+/// its parts outside every hole, the vertices on the cuts taken in
+/// proportion along its edges, so that a textured quad's strips keep their
+/// texels. The parts are drawn as fans. An edge of no length, where two of a
+/// hole's corners meet, divides nothing.
+///
+/// @param surface the canvas the polygon is drawn on
+/// @param polygon the polygon, with its holes
+void Emitter::leave_out_holes(const Canvas& surface, const Polygon& polygon) {
+    const auto between = [](const card::Vertex& from, const card::Vertex& to, float along) {
+        const auto mix = [along](float first, float second) {
+            return first + along * (second - first);
         };
+        card::Vertex point;
+        point.x = mix(from.x, to.x);
+        point.y = mix(from.y, to.y);
+        point.u = mix(from.u, to.u);
+        point.v = mix(from.v, to.v);
+        point.colour = {
+            mix(from.colour.red, to.colour.red),
+            mix(from.colour.green, to.colour.green),
+            mix(from.colour.blue, to.colour.blue),
+            mix(from.colour.alpha, to.colour.alpha)
+        };
+        return point;
+    };
+    const auto twice_area = [](std::span<const card::Vertex> part) {
+        double sum = 0.0;
+        for (size_t m = 0; m < part.size(); ++m) {
+            const card::Vertex& here = part[m];
+            const card::Vertex& next = part[(m + 1) % part.size()];
+            sum += static_cast<double>(here.x) * next.y - static_cast<double>(next.x) * here.y;
+        }
+        return sum;
+    };
+    const double least_area = 2.0 * least_shared_area * static_cast<double>(scale_ * scale_);
+    // The holes placed on the surface: the lines along their edges, each a
+    // side function across * y - down * x + offset, positive inside, an edge
+    // of no length left out, and the box round each hole, so that a part
+    // outside a hole's box is not cut by it.
+    auto& edges = hole_edges_;
+    auto& boxes = hole_boxes_;
+    edges.clear();
+    boxes.clear();
+    for (uint32_t h = polygon.first_hole; h < polygon.first_hole + polygon.hole_count; ++h) {
+        const PlaneCut& hole = impl_.holes[h];
+        HoleBox box{static_cast<uint32_t>(edges.size()), 0};
+        const auto placed = [&](uint32_t k) {
+            const PlanePoint& point = impl_.hole_points[hole.first_point + k % hole.point_count];
+            return PlanePoint{
+                surface.origin_x + point.x * static_cast<double>(scale_),
+                surface.origin_y + point.y * static_cast<double>(scale_)
+            };
+        };
+        for (uint32_t k = 0; k < hole.point_count; ++k) {
+            const PlanePoint from = placed(k);
+            const PlanePoint to = placed(k + 1);
+            box.left = k == 0 ? from.x : std::min(box.left, from.x);
+            box.right = k == 0 ? from.x : std::max(box.right, from.x);
+            box.top = k == 0 ? from.y : std::min(box.top, from.y);
+            box.bottom = k == 0 ? from.y : std::max(box.bottom, from.y);
+            if (from.x == to.x && from.y == to.y)
+                continue;
+            const double across = to.x - from.x;
+            const double down = to.y - from.y;
+            edges.push_back({across, down, down * from.x - across * from.y});
+            ++box.edge_count;
+        }
+        boxes.push_back(box);
+    }
+    const auto outside = [](const HoleBox& box, std::span<const card::Vertex> part) {
+        double left = part[0].x;
+        double right = left;
+        double top = part[0].y;
+        double bottom = top;
+        for (const card::Vertex& point : part) {
+            left = std::min(left, static_cast<double>(point.x));
+            right = std::max(right, static_cast<double>(point.x));
+            top = std::min(top, static_cast<double>(point.y));
+            bottom = std::max(bottom, static_cast<double>(point.y));
+        }
+        return right <= box.left || box.right <= left || bottom <= box.top || box.bottom <= top;
+    };
+    // The parts of a triangle left, each a run of points of a pool ending
+    // where its end says, cut hole by hole from one pool into the other.
+    auto& points = hole_points_;
+    auto& ends = hole_ends_;
+    auto& next_points = hole_next_points_;
+    auto& next_ends = hole_next_ends_;
+    auto& rest = hole_rest_;
+    auto& inner = hole_inner_;
+    auto& sides = hole_sides_;
+    const auto keep_part = [&](std::span<const card::Vertex> part) {
+        next_points.insert(next_points.end(), part.begin(), part.end());
+        next_ends.push_back(static_cast<uint32_t>(next_points.size()));
+    };
+    hole_vertices_.clear();
+    hole_indices_.clear();
+    for (size_t t = 0; t + 2 < indices_.size(); t += 3) {
+        const std::array<card::Vertex, 3> triangle{
+            vertices_[indices_[t]], vertices_[indices_[t + 1]], vertices_[indices_[t + 2]]
+        };
+        // A triangle no hole's box reaches is kept whole.
+        if (std::all_of(boxes.begin(), boxes.end(), [&](const HoleBox& box) {
+                return outside(box, triangle);
+            })) {
+            const auto first = static_cast<card::Index>(hole_vertices_.size());
+            hole_vertices_.insert(hole_vertices_.end(), triangle.begin(), triangle.end());
+            for (card::Index k = 0; k < 3; ++k)
+                hole_indices_.push_back(first + k);
+            continue;
+        }
+        points.assign(triangle.begin(), triangle.end());
+        ends.assign(1, 3);
+        for (const HoleBox& box : boxes) {
+            next_points.clear();
+            next_ends.clear();
+            uint32_t begin = 0;
+            for (const uint32_t end : ends) {
+                const std::span<const card::Vertex> part(points.data() + begin, end - begin);
+                begin = end;
+                if (outside(box, part)) {
+                    keep_part(part);
+                    continue;
+                }
+                // Each part outside an edge is kept, and the rest goes on to
+                // the next edge; what lies inside every edge is the hole's.
+                rest.assign(part.begin(), part.end());
+                for (uint32_t e = box.first_edge; e < box.first_edge + box.edge_count; ++e) {
+                    const HoleEdge& edge = edges[e];
+                    sides.clear();
+                    bool any_inside = false;
+                    bool any_outside = false;
+                    for (const card::Vertex& point : rest) {
+                        const double side =
+                            edge.across * point.y - edge.down * point.x + edge.offset;
+                        sides.push_back(side);
+                        any_inside = any_inside || side > 0.0;
+                        any_outside = any_outside || side < 0.0;
+                    }
+                    if (!any_inside) {
+                        keep_part(rest);
+                        rest.clear();
+                        break;
+                    }
+                    if (!any_outside)
+                        continue;
+                    // The part outside the edge, kept, and the part inside,
+                    // a point on the line in both.
+                    const auto outer_begin = next_points.size();
+                    inner.clear();
+                    for (size_t m = 0; m < rest.size(); ++m) {
+                        const size_t n = (m + 1) % rest.size();
+                        if (sides[m] <= 0.0)
+                            next_points.push_back(rest[m]);
+                        if (sides[m] >= 0.0)
+                            inner.push_back(rest[m]);
+                        if ((sides[m] < 0.0 && sides[n] > 0.0) ||
+                            (sides[m] > 0.0 && sides[n] < 0.0)) {
+                            const card::Vertex point = between(
+                                rest[m],
+                                rest[n],
+                                static_cast<float>(sides[m] / (sides[m] - sides[n]))
+                            );
+                            next_points.push_back(point);
+                            inner.push_back(point);
+                        }
+                    }
+                    const std::span<const card::Vertex> outer(
+                        next_points.data() + outer_begin, next_points.size() - outer_begin
+                    );
+                    if (outer.size() >= 3 && std::abs(twice_area(outer)) >= least_area)
+                        next_ends.push_back(static_cast<uint32_t>(next_points.size()));
+                    else
+                        next_points.resize(outer_begin);
+                    rest.swap(inner);
+                }
+            }
+            std::swap(points, next_points);
+            std::swap(ends, next_ends);
+            if (ends.empty())
+                break;
+        }
+        // Each part as a fan, without the points a cut doubled where it
+        // passed through a corner, and without triangles of no area, which
+        // a renderer may take for parts of a rectangle.
+        uint32_t begin = 0;
+        for (const uint32_t end : ends) {
+            const std::span<const card::Vertex> part(points.data() + begin, end - begin);
+            begin = end;
+            const auto first = static_cast<card::Index>(hole_vertices_.size());
+            for (const card::Vertex& point : part)
+                if (hole_vertices_.size() == first || point.x != hole_vertices_.back().x ||
+                    point.y != hole_vertices_.back().y)
+                    hole_vertices_.push_back(point);
+            while (hole_vertices_.size() > first + 1U &&
+                   hole_vertices_.back().x == hole_vertices_[first].x &&
+                   hole_vertices_.back().y == hole_vertices_[first].y)
+                hole_vertices_.pop_back();
+            const auto count = static_cast<card::Index>(hole_vertices_.size() - first);
+            for (card::Index k = 1; k + 1 < count; ++k) {
+                const card::Vertex& a = hole_vertices_[first];
+                const card::Vertex& b = hole_vertices_[first + k];
+                const card::Vertex& c = hole_vertices_[first + k + 1];
+                if ((b.x - a.x) * (c.y - a.y) == (b.y - a.y) * (c.x - a.x))
+                    continue;
+                hole_indices_.push_back(first);
+                hole_indices_.push_back(static_cast<card::Index>(first + k));
+                hole_indices_.push_back(static_cast<card::Index>(first + k + 1));
+            }
+        }
+    }
+    std::swap(vertices_, hole_vertices_);
+    std::swap(indices_, hole_indices_);
+}
+
+void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::PageHandle page) {
+    if (polygon.hole_count != 0)
+        leave_out_holes(surface, polygon);
+    const auto height_of = [&](const card::Vertex& vertex) {
+        const float x = (vertex.x - surface.origin_x) / scale_;
+        const float y = (vertex.y - surface.origin_y) / scale_;
+        return polygon.height_origin + polygon.height_x * x + polygon.height_y * y;
+    };
+    // Each vertex's world height beside the frame's vertices, where they are
+    // asked for: NaN for the vertices other draws appended before these.
+    const auto record_heights = [&](std::span<const card::Vertex> vertices) {
+        if (in_.vertex_heights == nullptr)
+            return;
+        auto& heights = *in_.vertex_heights;
+        heights.resize(frame_.vertices.size(), std::numeric_limits<float>::quiet_NaN());
+        for (const card::Vertex& vertex : vertices)
+            heights.push_back(
+                polygon.height_plane ? height_of(vertex) : std::numeric_limits<float>::quiet_NaN()
+            );
+    };
+    if (polygon.water_geometry && in_.water_shimmer > 0) {
         renderer_water_shading::split(
             vertices_,
             indices_,
@@ -2229,8 +2959,10 @@ void Emitter::append_body(const Canvas& surface, const Polygon& polygon, card::P
                 );
             }
         );
+        record_heights(wet_vertices_);
         append(surface, page, card::Blend::alpha, wet_vertices_, wet_indices_);
     } else {
+        record_heights(vertices_);
         append(surface, page, card::Blend::alpha, vertices_, indices_);
     }
 }
@@ -2497,6 +3229,10 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     const Game& game = in_.world->game;
     impl_.corners.clear();
     impl_.polygons.clear();
+    impl_.cut_pieces.clear();
+    impl_.cut_points.clear();
+    impl_.holes.clear();
+    impl_.hole_points.clear();
     impl_.outline_runs.clear();
     const int32_t dx = wrap_sub(unit.position.x, camera_x_);
     const int32_t dz = wrap_sub(unit.position.z, camera_z_);
@@ -2590,7 +3326,9 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     }
     // A depth image: the image's pieces, the moving pieces drawn again over
     // it and the carried units composed into it are one picture whose depth
-    // plane the order of its polygons stands in for (order_as_depth_plane).
+    // plane the order of its polygons stands in for (order_as_depth_plane),
+    // with holes in each polygon where it lies under one drawn before it
+    // (cut_under_nearer).
     if (unfinished) {
         // An unfinished unit's image holds every piece; a mobile one draws
         // them again with the running frames, unless its moving pieces wait
@@ -2676,9 +3414,9 @@ void Emitter::draw_model(const ModelDraw& drawn) {
     apply_water_and_digger(
         0, lift > 0 ? int32_t{static_cast<uint8_t>(lift + base)} : -1, own, is_digger(model)
     );
-    order_as_depth_plane(
+    cut_under_nearer(order_as_depth_plane(
         model.state, impl_.corners, impl_.polygons, impl_.plane_order, impl_.kept_plane_orders
-    );
+    ));
     cut_under_clearing(0, impl_.polygons.size());
     emit_polygons(canvas);
     emit_outline(canvas);
@@ -2843,9 +3581,9 @@ bool Emitter::aircraft_shadow(
     const Sprite& image = state.image.sprite;
     constexpr uint32_t edge = 256;
     constexpr std::size_t capacity = 256;
-    const auto style = renderer_aircraft_shadow::style(altitude);
+    const uint32_t radius = renderer_aircraft_shadow::edge_radius(altitude);
     const uint32_t width = image.width, height = image.height;
-    const uint32_t padding = style.radius * 2;
+    const uint32_t padding = radius * 2;
     if (width == 0 || height == 0 || width + padding * 2 > edge || height + padding * 2 > edge ||
         image.data == nullptr)
         return false;
@@ -2875,7 +3613,7 @@ bool Emitter::aircraft_shadow(
     cached.used_frame = impl_.aircraft_shadow_frame;
     if (cached.page == card::PageHandle{} || cached.image_builds != state.image_builds ||
         cached.image_data != image.data || cached.width != width || cached.height != height ||
-        cached.radius != style.radius) {
+        cached.radius != radius) {
         std::vector<uint8_t> mask(static_cast<std::size_t>(width) * height);
         const auto* pixels = static_cast<const uint8_t*>(image.data);
         for (std::size_t i = 0; i < mask.size(); ++i)
@@ -2884,7 +3622,7 @@ bool Emitter::aircraft_shadow(
             cached.page = executor_.create_page({edge, edge, 1});
         if (cached.page == card::PageHandle{})
             return false;
-        const auto alpha = renderer_aircraft_shadow::soften(mask, width, height, style.radius);
+        const auto alpha = renderer_aircraft_shadow::soften(mask, width, height, radius);
         std::vector<uint8_t> rgba(edge * edge * card::texel_bytes);
         const uint32_t columns = width + padding * 2, rows = height + padding * 2;
         for (uint32_t row = 0; row < rows; ++row)
@@ -2894,15 +3632,15 @@ bool Emitter::aircraft_shadow(
             return false;
         cached.width = width;
         cached.height = height;
-        cached.radius = style.radius;
+        cached.radius = radius;
         cached.image_builds = state.image_builds;
         cached.image_data = image.data;
         ++counts_.page_uploads;
     }
     const float centre_x = static_cast<float>(x - image.origin_x) + width * 0.5F;
     const float centre_y = static_cast<float>(y - image.origin_y) + height * 0.5F;
-    const float half_width = (width * 0.5F + padding) * style.spread;
-    const float half_height = (height * 0.5F + padding) * style.spread;
+    const float half_width = width * 0.5F + padding;
+    const float half_height = height * 0.5F + padding;
     vertices_.clear();
     for (const auto& [sx, sy] : {std::pair{0, 0}, {1, 0}, {1, 1}, {0, 1}}) {
         card::Vertex vertex;
@@ -2910,7 +3648,7 @@ bool Emitter::aircraft_shadow(
         vertex.y = surface.origin_y + (centre_y + (sy * 2 - 1) * half_height) * scale_;
         vertex.u = static_cast<float>(sx * (width + padding * 2)) / edge;
         vertex.v = static_cast<float>(sy * (height + padding * 2)) / edge;
-        vertex.colour = {1, 1, 1, shadow_alpha() * style.opacity};
+        vertex.colour = {1, 1, 1, shadow_alpha()};
         vertices_.push_back(vertex);
     }
     constexpr std::array<card::Index, 6> quad{0, 1, 2, 0, 2, 3};
@@ -2962,10 +3700,13 @@ void Emitter::shadow_of_model(
     const int32_t dz = wrap_sub(unit.position.z, camera_z_);
     const int32_t shadow_x = hi(dx) + draw::shadow_offset_x;
     const int32_t shadow_y = hi(dz) - (plan.model.ground >> 1);
+    // An aircraft's shadow lies where every unit's does, at the ground's
+    // place, the bed's under water, as the processor lays it; only its
+    // soft edge follows the height above the ground or water under it.
     const int32_t receiver = std::max<int32_t>(plan.model.ground, game.sea_level);
     const float altitude = static_cast<float>(unit_height - receiver);
     if ((flags & OA_UNIT_DEF_FLAG_CAN_FLY) != 0 && vehicle_shadow && altitude > 0 &&
-        aircraft_shadow(unit, *model.state, surface, shadow_x, hi(dz) - (receiver >> 1), altitude))
+        aircraft_shadow(unit, *model.state, surface, shadow_x, shadow_y, altitude))
         return;
     const int32_t base = vertex_depth_base(model);
     const uint8_t team = in_.team_colors[unit.owner_index % team_colour_players];

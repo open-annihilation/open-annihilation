@@ -153,6 +153,16 @@ inline constexpr std::size_t MutatorMaskWildcardLimit = 16;
 /// FoundEntry::mount of a match from the mutator layer.
 inline constexpr int MutatorLayerMount = -2;
 
+/// Where the chunks of one compressed file node are stored, from its
+/// decrypted chunk-size table.
+struct ChunkTable {
+    /// The file node the table belongs to.
+    uint32_t node{};
+    /// Archive offset of each chunk's stored bytes, then the offset just past
+    /// the last chunk; the table's sizes summed at 64 bits.
+    std::vector<uint64_t> offsets;
+};
+
 // Squash codec status; squash_status_name gives each value's SQUASHERR_* name.
 enum class SquashStatus : uint8_t {
     ok = 0,
@@ -400,6 +410,32 @@ class HpiArchive {
     ///         out_of_range for a directory or bad index.
     [[nodiscard]] base::bytes::Decoded<uint32_t>
     read_node_range(uint32_t index, uint32_t position, std::span<uint8_t> output) const;
+    /// Reads and decrypts a compressed file node's chunk-size table, for
+    /// reads of its ranges that each would otherwise read it again.
+    ///
+    /// @param index file node index
+    /// @return where each chunk is stored; or out_of_range for a directory,
+    ///         a stored file or a bad index, or truncated, at the node's data
+    ///         offset, for a table past the end of the archive
+    [[nodiscard]] base::bytes::Decoded<formats::hpi::ChunkTable>
+    read_chunk_table(uint32_t index) const;
+    /// Copies a range of a compressed file node's decoded bytes, locating
+    /// its chunks through a table read_chunk_table() gave.
+    ///
+    /// As read_node_range(index, position, output) with the table already read.
+    ///
+    /// @param index file node index
+    /// @param position first decoded byte to copy
+    /// @param[out] output destination; the range is clamped to the entry
+    /// @param chunks read_chunk_table(index)
+    /// @return read_node_range's result; or out_of_range for a table of
+    ///         another node
+    [[nodiscard]] base::bytes::Decoded<uint32_t> read_node_range(
+        uint32_t index,
+        uint32_t position,
+        std::span<uint8_t> output,
+        const formats::hpi::ChunkTable& chunks
+    ) const;
 
   private:
 
@@ -756,7 +792,11 @@ class AssetStore {
     /// those listings: a file added, removed or renamed afterwards is seen only
     /// after mark_loose_shadows() or discover(), which drop the listings. Once
     /// the listings would hold more than loose_index_limit entries, the store
-    /// drops them and lists every folder on every lookup instead.
+    /// drops them and lists every folder on every lookup instead. Where a
+    /// file found leads is checked as its path is at the lookup, not as it
+    /// was listed: a file reached through a link, a junction or another
+    /// reparse point that leads outside the game directory is not a loose
+    /// file.
     ///
     /// @param loose_root game directory; loose files are resolved below it
     /// @param loose_index_limit most folder entries the kept listings may hold

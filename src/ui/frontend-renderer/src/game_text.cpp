@@ -7,6 +7,8 @@
 #include "oa/base/threads.hpp"
 
 #include <algorithm>
+#include <cstddef>
+#include <limits>
 #include <map>
 #include <tuple>
 #include <utility>
@@ -22,6 +24,8 @@ constexpr unsigned char gui_height_glyph = 'I';
 constexpr unsigned char fnt_baseline_glyph = 'H';
 /// The first byte above ASCII.
 constexpr unsigned char first_high_byte = 0x80;
+/// The first byte raster_text takes: the space, which it draws nothing for.
+constexpr unsigned char fnt_first_printable = ' ';
 /// The smallest 'I' of a GUI font drawn in the message face: hattfont12's.
 constexpr int32_t message_face_height = 12;
 /// The smallest 'H' of an FNT font drawn in the message face.
@@ -193,6 +197,91 @@ lit_text_color(std::array<uint8_t, 3> color, std::span<const uint8_t> palette, i
     return {palette[at], palette[at + 1], palette[at + 2]};
 }
 
+void draw_fnt_glyphs(
+    Surface& surface,
+    const formats::fnt::Font& font,
+    std::string_view text,
+    int32_t x,
+    int32_t y,
+    const PaletteBytes& palette,
+    const TextClip& clip,
+    const uint8_t* light_row
+) {
+    // Bound the glyphs' pixels as raster_text places them, then keep the
+    // part inside the clip and the surface.
+    int64_t drawn_left = std::numeric_limits<int64_t>::max();
+    int64_t drawn_top = std::numeric_limits<int64_t>::max();
+    int64_t drawn_right = std::numeric_limits<int64_t>::min();
+    int64_t drawn_bottom = std::numeric_limits<int64_t>::min();
+    const int64_t lift = formats::fnt::row_lift(font);
+    int64_t pen = x;
+    for (const unsigned char byte : text) {
+        if (byte < fnt_first_printable || !font.glyphs[byte])
+            continue;
+        const auto& glyph = *font.glyphs[byte];
+        if (byte != fnt_first_printable) {
+            const int64_t left = pen - glyph.origin_x;
+            const int64_t top = int64_t{y} - glyph.origin_y - lift;
+            drawn_left = std::min(drawn_left, left);
+            drawn_top = std::min(drawn_top, top);
+            drawn_right = std::max(drawn_right, left + glyph.width);
+            drawn_bottom = std::max(drawn_bottom, top + glyph.height);
+        }
+        pen = std::clamp<int64_t>(
+            pen + glyph.width,
+            std::numeric_limits<int32_t>::min(),
+            std::numeric_limits<int32_t>::max()
+        );
+    }
+    int64_t left = std::max({drawn_left, int64_t{clip.left}, int64_t{0}});
+    int64_t top = std::max({drawn_top, int64_t{clip.top}, int64_t{0}});
+    int64_t right =
+        std::min({drawn_right, int64_t{clip.right} + 1, static_cast<int64_t>(surface.width)});
+    int64_t bottom =
+        std::min({drawn_bottom, int64_t{clip.bottom} + 1, static_cast<int64_t>(surface.height)});
+    if (left >= right || top >= bottom) {
+        left = 0;
+        top = 0;
+        right = 0;
+        bottom = 0;
+    }
+    const auto columns = static_cast<uint32_t>(right - left);
+    const auto rows = static_cast<uint32_t>(bottom - top);
+    const std::size_t count = static_cast<std::size_t>(columns) * rows;
+    std::vector<uint8_t> indices(count);
+    std::vector<uint8_t> coverage(count);
+    const formats::fnt::IndexedSurface scratch{columns, rows, columns, indices, coverage};
+    std::ignore = formats::fnt::raster_text(
+        scratch,
+        font,
+        text,
+        static_cast<int32_t>(std::clamp<int64_t>(
+            int64_t{x} - left,
+            std::numeric_limits<int32_t>::min(),
+            std::numeric_limits<int32_t>::max()
+        )),
+        static_cast<int32_t>(std::clamp<int64_t>(
+            int64_t{y} - top,
+            std::numeric_limits<int32_t>::min(),
+            std::numeric_limits<int32_t>::max()
+        ))
+    );
+    for (uint32_t row = 0; row < rows; ++row) {
+        const std::size_t from = static_cast<std::size_t>(row) * columns;
+        uint8_t* out = surface.rgb.data() + (static_cast<std::size_t>(top + row) * surface.width +
+                                             static_cast<std::size_t>(left)) *
+                                                3U;
+        for (uint32_t column = 0; column < columns; ++column, out += 3) {
+            if (coverage[from + column] == 0)
+                continue;
+            const uint8_t index =
+                light_row != nullptr ? light_row[indices[from + column]] : indices[from + column];
+            const std::size_t entry = static_cast<std::size_t>(index) * palette_entry_bytes;
+            std::copy_n(palette.begin() + static_cast<std::ptrdiff_t>(entry), 3, out);
+        }
+    }
+}
+
 int32_t draw_fnt_game_text(
     Surface& surface,
     const formats::fnt::Font& font,
@@ -246,28 +335,9 @@ int32_t draw_fnt_game_text(
                 pen += width;
                 ++fitted;
             }
-            const auto kept = std::string_view(bytes).substr(0, fitted);
-            const auto pixel_count = static_cast<std::size_t>(surface.width) * surface.height;
-            std::vector<uint8_t> indices(pixel_count);
-            std::vector<uint8_t> coverage(pixel_count);
-            const formats::fnt::IndexedSurface target{
-                surface.width, surface.height, surface.width, indices, coverage
-            };
-            std::ignore = formats::fnt::raster_text(target, font, kept, x, y);
-            for (std::size_t index = 0; index < pixel_count; ++index) {
-                const auto column = static_cast<int32_t>(index % surface.width);
-                const auto row = static_cast<int32_t>(index / surface.width);
-                if (coverage[index] == 0 || column < clip.left || column > clip.right ||
-                    row < clip.top || row > clip.bottom)
-                    continue;
-                const std::size_t entry =
-                    static_cast<std::size_t>(indices[index]) * palette_entry_bytes;
-                std::copy_n(
-                    palette.begin() + static_cast<std::ptrdiff_t>(entry),
-                    3,
-                    surface.rgb.begin() + static_cast<std::ptrdiff_t>(index * 3)
-                );
-            }
+            draw_fnt_glyphs(
+                surface, font, std::string_view(bytes).substr(0, fitted), x, y, palette, clip
+            );
             x = pen;
             if (fitted < bytes.size())
                 return x;

@@ -5,6 +5,8 @@
 // game. A dropped file is asked about and installed, the same package is
 // declined, and a catalogue revision is installed while Settings stay open
 // and no prompt shows. The player's Languages folder is checked after each.
+// A notice over Settings, whose drawing the layer keeps, is drawn again once
+// the revision has replaced the shown language's words in place.
 
 #include "mod_install_state.hpp"
 #include "oa_layer.hpp"
@@ -21,6 +23,7 @@
 #include "oa/formats/zip.hpp"
 #include "oa/platform/text_font.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
+#include "oa/ui/kit/components_more.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -30,6 +33,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -296,6 +300,28 @@ void Runtime::check_language_install() {
     state.check_shows_prompts = false;
     open_engine_settings_from_menu();
     require(engine_settings_dialog() != nullptr, "Settings did not open");
+    // A notice over Settings, which the layer keeps drawn while nothing it is
+    // drawn from changes.
+    oa::ui::kit::Notice told;
+    told.title = "NOTICE";
+    told.paragraphs.push_back(oa::ui::kit::Paragraph{"Select Map", false});
+    told.ok_caption = "OK";
+    oa_layer().push(
+        std::make_unique<NoticeScreen>(
+            oa_layer(), Screen::main_menu, std::move(told), NoticeScreen::Host{}
+        )
+    );
+    const auto notice_frame = [&] {
+        bool running = true;
+        run_frame(running);
+        require(running, "a frame with the notice ended the run");
+    };
+    notice_frame();
+    notice_frame();
+    const LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name);
+    require(notice != nullptr, "the notice did not open");
+    const uint64_t kept_notice = oa_layer().kept_drawing(*notice);
+    require(kept_notice != 0, "the layer keeps no drawing of the notice");
     const fs::path catalogue_file = packages / "pseudo-r2.oalang";
     write_language_pack(pseudo, catalogue_file, 2);
     install::Origin origin{};
@@ -328,6 +354,16 @@ void Runtime::check_language_install() {
         revision_in(folder / std::string(install::backup_folder_name)) == 1,
         ".backup does not hold revision 1"
     );
+    // The pack was read again: the language shown is the same entry, and
+    // its words were replaced in place.
+    notice_frame();
+    notice = oa_layer().find(NoticeScreen::screen_name);
+    require(notice != nullptr, "the notice closed during the install");
+    require(
+        oa_layer().kept_drawing(*notice) != kept_notice,
+        "the notice kept its drawing after its language's pack was read again"
+    );
+    oa_layer().close(notice);
     std::cout << "language install check: catalogue pack installed with no prompt\n";
     std::cout << "language install check: passed\n" << std::flush;
 }

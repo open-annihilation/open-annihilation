@@ -113,6 +113,12 @@ menu's bottom right, the **OA** button, which opens the Library, and the
 pressed while a finger rests on it, and a finger that slides off before
 lifting presses nothing, as with a mouse.
 
+On the open megamap (the `ui.megamap` hack) a tap, a double tap, a drag and
+the order wheel act on the megamap as the mouse's clicks there, at the
+finger and on the icon under it, never on the battlefield hidden under it;
+a tap or a hold with a building armed places it there
+([ui.megamap](mods/standard-hacks/ui.megamap.md#clicks)).
+
 While a finger rests on the battlefield, the order cursor is drawn at the
 finger; on a tablet the status bar names the unit under the finger. The map scrolls by itself while a selection box or a
 building's ghost is dragged near the battlefield's edge. Resting a finger at

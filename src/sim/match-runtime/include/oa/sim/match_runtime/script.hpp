@@ -7,13 +7,18 @@
 #include "oa/data/match_rules.hpp"
 #include "oa/sim/match_runtime/fault.hpp"
 #include "oa/sim/script_vm.hpp"
+#include "oa/sim/unit_script.hpp"
 #include "oa/formats/cob.hpp"
 #include "oa/sim/unit_spawn/spawn.hpp"
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string_view>
 
 namespace oa::sim::match_runtime {
+/// A unit-script function the engine calls by its fixed name.
+using ScriptFunction = sim::unit_script::ScriptFunction;
+
 class SharedRandom {
   public:
 
@@ -46,7 +51,9 @@ class SharedRandom {
 // COB scheduler ownership and the named-call wrappers. Host is a real
 // model/world adapter, never an internal successful no-op implementation.
 // An interpreter error, other than a start that finds no free context, is
-// noted in the instance's fault record and fails the call it stopped.
+// noted in the instance's fault record and fails the call it stopped. Each
+// call by name has a form taking a ScriptFunction instead, which starts the
+// script that function's exact name would, found when the instance is built.
 class ScriptInstance {
   public:
 
@@ -84,6 +91,18 @@ class ScriptInstance {
     bool call_no_arguments(
         std::string_view name, bool immediate, sim::script_vm::ReturnCallback callback = {}
     );
+    /// Starts the first script with a fixed engine function's name without
+    /// writing any locals, as call_no_arguments does by name.
+    ///
+    /// @param function Engine function whose exact COB name is started.
+    /// @param immediate Runs a full scheduler step with elapsed zero right
+    ///     after the start.
+    /// @param callback Receives the script's RETURN value when it finishes;
+    ///     never called when the start fails.
+    /// @return False when no script has the name or no context is free.
+    bool call_no_arguments(
+        ScriptFunction function, bool immediate, sim::script_vm::ReturnCallback callback = {}
+    );
     /// Starts the first script with this exact name with up to four
     /// arguments; omitted trailing locals are zeroed.
     ///
@@ -97,6 +116,23 @@ class ScriptInstance {
     /// @return False when no script has the name or no context is free.
     bool call(
         std::string_view name,
+        std::span<const int32_t> arguments,
+        bool immediate,
+        sim::script_vm::ReturnCallback callback = {}
+    );
+    /// Starts the first script with a fixed engine function's name with up
+    /// to four arguments, as call does by name.
+    ///
+    /// @param function Engine function whose exact COB name is started.
+    /// @param arguments At most four argument values; more starts nothing
+    ///     and is noted.
+    /// @param immediate Runs a full scheduler step with elapsed zero right
+    ///     after the start.
+    /// @param callback Receives the script's RETURN value when it finishes,
+    ///     or zero when the name is missing or no context is free.
+    /// @return False when no script has the name or no context is free.
+    bool call(
+        ScriptFunction function,
         std::span<const int32_t> arguments,
         bool immediate,
         sim::script_vm::ReturnCallback callback = {}
@@ -121,6 +157,25 @@ class ScriptInstance {
         bool immediate,
         sim::script_vm::ReturnCallback callback = {}
     );
+    /// Starts the first script with a fixed engine function's name with all
+    /// four locals written, as call_with_locals does by name.
+    ///
+    /// @param function Engine function whose exact COB name is started.
+    /// @param locals Values of the four locals.
+    /// @param count Number of locals that are arguments, 0..4; more starts
+    ///     nothing and is noted.
+    /// @param immediate Runs a full scheduler step with elapsed zero right
+    ///     after the start.
+    /// @param callback Receives the script's RETURN value when it finishes,
+    ///     or zero when the name is missing or no context is free.
+    /// @return False when no script has the name or no context is free.
+    bool call_with_locals(
+        ScriptFunction function,
+        const std::array<int32_t, 4>& locals,
+        std::size_t count,
+        bool immediate,
+        sim::script_vm::ReturnCallback callback = {}
+    );
     /// Runs a query script synchronously and copies its first four local
     /// slots back into `arguments`.
     ///
@@ -133,11 +188,26 @@ class ScriptInstance {
     /// @return False when no script has the name, no context is free, or the
     ///     interpreter fails the start or the run.
     bool query(std::string_view name, std::array<int32_t, 4>& arguments);
+    /// Runs the first script with a fixed engine function's name as a query,
+    /// as query does by name.
+    ///
+    /// @param function Engine function whose exact COB name is run.
+    /// @param[in,out] arguments Initial locals on entry, local slots 0..3 on
+    ///     return; left unchanged when the query does not start or fails.
+    /// @return False when no script has the name, no context is free, or the
+    ///     interpreter fails the start or the run.
+    bool query(ScriptFunction function, std::array<int32_t, 4>& arguments);
     /// Finds the first script with this exact name, as a start looks it up.
     ///
     /// @param name Script name; the lookup is case-sensitive.
     /// @return The script's COB index, or -1 when the program has none.
     [[nodiscard]] int32_t find(std::string_view name) const noexcept;
+    /// Returns the first script with a fixed engine function's exact name.
+    ///
+    /// @param function Engine function; an out-of-range value finds Create's
+    ///     script, as sim::unit_script::engine_call maps it.
+    /// @return The script's COB index, or -1 when the program has none.
+    [[nodiscard]] int32_t find(ScriptFunction function) const noexcept;
     /// Steps every context in ascending order, then integrates piece motion.
     ///
     /// @param elapsed Clock time since the last step, in the units the clock
@@ -169,9 +239,67 @@ class ScriptInstance {
     /// @param detail The interpreter's message or the script's name.
     void note(std::string_view what, std::string_view detail) noexcept;
 
+    /// Starts a script without writing any locals.
+    ///
+    /// @param index COB script index, or -1 for a missing script.
+    /// @param immediate Runs a full scheduler step with elapsed zero right
+    ///     after the start.
+    /// @param callback Receives the script's RETURN value; never called on
+    ///     failure.
+    /// @return False when the index is -1 or no context is free.
+    bool start_no_arguments(int32_t index, bool immediate, sim::script_vm::ReturnCallback callback);
+    /// Starts a script with up to four arguments; omitted trailing locals
+    /// are zeroed.
+    ///
+    /// @param index COB script index, or -1 for a missing script.
+    /// @param name The script's name, for the fault record.
+    /// @param arguments At most four argument values; more starts nothing
+    ///     and is noted.
+    /// @param immediate Runs a full scheduler step with elapsed zero right
+    ///     after the start.
+    /// @param callback Receives the RETURN value, or zero on failure.
+    /// @return False when the start fails.
+    bool start_with_arguments(
+        int32_t index,
+        std::string_view name,
+        std::span<const int32_t> arguments,
+        bool immediate,
+        sim::script_vm::ReturnCallback callback
+    );
+    /// Starts a script with all four locals written and `count` of them
+    /// passed as arguments.
+    ///
+    /// @param index COB script index, or -1 for a missing script.
+    /// @param name The script's name, for the fault record.
+    /// @param locals Values of the four locals.
+    /// @param count Number of locals that are arguments, 0..4; more starts
+    ///     nothing and is noted.
+    /// @param immediate Runs a full scheduler step with elapsed zero right
+    ///     after the start.
+    /// @param callback Receives the RETURN value, or zero on failure.
+    /// @return False when the start fails.
+    bool start_with_locals(
+        int32_t index,
+        std::string_view name,
+        const std::array<int32_t, 4>& locals,
+        std::size_t count,
+        bool immediate,
+        sim::script_vm::ReturnCallback callback
+    );
+    /// Runs a script synchronously and copies its first four locals back.
+    ///
+    /// @param index COB script index, or -1 for a missing script.
+    /// @param[in,out] arguments Initial locals, then local slots 0..3;
+    ///     unchanged when the query does not start or fails.
+    /// @return False when the query does not start or fails.
+    bool run_query(int32_t index, std::array<int32_t, 4>& arguments);
+
     std::shared_ptr<const formats::cob::CobProgram> program_;
     sim::script_vm::Vm vm_;
     MatchFault* fault_{};
+    /// The COB index of each engine function's exact name, or -1 when the
+    /// program has none; a loaded program's names never change.
+    std::array<int32_t, sim::unit_script::script_function_count> function_index_{};
 };
 
 // Services the unit-value GET/SET handlers need outside the unit record.

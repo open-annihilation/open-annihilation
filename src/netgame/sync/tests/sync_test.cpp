@@ -115,6 +115,21 @@ void unit_checksum_tests() {
     expect(
         paged && paged.value == (0x41414141u ^ 0x42424242u ^ 0x43434343u), "the unit's build pages"
     );
+    const auto listed_pages = list_unit_gui_pages(pages);
+    const int lists_before = pages.lists;
+    auto prelisted = mix_unit_file_checksum(pages, "ArmCom", 0, 0x01000000u, listed_pages.value);
+    expect(
+        listed_pages && prelisted && prelisted.value == (paged.value ^ 0x01000000u) &&
+            pages.lists == lists_before,
+        "pages listed once give the same checksum and are not listed again"
+    );
+    auto prelisted_known = mix_unit_file_checksum(pages, "ArmCom", 7, 1, listed_pages.value);
+    expect(prelisted_known && prelisted_known.value == 7u, "a known checksum is kept");
+    auto prelisted_bad = mix_unit_file_checksum(pages, "a\\b", 0, 0, listed_pages.value);
+    expect(
+        !prelisted_bad && prelisted_bad.error.code == ErrorCode::malformed,
+        "a name with a separator is refused with pages listed"
+    );
 
     SyncAssets question;
     question.guis = {"guis/AXM.gui", "guis/AM.gui"};

@@ -277,6 +277,9 @@ void Runtime::reload_language_packs() {
     state.layers.clear();
     state.unicode_manifest = nullptr;
     state.pictures.clear();
+    // The side column's art is captioned again from the packs as it next
+    // shows.
+    match_hud_art_.reset();
     load_language_packs();
     apply_language();
     // A pack that arrived leaves the list of languages to download, and an
@@ -689,10 +692,12 @@ void Runtime::set_language_choice(std::string_view choice) {
 }
 
 void Runtime::show_language_change() {
-    // Kept for later, they load again in the language as they next show.
+    // Kept for later, they load again in the language as they next show,
+    // the side column's art with its captions among them.
     match_titles_ = {};
     talk_layout_.reset();
     match_talk_ = {};
+    match_hud_art_.reset();
     // The settings change the language over the main menu, alone of the
     // front end's screens, and in a match beside the in-game menu. A main
     // menu without its panel, not yet loaded or taken off, loads in the
