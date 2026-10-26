@@ -1133,9 +1133,10 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     /// @return the interaction
     [[nodiscard]] kit::Interaction interaction() const override { return state_.interaction; }
 
-    /// Closes when the match it was opened over ends, when a match starts
-    /// under an editor opened on the menus, and when Settings was under it
-    /// and has gone.
+    /// Closes when the match it was opened over ends, when the match screen
+    /// comes up under an editor opened on the menus, and when Settings was
+    /// under it and has gone. A match object still held after the menus
+    /// return is not a match on screen, so the editor stays.
     ///
     /// @return close when the editor closes; otherwise none
     LayerAnswer tick() override {
@@ -1145,7 +1146,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
                 return LayerAnswer::close;
             return LayerAnswer::none;
         }
-        if (runtime_.screen_ == Screen::match || runtime_.match_ != nullptr)
+        if (runtime_.screen_ == Screen::match)
             return LayerAnswer::close;
         if (over_settings_ && runtime_.oa_layer().find(kSettingsScreen) == nullptr)
             return LayerAnswer::close;

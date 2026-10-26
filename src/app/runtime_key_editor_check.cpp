@@ -411,6 +411,9 @@ void Runtime::check_key_editor() {
     }
     options_.trace_input = false;
     require(caught.str().find("order.attack") == std::string::npos, "A still arms Attack");
+    // load alone leaves the match object and its pause. The next screen is
+    // the menus, so the match is left first.
+    leave_match();
     load(Screen::main_menu);
     frames(2);
     dismiss_welcome();
@@ -529,6 +532,9 @@ void Runtime::check_key_editor() {
         PadAccess::send_key(*this, SDLK_ESCAPE);
         frames(1);
         require(oa_layer().find(editor::screen_name) == nullptr, "Escape did not close the match editor");
+        // The pause the editor opened belongs to this match. The next size
+        // starts another, which must not inherit that pause.
+        leave_match();
         load(Screen::main_menu);
         frames(1);
     }
