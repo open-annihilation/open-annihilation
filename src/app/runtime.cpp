@@ -1362,6 +1362,10 @@ void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
         apply_screen_request();
         return;
     }
+    // The keys overlay and the release of a captured pointer are global, and
+    // come before a display rule, so Primary+/ does not turn a building.
+    if (take_keys_overlay_action() || take_release_pointer_action())
+        return;
     // Keys the profile's display rules take on every screen come next.
     if (handle_view_rule_key(event)) {
         apply_screen_request();
@@ -1370,6 +1374,15 @@ void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
     if (!dispatch_screen_input(event))
         handle_sdl_event(event, running);
     apply_screen_request();
+}
+
+bool Runtime::take_keys_overlay_action() {
+    const auto* action = fired_action("ui.keys-overlay");
+    if (action == nullptr || action->phase != oa::ui::key_bindings::Phase::pressed)
+        return false;
+    if (keys_overlay_hook_ != nullptr)
+        keys_overlay_hook_(*this);
+    return true;
 }
 
 void Runtime::idle_tick() {

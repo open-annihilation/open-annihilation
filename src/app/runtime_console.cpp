@@ -682,6 +682,17 @@ void Runtime::open_chat_line() {
     start_text_input(layout::Rect{area.x, top, area.width, bottom - top});
 }
 
+void Runtime::open_allies_chat_line() {
+    if (local_player_watches())
+        return;
+    // open_chat_line clears the buffer. The prefix is typed after that, and
+    // nothing is sent until the player sends the line.
+    open_chat_line();
+    if (!chat_composing_)
+        return;
+    chat_buffer_ = "a,";
+}
+
 void Runtime::close_chat_line() {
     chat_composing_ = false;
     chat_buffer_.clear();

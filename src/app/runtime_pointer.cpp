@@ -770,6 +770,19 @@ oa::ui::engine_settings::WindowEdge Runtime::window_edge_mode() const {
     return engine_settings_->current.window_edge;
 }
 
+bool Runtime::take_release_pointer_action() {
+    const auto* action = fired_action("ui.release-pointer");
+    if (action == nullptr || action->phase != oa::ui::key_bindings::Phase::pressed)
+        return false;
+    // Escape in a match lets a captured pointer go until the next click on
+    // the battlefield. Sticky and Free leave the pointer as it is. The key
+    // is taken either way.
+    if (window_edge_mode() == oa::ui::engine_settings::WindowEdge::capture &&
+        screen_ == Screen::match && match_)
+        capture_waits_for_click_ = true;
+    return true;
+}
+
 bool Runtime::battlefield_in_play() {
     if (screen_ != Screen::match || !match_ || match_finished_ || match_paused_)
         return false;
