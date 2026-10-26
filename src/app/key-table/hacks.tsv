@@ -88,6 +88,8 @@ select.armed-on-screen	select=none	key S ctrl	primary=combat;selected=2
 select.same-type	select=combat	key Z ctrl	selected=2
 select.idle-builders:shift	select=combat	key B ctrl shift	primary=commander;selected=2
 select.idle-factories:shift	select=combat	key F ctrl shift	build-page=1;primary=factory
+select.category-w	select=none	key W ctrl	primary=combat;selected=2
+select.category-w:shift	select=aircraft	key W ctrl shift	selected=3
 select.next-primary	select=all	key Tab	panel=tabmenu;paused=on
 select.next-primary:none	select=none	key Tab	panel=tabmenu;paused=on
 select.previous-primary	select=all	key Tab shift	panel=tabmenu;paused=on
@@ -120,6 +122,14 @@ camera.follow	select=combat	key T	camera=centred
 camera.follow-previous	select=all	key T shift	camera=centred
 camera.next-unit	select=none	key N	none
 camera.next-report		key F3	none
+camera.bookmark-set-1		key F5 ctrl	none
+camera.bookmark-go-1		key F5	camera=left
+camera.bookmark-set-2		key F6 ctrl	none
+camera.bookmark-go-2		key F6	camera=left
+camera.bookmark-set-3		key F7 ctrl	none
+camera.bookmark-go-3		key F7	camera=left
+camera.bookmark-set-4		key F8 ctrl	none
+camera.bookmark-go-4		key F8	camera=left
 build.page-next	select=commander	key Period	build-page=2
 build.page-previous	select=commander	key Comma	build-page=0
 build.page-next:repeat	select=commander	key Period repeat	build-page=2
@@ -143,6 +153,10 @@ game.pin-unit	select=combat	key F1 shift	none
 game.kill-board		key F4	kill-board=on
 game.status-strip		hold Space 300	none
 game.health-bars		key Grave	health-bars=on
+game.health-bars-mode-1	select=commander	key 1 shift	health-bars=on
+game.health-bars-mode-2	select=commander	key 3 shift	health-bars=on
+game.health-bars-mode-3	select=commander	key 8 shift	health-bars=on
+game.health-bars-mode-4	select=commander	key Grave shift	health-bars=on
 game.clear-messages		key F12	none
 game.screenshot		key F9 ctrl	screenshot=written
 game.share-panel	shared	key H	panel=share;paused=on
