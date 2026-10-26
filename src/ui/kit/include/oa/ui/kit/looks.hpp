@@ -316,6 +316,10 @@ struct ListRowLook {
     std::vector<ChipLook> tags{}; ///< chips on the line after the last line
     bool selected{};              ///< the row is the chosen one: the accent tint and outline
     bool hovered{};               ///< the pointer is over it, or holds it
+    /// False draws no badge. The title then starts `lead` points after the
+    /// left inset, so a mark column can sit there and the names still line up.
+    bool show_badge{true};
+    int32_t lead{0}; ///< points kept before the title when show_badge is false
 };
 
 /// A text field: the plain one, or with the magnifier the search field.
@@ -656,6 +660,9 @@ struct KeycapLook {
     bool focused{false};         ///< the keyboard focus is on it
     bool disabled{false};        ///< it takes nothing
     bool small{false};           ///< the 9-point corner badge
+    /// The mark alone, centred, with no key face. none draws nothing, so a
+    /// column of marks stays blank where a row has none.
+    bool mark_only{false};
 };
 
 /// A chord chip: keycaps joined by "+", then a gesture word. add draws the

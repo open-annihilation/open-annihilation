@@ -29,11 +29,13 @@
 #include "oa/data/mod_profile.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
+#include "oa/formats/oamut/manifest.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
 #include "oa/ui/key_bindings/layout_file.hpp"
+#include "oa/ui/key_editor/model.hpp"
 #include "oa/ui/key_bindings/legacy.hpp"
 #include "oa/ui/touch_hud.hpp"
 
@@ -3000,6 +3002,199 @@ void Runtime::gather_key_latch_chips(std::vector<KeyLatchChip>& chips) {
             break;
         }
     }
+}
+
+namespace {
+
+namespace editor = oa::ui::key_editor;
+
+/// True when an id can be one path segment of the Keys folder.
+///
+/// @param id the layout id
+/// @return false for an empty id, a dot segment, an own folder, or a separator
+bool safe_layout_id(std::string_view id) {
+    if (id.empty() || id == "." || id == ".." || id.starts_with("own-"))
+        return false;
+    return id.find_first_of("/\\:") == std::string_view::npos;
+}
+
+/// Writes one installed layout's manifest into Keys/<id>/oakeys.yaml.
+///
+/// @param keys_folder the Keys folder
+/// @param manifest the layout
+/// @param[out] problem why it was not written
+/// @return true when the file was written
+bool write_installed_layout(
+    const fs::path& keys_folder, const oakeys::Manifest& manifest, std::string& problem
+) {
+    if (!safe_layout_id(manifest.id)) {
+        problem = "the layout's id is refused";
+        return false;
+    }
+    const fs::path folder = keys_folder / manifest.id;
+    std::error_code mkdir_error;
+    fs::create_directories(folder, mkdir_error);
+    if (mkdir_error) {
+        problem = "the layout's folder was not made";
+        return false;
+    }
+    const std::string text = oakeys::write_manifest(manifest);
+    const fs::path file = folder / std::string(oakeys::manifest_file);
+    std::ofstream out(file, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        problem = "the layout was not written";
+        return false;
+    }
+    out.write(text.data(), static_cast<std::streamsize>(text.size()));
+    if (!out) {
+        problem = "the layout was not written";
+        return false;
+    }
+    return true;
+}
+
+/// One installed layout the editor can show, from its manifest.
+///
+/// @param manifest the manifest
+/// @param[out] summary the summary, when the layout can be used
+/// @return false when the layout's chords do not parse
+bool summary_from_manifest(const oakeys::Manifest& manifest, editor::LayoutSummary& summary) {
+    keys::Layout layout;
+    if (!use_layout(manifest, layout))
+        return false;
+    summary.id = manifest.id;
+    summary.name = manifest.name;
+    summary.author = manifest.author.name;
+    summary.version = oa::formats::oamut::version_text(manifest.version);
+    summary.helpers = manifest.helpers;
+    summary.layout = std::move(layout);
+    return true;
+}
+
+} // namespace
+
+void Runtime::fill_key_editor(editor::EditorInputs& inputs) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr)
+        return;
+    const KeyBindingsState& state = *key_bindings_state_;
+    inputs.base = state.base;
+    inputs.keyboard = state.dispatcher.keyboard();
+    inputs.platform = state.platform;
+    inputs.hacks_on = state.hacks;
+    inputs.scheme = state.scheme;
+    inputs.number_keys_select_groups = engine_settings().switch_alt;
+    inputs.developer_mode = developer_mode();
+    inputs.hold_to_confirm_setting = engine_settings().hold_to_confirm;
+    inputs.mod = gui_mod_data(state.order_stem);
+    inputs.mod.categories = state.categories;
+    if (const oa::data::mod_profile::ModProfile* profile = mod_profile()) {
+        if (!profile->name.empty())
+            inputs.mod_name = profile->name;
+    }
+    inputs.text.shown = [](void*, std::string_view english) {
+        return std::string(oa::data::languages::interface_text(english));
+    };
+
+    const bool one_run = options_.keys_reset || !options_.keys.empty();
+    const std::string base_id =
+        state.has_chosen && !state.chosen.id.empty() ? state.chosen.id : std::string("oa-default");
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    if (!one_run) {
+        const fs::path own_file =
+            keys_folder / library::own_folder_name(base_id) / std::string(oakeys::manifest_file);
+        std::error_code own_error;
+        if (fs::exists(own_file, own_error) && !own_error) {
+            const ReadLayout read = read_layout_file(own_file);
+            keys::Layout own_layout;
+            if (read.ok && use_layout(read.manifest, own_layout)) {
+                inputs.own = std::move(own_layout);
+                inputs.helpers = read.manifest.helpers;
+            }
+        }
+    }
+
+    const library::Listing listing = library::list_installed(keys_folder);
+    bool chosen_listed = false;
+    for (const library::Installed& installed : listing.layouts) {
+        if (installed.origin == library::Origin::own || installed.manifest.id.starts_with("own-"))
+            continue;
+        editor::LayoutSummary summary;
+        if (!summary_from_manifest(installed.manifest, summary))
+            continue;
+        if (state.has_chosen && summary.id == state.chosen.id) {
+            inputs.chosen = summary;
+            inputs.has_chosen = true;
+            chosen_listed = true;
+        }
+        inputs.installed.push_back(std::move(summary));
+    }
+    if (state.has_chosen && !chosen_listed) {
+        editor::LayoutSummary summary;
+        summary.id = state.chosen.id;
+        summary.name = state.chosen.id.empty() ? std::string("oa-default") : state.chosen.id;
+        summary.layout = state.chosen;
+        inputs.chosen = summary;
+        inputs.has_chosen = true;
+        inputs.installed.push_back(std::move(summary));
+    }
+}
+
+bool Runtime::save_key_editor(const editor::SaveResult& saved, std::string& error) {
+    const std::string base_id = saved.layout_id.empty() ? std::string("oa-default") : saved.layout_id;
+    if (!safe_layout_id(base_id)) {
+        error = "the layout's id is refused";
+        return false;
+    }
+    for (const oakeys::Manifest& made : saved.layouts) {
+        if (!safe_layout_id(made.id)) {
+            error = "the layout's id is refused";
+            return false;
+        }
+    }
+
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    std::error_code mkdir_error;
+    fs::create_directories(keys_folder, mkdir_error);
+    if (mkdir_error) {
+        error = "the Keys folder was not made";
+        return false;
+    }
+    for (const oakeys::Manifest& made : saved.layouts) {
+        if (!write_installed_layout(keys_folder, made, error))
+            return false;
+    }
+    if (!library::write_own(keys_folder, base_id, saved.manifest, error))
+        return false;
+
+    const std::string preference_key{layout_preference};
+    if (preference_values_[preference_key] != base_id) {
+        preference_values_[preference_key] = base_id;
+        preferences_dirty_ = true;
+    }
+    save_preferences();
+
+    const auto reload_bindings = [this] {
+        if (key_bindings_state_ != nullptr)
+            key_bindings_state_->signature.clear();
+        load_key_bindings();
+        ensure_key_bindings(false);
+    };
+    if (saved.number_keys != engine_settings().switch_alt) {
+        const oa::ui::engine_settings::EngineSettings opened = engine_settings();
+        oa::ui::engine_settings::EngineSettings chosen = opened;
+        chosen.switch_alt = saved.number_keys;
+        apply_engine_settings(chosen);
+        const std::optional<std::string> problem = save_engine_settings(opened, chosen, false);
+        if (problem) {
+            reload_bindings();
+            error = *problem;
+            return false;
+        }
+    }
+    reload_bindings();
+    error.clear();
+    return true;
 }
 
 } // namespace oa::app

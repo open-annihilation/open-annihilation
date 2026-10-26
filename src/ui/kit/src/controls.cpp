@@ -588,10 +588,16 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
     }
 
     const int32_t inset = kMetrics.list_row_inset;
-    const int32_t side =
-        std::max(std::min(rect.height - 2 * inset, kMetrics.list_row_badge), int32_t{0});
-    const Rect badge{rect.x + inset, rect.y + (rect.height - side) / 2, side, side};
-    draw_row_badge(canvas, badge, look);
+    int32_t text_left = rect.x + inset;
+    if (look.show_badge) {
+        const int32_t side =
+            std::max(std::min(rect.height - 2 * inset, kMetrics.list_row_badge), int32_t{0});
+        const Rect badge{rect.x + inset, rect.y + (rect.height - side) / 2, side, side};
+        draw_row_badge(canvas, badge, look);
+        text_left = badge.x + side + inset;
+    } else if (look.lead > 0) {
+        text_left = rect.x + inset + look.lead;
+    }
 
     int32_t right = rect.x + rect.width - inset;
     if (look.chip.has_value()) {
@@ -611,7 +617,6 @@ void draw_list_row(const Canvas& canvas, const Rect& rect, const ListRowLook& lo
 
     // The text: the title's line, then each line, then the tags' line,
     // centred down the row. A short row's text fills it from its top.
-    const int32_t text_left = badge.x + side + inset;
     const auto line_count = static_cast<int32_t>(look.lines.size()) + (look.tags.empty() ? 0 : 1);
     const int32_t text_height = std::max(
                                     kMetrics.list_row_title_top + kMetrics.regular_line,

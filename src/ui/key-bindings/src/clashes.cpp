@@ -112,6 +112,62 @@ bool stricter(uint32_t winner, uint32_t other) {
     return (winner & other) == other && winner != other;
 }
 
+/// The file stem of `gui.<file>.<gadget>`, or empty when the id is not one. A
+/// gadget without a name still belongs to its file.
+///
+/// @param id an action id
+/// @return the stem between the two dots
+std::string_view gui_file_stem(std::string_view id) {
+    constexpr std::string_view prefix = "gui.";
+    if (!id.starts_with(prefix))
+        return {};
+    const std::string_view rest = id.substr(prefix.size());
+    const std::size_t dot = rest.find('.');
+    if (dot == std::string_view::npos || dot == 0)
+        return {};
+    return rest.substr(0, dot);
+}
+
+/// The bit of a named context, or 0 when the table has no such name.
+///
+/// @param name the context id
+/// @return the bit
+uint32_t named_context(std::string_view name) {
+    const std::span<const Context> table = actions::contexts();
+    for (std::size_t index = 0; index < table.size(); ++index) {
+        if (table[index].name == name)
+            return uint32_t{1} << static_cast<uint32_t>(index);
+    }
+    return 0;
+}
+
+/// True when two `gui.` actions belong to files that are never on screen together.
+///
+/// Two buttons of one file share a menu, so they can clash. Two files do not,
+/// except the pair a match keeps up at once: the side's order panel and the
+/// build menu it is showing. The order file is the play context without the
+/// panel bit. The menu on screen has the panel bit set. Two menus, or two
+/// order files, are apart.
+///
+/// @param first one action
+/// @param second the other action
+/// @return true when a shared key is not a clash
+bool gui_files_apart(const Side& first, const Side& second) {
+    const std::string_view first_stem = gui_file_stem(first.id);
+    const std::string_view second_stem = gui_file_stem(second.id);
+    if (first_stem.empty() || second_stem.empty() || first_stem == second_stem)
+        return false;
+    const uint32_t play = named_context("play");
+    const uint32_t panel = named_context("panel");
+    const auto order_file = [&](const Side& side) {
+        return (side.contexts & play) != 0 && (side.contexts & panel) == 0;
+    };
+    const auto shown_menu = [&](const Side& side) { return (side.contexts & panel) != 0; };
+    const bool together =
+        (order_file(first) && shown_menu(second)) || (order_file(second) && shown_menu(first));
+    return !together;
+}
+
 /// A source that is part of the game even with every hack off.
 ///
 /// @param source one source name
@@ -297,6 +353,11 @@ Relation relate(
             relation.first_wins = false;
             return relation;
         }
+        // Two menus are not live together, so their quick keys are not a clash.
+        // One file's two buttons still are, and so are the order panel and the
+        // build menu a match is showing.
+        if (gui_files_apart(first, second))
+            return relation;
         relation.overlap = Overlap::clash;
         return relation;
     }

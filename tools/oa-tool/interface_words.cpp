@@ -16,6 +16,7 @@
 #include "oa/ui/frontend_dialogs/interface_words.hpp"
 #include "oa/ui/frontend_multiplayer/interface_words.hpp"
 #include "oa/ui/game_files/interface_words.hpp"
+#include "oa/ui/key_editor/interface_words.hpp"
 #include "oa/ui/library/interface_words.hpp"
 #include "oa/ui/map_browser/interface_words.hpp"
 #include "oa/ui/mutator_picker/interface_words.hpp"
@@ -49,6 +50,7 @@ std::vector<std::string_view> join_interface_words() {
     append(words, oa::ui::frontend_multiplayer::interface_words);
     append(words, oa::app::package_install::interface_words);
     append(words, oa::ui::game_files::interface_words);
+    append(words, oa::ui::key_editor::interface_words);
     append(words, oa::ui::folder_chooser::interface_words);
     append(words, oa::ui::touch_hud::interface_words);
     append(words, oa::netgame::match::interface_words);

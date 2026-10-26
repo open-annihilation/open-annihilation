@@ -23,12 +23,14 @@
 // "Load with the built-in player?" is painted with two 64-byte names.
 // The brain picker is painted on its fixture feed: the list, the inline
 // details at Regular and Large, and Compact's details page.
+// The key editor's list is painted at both sizes, and Compact's details page.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
 #include "library_host.hpp"
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
+#include "pad_state.hpp"
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_import.hpp"
@@ -42,6 +44,7 @@
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/first_run/first_run.hpp"
+#include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/frontend_multiplayer/get_map.hpp"
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
@@ -702,6 +705,14 @@ void Runtime::check_text_fit() {
             oa_layer().close(brain_open);
         if (LayerScreen* welcome = oa_layer().find("first-run"))
             oa_layer().close(welcome);
+        if (LayerScreen* keys_open = oa_layer().find("key-editor"))
+            oa_layer().close(keys_open);
+        if (LayerScreen* keys_name = oa_layer().find("key-editor-name"))
+            oa_layer().close(keys_name);
+        if (LayerScreen* keys_prompt = oa_layer().find("key-editor-prompt"))
+            oa_layer().close(keys_prompt);
+        if (LayerScreen* keys_notice = oa_layer().find("key-editor-notice"))
+            oa_layer().close(keys_notice);
         close_library();
         restore_mutator_picker_feed();
         restore_brain_picker_feed();
@@ -1305,6 +1316,52 @@ void Runtime::check_text_fit() {
                 if (LayerScreen* picker_open = oa_layer().find(picker::screen_name))
                     oa_layer().close(picker_open);
                 restore_mutator_picker_feed();
+            }
+
+            // The key editor's list, and Compact's details page.
+            {
+                close_covering();
+                require(open_key_editor({}), "the key editor did not open");
+                paint("key-editor");
+                if (width <= 640) {
+                    std::optional<AutomationControl> row;
+                    std::vector<AutomationControl> controls;
+                    oa_layer().automation_controls(controls);
+                    for (const AutomationControl& control : controls) {
+                        if (control.name.starts_with("oa.key-editor.row.") && control.visible &&
+                            control.window_width > 0 && control.window_height > 0) {
+                            row = control;
+                            break;
+                        }
+                    }
+                    require(row.has_value(), "the key editor shows no row");
+                    const layout::Point pixel{
+                        row->window_x + row->window_width / 2,
+                        row->window_y + row->window_height / 2
+                    };
+                    bool going = true;
+                    for (const SDL_EventType type :
+                         {SDL_EVENT_MOUSE_MOTION,
+                          SDL_EVENT_MOUSE_BUTTON_DOWN,
+                          SDL_EVENT_MOUSE_BUTTON_UP}) {
+                        SDL_Event event = window_pointer_event(
+                            sdl_.window,
+                            sdl_.renderer,
+                            type,
+                            pixel,
+                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+                        );
+                        dispatch_event(event, going);
+                        require(going, "the key editor's row ended the run");
+                    }
+                    going = true;
+                    run_frame(going);
+                    require(going, "the key editor's row ended the run");
+                    PadAccess::send_key(*this, SDLK_RETURN);
+                    paint("key-editor/details");
+                }
+                if (LayerScreen* keys_open = oa_layer().find("key-editor"))
+                    oa_layer().close(keys_open);
             }
 
             // The brain picker, on the check's feed: the list, and the

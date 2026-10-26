@@ -790,6 +790,10 @@ struct Options {
     // columns and window, its installed maps, its search, the clashing map
     // greyed with its reason, and Select moving SELMAP's selection.
     bool check_map_browser = false;
+    // Opens the key editor over Settings at 640x480, 1280x720 and 1920x1080,
+    // then the list's edits, the save, a paused skirmish and Developer Mode.
+    // A scratch folder holds the player's own layout.
+    bool check_key_editor = false;
     // Opens the mutator picker over the main menu at four window sizes, on
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.

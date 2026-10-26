@@ -1,0 +1,15 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+# Hashes are filled by --record. One line is group/scene and a sha256.
+# Groups are block and game. --record replaces only the group it drew.
+block/compact f6cd2ea2f60878634427c7b8bcedb3f024b9a48fb3959eee214da859bbb5e0a2
+block/large 8a98e15c6a2ca0f285913438b7fa3a55e687026aa2c7e4b19871fe8613e2f98b
+block/regular 31f902885c6c3d4ae883244460a76d80dbb614ccc9d136881aac9d7f8fcb11f2
+block/compact-details 4d41402dca97d6fc3cbe4fd0580b485f715a17a57da02931ab69a9198af34a32
+block/large-match 8ffc05c20d6918d5483413b7d261daf2555fd7e4701c3360c9671269c1c20e77
+game/compact 2be74118773eb1c23bf56b16edf509aa1f22daded2062341ca92c724f415472d
+game/large f647c49280a8377dce9daf2a2056aebc7de106cfbe9e846bbf871a8bf7d76f99
+game/regular 0f640797b4976c20f1e4de3ea27663dcb18a890254f50f4a7494a1dce79b5059
+game/compact-details ef6d50bff33366064868063a592c00fde5fa56687fa2dd970700a772942d68de
+game/large-match 3f1c489f984ec138cb5737cfea2b8f6684a75e3f0adfe72b5937a553c7712a48
