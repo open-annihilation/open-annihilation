@@ -408,22 +408,33 @@ void Runtime::check_pointer_keys() {
     );
     std::cout << "pointer keys: box selected 2 units\n";
 
-    if (hovered_match_unit_ != 0 || !match_pointer_ground(pointer_x_, pointer_y_)) {
+    // Numpad 0 is the right button. In the right-click interface that press
+    // gives the move. In the left-click interface it clears the selection,
+    // and the side column goes back to Orders. The ground lookup also clamps
+    // a point on the side column into the battlefield, so the pointer itself
+    // has to be on the field, where the pad's events land.
+    match_->state().game.interface_type = oa::sim::gameplay_input::interface_right_click;
+    const auto on_field = [&] {
+        return battlefield_contains(pointer_x_, pointer_y_) && pointer_x_ >= field_left &&
+               pointer_x_ <= field_right && pointer_y_ >= field_top && pointer_y_ <= field_bottom &&
+               !hovered_;
+    };
+    if (hovered_match_unit_ != 0 || !on_field() || !match_pointer_ground(pointer_x_, pointer_y_)) {
         require(
             hold_until(
                 SDL_SCANCODE_KP_6,
                 SDLK_KP_6,
                 [&] {
-                    return hovered_match_unit_ == 0 &&
-                           match_pointer_ground(pointer_x_, pointer_y_).has_value() &&
-                           pointer_x_ < field_right;
+                    return hovered_match_unit_ == 0 && on_field() &&
+                           match_pointer_ground(pointer_x_, pointer_y_).has_value();
                 }
             ),
             "Numpad6 did not reach open ground, pointer at " + where()
         );
     }
     require(
-        hovered_match_unit_ == 0 && match_pointer_ground(pointer_x_, pointer_y_).has_value(),
+        hovered_match_unit_ == 0 && on_field() &&
+            match_pointer_ground(pointer_x_, pointer_y_).has_value(),
         "the pointer is not on open ground"
     );
     key(SDL_SCANCODE_KP_0, SDLK_KP_0, true);
