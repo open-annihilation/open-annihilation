@@ -1813,6 +1813,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
     lay_game_content(dialog, user_folder_);
     request_content_check(user_folder_);
     paint_updates(dialog, update_snapshot(), release_version(kVersionText));
+    apply_update_download(dialog);
     note_updates_generation(update_snapshot());
     // Your files shows the player's own folder.
     dialog.user_folder = path_to_utf8(user_folder_);
@@ -2001,6 +2002,7 @@ settings::Dialog* Runtime::engine_settings_dialog() {
 
 bool Runtime::refresh_game_content(settings::Dialog& dialog) {
     const bool updates_moved = refill_updates(update_snapshot(), dialog);
+    const bool download_moved = apply_update_download(dialog);
     service_content_check();
     ContentCopyWatch& watch = content_copy_watch();
     if (watch.active) {
@@ -2051,13 +2053,13 @@ bool Runtime::refresh_game_content(settings::Dialog& dialog) {
     if (apply) {
         const std::vector<settings::GameContentRow> saved = dialog.game_content;
         paint_check_result(dialog, result);
-        return updates_moved || content_rows_differ(saved, dialog.game_content);
+        return updates_moved || download_moved || content_rows_differ(saved, dialog.game_content);
     }
     if (running) {
         paint_checking(dialog, done, total);
         return true;
     }
-    return updates_moved;
+    return updates_moved || download_moved;
 }
 
 bool Runtime::take_engine_settings_action(settings::DialogAction action) {
@@ -2114,9 +2116,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             live.screen_size = dialog->opened.screen_size;
             live.content_check = dialog->opened.content_check;
             live.update_check = dialog->opened.update_check;
+            live.update_download = dialog->opened.update_download;
             apply_engine_settings(live);
             if (dialog->page == settings::Page::updates)
                 paint_updates(*dialog, update_snapshot(), release_version(dialog->version));
+            apply_update_download(*dialog);
             oa_layer().lay_out_for_size();
         }
         return false;
@@ -2316,7 +2320,15 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         return false;
     }
     case settings::DialogAction::open_release:
-        open_release_page();
+        if (!start_update_download())
+            open_release_page();
+        return false;
+    case settings::DialogAction::restart_update:
+        quit_requested_ = true;
+        exit_status_ = 0;
+        return false;
+    case settings::DialogAction::retry_update:
+        retry_update_download();
         return false;
     case settings::DialogAction::download_language: {
         // The dialog stays open. The language applies when the pack arrives.

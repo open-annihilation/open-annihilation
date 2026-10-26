@@ -260,6 +260,9 @@ kit::HeaderLook dialog_header(const Dialog& dialog) {
     } else {
         header.version = std::string(layout::shown_text(dialog.version));
         header.version_width = layout::version_width;
+        // Already translated by the host. Empty leaves the header as it was.
+        if (!dialog.header_note.empty())
+            header.note = dialog.header_note;
     }
     return header;
 }

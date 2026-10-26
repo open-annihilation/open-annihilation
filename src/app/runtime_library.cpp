@@ -2593,6 +2593,11 @@ library::Inputs Runtime::library_inputs() {
 
     inputs.engine = content::this_engine_rules().engine;
     inputs.version_text = "v" + formats::oamod::engine_version_text(inputs.engine);
+    const std::string update_note = update_header_note();
+    if (!update_note.empty()) {
+        inputs.version_text += " · ";
+        inputs.version_text += update_note;
+    }
     inputs.in_match = screen_ == Screen::match || match_ != nullptr;
     inputs.mod_from_command_line = !options_.mod_dir.empty() || options_.base_game;
 

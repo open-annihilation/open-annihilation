@@ -618,6 +618,17 @@ struct Options {
     bool check_engine_feed = false;
     /// Serves a feed and checks the question a new release asks.
     bool check_update_offer = false;
+    /// The version this start replaced. The first settled main menu says so
+    /// once, when this build is newer.
+    std::optional<std::string> updated_from;
+    /// A folder the self-check installs into, which gives this build a route.
+    std::optional<fs::path> update_install_folder;
+    /// Checks, downloads and quits, with no prompt. Needs a feed.
+    bool update_and_quit = false;
+    /// Serves a package and checks the download, the ready prompt and the hand-off.
+    bool check_update_download = false;
+    /// Which part of --check-update-download to run. Empty runs the resume.
+    std::string update_download_case;
     // Holds one evicted archive's read, checks the window keeps drawing the
     // iCloud line, then continues the folder step.
     bool check_icloud_wait = false;
