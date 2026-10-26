@@ -486,6 +486,216 @@ void replace_swap_cancel() {
     );
 }
 
+/// True when two rectangles share a row.
+///
+/// @param first one rectangle
+/// @param second the other
+/// @return true when their rows meet
+bool shares_row(const kit::Rect& first, const kit::Rect& second) {
+    return first.height > 0 && second.height > 0 && first.y < second.y + second.height &&
+           second.y < first.y + first.height;
+}
+
+/// The first item of a role whose text is exactly `word`, after the dimming veil.
+///
+/// @param list the display list
+/// @param role the role
+/// @param word the words
+/// @return the item; none when the prompt has no such item
+const kit::Item* prompt_item(const kit::DisplayList& list, kit::Role role, std::string_view word) {
+    bool prompt = false;
+    for (const kit::Item& item : list.items) {
+        if (item.role == kit::Role::blend)
+            prompt = true;
+        if (prompt && item.role == role && item.text == word)
+            return &item;
+    }
+    return nullptr;
+}
+
+/// How many chord chips in the prompt show exactly `word`.
+///
+/// @param list the display list
+/// @param word the chip's words
+/// @return the count
+int prompt_chips(const kit::DisplayList& list, std::string_view word) {
+    bool prompt = false;
+    int count = 0;
+    for (const kit::Item& item : list.items) {
+        if (item.role == kit::Role::blend)
+            prompt = true;
+        if (prompt && item.role == kit::Role::chord_chip && item.text == word)
+            ++count;
+    }
+    return count;
+}
+
+/// The capture prompt is a content-sized box: a wide well, labels on the
+/// strip's row, and the escape hint on the footer's row.
+void capture_prompt_shape() {
+    const editor::Editor model(editor_fixture());
+    const kit::Frame frames[] = {
+        frame_for(640, 480, 100), frame_for(1280, 720, 100), frame_for(1920, 1080, 200)
+    };
+    for (const kit::Frame& frame : frames) {
+        const kit::Point window = editor::window_size(frame);
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::capture;
+        state.selected = "order.attack";
+        state.capture = begin("order.attack");
+        state.capture.chord = parsed_chord("Ctrl+Q");
+        state.capture.state = editor::CaptureState::complete;
+        const kit::DisplayList list = editor::editor_layout(model, state, frame, fonts());
+        bool veiled = false;
+        bool panel = false;
+        bool full_fill = false;
+        for (const kit::Item& item : list.items) {
+            if (item.role == kit::Role::blend) {
+                veiled = item.rect.width == window.x && item.rect.height == window.y &&
+                         item.opacity == kit::menu_backdrop_opacity;
+            }
+            if (!veiled || item.role != kit::Role::fill)
+                continue;
+            if (item.rect.width >= window.x && item.rect.height >= window.y)
+                full_fill = true;
+            if (item.rect.width < window.x && item.rect.height < window.y && item.rect.x > 0 &&
+                item.rect.y > 0 && item.rect.width >= 400)
+                panel = true;
+        }
+        expect(veiled, "the editor is not dimmed behind the capture prompt");
+        expect(panel, "the capture prompt is not a centred box");
+        expect(!full_fill, "the capture prompt fills the window");
+        const kit::Control* well =
+            kit::control_of(list, kit::control_named(list, editor::name_capture_well));
+        expect(well != nullptr && well->rect.height == 64, "the well is not 64 points high");
+        expect(
+            well != nullptr && well->rect.width > well->rect.height,
+            "the well does not span the prompt"
+        );
+        const kit::Item* means = prompt_item(list, kit::Role::text, "Means");
+        const kit::Control* letter =
+            kit::control_of(list, kit::control_named(list, editor::name_capture_letter));
+        expect(
+            means != nullptr && letter != nullptr && shares_row(means->rect, letter->rect),
+            "Means is not on the strip's row"
+        );
+        const kit::Item* starts = prompt_item(list, kit::Role::text, "Starts on");
+        const kit::Control* press =
+            kit::control_of(list, kit::control_named(list, editor::name_capture_press));
+        expect(
+            starts != nullptr && press != nullptr && shares_row(starts->rect, press->rect),
+            "Starts on is not on the strip's row"
+        );
+        const kit::Control* cancel =
+            kit::control_of(list, kit::control_named(list, editor::name_capture_cancel));
+        bool hint_on_footer = false;
+        bool prompt = false;
+        for (const kit::Item& item : list.items) {
+            if (item.role == kit::Role::blend)
+                prompt = true;
+            if (prompt && item.role == kit::Role::text &&
+                item.text.find("Escape cancels") != std::string::npos && cancel != nullptr &&
+                shares_row(item.rect, cancel->rect) && item.rect.x < cancel->rect.x)
+                hint_on_footer = true;
+        }
+        expect(hint_on_footer, "the escape hint is not on the footer's row");
+    }
+}
+
+/// REPLACE leaves the other action with nothing, and SWAP names both chords.
+void clash_row_words() {
+    editor::Editor model(editor_fixture());
+    expect(model.reset_action("select.all"), "Select all did not return to Ctrl+A for the row");
+    editor::Capture capture = begin("select.all", 0);
+    editor::capture_key(
+        capture, model, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 90, true)
+    );
+    expect(capture.state == editor::CaptureState::clash, "the row's Ctrl+B was not a clash");
+    editor::ScreenState state;
+    state.prompt = editor::Prompt::clash;
+    state.capture = capture;
+    state.selected = "select.all";
+    const editor::CaptureStatus status = editor::capture_status(model, capture);
+    expect(status.clash.has_value(), "the row's clash was not named");
+    if (status.clash)
+        state.pending_clash = *status.clash;
+    const kit::Frame frame = frame_for(1280, 720, 100);
+    const kit::DisplayList list = editor::editor_layout(model, state, frame, fonts());
+    const kit::Item* replace = prompt_item(list, kit::Role::text, "REPLACE");
+    const kit::Item* swap = prompt_item(list, kit::Role::text, "SWAP");
+    const kit::Item* unbound = prompt_item(list, kit::Role::text, "nothing: unbound");
+    expect(replace != nullptr, "REPLACE is not a row");
+    expect(swap != nullptr, "SWAP is not a row");
+    expect(unbound != nullptr, "REPLACE does not leave the other action unbound");
+    expect(prompt_chips(list, "Ctrl+B") == 2, "the rows do not show Ctrl+B twice");
+    expect(prompt_chips(list, "Ctrl+A") == 1, "SWAP does not show Ctrl+A");
+    bool replace_chord = false;
+    bool swap_taken = false;
+    bool swap_old = false;
+    bool prompt = false;
+    for (const kit::Item& item : list.items) {
+        if (item.role == kit::Role::blend)
+            prompt = true;
+        if (!prompt || item.role != kit::Role::chord_chip)
+            continue;
+        if (replace != nullptr && unbound != nullptr && item.text == "Ctrl+B" &&
+            shares_row(item.rect, replace->rect) && item.rect.x > replace->rect.x &&
+            item.rect.x < unbound->rect.x && shares_row(unbound->rect, replace->rect))
+            replace_chord = true;
+        if (swap != nullptr && item.text == "Ctrl+B" && shares_row(item.rect, swap->rect) &&
+            item.rect.x > swap->rect.x)
+            swap_taken = true;
+        if (swap != nullptr && item.text == "Ctrl+A" && shares_row(item.rect, swap->rect) &&
+            item.rect.x > swap->rect.x)
+            swap_old = true;
+    }
+    expect(replace_chord, "REPLACE does not show Ctrl+B beside nothing: unbound");
+    expect(swap_taken && swap_old, "SWAP does not show Ctrl+B and Ctrl+A");
+    const kit::Control* cancel =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_cancel));
+    const kit::Control* replacing =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_replace));
+    const kit::Control* swapping =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_swap));
+    expect(cancel != nullptr && replacing != nullptr && swapping != nullptr, "a choice is missing");
+    expect(
+        cancel != nullptr && replacing != nullptr && swapping != nullptr &&
+            cancel->rect.x < replacing->rect.x && replacing->rect.x < swapping->rect.x,
+        "the footer is not CANCEL, REPLACE, SWAP"
+    );
+
+    editor::Editor adding(editor_fixture());
+    editor::Capture added = begin("order.attack");
+    editor::capture_key(
+        added, adding, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 90, true)
+    );
+    editor::ScreenState add_state;
+    add_state.prompt = editor::Prompt::clash;
+    add_state.capture = added;
+    add_state.selected = "order.attack";
+    if (const editor::CaptureStatus add_status = editor::capture_status(adding, added);
+        add_status.clash)
+        add_state.pending_clash = *add_status.clash;
+    const kit::DisplayList add_list = editor::editor_layout(adding, add_state, frame, fonts());
+    expect(prompt_item(add_list, kit::Role::text, "SWAP") == nullptr, "+ ADD KEY shows a SWAP row");
+    expect(
+        prompt_item(add_list, kit::Role::text, "nothing: unbound") != nullptr,
+        "+ ADD KEY does not leave the other action unbound"
+    );
+    const kit::Control* add_cancel =
+        kit::control_of(add_list, kit::control_named(add_list, editor::name_clash_cancel));
+    const kit::Control* add_replace =
+        kit::control_of(add_list, kit::control_named(add_list, editor::name_clash_replace));
+    expect(
+        add_cancel != nullptr && add_replace != nullptr && add_cancel->rect.x < add_replace->rect.x,
+        "+ ADD KEY's footer is not CANCEL, REPLACE"
+    );
+    expect(
+        kit::control_of(add_list, kit::control_named(add_list, editor::name_clash_swap)) == nullptr,
+        "+ ADD KEY's footer shows SWAP"
+    );
+}
+
 /// + ADD KEY has no chord to give away, so SWAP writes nothing and the prompt has no SWAP.
 void no_swap_for_add() {
     editor::Editor model(editor_fixture());
@@ -749,6 +959,8 @@ int main() {
     refused_and_settings();
     tab_is_not_a_clash();
     replace_swap_cancel();
+    capture_prompt_shape();
+    clash_row_words();
     no_swap_for_add();
     card_choices();
     find_and_type();
