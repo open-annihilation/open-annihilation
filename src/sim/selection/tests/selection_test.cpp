@@ -215,9 +215,9 @@ int main() {
         // On-screen units of the mask are selected. Additive leaves the rest.
         // A unit that is not selectable, and another player's unit, stay as they are.
         World* w = make_world();
-        uint16_t ids[8]{1, 2, 3, 5};
+        uint16_t listed[8]{1, 2, 3, 5};
         w->game.hot_unit_count = 4;
-        const VisibleLists shown{ids, 8, nullptr, 0};
+        const VisibleLists shown{listed, 8, nullptr, 0};
         data::defs::CategoryMaskStorage storage;
         TypeMask mask = data::defs::category_mask_over(storage, data::limits::base_type_bits);
         data::defs::category_mask_set(&mask, 1);
