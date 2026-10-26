@@ -3848,6 +3848,32 @@ endforeach()
       set_tests_properties(native-key-table-hacks PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_hacks_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The new actions, bound by a layout. The megamap hack is on so a
+      # double-click can close the megamap; Mouse wheel zoom stays on until
+      # a row turns it off.
+      set(oa_key_table_new_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-new-actions")
+      file(MAKE_DIRECTORY "${oa_key_table_new_dir}")
+      file(WRITE "${oa_key_table_new_dir}/key-table-new-actions.oamod.yaml"
+        "oamod: 1\n"
+        "id: key-table-new-actions\n"
+        "name: Key table new actions\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-26, packager: Open Annihilation}\n"
+        "hacks:\n"
+        "  ui.megamap: true\n")
+      add_test(NAME native-key-table-new-actions COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/new-actions/new-actions.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/new-actions"
+        --mod "${oa_key_table_new_dir}/key-table-new-actions.oamod.yaml"
+        --preferences-file "${oa_key_table_new_dir}/key-table.conf")
+      set_tests_properties(native-key-table-new-actions PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_new_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
       # with a layout that lists those two holds.
       set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")

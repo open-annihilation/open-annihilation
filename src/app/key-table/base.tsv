@@ -219,3 +219,5 @@ pointer.camera-orbit:left-click	interface=left-click	drag left battlefield alt	n
 pointer.camera-pan:right-click	interface=right-click	drag left battlefield alt shift	none
 pointer.camera-pan:left-click	interface=left-click	drag left battlefield alt shift	none
 build.move-queued-site	select=commander;armed=build	drag left queued-site shift	none
+ui.keys-overlay	select=commander;armed=build	key Slash primary	none
+ui.keys-overlay:ctrl	select=commander;armed=build	key Slash ctrl	none

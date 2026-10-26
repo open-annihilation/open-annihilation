@@ -1,0 +1,27 @@
+row	setup	input	effect
+build.cell-1	select=commander	key 1	armed=build;facing=south
+build.cell-2	select=commander	key 2	armed=build;facing=south
+build.cell-3	select=commander	key 3	armed=build;facing=south
+build.cell-4	select=commander	key 4	armed=build;facing=south
+build.cell-5	select=commander	key 5	armed=build;facing=south
+build.cell-6	select=commander	key 6	armed=build;facing=south
+build.cell-7	select=commander	key 7	none
+build.cell-8	select=commander	key 8	none
+build.cell-9	select=commander	key 9	none
+build.cell-10	select=commander	key 0	none
+build.cell-11	select=commander	key Minus	none
+build.cell-12	select=commander	key Equals	none
+camera.zoom-in-key		key LeftBracket	camera=moved
+camera.zoom-in-key:repeat		key LeftBracket repeat	camera=moved
+camera.zoom-in-key:wheel-off	wheel-zoom=off	key LeftBracket	none
+camera.zoom-out-key		key RightBracket	camera=moved
+camera.zoom-out-key:repeat		key RightBracket repeat	camera=moved
+camera.zoom-reset		key Backslash	none
+chat.open-allies		key F9	chat=open
+ui.release-pointer		key Insert	none
+ui.keys-overlay	select=commander;armed=build	key Slash primary	none
+megamap.jump		button left megamap clicks=2	camera=centred;megamap=closed
+order.cancel	select=combat;armed=attack	key PrintScreen	armed=none
+order.cancel:idle		key PrintScreen	none
+select.clear	select=combat	key End	primary=none;selected=0
+select.clear:armed	select=combat;armed=attack	key End	primary=none;selected=0

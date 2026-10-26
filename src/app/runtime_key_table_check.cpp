@@ -234,6 +234,7 @@ SDL_Scancode scancode_named(std::string_view name) {
         {"7", SDL_SCANCODE_7},
         {"8", SDL_SCANCODE_8},
         {"9", SDL_SCANCODE_9},
+        {"0", SDL_SCANCODE_0},
         {"Return", SDL_SCANCODE_RETURN},
         {"Escape", SDL_SCANCODE_ESCAPE},
         {"Left", SDL_SCANCODE_LEFT},
@@ -241,6 +242,7 @@ SDL_Scancode scancode_named(std::string_view name) {
         {"Up", SDL_SCANCODE_UP},
         {"Down", SDL_SCANCODE_DOWN},
         {"Home", SDL_SCANCODE_HOME},
+        {"End", SDL_SCANCODE_END},
         {"Pause", SDL_SCANCODE_PAUSE},
         {"Equals", SDL_SCANCODE_EQUALS},
         {"Minus", SDL_SCANCODE_MINUS},
@@ -269,6 +271,7 @@ SDL_Scancode scancode_named(std::string_view name) {
         {"PageDown", SDL_SCANCODE_PAGEDOWN},
         {"PrintScreen", SDL_SCANCODE_PRINTSCREEN},
         {"Insert", SDL_SCANCODE_INSERT},
+        {"LeftBracket", SDL_SCANCODE_LEFTBRACKET},
         {"RightBracket", SDL_SCANCODE_RIGHTBRACKET},
         {"Slash", SDL_SCANCODE_SLASH},
     };
@@ -1725,7 +1728,17 @@ void Runtime::check_key_table() {
                 settle();
                 return;
             }
-            const auto point = place_point(gesture);
+            auto point = place_point(gesture);
+            // The view starts on the commander's icon, at the megamap's
+            // centre. A jump is played off to one side, on ground.
+            if (row.id.rfind("megamap.jump", 0) == 0) {
+                // One frame draws the open megamap, so the click has a map
+                // picture to land on. The point is off the picture's centre.
+                settle();
+                point.first += 32.0F;
+                point.second += 24.0F;
+                clamp_battlefield(point.first, point.second);
+            }
             if (gesture.kind == GestureKind::wheel) {
                 wheel_at(point.first, point.second, gesture.wheel_up);
                 hold_mods(gesture, false);
