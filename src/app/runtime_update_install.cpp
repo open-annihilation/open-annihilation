@@ -93,6 +93,10 @@ constexpr std::string_view kInstalling = "Installing {version}";
 /// The helper's window line. {version} is the version that is running.
 constexpr std::string_view kKept =
     "{version} is kept, in case you want it back. The game starts again by itself.";
+/// The helper's window line when Installer will put the app in Applications.
+/// {version} is the release being installed.
+constexpr std::string_view kInstallerWill =
+    "Installer will put {version} in Applications. Start it from there when it finishes.";
 /// The Updated notice's title. {version} is this build.
 constexpr std::string_view kUpdatedTo = "Updated to {version}";
 /// The header note while a verified package is waiting.
@@ -218,12 +222,54 @@ bool background_switch_on(const platform::preferences::Values& values) {
     return found != values.end() && found->second == "1";
 }
 
-/// The helper beside this program. Windows adds the suffix.
+/// The helper beside this program. Windows adds the suffix. On macOS the
+/// helper sits in Contents/MacOS, the executable's own folder: the base
+/// path names Contents/Resources instead.
 fs::path helper_path(const fs::path& folder) {
 #ifdef _WIN32
     return folder / "oa-update.exe";
+#elif defined(__APPLE__)
+    const update::RouteFacts facts = update::this_machine(folder);
+    if (!facts.executable.empty())
+        return facts.executable.parent_path() / "oa-update";
+    return folder / "oa-update";
 #else
     return folder / "oa-update";
+#endif
+}
+
+/// Reveals the bundle in Finder. A build that starts no program only says so.
+void reveal_in_finder(const std::string& bundle) {
+#if !defined(__APPLE__) || OA_PROCESS_SPAWNING == 0
+    (void)bundle;
+    std::cerr << "open-annihilation: this build cannot show the app in Finder\n";
+#else
+    std::vector<std::string> stored;
+    stored.emplace_back("/usr/bin/open");
+    stored.emplace_back("-R");
+    stored.push_back(bundle);
+    std::vector<char*> argv;
+    argv.reserve(stored.size() + 1);
+    for (std::string& word : stored)
+        argv.push_back(word.data());
+    argv.push_back(nullptr);
+    const SDL_PropertiesID properties = SDL_CreateProperties();
+    if (properties == 0) {
+        std::cerr << "open-annihilation: " << SDL_GetError() << '\n';
+        return;
+    }
+    void* const argument_list = argv.data();
+    std::ignore =
+        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argument_list);
+    std::ignore =
+        SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
+    SDL_Process* process = SDL_CreateProcessWithProperties(properties);
+    SDL_DestroyProperties(properties);
+    if (process == nullptr) {
+        std::cerr << "open-annihilation: cannot show the app in Finder: " << SDL_GetError() << '\n';
+        return;
+    }
+    SDL_DestroyProcess(process);
 #endif
 }
 
@@ -322,6 +368,63 @@ std::vector<uint8_t> read_bytes(const fs::path& path) {
 
 } // namespace
 
+void Runtime::offer_move_to_applications() {
+#if !defined(__APPLE__) || !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return;
+#else
+    if (update_ == nullptr || update_->mac_move_offered)
+        return;
+    if (match_ != nullptr || screen_ == Screen::match)
+        return;
+    if (!options_.update_feed.has_value() && (options_.unattended || options_.headless_check))
+        return;
+    if (!update_->mac_facts_known) {
+        const update::RouteFacts facts = update::this_machine(program_folder());
+        update_->mac_facts_known = true;
+        update_->mac_translocated = facts.translocated;
+        update_->mac_bundle = path_to_utf8(facts.bundle);
+    }
+    if (!update_->mac_translocated || update_->mac_bundle.empty())
+        return;
+    if (!update_menu_settled())
+        return;
+    OaLayer& layer = oa_layer();
+    const std::string later{languages::interface_text("LATER")};
+    const std::string finder{languages::interface_text("SHOW IN FINDER")};
+    const std::string title{languages::interface_text("Move OA to Applications")};
+    const std::string body{languages::interface_text(
+        "macOS runs this copy from a protected place, so it can't update itself. Drag Open "
+        "Annihilation to Applications and start it from there."
+    )};
+    kit::Question asked;
+    asked.word = "move-to-applications";
+    asked.title = title;
+    asked.paragraphs.push_back({body, false});
+    asked.buttons.push_back({later, false, "later"});
+    asked.buttons.push_back({finder, true, "finder"});
+    asked.cancel_button = 0;
+    asked.primary_button = 1;
+    asked.marked = 1;
+    const std::string bundle = update_->mac_bundle;
+    update_->mac_move_offered = true;
+    QuestionScreen::Host host;
+    host.answer = [bundle](int32_t button) {
+        if (button == 1)
+            reveal_in_finder(bundle);
+        return true;
+    };
+    Runtime* runtime = this;
+    host.tick = [runtime]() {
+        return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+    };
+    auto question = std::make_unique<QuestionScreen>(
+        layer, Screen::main_menu, std::move(asked), std::move(host)
+    );
+    question->show_on_any_menu();
+    layer.show_when_free(std::move(question));
+#endif
+}
+
 bool Runtime::update_menu_settled() {
     return screen_ == Screen::main_menu && !frame_owned_by_package() &&
            state_.state == frontend::state_id::main_menu &&
@@ -414,13 +517,16 @@ void Runtime::hand_off_update() {
     plan.release = update_->download_release;
     plan.package = update_->download_package;
     plan.file = absolute_utf8(shot.path);
-    plan.installer = false;
+    plan.installer = where.installer;
     plan.preferences = preference_path_.empty() ? plan.install : absolute_utf8(preference_path_);
     if (options_.preferences_file && !options_.preferences_file->empty())
         plan.preferences = absolute_utf8(*options_.preferences_file);
     plan.updates = absolute_utf8(*folder);
     plan.title = library::filled(hooks, kInstalling, {{"version", update_->download_version}});
-    plan.line = library::filled(hooks, kKept, {{"version", kept}});
+    plan.line =
+        where.installer
+            ? library::filled(hooks, kInstallerWill, {{"version", update_->download_version}})
+            : library::filled(hooks, kKept, {{"version", kept}});
 
     const fs::path plan_file = *folder / "plan.json";
     std::string why;
@@ -572,11 +678,11 @@ bool Runtime::start_update_download() {
     update_->download_release = release.release;
     update_->download_version = release.version_text;
     update_->download_package = package.id;
-    update_->download_installer = false;
+    update_->download_installer = where.installer;
     update_->from_version = running_build().version_text;
     update_->download_attempted = true;
     update_->download->set_match_running(match_ != nullptr || screen_ == Screen::match);
-    update_->download->start(release, package, false, *folder);
+    update_->download->start(release, package, where.installer, *folder);
     return true;
 #endif
 }

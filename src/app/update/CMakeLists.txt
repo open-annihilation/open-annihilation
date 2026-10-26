@@ -14,6 +14,10 @@ target_link_libraries(oa-app-update
     oa-ui-library
   PRIVATE oa-app-headers oa-netgame-http oa-base-threads oa-platform-shims oa-base-sha256
     oa-formats-json oa-ui-engine-settings)
+if(APPLE)
+  # The running app's signing team. The helper does its own check of the new bundle.
+  target_link_libraries(oa-app-update PRIVATE "-framework Security" "-framework CoreFoundation")
+endif()
 # The root's per-source definitions do not reach a subdirectory target.
 # OA_SELF_UPDATE is public: every target that includes build.hpp reads it.
 # The packager strings are private to this file. \ and " are escaped so a

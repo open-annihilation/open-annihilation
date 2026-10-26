@@ -101,6 +101,10 @@ void ProgressWindow::show(
         shown_ = new Shown;
 
     if (!display_open_) {
+#if defined(__APPLE__)
+        // A helper adds no Dock icon of its own. The game it starts does.
+        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+#endif
         if (!SDL_Init(SDL_INIT_VIDEO)) {
             if (log_ != nullptr)
                 log_->line(std::string("the window could not be opened: ") + SDL_GetError());

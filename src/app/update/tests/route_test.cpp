@@ -104,6 +104,97 @@ void a_page_is_never_a_route() {
     OA_CHECK(where.why == "the release is offered on its page");
 }
 
+update::RouteFacts macos_bundle_facts() {
+    update::RouteFacts facts = facts_for("macos-universal");
+    facts.executable =
+        fs::path("/Applications/Open Annihilation.app/Contents/MacOS/open-annihilation");
+    facts.bundle = fs::path("/Applications/Open Annihilation.app");
+    facts.signing_team = "TEAMID1234";
+    facts.parent_writable = true;
+    facts.self_check = false;
+    return facts;
+}
+
+void a_translocated_app_has_no_route() {
+    update::RouteFacts facts = macos_bundle_facts();
+    facts.translocated = true;
+    const update::Where where = update::find_route(release_build(), facts);
+    OA_CHECK(!where.route.has_value());
+    OA_CHECK(!where.installer);
+    OA_CHECK(where.why == "macOS is running this copy from a protected place");
+}
+
+void an_ad_hoc_app_has_no_route() {
+    update::RouteFacts facts = macos_bundle_facts();
+    facts.signing_team.clear();
+    facts.test_feed = true;
+    const update::Where where = update::find_route(release_build(), facts);
+    OA_CHECK(!where.route.has_value());
+    OA_CHECK(where.why == "an ad hoc signed build does not update in place");
+}
+
+void a_team_is_not_compared_by_the_game() {
+    update::ThisBuild build = release_build();
+    build.package = "macos-universal";
+    update::RouteFacts facts = macos_bundle_facts();
+    facts.signing_team = "OTHERTEAM1";
+    const update::Where where = update::find_route(build, facts);
+    OA_CHECK(where.route.has_value());
+    OA_CHECK(*where.route == update::Route::macos_bundle);
+    OA_CHECK(!where.installer);
+    OA_CHECK(where.install == facts.bundle);
+    OA_CHECK(where.program == facts.executable);
+    OA_CHECK(where.why.empty());
+}
+
+void an_unwritable_folder_uses_the_installer() {
+    update::RouteFacts facts = macos_bundle_facts();
+    facts.parent_writable = false;
+    const update::Where where = update::find_route(release_build(), facts);
+    OA_CHECK(where.route.has_value());
+    OA_CHECK(*where.route == update::Route::macos_bundle);
+    OA_CHECK(where.installer);
+    OA_CHECK(where.install == facts.bundle);
+    OA_CHECK(where.why.empty());
+}
+
+void a_writable_folder_uses_the_zip() {
+    const update::Where where = update::find_route(release_build(), macos_bundle_facts());
+    OA_CHECK(where.route.has_value());
+    OA_CHECK(*where.route == update::Route::macos_bundle);
+    OA_CHECK(!where.installer);
+    OA_CHECK(where.install == macos_bundle_facts().bundle);
+}
+
+void a_self_check_ad_hoc_build_may_update() {
+    update::ThisBuild build = release_build();
+    build.development = true;
+    update::RouteFacts facts = macos_bundle_facts();
+    facts.signing_team.clear();
+    facts.self_check = true;
+    facts.test_feed = true;
+    const update::Where where = update::find_route(build, facts);
+    OA_CHECK(where.route.has_value());
+    OA_CHECK(*where.route == update::Route::macos_bundle);
+    OA_CHECK(!where.installer);
+    OA_CHECK(where.install == facts.bundle);
+
+    facts.test_feed = false;
+    const update::Where no_feed = update::find_route(build, facts);
+    OA_CHECK(!no_feed.route.has_value());
+    OA_CHECK(no_feed.why == "a development build has no route");
+}
+
+void the_self_check_folder_still_wins_on_macos() {
+    update::RouteFacts facts = macos_bundle_facts();
+    facts.install_folder = fs::path("/tmp/oa-v08-install");
+    const update::Where where = update::find_route(release_build(), facts);
+    OA_CHECK(where.route.has_value());
+    OA_CHECK(*where.route == update::Route::check_folder);
+    OA_CHECK(!where.installer);
+    OA_CHECK(where.install == fs::path("/tmp/oa-v08-install"));
+}
+
 void this_machine_names_the_executable() {
     const fs::path folder = fs::temp_directory_path() / "oa-v13-route";
     std::error_code error;
@@ -115,6 +206,9 @@ void this_machine_names_the_executable() {
     OA_CHECK(!facts.install_folder.has_value());
     OA_CHECK(!facts.test_feed);
     OA_CHECK(facts.way == feed::Way::none);
+    OA_CHECK(facts.bundle.empty());
+    OA_CHECK(!facts.translocated);
+    OA_CHECK(facts.self_check);
     fs::remove_all(folder, error);
 }
 
@@ -122,6 +216,13 @@ void this_machine_names_the_executable() {
 
 int main() {
     every_platform_has_no_route();
+    a_translocated_app_has_no_route();
+    an_ad_hoc_app_has_no_route();
+    a_team_is_not_compared_by_the_game();
+    an_unwritable_folder_uses_the_installer();
+    a_writable_folder_uses_the_zip();
+    a_self_check_ad_hoc_build_may_update();
+    the_self_check_folder_still_wins_on_macos();
     check_folder_uses_the_option();
     a_development_build_has_no_route_without_a_test_feed();
     a_page_is_never_a_route();

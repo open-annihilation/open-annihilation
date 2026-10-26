@@ -4746,6 +4746,14 @@
 	it=Installato · Predefinito;
 	}
 
+[Installer will put {version} in Applications. Start it from there when it finishes.]
+	{
+	de=Installer legt {version} nach Programme. Starte sie von dort, wenn es fertig ist.;
+	fr=Installer mettra {version} dans Applications. Lance-la de là quand il a fini.;
+	es=Installer pondrá {version} en Aplicaciones. Ábrela desde ahí cuando termine.;
+	it=Installer metterà {version} in Applicazioni. Avviala da lì quando ha finito.;
+	}
+
 [Installing]
 	{
 	de=Wird installiert;
@@ -6432,6 +6440,14 @@
 	fr=Zoom à la molette;
 	es=Zoom con la rueda del ratón;
 	it=Zoom con la rotella;
+	}
+
+[Move OA to Applications]
+	{
+	de=OA NACH PROGRAMME LEGEN;
+	fr=METTRE OA DANS APPLICATIONS;
+	es=LLEVAR OA A APLICACIONES;
+	it=METTI OA IN APPLICAZIONI;
 	}
 
 [Move orders: tap to step through Hold position, Maneuver and Roam.]
@@ -8944,6 +8960,14 @@
 	fr=AFFICHER À NOUVEAU;
 	es=MOSTRAR DE NUEVO;
 	it=MOSTRA DI NUOVO;
+	}
+
+[SHOW IN FINDER]
+	{
+	de=IM FINDER ZEIGEN;
+	fr=AFFICHER DANS LE FINDER;
+	es=MOSTRAR EN EL FINDER;
+	it=MOSTRA NEL FINDER;
 	}
 
 [SIZE]
@@ -13472,6 +13496,14 @@
 	fr=macOS a gardé Open Annihilation comme ouvreur de {types}. Pour en choisir un autre, sélectionne l'un d'eux dans le Finder, puis Fichier › Lire les informations › Ouvrir avec › Tout modifier.;
 	es=macOS mantuvo Open Annihilation como programa para abrir {types}. Para elegir otro, selecciona uno de ellos en el Finder y luego Archivo › Obtener información › Abrir con › Cambiar todo.;
 	it=macOS ha tenuto Open Annihilation come programma per aprire {types}. Per sceglierne un altro, selezionane uno nel Finder, poi Archivio › Ottieni informazioni › Apri con › Cambia tutto.;
+	}
+
+[macOS runs this copy from a protected place, so it can't update itself. Drag Open Annihilation to Applications and start it from there.]
+	{
+	de=macOS führt diese Kopie von einem geschützten Ort aus, deshalb kann sie sich nicht selbst aktualisieren. Zieh Open Annihilation nach Programme und starte sie von dort.;
+	fr=macOS lance cette copie depuis un endroit protégé, alors elle ne peut pas se mettre à jour. Glisse Open Annihilation dans Applications et lance-la de là.;
+	es=macOS ejecuta esta copia desde un lugar protegido, así que no puede actualizarse. Arrastra Open Annihilation a Aplicaciones y ábrela desde ahí.;
+	it=macOS avvia questa copia da un posto protetto, quindi non può aggiornarsi da sola. Trascina Open Annihilation in Applicazioni e avviala da lì.;
 	}
 
 [microSD card]

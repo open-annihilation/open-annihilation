@@ -58,7 +58,8 @@ expanded and checked, and the notary service's logs.
    the source's notices in `Contents/Resources`, the text fonts in its
    `fonts` folder, each the bootstrap's byte for byte, the built-in
    registries in `registries/` (Core Prime's descriptor the same bytes as
-   the source), and nothing else in the bundle. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
+   the source). `Contents/MacOS` holds the executable and `oa-update`, and
+   nothing else. The notices are `LICENSE`, `ATTRIBUTIONS.md` and the files of
    `licenses/` that Git tracks; a file Git does not track there, a
    `.DS_Store` for one, stops the script, since the build would put it in
    the application.
@@ -66,12 +67,13 @@ expanded and checked, and the notary service's logs.
    `Info.plist` gives (`CFBundleName`), with the notices Git tracks beside
    it. The build tree, `run.sh` and the tests keep the target's names,
    `open-annihilation.app` and the executable `open-annihilation`. The
-   staged executable is stripped of its symbols (`strip`), and the build's
-   own is kept in the `-symbols` folder.
+   staged executable and `oa-update` are stripped of their symbols (`strip`),
+   and the build's own copies are kept in the `-symbols` folder.
 4. **Signs it inside-out:** any code inside the bundle besides its
-   executable first, deepest first (the game has none today), then the
-   application, each with the hardened runtime and a secure timestamp
-   (`codesign --options runtime --timestamp`), never with `--deep`.
+   executable first, deepest first, including `oa-update` in
+   `Contents/MacOS`, then the application, each with the hardened runtime
+   and a secure timestamp (`codesign --options runtime --timestamp`), never
+   with `--deep`. The helper is signed with the same identity as the app.
 5. **Notarizes and staples it:** `ditto` zips the application,
    `xcrun notarytool submit --wait` sends it to Apple's notary service and
    waits for the verdict, the service's log is kept, and

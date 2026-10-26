@@ -86,6 +86,14 @@ struct Runtime::UpdateState {
     std::vector<std::string> helper_arguments;
     /// A hand-off asked the hooks to start the helper.
     bool handed = false;
+    /// macOS has been asked where this copy is running from.
+    bool mac_facts_known = false;
+    /// This copy is running from a protected place.
+    bool mac_translocated = false;
+    /// The bundle to show in Finder. Empty when this copy is not a bundle.
+    std::string mac_bundle;
+    /// The move prompt has been queued this run.
+    bool mac_move_offered = false;
 #endif
 };
 

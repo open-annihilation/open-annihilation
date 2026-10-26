@@ -130,6 +130,12 @@ void Runtime::offer_update() {
     // An unattended or headless run stays quiet unless this run named a feed.
     if (!options_.update_feed.has_value() && (options_.unattended || options_.headless_check))
         return;
+    // A copy macOS is running from a protected place cannot be replaced.
+    // The move prompt is the one this run asks.
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    if (update_->mac_translocated)
+        return;
+#endif
     const update::CheckSnapshot& held = update_->held;
     if (held.state != update::CheckState::offered)
         return;

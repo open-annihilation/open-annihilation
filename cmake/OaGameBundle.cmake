@@ -87,6 +87,8 @@ function(oa_game_bundle target)
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${open_annihilation_VERSION}"
     MACOSX_BUNDLE_ICON_FILE open-annihilation.icns
     OA_GAME_FILES_DIR "$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Resources")
+  # oa-update is copied into Contents/MacOS from the root CMakeLists,
+  # after that target exists. This function runs earlier.
   add_custom_command(TARGET ${target} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_CONTENT_DIR:${target}>/Resources"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${OA_GAME_ICNS}"

@@ -1,9 +1,10 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Which install layout this machine can use. This build knows the
-// self-check folder only; each platform's own route is filled in later.
-// Nothing here writes a file or starts a program.
+// Which install layout this machine can use. macOS can replace a signed
+// bundle, or open the installer when the folder cannot be written. The
+// other platforms still have the self-check folder only. Nothing here
+// writes a file or starts a program.
 #pragma once
 
 #include "oa/app/update/build.hpp"
@@ -31,22 +32,39 @@ struct RouteFacts {
     oa::data::engine_feed::Way way{
         oa::data::engine_feed::Way::none
     }; ///< how the release is offered
+    /// The application bundle, when the executable sits in `Contents/MacOS`.
+    /// Empty when this program is not a bundle.
+    std::filesystem::path bundle;
+    /// macOS is running the bundle from a protected place.
+    bool translocated{false};
+    /// The signing team of the running app. Empty for an ad hoc signature,
+    /// and empty when this program is not a bundle.
+    std::string signing_team;
+    /// The folder that holds the bundle can be written.
+    bool parent_writable{false};
+    /// This build is a self-check build. A test sets it directly.
+    bool self_check{false};
 };
 
 /// The route a download may use, or why it may not.
 struct Where {
     std::optional<Route> route;    ///< set when this install can be replaced
-    std::filesystem::path install; ///< the folder the route replaces
+    std::filesystem::path install; ///< the folder or bundle the route replaces
     std::filesystem::path program; ///< the program to start afterwards
-    std::string why;               ///< why there is no route; empty when there is one
+    /// The feed's installer, when the bundle's folder cannot be written.
+    bool installer{false};
+    std::string why; ///< why there is no route; empty when there is one
 };
 
 /// The route for this build on these facts.
 ///
 /// A release offered on its page has none. A development build has none
 /// unless a test feed is in use. Otherwise the self-check install folder
-/// selects `check-folder`. Every platform is still without a route of its
-/// own: `why` is "no route for this platform yet".
+/// selects `check-folder`. On macOS, a bundle that is not running from a
+/// protected place and is signed with a team uses `macos-bundle`: the zip
+/// when its folder can be written, and the installer when it cannot. An
+/// ad hoc signature has no route, except a self-check run with a test feed.
+/// Any other platform still has none: `why` is "no route for this platform yet".
 ///
 /// @param build the build that is running
 /// @param facts what the machine and this run say
@@ -56,7 +74,9 @@ struct Where {
 /// The facts this process can see for itself.
 ///
 /// The executable is this process's own file. The program folder is the one
-/// passed in. The install folder, the test feed and the offer's way are left
+/// passed in. On macOS the bundle, the protected-place flag, the signing
+/// team and whether the bundle's folder can be written are filled from this
+/// process. The install folder, the test feed and the offer's way are left
 /// unset, for the caller to fill before `find_route`.
 ///
 /// @param program_folder the folder that holds the program

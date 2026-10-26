@@ -138,7 +138,9 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
         return exit_usage;
     }
 #endif
-    if (plan.route != update::Route::check_folder) {
+    const bool folder = plan.route == update::Route::check_folder;
+    const bool bundle = plan.route == update::Route::macos_bundle;
+    if (!folder && !bundle) {
         log.line("this route is not carried out");
         start_old(plan, log, window);
         return exit_usage;
@@ -164,6 +166,31 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
     log.line("checked the package");
     window.show(plan.title, plan.line, 350, false);
 
+    // A folder the player cannot write is opened in Installer. The bundle
+    // stays where it is, and Installer relaunches nothing.
+    if (bundle && plan.installer) {
+        std::string why;
+        const std::vector<Operation> operations =
+            macos_checked_operations(plan, {}, !keys.empty(), &why);
+        if (!why.empty()) {
+            log.line(why);
+            window.show(plan.title, could_not_check, 0, true);
+            start_old(plan, log, window);
+            return exit_refused;
+        }
+        const JournalResult opened = apply_journal(updates, operations, hooks, &error);
+        if (opened != JournalResult::finished) {
+            log.line(error.empty() ? "a step failed" : error);
+            window.show(plan.title, could_not_check, 0, true);
+            start_old(plan, log, window);
+            return exit_undone;
+        }
+        drop_journal(updates);
+        log.line("opened the installer");
+        window.close();
+        return exit_swapped;
+    }
+
     const std::string top = top_folder_name(verified.version, verified.package);
     const fs::path stage = updates / std::to_string(verified.release) / "stage";
     if (!unpack_package(request.file, stage, top, &error)) {
@@ -176,7 +203,9 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
     window.show(plan.title, plan.line, 700, false);
 
     std::string why;
-    std::vector<Operation> operations = plan_operations(plan, stage, &why);
+    std::vector<Operation> operations =
+        bundle ? macos_checked_operations(plan, stage, !keys.empty(), &why)
+               : plan_operations(plan, stage, &why);
     if (!why.empty()) {
         log.line(why);
         remove_stage(stage);
@@ -225,7 +254,29 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
     }
     window.show(plan.title, plan.line, oa::ui::kit::question_progress_whole, false);
 
-    if (!start_detached(path_from(plan.program), plan.arguments, true, plan.from_version, &error)) {
+    if (bundle) {
+#if defined(__APPLE__)
+        const bool started =
+            start_macos_bundle(path_from(plan.install), plan.arguments, plan.from_version, &error);
+#else
+        error = "this route is not carried out";
+        const bool started = false;
+#endif
+        // The swap has already happened. A start that fails is logged and
+        // the kept bundle is left where it is: undoing it would put the old
+        // app back after the new one is already in its place.
+        if (!started) {
+            log.line("the new version could not be started; the kept bundle was left in place");
+            if (!error.empty())
+                log.line(error);
+            drop_journal(updates);
+            remove_stage(stage);
+            window.close();
+            return exit_refused;
+        }
+    } else if (!start_detached(
+                   path_from(plan.program), plan.arguments, true, plan.from_version, &error
+               )) {
         log.line(error.empty() ? "the game could not be started" : error);
         std::string undo_error;
         if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
