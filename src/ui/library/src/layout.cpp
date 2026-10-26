@@ -10,6 +10,7 @@
 
 #include "oa/base/text/line_break.hpp"
 #include "oa/ui/kit/chrome.hpp"
+#include "oa/ui/kit/keys.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
@@ -21,6 +22,7 @@
 #include "oa/ui/library/library.hpp"
 #include "oa/ui/library/text.hpp"
 #include "oa/ui/library/uninstall.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "screen_controls.hpp"
 #include "visible.hpp"
 
@@ -129,6 +131,11 @@ const std::vector<std::string>* shown_tags(const Entry& entry) {
             return &facts->tags;
         return nullptr;
     }
+    if (entry.id.kind == Kind::key_layout) {
+        if (const KeyLayoutFacts* facts = key_facts(entry))
+            return &facts->tags;
+        return nullptr;
+    }
     if (entry.listing != nullptr)
         return &entry.listing->tags;
     return nullptr;
@@ -149,6 +156,8 @@ std::string_view tag_caption(const Library& library, std::string_view tag, bool 
         return tag;
     if (library.tab == Tab::brains)
         return brain_tag_label(tag, library.text);
+    if (library.tab == Tab::keys)
+        return key_tag_label(tag, library.text);
     return tag_label(tag, library.text);
 }
 
@@ -341,6 +350,8 @@ struct Building {
     std::vector<kit::ControlId> order{}; ///< Tab's order, built in the order it is declared
     /// Tab's order while the chooser is open: its rows and buttons only.
     std::vector<kit::ControlId> chooser_order{};
+    /// Tab's order while USE's question is open: its choices and buttons only.
+    std::vector<kit::ControlId> question_order{};
     std::unordered_set<std::string> names{}; ///< the names given so far
     /// For each name wanted, the first count after it not yet tried.
     std::unordered_map<std::string, int32_t> next_count{};
@@ -712,6 +723,19 @@ kit::ChipLook entry_chip(const Library& library, const Entry& entry) {
         chip.state = in_use ? kit::ChipState::playing : kit::ChipState::installed;
         return chip;
     }
+    // The layout in use wears the green check and USING, as PLAYING does.
+    // OA default that is not in use says Built in.
+    if (entry.id.kind == Kind::key_layout && layout_in_use(library, entry)) {
+        chip.text = std::string(shown(library.text, words::chip_using));
+        chip.state = kit::ChipState::playing;
+        chip.icon = kit::StateIcon::circled_check;
+        return chip;
+    }
+    if (is_built_in_layout(entry.id)) {
+        chip.text = std::string(shown(library.text, words::registry_built_in));
+        chip.state = kit::ChipState::installed;
+        return chip;
+    }
     // An installed language pack in use says so too, unless an update is
     // waiting: that arrow stays, and USE NOW is still withheld.
     if (entry.id.kind == Kind::language && entry.installed != nullptr && entry.installed->in_use &&
@@ -734,7 +758,7 @@ kit::ChipLook entry_chip(const Library& library, const Entry& entry) {
 /// @param entry the entry
 /// @return the version; empty when neither names one
 std::string entry_version(const Library& library, const Entry& entry) {
-    if (is_built_in_brain(entry.id))
+    if (is_built_in_brain(entry.id) || is_built_in_layout(entry.id))
         return std::string(shown(library.text, words::registry_built_in));
     if (entry.installed != nullptr)
         return version_text(*entry.installed, library.text);
@@ -1000,6 +1024,16 @@ kit::ListRowLook row_look(
                 words::row_from_registry,
                 {{"line", line}, {"registry", entry.registry_name}}
             );
+        if (entry.id.kind == Kind::key_layout) {
+            const std::string made = layout_made_for_line(library, entry);
+            const KeyLayoutFacts* facts = key_facts(entry);
+            const std::string own =
+                own_changes_line(facts != nullptr ? facts->own_changes : 0, library.text);
+            if (!made.empty())
+                line = line.empty() ? made : line + " " + made;
+            if (!own.empty())
+                line = line.empty() ? own : line + " " + own;
+        }
         look.lines.push_back(std::move(line));
         return look;
     }
@@ -1009,11 +1043,22 @@ kit::ListRowLook row_look(
     else if (entry.listing != nullptr && !entry.listing->summary.empty())
         look.lines.push_back(entry.listing->summary);
     else if (
-        is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id)
+        is_base_game(entry.id) || is_built_in_language(entry.id) || is_built_in_brain(entry.id) ||
+        is_built_in_layout(entry.id)
     ) {
         const std::string_view about = entry_summary(entry);
         if (!about.empty())
             look.lines.push_back(std::string(about));
+    }
+    if (entry.id.kind == Kind::key_layout) {
+        const std::string made = layout_made_for_line(library, entry);
+        if (!made.empty())
+            look.lines.push_back(made);
+        if (const KeyLayoutFacts* facts = key_facts(entry); facts != nullptr) {
+            const std::string own = own_changes_line(facts->own_changes, library.text);
+            if (!own.empty())
+                look.lines.push_back(own);
+        }
     }
     if (!version.empty())
         look.aside.push_back(version);
@@ -1064,10 +1109,23 @@ kit::ListRowLook row_look(
         }
     } else if (form == RowForm::large) {
         std::vector<kit::ChipLook> labels;
+        if (entry.id.kind == Kind::key_layout) {
+            const std::string made = layout_made_for_line(library, entry);
+            if (!made.empty()) {
+                kit::ChipLook chip;
+                chip.text = made;
+                chip.state = kit::ChipState::filter;
+                labels.push_back(std::move(chip));
+            }
+        }
         if (const std::vector<std::string>* tags = shown_tags(entry)) {
             for (const std::string& tag : *tags) {
                 kit::ChipLook chip;
-                chip.text = std::string(tag_caption(library, tag, entry.id.kind == Kind::mutator));
+                chip.text = std::string(tag_caption(
+                    library,
+                    tag,
+                    entry.id.kind == Kind::mutator || entry.id.kind == Kind::key_layout
+                ));
                 chip.state = kit::ChipState::filter;
                 labels.push_back(std::move(chip));
             }
@@ -1732,7 +1790,7 @@ void add_chip_row(Building& building, const kit::Rect& row) {
     }
     const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
     const bool mutator_tab = library.tab == Tab::mutators;
-    const bool labelled = mutator_tab || library.tab == Tab::brains;
+    const bool labelled = mutator_tab || library.tab == Tab::brains || library.tab == Tab::keys;
     std::vector<int32_t> widths;
     int32_t total = 0;
     for (const auto& [tag, count] : tags) {
@@ -1875,7 +1933,8 @@ void add_filter_pane(Building& building, const kit::Rect& pane) {
                       tag_caption(
                           library,
                           tags[index].first,
-                          library.tab == Tab::mutators || library.tab == Tab::brains
+                          library.tab == Tab::mutators || library.tab == Tab::brains ||
+                              library.tab == Tab::keys
                       )},
                      {"count", std::to_string(tags[index].second)}}
                 ),
@@ -2685,6 +2744,131 @@ int32_t add_map_previews(
     return row_top + metrics.paragraph_gap;
 }
 
+/// A trigger as a W3C code, when the keyboard picture has that key.
+///
+/// A leading "@" is dropped. One letter becomes KeyQ and the like. A code
+/// the picture does not draw, including a mouse or pad code, is left out.
+///
+/// @param trigger the catalogue's trigger, or a chord's
+/// @param shape the keyboard the picture draws
+/// @return the code; empty when the picture has no such key
+std::string marked_key_code(std::string_view trigger, kit::KeyboardShape shape) {
+    if (!trigger.empty() && trigger.front() == '@')
+        trigger.remove_prefix(1);
+    std::string code(trigger);
+    if (code.size() == 1) {
+        const char letter = code.front();
+        const bool small = letter >= 'a' && letter <= 'z';
+        const bool capital = letter >= 'A' && letter <= 'Z';
+        if (small || capital) {
+            code = "Key";
+            code.push_back(small ? static_cast<char>(letter - 'a' + 'A') : letter);
+        }
+    }
+    for (const kit::KeyPlace& place : kit::keyboard_places(shape)) {
+        if (place.code == code)
+            return code;
+    }
+    return {};
+}
+
+/// The keyboard a picture draws: the layout's, unless that is empty or
+/// "any", then the player's, then ANSI.
+///
+/// @param keyboard the layout's keyboard
+/// @param player the player's keyboard
+/// @return the shape
+kit::KeyboardShape keyboard_shape_of(std::string_view keyboard, std::string_view player) {
+    std::string_view which = keyboard;
+    if (which.empty() || which == "any")
+        which = player;
+    if (which == "iso")
+        return kit::KeyboardShape::iso;
+    if (which == "jis")
+        return kit::KeyboardShape::jis;
+    return kit::KeyboardShape::ansi;
+}
+
+/// Appends the keyboard picture of what a layout changes, and an area whose
+/// text names the keys it marks. Compact and the wide details both call this
+/// before the facts.
+///
+/// @param[in,out] building the layout
+/// @param entry the entry
+/// @param left the picture's left column
+/// @param top the picture's top row
+/// @param width the columns it may use
+/// @param clip what drawing may touch
+/// @return the row under the picture, or `top` when the entry is not a layout
+int32_t add_key_picture(
+    Building& building,
+    const Entry& entry,
+    int32_t left,
+    int32_t top,
+    int32_t width,
+    const kit::Rect& clip
+) {
+    if (entry.id.kind != Kind::key_layout || width <= 0)
+        return top;
+    const Library& library = *building.library;
+    const kit::Metrics& metrics = *building.metrics;
+    const KeyLayoutFacts* facts = key_facts(entry);
+    const std::string_view keyboard = facts != nullptr ? facts->keyboard : std::string_view{};
+    const kit::KeyboardShape shape = keyboard_shape_of(keyboard, library.inputs.player_keyboard);
+    kit::KeyboardLook look;
+    look.shape = shape;
+    std::string named_keys;
+    if (facts != nullptr) {
+        for (const std::string& trigger : facts->triggers) {
+            const std::string code = marked_key_code(trigger, shape);
+            if (code.empty())
+                continue;
+            bool seen = false;
+            for (const kit::KeyboardKey& key : look.keys) {
+                if (key.code == code) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (seen)
+                continue;
+            kit::KeyboardKey key;
+            key.code = code;
+            key.cap.mark = kit::KeyMark::changed;
+            look.keys.push_back(std::move(key));
+            if (!named_keys.empty())
+                named_keys.push_back(' ');
+            named_keys += code;
+        }
+    }
+    const kit::Point unit = kit::keyboard_size();
+    const int32_t picture_width = std::min(width, int32_t{280});
+    const int32_t picture_height =
+        unit.x > 0 ? std::max(picture_width * unit.y / unit.x, int32_t{1}) : int32_t{25};
+    const kit::Rect rect{left, top, picture_width, picture_height};
+    const std::size_t first_item = building.list.items.size();
+    const std::size_t first_control = building.list.controls.size();
+    kit::add_keyboard(
+        building.list, rect, look, controls::first_keys_picture_key, named("keys.picture")
+    );
+    for (std::size_t index = first_item; index < building.list.items.size(); ++index)
+        building.list.items[index].clip = clip;
+    // The picture is one area. The per-key buttons are not controls the
+    // player reaches, and they are not named beside the area.
+    if (building.list.controls.size() > first_control)
+        building.list.controls.resize(first_control);
+    add_label(
+        building.detail,
+        controls::keys_picture,
+        kit::intersect(rect, clip),
+        unique_name(building, named("keys.picture")),
+        named_keys,
+        clip,
+        controls::details_group
+    );
+    return top + picture_height + metrics.paragraph_gap;
+}
+
 /// Tells whether a fact is the Rules fact.
 ///
 /// @param library the model
@@ -2740,6 +2924,7 @@ int32_t add_facts(
     const int32_t met_width = width_of(building, kit::FontRole::small, met);
     const int32_t space_width = width_of(building, kit::FontRole::small, " ");
     int32_t top = area.y;
+    std::size_t fact_index = 0;
     for (const Fact& fact : list) {
         const std::string& label = long_form ? fact.long_label : fact.short_label;
         const std::string& value = long_form ? fact.long_value : fact.short_value;
@@ -2784,7 +2969,9 @@ int32_t add_facts(
             clip
         );
         kit::Colour ink = kit::colour::text;
-        if (fact.mark == Mark::warn)
+        if (fact.opens)
+            ink = kit::colour::accent;
+        else if (fact.mark == Mark::warn)
             ink = kit::colour::lock;
         else if (fact.mark == Mark::bad)
             ink = kit::colour::danger;
@@ -2839,6 +3026,21 @@ int32_t add_facts(
                 clip,
                 controls::details_group
             );
+        if (fact.opens && fact_index < controls::most_fact_links) {
+            kit::Control link;
+            link.id = controls::first_fact_link + static_cast<kit::ControlId>(fact_index);
+            link.rect = value_box;
+            link.clip = clip;
+            link.enabled = true;
+            link.focusable = true;
+            link.kind = kit::ControlKind::link;
+            link.group = controls::details_group;
+            link.name = unique_name(building, named("fact.keys." + name_word(fact.long_value)));
+            link.text = fact.long_value;
+            building.detail.push_back(std::move(link));
+            tab_stop(building, building.detail.back());
+        }
+        ++fact_index;
         top += lines_height;
     }
     return top;
@@ -2952,8 +3154,11 @@ int32_t add_detail_tags(
     for (std::size_t index = 0; index < count; ++index) {
         const std::string& tag = (*tags)[index];
         kit::PillLook look;
-        look.text =
-            std::string(tag_caption(*building.library, tag, entry.id.kind == Kind::mutator));
+        look.text = std::string(tag_caption(
+            *building.library,
+            tag,
+            entry.id.kind == Kind::mutator || entry.id.kind == Kind::key_layout
+        ));
         if (entry.id.kind == Kind::mutator)
             look.tag = kit::tag_icon_of(tag);
         look.state = kit::PillState::inactive;
@@ -3063,6 +3268,7 @@ int32_t add_details_content(
     if (tags_bottom != top)
         top = tags_bottom + metrics.paragraph_gap;
     top = add_map_previews(building, entry, left, top, width, view);
+    top = add_key_picture(building, entry, left, top, width, view);
     top = add_facts(building, entry, {left, top, width, 0}, true, wide_fact_lines, view) +
           metrics.paragraph_gap;
 
@@ -3502,6 +3708,44 @@ IdentityTile language_tile(Building& building, const ActiveSetup& setup) {
         tile.lines.push_back(
             TileLine{setup.language_coverage, kit::FontRole::small, kit::colour::list_text}
         );
+    return tile;
+}
+
+/// Returns the KEYS tile: the layout in use, its own-changes line, and
+/// "With {mod}" when a per-mod layout is set. CHANGE… opens Keys on it.
+///
+/// @param[in,out] building the layout, which records the label's name
+/// @param setup what the tab shows
+/// @return the tile
+IdentityTile keys_tile(Building& building, const ActiveSetup& setup) {
+    IdentityTile tile;
+    tile.letters = setup.keys_name.empty()
+                       ? std::string(shown(building.library->text, words::built_in_layout_name))
+                       : setup.keys_name;
+    tile.id = controls::active_keys;
+    tile.name = unique_name(building, named("active.keys"));
+    tile.read = setup.keys_name;
+    if (!setup.keys_line.empty())
+        tile.read += " " + setup.keys_line;
+    if (!setup.keys_with.empty())
+        tile.read += " " + setup.keys_with;
+    if (!setup.keys_name.empty())
+        tile.lines.push_back(TileLine{setup.keys_name, kit::FontRole::regular, kit::colour::text});
+    if (!setup.keys_line.empty())
+        tile.lines.push_back(TileLine{setup.keys_line, kit::FontRole::small, kit::colour::hint});
+    if (!setup.keys_with.empty())
+        tile.lines.push_back(
+            TileLine{setup.keys_with, kit::FontRole::small, kit::colour::list_text}
+        );
+    tile.pill = setup.keys_badge;
+    tile.pill_state = setup.keys_badge == shown(building.library->text, words::chip_using)
+                          ? kit::PillState::playing
+                          : kit::PillState::neutral;
+    tile.button = true;
+    tile.button_caption = std::string(shown(building.library->text, words::active_change));
+    tile.button_enabled = true;
+    tile.button_id = controls::active_keys_change;
+    tile.button_name = named("active.keys.change");
     return tile;
 }
 
@@ -4673,7 +4917,20 @@ int32_t place_fixed_identity(
     ));
     place_expansions(building, content, {area.x, second, left_width, row2}, clip);
     place_identity(building, mod, {right, second, right_width, row2}, clip);
-    return second + row2 + metrics.paragraph_gap;
+
+    const IdentityTile keys = keys_tile(building, setup);
+    const int32_t keys_top = second + row2 + metrics.paragraph_gap;
+    const int32_t keys_heading = add_active_heading(
+        building,
+        shown(library.text, words::active_heading_keys),
+        area.x,
+        keys_top,
+        area.width,
+        clip
+    );
+    const int32_t keys_height = identity_height(metrics, keys);
+    place_identity(building, keys, {area.x, keys_heading, area.width, keys_height}, clip);
+    return keys_heading + keys_height + metrics.paragraph_gap;
 }
 
 /// Returns the row under the four tiles, measured without appending them.
@@ -6105,6 +6362,241 @@ void add_base_chooser(Building& building, const Window& window) {
     building.overlay.back().focusable = false;
 }
 
+/// Appends USE's question over the Library: a shade, the title, the choices
+/// and CANCEL and USE. The choices and the buttons are tried before the
+/// shade, and the shade before the Library.
+///
+/// @param[in,out] building the layout
+/// @param window the window
+void add_key_use(Building& building, const Window& window) {
+    const Library& library = *building.library;
+    const KeyUse& use = library.key_use;
+    if (!use.open)
+        return;
+    const kit::Metrics& metrics = *building.metrics;
+    const int32_t margin = window.padding;
+    const kit::Rect shade{0, 0, window.width, window.height};
+    kit::Item& dim = add_item(building.list, kit::Role::blend, shade, {});
+    dim.colour = kit::colour::backdrop;
+    dim.opacity = 180;
+
+    const Entry* entry = find_entry(library, use.layout);
+    const std::string name = entry != nullptr ? std::string(entry_name(*entry)) : std::string{};
+    const std::string title = filled(library.text, words::use_title, {{"name", name}});
+    const int32_t dialog_width = std::max(window.width - 2 * margin, int32_t{1});
+    const int32_t inner_width = std::max(dialog_width - 2 * margin, int32_t{1});
+    const int32_t row_height = metrics.button_height;
+    int32_t rows = 2;
+    if (use.show_own)
+        rows += 3;
+    if (use.already)
+        rows += 1;
+    rows += static_cast<int32_t>(std::min(use.helpers.size(), controls::most_use_helpers));
+    if (!use.helpers.empty())
+        rows += 1;
+    if (use.show_scope)
+        rows += 3;
+    if (!use.pointer_note.empty())
+        rows += 2;
+    int32_t dialog_height = metrics.button_height + margin + rows * (row_height + window.gap) +
+                            metrics.button_height + margin;
+    const int32_t most = std::max(window.height - 2 * margin, int32_t{1});
+    if (dialog_height > most)
+        dialog_height = most;
+    const int32_t dialog_x = margin;
+    const int32_t dialog_y = std::max((window.height - dialog_height) / 2, int32_t{0});
+    const kit::Rect dialog{dialog_x, dialog_y, dialog_width, dialog_height};
+    add_item(building.list, kit::Role::fill, dialog, {}).colour = kit::colour::panel;
+    add_item(building.list, kit::Role::outline, dialog, {}).colour = kit::colour::control_border;
+
+    int32_t cursor = dialog_y + margin / 2;
+    const auto line = [&](std::string_view words, kit::Colour ink) {
+        add_text(
+            building,
+            kit::FontRole::small,
+            std::string(words),
+            {dialog_x + margin, cursor, inner_width, metrics.small_line},
+            kit::Align::left,
+            ink,
+            {}
+        );
+        cursor += row_height;
+    };
+    const auto take = [&](kit::ControlId id,
+                          std::string control_name,
+                          const kit::Rect& rect,
+                          std::string caption,
+                          bool marked,
+                          bool accent) {
+        kit::ButtonLook look;
+        look.caption = caption;
+        look.style = accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
+        look.hovered = hovered(building, id);
+        look.held = held(building, id);
+        const std::size_t before = building.list.controls.size();
+        kit::add_button(
+            building.list, rect, look, id, unique_name(building, std::move(control_name))
+        );
+        move_controls(building.list, before, building.overlay);
+        kit::Control& control = building.overlay.back();
+        control.focusable = true;
+        control.enabled = true;
+        control.text = caption;
+        if (marked)
+            add_item(building.list, kit::Role::outline, rect, {}).colour = kit::colour::accent;
+        building.question_order.push_back(control.id);
+    };
+    line(title, kit::colour::text);
+    if (use.show_own) {
+        line(shown(library.text, words::use_own_heading), kit::colour::hint);
+        const std::string keep =
+            use.own_count == 1
+                ? std::string(shown(library.text, words::use_keep_one))
+                : filled(
+                      library.text, words::use_keep_many, {{"count", std::to_string(use.own_count)}}
+                  );
+        take(
+            controls::use_keep,
+            named("use.keep"),
+            {dialog_x + margin, cursor, inner_width, metrics.button_height},
+            keep,
+            use.keep,
+            false
+        );
+        cursor += row_height;
+        take(
+            controls::use_aside,
+            named("use.aside"),
+            {dialog_x + margin, cursor, inner_width, metrics.button_height},
+            std::string(shown(library.text, words::use_aside)),
+            !use.keep,
+            false
+        );
+        cursor += row_height;
+        if (!use.saved_with.empty()) {
+            line(
+                filled(library.text, words::use_stay_saved, {{"name", use.saved_with}}),
+                kit::colour::hint
+            );
+        }
+    }
+    if (use.already) {
+        const std::string sentence =
+            use.already_count == 1
+                ? filled(library.text, words::use_already_one, {{"name", use.already_name}})
+                : filled(
+                      library.text,
+                      words::use_already_many,
+                      {{"name", use.already_name}, {"count", std::to_string(use.already_count)}}
+                  );
+        line(sentence, kit::colour::hint);
+    }
+    if (!use.helpers.empty()) {
+        line(shown(library.text, words::use_asks_heading), kit::colour::hint);
+        const std::size_t count = std::min(use.helpers.size(), controls::most_use_helpers);
+        const int32_t off_width =
+            width_of(building, kit::FontRole::small, shown(library.text, words::registry_off));
+        const int32_t on_width =
+            width_of(building, kit::FontRole::small, shown(library.text, words::registry_on));
+        constexpr int32_t switch_pad = 4;
+        const int32_t switch_columns =
+            std::max(metrics.switch_width, (std::max(off_width, on_width) + switch_pad) * 2 + 2);
+        for (std::size_t index = 0; index < count; ++index) {
+            const KeyHelperSwitch& one = use.helpers[index];
+            const kit::ControlId id =
+                controls::first_use_helper + static_cast<kit::ControlId>(index);
+            const kit::Rect rect{dialog_x + margin, cursor, switch_columns, metrics.button_height};
+            kit::SwitchLook look;
+            look.on = one.on;
+            look.hovered = hovered(building, id);
+            look.off_caption = std::string(shown(library.text, words::registry_off));
+            look.on_caption = std::string(shown(library.text, words::registry_on));
+            const std::size_t before = building.list.controls.size();
+            kit::add_switch(
+                building.list,
+                rect,
+                look,
+                id,
+                unique_name(building, named("use.helper." + one.name))
+            );
+            move_controls(building.list, before, building.overlay);
+            kit::Control& control = building.overlay.back();
+            control.focusable = true;
+            control.enabled = true;
+            control.text = one.label;
+            building.question_order.push_back(control.id);
+            add_text(
+                building,
+                kit::FontRole::small,
+                one.label,
+                {rect.x + switch_columns + metrics.list_row_gap,
+                 rect.y,
+                 std::max(inner_width - switch_columns - metrics.list_row_gap, int32_t{0}),
+                 rect.height},
+                kit::Align::left,
+                kit::colour::text,
+                {}
+            );
+            cursor += row_height;
+        }
+    }
+    if (use.show_scope) {
+        line(shown(library.text, words::use_for_heading), kit::colour::hint);
+        take(
+            controls::use_for_game,
+            named("use.for.game"),
+            {dialog_x + margin, cursor, inner_width, metrics.button_height},
+            std::string(shown(library.text, words::use_every_game)),
+            !use.for_mod,
+            false
+        );
+        cursor += row_height;
+        take(
+            controls::use_for_mod,
+            named("use.for.mod"),
+            {dialog_x + margin, cursor, inner_width, metrics.button_height},
+            filled(library.text, words::use_only_with, {{"mod", use.mod_name}}),
+            use.for_mod,
+            false
+        );
+        cursor += row_height;
+    }
+    if (!use.pointer_note.empty())
+        line(use.pointer_note, kit::colour::lock);
+
+    const int32_t button_y =
+        std::min(dialog_y + dialog_height - margin - metrics.button_height, cursor + window.gap);
+    const std::string use_caption(shown(library.text, words::action_use));
+    const std::string cancel_caption(shown(library.text, words::action_cancel));
+    const int32_t use_width = std::max(button_width(building, use_caption), int32_t{80});
+    const int32_t cancel_width = std::max(button_width(building, cancel_caption), int32_t{80});
+    const int32_t use_x = dialog_x + dialog_width - margin - use_width;
+    const int32_t cancel_x = use_x - window.gap - cancel_width;
+    take(
+        controls::use_cancel,
+        "prompt.cancel",
+        {cancel_x, button_y, cancel_width, metrics.button_height},
+        cancel_caption,
+        false,
+        false
+    );
+    take(
+        controls::use_confirm,
+        "prompt.use",
+        {use_x, button_y, use_width, metrics.button_height},
+        use_caption,
+        true,
+        true
+    );
+    const std::size_t before = building.list.controls.size();
+    kit::ButtonLook shade_look;
+    shade_look.style = kit::ButtonStyle::quiet;
+    kit::add_button(building.list, shade, shade_look, controls::use_blocker, named("use.block"));
+    move_controls(building.list, before, building.overlay);
+    building.overlay.back().enabled = true;
+    building.overlay.back().focusable = false;
+}
+
 /// Finishes a layout: the window's edge, the focus ring, the open menu over
 /// everything, the key tooltip, and the controls in the order a press tries them.
 ///
@@ -6119,6 +6611,7 @@ kit::DisplayList finish(Building& building, const Window& window) {
     add_unload_note(building, window);
     add_key_tooltip(building, window);
     add_base_chooser(building, window);
+    add_key_use(building, window);
     for (kit::Control& control : building.top)
         if (control.id == controls::close_x)
             tab_stop(building, control);
@@ -6137,6 +6630,8 @@ kit::DisplayList finish(Building& building, const Window& window) {
             list.controls.push_back(std::move(control));
     if (building.library->chooser.open)
         list.tab_order = std::move(building.chooser_order);
+    else if (building.library->key_use.open)
+        list.tab_order = std::move(building.question_order);
     else
         list.tab_order = std::move(building.order);
     return list;
@@ -6173,7 +6668,8 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
             items.push_back(std::move(item));
         }
         const std::vector<std::pair<std::string, std::size_t>> tags = tags_in_tab(library);
-        const bool labelled = library.tab == Tab::mutators || library.tab == Tab::brains;
+        const bool labelled =
+            library.tab == Tab::mutators || library.tab == Tab::brains || library.tab == Tab::keys;
         for (std::size_t index = 0; index < tags.size(); ++index) {
             MenuItem item;
             item.caption = filled(
@@ -6201,7 +6697,8 @@ menu_items(const Library& library, MenuKind menu, const std::vector<bool>& tag_s
                   tag_caption(
                       library,
                       tags[index].first,
-                      library.tab == Tab::mutators || library.tab == Tab::brains
+                      library.tab == Tab::mutators || library.tab == Tab::brains ||
+                          library.tab == Tab::keys
                   )},
                  {"count", std::to_string(tags[index].second)}}
             );
@@ -6434,7 +6931,8 @@ kit::DisplayList library_layout(
             add_list(
                 building,
                 {left, list_top, list_width, window.footer_rule - window.gap - list_top},
-                (large || library.tab == Tab::brains) ? RowForm::large : RowForm::regular
+                (large || library.tab == Tab::brains || library.tab == Tab::keys) ? RowForm::large
+                                                                                  : RowForm::regular
             );
             left += list_width + window.padding;
             add_details_pane(building, {left, top, window.right - left, panes_height});
@@ -6554,6 +7052,7 @@ kit::DisplayList details_page_layout(
         if (tags_bottom != top)
             top = tags_bottom + metrics.paragraph_gap;
         top = add_map_previews(into, *entry, view.x, top, width, view);
+        top = add_key_picture(into, *entry, view.x, top, width, view);
         top = add_facts(into, *entry, {view.x, top, width, 0}, false, compact_fact_lines, view) +
               metrics.paragraph_gap;
         static_cast<void>(add_note(into, view.x, top, width, view, controls::details_group));
