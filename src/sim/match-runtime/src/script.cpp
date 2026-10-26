@@ -42,12 +42,13 @@ prepare_type_script(const std::shared_ptr<const formats::cob::CobProgram>& progr
         made.function_index.fill(-1);
         return made;
     }
-    made.vm_program = sim::script_vm::prepare_program(
-        {program->code,
-         program->entry_points,
-         program->header.static_variable_count,
-         program->piece_names.size()}
-    );
+    sim::script_vm::Program script_program;
+    script_program.code = program->code;
+    script_program.entry_points = program->entry_points;
+    script_program.static_count = program->header.static_variable_count;
+    script_program.piece_count = program->piece_names.size();
+    script_program.owner = program;
+    made.vm_program = sim::script_vm::prepare_program(std::move(script_program));
     for (std::size_t index = 0; index < made.function_index.size(); ++index) {
         made.function_index[index] = named_script(
             *program, sim::unit_script::script_function_name(static_cast<ScriptFunction>(index))

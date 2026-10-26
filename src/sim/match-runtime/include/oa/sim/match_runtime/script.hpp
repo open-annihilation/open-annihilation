@@ -51,10 +51,12 @@ class SharedRandom {
 /// Code and engine-function indices shared by every unit of one script.
 ///
 /// A match builds one for each loaded unit type and keeps it for the match.
-/// Every unit of that type is given that one, so the interpreter's code and
-/// the name lookup exist once per type.
+/// The interpreter program views that type's loaded script words and does not
+/// copy them. Every unit of that type is given that one, so the name lookup
+/// exists once per type.
 struct SharedScriptProgram {
-    /// Prepared interpreter program. Its code is never written.
+    /// Prepared interpreter program. Its code is the loaded script's own
+    /// words and is never written.
     std::shared_ptr<const sim::script_vm::Program> vm_program;
     /// COB index of each engine function's exact name, or -1 when the program
     /// has none. A loaded program's names never change.
