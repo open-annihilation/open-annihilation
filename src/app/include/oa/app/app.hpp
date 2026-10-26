@@ -557,6 +557,8 @@ struct Options {
     bool check_key_latches = false;
     // Holds self-destruct and the surrender question's Yes for the long-press time.
     bool check_hold_confirm = false;
+    // Opens the order wheel from a held mouse button on a skirmish.
+    bool check_order_wheel = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.

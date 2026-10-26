@@ -1050,6 +1050,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_order_wheel) {
+            check_order_wheel();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_paused_save) {
             check_paused_save();
             flush_preferences();
@@ -1324,8 +1329,12 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
         ~StickyEventGuard() { runtime.end_sticky_event(); }
     } sticky_event{*this};
 
-    if (feed_input_actions(event))
+    if (feed_input_actions(event)) {
+        // A click or a drag the order wheel held back reaches the game now,
+        // and not through another feed: that would hold the press back again.
+        replay_order_wheel(running);
         return;
+    }
     // The screen handlers run after the feed. A key they answer must not be
     // fed again: that second down lets a latch go.
     const bool key_event = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;

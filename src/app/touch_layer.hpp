@@ -76,9 +76,11 @@ struct TouchLayer {
 /// The drawing's helpers that reach the runtime's private members: static functions that take
 /// Runtime&.
 struct TouchDrawAccess {
-    /// Draws the layer again when what it shows changed. Draws and keeps
-    /// nothing when no touch state was made, touch controls are off, the
-    /// screen is not the match or the controls are not laid out yet.
+    /// Draws the layer again when what it shows changed. Draws the touch
+    /// controls or the pad HUD, and a wheel a mouse button opened. With
+    /// neither the controls nor the pad HUD on, that wheel is the only thing
+    /// drawn. Draws nothing when no touch state was made or the screen is
+    /// not the match.
     ///
     /// @param runtime the runtime
     /// @return true when the layer shows anything

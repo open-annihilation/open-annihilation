@@ -1858,6 +1858,11 @@ class Runtime final : public menu::Host,
     /// [runtime_hold_confirm_check.cpp]
     void check_hold_confirm();
 
+    /// Checks the order wheel a held mouse button opens, on a skirmish.
+    ///
+    /// Throws std::runtime_error on a failure. [runtime_order_wheel_check.cpp]
+    void check_order_wheel();
+
     /// Checks MULTI on the main menu.
     ///
     /// The extensions' check_multiplayer_menu hooks check the multiplayer
@@ -2576,10 +2581,102 @@ class Runtime final : public menu::Host,
 
     /// Admits keys whose slow-key time has passed, fires holds, and fires the player's repeats,
     /// once a frame after that frame's events. A key admitted here then reaches the rest of the
-    /// game. [runtime_key_bindings.cpp]
+    /// game. A mouse button held for the order wheel opens it from here once its
+    /// long-press time has passed. [runtime_key_bindings.cpp]
     ///
     /// @param[in,out] running loop flag; cleared when an admitted key ends the loop
     void advance_input_actions(bool& running);
+
+    /// Replays a mouse button the order wheel held back, at the press's point.
+    ///
+    /// A click is the press and its release. A drag is the press and the motion
+    /// that crossed the threshold. Nothing is replayed when no decision is waiting.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] running loop flag; cleared when a replayed event ends the loop
+    void replay_order_wheel(bool& running);
+
+    /// Reports whether the order wheel on screen was opened by a mouse button.
+    ///
+    /// @return true while that wheel is open
+    [[nodiscard]] bool order_wheel_mouse_open() const;
+
+    /// The wedge the mouse aims, as a slot of the open wheel.
+    ///
+    /// @return the slot, or none when the pointer is on the hub or outside
+    [[nodiscard]] std::optional<std::size_t> order_wheel_mouse_aim() const;
+
+    /// Drops a press the order wheel is holding and closes a wheel the mouse opened.
+    /// [runtime_key_bindings.cpp]
+    void cancel_order_wheel();
+
+    /// The mouse button the order wheel holds, or 0 when the setting is off.
+    ///
+    /// @return SDL's button number
+    [[nodiscard]] uint8_t order_wheel_button() const;
+
+    /// Converts a pointer event into canvas pixels.
+    ///
+    /// @param event the event, in window coordinates when a renderer is up
+    /// @param[out] x canvas column
+    /// @param[out] y canvas row
+    /// @return false when the renderer refused the conversion
+    [[nodiscard]] bool order_wheel_canvas(const SDL_Event& event, float& x, float& y) const;
+
+    /// Reports whether this press may be held back for the order wheel.
+    ///
+    /// Playing a seat, on the battlefield, and not on a panel, the minimap, a
+    /// placed HUD region, or while placing, the megamap or the whiteboard holds
+    /// the pointer.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when the press waits
+    [[nodiscard]] bool order_wheel_press_eligible(float x, float y);
+
+    /// Motion, and Escape, while a wheel the mouse opened is up or a press is waiting.
+    ///
+    /// @param event the event
+    /// @return true when the rest of the game should not see it
+    bool take_order_wheel_aside(const SDL_Event& event);
+
+    /// A button the order wheel is watching.
+    ///
+    /// Called after the dispatcher has seen the button.
+    ///
+    /// @param event the button event
+    /// @return true when the rest of the game should not see it
+    bool take_order_wheel_button(const SDL_Event& event);
+
+    /// Applies the helper's decision to the press that is waiting.
+    ///
+    /// @param event the motion or release that was just given to the helper
+    /// @return true when the rest of the game should not see it
+    bool order_wheel_decide(const SDL_Event& event);
+
+    /// Opens the touch wheel at the held press. [runtime_key_bindings.cpp]
+    void open_mouse_order_wheel();
+
+    /// Aims the wedge under the pointer. [runtime_key_bindings.cpp]
+    ///
+    /// @param event the motion
+    void aim_mouse_order_wheel(const SDL_Event& event);
+
+    /// Gives the aimed order, or closes the wheel. [runtime_key_bindings.cpp]
+    ///
+    /// @param event the button release
+    void release_mouse_order_wheel(const SDL_Event& event);
+
+    /// Closes a wheel the mouse opened, and no other radial. [runtime_key_bindings.cpp]
+    void close_mouse_order_wheel();
+
+    /// Writes the touch viewport from the match layout when nothing else is.
+    /// [runtime_key_bindings.cpp]
+    void ensure_order_wheel_viewport();
+
+    /// Opens the wheel once a held press reaches the long-press time.
+    /// [runtime_key_bindings.cpp]
+    void advance_order_wheel();
 
     /// Gives the dispatcher the key timings in effect, and sets the mouse's double-click time.
     ///

@@ -120,6 +120,13 @@ dispatcher times a double press and a hold from that time.
   row. The player's own chord stays. A group chord keeps its Ctrl or Alt, so
   it is not the same key. While pointer keys are off the bindings are
   unchanged. The layout file is not rewritten.
+- `WheelButton` tells a click, a drag and a long press apart. The caller
+  passes the time and the drag threshold. A distance at or under the
+  threshold is a click at the press's point. Past the threshold, the press
+  is a drag and the motion that crossed is kept. Held still for the
+  long-press time, the wheel opens. After a decision the press point stays
+  readable until `cancel` or the next press. `cancel` drops the press. The
+  class reads no clock.
 
 ## State
 

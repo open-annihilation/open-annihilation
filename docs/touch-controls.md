@@ -160,6 +160,14 @@ selects every unit of that unit's type. The hub in the middle is **QUEUE**
 for the next pick only: the order joins the queue, and is not left armed
 unless QUEUE is on. A tap outside the wheel closes it.
 
+Holding the right mouse button, or the middle one, opens the same wheel when
+Order wheel says so. The press stays where it is for the long-press time.
+Letting go on a wedge gives that order at the point the wheel opened.
+Letting go on the hub or outside the wheel, or Escape, closes it and gives
+nothing. A click shorter than the long press, or a press that moves past the
+drag threshold, does what that button does today, at the point it went down.
+Off, the buttons are unchanged. A mouse player sees the wheel alone.
+
 Holding and then dragging, instead of lifting, draws a selection box.
 
 ## Building

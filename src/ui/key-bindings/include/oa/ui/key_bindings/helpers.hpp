@@ -423,4 +423,80 @@ class PointerKeys {
 /// @return the bindings the dispatcher should search
 [[nodiscard]] Resolved pointer_keys_bindings(const Resolved& resolved, bool on);
 
+/// What a held mouse button has become.
+enum class WheelDecision {
+    waiting,    ///< still held, inside the drag threshold and short of the long press
+    pass_click, ///< let go inside the drag threshold: a click at the press's point
+    pass_drag,  ///< moved past the drag threshold: the press, then that motion
+    open_wheel, ///< the long-press time passed while it was still inside the threshold
+};
+
+/// One mouse button held back until it is a click, a drag or a long press.
+///
+/// The caller passes the time and the drag threshold. The class reads no
+/// clock and does not link SDL. A distance of the threshold, or inside it,
+/// is still a click. A move past the threshold is a drag even when the
+/// long-press time has also passed. After a decision the press is no longer
+/// held, and the point it went down at stays readable until `cancel` or the
+/// next `press`. `cancel` drops the held press.
+class WheelButton {
+  public:
+
+    /// A point, in the same units as the drag threshold.
+    struct Point {
+        float x{}; ///< across
+        float y{}; ///< down
+    };
+
+    /// A press began. A press already held is replaced.
+    ///
+    /// @param point where it went down
+    /// @param now_ms the time, in milliseconds
+    void press(Point point, uint64_t now_ms);
+
+    /// The pointer moved while the press is held.
+    ///
+    /// @param point where it is now
+    void motion(Point point);
+
+    /// The button came up.
+    ///
+    /// @param point where it came up
+    void release(Point point);
+
+    /// Decides what the press has become.
+    ///
+    /// @param now_ms the time, in milliseconds
+    /// @param long_press_ms the long-press time, in milliseconds
+    /// @param drag_threshold how far the pointer may move and still be a click
+    /// @return waiting, pass_click, pass_drag or open_wheel
+    [[nodiscard]] WheelDecision tick(uint64_t now_ms, uint32_t long_press_ms, float drag_threshold);
+
+    /// Drops the held press and the point it went down at.
+    void cancel();
+
+    /// Where the press went down.
+    ///
+    /// Readable after a decision, until `cancel` or the next `press`.
+    ///
+    /// @return the press's point; the origin when none is remembered
+    [[nodiscard]] Point press_point() const;
+
+    /// Where the pointer last was for this press.
+    ///
+    /// For a drag, this is the point that crossed the threshold.
+    ///
+    /// @return the latest point; the origin when none is remembered
+    [[nodiscard]] Point point() const;
+
+  private:
+
+    Point origin_{};        ///< where the press went down
+    Point current_{};       ///< where the pointer last was
+    uint64_t started_ms_{}; ///< when the press began
+    bool down_{};           ///< a press is held and not yet decided
+    bool released_{};       ///< the button came up before the next tick
+    bool remembered_{};     ///< origin_ is a press
+};
+
 } // namespace oa::ui::key_bindings
