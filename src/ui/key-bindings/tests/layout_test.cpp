@@ -584,6 +584,78 @@ void number_swap_moves_add_and_pages() {
     OA_CHECK(played(after, us, pad_place, pad_code, shift_only) == "group.add-1");
 }
 
+/// Each kit key but backspace and delete_forward is one ui.screen action.
+/// The chords are the ones layer_key maps, and paste is the one layer_paste
+/// accepts: Primary+V, and Ctrl+V where that chord is not the same press.
+void screen_keys_follow_layer_key() {
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    const Resolved resolved = keys::resolve(fresh(us));
+    // layer_key: Enter, Escape, Up, Down, Left, Right, Space, Tab, Shift+Tab,
+    // PageUp, PageDown, Home, End, Y, N and F1. Not Backspace or Delete.
+    const std::pair<const char*, const char*> rows[] = {
+        {"ui.screen-accept", "Enter"},
+        {"ui.screen-cancel", "Escape"},
+        {"ui.screen-up", "Up"},
+        {"ui.screen-down", "Down"},
+        {"ui.screen-left", "Left"},
+        {"ui.screen-right", "Right"},
+        {"ui.screen-press", "Space"},
+        {"ui.screen-focus-next", "Tab"},
+        {"ui.screen-focus-previous", "Shift+Tab"},
+        {"ui.screen-page-up", "PageUp"},
+        {"ui.screen-page-down", "PageDown"},
+        {"ui.screen-home", "Home"},
+        {"ui.screen-end", "End"},
+        {"ui.screen-yes", "Y"},
+        {"ui.screen-no", "N"},
+        {"ui.screen-info", "F1"},
+    };
+    for (const auto& row : rows)
+        OA_CHECK(chords_are(find_bound(resolved, row.first), {row.second}));
+    // layer_paste accepts Primary+V and Ctrl+V.
+    OA_CHECK(chords_are(find_bound(resolved, "ui.screen-paste"), {"Primary+V", "Ctrl+V"}));
+    OA_CHECK(chords_are(find_bound(resolved, "ui.screen-find"), {"Primary+F", "/"}));
+    OA_CHECK(chords_are(find_bound(resolved, "ui.screen-refresh"), {"F5"}));
+    OA_CHECK(chords_are(find_bound(resolved, "ui.screen-next-tab"), {"Ctrl+Tab"}));
+    OA_CHECK(chords_are(find_bound(resolved, "ui.screen-previous-tab"), {"Ctrl+Shift+Tab"}));
+    const Bound* cancel = find_bound(resolved, "ui.screen-cancel");
+    OA_CHECK(cancel != nullptr && cancel->entry != nullptr && cancel->entry->fixed);
+    const Bound* menu_cancel = find_bound(resolved, "ui.menu-cancel");
+    OA_CHECK(menu_cancel != nullptr && menu_cancel->entry != nullptr && !menu_cancel->entry->fixed);
+}
+
+/// A layout can move a screen key, a menu key and Settings, and Escape stays
+/// on ui.screen-cancel.
+void moved_screen_menu_and_settings() {
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    keys::Layout layout;
+    layout.bindings.push_back(binding("ui.screen-focus-next", {"F6"}, 1, 1));
+    layout.bindings.push_back(binding("ui.menu-accept", {"Space"}, 2, 1));
+    layout.bindings.push_back(binding("ui.settings", {"F9"}, 3, 1));
+    keys::ResolveInput input = fresh(us);
+    input.chosen = &layout;
+    const Resolved resolved = keys::resolve(input);
+    OA_CHECK(chords_are(find_bound(resolved, "ui.screen-focus-next"), {"F6"}));
+    OA_CHECK(chords_are(find_bound(resolved, "ui.menu-accept"), {"Space"}));
+    OA_CHECK(chords_are(find_bound(resolved, "ui.settings"), {"F9"}));
+
+    keys::Layout cancel_only;
+    cancel_only.bindings.push_back(binding("ui.screen-cancel", {"F10"}, 1, 1));
+    keys::ResolveInput cancel_input = fresh(us);
+    cancel_input.chosen = &cancel_only;
+    const Resolved kept = keys::resolve(cancel_input);
+    OA_CHECK(chords_are(find_bound(kept, "ui.screen-cancel"), {"Escape", "F10"}));
+
+    keys::Layout stolen;
+    stolen.bindings.push_back(binding("ui.screen-accept", {"Escape"}, 1, 1));
+    keys::ResolveInput stolen_input = fresh(us);
+    stolen_input.chosen = &stolen;
+    const Resolved lost = keys::resolve(stolen_input);
+    OA_CHECK(chords_are(find_bound(lost, "ui.screen-accept"), {}));
+    OA_CHECK(lost_to(lost, "ui.screen-accept", LostReason::fixed, "ui.screen-cancel"));
+    OA_CHECK(chords_are(find_bound(lost, "ui.screen-cancel"), {"Escape"}));
+}
+
 /// Escape stays on chat.cancel. Nothing else is held back.
 void fixed_escape() {
     const keys::KeyboardMap us = keys::KeyboardMap::us();
@@ -802,6 +874,8 @@ int main() {
     hack_defaults();
     scheme_and_swap();
     number_swap_moves_add_and_pages();
+    screen_keys_follow_layer_key();
+    moved_screen_menu_and_settings();
     fixed_escape();
     shared_without_a_clash();
     where_layers_meet();
