@@ -20791,6 +20791,13 @@ class Runtime final : public menu::Host,
     std::vector<GatheredTag> gathered_tags_{};
     /// Reads the units' Category lines into `gathered_tags_`. [runtime_gui_actions.cpp]
     void gather_tag_words();
+    /// The `select.tag-` actions this layout binds, and the `select.tag-` names
+    /// it keeps that the loaded units do not carry. Both stay empty when the
+    /// layout names no tag key. [runtime_key_bindings.cpp]
+    ///
+    /// @param bound tag actions that hold a chord
+    /// @param unknown tag names kept with their chords
+    void tag_layout_ids(std::vector<std::string>& bound, std::vector<std::string>& unknown) const;
     /// The word of the last two-press tag selection, as the data spells it.
     std::string tag_reach_word_{};
     /// Selected local unit ids after that press, in id order. The next press

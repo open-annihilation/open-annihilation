@@ -1,0 +1,17 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Category words. J selects KBOT, Q selects NOTAIR, and Y names a tag the
+# loaded units do not carry. The binding is kept.
+oakeys: 1
+id: tags
+name: "Tags"
+version: "1.0"
+author: {name: "Open Annihilation"}
+description: "Keys for Category words."
+tags: [selection]
+base: oa-default
+bindings:
+  select.tag-kbot: [J]
+  select.tag-notair: [Q]
+  select.tag-ridge-scout: [Y]

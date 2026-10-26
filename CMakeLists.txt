@@ -3924,6 +3924,19 @@ endforeach()
         TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_new_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Category words, bound by a layout. A second press of J reaches one
+      # construction kbot spawned off screen.
+      set(oa_key_table_tags_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-tags")
+      file(MAKE_DIRECTORY "${oa_key_table_tags_dir}")
+      add_test(NAME native-key-table-tags COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/tags.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/tags"
+        --preferences-file "${oa_key_table_tags_dir}/key-table.conf")
+      set_tests_properties(native-key-table-tags PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_tags_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
       # with a layout that lists those two holds.
       set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")

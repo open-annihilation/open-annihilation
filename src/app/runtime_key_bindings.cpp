@@ -2556,6 +2556,24 @@ void Runtime::add_menu_gui(std::string_view path) {
     menu_gui_stems_.push_back(std::move(stem));
 }
 
+void Runtime::tag_layout_ids(
+    std::vector<std::string>& bound, std::vector<std::string>& unknown
+) const {
+    bound.clear();
+    unknown.clear();
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return;
+    const keys::Resolved& resolved = key_bindings_state_->dispatcher.bindings();
+    for (const keys::Bound& row : resolved.actions) {
+        if (row.id.starts_with("select.tag-") && !row.chords.empty())
+            bound.push_back(row.id);
+    }
+    for (const keys::LayoutBinding& binding : resolved.unknown) {
+        if (binding.action.starts_with("select.tag-"))
+            unknown.push_back(binding.action);
+    }
+}
+
 bool Runtime::action_key_held(std::string_view action) {
     ensure_key_bindings(false);
     keys::HeldKeys keys_held;
