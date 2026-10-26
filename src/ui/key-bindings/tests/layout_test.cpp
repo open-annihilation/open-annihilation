@@ -513,7 +513,7 @@ std::string played(
     uint8_t modifiers
 ) {
     keys::Dispatcher dispatcher;
-    dispatcher.set_bindings(resolved);
+    dispatcher.set_bindings(keys::Resolved{resolved});
     dispatcher.set_keyboard(map);
     keys::Contexts contexts;
     const std::span<const acts::Context> table = acts::contexts();
