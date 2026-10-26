@@ -698,6 +698,8 @@ void window() {
 
 } // namespace
 
+void test_windows_routes();
+
 int main() {
     plan_and_state();
     verification();
@@ -705,5 +707,6 @@ int main() {
     journal();
     waiting();
     window();
+    test_windows_routes();
     return oa::test::check_exit_status();
 }

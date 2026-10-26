@@ -27,6 +27,7 @@ struct Recorded {
     std::string held;
     std::string previous;
     bool created{};
+    bool postponed{};
     std::string program;
     std::vector<std::string> arguments;
 };
@@ -147,6 +148,8 @@ std::string journal_text(const std::vector<Recorded>& steps) {
         writer.string(step.previous);
         writer.key("created");
         writer.boolean(step.created);
+        writer.key("postponed");
+        writer.boolean(step.postponed);
         writer.key("program");
         writer.string(step.program);
         writer.key("arguments");
@@ -230,6 +233,9 @@ std::optional<std::vector<Recorded>> read_journal(const fs::path& updates, std::
         const json::Json* created = element.find("created");
         if (created != nullptr && created->boolean())
             step.created = *created->boolean();
+        const json::Json* postponed = element.find("postponed");
+        if (postponed != nullptr && postponed->boolean())
+            step.postponed = *postponed->boolean();
         const json::Json* arguments = element.find("arguments");
         if (arguments != nullptr && arguments->type() == json::JsonType::array) {
             for (const json::Json& argument : arguments->elements()) {
@@ -321,6 +327,19 @@ bool perform(
     recorded.kind = operation.kind;
     switch (operation.kind) {
     case Operation::Kind::rename: {
+        // The hook runs before the destination check, so a postponed rename
+        // of a file that is still there can be recorded.
+        if (hooks.move != nullptr) {
+            const MoveOutcome outcome =
+                hooks.move(hooks.context, operation.from, operation.to, reason);
+            if (outcome == MoveOutcome::failed)
+                return false;
+            recorded.from = utf8_of(operation.from);
+            recorded.to = utf8_of(operation.to);
+            recorded.postponed = outcome == MoveOutcome::postponed;
+            note_line(hooks, (recorded.postponed ? "postponed " : "renamed ") + recorded.from);
+            return true;
+        }
         if (fs::exists(operation.to, io)) {
             set_error(reason, "the destination already exists");
             return false;
@@ -429,9 +448,18 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
     std::error_code io;
     switch (step.kind) {
     case Operation::Kind::rename: {
+        if (step.postponed)
+            return true;
         const fs::path from = path_from(step.from);
         const fs::path to = path_from(step.to);
-        if (fs::exists(from, io)) {
+        // A rename that never took, or that a caller already put back, has
+        // the source and not the destination. Both still being there fails.
+        const bool source_there = fs::exists(from, io) && !io;
+        io.clear();
+        const bool destination_there = fs::exists(to, io) && !io;
+        if (source_there && !destination_there)
+            return true;
+        if (source_there) {
             set_error(reason, "cannot undo a rename");
             return false;
         }
@@ -583,6 +611,19 @@ bool undo_journal(const fs::path& updates, const JournalHooks& hooks, std::strin
         return true;
     }
     return undo_recorded(updates, *steps, hooks, error);
+}
+
+std::vector<PostponedRenameRecord> postponed_renames(const fs::path& updates) {
+    std::string ignored;
+    const std::optional<std::vector<Recorded>> steps = read_journal(updates, &ignored);
+    std::vector<PostponedRenameRecord> rows;
+    if (!steps)
+        return rows;
+    for (const Recorded& step : *steps) {
+        if (step.kind == Operation::Kind::rename && step.postponed)
+            rows.push_back(PostponedRenameRecord{step.from, step.to});
+    }
+    return rows;
 }
 
 } // namespace oa::update_helper

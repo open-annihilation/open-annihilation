@@ -3,6 +3,7 @@
 
 #include "oa/update_helper/lock.hpp"
 
+#include <string>
 #include <utility>
 
 #if defined(_WIN32)
@@ -47,6 +48,18 @@ bool UpdateLock::try_lock(const std::filesystem::path& updates, std::string* err
         FILE_ATTRIBUTE_NORMAL,
         nullptr
     );
+    if (handle == INVALID_HANDLE_VALUE && GetLastError() == ERROR_CALL_NOT_IMPLEMENTED) {
+        const std::string narrow = path.string();
+        handle = CreateFileA(
+            narrow.c_str(),
+            GENERIC_READ | GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr,
+            OPEN_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            nullptr
+        );
+    }
     if (handle == INVALID_HANDLE_VALUE) {
         set_error(error, "the update lock could not be taken");
         return false;
@@ -60,9 +73,22 @@ bool UpdateLock::try_lock(const std::filesystem::path& updates, std::string* err
             MAXDWORD,
             &overlapped
         )) {
-        CloseHandle(handle);
-        set_error(error, "another update is running");
-        return false;
+        const DWORD lock_error = GetLastError();
+        if (lock_error != ERROR_CALL_NOT_IMPLEMENTED) {
+            CloseHandle(handle);
+            set_error(error, "another update is running");
+            return false;
+        }
+        // Windows 9x has LockFile, not LockFileEx.
+        if (!LockFile(handle, 0, 0, MAXDWORD, MAXDWORD)) {
+            const DWORD simple = GetLastError();
+            CloseHandle(handle);
+            if (simple == ERROR_LOCK_VIOLATION)
+                set_error(error, "another update is running");
+            else
+                set_error(error, "the update lock could not be taken");
+            return false;
+        }
     }
     handle_ = handle;
     return true;
@@ -92,7 +118,10 @@ void UpdateLock::release() {
         return;
     HANDLE handle = static_cast<HANDLE>(handle_);
     OVERLAPPED overlapped{};
-    UnlockFileEx(handle, 0, MAXDWORD, MAXDWORD, &overlapped);
+    if (!UnlockFileEx(handle, 0, MAXDWORD, MAXDWORD, &overlapped) &&
+        GetLastError() == ERROR_CALL_NOT_IMPLEMENTED) {
+        UnlockFile(handle, 0, 0, MAXDWORD, MAXDWORD);
+    }
     CloseHandle(handle);
     handle_ = nullptr;
 #else

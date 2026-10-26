@@ -24,6 +24,7 @@ namespace {
 
 void print_help() {
     std::cout << "oa-update --plan FILE\n"
+                 "oa-update --plan FILE --elevated-swap\n"
                  "oa-update --recover --updates DIR\n"
                  "oa-update --version\n"
                  "oa-update --help\n";
@@ -42,6 +43,7 @@ int main(int argc, char** argv) {
     try {
         bool help = false;
         bool recover = false;
+        bool elevated = false;
         std::string plan;
         std::string updates;
         std::vector<oa::update_helper::FeedKey> keys;
@@ -65,6 +67,8 @@ int main(int argc, char** argv) {
                     return oa::update_helper::exit_usage;
             } else if (argument == "--recover") {
                 recover = true;
+            } else if (argument == "--elevated-swap") {
+                elevated = true;
             } else if (argument == "--updates") {
                 if (!updates.empty() || !need_value(updates))
                     return oa::update_helper::exit_usage;
@@ -93,6 +97,10 @@ int main(int argc, char** argv) {
             print_help();
             return oa::update_helper::exit_swapped;
         }
+        if (elevated && (recover || plan.empty() || !keys.empty())) {
+            std::cerr << "oa-update: --elevated-swap needs --plan\n";
+            return oa::update_helper::exit_usage;
+        }
         if (recover && !plan.empty()) {
             std::cerr << "oa-update: pass --plan, or --recover with --updates\n";
             return oa::update_helper::exit_usage;
@@ -108,7 +116,7 @@ int main(int argc, char** argv) {
             std::cerr << "oa-update: pass --plan, or --recover with --updates\n";
             return oa::update_helper::exit_usage;
         }
-        return oa::update_helper::run_plan(oa::update_helper::path_from(plan), keys);
+        return oa::update_helper::run_plan(oa::update_helper::path_from(plan), keys, elevated);
     } catch (const std::exception& raised) {
         std::cerr << "oa-update: " << raised.what() << '\n';
         return oa::update_helper::exit_usage;
