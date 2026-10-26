@@ -8,6 +8,7 @@
 #include "oa/ui/key_bindings/helpers.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -30,7 +31,7 @@ enum class Phase : uint8_t {
 /// One action a binding started.
 ///
 /// `action` points at the id kept by the dispatcher. It stays valid until the
-/// next `set_bindings`.
+/// next `set_bindings` or `retarget`.
 struct ActionEvent {
     std::string_view action{}; ///< the action id
     Phase phase{};             ///< what happened
@@ -207,19 +208,49 @@ class Dispatcher {
     /// @return this dispatcher
     Dispatcher& operator=(Dispatcher&&) noexcept;
 
-    /// Replaces the bindings.
+    /// Replaces the bindings, taking ownership of them.
     ///
     /// Held keys, roles and timers are dropped and no action event is made
     /// for them. Call `release_all` first when those events are wanted.
     /// Events returned before this call are no longer valid.
     ///
     /// @param bindings the bindings in use
-    void set_bindings(const Resolved& bindings);
+    void set_bindings(Resolved&& bindings);
+
+    /// The bindings in use.
+    ///
+    /// The reference stays valid until the next `set_bindings`.
+    ///
+    /// @return the bindings
+    [[nodiscard]] const Resolved& bindings() const;
+
+    /// Replaces the bindings the next event is chosen from, and keeps held keys.
+    ///
+    /// Roles, timers and keys already down stay. Use this when the action ids
+    /// are unchanged and only a context bit moved, so a held page key is not
+    /// dropped. Events returned before this call are no longer valid.
+    ///
+    /// @param bindings the bindings in use
+    void retarget(Resolved&& bindings);
 
     /// Replaces the keyboard map a letter and a place are compared on.
     ///
     /// @param keyboard the map
     void set_keyboard(const KeyboardMap& keyboard);
+
+    /// The keyboard map a letter and a place are compared on.
+    ///
+    /// @return the map
+    [[nodiscard]] const KeyboardMap& keyboard() const;
+
+    /// How many keys and buttons the dispatcher is still remembering.
+    ///
+    /// A key that has come up is remembered until a later down could no longer
+    /// be its double press. A button is forgotten as soon as it comes up.
+    /// `release_all` and `set_bindings` forget every one at once.
+    ///
+    /// @return the number remembered
+    [[nodiscard]] std::size_t remembered() const;
 
     /// Says which key Primary means.
     ///

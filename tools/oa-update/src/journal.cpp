@@ -30,6 +30,8 @@ struct Recorded {
     bool postponed{};
     std::string program;
     std::vector<std::string> arguments;
+    /// Directories this step created, shallowest first. Undo removes the empty ones.
+    std::vector<std::string> made;
 };
 
 void set_error(std::string* reason, std::string message) {
@@ -150,6 +152,13 @@ std::string journal_text(const std::vector<Recorded>& steps) {
         writer.boolean(step.created);
         writer.key("postponed");
         writer.boolean(step.postponed);
+        if (!step.made.empty()) {
+            writer.key("made");
+            writer.begin_array();
+            for (const std::string& directory : step.made)
+                writer.string(directory);
+            writer.end_array();
+        }
         writer.key("program");
         writer.string(step.program);
         writer.key("arguments");
@@ -236,6 +245,13 @@ std::optional<std::vector<Recorded>> read_journal(const fs::path& updates, std::
         const json::Json* postponed = element.find("postponed");
         if (postponed != nullptr && postponed->boolean())
             step.postponed = *postponed->boolean();
+        const json::Json* made = element.find("made");
+        if (made != nullptr && made->type() == json::JsonType::array) {
+            for (const json::Json& directory : made->elements()) {
+                if (directory.string() != nullptr)
+                    step.made.push_back(*directory.string());
+            }
+        }
         const json::Json* arguments = element.find("arguments");
         if (arguments != nullptr && arguments->type() == json::JsonType::array) {
             for (const json::Json& argument : arguments->elements()) {
@@ -252,6 +268,44 @@ void clear_journal(const fs::path& updates) {
     std::error_code io;
     fs::remove(journal_path(updates), io);
     fs::remove_all(held_root(updates), io);
+}
+
+/// Removes directories this step created, deepest first. A directory that is not empty stays.
+///
+/// @param made the directories, shallowest first
+void drop_made(const std::vector<std::string>& made) {
+    std::error_code io;
+    for (auto it = made.rbegin(); it != made.rend(); ++it)
+        fs::remove(path_from(*it), io);
+}
+
+/// Creates missing parents of `target`. Each directory it creates is appended, shallowest first.
+///
+/// @param target the file or folder whose parent must exist
+/// @param[out] made directories created by this call
+/// @param[out] reason why a parent could not be made; may be null
+/// @return false when a parent exists and is not a directory, or could not be made
+bool ensure_parents(const fs::path& target, std::vector<std::string>& made, std::string* reason) {
+    const fs::path parent = target.parent_path();
+    if (parent.empty() || parent == target)
+        return true;
+    std::error_code io;
+    const fs::file_status status = fs::symlink_status(parent, io);
+    if (!io && fs::is_directory(status))
+        return true;
+    if (!io && fs::exists(status)) {
+        set_error(reason, "a folder could not be made");
+        return false;
+    }
+    if (!ensure_parents(parent, made, reason))
+        return false;
+    fs::create_directory(parent, io);
+    if (io) {
+        set_error(reason, "a folder could not be made");
+        return false;
+    }
+    made.push_back(utf8_of(parent));
+    return true;
 }
 
 bool copy_one(const fs::path& from, const fs::path& to, std::string* reason) {
@@ -325,6 +379,7 @@ bool perform(
 ) {
     std::error_code io;
     recorded.kind = operation.kind;
+    std::vector<std::string> made;
     switch (operation.kind) {
     case Operation::Kind::rename: {
         // The hook runs before the destination check, so a postponed rename
@@ -344,20 +399,33 @@ bool perform(
             set_error(reason, "the destination already exists");
             return false;
         }
+        if (!ensure_parents(operation.to, made, reason)) {
+            drop_made(made);
+            return false;
+        }
         fs::rename(operation.from, operation.to, io);
         if (io) {
+            drop_made(made);
             set_error(reason, "cannot rename " + utf8_of(operation.from));
             return false;
         }
         recorded.from = utf8_of(operation.from);
         recorded.to = utf8_of(operation.to);
+        recorded.made = std::move(made);
         note_line(hooks, "renamed " + recorded.from);
         return true;
     }
     case Operation::Kind::copy_tree: {
-        if (!copy_one(operation.from, operation.to, reason))
+        if (!ensure_parents(operation.to, made, reason)) {
+            drop_made(made);
             return false;
+        }
+        if (!copy_one(operation.from, operation.to, reason)) {
+            drop_made(made);
+            return false;
+        }
         recorded.path = utf8_of(operation.to);
+        recorded.made = std::move(made);
         note_line(hooks, "copied " + recorded.path);
         return true;
     }
@@ -379,12 +447,18 @@ bool perform(
         return true;
     }
     case Operation::Kind::make_link: {
+        if (!ensure_parents(operation.path, made, reason)) {
+            drop_made(made);
+            return false;
+        }
         fs::create_symlink(path_from(operation.link_target), operation.path, io);
         if (io) {
+            drop_made(made);
             set_error(reason, "cannot make a link");
             return false;
         }
         recorded.path = utf8_of(operation.path);
+        recorded.made = std::move(made);
         note_line(hooks, "made a link " + recorded.path);
         return true;
     }
@@ -419,15 +493,51 @@ bool perform(
             }
             recorded.held = utf8_of(held);
         }
+        if (!ensure_parents(operation.path, made, reason)) {
+            drop_made(made);
+            if (!recorded.held.empty()) {
+                std::error_code removed;
+                fs::remove_all(held_root(updates) / std::to_string(step), removed);
+                recorded.held.clear();
+            }
+            return false;
+        }
         if (!replace_file(operation.path, operation.bytes, reason)) {
+            drop_made(made);
             if (!recorded.held.empty()) {
                 std::error_code removed;
                 fs::remove_all(held_root(updates) / std::to_string(step), removed);
             }
             return false;
         }
+#if !defined(_WIN32)
+        if (operation.executable) {
+            const fs::perms mode = fs::perms::owner_all | fs::perms::group_read |
+                                   fs::perms::group_exec | fs::perms::others_read |
+                                   fs::perms::others_exec;
+            fs::permissions(operation.path, mode, fs::perm_options::replace, io);
+            if (io) {
+                std::error_code removed;
+                if (!exists)
+                    fs::remove(operation.path, removed);
+                else if (!recorded.held.empty()) {
+                    std::string previous;
+                    if (read_text(path_from(recorded.held), previous, nullptr))
+                        static_cast<void>(replace_file(operation.path, previous, nullptr));
+                }
+                if (!recorded.held.empty())
+                    fs::remove_all(held_root(updates) / std::to_string(step), removed);
+                drop_made(made);
+                set_error(reason, "a file could not be marked executable");
+                return false;
+            }
+        }
+#else
+        static_cast<void>(operation.executable);
+#endif
         recorded.path = utf8_of(operation.path);
         recorded.created = !exists;
+        recorded.made = std::move(made);
         note_line(hooks, "wrote " + recorded.path);
         return true;
     }
@@ -446,6 +556,7 @@ bool perform(
 
 bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reason) {
     std::error_code io;
+    bool undone = false;
     switch (step.kind) {
     case Operation::Kind::rename: {
         if (step.postponed)
@@ -468,7 +579,8 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
             set_error(reason, "cannot undo a rename");
             return false;
         }
-        return true;
+        undone = true;
+        break;
     }
     case Operation::Kind::copy_tree: {
         fs::remove_all(path_from(step.path), io);
@@ -476,7 +588,8 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
             set_error(reason, "cannot undo a copy");
             return false;
         }
-        return true;
+        undone = true;
+        break;
     }
     case Operation::Kind::remove_tree: {
         const fs::path path = path_from(step.path);
@@ -489,7 +602,8 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
             set_error(reason, "cannot undo a move");
             return false;
         }
-        return true;
+        undone = true;
+        break;
     }
     case Operation::Kind::make_link: {
         const fs::path path = path_from(step.path);
@@ -502,7 +616,8 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
             set_error(reason, "cannot undo a link");
             return false;
         }
-        return true;
+        undone = true;
+        break;
     }
     case Operation::Kind::replace_link: {
         const fs::path path = path_from(step.path);
@@ -512,7 +627,8 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
             set_error(reason, "cannot undo a link");
             return false;
         }
-        return true;
+        undone = true;
+        break;
     }
     case Operation::Kind::write_file: {
         const fs::path path = path_from(step.path);
@@ -522,21 +638,32 @@ bool undo_one(const Recorded& step, const JournalHooks& hooks, std::string* reas
                 set_error(reason, "cannot undo a write");
                 return false;
             }
-            return true;
+            undone = true;
+            break;
         }
         std::string previous;
         if (!read_text(path_from(step.held), previous, reason))
             return false;
-        return replace_file(path, previous, reason);
+        if (!replace_file(path, previous, reason))
+            return false;
+        undone = true;
+        break;
     }
     case Operation::Kind::run_and_wait: {
-        if (step.program.empty())
-            return true;
-        return run_step(path_from(step.program), step.arguments, hooks, reason);
+        if (step.program.empty() ||
+            run_step(path_from(step.program), step.arguments, hooks, reason)) {
+            undone = true;
+            break;
+        }
+        return false;
     }
     }
-    set_error(reason, "a step is not known");
-    return false;
+    if (!undone) {
+        set_error(reason, "a step is not known");
+        return false;
+    }
+    drop_made(step.made);
+    return true;
 }
 
 /// Undoes from the end. On a failure, rewrites the journal with what remains.

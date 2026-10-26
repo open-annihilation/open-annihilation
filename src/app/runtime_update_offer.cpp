@@ -12,6 +12,7 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/update/build.hpp"
 #include "oa/app/update/offer.hpp"
+#include "oa/app/update/route.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/ui/library/text.hpp"
 
@@ -19,6 +20,7 @@
 
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <optional>
 #include <ostream>
@@ -147,6 +149,51 @@ void Runtime::offer_update() {
     OaLayer& layer = oa_layer();
     if (update_question_queued(layer))
         return;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    // A copy installed for the whole system cannot replace itself. Say so
+    // once this run, instead of asking to update.
+    {
+        const char* const base = SDL_GetBasePath();
+        const std::filesystem::path folder =
+            base == nullptr ? std::filesystem::path{} : path_from_utf8(base);
+        update::RouteFacts facts = update::this_machine(folder);
+        facts.install_folder = options_.update_install_folder;
+        facts.test_feed = options_.update_feed.has_value();
+        facts.way = held.offer.way;
+        const update::Where where = update::find_route(update::this_build(folder), facts);
+        if (where.why == update::whole_system_copy) {
+            const std::string offered_version = held.offer.release->version_text;
+            kit::Question asked;
+            asked.word = "system-install";
+            asked.title = library::filled(
+                text_hooks(), update::version_is_out, {{"version", offered_version}}
+            );
+            asked.paragraphs.push_back(
+                {std::string(oa::data::languages::interface_text(update::whole_system_copy)), false}
+            );
+            const std::string ok{oa::data::languages::interface_text("OK")};
+            asked.buttons.push_back({ok, true, "ok"});
+            asked.cancel_button = 0;
+            asked.primary_button = 0;
+            asked.marked = 0;
+            update_->offered_release = release_number;
+            Runtime* runtime = this;
+            QuestionScreen::Host host;
+            host.answer = [](int32_t) { return true; };
+            // A match closes the notice. The number stays set, so this run
+            // does not show it again.
+            host.tick = [runtime]() {
+                return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+            };
+            auto question = std::make_unique<QuestionScreen>(
+                layer, Screen::main_menu, std::move(asked), std::move(host)
+            );
+            question->show_on_any_menu();
+            layer.show_when_free(std::move(question));
+            return;
+        }
+    }
+#endif
     // A build that cannot replace itself tells the player who updates it.
     // OK asks again next start and does not remember a skip. With no
     // packager, OPEN THE PAGE opens the release's page.

@@ -430,6 +430,9 @@ if(BUILD_TESTING)
   add_executable(oa-app-view-rules-test src/app/view_rules_test.cpp)
   target_link_libraries(oa-app-view-rules-test PRIVATE oa-app-view-rules oa-test-support oa-options)
   add_test(NAME app-view-rules COMMAND oa-app-view-rules-test)
+  add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
+  target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
+  add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
 endif()
 # The game's three icons (branding/, made by tools/make_icons.py), each
 # embedded as a PNG file. The 256-pixel pictures: the app icon is the
@@ -1328,7 +1331,9 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_picture_captions.cpp
   src/app/runtime_renderer.cpp
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
-  src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp src/app/runtime_touch_hud.cpp
+  src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp
+  src/app/gui_actions.cpp src/app/runtime_gui_actions.cpp
+  src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
   src/app/game_files_screen.cpp src/app/game_files_paint.cpp src/app/game_files_dialog.cpp
   src/app/runtime_game_files.cpp
@@ -3728,6 +3733,18 @@ endforeach()
       set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The same rows with Attack on Q and Stop on J.
+      set(oa_key_table_moved_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-moved-orders")
+      file(MAKE_DIRECTORY "${oa_key_table_moved_dir}")
+      add_test(NAME native-key-table-moved-orders COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/moved-orders.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/moved-orders"
+        --preferences-file "${oa_key_table_moved_dir}/key-table.conf")
+      set_tests_properties(native-key-table-moved-orders PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_moved_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Slow keys, bounce keys, the player's repeat and the drag threshold.
       set(oa_key_timing_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-timing")
       file(MAKE_DIRECTORY "${oa_key_timing_dir}")
@@ -4676,6 +4693,12 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_helper.py
         $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
       set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
+    endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      add_test(NAME tools-oa-update-launcher COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_launcher.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/open-annihilation-launcher.sh)
+      set_tests_properties(tools-oa-update-launcher PROPERTIES TIMEOUT 60)
     endif()
     # A configure with self-update off builds oa-game and not oa-update, and
     # self-update on with process spawning off is refused. Configure only.

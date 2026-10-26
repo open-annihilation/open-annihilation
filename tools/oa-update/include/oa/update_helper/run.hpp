@@ -35,9 +35,14 @@ inline constexpr std::string_view could_not_check =
 /// @param plan_path the plan file
 /// @param keys keys in place of the pinned ones; empty uses the pinned keys
 /// @param elevated_swap true when this process only swaps a folder and does not start the game
+/// @param stage_only true to stage a Linux update and not start the game; a
+///        self-check build's `--stage-only`. Ignored for any other route
 /// @return an exit status
 [[nodiscard]] int run_plan(
-    const std::filesystem::path& plan_path, const std::vector<FeedKey>& keys, bool elevated_swap
+    const std::filesystem::path& plan_path,
+    const std::vector<FeedKey>& keys,
+    bool elevated_swap,
+    bool stage_only
 );
 
 /// Undoes a journal left under `updates`.

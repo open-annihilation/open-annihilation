@@ -3,11 +3,39 @@
 
 # oa-update's steps. The executable stays in the root CMakeLists.txt, where
 # the Windows manifest, the DLL copy and the packaged notices attach to it.
+# The launcher script has one source. The header is generated text, not a
+# second copy, and it is rebuilt when the script changes.
+file(READ "${PROJECT_SOURCE_DIR}/packaging/linux/open-annihilation-launcher.sh"
+  OA_LINUX_LAUNCHER_SCRIPT)
+if(OA_LINUX_LAUNCHER_SCRIPT MATCHES "OA_LAUNCHER")
+  message(FATAL_ERROR "the launcher script contains the embed delimiter")
+endif()
+set(_oa_launcher_header "${CMAKE_CURRENT_BINARY_DIR}/generated/linux_launcher.hpp")
+set(_oa_launcher_prefix [=[// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+#pragma once
+
+#include <string_view>
+
+namespace oa::update_helper {
+
+inline constexpr std::string_view linux_launcher_text = R"OA_LAUNCHER(]=])
+set(_oa_launcher_suffix [=[)OA_LAUNCHER";
+
+}
+]=])
+file(WRITE "${_oa_launcher_header}"
+  "${_oa_launcher_prefix}${OA_LINUX_LAUNCHER_SCRIPT}${_oa_launcher_suffix}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${PROJECT_SOURCE_DIR}/packaging/linux/open-annihilation-launcher.sh")
+
 add_library(oa-update-core STATIC
   src/journal.cpp
   src/lock.cpp
   src/log.cpp
   src/route_windows.cpp
+  src/route_linux.cpp
   src/routes.cpp
   src/run.cpp
   src/start.cpp
@@ -18,6 +46,7 @@ add_library(oa-update-core STATIC
 add_library(oa::update::core ALIAS oa-update-core)
 target_include_directories(oa-update-core PUBLIC include)
 target_include_directories(oa-update-core PRIVATE ${PROJECT_SOURCE_DIR}/src/app/include)
+target_include_directories(oa-update-core PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_features(oa-update-core PUBLIC cxx_std_20)
 # The root's per-source definitions do not reach a subdirectory target.
 # Only a self-check build accepts --feed-key and the plain-folder route.
@@ -28,7 +57,8 @@ target_link_libraries(oa-update-core
     oa-ui-kit oa-ui-paint oa-platform-text-font oa-platform-shims oa-options SDL3::SDL3)
 
 if(BUILD_TESTING)
-  add_executable(oa-update-test tests/route_windows_test.cpp tests/update_test.cpp)
+  add_executable(oa-update-test
+    tests/route_windows_test.cpp tests/update_test.cpp tests/route_linux_test.cpp)
   target_link_libraries(oa-update-test
     PRIVATE oa-update-core oa-app-update oa-data-engine-feed oa-data-catalogue oa-base-signing
       oa-base-sha256 oa-formats-zip oa-formats-url oa-ui-kit oa-test-support oa-options)

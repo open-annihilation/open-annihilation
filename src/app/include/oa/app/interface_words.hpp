@@ -275,6 +275,8 @@ inline constexpr std::string_view interface_words[] = {
     "The update was cancelled.",
     "This copy came from {name}, which updates it.",
     "This copy cannot replace itself. Get the new release from its page.",
+    "This copy is installed for the whole system, so it cannot replace itself. Install the new "
+    "release the way this copy was installed.",
     "This game includes no multiplayer maps, so multiplayer is not available.",
     "This game includes no skirmish maps, so skirmish is not available.",
     "This launch plays other content than the game plays now. Quit Open Annihilation, then open "
@@ -369,6 +371,7 @@ inline constexpr std::string_view interface_words[] = {
     "{unit}: {field} {value} held at {max}",
     "{used} on this {device}",
     "{used} · {free} free on this {device}",
+    "{version} installs the next time you start Open Annihilation.",
     "{version} is kept, in case you want it back. The game starts again by itself.",
     "{version} is out",
 };

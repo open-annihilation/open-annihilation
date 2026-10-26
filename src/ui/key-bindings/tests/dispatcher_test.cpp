@@ -210,7 +210,7 @@ Resolved prepared(const KeyboardMap& map) {
 /// @return the dispatcher
 Dispatcher open_dispatcher(const Resolved& resolved, const KeyboardMap& map) {
     Dispatcher dispatcher;
-    dispatcher.set_bindings(resolved);
+    dispatcher.set_bindings(Resolved{resolved});
     dispatcher.set_keyboard(map);
     Platform where;
     where.primary_is_meta = true;
@@ -598,6 +598,59 @@ void unseen_up(const Resolved& resolved, const KeyboardMap& map) {
     OA_CHECK(!fed.bound);
 }
 
+/// Many keys and a button go down and come up, and nothing stays remembered.
+///
+/// A key that has come up is kept until its double press can no longer happen.
+/// Once that window has passed, the dispatcher remembers no key and no button.
+void many_then_nothing(const Resolved& resolved, const KeyboardMap& map) {
+    Dispatcher dispatcher = open_dispatcher(resolved, map);
+    use_contexts(dispatcher, context_bit("play") | context_bit("match"), 0);
+
+    InputEvent button;
+    button.kind = InputKind::button;
+    button.down = true;
+    button.button = 1;
+    button.time_ms = 1000;
+    (void)dispatcher.feed(button);
+    OA_CHECK(dispatcher.remembered() == 1);
+    button.down = false;
+    button.time_ms = 1100;
+    (void)dispatcher.feed(button);
+    OA_CHECK(dispatcher.remembered() == 0);
+
+    constexpr uint16_t first = 1;
+    constexpr uint16_t last = 40;
+    for (uint16_t scancode = first; scancode <= last; ++scancode) {
+        (void)dispatcher.feed(letter_event(scancode, 0, true, 0, 1000));
+        (void)dispatcher.feed(letter_event(scancode, 0, false, 0, 1100));
+    }
+    OA_CHECK(dispatcher.remembered() == static_cast<std::size_t>(last - first + 1));
+    (void)dispatcher.advance(1000 + dispatcher.timings().double_press_ms + 1);
+    OA_CHECK(dispatcher.remembered() == 0);
+}
+
+/// A new binding list drops keys that are still down, and makes no release.
+void re_resolve_drops_held_keys(const Resolved& resolved, const KeyboardMap& map) {
+    Dispatcher dispatcher = open_dispatcher(resolved, map);
+    use_contexts(dispatcher, context_bit("play") | context_bit("match"), 0);
+    const uint16_t key_a = place_of("KeyA");
+    const Fed down =
+        dispatcher.feed(letter_event(key_a, static_cast<uint32_t>('a'), true, 0, 1000));
+    OA_CHECK(has_phase(down, "order.attack", Phase::pressed));
+    OA_CHECK(dispatcher.remembered() == 1);
+    dispatcher.set_bindings(Resolved{resolved});
+    OA_CHECK(dispatcher.remembered() == 0);
+    const Fed up = dispatcher.feed(letter_event(key_a, static_cast<uint32_t>('a'), false, 0, 1100));
+    if (!up.events.empty() || up.bound) {
+        std::fprintf(stderr, "re-resolving drops a held key without a release\n");
+        show(up);
+    }
+    OA_CHECK(up.events.empty());
+    OA_CHECK(!up.bound);
+    OA_CHECK(dispatcher.advance(10000).events.empty());
+    OA_CHECK(dispatcher.remembered() == 0);
+}
+
 /// release_all after Space and Shift went down gives released game.status-strip
 /// and inactive order.queue-modifier.
 void release(const Resolved& resolved, const KeyboardMap& map) {
@@ -676,6 +729,8 @@ int main() {
     double_click(resolved, map);
     hold_chord(map);
     unseen_up(resolved, map);
+    many_then_nothing(resolved, map);
+    re_resolve_drops_held_keys(resolved, map);
     release(resolved, map);
     queue_role(resolved, map);
     return oa::test::check_exit_status();

@@ -106,6 +106,18 @@ struct Slot {
     std::vector<std::string> latch_ids{}; ///< latchable actions this down pressed
 };
 
+/// A key the dispatcher is remembering, found by its position.
+struct HeldKey {
+    uint16_t scancode{}; ///< the position, or 0 when the event was past the map
+    Slot slot{};         ///< what that key is doing
+};
+
+/// A button the dispatcher is remembering.
+struct HeldButton {
+    uint8_t button{}; ///< the button, or 0 when the event was past the buttons
+    Slot slot{};      ///< what that button is doing
+};
+
 /// A modifier key sticky modifiers are watching, and the latches it pressed.
 struct ModifierFinger {
     bool down{};                          ///< the key went down and has not come up
@@ -475,8 +487,8 @@ struct DispatcherState {
     Timings timings{};
     Contexts contexts{};
     KeyClocks clocks{};
-    std::array<Slot, scancode_limit> keys{};
-    std::array<Slot, 9> buttons{};
+    std::vector<HeldKey> keys{};
+    std::vector<HeldButton> buttons{};
     std::vector<LiveRole> live{};
     std::vector<std::pair<std::string, std::string>> logged{};
     Latches latches{};                       ///< hold latches for the toggle list
@@ -671,18 +683,114 @@ std::vector<Candidate> choose(DispatcherState& state, const InputEvent& event, G
     return {};
 }
 
-/// The slot for a key or a button.
+/// The position a key event is remembered under. One past the map shares 0.
+///
+/// @param event the event
+/// @return the position
+uint16_t remembered_scancode(const InputEvent& event) {
+    return event.scancode < scancode_limit ? event.scancode : uint16_t{0};
+}
+
+/// The button an event is remembered under. One past the buttons shares 0.
+///
+/// @param event the event
+/// @return the button
+uint8_t remembered_button(const InputEvent& event) {
+    return event.button <= 8 ? event.button : uint8_t{0};
+}
+
+/// The slot already remembered for this key or button, or null.
 ///
 /// @param state the slots
 /// @param event the event
-/// @return the slot; a position past the map shares the unused slot
-Slot& slot_for(DispatcherState& state, const InputEvent& event) {
+/// @return the slot, or null when this key or button is not remembered
+Slot* find_slot(DispatcherState& state, const InputEvent& event) {
     if (event.kind == InputKind::button) {
-        const uint8_t button = event.button <= 8 ? event.button : 0;
-        return state.buttons[button];
+        const uint8_t button = remembered_button(event);
+        for (HeldButton& held : state.buttons) {
+            if (held.button == button)
+                return &held.slot;
+        }
+        return nullptr;
     }
-    const uint16_t scancode = event.scancode < scancode_limit ? event.scancode : 0;
-    return state.keys[scancode];
+    const uint16_t scancode = remembered_scancode(event);
+    for (HeldKey& held : state.keys) {
+        if (held.scancode == scancode)
+            return &held.slot;
+    }
+    return nullptr;
+}
+
+/// The slot for a key or a button, remembered from now if it was not.
+///
+/// A position past the map shares the unused slot.
+///
+/// @param state the slots
+/// @param event the event
+/// @return the slot
+Slot& ensure_slot(DispatcherState& state, const InputEvent& event) {
+    if (Slot* found = find_slot(state, event))
+        return *found;
+    if (event.kind == InputKind::button) {
+        state.buttons.push_back(HeldButton{remembered_button(event), Slot{}});
+        return state.buttons.back().slot;
+    }
+    state.keys.push_back(HeldKey{remembered_scancode(event), Slot{}});
+    return state.keys.back().slot;
+}
+
+/// Whether a key that is up can no longer begin a double press.
+///
+/// @param slot the key
+/// @param now_ms the time, in milliseconds
+/// @param window how far apart the downs may be
+/// @return true when the key can be forgotten
+bool key_settled(const Slot& slot, uint64_t now_ms, uint32_t window) {
+    if (slot.down || !slot.started.empty() || !slot.holds.empty() || !slot.latch_ids.empty())
+        return false;
+    if (!slot.saw_up)
+        return true;
+    if (now_ms < slot.down_ms)
+        return false;
+    return now_ms - slot.down_ms > window;
+}
+
+/// Whether a button that is up has nothing left to release.
+///
+/// @param slot the button
+/// @return true when the button can be forgotten
+bool button_settled(const Slot& slot) {
+    return !slot.down && slot.started.empty() && slot.holds.empty() && slot.latch_ids.empty();
+}
+
+/// Forgets keys whose double press can no longer happen, and buttons that are up.
+///
+/// @param state the slots
+/// @param now_ms the time, in milliseconds
+void forget_settled(DispatcherState& state, uint64_t now_ms) {
+    const uint32_t window = state.timings.double_press_ms;
+    std::size_t kept = 0;
+    for (std::size_t index = 0; index < state.keys.size(); ++index) {
+        if (key_settled(state.keys[index].slot, now_ms, window))
+            continue;
+        if (kept != index)
+            state.keys[kept] = std::move(state.keys[index]);
+        ++kept;
+    }
+    state.keys.resize(kept);
+    if (state.keys.empty())
+        state.keys.shrink_to_fit();
+    kept = 0;
+    for (std::size_t index = 0; index < state.buttons.size(); ++index) {
+        if (button_settled(state.buttons[index].slot))
+            continue;
+        if (kept != index)
+            state.buttons[kept] = std::move(state.buttons[index]);
+        ++kept;
+    }
+    state.buttons.resize(kept);
+    if (state.buttons.empty())
+        state.buttons.shrink_to_fit();
 }
 
 /// Emits `released` for the actions a slot started, and forgets the down.
@@ -1183,7 +1291,7 @@ void note_accepted_helpers(
 void accept_control(
     DispatcherState& state, const InputEvent& event, const InputEvent& seen, Fed& fed
 ) {
-    Slot& slot = slot_for(state, event);
+    Slot& slot = ensure_slot(state, event);
     const bool modifier_key =
         event.kind == InputKind::key && !event.repeat && bit_for_scancode(event.scancode) != 0;
     if (event.repeat) {
@@ -1311,10 +1419,13 @@ void emit_custom_repeats(DispatcherState& state, Fed& fed, uint64_t now_ms) {
     const uint32_t interval = repeat_interval_ms(state.timings);
     if (interval == 0)
         return;
-    for (uint16_t index = 0; index < scancode_limit; ++index) {
+    for (HeldKey& held : state.keys) {
+        if (!held.slot.down)
+            continue;
+        const uint16_t index = held.scancode < scancode_limit ? held.scancode : uint16_t{0};
         KeyClock& clock = state.clocks.keys[index];
-        Slot& slot = state.keys[index];
-        if (!clock.repeat_on || !slot.down)
+        Slot& slot = held.slot;
+        if (!clock.repeat_on)
             continue;
         int guard = 0;
         while (clock.next_repeat_ms <= now_ms && guard < 64) {
@@ -1351,10 +1462,12 @@ Dispatcher::Dispatcher(Dispatcher&&) noexcept = default;
 
 Dispatcher& Dispatcher::operator=(Dispatcher&&) noexcept = default;
 
-void Dispatcher::set_bindings(const Resolved& bindings) {
-    state_->resolved = bindings;
-    state_->keys = {};
-    state_->buttons = {};
+void Dispatcher::set_bindings(Resolved&& bindings) {
+    state_->resolved = std::move(bindings);
+    state_->keys.clear();
+    state_->keys.shrink_to_fit();
+    state_->buttons.clear();
+    state_->buttons.shrink_to_fit();
     state_->live.clear();
     state_->logged.clear();
     state_->latches.clear();
@@ -1364,8 +1477,24 @@ void Dispatcher::set_bindings(const Resolved& bindings) {
     clear_clocks(state_->clocks);
 }
 
+void Dispatcher::retarget(Resolved&& bindings) {
+    state_->resolved = std::move(bindings);
+}
+
 void Dispatcher::set_keyboard(const KeyboardMap& keyboard) {
     state_->keyboard = keyboard;
+}
+
+const Resolved& Dispatcher::bindings() const {
+    return state_->resolved;
+}
+
+const KeyboardMap& Dispatcher::keyboard() const {
+    return state_->keyboard;
+}
+
+std::size_t Dispatcher::remembered() const {
+    return state_->keys.size() + state_->buttons.size();
 }
 
 void Dispatcher::set_platform(Platform platform) {
@@ -1414,13 +1543,14 @@ Fed Dispatcher::feed(const InputEvent& event) {
     if (event.kind != InputKind::key && event.kind != InputKind::button)
         return fed;
     if (fate == KeyFate::ignore_repeat) {
-        const Slot& slot = slot_for(*state_, event);
-        fed.bound = slot.down && slot.had_binding;
+        const Slot* slot = find_slot(*state_, event);
+        fed.bound = slot != nullptr && slot->down && slot->had_binding;
         return fed;
     }
     accept_control(*state_, event, seen, fed);
     if (!state_->contexts.text_entry)
         note_accepted_down(state_->clocks, state_->timings, event);
+    forget_settled(*state_, event.time_ms);
     return fed;
 }
 
@@ -1466,11 +1596,12 @@ Fed Dispatcher::advance(uint64_t now_ms) {
             );
         }
     };
-    for (Slot& slot : state_->keys)
-        fire(slot);
-    for (Slot& slot : state_->buttons)
-        fire(slot);
+    for (HeldKey& held : state_->keys)
+        fire(held.slot);
+    for (HeldButton& held : state_->buttons)
+        fire(held.slot);
     emit_custom_repeats(*state_, fed, now_ms);
+    forget_settled(*state_, now_ms);
     return fed;
 }
 
@@ -1478,15 +1609,18 @@ Fed Dispatcher::release_all(uint64_t now_ms) {
     (void)now_ms;
     clear_clocks(state_->clocks);
     Fed fed;
-    const auto drop = [this, &fed](Slot& slot) {
-        if (slot.down)
-            release_started(*state_, slot, fed);
-        slot = Slot{};
-    };
-    for (Slot& slot : state_->keys)
-        drop(slot);
-    for (Slot& slot : state_->buttons)
-        drop(slot);
+    for (HeldKey& held : state_->keys) {
+        if (held.slot.down)
+            release_started(*state_, held.slot, fed);
+    }
+    for (HeldButton& held : state_->buttons) {
+        if (held.slot.down)
+            release_started(*state_, held.slot, fed);
+    }
+    state_->keys.clear();
+    state_->keys.shrink_to_fit();
+    state_->buttons.clear();
+    state_->buttons.shrink_to_fit();
     for (const LiveRole& role : state_->live) {
         if (role.action_index >= state_->resolved.actions.size())
             continue;
