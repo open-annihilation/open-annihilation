@@ -134,6 +134,33 @@ struct ScreenAssetNames {
 /// @throws std::runtime_error when a resource is missing or malformed.
 [[nodiscard]] ScreenResources load_screen(AssetStore& assets, const ScreenAssetNames& names);
 
+/// Loads a screen's GUI resources by name, all but its layout.
+///
+/// What load_screen() loads for the same names, with no layout: the art
+/// several layouts are drawn with, such as the pages of the match's side
+/// column, which load_screen_layout() lays each layout out over.
+///
+/// @param assets Asset store searched loose files first, then archives.
+/// @param names Background, palette and sprite names, as load_screen() takes
+///        them; the layout's is not read.
+/// @return The loaded resources, their layout empty.
+/// @throws std::runtime_error when a resource is missing or malformed.
+[[nodiscard]] ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& names);
+
+/// Lays a GUI layout out over a screen's art.
+///
+/// What load_screen() loads for the art's names and this layout, reading only
+/// the layout's GUI file: the art is copied, the layout read in the game's
+/// language and its buttons bound to the art as load_screen() binds them.
+///
+/// @param assets Asset store searched loose files first, then archives.
+/// @param art Resources load_screen_art() loaded.
+/// @param layout The layout's name.
+/// @return The art with the layout.
+/// @throws std::runtime_error when the layout is missing or malformed.
+[[nodiscard]] ScreenResources
+load_screen_layout(AssetStore& assets, const ScreenResources& art, const std::string& layout);
+
 /// Binds a screen's buttons and labels as the first draw of their panel does.
 ///
 /// Each button from `first` on loses its authored foreground and background

@@ -5,7 +5,9 @@
 #include "renderer_effects.hpp"
 #include "oa/test/check.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <limits>
 #include <vector>
 
@@ -321,6 +323,50 @@ void intensity_levels() {
     }
 }
 
+/// Light raises a channel by its whole steps whatever the channel held, so
+/// that light composed over black and added to a picture gives the
+/// picture's own composition, as Full's light pass adds it.
+void whole_steps() {
+    // Just short of one step at the centre, which added to 200 would round up.
+    auto light = source();
+    light.red = 1;
+    light.green = 0;
+    light.glow = 0;
+    light.heat = 0;
+    light.light = 1.0F / 110.0F;
+    while (light.light * 110.0F >= 1.0F)
+        light.light = std::nextafter(light.light, 0.0F);
+    OA_CHECK(200.0F + light.light * 110.0F == 201.0F);
+    constexpr size_t centre = 8 * stride + 12 * channels;
+    std::vector<uint8_t> bright(stride * height, 200);
+    compose(surface(bright), {&light, 1}, {true, false, false}, 0);
+    OA_CHECK(bright[centre] == 200);
+    // Overlapping lights and glows over the picture, against the same over black.
+    auto first = source();
+    first.heat = 0;
+    auto second = first;
+    second.screen_x = 15.5F;
+    second.screen_y = 6.25F;
+    second.radius_pixels = 5;
+    second.red = 0.3F;
+    second.green = 1;
+    second.blue = 0.7F;
+    second.light = 1.7F;
+    const Source both[]{first, second};
+    const auto original = picture();
+    auto lit = original;
+    std::vector<uint8_t> black(original.size(), 0);
+    compose(surface(lit), both, {true, true, true}, 0.5);
+    compose(surface(black), both, {true, true, true}, 0.5);
+    OA_CHECK(lit != original);
+    for (int y = 0; y < height; ++y)
+        for (int x = 0; x < width; ++x)
+            for (int channel = 0; channel < 3; ++channel) {
+                const auto offset = size_t(y * stride + x * channels + channel);
+                OA_CHECK(lit[offset] == std::min(255, original[offset] + black[offset]));
+            }
+}
+
 /// Tiny footprints disappear continuously; heat fades sooner than coloured light.
 void distance_detail() {
     OA_CHECK(detail_strength(1, 1)[0] == 0);
@@ -354,5 +400,6 @@ int main() {
     paused_heat();
     fractional_heat();
     independent_glow_and_rgb();
+    whole_steps();
     return oa::test::check_exit_status();
 }

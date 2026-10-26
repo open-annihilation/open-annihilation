@@ -198,6 +198,12 @@ console::Console* Runtime::match_console() {
         host.kill_units_of_type = [](void* context, uint16_t type) {
             runtime_of(context)->console_kill_units_of_type(type);
         };
+        // The spawn command places a building as a mission's units are
+        // placed: on its footprint's grid, at the height its yard takes
+        // there. Any other unit keeps the pointer's point.
+        host.snap_build_position = [](void* context, uint16_t type, FixedVec3* position) {
+            runtime_of(context)->match_->snap_to_build_grid(type, *position);
+        };
         // Unit creation as the spawn command calls it: finished, on the ground.
         host.create_unit =
             [](void* context, uint8_t player, uint16_t type, const FixedVec3* position) {

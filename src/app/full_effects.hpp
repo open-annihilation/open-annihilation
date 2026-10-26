@@ -39,6 +39,19 @@ struct Pixels {
     int row_offset{}; ///< cropped rows relative to the complete battlefield readback
 };
 
+/// What a pass needs of the world the card drew.
+enum class Pass : uint8_t {
+    /// The world's own pixels, which heat distortion moves: they are read
+    /// back, processed and drawn back in place. The readback waits for the
+    /// card to finish drawing the world, supersampled or not.
+    world,
+    /// Light alone, which only adds to the world: `process` paints it over
+    /// opaque black and the card adds the result to the world, which is
+    /// never read back. Adding is exact: a channel the processor would have
+    /// raised by whole steps, clamped at 255, is raised by the same steps.
+    light,
+};
+
 /// Reads and processes only the battlefield, restoring window and target state.
 ///
 /// A failure leaves the world as the card drew it: nothing is drawn over it
@@ -51,10 +64,11 @@ struct Pixels {
 /// @param moved_factor target pixels per layout pixel; the target has a one-pixel border
 /// @param process compositor called before the processed pixels are uploaded
 /// @param effect_bounds optional affected rectangle in battlefield coordinates, including sampling margin
-/// @param fits the memory guard, asked for the bytes the readback, its
-///        conversion and a grown upload hold together before any is made;
-///        empty allows every size
+/// @param fits the memory guard, asked for the bytes the readback and its
+///        conversion, or the light pass's layer, and a grown upload hold
+///        together before any is made; empty allows every size
 /// @param final_target the texture the window's frame is presented into, or null for the window
+/// @param pass whether the world is read back and drawn back, or only added to
 /// @return empty on success, otherwise the SDL failure or the guard's refusal
 std::string compose(
     SDL_Renderer* renderer,
@@ -65,7 +79,8 @@ std::string compose(
     const std::function<void(const Pixels&)>& process,
     const SDL_FRect* effect_bounds = nullptr,
     const std::function<bool(uint64_t bytes)>& fits = {},
-    SDL_Texture* final_target = nullptr
+    SDL_Texture* final_target = nullptr,
+    Pass pass = Pass::world
 );
 
 } // namespace oa::app::full_effects

@@ -67,6 +67,9 @@ class SurfaceCache {
     void reset(const formats::tnt::Map& map);
     /// Local wave strength, zero outside water and reduced on small enclosed bodies.
     float fetch(float x, float z) const noexcept;
+    /// fetch blended between the centres of the coarse cells around a point,
+    /// so that it changes evenly from cell to cell; zero outside the map.
+    float smooth_fetch(float x, float z) const noexcept;
 
   private:
 

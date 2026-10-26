@@ -295,9 +295,7 @@ uint16_t Match::self_destruct_remaining(uint16_t index) const {
     const auto* countdown = sim::simulation_state::find_order(unit.orders, self_destruct_kind);
     if (!countdown)
         return 0;
-    for (const auto& entry : orders_) {
-        if (&entry->order != countdown)
-            continue;
+    if (const auto* entry = runtime_order(countdown)) {
         // The second parameter holds the steps left with a marker once
         // counting started; the first is set with the last count.
         const auto steps = static_cast<uint32_t>(entry->attack.retry);

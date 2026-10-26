@@ -537,27 +537,34 @@ the game draws its text and how the modern fonts draw it.
   angles at which the game's flat art still looks right. Alt+U (Option+U)
   turns it On or Off during a match and keeps the choice.
 - **Coloured weapon lighting**, **Nanolathe glow**, **Wreck glow** and
-  **Heat distortion**, each from 0% to 200% in steps of 10%. They are 100%
-  by default with Full hardware acceleration and 0% below it, so Off and
-  Basic keep the game's own look. Setting Hardware acceleration from Full
-  to Basic or Off turns all four to 0%, and back to Full turns them to
-  100%; below Full each can still be turned on. Zero leaves the effect out
-  and 100% draws it at its standard strength. The lighting sliders change how bright a light is, never how
+  **Heat distortion**, each from 0% to 200% in steps of 10%. By default
+  with Full hardware acceleration, Coloured weapon lighting and Nanolathe
+  glow are 20%, Wreck glow 30% and Heat distortion 40%; below Full all four
+  are 0%, so Off and Basic keep the game's own look. Setting Hardware
+  acceleration from Full to Basic or Off turns all four to 0%, and back to
+  Full turns each to its own default; below Full each can still be turned
+  on. Zero leaves the effect out
+  and 100% draws it at its standard strength. A weapon lights in the colour
+  its shot is drawn in: a laser or a lightning bolt in its beam's colour,
+  shells, plasma and missiles in a warm light. The lighting sliders change how bright a light is, never how
   far it reaches or how long it lasts; Heat distortion changes how far the
   shimmer moves the picture. They apply in the classic and the rotated
   view and take effect at once, in a match too. A saved Off or On from an
   earlier build reads as 0% or 100%.
 - **Water ripples**, **Coastal waves**, **Underwater shimmer** and
-  **Naval reflections**, each from 0% to 200% in steps of 10%, 100% by
-  default, locked ("Needs Full acceleration") while Hardware acceleration
-  is not Full. They apply in the classic and the rotated view, and zero
-  leaves the effect out.
+  **Naval reflections**, each from 0% to 200% in steps of 10%: by default
+  Water ripples 60%, Coastal waves 30%, and Underwater shimmer and Naval
+  reflections 100%. They are locked ("Needs Full acceleration") while
+  Hardware acceleration is not Full. They apply in the classic and the
+  rotated view, and zero leaves the effect out.
   - **Water ripples** move the map's own water art gently in one direction
     the map keeps, the same after a saved game is loaded: broad swells and
     fine ripples at different speeds, the finer ones shown only up close.
-    Visible naval shots and hits stir the water around them, and shells
-    that strike the water splash. Torpedoes and their hits stay at their
-    depth and make no splash.
+    What lies on the sea bed, such as an underwater metal patch, moves with
+    the art and lies under the water's foam and rings, while the shore and
+    land stay still. Visible naval shots and hits stir the water around
+    them, and shells that strike the water splash. Torpedoes and their hits
+    stay at their depth and make no splash.
   - **Coastal waves** run toward the shore, gentler on small, sheltered
     water.
   - **Underwater shimmer** tints and lights only the parts of scenery and
@@ -566,16 +573,19 @@ the game draws its text and how the modern fonts draw it.
     water are darkened and tinted blue as the game draws them at every
     other Hardware acceleration.
   - **Naval reflections** draw a faint, soft picture of each visible
-    surface ship on the water, fading as the view turns flat.
+    surface ship on the water, mirrored under its hull: each part of the
+    ship shows as far below its waterline as it stands above it, fainter
+    the higher it stands. They fade as the view turns flat.
 
   Fine detail fades as the view zooms out, and the reflections of distant
   fleets are kept few. These effects change only what your screen shows,
   never the water's depth, movement or what any player can see. With
-  shadows on and Full hardware acceleration, an aircraft's shadow also
-  grows wider, softer and fainter the higher it flies above the ground or
-  water under it.
+  shadows on and Full hardware acceleration, an aircraft's shadow also has
+  a soft edge, a little wider once it climbs to cruise height above the
+  ground or water under it; it keeps the place and the darkness it has at
+  every other Hardware acceleration.
 
-![The end of the Graphics section: the Water ripples, Coastal waves, Underwater shimmer and Naval reflections sliders, each at 100%.](images/settings/graphics-2.png)
+![The end of the Graphics section: the Water ripples, Coastal waves, Underwater shimmer and Naval reflections sliders at their defaults, 60%, 30%, 100% and 100%.](images/settings/graphics-2.png)
 
 Some computers start with other defaults, which Restore defaults puts back
 and which a value you choose always replaces:

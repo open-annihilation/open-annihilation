@@ -74,6 +74,15 @@ void Match::for_each_unit_in_radius(
     void* context
 ) {
     prepare_spatial_state();
+    walk_units_in_radius(centre, radius, visit, context);
+}
+
+void Match::walk_units_in_radius(
+    const sim::ground_orders::Point& centre,
+    int32_t radius,
+    void (*visit)(void* context, sim::unit_spawn::Slot& slot),
+    void* context
+) {
     const auto clamp = [](int32_t value, uint32_t count) -> uint32_t {
         if (static_cast<uint32_t>(value) < count)
             return static_cast<uint32_t>(value);
@@ -180,6 +189,57 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
         oa::World* world;
     };
 
+    // The scan's walks follow only the bucket links of the projections, and
+    // its visitors change only the flags of the units they visit, which no
+    // bucket link comes from. So the first walk refreshes every projection
+    // and each later one only those of the units the walk before it visited:
+    // every walk finds the units it would after refreshing every projection,
+    // and the projections end as that leaves them. After a walk that visits
+    // more units than the list holds, the next walk refreshes every
+    // projection.
+    constexpr std::size_t listed_visit_capacity = 1024;
+
+    struct Walk {
+        Match* match{};
+        void (*visit)(void* context, sim::unit_spawn::Slot& slot){};
+        void* context{};
+        std::array<uint32_t, listed_visit_capacity> visited{};
+        std::size_t visited_count{};
+        bool projected{};
+        bool visits_fit{true};
+    } walk;
+
+    walk.match = this;
+    const auto walk_radius = [&](const sim::ground_orders::Point& centre,
+                                 int32_t radius,
+                                 void (*visit)(void* context, sim::unit_spawn::Slot& slot),
+                                 void* context) {
+        if (!walk.projected || !walk.visits_fit)
+            prepare_spatial_state();
+        else
+            for (std::size_t i = 0; i < walk.visited_count; ++i)
+                fill_spatial_unit(this, spatial_units_[walk.visited[i]]);
+        walk.projected = true;
+        walk.visits_fit = true;
+        walk.visited_count = 0;
+        walk.visit = visit;
+        walk.context = context;
+        walk_units_in_radius(
+            centre,
+            radius,
+            [](void* forward, sim::unit_spawn::Slot& slot) {
+                auto& w = *static_cast<Walk*>(forward);
+                if (w.visited_count < w.visited.size())
+                    w.visited[w.visited_count++] =
+                        static_cast<uint32_t>(&slot - w.match->slots_.data());
+                else
+                    w.visits_fit = false;
+                w.visit(w.context, slot);
+            },
+            &walk
+        );
+    };
+
     uint32_t owned = 0;
     auto* units = scan_own_units ? oa::world_player_units(&world, &viewer, &owned) : nullptr;
     if (units != nullptr)
@@ -202,7 +262,7 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
             stamp.scan.sonar_range_squared = static_cast<int32_t>(sonar) * sonar;
             stamp.scan.position = scanner.position;
             const int16_t reach = radar <= sonar ? sonar : radar;
-            for_each_unit_in_radius(
+            walk_radius(
                 {scanner.position.x, scanner.position.y, scanner.position.z},
                 whole_to_fixed(reach),
                 [](void* context, sim::unit_spawn::Slot& slot) {
@@ -225,14 +285,14 @@ void Match::scan_contacts_for(const oa::Player& viewer, bool scan_own_units) {
             jammer.position.x, jammer.position.y, jammer.position.z
         };
         if (def->radar_distance_jam != 0)
-            for_each_unit_in_radius(
+            walk_radius(
                 centre,
                 whole_to_fixed(def->radar_distance_jam),
                 [](void*, sim::unit_spawn::Slot& slot) { detection::jam_radar(slot.record); },
                 nullptr
             );
         if (def->sonar_distance_jam != 0)
-            for_each_unit_in_radius(
+            walk_radius(
                 centre,
                 whole_to_fixed(def->sonar_distance_jam),
                 [](void*, sim::unit_spawn::Slot& slot) { detection::jam_sonar(slot.record); },

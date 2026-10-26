@@ -5,7 +5,10 @@
 // French, Spanish, Italian and Simplified Chinese, or in the languages
 // --check-language names, such as an installed pack's, at 640x480 and 1280x720.
 // The kit records a text drawn wider than its box or across another text.
-// The check fails naming the screen, the language and the text. The Game
+// The check fails naming the screen, the language and the text. The kit
+// records only while a text is drawn, so the layer draws every screen again
+// for the frame read, those whose drawing it keeps among them; a kept
+// notice whose OK is too wide for its button must be recorded first. The Game
 // files screen and the folder chooser paint through their own painter, which
 // records the same way. A startup notice drawn by the game's own windows is
 // opened too; that painter keeps no record. SKIRMISH is painted with
@@ -120,6 +123,10 @@ constexpr std::size_t kMostFailures = 40;
 constexpr std::string_view kLongText =
     "OA looks for new content and updates in the registries' lists. It never installs anything "
     "until you say so.";
+
+/// A caption no notice's button holds, which the check must find on a
+/// drawing the layer keeps.
+constexpr std::string_view kWideCaption = "A CAPTION FAR WIDER THAN ITS BUTTON";
 
 /// A mutator's name at the manifest's most, 64 bytes. A question's title is
 /// one line, so this is the longest name "Start without {name}?" can hold.
@@ -366,17 +373,26 @@ void Runtime::check_text_fit() {
         }
     };
 
-    const auto paint = [&](std::string_view screen) {
+    /// Runs the frames whose records are read, and leaves the records.
+    const auto paint_frames = [&](std::string_view screen) {
         kit::set_text_fit_screen(screen);
         kit::begin_text_fit_frame();
         bool going = true;
         run_frame(going);
         require(going, std::string(screen) + ": a frame ended the run");
         // The first frame settles the size class. The second is the one read.
+        // The kit records a text only while it is drawn, and the layer would
+        // show a screen whose revision covers what it draws from the drawing
+        // it kept, so every screen is drawn again.
         kit::begin_text_fit_frame();
+        oa_layer().forget_kept_drawings();
         going = true;
         run_frame(going);
         require(going, std::string(screen) + ": a frame ended the run");
+    };
+
+    const auto paint = [&](std::string_view screen) {
+        paint_frames(screen);
         keep();
     };
 
@@ -753,6 +769,30 @@ void Runtime::check_text_fit() {
         run_frame(going);
         require(going, "the main menu ended the run");
     }
+
+#if !defined(NDEBUG)
+    // The check reads the texts of a drawing the layer keeps: a notice's,
+    // whose OK is too wide for its button. A release build records nothing.
+    {
+        kit::Notice wide;
+        wide.title = "NOTICE";
+        wide.open_caption = "OK";
+        wide.ok_caption = std::string(kWideCaption);
+        oa_layer().push(
+            std::make_unique<NoticeScreen>(
+                oa_layer(), Screen::main_menu, std::move(wide), NoticeScreen::Host{}
+            )
+        );
+        paint_frames("kept-notice");
+        bool recorded = false;
+        for (const kit::TextFitRecord& noted : kit::text_fit_records())
+            recorded = recorded || (noted.wider && noted.text == kWideCaption);
+        if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
+            oa_layer().close(notice);
+        kit::begin_text_fit_frame();
+        require(recorded, "a kept notice's caption, too wide for its button, was not recorded");
+    }
+#endif
 
     for (std::size_t size_at = 0; size_at < 2; ++size_at) {
         width = kWidths[size_at];

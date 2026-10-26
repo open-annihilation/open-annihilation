@@ -17,11 +17,6 @@ namespace {
 namespace mission_units = sim::mission_units;
 namespace input = sim::gameplay_input;
 
-// Half a footprint cell and one cell in 16.16 world units.
-constexpr uint32_t half_cell = 0x80000u;
-constexpr int cell_shift = 20;
-constexpr int8_t structure_bm_code = 0;
-
 MissionUnitBinding& binding_of(void* context) {
     return *static_cast<MissionUnitBinding*>(context);
 }
@@ -33,13 +28,6 @@ void note_failure(MissionUnitBinding& binding, const char* message) {
 
 sim::ground_orders::Point point_of(const FixedVec3& position) noexcept {
     return {position.x, position.y, position.z};
-}
-
-// Footprint cell of a 16.16 coordinate, as build-grid snapping reads it first.
-int32_t footprint_cell(int32_t world, int16_t footprint) noexcept {
-    const auto span = static_cast<uint32_t>(static_cast<int32_t>(footprint)) * half_cell;
-    const auto corner = static_cast<uint32_t>(world) - span + half_cell;
-    return static_cast<int16_t>(static_cast<int32_t>(corner) >> cell_shift);
 }
 
 bool movement_object(const Match& match, const Unit& unit) {
@@ -81,16 +69,7 @@ mission_units::Hooks mission_unit_hooks(MissionUnitBinding& binding) {
     // A structure's site snaps to its footprint grid and stands
     // at the height its yard would take there.
     hooks.snap_to_build_grid = [](void* context, const UnitDef& def, FixedVec3* position) {
-        if (def.bm_code != structure_bm_code)
-            return;
-        const auto cell_x = footprint_cell(position->x, def.footprint_x);
-        const auto cell_z = footprint_cell(position->z, def.footprint_z);
-        auto site = point_of(*position);
-        snap_build_position(site, def.footprint_x, def.footprint_z);
-        const auto height = binding_of(context).match.footprint_height(def.type_id, cell_x, cell_z);
-        position->x = site[0];
-        position->z = site[2];
-        position->y = static_cast<int32_t>(static_cast<uint32_t>(height) << 16);
+        binding_of(context).match.snap_to_build_grid(def.type_id, *position);
     };
     hooks.create_unit = [](void* context,
                            uint8_t player,

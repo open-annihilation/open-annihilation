@@ -46,6 +46,8 @@ enum Type : uint16_t { vehicle = 1, collector, relay, silo, missile, type_count 
 // ids. The vehicle builds the collector and the relay; the silo's list offers the missile
 // its weapon stockpiles.
 constexpr uint16_t build_lists[] = {0, 2, collector, relay, 0, 0, 1, missile, 0};
+// The same types with the missile on the vehicle's list alone.
+constexpr uint16_t builder_round_lists[] = {0, 1, missile, 0, 0, 0, 0};
 
 // A leading line before any plan applies, as the plan flag starts set; it
 // weights the collector to a tenth. The medium plan halves the relay's weight.
@@ -86,10 +88,12 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
 
+    // An armed vehicle carries the silo's weapon, as a mobile missile defence does.
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
-        const data::match_rules::MatchRules& rules = {}
+        const data::match_rules::MatchRules& rules = {},
+        bool armed_vehicle = false
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -155,6 +159,10 @@ struct Fixture {
             defs[vehicle].metal_make = builder_metal_make;
         }
         fields[vehicle].movement_class = 0;
+        if (armed_vehicle) {
+            types[vehicle].simulation.flags |= OA_UNIT_DEF_FLAG_HAS_WEAPONS;
+            defs[vehicle].weapon1 = "NUKE";
+        }
         defs[collector].energy_make = 20.0F;
         types[silo].simulation.flags |= OA_UNIT_DEF_FLAG_BUILDER | OA_UNIT_DEF_FLAG_HAS_WEAPONS;
         defs[silo].builder = true;
@@ -320,6 +328,24 @@ void computer_silo_stockpiles_its_rounds() {
     CHECK(f.match->fault() == nullptr);
 }
 
+// A computer player's mobile builder whose build list offers a weapon round stockpiles it
+// for its first weapon, as the silo does: the construction task places no site for it, so
+// no unit of the missile's type is ever queued or built.
+void computer_builder_stockpiles_its_rounds() {
+    Fixture f(0, true, {}, true);
+    auto& defence = f.spawn(computer, vehicle, 40, 40);
+    CHECK(sim::ai::configure_match_computer_players(*f.match, "", builder_round_lists, false));
+    bool missile_built = false;
+    const bool stockpiled = f.run(run_ticks, [&] {
+        missile_built = missile_built || f.count(computer, missile) != 0 ||
+                        f.match->queued_build_count(defence.unit_index, missile) != 0;
+        return defence.record.weapons[0].stockpile != 0;
+    });
+    CHECK(!missile_built);
+    CHECK(stockpiled);
+    CHECK(f.match->fault() == nullptr);
+}
+
 // The ai.* rules at their 3.1c values (every parameter's baseline, the hacks turned on)
 // play the same game as no rules; at the values a mod sets they still build, through the
 // match's own host (its secondary order queues among the factory tick's queries).
@@ -384,6 +410,7 @@ int main() {
         computer_without_income_skips_the_collector();
         campaign_computer_skips_downloadable_types();
         computer_silo_stockpiles_its_rounds();
+        computer_builder_stockpiles_its_rounds();
         computer_rules_through_the_match();
     } catch (const std::exception& error) {
         std::cerr << "computer build test failed: " << error.what() << '\n';

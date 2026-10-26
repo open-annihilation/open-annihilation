@@ -18,8 +18,8 @@ namespace {
 using renderer_effect_sources::Kind;
 using renderer_effect_sources::Origin;
 using renderer_effect_sources::Source;
+using renderer_effect_sources::weapon_colour;
 constexpr float fixed_scale = 65536.0F;
-constexpr float channel_scale = 255.0F;
 constexpr float muzzle_radius = 52.0F;
 constexpr float projectile_radius = 52.0F;
 constexpr float impact_radius = 72.0F;
@@ -74,25 +74,6 @@ std::array<uint32_t, 3> position(const Source& source) {
     return {fixed(source.x), fixed(source.height), fixed(source.z)};
 }
 
-/// Colour palette ramps directly, using warm light for physical ammunition and plasma sprites.
-void weapon_colour(
-    Source& source,
-    const sim::combat_state::WeaponDefinition& weapon,
-    const oa::PaletteBytes& palette
-) {
-    constexpr uint8_t plasma_render_type = 4;
-    const auto index = static_cast<std::size_t>(weapon.color) * 4;
-    source.red = palette[index] / channel_scale;
-    source.green = palette[index + 1] / channel_scale;
-    source.blue = palette[index + 2] / channel_scale;
-    constexpr float minimum_colour = .15F;
-    if (std::max({source.red, source.green, source.blue}) < minimum_colour || weapon.color == 0 ||
-        weapon.rendertype == plasma_render_type) {
-        source.red = 1;
-        source.green = .58F;
-        source.blue = .18F;
-    }
-}
 } // namespace
 
 struct Runtime::MatchEffects {
@@ -116,6 +97,8 @@ void Runtime::reset_match_effect_sources() {
 void Runtime::observe_match_effect_tick() noexcept try {
     if (!match_)
         return;
+    // Weapons light in the interface palette's colours their beams are drawn in.
+    ensure_ui_colors();
     if (!match_effects_ || match_effects_->match != match_.get()) {
         match_effects_ = std::make_shared<MatchEffects>();
         match_effects_->match = match_.get();
@@ -164,10 +147,7 @@ void Runtime::observe_match_effect_tick() noexcept try {
             continue;
         auto source =
             at(event.position, Kind::weapon, event.impact ? impact_radius : muzzle_radius);
-        sim::combat_state::WeaponDefinition colour;
-        colour.color = event.colour;
-        colour.rendertype = event.render_type;
-        weapon_colour(source, colour, match_palette_);
+        weapon_colour(source, event.colour, event.render_type, match_palette_, ui_colors_);
         source.origin = event.impact ? Origin::impact : Origin::muzzle;
         source.intensity = event.impact ? 1.0F : .85F;
         source.heat = event.impact ? 1.0F : .65F;
@@ -252,7 +232,7 @@ void Runtime::observe_match_effect_tick() noexcept try {
             shot.burst_remaining == 0 &&
             state.pulses.size() < renderer_effect_sources::maximum_sources) {
             auto source = at(shot.origin, Kind::weapon, muzzle_radius);
-            weapon_colour(source, *weapon, match_palette_);
+            weapon_colour(source, weapon->color, weapon->rendertype, match_palette_, ui_colors_);
             source.origin = Origin::muzzle;
             source.intensity = .85F;
             source.heat = .65F;
@@ -439,7 +419,7 @@ std::span<const renderer_effect_sources::Source> Runtime::collect_match_effect_s
                       .position
                 : shot.position;
         auto source = at(shown, Kind::weapon, projectile_radius);
-        weapon_colour(source, *weapon, match_palette_);
+        weapon_colour(source, weapon->color, weapon->rendertype, match_palette_, ui_colors_);
         source.origin = Origin::projectile;
         source.intensity = .55F;
         source.heat = .4F;

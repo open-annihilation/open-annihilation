@@ -500,8 +500,9 @@ struct TargetSearchHost {
     /// @param owner_spatial_index owner's sighting-list index (Unit.owner_index)
     /// @param center search centre, signed 16.16 bit patterns
     /// @param radius world units
-    /// @return candidates, valid until the next call
-    virtual std::span<const TargetUnit> gather_nearby(
+    /// @return candidates, valid until the next call; the search reorders
+    ///     them as it draws
+    virtual std::span<TargetUnit> gather_nearby(
         uint8_t owner_spatial_index, const std::array<uint32_t, 3>& center, int32_t radius
     ) = 0;
     /// Draws from the shared simulation random stream.

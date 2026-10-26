@@ -625,6 +625,29 @@ class Runtime final : public menu::Host,
         return full_screen_switch_;
     }
 
+    /// What the Library showed when a switch of the mod from it ended the
+    /// run: its tab, filters, tag, search, selection, scroll and details.
+    struct LibraryReturn;
+
+    /// Returns what the Library showed when a switch of the mod from it
+    /// ended the run, which a runtime built after the soft restart takes
+    /// over (take_library_return). What the run before left is not handed
+    /// on: this run opened it again, or dropped it.
+    ///
+    /// @return the Library's tab, search and selection; null when the switch
+    ///     was not made from the Library in this run, or the run did not end
+    ///     for one
+    [[nodiscard]] std::shared_ptr<const LibraryReturn> library_return() const {
+        return library_kept_;
+    }
+
+    /// Returns what the progress dialog says while the switch of the mod in
+    /// the Library that ended the run applies, in the language shown.
+    ///
+    /// @return the line, such as "Switching on Ridge…"; empty when the run
+    ///     did not end for such a switch
+    [[nodiscard]] const std::string& restart_line() const noexcept { return restart_line_; }
+
     /// Frees what the runtime made on the renderer it borrows: its streamed
     /// textures and the match's layers. A runtime that ends for a soft
     /// restart calls it, so that the next one on the same renderer starts
@@ -1075,6 +1098,14 @@ class Runtime final : public menu::Host,
     ///
     /// @param full_screen the switch the movies used
     void take_full_screen_switch(const FullScreenSwitch& full_screen) noexcept;
+
+    /// Hands the runtime the Library a switch of the mod from it left in the
+    /// run before: once the main menu shows, the Library opens again on the
+    /// same tab, filter, tag and search, with the same entry selected, within
+    /// kept_library_wait_ms (reopen_kept_library).
+    ///
+    /// @param shown what the Library showed; null opens nothing
+    void take_library_return(std::shared_ptr<const LibraryReturn> shown) noexcept;
 
     /// Points the remembered window place at this runtime's preferences, so a
     /// change is written into the file the runtime flushes.
@@ -2824,7 +2855,8 @@ class Runtime final : public menu::Host,
     void zoom_match_about(float factor, float x, float y);
 
     /// Takes back an armed order or a pending building (reloading the panel's page), else clears
-    /// the selection: the Escape key's first two steps, never the in-game menu.
+    /// the selection and closes an open unit info panel: the Escape key's first two steps, never
+    /// the in-game menu.
     /// [runtime_hotkeys.cpp, extracted by the Interfaces stage]
     void clear_or_cancel_match_command();
 
@@ -3554,10 +3586,38 @@ class Runtime final : public menu::Host,
         renderer::Surface darkened{};        ///< `pixels` darkened, made when first needed
     };
 
+    /// The art every page of the match's side column is drawn with, read
+    /// once a match (match_hud_art).
+    struct MatchHudArt {
+        std::string tile;       ///< the side tile it was read for
+        std::string panel;      ///< the side's interface GAF it was read for
+        std::string font;       ///< the side's SIDEDATA font it was read for
+        std::string read_panel; ///< the interface GAF read; empty when it could not be
+        /// load_screen_art's resources, with no layout, captioned in the
+        /// shown language.
+        renderer::ScreenResources screen;
+        /// The side's font; none when the side names none or it cannot be read.
+        std::optional<oa::formats::fnt::Font> side_font;
+    };
+
+    /// Returns the art the side column's pages are drawn with: the side tile,
+    /// the GUI palettes and tables, commongui.gaf's icons and the side's
+    /// interface GAF in the shown language's captions, and the side's font.
+    ///
+    /// The art is read from the game's files as the match's first page
+    /// loads, and again only when the side's files are others, so that a
+    /// page reads only its own GUI file and GAF (load_match_hud_layout).
+    ///
+    /// @param layout the page it is wanted for, named in a report of art that
+    ///        cannot be read
+    /// @return the art; null when it cannot be read even without the side's
+    ///         interface GAF, which is reported on stderr
+    const MatchHudArt* match_hud_art(const std::string& layout);
     /// Loads an in-match panel layout as the match HUD with the viewed side's chrome.
     ///
     /// The panel's buttons keep their states and their GUI file's quick keys;
-    /// the side's interface GAF, side tile and commongui.gaf supply the art.
+    /// the side's interface GAF, side tile and commongui.gaf supply the art,
+    /// read once a match (match_hud_art).
     /// The panel takes the keyboard focus its loader gives it
     /// (match_hud_focus_), and is placed at its own position with no panel
     /// kept under it until open_match_dialog() says otherwise. A unit's page
@@ -6739,7 +6799,7 @@ class Runtime final : public menu::Host,
     /// allows, outside unattended runs.
     /// Refused, as the settings are, off the main menu, while a package owns
     /// the frame, over a message box, while the saves notice shows, or
-    /// without the dialog's fonts.
+    /// without the dialog's fonts (library_can_open).
     ///
     /// @param tab the tab; nothing opens it on Active
     void open_library(std::optional<oa::ui::library::Tab> tab);
@@ -6772,9 +6832,11 @@ class Runtime final : public menu::Host,
     /// told in a note over the Library
     /// (oa::ui::library::switch_refused_note). SWITCH OFF asks the Switch
     /// Mod question for no mod (oa::ui::library::switch_off_question), whose
-    /// SWITCH plays the game with no mod and whose CANCEL leaves it. PLAY
-    /// NOW and SWITCH OFF do nothing during a game, or while the command
-    /// line chose the mod. A refusal also shows in the status line. CHECK
+    /// SWITCH plays the game with no mod and whose CANCEL leaves it. A switch
+    /// made while the Library shows opens it again after the soft restart,
+    /// as it showed (keep_library_for_restart). PLAY NOW and SWITCH OFF do
+    /// nothing during a game, or while the command line chose the mod. A
+    /// refusal also shows in the status line. CHECK
     /// NOW asks the registries for their lists again. UPDATE asks
     /// request_update, and UNINSTALL library_uninstall. UPDATE ALL asks it at once for
     /// each update that can be installed and asks nothing first
@@ -6846,6 +6908,37 @@ class Runtime final : public menu::Host,
     /// install, its model follows its feed, and its pictures wait while a
     /// match runs.
     void tick_library();
+
+    /// Notes what the Library shows, for the run after the soft restart a
+    /// switch of the mod from it asks for to open it again the same
+    /// (library_return). Without the Library on the OA layer, nothing.
+    void keep_library_for_restart();
+
+    /// Opens the Library again as the run before left it
+    /// (take_library_return), once the main menu lets it open
+    /// (kept_library_may_show) and its feed lists the installed packages
+    /// (LibraryFeed::installed_listed), so that no entry moves as they
+    /// arrive; the chosen entry's row is in view. Until then the switch's
+    /// work dialog (WorkScreen) shows over the main menu where the Library
+    /// could. The wait is kept_library_wait_ms from the first frame on the
+    /// main menu: then the Library opens unlisted if it can, and is dropped
+    /// if it cannot, on whichever screen shows.
+    void reopen_kept_library();
+
+    /// Tells whether open_library opens the Library now.
+    ///
+    /// @return false off the main menu, while a package owns the frame,
+    ///     over a message box, while the saves notice shows, or without the
+    ///     dialog's fonts
+    [[nodiscard]] bool library_can_open();
+
+    /// Tells whether the Library kept over a soft restart, or the switch's
+    /// work dialog while it waits, may show now: where the player could open
+    /// the Library (library_can_open), with no screen of the OA layer but
+    /// that work dialog.
+    ///
+    /// @return true when it may
+    [[nodiscard]] bool kept_library_may_show();
 
     /// Runs --check-library: the main menu's OA button, its dot and the
     /// Library over a feed of fixtures, its actions, Settings over it and it
@@ -7346,6 +7439,18 @@ class Runtime final : public menu::Host,
     void reset_match_effect_sources();
     /// Reports whether a collected source has an enabled visual contribution.
     bool match_effects_enabled();
+    /// Reports whether a collected source's heat distortion may reach the
+    /// view: the one effect that moves the battlefield's own pixels, where
+    /// the others only add light to them. A source counts at its strength
+    /// before the water over it lessens it, so one the water calms still
+    /// counts.
+    bool match_effects_distort();
+    /// Reports whether a collected source's enabled contribution reaches
+    /// the view.
+    ///
+    /// @param distortion_only true to count heat distortion alone
+    /// @return true when one does
+    bool match_effects_in_view(bool distortion_only);
     /// Applies effects before battlefield overlays and HUD are drawn.
     void compose_match_effects(renderer::Surface& surface, bool live);
     /// Composes an RGB or RGBA battlefield at its output scale and local origin.
@@ -9075,6 +9180,16 @@ class Runtime final : public menu::Host,
     ///         undrawn past the battlefield, with the view put back classic
     [[nodiscard]] bool draw_match_surface();
 
+    /// Draws the HUD layer of the match frame (match_hud_cpu_) as
+    /// draw_match_surface draws it, without the battlefield or what the
+    /// frame paints over the HUD after it: the loaded panel with its
+    /// buttons, scroll bars, the panels below a dialog and the dialog, on
+    /// the bars widened to the window (extend_match_bars), or the side
+    /// chrome alone. A panel just loaded is so measured and hit where the
+    /// next frame draws it (match_hud_strips) before that frame draws the
+    /// whole match.
+    void compose_match_hud();
+
     /// Returns the 3DO renderer state of the current match, built on first use.
     ///
     /// Building it begins every unit's and 3D feature's draw state afresh.
@@ -9856,10 +9971,12 @@ class Runtime final : public menu::Host,
 
     /// Shows the progress dialog while `job` runs, when this run has a window
     /// and is not a headless check. The title is Open Annihilation. `line`
-    /// is an English key of the interface catalogue. With no window, or while
-    /// a dialog is already up, `job` runs on this thread and nothing is drawn.
+    /// is an English key of the interface catalogue, or a line already in the
+    /// language shown, such as a switch's (Options::restart_line), which
+    /// shows as it is (run_long_work). With no window, or while a dialog is
+    /// already up, `job` runs on this thread and nothing is drawn.
     ///
-    /// @param line the line's English key
+    /// @param line the line's English key, or the line as shown
     /// @param job the work; it may store how far it has come
     void run_progress(std::string_view line, const std::function<void(LongWork&)>& job);
 
@@ -12451,8 +12568,9 @@ class Runtime final : public menu::Host,
     /// command, starts mouse look, drops the selection, moves the view to the
     /// point under it on the radar (starting a radar scroll in the left-click
     /// interface) or gives the default order to the unit and ground under the
-    /// pointer. Dropping the selection also closes an open in-game menu, which
-    /// resumes a match it held, as F2 does.
+    /// pointer. Dropping the selection also closes the unit info panel and an
+    /// open in-game menu, which resumes a match it held, as F2 does. A press on
+    /// the unit info panel is the panel's (click_unit_info).
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -12507,7 +12625,7 @@ class Runtime final : public menu::Host,
     ///
     /// An order cursor gives each selected unit its default order at the ground
     /// under the pointer, a highlight cursor (the right-click interface) drops the
-    /// selection, any other does nothing.
+    /// selection and closes the unit info panel, any other does nothing.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -12761,9 +12879,9 @@ class Runtime final : public menu::Host,
 
     /// Handles a left click over a unit, dispatched through the cursor as the game does.
     ///
-    /// The select cursor picks the unit, a highlight cursor is left to the
-    /// caller, and an order cursor issues each selected unit's resolved order
-    /// with the pointer unit as its target.
+    /// The select cursor picks the unit, a highlight cursor drops the selection
+    /// and closes the unit info panel, and an order cursor issues each selected
+    /// unit's resolved order with the pointer unit as its target.
     ///
     /// @param x canvas column
     /// @param y canvas row
@@ -13413,12 +13531,20 @@ class Runtime final : public menu::Host,
     /// battlefield's do in the chosen interface type, at the map point under
     /// the pointer and on the unit whose icon is under it: a left click
     /// (megamap_click) and a right press (megamap_right_press). A left drag
-    /// selects a box of the viewer's units, and a left double-click on one
-    /// of them every unit of its type, in either interface type.
-    /// Presses are taken in the overlays' area and not where placed_hud_covers
-    /// claims; the release of a press taken is taken anywhere. The presses'
-    /// buttons and modifiers go to the pointer's key word
-    /// (record_pointer_event), as the battlefield's do.
+    /// selects a box of the viewer's units, one that takes in none closing
+    /// the unit info panel, and a left double-click on one of them every
+    /// unit of its type, in either interface type. A press acts on the icon
+    /// last drawn under it (MegamapState::unit_at), as a finger's tap does
+    /// with no frame drawn since it landed.
+    /// Presses are taken in the overlays' area where the battlefield would
+    /// take them: not where placed_hud_covers claims or on a HUD button under
+    /// the pointer, such as a button of the exit menu over the megamap, and
+    /// while the in-game menu or another panel holds the match only a right
+    /// press beside the menu (right_press_beside_menu). The release of a press
+    /// taken is taken anywhere, and any other in the area off a HUD button.
+    /// Nothing is taken on a page opened over the match. The presses' buttons
+    /// and modifiers go to the pointer's key word (record_pointer_event), as
+    /// the battlefield's do.
     ///
     /// @param event the pointer event
     /// @param x pointer column on the canvas
@@ -13436,7 +13562,8 @@ class Runtime final : public menu::Host,
     /// cursor gives the selection the armed command, or the default order,
     /// there (issue_selection_orders), a click that gives none leaving the
     /// command armed, except an armed MOVE, which the click ends; in the
-    /// right-click interface a highlight cursor drops the selection. An armed
+    /// right-click interface a highlight cursor drops the selection and
+    /// closes the unit info panel. An armed
     /// MOVE on a unit whose cursor takes no click moves the selection to the
     /// ground there.
     ///
@@ -13447,7 +13574,8 @@ class Runtime final : public menu::Host,
     /// Acts on a right press on the megamap as one on the battlefield does
     /// (handle_match_right_press), at a map point and on a unit: an armed
     /// command drops back to the default order; otherwise the left-click
-    /// interface drops the selection, Control held or not, and the
+    /// interface drops the selection, Control held or not, closing the unit
+    /// info panel and the in-game menu beside which it was pressed, and the
     /// right-click interface gives the selection the default order there.
     ///
     /// @param target the unit whose icon is under the pointer, or 0
@@ -13455,6 +13583,31 @@ class Runtime final : public menu::Host,
     void megamap_right_press(
         uint16_t target, const std::optional<oa::sim::ground_orders::Point>& ground
     );
+
+    /// Returns the ground point the open megamap shows under a canvas point,
+    /// or none off its map.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return the point on the terrain, or none
+    std::optional<oa::sim::ground_orders::Point> megamap_ground(float x, float y);
+
+    /// Returns the unit whose icon the open megamap drew under a canvas
+    /// point, or 0, as a press there takes it (MegamapState::unit_at).
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return the unit, or 0
+    [[nodiscard]] uint16_t megamap_unit_at(float x, float y) const;
+
+    /// Picks the cursor a press on the open megamap at a canvas point acts
+    /// by (pick_map_cursor), for the icon and the ground under it; the touch
+    /// controls read it as they read the battlefield's.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return a cursor table index
+    uint8_t megamap_cursor_at(float x, float y);
 
     /// Redraws the radar's terrain picture at its own size from the map's
     /// minimap (ui.megamap enhanced-minimap) while the hack acts
@@ -13569,7 +13722,7 @@ class Runtime final : public menu::Host,
     /// Game.drag_start and drag_end, and selection::select_units_in_box selects or, with shift,
     /// toggles the units there and visits the local units on screen for 'n'. The rotated view
     /// tests each unit where it drew it (selection::select_units_where), with the same speech,
-    /// sound and visits.
+    /// sound and visits. A box that leaves nothing selected closes the unit info panel.
     ///
     /// @param x0 one corner's column
     /// @param y0 one corner's row
@@ -13702,12 +13855,37 @@ class Runtime final : public menu::Host,
     ///         phone layout places it
     [[nodiscard]] std::optional<oa::ui::display_layout::Rect> unit_info_area() const;
 
-    /// Handles a left click while the unit info panel is open: DONE closes it.
+    /// Returns the point of the canvas in the unit info panel's own pixels, through where
+    /// unit_info_area() shows it or, on the phone layout, through its placed region.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return the point in the panel's pixels, or nothing when the panel is not open or the
+    ///         point is off it
+    [[nodiscard]] std::optional<oa::ui::display_layout::Point>
+    unit_info_point(float x, float y) const;
+
+    /// Handles a click on the open unit info panel, of either button: DONE closes it.
     ///
     /// @param x canvas column
     /// @param y canvas row
     /// @return true when the click was on the panel
     bool click_unit_info(float x, float y);
+
+    /// Gives the pointer to the open unit info panel, as 3.1c's panel over the order panel takes
+    /// it.
+    ///
+    /// A left or right press on the panel is the panel's: it starts no drag box and gives no
+    /// order. The release that ends it is the panel's wherever it comes up and clicks the panel
+    /// when over it (click_unit_info). A press on the side column's buttons does nothing while
+    /// the panel is open; the battlefield and the radar take theirs. Nothing is taken while the
+    /// in-game menu is open over the panel.
+    ///
+    /// @param event a mouse event, in canvas coordinates
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when the panel took the event
+    bool unit_info_pointer(const SDL_Event& event, float x, float y);
 
     /// Draws the unit info panel over the battlefield where unit_info_area() puts it: its face,
     /// its controls, the statistic labels and the unit's picture at HOTR at the picture's own size.
@@ -18046,6 +18224,9 @@ class Runtime final : public menu::Host,
     oa::Image match_chrome_{};
     std::optional<renderer::ScreenResources> match_hud_;
     std::string match_hud_panel_; // GUI file of match_hud_, as its loader named it
+    /// The side column's art (match_hud_art); dropped as a match loads and
+    /// ends and as the language shown or its packs change.
+    std::optional<MatchHudArt> match_hud_art_;
     /// Where draw_match_bars repeats the top bar's art right of PANELTOP.
     oa::ui::hud::TopBarPieces top_bar_pieces_{};
     // How place_match_panel placed match_hud_ (panel_flag::beside_hud or
@@ -18834,6 +19015,9 @@ class Runtime final : public menu::Host,
     };
 
     std::optional<UnitInfoPanel> unit_info_panel_{};
+    // The mouse button whose press the unit info panel took, until its
+    // release; zero for none (unit_info_pointer).
+    uint8_t unit_info_pressed_button_ = 0;
     bool chat_composing_ = false;
     // The quick key, lowercase, that pressed a button of a panel over the
     // match at the last key press; zero for none. The character it types
@@ -19557,6 +19741,20 @@ class Runtime final : public menu::Host,
         void* context, std::string_view id, const oa::ui::mutator_picker::Chosen& chosen
     );
 
+    // What the Library showed as a switch of the mod from it ended the run
+    // before, while this run has not opened it again or dropped it; null for
+    // none.
+    std::shared_ptr<const LibraryReturn> library_return_{};
+    // When this run first tried to open the kept Library again, in
+    // milliseconds of the platform's clock; none before.
+    std::optional<uint32_t> library_return_since_{};
+    // What the Library showed as a switch of the mod from it ended this run
+    // (keep_library_for_restart), for the next (library_return); null for
+    // none.
+    std::shared_ptr<const LibraryReturn> library_kept_{};
+    // What the progress dialog says while a switch of the mod in the Library
+    // applies (restart_line); empty for none.
+    std::string restart_line_{};
     // The player's own folder for this run (start_user_folder); empty
     // before it is chosen.
     fs::path user_folder_;

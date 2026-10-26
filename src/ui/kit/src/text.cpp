@@ -117,9 +117,8 @@ constexpr std::string_view game_palette_path = "palettes/palette.pal";
 /// @return the width, in points
 int32_t width_of(const FaceFont& font, std::string_view shown) {
     if (font.modern_only) {
-        const auto layers =
-            present::modern_text(shown, font.face, 1, present::game_font_text_size, false);
-        return layers ? layers->advance : 0;
+        return present::modern_text_advance(shown, font.face, 1, present::game_font_text_size)
+            .value_or(0);
     }
     if (plain_ascii(shown))
         return renderer::text_width(font.font, shown);
@@ -127,8 +126,8 @@ int32_t width_of(const FaceFont& font, std::string_view shown) {
     for (const auto& run : present::split_text(shown, font.characters)) {
         if (!run.modern)
             width += renderer::text_width(font.font, run.text);
-        else if (const auto layers = present::modern_text(run.text, font.face, 1, run.size, false))
-            width += layers->advance;
+        else
+            width += present::modern_text_advance(run.text, font.face, 1, run.size).value_or(0);
     }
     return width;
 }
@@ -252,10 +251,10 @@ int32_t modern_tracked_width(
             break;
         if (at > 0)
             width += tracking;
-        if (const auto layers = present::modern_text(
-                text.substr(at, bytes), font.face, used, present::game_font_text_size, false
+        if (const auto advance = present::modern_text_advance(
+                text.substr(at, bytes), font.face, used, present::game_font_text_size
             ))
-            width += (layers->advance + used - 1) / used;
+            width += (*advance + used - 1) / used;
         at += bytes;
     }
     return width;

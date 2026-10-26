@@ -44,18 +44,18 @@ constexpr float channel_full = 255.0F;
 /// the light table's row.
 constexpr float reduced_flash_light = 0.5F;
 
-/// The GAF frame each rendered frame of a list was decoded from this
-/// frame, for the frames decoded anew each frame (WorldDrawList::decoded).
+/// The GAF frame each decoded frame this frame's draws use was decoded
+/// from, by the decoded frame: WorldDrawList::decoded_of turned around.
 using DecodedFrom = std::unordered_map<const RenderedFrame*, const oa::formats::gaf::Frame*>;
 
 /// Returns the key a sprite's picture is held under on the pages: the
 /// address of the GAF frame it was decoded from, for a frame the list
-/// decoded for this frame's draws alone, which lives in the match's
-/// archives; else the address of the rendered frame itself, which the
-/// match keeps for a feature's animation.
+/// decoded for its draws (WorldDrawList::decoded_of), which lives in the
+/// match's archives; else the address of the rendered frame itself, which
+/// the match keeps for a feature's animation.
 ///
 /// @param frame the rendered frame drawn
-/// @param decoded_from the frames decoded this frame, by their rendered frame
+/// @param decoded_from each decoded frame's GAF frame, by the decoded frame
 /// @return the key
 uint64_t frame_key(const RenderedFrame* frame, const DecodedFrom& decoded_from) {
     if (const auto found = decoded_from.find(frame); found != decoded_from.end())

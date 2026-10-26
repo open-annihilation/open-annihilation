@@ -77,19 +77,18 @@ int Runtime::check_live_renderer() {
     require(SDL_InitSubSystem(SDL_INIT_VIDEO), "could not initialize windowless video");
     require(sdl_.window == nullptr, "the check must not own a visible window");
     options_.experimental_3d = false;
-    // The rotated view draws on Full, where the four effects are on by
-    // default; the check's named preferences file is Off, which reads them
-    // as off.
+    // The rotated view draws on Full, where each of the four effects is on
+    // at its own default; the check's named preferences file is Off, which
+    // reads them as off.
     require(engine_settings_ != nullptr, "the check has no graphics settings");
     {
         using oa::ui::engine_settings::HardwareAcceleration;
-        auto& settings = engine_settings_->current;
-        const uint32_t full =
-            oa::ui::engine_settings::default_effect_intensity(HardwareAcceleration::full);
-        settings.weapon_lighting = full;
-        settings.nanolathe_lighting = full;
-        settings.wreck_glow = full;
-        settings.heat_distortion = full;
+        for (const auto& slider : oa::ui::engine_settings::effect_sliders)
+            if (slider.follows_acceleration)
+                engine_settings_->current.*slider.percent =
+                    oa::ui::engine_settings::default_effect_intensity(
+                        slider.percent, HardwareAcceleration::full
+                    );
     }
     start_benchmark_skirmish();
     require(match_ != nullptr, "Skirmish did not create a match");
@@ -1093,12 +1092,13 @@ int Runtime::check_live_renderer() {
     // rotated view. Disabling their settings must leave composition inert.
     require(engine_settings_ != nullptr, "the effects check has no graphics settings");
     const auto saved_effect_settings = engine_settings_->current;
-    require(
-        oa::ui::engine_settings::default_effect_intensity(
-            oa::ui::engine_settings::HardwareAcceleration::full
-        ) == 100,
-        "the battlefield effects are not on by default with Full acceleration"
-    );
+    for (const auto& slider : oa::ui::engine_settings::effect_sliders)
+        require(
+            oa::ui::engine_settings::default_effect_intensity(
+                slider.percent, oa::ui::engine_settings::HardwareAcceleration::full
+            ) != 0,
+            "an effect is not on by default with Full acceleration"
+        );
     const auto effects_enabled = [&](bool enabled) {
         auto& settings = engine_settings_->current;
         settings.weapon_lighting = enabled ? 100 : 0;
@@ -1127,6 +1127,12 @@ int Runtime::check_live_renderer() {
             const std::string effect_context = std::string(name) + (live ? " 3D" : " classic");
             require(
                 lit.rgb != plain.rgb, (effect_context + " did not light the battlefield").c_str()
+            );
+            // Light alone only adds to the battlefield, which Full's effects
+            // pass does without reading the world back.
+            require(
+                !match_effects_distort(),
+                (effect_context + " counted light alone as heat distortion").c_str()
             );
             if (live) {
                 std::vector<uint8_t> terrain_visibility;
@@ -1163,6 +1169,10 @@ int Runtime::check_live_renderer() {
             save_picture((stem + "-on.png").c_str(), lit);
             if (kind != renderer_effect_sources::Kind::nanolathe) {
                 settings.heat_distortion = 100;
+                require(
+                    match_effects_distort(),
+                    (effect_context + " did not count its heat distortion").c_str()
+                );
                 const auto shimmer = snapshot();
                 require(
                     shimmer.rgb != lit.rgb,
@@ -1172,6 +1182,15 @@ int Runtime::check_live_renderer() {
                     snapshot().rgb == shimmer.rgb, "paused heat distortion changed between frames"
                 );
                 save_picture((stem + "-heat.png").c_str(), shimmer);
+            } else {
+                // A nanolathe is never hot: its glow alone reaches the view
+                // whatever Heat distortion is set to.
+                settings.heat_distortion = 100;
+                require(
+                    !match_effects_distort(),
+                    (effect_context + " counted the nanolathe glow as heat distortion").c_str()
+                );
+                settings.heat_distortion = 0;
             }
         }
     };
@@ -2095,13 +2114,17 @@ int Runtime::check_live_renderer() {
         }
 
         constexpr std::array<int, 3> flight_heights{32, 112, 224};
+        // How far the darkest shading of an aircraft's shadow may differ
+        // between heights: its silhouette keeps the vehicles' darkness, and
+        // only its edge widens.
+        constexpr int darkness_tolerance = 2;
         for (const bool water_receiver : {false, true}) {
             const int x = water_receiver ? water_x : dry_x;
             const int z = water_receiver ? water_z : dry_z;
             const int receiver = std::max(sea, match_->map_height(x * 65536, z * 65536));
             for (std::size_t angle = 0; angle < diagnostic_angles.size(); ++angle) {
                 std::size_t previous_area{};
-                int previous_darkness = 256;
+                int first_darkness = -1;
                 for (const int altitude : flight_heights) {
                     WorldDrawList draws;
                     draws.shadow_level = 0;
@@ -2147,12 +2170,14 @@ int Runtime::check_live_renderer() {
                     save_picture((prefix + "-off.png").c_str(), plain);
                     save_picture((prefix + "-on.png").c_str(), shadowed);
                     require(area > 0, "an aircraft has no visible terrain/water shadow");
+                    if (first_darkness < 0)
+                        first_darkness = darkest;
                     require(
-                        area >= previous_area && darkest <= previous_darkness,
-                        "aircraft shadows do not widen and soften with altitude"
+                        area >= previous_area &&
+                            std::abs(darkest - first_darkness) <= darkness_tolerance,
+                        "aircraft shadows do not keep their darkness as their edge widens"
                     );
                     previous_area = area;
-                    previous_darkness = darkest;
                 }
             }
         }

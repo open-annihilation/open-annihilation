@@ -15,6 +15,7 @@
 #include "oa/ui/paint/painter.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -480,6 +481,64 @@ std::vector<uint8_t> capsule_coverage(
     return coverage;
 }
 
+/// The capsules whose coverage a thread keeps.
+constexpr std::size_t kKeptCapsules = 16;
+/// The most pixels of a capsule whose coverage is kept.
+constexpr std::size_t kMostKeptCapsulePixels = std::size_t{512} * 512;
+
+/// A capsule's coverage with what it was worked out from.
+struct KeptCapsule {
+    bool filled{};                 ///< the coverage is worked out
+    int32_t columns{};             ///< the pixels across
+    int32_t rows{};                ///< the pixels down
+    int32_t radius_px{};           ///< the ends' radius, in pixels
+    int32_t hole_px{};             ///< the outline's thickness, in pixels
+    bool stepped{};                ///< each pixel rounded to covered or not
+    bool corners{};                ///< rounded corners instead of round ends
+    std::vector<uint8_t> coverage; ///< capsule_coverage's bytes
+};
+
+/// Returns capsule_coverage's bytes for a capsule, kept for the last
+/// kKeptCapsules capsules a thread drew up to kMostKeptCapsulePixels: a
+/// screen draws the same buttons and rows on every frame it draws.
+///
+/// @param columns the pixels across
+/// @param rows the pixels down
+/// @param radius_px the ends' radius, in pixels
+/// @param hole_px the outline's thickness, in pixels; 0 is the filled capsule
+/// @param stepped true rounds each pixel to covered or not
+/// @param corners true rounds the four corners instead of the ends
+/// @return the bytes, until the thread asks for another capsule's
+const std::vector<uint8_t>& kept_capsule_coverage(
+    int32_t columns, int32_t rows, int32_t radius_px, int32_t hole_px, bool stepped, bool corners
+) {
+    thread_local std::array<KeptCapsule, kKeptCapsules> kept{};
+    thread_local std::size_t oldest = 0;
+    thread_local std::vector<uint8_t> unkept;
+    for (const KeptCapsule& capsule : kept)
+        if (capsule.filled && capsule.columns == columns && capsule.rows == rows &&
+            capsule.radius_px == radius_px && capsule.hole_px == hole_px &&
+            capsule.stepped == stepped && capsule.corners == corners)
+            return capsule.coverage;
+    const std::size_t pixels = static_cast<std::size_t>(std::max(columns, 0)) *
+                               static_cast<std::size_t>(std::max(rows, 0));
+    if (pixels > kMostKeptCapsulePixels) {
+        unkept = capsule_coverage(columns, rows, radius_px, hole_px, stepped, corners);
+        return unkept;
+    }
+    KeptCapsule& slot = kept[oldest];
+    oldest = (oldest + 1) % kept.size();
+    slot.filled = true;
+    slot.columns = columns;
+    slot.rows = rows;
+    slot.radius_px = radius_px;
+    slot.hole_px = hole_px;
+    slot.stepped = stepped;
+    slot.corners = corners;
+    slot.coverage = capsule_coverage(columns, rows, radius_px, hole_px, stepped, corners);
+    return slot.coverage;
+}
+
 /// Returns a rounded rectangle's radius in the canvas's own pixels, clamped
 /// to half its shorter side.
 ///
@@ -551,8 +610,8 @@ void blend_round(
             fill_rect(canvas, rect, ink);
         return;
     }
-    const std::vector<uint8_t> coverage =
-        capsule_coverage(size.x, size.y, radius_px, hole_px, round_stepped(canvas), corners);
+    const std::vector<uint8_t>& coverage =
+        kept_capsule_coverage(size.x, size.y, radius_px, hole_px, round_stepped(canvas), corners);
     blend_coverage(canvas, rect, coverage, ink);
 }
 

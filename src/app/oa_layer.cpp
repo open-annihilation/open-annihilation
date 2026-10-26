@@ -27,6 +27,7 @@
 #include "oa/platform/log_files.hpp"
 #include "oa/platform/system.hpp"
 #include "oa/platform/text_font.hpp"
+#include "oa/present/game_text.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
@@ -49,6 +50,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -823,6 +825,48 @@ std::string library_button_text(std::size_t updates, bool packages_ready, std::s
     return text;
 }
 
+/// Returns the parts of a notice or a question that its pointer and its keys
+/// move: the hover, the press, the marked button and a finger's shift.
+///
+/// @param box the notice or the question
+/// @return those parts
+template <typename Box>
+auto pointed_look(const Box& box) noexcept {
+    return std::make_tuple(
+        box.hovered, box.pressed, box.marked, box.finger_shift_x, box.finger_shift_y
+    );
+}
+
+/// Returns the parts of a screen's interaction its drawing shows.
+///
+/// @param shown the interaction
+/// @return the hover, the press, the focus, whether it shows and a
+///     finger's shift
+auto pointed_look(const kit::Interaction& shown) noexcept {
+    return std::make_tuple(
+        shown.hovered,
+        shown.pressed,
+        shown.focused,
+        shown.focus_shown,
+        shown.finger_shift.x,
+        shown.finger_shift.y
+    );
+}
+
+/// Counts a look an input moved in a screen's revision, so that a press
+/// that hit no button but took the hover with it is drawn too.
+///
+/// @param answer what the screen answered the input
+/// @param moved the input moved the screen's look
+/// @param[in,out] revision the screen's revision
+/// @return the answer; redraw in place of none when the look moved
+LayerAnswer with_moved_look(LayerAnswer answer, bool moved, uint64_t& revision) noexcept {
+    if (!moved)
+        return answer;
+    ++revision;
+    return answer == LayerAnswer::none ? LayerAnswer::redraw : answer;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------------------------
@@ -1103,6 +1147,55 @@ void Runtime::take_settings_screen_action(settings::DialogAction action) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// A work dialog as a screen of the layer
+
+WorkScreen::WorkScreen(
+    OaLayer& layer, Screen shown_over, std::string title, std::string line, Host answers
+)
+    : layer_(layer), over_(shown_over), host_(std::move(answers)),
+      began_ms_(oa::platform::tick_ms()) {
+    dialog_.title = std::move(title);
+    dialog_.line = std::move(line);
+}
+
+LayerPlacement WorkScreen::placement(const LayerView& view) const {
+    if (view.match || layer_.screen_fonts() == nullptr || view.game_screen != over_)
+        return {};
+    kit::WorkDialog sized = dialog_;
+    sized.size_class = front_class(view);
+    return centred_box(view, kit::place_work_dialog(sized, layer_.screen_fonts()).height);
+}
+
+void WorkScreen::lay_out(const LayerView& view) {
+    const kit::SizeClass size_class = front_class(view);
+    if (dialog_.size_class == size_class)
+        return;
+    dialog_.size_class = size_class;
+    ++revision_;
+}
+
+void WorkScreen::draw(const kit::Canvas& canvas) const {
+    if (!kit::can_draw(canvas) || canvas.fonts == nullptr)
+        return;
+    kit::draw_work_dialog(canvas, dialog_);
+}
+
+kit::DisplayList WorkScreen::display_list() const {
+    return kit::work_dialog_list(dialog_, layer_.screen_fonts());
+}
+
+LayerAnswer WorkScreen::tick() {
+    if (host_.tick && host_.tick())
+        return LayerAnswer::close;
+    const uint32_t turn = kit::refresh_eighth(oa::platform::tick_ms() - began_ms_);
+    if (turn == dialog_.turn)
+        return LayerAnswer::none;
+    dialog_.turn = turn;
+    ++revision_;
+    return LayerAnswer::redraw;
+}
+
+// ---------------------------------------------------------------------------------------------
 // A notice as a screen of the layer
 
 NoticeScreen::NoticeScreen(OaLayer& layer, Screen shown_over, kit::Notice told, Host answers)
@@ -1140,6 +1233,7 @@ void NoticeScreen::draw(const kit::Canvas& canvas) const {
 
 LayerAnswer
 NoticeScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) {
+    const auto before = pointed_look(notice_);
     const int32_t tall = shown_height();
     auto action = kit::NoticeAction::none;
     switch (kind) {
@@ -1159,11 +1253,14 @@ NoticeScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32
     default:
         break;
     }
-    return take(action);
+    const LayerAnswer answer = take(action);
+    return with_moved_look(answer, pointed_look(notice_) != before, revision_);
 }
 
 LayerAnswer NoticeScreen::key(kit::Key pressed, uint32_t /*sdl_key*/) {
-    return take(kit::notice_key(notice_, pressed));
+    const auto before = pointed_look(notice_);
+    const LayerAnswer answer = take(kit::notice_key(notice_, pressed));
+    return with_moved_look(answer, pointed_look(notice_) != before, revision_);
 }
 
 kit::DisplayList NoticeScreen::display_list() const {
@@ -1243,6 +1340,7 @@ void QuestionScreen::draw(const kit::Canvas& canvas) const {
 
 LayerAnswer
 QuestionScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) {
+    const auto before = pointed_look(question_);
     const int32_t tall = shown_height();
     // The buttons are tested where the fonts the question is drawn in place them.
     const kit::Fonts* fonts = layer_.screen_fonts();
@@ -1265,11 +1363,14 @@ QuestionScreen::pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int
     default:
         break;
     }
-    return take(outcome, 0);
+    const LayerAnswer answer = take(outcome, 0);
+    return with_moved_look(answer, pointed_look(question_) != before, revision_);
 }
 
 LayerAnswer QuestionScreen::key(kit::Key pressed, uint32_t sdl_key) {
-    return take(kit::question_key(question_, pressed), sdl_key);
+    const auto before = pointed_look(question_);
+    const LayerAnswer answer = take(kit::question_key(question_, pressed), sdl_key);
+    return with_moved_look(answer, pointed_look(question_) != before, revision_);
 }
 
 kit::DisplayList QuestionScreen::display_list() const {
@@ -1456,6 +1557,11 @@ LayerAnswer GalleryScreen::take(const kit::GalleryEvent& event) {
 
 // ---------------------------------------------------------------------------------------------
 // The layer
+
+uint64_t LayerScreen::next_identity() noexcept {
+    static std::atomic<uint64_t> made{0};
+    return made.fetch_add(1, std::memory_order_relaxed) + 1;
+}
 
 kit::Point layer_point(const LayerPlacement& placement, float x, float y) noexcept {
     const auto& shown = placement.shown;
@@ -2314,32 +2420,9 @@ class RegisteredKitScreen final : public LayerScreen {
     /// @return what the screen did
     LayerAnswer
     pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) override {
-        kit::PointerOutcome outcome{};
-        switch (kind) {
-        case ScreenInputKind::pointer_move:
-            outcome = kit::pointer_move(interaction_, list_, at);
-            break;
-        case ScreenInputKind::pointer_down:
-            if (button != SDL_BUTTON_LEFT)
-                return LayerAnswer::none;
-            outcome = finger_reach > 0 ? kit::finger_down(interaction_, list_, at, finger_reach)
-                                       : kit::pointer_down(interaction_, list_, at);
-            break;
-        case ScreenInputKind::pointer_up:
-            if (button != SDL_BUTTON_LEFT)
-                return LayerAnswer::none;
-            outcome = kit::pointer_up(interaction_, list_, at);
-            break;
-        default:
-            return LayerAnswer::none;
-        }
-        if (outcome.result == kit::PointerResult::activated)
-            return take_act({outcome.control, kit::Key::enter});
-        if (outcome.result == kit::PointerResult::redraw) {
-            ++revision_;
-            return LayerAnswer::redraw;
-        }
-        return LayerAnswer::none;
+        const auto before = pointed_look(interaction_);
+        const LayerAnswer answer = take_pointer(kind, button, at, finger_reach);
+        return with_moved_look(answer, pointed_look(interaction_) != before, revision_);
     }
 
     /// Takes a key. A move of the focus redraws and does not call act. A key
@@ -2349,14 +2432,9 @@ class RegisteredKitScreen final : public LayerScreen {
     /// @param pressed the key
     /// @return what the screen did
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
-        const kit::KeyOutcome outcome = kit::key(interaction_, list_, pressed);
-        if (outcome.result == kit::KeyResult::redraw) {
-            ++revision_;
-            return LayerAnswer::redraw;
-        }
-        if (outcome.result == kit::KeyResult::to_control)
-            return take_act({outcome.control, outcome.key});
-        return take_act({kit::no_control, outcome.key});
+        const auto before = pointed_look(interaction_);
+        const LayerAnswer answer = take_key(pressed);
+        return with_moved_look(answer, pointed_look(interaction_) != before, revision_);
     }
 
     /// Takes a turn of the wheel, which the screen swallows.
@@ -2385,6 +2463,12 @@ class RegisteredKitScreen final : public LayerScreen {
     /// @return the revision
     [[nodiscard]] uint64_t revision() const override { return revision_; }
 
+    /// Tells that the screen draws its layout and its pointer and focus
+    /// alone, each change of which moves its revision.
+    ///
+    /// @return true
+    [[nodiscard]] bool revision_covers_drawing() const override { return true; }
+
     /// Tells the descriptor the screen closed, once.
     void close(bool /*by_key*/) override {
         if (closed_ || desc_.closed == nullptr)
@@ -2394,6 +2478,59 @@ class RegisteredKitScreen final : public LayerScreen {
     }
 
   private:
+
+    /// Takes a pointer's move, press or release, as pointer does, before
+    /// the look it moved is counted.
+    ///
+    /// @param kind pointer_move, pointer_down or pointer_up
+    /// @param button the pointer's button
+    /// @param at the pointer, in the screen's points
+    /// @param finger_reach a finger's reach in the screen's points; 0 for a mouse
+    /// @return what the screen did
+    LayerAnswer
+    take_pointer(ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach) {
+        kit::PointerOutcome outcome{};
+        switch (kind) {
+        case ScreenInputKind::pointer_move:
+            outcome = kit::pointer_move(interaction_, list_, at);
+            break;
+        case ScreenInputKind::pointer_down:
+            if (button != SDL_BUTTON_LEFT)
+                return LayerAnswer::none;
+            outcome = finger_reach > 0 ? kit::finger_down(interaction_, list_, at, finger_reach)
+                                       : kit::pointer_down(interaction_, list_, at);
+            break;
+        case ScreenInputKind::pointer_up:
+            if (button != SDL_BUTTON_LEFT)
+                return LayerAnswer::none;
+            outcome = kit::pointer_up(interaction_, list_, at);
+            break;
+        default:
+            return LayerAnswer::none;
+        }
+        if (outcome.result == kit::PointerResult::activated)
+            return take_act({outcome.control, kit::Key::enter});
+        if (outcome.result == kit::PointerResult::redraw) {
+            ++revision_;
+            return LayerAnswer::redraw;
+        }
+        return LayerAnswer::none;
+    }
+
+    /// Takes a key, as key does, before the look it moved is counted.
+    ///
+    /// @param pressed the key
+    /// @return what the screen did
+    LayerAnswer take_key(kit::Key pressed) {
+        const kit::KeyOutcome outcome = kit::key(interaction_, list_, pressed);
+        if (outcome.result == kit::KeyResult::redraw) {
+            ++revision_;
+            return LayerAnswer::redraw;
+        }
+        if (outcome.result == kit::KeyResult::to_control)
+            return take_act({outcome.control, outcome.key});
+        return take_act({kit::no_control, outcome.key});
+    }
 
     /// Gives one action to the descriptor. 0 changes nothing, 1 lays the
     /// screen out again, and 2 closes it. The layer calls close, which tells
@@ -2827,6 +2964,17 @@ uint32_t OaLayer::front_darkenings() const {
     );
 }
 
+void OaLayer::forget_kept_drawings() noexcept {
+    front_drawings_.clear();
+}
+
+uint64_t OaLayer::kept_drawing(const LayerScreen& screen) const noexcept {
+    for (const KeptDrawing& drawing : front_drawings_)
+        if (drawing.screen == screen.identity())
+            return drawing.drawing;
+    return 0;
+}
+
 void OaLayer::darken_front_end(renderer::Surface& frame) const {
     // A blend of the frame itself, in 256ths, for each: the same picture the
     // window shows at every size. A match is left as it is.
@@ -3088,6 +3236,8 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
     SDL_Renderer* sdl_renderer = runtime_.sdl_.renderer;
     lay_out_screens();
     const LayerView seen = view();
+    if (seen.match)
+        front_drawings_.clear();
     if (seen.match || !(area.w > 0.0F) || !(area.h > 0.0F))
         return;
     int output_width = 0;
@@ -3103,6 +3253,25 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
     layout::Rect bounds{};
     const std::vector<uint32_t> above = backdrops_above(seen);
     uint32_t darkenings = 0;
+    // What every screen is drawn in, besides its place and scale.
+    DrawingInputs common{};
+    common.fonts = runtime_.engine_settings_fonts();
+    const artless::RgbaPicture icon = runtime_.engine_settings_icon();
+    common.icon = icon.pixels.data();
+    common.icon_bytes = icon.pixels.size();
+    common.icon_width = icon.width;
+    common.icon_height = icon.height;
+    common.language = &oa::data::languages::interface_language();
+    common.languages = oa::data::languages::registry_generation();
+    common.interface_words = oa::data::languages::interface_generation();
+    const oa::present::TextSettings text = oa::present::game_text_settings();
+    common.modern_text = text.style.modern_fonts;
+    common.outline = text.style.outline;
+    common.shadow = text.style.shadow;
+    common.background = text.style.background;
+    common.text_size = text.style.size;
+    common.utf8 = text.utf8;
+    std::vector<KeptDrawing> kept_drawings;
     for (std::size_t index = 0; index < screens_.size(); ++index) {
         const auto& screen = *screens_[index];
         const LayerPlacement placed = screen.placement(seen);
@@ -3114,27 +3283,62 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         const layout::Rect window = intersection(placed.shown, output);
         if (empty_rect(window))
             continue;
-        FrontPiece piece{};
-        piece.shown = placed.shown;
         // Drawn at its own scale, as large as its place: the view's, or the
         // setup's.
-        piece.drawn = draw_screen(screen, placed, front_scale_of(placed, seen));
-        // Of a screen that is not opaque, only the part that holds what it
-        // drew: the rest is clear.
-        const layout::Rect drawn_part = drawn_bounds(piece.drawn);
+        const int32_t scale_percent = front_scale_of(placed, seen);
+        DrawingInputs inputs = common;
+        inputs.shown = {placed.shown.x, placed.shown.y, placed.shown.width, placed.shown.height};
+        inputs.points_width = placed.points_width;
+        inputs.points_height = placed.points_height;
+        inputs.placed_percent = placed.scale_percent;
+        inputs.scale_percent = scale_percent;
+        inputs.darkenings = above[index];
+        inputs.opaque = screen.opaque();
+        inputs.modern_fonts = scale_percent % 100 == 0 ? nullptr : smooth_fonts();
+        // A screen whose revision covers what it draws keeps its drawing
+        // while the revision and everything else it is drawn from hold;
+        // every other screen is drawn again.
+        const bool keeps = screen.revision_covers_drawing();
+        const uint64_t revision = keeps ? screen.revision() : 0;
+        const auto held =
+            std::find_if(front_drawings_.begin(), front_drawings_.end(), [&](const auto& drawing) {
+                return keeps && drawing.screen == screen.identity() &&
+                       drawing.revision == revision && drawing.inputs == inputs;
+            });
+        KeptDrawing drawing{};
+        if (held != front_drawings_.end()) {
+            drawing = *held;
+        } else {
+            LayerDrawing drawn = draw_screen(screen, placed, scale_percent);
+            // Of a screen that is not opaque, only the part that holds what
+            // it drew: the rest is clear.
+            drawing.drawn_part = drawn_bounds(drawn);
+            darken(drawn.picture, above[index], kit::menu_backdrop_opacity);
+            drawing.screen = screen.identity();
+            drawing.revision = revision;
+            drawing.inputs = inputs;
+            drawing.drawn = std::make_shared<const LayerDrawing>(std::move(drawn));
+            drawing.drawing = ++front_drawing_count_;
+        }
+        if (keeps)
+            kept_drawings.push_back(drawing);
+        FrontPiece piece{};
+        piece.shown = placed.shown;
         piece.window = intersection(
             window,
-            {placed.shown.x + drawn_part.x,
-             placed.shown.y + drawn_part.y,
-             drawn_part.width,
-             drawn_part.height}
+            {placed.shown.x + drawing.drawn_part.x,
+             placed.shown.y + drawing.drawn_part.y,
+             drawing.drawn_part.width,
+             drawing.drawn_part.height}
         );
         if (empty_rect(piece.window))
             continue;
-        darken(piece.drawn.picture, above[index], kit::menu_backdrop_opacity);
+        piece.drawn = std::move(drawing.drawn);
+        piece.drawing = drawing.drawing;
         bounds = union_rect(bounds, piece.window);
         look.pieces.push_back(std::move(piece));
     }
+    front_drawings_ = std::move(kept_drawings);
     // In the window's own pixels, not through the picture's logical
     // presentation; everything is put back for the cursor and the next frame.
     const RenderState kept(sdl_renderer);
@@ -3199,8 +3403,11 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         for (std::size_t index = 0; index < held.pieces.size(); ++index) {
             const auto& was = held.pieces[index];
             const auto& now = look.pieces[index];
-            if (!same_rect(was.window, now.window) || !same_rect(was.shown, now.shown) ||
-                !same_drawing(was.drawn, now.drawn))
+            if (!same_rect(was.window, now.window) || !same_rect(was.shown, now.shown))
+                return false;
+            // A drawing kept from before is the one uploaded; one drawn
+            // again is compared pixel by pixel.
+            if (was.drawing != now.drawing && !same_drawing(*was.drawn, *now.drawn))
                 return false;
         }
         return true;
@@ -3214,8 +3421,8 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
         // an opaque screen's copied, fully opaque; one that is not opaque
         // laid over what is already there (src over, straight colours).
         for (const auto& piece : look.pieces) {
-            const renderer::Surface& drawn = piece.drawn.picture;
-            const bool laid = !piece.drawn.opacity.empty();
+            const renderer::Surface& drawn = piece.drawn->picture;
+            const bool laid = !piece.drawn->opacity.empty();
             const int32_t first_column = piece.window.x - piece.shown.x;
             for (int32_t row = 0; row < piece.window.height; ++row) {
                 const auto source_row =
@@ -3229,7 +3436,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
                                    static_cast<std::size_t>(piece.window.x - bounds.x)) *
                                       4U;
                 if (laid) {
-                    const uint8_t* opacity = piece.drawn.opacity.data() + first;
+                    const uint8_t* opacity = piece.drawn->opacity.data() + first;
                     for (int32_t column = 0; column < piece.window.width; ++column) {
                         lay_over_layer(to, from, opacity[column]);
                         from += 3;

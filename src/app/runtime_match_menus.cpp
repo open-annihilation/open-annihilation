@@ -1562,37 +1562,73 @@ Runtime::side_panel_art_name(const std::string& side_gaf, const std::string& pag
     return stem + page_panel.substr(3);
 }
 
-bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::SidePage side_page) {
-    // A new panel's scroll bars are bound once it is placed.
-    hud_scrolls_ = {};
-    hud_scrolls_layout_ = nullptr;
-    hud_scrolls_count_ = 0;
+const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
+    auto panel = match_side_panel_gaf();
+    const auto tile = match_side_tile();
+    const auto font = match_side_font();
+    if (match_hud_art_ && match_hud_art_->tile == tile && match_hud_art_->panel == panel &&
+        match_hud_art_->font == font)
+        return &*match_hud_art_;
+    match_hud_art_.reset();
+    MatchHudArt art;
+    art.tile = tile;
+    art.panel = panel;
+    art.font = font;
     // A side whose section names no intgaf, or whose GAF lacks PANELTOP,
     // PANELSIDE or PANELBOT, is drawn without the missing pieces; 3.1c reads
     // the missing piece through a null entry as its load screen draws the
     // viewed side's panels, and faults. A GAF a mod lacks, or that cannot be
     // read, is drawn as none named.
-    auto panel = match_side_panel_gaf();
-    const auto tile = match_side_tile();
     for (;;) {
         try {
             // Command icons live in commongui.gaf; the side's chrome lives in
             // the GAF its intgaf names.
-            match_hud_ = renderer::load_screen(
-                assets_, {layout, tile, "palettes/guipal.pal", "anims/commongui.gaf", panel}
+            art.screen = renderer::load_screen_art(
+                assets_, {{}, tile, "palettes/guipal.pal", "anims/commongui.gaf", panel}
             );
             // The order buttons and the bars' words in the shown language.
-            caption_gaf_pictures("anims/commongui.gaf", match_hud_->sprites);
+            caption_gaf_pictures("anims/commongui.gaf", art.screen.sprites);
             if (!panel.empty())
-                caption_gaf_pictures(panel, match_hud_->shared_sprites);
+                caption_gaf_pictures(panel, art.screen.shared_sprites);
             break;
         } catch (const std::exception& error) {
             std::cerr << "match HUD '" << layout << "' unavailable: " << error.what() << '\n';
             if (panel.empty())
-                return false;
+                return nullptr;
             panel.clear();
         }
     }
+    art.read_panel = panel;
+    // A font a mod lacks, or that cannot be read, is drawn as none named
+    // (load_match_hud_layout).
+    if (!font.empty())
+        try {
+            art.side_font =
+                oa::ui::decoded::require(oa::formats::fnt::load_fnt(assets_, font), font);
+        } catch (const std::exception& error) {
+            std::cerr << "match font " << font << " unavailable: " << error.what() << '\n';
+        }
+    match_hud_art_ = std::move(art);
+    return &*match_hud_art_;
+}
+
+bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::SidePage side_page) {
+    // A new panel's scroll bars are bound once it is placed.
+    hud_scrolls_ = {};
+    hud_scrolls_layout_ = nullptr;
+    hud_scrolls_count_ = 0;
+    // Every page is drawn with the side's art, which is read once a match
+    // (match_hud_art): a page reads only its own GUI file and GAF.
+    const auto* art = match_hud_art(layout);
+    if (art == nullptr)
+        return false;
+    try {
+        match_hud_ = renderer::load_screen_layout(assets_, art->screen, layout);
+    } catch (const std::exception& error) {
+        std::cerr << "match HUD '" << layout << "' unavailable: " << error.what() << '\n';
+        return false;
+    }
+    const std::string& panel = art->read_panel;
     match_hud_panel_ = layout;
     match_hud_side_page_ = side_page;
     match_hud_authored_.clear();
@@ -1630,8 +1666,13 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
             std::make_move_iterator(own.sequences.end())
         );
     }
-    if (!panel.empty())
-        append_gaf_file(match_hud_->sprites, panel);
+    // The side's GAF's sequences come after commongui's, captioned as the
+    // shared sprites read from the same file are.
+    if (!panel.empty()) {
+        const auto& side = art->screen.shared_sprites.sequences;
+        auto& hud_sequences = match_hud_->sprites.sequences;
+        hud_sequences.insert(hud_sequences.end(), side.begin(), side.end());
+    }
     bind_gadget_gaf_art();
     for (auto& gadget : match_hud_->layout.gadgets) {
         // A gaffile button keeps its authored size.
@@ -1659,17 +1700,10 @@ bool Runtime::load_match_hud_layout(const std::string& layout, oa::ui::hud::Side
     // message lines, the font of the GUI text drawn last, or COMIX from the
     // load screen before any. The engine draws them in COMIX in every case.
     // A font a mod lacks, or that cannot be read, is drawn as none named.
-    auto side_font = match_side_font();
-    if (!side_font.empty())
-        try {
-            match_small_font_ =
-                oa::ui::decoded::require(oa::formats::fnt::load_fnt(assets_, side_font), side_font);
-        } catch (const std::exception& error) {
-            std::cerr << "match font " << side_font << " unavailable: " << error.what() << '\n';
-            side_font.clear();
-        }
-    match_side_names_font_ = !side_font.empty();
-    if (!match_side_names_font_)
+    match_side_names_font_ = art->side_font.has_value();
+    if (match_side_names_font_)
+        match_small_font_ = art->side_font;
+    else
         match_small_font_ = message_font_ ? message_font_ : small_font_;
     // The bars' rows are black from column 128 on under the side art and
     // the bars' art, as the game's screen is under its bars.
@@ -1973,7 +2007,9 @@ void Runtime::show_match_orders_page() {
     hud::order_panel_store(game, state);
     match_build_page_ = 0;
     status_ = "Orders";
-    render_match_surface();
+    // The HUD layer takes the page at once; the frame draws the match, the
+    // page with it, once.
+    compose_match_hud();
 }
 
 void Runtime::show_match_pause_menu() {

@@ -5,7 +5,8 @@
 // node index: a stored entry, LZ77 entries of exactly one chunk and of
 // several, a zlib entry just over one chunk, an empty entry, an encrypted
 // directory, the index checks, a chunk whose checksum no longer matches, and
-// entries whose claimed size the archive cannot hold.
+// entries whose claimed size the archive cannot hold; and ranges read
+// through a chunk table read once.
 // Archives are written by the engine's own writer into a temporary
 // directory.
 
@@ -160,6 +161,56 @@ bool refuses(const oa::HpiArchive& archive, uint32_t index) {
                oa::base::bytes::DecodeCode::out_of_range;
 }
 
+/// Checks that ranges read through a chunk table read once match the whole
+/// entry, and that a table is refused for a stored entry or another entry.
+///
+/// @param archive archive to read
+/// @param files the entries it holds
+void check_chunk_tables(const oa::HpiArchive& archive, const std::vector<oa::HpiWriteFile>& files) {
+    const auto stored = archive.lookup("readme.txt");
+    CHECK(
+        stored &&
+        archive.read_chunk_table(*stored).error.code == oa::base::bytes::DecodeCode::out_of_range
+    );
+    CHECK(archive.read_chunk_table(0).error.code == oa::base::bytes::DecodeCode::out_of_range);
+    const auto single = archive.lookup("data/single.bin");
+    const auto single_table = archive.read_chunk_table(single.value_or(0));
+    CHECK(single_table.ok() && single_table.value->offsets.size() == 2);
+    for (const auto& file : files) {
+        const auto index = archive.lookup(file.path);
+        if (!index || file.compression == oa::formats::hpi::CompressionNone)
+            continue;
+        const auto table = archive.read_chunk_table(*index);
+        CHECK(table.ok());
+        if (!table.ok())
+            continue;
+        const std::size_t chunks =
+            (file.bytes.size() + oa::formats::hpi::BlockBytes - 1) / oa::formats::hpi::BlockBytes;
+        CHECK(table.value->offsets.size() == chunks + 1);
+        // Ranges that start inside one block and end in the next.
+        constexpr std::size_t step = oa::formats::hpi::BlockBytes / 3 + 7;
+        Bytes joined;
+        for (std::size_t at = 0; at < file.bytes.size(); at += step) {
+            Bytes part(step);
+            const auto read =
+                archive.read_node_range(*index, static_cast<uint32_t>(at), part, *table.value);
+            CHECK(read.ok());
+            if (!read.ok())
+                break;
+            part.resize(*read.value);
+            joined.insert(joined.end(), part.begin(), part.end());
+        }
+        CHECK(joined == file.bytes);
+        if (single && *single != *index && single_table.ok() && !file.bytes.empty()) {
+            Bytes part(1);
+            CHECK(
+                archive.read_node_range(*index, 0, part, *single_table.value).error.code ==
+                oa::base::bytes::DecodeCode::out_of_range
+            );
+        }
+    }
+}
+
 /// Checks that every file record reads back as written and that other indices are refused.
 ///
 /// @param path archive to open
@@ -192,6 +243,7 @@ void check_round_trip(const fs::path& path) {
         CHECK(refuses(archive, *directory));
     }
     CHECK(refuses(archive, static_cast<uint32_t>(archive.nodes().size())));
+    check_chunk_tables(archive, files);
 }
 
 /// Checks read_node over plain and encrypted archives.

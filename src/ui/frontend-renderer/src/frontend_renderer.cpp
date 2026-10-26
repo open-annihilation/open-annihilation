@@ -21,9 +21,11 @@
 #include <filesystem>
 #include <limits>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string_view>
 #include <system_error>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -269,11 +271,43 @@ light_row_for(std::span<const uint8_t> light_table, uint16_t foreground_color) {
     return light_table.data() + static_cast<std::size_t>(foreground_color) * palette_color_count;
 }
 
+// A GAF frame's palette indices and coverage as formats::gaf::render_normal
+// draws them.
+struct FramePixels {
+    uint32_t width = 0;
+    uint32_t height = 0;
+    std::span<const uint8_t> pixels;
+    std::span<const uint8_t> coverage;
+};
+
+// Tells whether a frame is drawn as its own pixels: render_normal copies a
+// frame without layers that holds all its pixels as they are.
+[[nodiscard]] bool drawn_as_held(const formats::gaf::Frame& frame) noexcept {
+    const auto count = static_cast<std::size_t>(frame.width) * frame.height;
+    return frame.layers.empty() && frame.layer_count == 0 && count != 0 &&
+           count <= formats::gaf::limit::pixels_per_frame && frame.pixels.size() == count &&
+           frame.coverage.size() == count;
+}
+
+// Gives a frame's pixels as render_normal draws them: those of a frame drawn
+// as its own pixels, or those of the frame drawn into `rendered`. None when
+// the frame cannot be drawn, its error then in `rendered`.
+[[nodiscard]] std::optional<FramePixels>
+frame_pixels(const formats::gaf::Frame& frame, formats::gaf::RenderResult& rendered) {
+    if (drawn_as_held(frame))
+        return FramePixels{frame.width, frame.height, frame.pixels, frame.coverage};
+    rendered = formats::gaf::render_normal(frame);
+    if (!rendered.ok())
+        return std::nullopt;
+    const auto& drawn = *rendered.frame;
+    return FramePixels{drawn.width, drawn.height, drawn.pixels, drawn.coverage};
+}
+
 // Draws a frame's covered pixels through `light_row` when it is set, so a
 // button's GAF frame is lit as 3.1c draws it with a colour table.
 void blit(
     Surface& surface,
-    const formats::gaf::RenderedFrame& frame,
+    const FramePixels& frame,
     int x,
     int y,
     const PaletteBytes& palette,
@@ -318,7 +352,7 @@ void blit(
 // gadget rectangle (32xlogos is 32x32; Color_N is authored 20x20).
 void blit_stretched(
     Surface& surface,
-    const formats::gaf::RenderedFrame& frame,
+    const FramePixels& frame,
     int dest_x,
     int dest_y,
     int dest_w,
@@ -455,20 +489,15 @@ void draw_button_text(
         return;
     }
 
-    const auto pixel_count = static_cast<std::size_t>(surface.width) * surface.height;
-    std::vector<uint8_t> indices(pixel_count);
-    std::vector<uint8_t> coverage(pixel_count);
-    const formats::fnt::IndexedSurface target{
-        surface.width, surface.height, surface.width, indices, coverage
-    };
-    (void)formats::fnt::raster_text(target, selected_font, text, x, y);
-    for (std::size_t index = 0; index < pixel_count; ++index) {
-        if (coverage[index] == 0)
-            continue;
-        const int pixel_x = static_cast<int>(index % surface.width);
-        const int pixel_y = static_cast<int>(index / surface.width);
-        set_pixel(surface, pixel_x, pixel_y, palette_rgb(active_palette, indices[index]));
-    }
+    draw_fnt_glyphs(
+        surface,
+        selected_font,
+        text,
+        x,
+        y,
+        active_palette,
+        {0, 0, static_cast<int32_t>(surface.width) - 1, static_cast<int32_t>(surface.height) - 1}
+    );
     const bool centred =
         (attributes & (align_left | align_right)) == 0 && (attributes & align_center) != 0;
     if (!centred || condition == ButtonCondition::disabled)
@@ -589,29 +618,16 @@ void draw_clipped_text(
         used += width;
         ++fitted;
     }
-    text = text.substr(0, fitted);
-    const auto pixel_count = static_cast<std::size_t>(surface.width) * surface.height;
-    std::vector<uint8_t> indices(pixel_count);
-    std::vector<uint8_t> coverage(pixel_count);
-    const formats::fnt::IndexedSurface target{
-        surface.width, surface.height, surface.width, indices, coverage
-    };
-    (void)formats::fnt::raster_text(target, selected_font, text, x, y);
-    const int left = std::max(clip.left, 0);
-    const int right = std::min(clip.right, static_cast<int>(surface.width) - 1);
-    const int top = std::max(clip.top, 0);
-    const int bottom = std::min(clip.bottom, static_cast<int>(surface.height) - 1);
-    for (int row = top; row <= bottom; ++row) {
-        for (int column = left; column <= right; ++column) {
-            const auto offset =
-                static_cast<std::size_t>(row) * surface.width + static_cast<std::size_t>(column);
-            if (coverage[offset] == 0)
-                continue;
-            const auto source_index =
-                light_row != nullptr ? light_row[indices[offset]] : indices[offset];
-            set_pixel(surface, column, row, palette_rgb(active_palette, source_index));
-        }
-    }
+    draw_fnt_glyphs(
+        surface,
+        selected_font,
+        text.substr(0, fitted),
+        x,
+        y,
+        active_palette,
+        {clip.left, clip.top, clip.right, clip.bottom},
+        light_row
+    );
 }
 
 void light_rectangle(
@@ -628,22 +644,31 @@ void light_rectangle(
     const int right = std::min(rectangle.right, static_cast<int>(surface.width) - 1);
     const int top = std::max(rectangle.top, 0);
     const int bottom = std::min(rectangle.bottom, static_cast<int>(surface.height) - 1);
+    // Each colour is looked up in the palette once, the first time it is met.
+    std::unordered_map<uint32_t, std::array<uint8_t, 3>> lit;
     for (int y = top; y <= bottom; ++y)
         for (int x = left; x <= right; ++x) {
             const auto offset =
                 (static_cast<std::size_t>(y) * surface.width + static_cast<std::size_t>(x)) * 3U;
-            uint8_t source = 0;
-            for (std::size_t index = 0; index < palette_color_count; ++index) {
-                const auto color = index * palette_entry_bytes;
-                if (surface.rgb[offset] == palette[color] &&
-                    surface.rgb[offset + 1] == palette[color + 1] &&
-                    surface.rgb[offset + 2] == palette[color + 2]) {
-                    source = static_cast<uint8_t>(index);
-                    break;
+            const uint32_t drawn = static_cast<uint32_t>(surface.rgb[offset]) << 16 |
+                                   static_cast<uint32_t>(surface.rgb[offset + 1]) << 8 |
+                                   surface.rgb[offset + 2];
+            auto [entry, added] = lit.try_emplace(drawn);
+            if (added) {
+                uint8_t source = 0;
+                for (std::size_t index = 0; index < palette_color_count; ++index) {
+                    const auto color = index * palette_entry_bytes;
+                    if (surface.rgb[offset] == palette[color] &&
+                        surface.rgb[offset + 1] == palette[color + 1] &&
+                        surface.rgb[offset + 2] == palette[color + 2]) {
+                        source = static_cast<uint8_t>(index);
+                        break;
+                    }
                 }
+                entry->second =
+                    palette_rgb(palette, light_table[level * palette_color_count + source]);
             }
-            const auto transformed = light_table[level * palette_color_count + source];
-            const auto rgb = palette_rgb(palette, transformed);
+            const auto& rgb = entry->second;
             std::copy(
                 rgb.begin(), rgb.end(), surface.rgb.begin() + static_cast<std::ptrdiff_t>(offset)
             );
@@ -818,6 +843,58 @@ void shade_rectangle(Surface& surface, const Rectangle& rectangle, GrayedShade& 
     }
 }
 
+// Draws a grayed-out button's frame and darkens the frame's rectangle through
+// `shade`, as blit then shade_rectangle over that rectangle would: a covered
+// pixel takes its palette entry's darkened colour, found once per entry, and
+// an uncovered one its drawn colour's.
+void blit_grayed(
+    Surface& surface,
+    const FramePixels& frame,
+    int x,
+    int y,
+    const PaletteBytes& palette,
+    const uint8_t* light_row,
+    GrayedShade& shade
+) {
+    const auto pixel_count = static_cast<std::size_t>(frame.width) * frame.height;
+    if (frame.pixels.size() != pixel_count || frame.coverage.size() != pixel_count) {
+        throw std::runtime_error("rendered GAF frame has inconsistent buffers");
+    }
+    const auto frame_w = static_cast<int64_t>(frame.width);
+    const auto frame_h = static_cast<int64_t>(frame.height);
+    const auto first_column = std::max<int64_t>(0, -static_cast<int64_t>(x));
+    const auto first_row = std::max<int64_t>(0, -static_cast<int64_t>(y));
+    const auto end_column = std::min<int64_t>(frame_w, static_cast<int64_t>(surface.width) - x);
+    const auto end_row = std::min<int64_t>(frame_h, static_cast<int64_t>(surface.height) - y);
+    if (first_column >= end_column || first_row >= end_row ||
+        surface.rgb.size() < static_cast<std::size_t>(surface.width) * surface.height * 3U)
+        return;
+    std::array<std::array<uint8_t, 3>, palette_color_count> darkened{};
+    std::array<bool, palette_color_count> found{};
+    const auto* pixels = frame.pixels.data();
+    const auto* coverage = frame.coverage.data();
+    for (auto row = first_row; row < end_row; ++row) {
+        const auto source = static_cast<std::size_t>(row * frame_w);
+        auto* out = surface.rgb.data() + (static_cast<std::size_t>(y + row) * surface.width +
+                                          static_cast<std::size_t>(x + first_column)) *
+                                             3U;
+        for (auto column = first_column; column < end_column; ++column, out += 3) {
+            const auto offset = source + static_cast<std::size_t>(column);
+            if (coverage[offset] == 0) {
+                shade.darken(out);
+                continue;
+            }
+            const auto entry = light_row != nullptr ? light_row[pixels[offset]] : pixels[offset];
+            if (!found[entry]) {
+                darkened[entry] = palette_rgb(palette, entry);
+                shade.darken(darkened[entry].data());
+                found[entry] = true;
+            }
+            std::memcpy(out, darkened[entry].data(), 3U);
+        }
+    }
+}
+
 [[nodiscard]] int aligned_text_x(
     const ui::gui_layout::Gadget& gadget,
     std::string_view text,
@@ -972,9 +1049,39 @@ void draw_list_box(
     }
 }
 
+/// Lays a GUI layout out over a screen's art, its texts in the game's
+/// language, and binds its buttons as the panel's first draw does.
+///
+/// @param[in,out] screen The art; it takes the layout
+/// @param name The layout's name, for an error
+/// @param layout The layout's GUI file
+/// @throws std::runtime_error when the layout is malformed
+void lay_out_screen(
+    ScreenResources& screen, const std::string& name, std::span<const uint8_t> layout
+) {
+    // The panel's texts in the game's language, as 3.1c's GUI loader
+    // translates them.
+    auto parsed_layout = ui::gui_layout::parse(layout, ui::gui_layout::game_translation_lookup());
+    if (!parsed_layout.ok()) {
+        throw std::runtime_error(
+            "cannot parse GUI layout '" + name + "': " + parsed_layout.error->message
+        );
+    }
+    screen.layout = std::move(*parsed_layout.layout);
+    bind_screen_buttons(screen, 0);
+}
+
 ScreenResources load_screen_with_layout(
     AssetStore& assets, const ScreenAssetNames& names, std::span<const uint8_t> layout
 ) {
+    ScreenResources result = load_screen_art(assets, names);
+    lay_out_screen(result, names.layout, layout);
+    return result;
+}
+
+} // namespace
+
+ScreenResources load_screen_art(AssetStore& assets, const ScreenAssetNames& names) {
     ScreenResources result;
     if (!names.background.empty()) {
         // The background in the language's folder when the game data has it
@@ -992,16 +1099,6 @@ ScreenResources load_screen_with_layout(
         throw std::runtime_error("GUI palette must contain 256 four-byte RGB entries");
     }
     std::copy(palette.begin(), palette.end(), result.gui_palette.begin());
-
-    // The panel's texts in the game's language, as 3.1c's GUI loader
-    // translates them.
-    auto parsed_layout = ui::gui_layout::parse(layout, ui::gui_layout::game_translation_lookup());
-    if (!parsed_layout.ok()) {
-        throw std::runtime_error(
-            "cannot parse GUI layout '" + names.layout + "': " + parsed_layout.error->message
-        );
-    }
-    result.layout = std::move(*parsed_layout.layout);
 
     if (!names.sprites.empty()) {
         auto parsed_sprites = formats::gaf::parse(assets.read(names.sprites).bytes);
@@ -1044,11 +1141,16 @@ ScreenResources load_screen_with_layout(
         result.game_palette.emplace();
         std::copy(game.begin(), game.end(), result.game_palette->begin());
     }
-    bind_screen_buttons(result, 0);
     return result;
 }
 
-} // namespace
+ScreenResources
+load_screen_layout(AssetStore& assets, const ScreenResources& art, const std::string& layout) {
+    const auto bytes = assets.read(layout).bytes;
+    ScreenResources result = art;
+    lay_out_screen(result, layout, bytes);
+    return result;
+}
 
 std::string_view staged_caption(std::string_view text, std::size_t stage) noexcept {
     if (text.find('|') == std::string_view::npos)
@@ -1295,13 +1397,13 @@ void render_screen_into(
             const auto frame_index = *state->gaf_frame;
             if (frame_index >= binding.sequence->frames.size())
                 throw std::runtime_error("runtime image frame index is out of range");
-            const auto rendered =
-                formats::gaf::render_normal(binding.sequence->frames[frame_index]);
-            if (!rendered.ok())
+            formats::gaf::RenderResult rendered;
+            const auto pixels = frame_pixels(binding.sequence->frames[frame_index], rendered);
+            if (!pixels)
                 throw std::runtime_error("cannot render runtime image: " + rendered.error->message);
             blit_stretched(
                 result,
-                *rendered.frame,
+                *pixels,
                 gadget.common.x,
                 gadget.common.y,
                 gadget.common.width,
@@ -1355,22 +1457,59 @@ void render_screen_into(
             if (index >= sequence->frames.size()) {
                 throw std::runtime_error("resolved GAF frame index is out of range");
             }
-            const auto rendered = formats::gaf::render_normal(sequence->frames[index]);
-            if (!rendered.ok()) {
+            formats::gaf::RenderResult rendered;
+            const auto pixels = frame_pixels(sequence->frames[index], rendered);
+            if (!pixels) {
                 throw std::runtime_error(
                     "cannot render MAINMENU.GAF sequence '" + sequence->name +
                     "': " + rendered.error->message
                 );
             }
+            // A grayed-out button is grayed and darkened too, except one that
+            // cycles its frames or plain CHECKBOX art.
+            constexpr uint32_t checkbox_art_attribute = 0x80U;
+            const auto attributes = static_cast<uint32_t>(gadget.common.attributes);
+            const bool staged = button_fields != nullptr && button_fields->stages != 0;
+            const bool shaded =
+                (attributes & ui::gui_layout::attribute::cycle_frames) == 0 &&
+                (staged || (attributes & ui::gui_layout::attribute::scroll_step_mask) != 0 ||
+                 (attributes & checkbox_art_attribute) == 0);
+            const bool grayed =
+                condition == ButtonCondition::disabled && shaded && shade_palette != nullptr;
+            if (grayed) {
+                // The gray table is PALETTE.PAL's, else the shaded palette's.
+                if (!grayed_shade)
+                    grayed_shade.emplace(
+                        *shade_palette,
+                        remembered_gray_table(
+                            resources.game_palette.has_value() ? *resources.game_palette
+                                                               : *shade_palette
+                        ),
+                        resources.shade_table,
+                        grayed_shade_row
+                    );
+                // A button without a caption darkens its frame as it draws it.
+                if (grayed_shade->usable() &&
+                    (button_fields == nullptr || button_fields->text.empty())) {
+                    blit_grayed(
+                        result,
+                        *pixels,
+                        gadget.common.x,
+                        gadget.common.y,
+                        active_palette,
+                        light_row,
+                        *grayed_shade
+                    );
+                    continue;
+                }
+            }
             // The frame keeps its own size at the gadget's corner, however
             // the authored rectangle differs: NEWGAME's 160x160 side emblems
             // fill their frames from 132x106 Side0 and 129x104 Side1.
-            blit(
-                result, *rendered.frame, gadget.common.x, gadget.common.y, active_palette, light_row
-            );
+            blit(result, *pixels, gadget.common.x, gadget.common.y, active_palette, light_row);
             auto resolved_gadget = gadget;
-            resolved_gadget.common.width = static_cast<int16_t>(rendered.frame->width);
-            resolved_gadget.common.height = static_cast<int16_t>(rendered.frame->height);
+            resolved_gadget.common.width = static_cast<int16_t>(pixels->width);
+            resolved_gadget.common.height = static_cast<int16_t>(pixels->height);
             draw_button_text(
                 result,
                 resolved_gadget,
@@ -1383,29 +1522,8 @@ void render_screen_into(
                 underline,
                 state != nullptr && state->game_text
             );
-            // A grayed-out button is grayed and darkened too, except one that
-            // cycles its frames or plain CHECKBOX art.
-            constexpr uint32_t checkbox_art_attribute = 0x80U;
-            const auto attributes = static_cast<uint32_t>(gadget.common.attributes);
-            const bool staged = button_fields != nullptr && button_fields->stages != 0;
-            const bool shaded =
-                (attributes & ui::gui_layout::attribute::cycle_frames) == 0 &&
-                (staged || (attributes & ui::gui_layout::attribute::scroll_step_mask) != 0 ||
-                 (attributes & checkbox_art_attribute) == 0);
-            if (condition == ButtonCondition::disabled && shaded && shade_palette != nullptr) {
-                // The gray table is PALETTE.PAL's, else the shaded palette's.
-                if (!grayed_shade)
-                    grayed_shade.emplace(
-                        *shade_palette,
-                        remembered_gray_table(
-                            resources.game_palette.has_value() ? *resources.game_palette
-                                                               : *shade_palette
-                        ),
-                        resources.shade_table,
-                        grayed_shade_row
-                    );
+            if (grayed)
                 shade_rectangle(result, gadget_rectangle(resolved_gadget), *grayed_shade);
-            }
             continue;
         }
         // The plain face is the bevel even when the record is an empty hit target.

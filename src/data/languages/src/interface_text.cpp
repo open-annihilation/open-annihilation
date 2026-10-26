@@ -78,6 +78,7 @@ const char* copy_into(char*& at, std::string_view text) noexcept {
 struct Installed {
     const InterfaceText* catalogue{}; ///< null for English alone
     const Language* language{};       ///< null before any is installed
+    uint64_t generation{};            ///< counts the installations
 };
 
 /// The one installation the interface reads.
@@ -279,12 +280,19 @@ std::size_t InterfaceText::size() const noexcept {
 }
 
 void set_interface_language(const InterfaceText* catalogue, const Language& language) noexcept {
-    installed() = {catalogue, &language};
+    Installed& state = installed();
+    state.catalogue = catalogue;
+    state.language = &language;
+    ++state.generation;
 }
 
 const Language& interface_language() noexcept {
     const Language* language = installed().language;
     return language != nullptr ? *language : english();
+}
+
+uint64_t interface_generation() noexcept {
+    return installed().generation;
 }
 
 std::string_view interface_text_in(std::string_view english, const Language& language) {
