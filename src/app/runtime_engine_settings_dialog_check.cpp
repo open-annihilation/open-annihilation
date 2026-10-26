@@ -1403,9 +1403,12 @@ void Runtime::check_engine_settings_dialog() {
     expected_keys.emplace(std::string(settings::key::fog_of_war), "classic");
     const auto saved = oa::platform::preferences::load(preference_path_);
     require(engine_keys(saved) == expected_keys, "OK did not save exactly the settings changed");
+    // The preferences load writes SwitchAlt's default, 0, into 3.1c's own
+    // key before the dialog opens. Controls no longer shows that switch, so
+    // OK leaves the key as the load stored it.
     require(
-        saved_general_number("SwitchAlt") == -1,
-        "OK wrote SwitchAlt though Controls no longer shows it"
+        saved_general_number("SwitchAlt") == 0,
+        "OK changed SwitchAlt though Controls no longer shows it"
     );
     dialog = open("again");
     require(
