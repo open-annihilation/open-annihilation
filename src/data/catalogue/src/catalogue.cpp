@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/data/catalogue/catalogue.hpp"
+#include "catalogue_document.hpp"
 
 #include "oa/base/sha256.hpp"
 #include "oa/base/signing/ed25519.hpp"
@@ -65,6 +66,9 @@ std::string_view bytes_as_text(std::span<const uint8_t> bytes) {
     return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
 }
 
+/// The most members of an object whose names are compared pair by pair.
+constexpr std::size_t few_members = 16;
+
 /// Reports whether every object in the tree names each of its members once.
 bool members_unique(const json::Json& value) {
     if (value.type() == json::JsonType::array) {
@@ -77,11 +81,20 @@ bool members_unique(const json::Json& value) {
     if (value.type() != json::JsonType::object)
         return true;
     const auto names = value.names();
-    for (std::size_t index = 0; index < names.size(); ++index) {
-        for (std::size_t earlier = 0; earlier < index; ++earlier) {
-            if (names[earlier] == names[index])
-                return false;
+    if (names.size() <= few_members) {
+        for (std::size_t index = 0; index < names.size(); ++index) {
+            for (std::size_t earlier = 0; earlier < index; ++earlier) {
+                if (names[earlier] == names[index])
+                    return false;
+            }
         }
+    } else {
+        // A map's compatible list names a hundred games; its names are
+        // sorted to find a repeated one.
+        std::vector<std::string_view> sorted(names.begin(), names.end());
+        std::sort(sorted.begin(), sorted.end());
+        if (std::adjacent_find(sorted.begin(), sorted.end()) != sorted.end())
+            return false;
     }
     for (const json::Json& child : value.values()) {
         if (!members_unique(child))
@@ -1814,9 +1827,18 @@ struct Kept {
 
 } // namespace
 
-bool read_catalogue(std::span<const uint8_t> bytes, Catalogue& out, std::string* error) {
+std::optional<json::Json> parse_catalogue_json(std::span<const uint8_t> bytes) {
     json::JsonError json_error;
-    const auto root = json::parse_json(bytes_as_text(bytes), json_error);
+    return json::parse_json(bytes_as_text(bytes), json_error);
+}
+
+bool read_catalogue(std::span<const uint8_t> bytes, Catalogue& out, std::string* error) {
+    return read_parsed_catalogue(parse_catalogue_json(bytes), out, error);
+}
+
+bool read_parsed_catalogue(
+    const std::optional<json::Json>& root, Catalogue& out, std::string* error
+) {
     if (!root)
         return refuse(error, "the catalogue is not JSON");
     if (root->type() != json::JsonType::object)

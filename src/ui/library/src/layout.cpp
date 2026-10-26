@@ -32,6 +32,8 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -334,8 +336,10 @@ struct Building {
     std::vector<kit::ControlId> order{}; ///< Tab's order, built in the order it is declared
     /// Tab's order while the chooser is open: its rows and buttons only.
     std::vector<kit::ControlId> chooser_order{};
-    std::vector<std::string> names{}; ///< the names given so far
-    std::optional<OpenMenu> open{};   ///< the open drop-down
+    std::unordered_set<std::string> names{}; ///< the names given so far
+    /// For each name wanted, the first count after it not yet tried.
+    std::unordered_map<std::string, int32_t> next_count{};
+    std::optional<OpenMenu> open{}; ///< the open drop-down
 };
 
 /// Returns a name no control of the layout has yet, the name itself or with
@@ -345,12 +349,15 @@ struct Building {
 /// @param name the name wanted
 /// @return the name given
 std::string unique_name(Building& building, std::string name) {
-    std::string given = name;
-    for (int32_t count = 2;
-         std::find(building.names.begin(), building.names.end(), given) != building.names.end();
-         ++count)
-        given = name + "-" + std::to_string(count);
-    building.names.push_back(given);
+    if (building.names.insert(name).second)
+        return name;
+    // Names are never taken back, so every count below the one recorded is
+    // still taken.
+    int32_t& count = building.next_count.try_emplace(name, 2).first->second;
+    std::string given = name + "-" + std::to_string(count);
+    while (!building.names.insert(given).second)
+        given = name + "-" + std::to_string(++count);
+    ++count;
     return given;
 }
 

@@ -301,6 +301,32 @@ static_assert(brain_default.find('|') == std::string_view::npos);
 static_assert(brains_skirmish.find('|') == std::string_view::npos);
 static_assert(brains_multiplayer.find('|') == std::string_view::npos);
 static_assert(brains_campaign.find('|') == std::string_view::npos);
+/// How long a key is held before it counts, in milliseconds. 0 waits nothing.
+inline constexpr std::string_view access_slow_keys = "open-annihilation.access.slow-keys-ms";
+/// How soon a second press of the same key is ignored, in milliseconds. 0 ignores nothing.
+inline constexpr std::string_view access_bounce_keys = "open-annihilation.access.bounce-keys-ms";
+/// How far apart two presses may be and still be a double press, in milliseconds.
+/// 0 uses the system's double-click time.
+inline constexpr std::string_view access_double_press = "open-annihilation.access.double-press-ms";
+/// How long a hold waits, in milliseconds.
+inline constexpr std::string_view access_long_press = "open-annihilation.access.long-press-ms";
+/// How long a repeating key waits before its first repeat, in milliseconds.
+/// 0 uses the system's repeat.
+inline constexpr std::string_view access_repeat_delay = "open-annihilation.access.repeat-delay-ms";
+/// How many times a second a repeating key repeats after that delay.
+/// 0 uses the system's repeat.
+inline constexpr std::string_view access_repeat_rate = "open-annihilation.access.repeat-rate";
+/// How far a drag may travel and still be a click, in pixels of the 640×480 game.
+inline constexpr std::string_view access_drag_threshold = "open-annihilation.access.drag-threshold";
+static_assert(access_slow_keys.find('|') == std::string_view::npos);
+static_assert(access_bounce_keys.find('|') == std::string_view::npos);
+static_assert(access_double_press.find('|') == std::string_view::npos);
+static_assert(access_long_press.find('|') == std::string_view::npos);
+static_assert(access_repeat_delay.find('|') == std::string_view::npos);
+static_assert(access_repeat_rate.find('|') == std::string_view::npos);
+static_assert(access_drag_threshold.find('|') == std::string_view::npos);
+static_assert(access_slow_keys.find('\\') == std::string_view::npos);
+static_assert(access_drag_threshold.find('\\') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
@@ -1039,6 +1065,28 @@ enum class UpdateCheck : uint8_t {
     never,         ///< the player asks, and CHECK NOW is not offered
 };
 
+/// Coloured weapon lighting's percent with Hardware acceleration Full where
+/// the preferences store none (default_effect_intensity).
+inline constexpr uint32_t default_weapon_lighting = 20;
+/// Nanolathe glow's percent with Hardware acceleration Full where the
+/// preferences store none.
+inline constexpr uint32_t default_nanolathe_lighting = 20;
+/// Wreck glow's percent with Hardware acceleration Full where the
+/// preferences store none.
+inline constexpr uint32_t default_wreck_glow = 30;
+/// Heat distortion's percent with Hardware acceleration Full where the
+/// preferences store none.
+inline constexpr uint32_t default_heat_distortion = 40;
+/// Water ripples' percent where the preferences store none, at every
+/// Hardware acceleration.
+inline constexpr uint32_t default_water_ripples = 60;
+/// Coastal waves' percent where the preferences store none.
+inline constexpr uint32_t default_coastal_waves = 30;
+/// Underwater shimmer's percent where the preferences store none.
+inline constexpr uint32_t default_underwater_shimmer = 100;
+/// Naval reflections' percent where the preferences store none.
+inline constexpr uint32_t default_naval_reflections = 100;
+
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
     /// Path nodes the path search may visit in a game tick, all players
@@ -1130,13 +1178,13 @@ struct EngineSettings {
     /// 0 as constructed, where acceleration is Off (default_effect_intensity).
     uint32_t heat_distortion{};
     /// Water ripples intensity, in percent.
-    uint32_t water_ripples{100};
+    uint32_t water_ripples{default_water_ripples};
     /// Coastal waves intensity, in percent.
-    uint32_t coastal_waves{100};
+    uint32_t coastal_waves{default_coastal_waves};
     /// Underwater shimmer intensity, in percent.
-    uint32_t underwater_shimmer{100};
+    uint32_t underwater_shimmer{default_underwater_shimmer};
     /// Naval reflections intensity, in percent.
-    uint32_t naval_reflections{100};
+    uint32_t naval_reflections{default_naval_reflections};
 
     /// How the menus are enlarged to the window.
     MenuScaling menu_scaling{MenuScaling::sharp};
@@ -1241,6 +1289,24 @@ struct EngineSettings {
     /// copy of NumSkirmishPlayers: read_settings and write_settings leave it
     /// out, and OK stores it as that one count.
     int32_t skirmish_players{default_skirmish_players};
+    /// How long a key is held before it counts, in milliseconds. 0 waits nothing.
+    /// A key is never delayed while text is being typed, and a mouse button never is.
+    uint32_t slow_keys_ms{0};
+    /// How soon a second press of the same key is ignored, in milliseconds. 0 ignores nothing.
+    uint32_t bounce_keys_ms{0};
+    /// How far apart two presses may be and still be a double press, in milliseconds.
+    /// 0 uses the system's double-click time, which is 500 ms for a `:double` chord.
+    uint32_t double_press_ms{0};
+    /// How long a hold waits, in milliseconds.
+    uint32_t long_press_ms{500};
+    /// How long a repeating key waits before its first repeat, in milliseconds.
+    /// 0, or a repeat rate of 0, leaves the system's repeat in place.
+    uint32_t repeat_delay_ms{0};
+    /// How many times a second a repeating key repeats. 0 uses the system's repeat.
+    uint32_t repeat_rate{0};
+    /// How far a drag may travel and still be a click, in pixels of the 640×480 game.
+    /// The tick limit widens in proportion with it.
+    uint32_t drag_threshold{32};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };
@@ -1329,34 +1395,14 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// relative, Pointer speed default_pointer_speed, Pointer acceleration Low,
 /// Trackpad glide Off, Right stick Zoom and build pages, Magnetism On, Gyro
 /// pointer Off, Gyro speed default_gyro_speed, Haptics Light, Button prompts
-/// Automatic and Left-handed Off (oa/ui/pad_controls.hpp).
+/// Automatic and Left-handed Off (oa/ui/pad_controls.hpp). Slow keys and
+/// bounce keys are off, a double press and key repeat use the system's, a
+/// long press waits 500 ms and a drag of 32 pixels of the 640×480 game is
+/// still a click.
 ///
 /// @param inputs the platform, the preferences file and the installation
 /// @return the defaults
 [[nodiscard]] EngineSettings default_settings(const Inputs& inputs);
-
-/// Returns the percent Coloured weapon lighting, Nanolathe glow, Wreck glow
-/// and Heat distortion read as when none is stored: 100 with Hardware
-/// acceleration Full and 0 below it, so a battlefield drawn without Full
-/// keeps the game's own look until the player turns an effect on.
-///
-/// @param acceleration the Hardware acceleration setting
-/// @return 100 or 0
-[[nodiscard]] constexpr uint32_t
-default_effect_intensity(HardwareAcceleration acceleration) noexcept {
-    return acceleration == HardwareAcceleration::full ? 100U : 0U;
-}
-
-/// Moves the four effects with Hardware acceleration: leaving Full sets
-/// Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat distortion
-/// to 0%, and reaching Full sets them to 100%. A change that neither leaves
-/// nor reaches Full leaves them, so a player may turn them on below Full.
-///
-/// @param[in,out] settings the settings after the change
-/// @param before Hardware acceleration before the change
-void follow_acceleration_with_effects(
-    EngineSettings& settings, HardwareAcceleration before
-) noexcept;
 
 /// A Graphics effect drawn at a percent, from 0% to 200% in steps of 10%.
 struct EffectSlider {
@@ -1365,22 +1411,58 @@ struct EffectSlider {
     std::string_view name{};
     uint32_t EngineSettings::* percent{}; ///< its percent in the settings
     /// With no stored percent it reads as its acceleration gives
-    /// (default_effect_intensity), rather than as a fixed default.
+    /// (default_effect_intensity), rather than as its default alone.
     bool follows_acceleration{};
+    /// Its percent with Hardware acceleration Full where the preferences
+    /// store none, such as default_weapon_lighting.
+    uint32_t full_default{};
 };
 
 /// Every effect drawn at a percent: Coloured weapon lighting, Nanolathe
 /// glow, Wreck glow and Heat distortion, then the water's four.
 inline constexpr std::array<EffectSlider, 8> effect_sliders{{
-    {"weapon-lighting", &EngineSettings::weapon_lighting, true},
-    {"nanolathe-lighting", &EngineSettings::nanolathe_lighting, true},
-    {"wreck-glow", &EngineSettings::wreck_glow, true},
-    {"heat-distortion", &EngineSettings::heat_distortion, true},
-    {"water-ripples", &EngineSettings::water_ripples, false},
-    {"coastal-waves", &EngineSettings::coastal_waves, false},
-    {"underwater-shimmer", &EngineSettings::underwater_shimmer, false},
-    {"naval-reflections", &EngineSettings::naval_reflections, false},
+    {"weapon-lighting", &EngineSettings::weapon_lighting, true, default_weapon_lighting},
+    {"nanolathe-lighting", &EngineSettings::nanolathe_lighting, true, default_nanolathe_lighting},
+    {"wreck-glow", &EngineSettings::wreck_glow, true, default_wreck_glow},
+    {"heat-distortion", &EngineSettings::heat_distortion, true, default_heat_distortion},
+    {"water-ripples", &EngineSettings::water_ripples, false, default_water_ripples},
+    {"coastal-waves", &EngineSettings::coastal_waves, false, default_coastal_waves},
+    {"underwater-shimmer", &EngineSettings::underwater_shimmer, false, default_underwater_shimmer},
+    {"naval-reflections", &EngineSettings::naval_reflections, false, default_naval_reflections},
 }};
+
+/// Returns the percent an effect reads as when none is stored: its own
+/// default with Hardware acceleration Full (EffectSlider::full_default).
+/// Below Full, Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
+/// distortion read 0, so a battlefield drawn without Full keeps the game's
+/// own look until the player turns an effect on; the water's four, locked
+/// there, keep their default.
+///
+/// @param percent the effect's percent in the settings (EffectSlider::percent)
+/// @param acceleration the Hardware acceleration setting
+/// @return 0 to 200; 0 for a field that is no effect's
+[[nodiscard]] constexpr uint32_t default_effect_intensity(
+    uint32_t EngineSettings::* percent, HardwareAcceleration acceleration
+) noexcept {
+    for (const EffectSlider& slider : effect_sliders)
+        if (slider.percent == percent)
+            return slider.follows_acceleration && acceleration != HardwareAcceleration::full
+                       ? 0U
+                       : slider.full_default;
+    return 0U;
+}
+
+/// Moves the four effects with Hardware acceleration: leaving Full sets
+/// Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat distortion
+/// to 0%, and reaching Full sets each to its own default there
+/// (default_effect_intensity). A change that neither leaves nor reaches Full
+/// leaves them, so a player may turn them on below Full.
+///
+/// @param[in,out] settings the settings after the change
+/// @param before Hardware acceleration before the change
+void follow_acceleration_with_effects(
+    EngineSettings& settings, HardwareAcceleration before
+) noexcept;
 
 /// Sets each effect that follows acceleration (EffectSlider) and whose
 /// percent the preferences do not store, nor its earlier On or Off, to the
@@ -1423,7 +1505,14 @@ void follow_acceleration_with_unset_effects(
 /// read from the key that Inputs::profile_id ends, as
 /// oa::data::mod_profile::read_overrides reads them: none without the key,
 /// from a text the profile grammar does not read as a mapping (one that
-/// names a hack twice among them), or with an empty profile id. In the
+/// names a hack twice among them), or with an empty profile id. Slow keys
+/// and bounce keys are 0 to 1,000 ms, a double press is 0 for the system's
+/// or else 200 to 1,000, a long press is 200 to 1,000, a repeat delay is 0
+/// for the system's or else 150 to 1,000, a repeat rate is 0 for the
+/// system's or else 2 to 30 a second, and the drag threshold is 32 to 96
+/// pixels of the 640×480 game. A value below a range that does not keep
+/// zero is raised to the range's start, and one above it is lowered to its
+/// end. In the
 /// Touch section, One-finger drag and QUEUE and ADD read the words
 /// touch_drag_text and touch_latches_text write, and any other value gives
 /// the default; the hold delay reads as a number, put on its nearest stop

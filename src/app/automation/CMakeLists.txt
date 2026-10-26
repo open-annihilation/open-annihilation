@@ -187,6 +187,15 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
       --scratch-root "${oa_automation_checks}")
     set_tests_properties(native-automation-digest PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # The MCP server (tools/mcp), started as an MCP client starts it, starts
+    # the game on the dummy drivers and drives it through the endpoint: from
+    # the main menu to Single Player and back, with a picture and the screen
+    # events, and quits it.
+    add_test(NAME native-mcp-server COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_mcp_server.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_automation_checks}")
+    set_tests_properties(native-mcp-server PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
     # A skirmish with --status-stdout --quit-after-game: hello, a screen, the
     # match starting, game_over with each player's result, and exit, and
     # nothing else on standard output. The process exits 0.

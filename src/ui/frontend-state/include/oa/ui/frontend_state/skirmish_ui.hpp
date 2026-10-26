@@ -297,6 +297,16 @@ int32_t alliance_members(const Settings& settings, int32_t alliance);
 /// @throws std::invalid_argument for a slot_count outside 0..11.
 void update_alliance_images(const Settings& settings, Host& h);
 
+/// Cycles a slot's controller as 3.1c does: disabled, computer, then human when none
+/// is human. A slot that becomes enabled with a colour in use takes the first unused
+/// colour; the side is left as it is.
+///
+/// @param[in,out] settings Skirmish settings.
+/// @param slot Slot index.
+/// @param[in,out] h Routines the panel calls.
+/// @throws std::out_of_range for a slot outside slot_count.
+void cycle_player(Settings& settings, int32_t slot, Host& h);
+
 /// Cycles a slot's controller: disabled, computer, then human when none is human.
 ///
 /// A slot that becomes enabled with a colour in use takes the first unused colour.

@@ -189,6 +189,11 @@ struct CaptureCopy {
     /// they lie side by side in the frame, as at a scale of 1, so that a
     /// row of a tile compares and copies as one run.
     bool columns_side_by_side{};
+    /// True when the copy's columns lie side by side in the frame, as when
+    /// the bridge is drawn smaller than its 8-bit view, so that the copy's
+    /// part of a row of a tile compares as one run even where several
+    /// 8-bit columns share a column of the copy.
+    bool copy_columns_side_by_side{};
     /// True when each 8-bit pixel captures from the one frame pixel it is
     /// written back to, as at a scale of 1 over a rectangle inside the
     /// frame, so that bridge_end brings the copy up to date with the pixels

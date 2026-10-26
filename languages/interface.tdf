@@ -9746,6 +9746,22 @@
 	it=Passare a {title} ora? Il gioco ricarica i dati per il nuovo mod e torna al menu principale. Le altre impostazioni restano.;
 	}
 
+[Switching off {name}…]
+	{
+	de={name} wird ausgeschaltet…;
+	fr=Désactivation de {name}…;
+	es=Desactivando {name}…;
+	it=Disattivazione di {name}…;
+	}
+
+[Switching on {name}…]
+	{
+	de={name} wird eingeschaltet…;
+	fr=Activation de {name}…;
+	es=Activando {name}…;
+	it=Attivazione di {name}…;
+	}
+
 [Switching to {name} restarts the game's files, then loads this save.]
 	{
 	de=Der Wechsel zu {name} lädt die Spieldateien neu und dann diesen Spielstand.;

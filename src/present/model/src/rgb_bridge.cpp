@@ -490,11 +490,12 @@ void lay_out_copy(RgbBridge& bridge) {
     copy.written_in_place = bridge.scale == 1.0F && bridge.area.x1 >= 0 && bridge.area.y1 >= 0 &&
                             bridge.area.x2 < bridge.frame.width &&
                             bridge.area.y2 < bridge.frame.height;
-    copy.columns_side_by_side = copy.width == width;
-    for (int32_t x = 1; copy.columns_side_by_side && x < width; ++x)
-        copy.columns_side_by_side =
-            copy.frame_columns[static_cast<std::size_t>(x)] ==
-            copy.frame_columns[static_cast<std::size_t>(x - 1)] + pixel_bytes;
+    copy.copy_columns_side_by_side = true;
+    for (int32_t column = 1; copy.copy_columns_side_by_side && column < copy.width; ++column)
+        copy.copy_columns_side_by_side =
+            copy.frame_columns[static_cast<std::size_t>(column)] ==
+            copy.frame_columns[static_cast<std::size_t>(column - 1)] + pixel_bytes;
+    copy.columns_side_by_side = copy.width == width && copy.copy_columns_side_by_side;
     const auto size = static_cast<std::size_t>(copy.width) * static_cast<std::size_t>(copy.height);
     if (copy.indices.size() < size) {
         copy.colours.resize(size * pixel_bytes);
@@ -516,6 +517,8 @@ void map_tile(
     const int32_t y1 = std::min(y0 + bridge_tile_side, bridge.surface.height);
     const int32_t first = copy.column_of[static_cast<std::size_t>(x0)];
     const int32_t count = x1 - x0;
+    // The copy row the tile's row above mapped, while its rows share one.
+    int32_t mapped_row = -1;
     for (int32_t y = y0; y < y1; ++y) {
         const int32_t row = copy.row_of[static_cast<std::size_t>(y)];
         const uint8_t* frame_row =
@@ -540,6 +543,38 @@ void map_tile(
                 copy_tile_row(baseline + x0, indices + first, count);
                 copy_tile_row(pixels + x0, indices + first, count);
             }
+            continue;
+        }
+        if (copy.copy_columns_side_by_side) {
+            // The copy's columns of the tile lie side by side in the frame:
+            // they compare as one run, each mapped once, and an 8-bit row
+            // that shares its copy row with the row above repeats it.
+            if (row == mapped_row) {
+                if (start_pixels) {
+                    const std::ptrdiff_t above = -static_cast<std::ptrdiff_t>(bridge.surface.pitch);
+                    copy_tile_row(baseline + x0, baseline + above + x0, count);
+                    copy_tile_row(pixels + x0, pixels + above + x0, count);
+                }
+                continue;
+            }
+            mapped_row = row;
+            const int32_t last = copy.column_of[static_cast<std::size_t>(x1 - 1)];
+            const int32_t columns = last - first + 1;
+            const uint8_t* source = frame_row + copy.frame_columns[static_cast<std::size_t>(first)];
+            const uint8_t* kept = colours + static_cast<std::ptrdiff_t>(first) * pixel_bytes;
+            if (!mapped ||
+                !same_bytes(kept, source, static_cast<std::size_t>(columns) * pixel_bytes))
+                for (int32_t i = 0; i < columns; ++i)
+                    if (!mapped || colour_differs(kept + i * pixel_bytes, source + i * pixel_bytes))
+                        map_pixel(
+                            bridge, scope, colours, indices, first + i, source + i * pixel_bytes
+                        );
+            if (start_pixels)
+                for (int32_t x = x0; x < x1; ++x) {
+                    const uint8_t index = indices[copy.column_of[static_cast<std::size_t>(x)]];
+                    baseline[x] = index;
+                    pixels[x] = index;
+                }
             continue;
         }
         for (int32_t x = x0; x < x1; ++x) {

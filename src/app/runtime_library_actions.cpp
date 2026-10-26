@@ -67,6 +67,24 @@ void library_log(std::string_view line) {
     std::cerr << "open-annihilation: library: " << line << '\n';
 }
 
+/// The hole in the switch's line that the mod's name fills.
+constexpr std::string_view kNameHole = "{name}";
+
+/// Returns what the progress dialog says while a switch of the mod applies,
+/// in the language shown.
+///
+/// @param on the mod is switched on; false switches it off
+/// @param name the mod's name
+/// @return the line, such as "Switching on Ridge…"
+std::string switching_line(bool on, std::string_view name) {
+    std::string line(
+        oa::data::languages::interface_text(on ? "Switching on {name}…" : "Switching off {name}…")
+    );
+    if (const std::size_t hole = line.find(kNameHole); hole != std::string::npos)
+        line.replace(hole, kNameHole.size(), name);
+    return line;
+}
+
 /// Returns the place of a question's button with an id.
 ///
 /// @param question the question
@@ -208,8 +226,13 @@ void Runtime::library_entry_action(library::Action action, const library::EntryI
     if (action == library::Action::play_now && !base_game) {
         if (!library::package_can_run(host.model, *found))
             return;
+        // The Library opens again after the soft restart, as it shows now.
+        keep_library_for_restart();
+        restart_line_ = switching_line(true, library::entry_name(*found));
         std::string refusal;
         if (!switch_to_mod_folder(folder, refusal)) {
+            library_kept_.reset();
+            restart_line_.clear();
             status_ = refusal;
             library_log("PLAY NOW: " + refusal);
             // The refusal is told over the Library, under the Switch Mod
@@ -235,12 +258,24 @@ void Runtime::library_entry_action(library::Action action, const library::EntryI
         // SWITCH plays none. PLAY NOW on the base game entry asks it too.
         oa::ui::kit::Question asked = library::switch_off_question(host.model.text);
         const int32_t switch_button = button_named(asked, library::switch_button_id);
+        // The mod switched off: the one played, which PLAY NOW on the base
+        // game entry leaves too.
+        std::string played_name(library::entry_name(*found));
+        for (const library::Entry& each : host.model.entries)
+            if (each.id.kind == library::Kind::mod && each.state == library::State::playing &&
+                !library::is_base_game(each.id))
+                played_name = std::string(library::entry_name(each));
         QuestionScreen::Host answers;
-        answers.answer = [this, switch_button](int32_t button) {
+        answers.answer = [this, switch_button, played_name](int32_t button) {
             if (button != switch_button)
                 return true;
+            // The Library opens again after the soft restart, as it shows now.
+            keep_library_for_restart();
+            restart_line_ = switching_line(false, played_name);
             std::string refusal;
             if (!switch_to_mod_folder({}, refusal)) {
+                library_kept_.reset();
+                restart_line_.clear();
                 status_ = refusal;
                 library_log("SWITCH OFF: " + refusal);
             }

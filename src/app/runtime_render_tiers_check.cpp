@@ -34,6 +34,7 @@
 #include "match_models.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
+#include "renderer_effect_sources.hpp"
 #include "runtime_full.hpp"
 #include "xrgb_conversion.hpp"
 
@@ -1614,6 +1615,57 @@ int Runtime::check_render_tiers() {
                       << weapon_registry_.name(*lens_weapon) << " and "
                       << weapon_registry_.name(*laser_weapon) << '\n';
         }
+    }
+    // A weapon lights in the colour its shot is drawn in: the Arm
+    // commander's laser, whose colour is red in the interface palette its
+    // beam is drawn in and pale green as an entry of the battlefield
+    // palette, lights red. Its shot alone is in the pool, at the local
+    // unit's place; the match's own pool is put back after.
+    if (const auto* laser = weapon_registry_.find("ARMCOMLASER"); !laser) {
+        std::cout << "render tiers check: the data has no ARMCOMLASER; the colour of a laser's "
+                     "light is not checked\n";
+    } else {
+        oa::World& world = match_->state();
+        const int32_t match_count = world.game.projectile_count;
+        const oa::Projectile match_shot = world.projectiles[0];
+        oa::Projectile shot{};
+        shot.def = static_cast<oa_ref32>(laser->registry_index) + 1U;
+        shot.position = oa::world_unit_at(&world, anchor)->position;
+        shot.origin = shot.position;
+        shot.origin.x += lens_check_laser_length;
+        world.projectiles[0] = shot;
+        world.game.projectile_count = 1;
+        at_zoom(1.0F);
+        std::ignore = presented();
+        const auto beam = ui_color_rgb(laser->color);
+        const auto& lines = match_models().draws.lines;
+        const bool drawn = std::any_of(lines.begin(), lines.end(), [&](const LineDraw& line) {
+            return line.color == beam;
+        });
+        std::optional<renderer_effect_sources::Source> light;
+        for (const auto& source : collect_match_effect_sources())
+            if (source.origin == renderer_effect_sources::Origin::projectile)
+                light = source;
+        world.projectiles[0] = match_shot;
+        world.game.projectile_count = match_count;
+        std::ignore = presented();
+        const auto channel = [](float value) {
+            return std::to_string(static_cast<int>(std::lround(value * 255)));
+        };
+        if (!drawn)
+            fail("the Arm commander's laser's shot drew no line in its colour");
+        if (!light)
+            fail("the Arm commander's laser's shot cast no light");
+        if (light->red != beam[0] / 255.0F || light->green != beam[1] / 255.0F ||
+            light->blue != beam[2] / 255.0F)
+            fail(
+                "the Arm commander's laser lit in " + channel(light->red) + "," +
+                channel(light->green) + "," + channel(light->blue) + ", not its beam's " +
+                std::to_string(beam[0]) + "," + std::to_string(beam[1]) + "," +
+                std::to_string(beam[2])
+            );
+        std::cout << "render tiers check: the Arm commander's laser lights in its beam's colour, "
+                  << int{beam[0]} << ',' << int{beam[1]} << ',' << int{beam[2]} << '\n';
     }
     // Zoom 1 at a whole-number chrome scale: the frame the processor composes.
     at_zoom(1.0F);

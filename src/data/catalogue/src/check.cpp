@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/data/catalogue/check.hpp"
+#include "catalogue_document.hpp"
 
 #include "oa/base/sha256.hpp"
 #include "oa/base/signing/ed25519.hpp"
@@ -20,13 +21,6 @@ namespace oa::data::catalogue {
 namespace {
 
 namespace json = formats::json;
-
-/// The catalogue's bytes as text. An empty span is an empty view.
-std::string_view bytes_as_text(std::span<const uint8_t> bytes) {
-    if (bytes.empty())
-        return {};
-    return {reinterpret_cast<const char*>(bytes.data()), bytes.size()};
-}
 
 /// Reports whether the two key sets are the same, whatever their order.
 bool same_keys(
@@ -106,8 +100,8 @@ Checked check_catalogue(const CheckRequest& request) {
 
     result.digest = base::sha256::digest_of(request.catalogue);
 
-    json::JsonError json_error;
-    const auto root = json::parse_json(bytes_as_text(request.catalogue), json_error);
+    // The bytes are parsed once, for the checks below and for the entries.
+    const auto root = parse_catalogue_json(request.catalogue);
     if (root && root->type() == json::JsonType::object) {
         const json::Json* version = root->find("catalogue");
         const auto version_number = version ? version->integer() : std::nullopt;
@@ -129,7 +123,7 @@ Checked check_catalogue(const CheckRequest& request) {
 
     Catalogue loaded;
     std::string error;
-    if (!read_catalogue(request.catalogue, loaded, &error)) {
+    if (!read_parsed_catalogue(root, loaded, &error)) {
         result.verdict = Verdict::malformed;
         result.detail = std::move(error);
         return result;

@@ -182,7 +182,9 @@ void TickHost::movement_tick(oa::Unit& record) {
     sea_host.set_sfx_occupy = [](void* context, oa::Unit& unit, int32_t occupy_code) {
         auto* object = static_cast<Match*>(context)->instance(unit.id);
         if (object && object->script())
-            object->script()->call("setSFXoccupy", std::span(&occupy_code, 1), true);
+            object->script()->call(
+                ScriptFunction::set_sfx_occupy, std::span(&occupy_code, 1), true
+            );
     };
     sim::world_environment::update_sea_occupy(
         s.record, match_unit_def(match, s.record), match.simulation_.sea_level, sea_host
@@ -197,15 +199,15 @@ void TickHost::signal_move_rate(
     if (rate == ((unit_flags & moving_rate_mask) >> moving_rate_shift))
         return;
     if (rate == 0)
-        script(s, "StopMoving");
+        script(s, ScriptFunction::stop_moving);
     else if ((unit_flags & moving_rate_mask) == 0)
-        script(s, "StartMoving");
+        script(s, ScriptFunction::start_moving);
     if (rate == 1)
-        script(s, "MoveRate1");
+        script(s, ScriptFunction::move_rate1);
     else if (rate == 2)
-        script(s, "MoveRate2");
+        script(s, ScriptFunction::move_rate2);
     else if (rate == 3)
-        script(s, "MoveRate3");
+        script(s, ScriptFunction::move_rate3);
     unit_flags = (unit_flags & ~moving_rate_mask) | (rate << moving_rate_shift);
 }
 

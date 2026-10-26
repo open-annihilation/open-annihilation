@@ -4,15 +4,18 @@
 // The Full tier's terrain builder: the level rule at every kind of zoom, and
 // the tiles' quads over a small map packed on three atlas pages: where each
 // lands, which texels it reads, one batch per page whatever the grid's
-// order, the view's tile range within the map and the frame well formed.
+// order, the view's tile range within the map and the frame well formed;
+// and the same terrain drawn again where Water ripples move its art.
 #include "full_terrain.hpp"
 
 #include "oa/test/check.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -443,6 +446,175 @@ void test_mosaic_quads() {
     OA_CHECK(refused.batches.empty() && refused.vertices.empty());
 }
 
+/// A motion over the whole test map's grid of `spacing`: `offset` from map
+/// pixel `from` across on, none before it.
+ft::ArtMotion test_motion(
+    uint32_t spacing, uint32_t width, uint32_t height, float from, std::array<float, 2> offset
+) {
+    ft::ArtMotion motion;
+    motion.spacing = spacing;
+    motion.columns = width / spacing + 1;
+    motion.rows = height / spacing + 1;
+    motion.offsets.resize(static_cast<std::size_t>(motion.columns) * motion.rows);
+    for (uint32_t row = 0; row < motion.rows; ++row)
+        for (uint32_t column = 0; column < motion.columns; ++column)
+            if (static_cast<float>(column * spacing) >= from)
+                motion.offsets[static_cast<std::size_t>(row) * motion.columns + column] = offset;
+    return motion;
+}
+
+/// A motion's grid: its points exact, the blend between, nothing past it.
+void test_art_motion() {
+    ft::ArtMotion motion = test_motion(8, 16, 16, 8, {2.0F, -1.0F});
+    OA_CHECK(motion.columns == 3 && motion.rows == 3 && !motion.still());
+    OA_CHECK((motion.at(8, 0) == std::array<float, 2>{2.0F, -1.0F}));
+    OA_CHECK((motion.at(0, 8) == std::array<float, 2>{0.0F, 0.0F}));
+    OA_CHECK(near(motion.at(4, 5)[0], 1.0F) && near(motion.at(4, 5)[1], -0.5F));
+    OA_CHECK(near(motion.at(16, 16)[0], 2.0F));
+    OA_CHECK((motion.at(-1, 0) == std::array<float, 2>{}));
+    OA_CHECK((motion.at(16.5, 0) == std::array<float, 2>{}));
+    motion.offsets.assign(motion.offsets.size(), {});
+    OA_CHECK(motion.still());
+}
+
+/// The tiles drawn again where the motion moves their art: only the squares
+/// that move, each corner where the tile pass landed it plus the motion,
+/// reading the texels of its unmoved place, the squares of neighbouring
+/// tiles meeting, one batch a page at the pass's look.
+void test_moved_tiles() {
+    const Map map = test_map();
+    const auto palette = test_palette();
+    gw::TerrainAtlas atlas;
+    OA_CHECK(
+        gw::build_terrain_atlas(
+            map, map.tile_width, map.tile_height, palette, nullptr, gw::page_edge_minimum, atlas
+        ) == gw::TerrainAtlasError::none
+    );
+    const std::vector<card::PageHandle> pages{{1}, {2}, {3}};
+    ft::TerrainView view;
+    view.origin_x = 10.0F;
+    view.origin_y = 20.0F;
+    view.scale = 2.0F;
+    view.width = 192;
+    view.height = 128;
+    const ft::TerrainPass pass{0, card::Sampling::nearest, card::Blend::none, 1.0F};
+    // The art moves from map pixel 48 across on, a pixel and a half right
+    // and half a pixel up.
+    const ft::ArtMotion motion = test_motion(8, 96, 64, 48, {1.5F, -0.5F});
+    card::CardFrame base;
+    ft::append_terrain_tiles(base, atlas, pages, view, pass, card::TargetHandle{}, nullptr);
+    card::CardFrame frame;
+    const uint32_t squares = ft::append_moved_terrain_tiles(
+        frame, atlas, pages, view, pass, motion, card::TargetHandle{}, nullptr
+    );
+    // Columns of squares from 40, whose right corners move, to 96: seven
+    // across, eight down.
+    OA_CHECK(squares == 7 * 8);
+    OA_CHECK(card::check_frame(frame).empty());
+    OA_CHECK(frame.indices.size() == squares * 6U);
+    OA_CHECK(frame.batches.size() == 3);
+    for (const card::Batch& batch : frame.batches) {
+        OA_CHECK(batch.blend == card::Blend::none && batch.sampling == card::Sampling::nearest);
+        OA_CHECK(batch.level == 0 && !batch.scissored && batch.index_count % 6 == 0);
+    }
+    // Every corner lies at its map point at the view's scale plus the
+    // motion's two target pixels per map pixel, and reads the texel the
+    // tile pass reads at that point.
+    for (const card::Batch& batch : frame.batches)
+        for (uint32_t k = batch.first_index; k < batch.first_index + batch.index_count; ++k) {
+            const card::Vertex& corner = frame.vertices[frame.indices[k]];
+            // Find the map point from its texture coordinate on its tile.
+            bool matched = false;
+            for (uint32_t tile = 0; tile < 6 && !matched; ++tile) {
+                const uint32_t column = tile % 3, row = tile / 3;
+                const auto rect = gw::tile_rect(atlas, atlas.grid[tile], 0);
+                if (!rect || rect->page + 1 != batch.page.value)
+                    continue;
+                const auto& level = atlas.pages[rect->page].levels[0];
+                const float texel_x = corner.u * static_cast<float>(level.width) - rect->x;
+                const float texel_y = corner.v * static_cast<float>(level.height) - rect->y;
+                if (texel_x < -1.0e-3F || texel_y < -1.0e-3F || texel_x > 32.001F ||
+                    texel_y > 32.001F)
+                    continue;
+                const float map_x = static_cast<float>(column * gw::tile_edge) + texel_x;
+                const float map_y = static_cast<float>(row * gw::tile_edge) + texel_y;
+                const auto moved = motion.at(map_x, map_y);
+                if (near(corner.x, 10.0F + map_x * 2 + moved[0] * 2) &&
+                    near(corner.y, 20.0F + map_y * 2 + moved[1] * 2))
+                    matched = true;
+            }
+            OA_CHECK(matched);
+        }
+    // Two tiles' corners at the same map point land on the same pixel.
+    std::vector<std::pair<float, float>> on_seam;
+    for (const card::Vertex& corner : frame.vertices)
+        if (near(corner.y, 20.0F + 32 * 2 + (-0.5F) * 2) && corner.x > 10.0F + 64 * 2)
+            on_seam.emplace_back(corner.x, corner.y);
+    OA_CHECK(on_seam.size() >= 2);
+    // No motion, or a motion that stays, draws nothing.
+    card::CardFrame none;
+    OA_CHECK(
+        ft::append_moved_terrain_tiles(
+            none, atlas, pages, view, pass, ft::ArtMotion{}, card::TargetHandle{}, nullptr
+        ) == 0
+    );
+    ft::ArtMotion still = motion;
+    still.offsets.assign(still.offsets.size(), {});
+    OA_CHECK(
+        ft::append_moved_terrain_tiles(
+            none, atlas, pages, view, pass, still, card::TargetHandle{}, nullptr
+        ) == 0
+    );
+    OA_CHECK(none.vertices.empty() && none.batches.empty());
+}
+
+/// A mosaic's chunks drawn again moved: cut on the grid's lines and the
+/// chunks' own edges, each square at its landing plus the motion, the
+/// chunks meeting at their shared edge, one batch a chunk.
+void test_moved_mosaic() {
+    const ft::MosaicLevel mosaic = ft::plan_mosaic_level(10, 1, 1, 64);
+    const std::vector<card::PageHandle> pages{{1}, {2}, {3}};
+    ft::TerrainView view;
+    view.scale = 0.25F;
+    view.width = 80;
+    view.height = 8;
+    const ft::TerrainPass pass{1, card::Sampling::linear, card::Blend::alpha, 0.5F};
+    const ft::ArtMotion motion = test_motion(16, 320, 32, 0, {2.0F, 1.0F});
+    card::CardFrame frame;
+    // The chunks' drawn parts end at map pixels 124, 248 and 320: eight
+    // squares across the first, nine the second and five the third, two
+    // down.
+    OA_CHECK(
+        ft::append_moved_terrain_mosaic(
+            frame, mosaic, pages, view, pass, motion, card::TargetHandle{}, nullptr
+        ) == (8 + 9 + 5) * 2
+    );
+    OA_CHECK(card::check_frame(frame).empty());
+    OA_CHECK(frame.batches.size() == 3);
+    for (std::size_t index = 0; index < frame.batches.size() && index < 3; ++index) {
+        OA_CHECK(frame.batches[index].page == pages[index]);
+        OA_CHECK(frame.batches[index].blend == card::Blend::alpha);
+    }
+    // Each chunk's corner at map pixel 124, 0 lands at 31, 0 moved by half
+    // a pixel and a quarter, and the first chunk reads it at its texel 62.
+    std::size_t seam = 0;
+    for (const card::Vertex& corner : frame.vertices)
+        if (near(corner.x, 31.5F) && near(corner.y, 0.25F)) {
+            ++seam;
+            OA_CHECK(near(corner.colour.alpha, 0.5F));
+        }
+    OA_CHECK(seam == 2);
+    OA_CHECK(near(frame.vertices[0].x, 0.5F) && near(frame.vertices[0].u, 0.0F));
+    card::CardFrame refused;
+    const ft::TerrainPass other{2, card::Sampling::linear, card::Blend::none, 1.0F};
+    OA_CHECK(
+        ft::append_moved_terrain_mosaic(
+            refused, mosaic, pages, view, other, motion, card::TargetHandle{}, nullptr
+        ) == 0
+    );
+    OA_CHECK(refused.vertices.empty());
+}
+
 } // namespace
 
 int main() {
@@ -450,5 +622,8 @@ int main() {
     test_tiles();
     test_mosaic_plan();
     test_mosaic_quads();
+    test_art_motion();
+    test_moved_tiles();
+    test_moved_mosaic();
     return oa::test::check_exit_status();
 }

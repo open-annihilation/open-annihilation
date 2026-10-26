@@ -631,8 +631,10 @@ description in its details. The one you play is marked **PLAYING**. With
 no mod, **No Mod** is the one marked **PLAYING**.
 
 - **PLAY NOW**, on any other mod, plays it: the game reloads its data for
-  that mod and returns to the main menu, without closing the window, and
-  plays it at every later start too. It is greyed when the mod names a
+  that mod, saying "Switching on Ridge…" meanwhile, without closing the
+  window, and comes back to the main menu with the Library open again as
+  you left it ([after a switch](#after-a-switch)). It plays the mod at
+  every later start too. It is greyed when the mod names a
   base game this choice is not playing ("For the Total Annihilation demo
   only", or "For Total Annihilation only") or an expansion that is off
   ("Needs Battle Tactics, which is off"). That sentence replaces the
@@ -647,12 +649,31 @@ no mod, **No Mod** is the one marked **PLAYING**.
   it. It asks first, **SWITCH MOD**: "Switch to No Mod now? The game
   reloads its data for the new mod and returns to the main menu. Your
   other settings are kept.", with **CANCEL**, marked, and **SWITCH**.
-  **SWITCH** (Y) reloads the game with no mod; **CANCEL** (Escape)
-  leaves everything as it was.
+  **SWITCH** (Y) reloads the game with no mod, saying "Switching off
+  Ridge…" meanwhile, and the Library opens again as PLAY NOW's does;
+  **CANCEL** (Escape) leaves everything as it was.
 
 **UNLOAD MOD**, on the Active tab while a mod is played, asks that same
 question and follows that same path back to the base game. It is greyed in
 the same places, and resting on it shows the same note.
+
+### After a switch
+
+A switch made in the Library, by PLAY NOW, SWITCH OFF or UNLOAD MOD,
+opens the Library again over the main menu once the game has reloaded: on
+the tab you left, with each tab's filter, the tag, the search and the
+details as they were, and the entry you had chosen selected. The list is
+scrolled as it was, or, when that entry is no longer where it was, so that
+its row is in view. The Library waits until the game has found your
+installed packages, so that no row moves as they arrive, and the switch's
+dialog stays over the main menu meanwhile. A message or notice on the main
+menu comes first, and neither the dialog nor the Library opens over it.
+The wait lasts at most five seconds from the main menu's first frame: the
+Library then opens with what has been found, and if the main menu is still
+not free, as when a notice is still open, it stays closed and does not
+open later. An entry the Library does not list yet is selected once it
+does, unless you have chosen another. Any other reload, such as ROLL BACK
+on the mod you play, comes back to the main menu with the Library closed.
 
 ## Choosing a language
 

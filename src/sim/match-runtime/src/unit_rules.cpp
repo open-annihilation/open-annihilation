@@ -213,11 +213,10 @@ bool Match::own_mobile_unit(uint16_t unit, uint8_t player) const noexcept {
 }
 
 void Match::set_build_facing(sim::simulation_state::Order& order, uint8_t facing) {
-    for (auto& entry : orders_)
-        if (&entry->order == &order) {
-            entry->construction.facing = static_cast<uint8_t>(facing & 3U);
-            return;
-        }
+    if (auto* entry = runtime_order(&order)) {
+        entry->construction.facing = static_cast<uint8_t>(facing & 3U);
+        return;
+    }
     fault_.note("build facing set on an order the match does not own");
 }
 

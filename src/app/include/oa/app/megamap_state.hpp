@@ -40,6 +40,16 @@ struct MegamapFeature {
     uint8_t ground_height{}; ///< MapPlot.height of its first cell
 };
 
+/// One unit's icon as the megamap last drew it: the box in which the pointer
+/// is on it, in battlefield pixels, right and bottom excluded.
+struct MegamapMark {
+    uint16_t unit{};
+    int32_t left{};
+    int32_t top{};
+    int32_t right{};
+    int32_t bottom{};
+};
+
 struct MegamapState {
     bool prepared{}; ///< icons read and features noted for this match
     oa::ui::hud::IconConfig config{};
@@ -61,6 +71,22 @@ struct MegamapState {
     int32_t pointer_x{};
     int32_t pointer_y{};
     uint16_t hovered{}; ///< the unit whose icon is under the pointer
+    /// The icons drawn in the last frame, in the order drawn.
+    std::vector<MegamapMark> marks;
+
+    /// Returns the unit whose icon was drawn last under a point, as the
+    /// drawing finds the hovered one, or 0.
+    ///
+    /// @param x battlefield column
+    /// @param y battlefield row
+    /// @return the unit, or 0
+    [[nodiscard]] uint16_t unit_at(int32_t x, int32_t y) const {
+        uint16_t found = 0;
+        for (const auto& mark : marks)
+            if (x >= mark.left && x < mark.right && y >= mark.top && y < mark.bottom)
+                found = mark.unit;
+        return found;
+    }
 };
 
 } // namespace oa::app

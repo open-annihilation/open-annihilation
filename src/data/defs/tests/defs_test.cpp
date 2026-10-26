@@ -463,13 +463,13 @@ void sides_load_hud_layout() {
     SideTable table;
     CHECK(side_table_load(&sidedata.document, &table, nullptr));
     CHECK(table.count == 1);
-    const Side& arm = table.sides[0];
+    const Side& arm = *side_at(table, 0);
     CHECK(std::strcmp(arm.name, "ARM") == 0 && std::strcmp(arm.name_prefix, "ARM") == 0);
     CHECK(std::strcmp(arm.commander, "ARMCOM") == 0);
     CHECK(arm.energy_color == 208 && arm.metal_color == 224);
     CHECK(arm.rect_logo.x1 == 0 && arm.rect_energy_bar.x1 == 1 && arm.rect_description.x1 == 26);
     CHECK(arm.rect_reload3.x1 == 29 && arm.rect_reload3.y2 == 3);
-    CHECK(side_index(&table.sides[0]) == 0 && side_index(&table.sides[1]) == 1);
+    CHECK(side_index(side_at(table, 0)) == 0 && side_index(side_at(table, 1)) == 1);
 }
 
 void sides_name_their_panel_gaf() {
@@ -483,9 +483,9 @@ void sides_name_their_panel_gaf() {
     SideTable table;
     CHECK(side_table_load(&sidedata.document, &table, nullptr));
     CHECK(table.count == 3);
-    CHECK(std::strcmp(table.panel_gaf[0], "ARMINT") == 0);
-    CHECK(table.panel_gaf[1][0] == '\0');
-    CHECK(std::strcmp(table.panel_gaf[2], "PANELS45678901234567890123456") == 0);
+    CHECK(std::strcmp(panel_gaf_of(table, 0), "ARMINT") == 0);
+    CHECK(panel_gaf_of(table, 1)[0] == '\0');
+    CHECK(std::strcmp(panel_gaf_of(table, 2), "PANELS45678901234567890123456") == 0);
 }
 
 void sides_missing_rect_is_reported() {

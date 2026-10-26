@@ -811,7 +811,7 @@ void Runtime::check_key_table() {
         }
 
         SDL_Keymod mods_of(const Gesture& gesture) const {
-            auto mods = SDL_KMOD_NONE;
+            SDL_Keymod mods = SDL_KMOD_NONE;
             if (gesture.ctrl)
                 mods = static_cast<SDL_Keymod>(mods | SDL_KMOD_LCTRL);
             if (gesture.alt)

@@ -340,6 +340,10 @@ def main(argv):
         if os.name == "nt":
             # Renaming out of a read-only directory is a POSIX check.
             return 0
+        if os.geteuid() == 0:
+            # Root ignores the directory's mode, so the rename cannot be
+            # blocked this way (the Linux builds run their tests as root).
+            return 0
         blocked = scratch / "blocked"
         install, updates, marker, plan = prepare_case(
             blocked, package, preferences, sys.executable, script

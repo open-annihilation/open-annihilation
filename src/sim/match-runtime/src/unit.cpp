@@ -124,11 +124,15 @@ void UnitInstance::note(std::string_view what, std::string_view detail) noexcept
 }
 
 bool UnitInstance::create() {
-    return script_ && script_->call_no_arguments("Create", true);
+    return script_ && script_->call_no_arguments(ScriptFunction::create, true);
 }
 
 uint32_t UnitInstance::query_weapon_piece(uint8_t slot) {
-    constexpr std::array names{"QueryPrimary", "QuerySecondary", "QueryTertiary"};
+    constexpr std::array names{
+        ScriptFunction::query_primary,
+        ScriptFunction::query_secondary,
+        ScriptFunction::query_tertiary
+    };
     if (slot >= names.size()) {
         note("weapon query slot outside 0..2");
         return no_piece;
@@ -150,19 +154,23 @@ std::array<uint32_t, 3> UnitInstance::query_nano_world() {
     if (!script_ || !slot_.unit)
         return slot_.unit ? slot_.unit->position : std::array<uint32_t, 3>{};
     std::array<int32_t, 4> args{};
-    script_->query("QueryNanoPiece", args);
+    script_->query(ScriptFunction::query_nano_piece, args);
     return piece_world(std::bit_cast<uint32_t>(args[0]));
 }
 
 std::array<uint32_t, 3> UnitInstance::sweet_spot_world() {
     std::array<int32_t, 4> args{};
     if (script_)
-        script_->query("SweetSpot", args);
+        script_->query(ScriptFunction::sweet_spot, args);
     return piece_box_center(std::bit_cast<uint32_t>(args[0]));
 }
 
 std::array<uint32_t, 3> UnitInstance::aim_from_world(uint8_t slot) {
-    constexpr std::array names{"AimFromPrimary", "AimFromSecondary", "AimFromTertiary"};
+    constexpr std::array names{
+        ScriptFunction::aim_from_primary,
+        ScriptFunction::aim_from_secondary,
+        ScriptFunction::aim_from_tertiary
+    };
     if (slot >= names.size()) {
         note("weapon aim slot outside 0..2");
         return piece_world(no_piece);
@@ -178,7 +186,7 @@ std::array<uint32_t, 3> UnitInstance::aim_from_world(uint8_t slot) {
 
 void UnitInstance::set_max_reload_time(int32_t milliseconds) {
     if (script_)
-        script_->call("SetMaxReloadTime", std::span(&milliseconds, 1), false);
+        script_->call(ScriptFunction::set_max_reload_time, std::span(&milliseconds, 1), false);
 }
 
 void UnitInstance::tick(uint32_t elapsed) {

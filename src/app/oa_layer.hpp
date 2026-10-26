@@ -366,11 +366,36 @@ class LayerScreen {
     /// @return the revision
     [[nodiscard]] virtual uint64_t revision() const = 0;
 
+    /// Tells whether what the screen draws changes only when its revision
+    /// does, its animations and timed content among it, so that the front
+    /// end keeps the screen's drawing while its revision, its place, its
+    /// scale, its darkening and the fonts, language and text style it is
+    /// drawn in hold. A screen that cannot promise it is drawn again each
+    /// frame.
+    ///
+    /// @return false, the default; true for a screen that keeps to it
+    [[nodiscard]] virtual bool revision_covers_drawing() const { return false; }
+
+    /// Returns a number no other screen made in this run has, by which the
+    /// layer tells a screen's kept drawing from another's.
+    ///
+    /// @return the screen's number, 1 or more
+    [[nodiscard]] uint64_t identity() const noexcept { return identity_; }
+
     /// Tells the screen it leaves the layer, whatever took it off. A screen
     /// whose own model is still open closes it here, as its Cancel would.
     ///
     /// @param by_key a key's press closed it; that key is latched
     virtual void close(bool by_key) = 0;
+
+  private:
+
+    /// Returns the next screen's number.
+    ///
+    /// @return a number no screen made before has
+    [[nodiscard]] static uint64_t next_identity() noexcept;
+
+    uint64_t identity_{next_identity()}; ///< the screen's number
 };
 
 /// Maps a point to a screen's own points by its placement: for a screen
@@ -879,6 +904,21 @@ class OaLayer {
     /// @return the count
     [[nodiscard]] uint32_t front_darkenings() const;
 
+    /// Drops the drawings the front end keeps of the screens whose revision
+    /// covers what they draw, so that the next present draws every screen
+    /// again. A check that reads what a frame draws, as the text-fit check
+    /// reads the texts the kit records while they are drawn, calls it before
+    /// that frame.
+    void forget_kept_drawings() noexcept;
+
+    /// Returns the number of the drawing the front end keeps of a screen, as
+    /// the last present left it, by which a check tells whether a present
+    /// drew the screen again.
+    ///
+    /// @param screen the screen
+    /// @return the drawing's number; 0 when none is kept
+    [[nodiscard]] uint64_t kept_drawing(const LayerScreen& screen) const noexcept;
+
     /// The layer's overlay's input callback (OverlayDesc::event): take_input.
     ///
     /// @param context the screen context, with its input and the runtime as its host
@@ -1126,7 +1166,53 @@ class OaLayer {
         /// that is not opaque, only the part that holds what it drew.
         oa::ui::display_layout::Rect window{};
         oa::ui::display_layout::Rect shown{}; ///< where it shows, in window pixels
-        LayerDrawing drawn{};                 ///< its drawing at the view's scale
+        /// Its drawing at the view's scale, darkened by the screens above it.
+        std::shared_ptr<const LayerDrawing> drawn{};
+        /// The number of its drawing (front_drawing_count_): two pieces with
+        /// the same number hold the same drawing.
+        uint64_t drawing{};
+    };
+
+    /// Everything but the screen itself that a front-end screen's drawing
+    /// is drawn from.
+    struct DrawingInputs {
+        /// Where it shows, in window pixels: left, top, width and height.
+        std::array<int32_t, 4> shown{};
+        int32_t points_width{};     ///< its width, in its points
+        int32_t points_height{};    ///< its height, in its points
+        int32_t placed_percent{};   ///< its placement's scale, in percent
+        int32_t scale_percent{};    ///< the scale it is drawn at, in percent
+        uint32_t darkenings{};      ///< the modal screens with a backdrop above it
+        bool opaque{};              ///< it covers its place
+        const void* fonts{};        ///< the game's fonts it is drawn in
+        const void* modern_fonts{}; ///< the modern fonts it is drawn in; null for none
+        const void* icon{};         ///< the icon's pixels
+        std::size_t icon_bytes{};   ///< the icon's bytes
+        uint32_t icon_width{};      ///< the icon's columns
+        uint32_t icon_height{};     ///< the icon's rows
+        const void* language{};     ///< the interface's language
+        uint64_t languages{};       ///< the languages' registry generation
+        uint64_t interface_words{}; ///< the interface's words' generation (interface_generation)
+        bool modern_text{};         ///< game text is drawn in the modern fonts
+        bool outline{};             ///< modern text is outlined
+        bool shadow{};              ///< modern text casts a shadow
+        bool background{};          ///< modern text lies on a shaded box
+        int32_t text_size{};        ///< the modern text's size, in percent
+        bool utf8{};                ///< game text may hold UTF-8
+        /// Tells whether two sets of inputs are the same.
+        ///
+        /// @return true when every input is the same
+        bool operator==(const DrawingInputs&) const = default;
+    };
+
+    /// A front-end screen's drawing, kept while what it was drawn from holds.
+    struct KeptDrawing {
+        uint64_t screen{};                           ///< the screen's identity
+        uint64_t revision{};                         ///< its revision when it was drawn
+        DrawingInputs inputs{};                      ///< what else it was drawn from
+        std::shared_ptr<const LayerDrawing> drawn{}; ///< the drawing, darkened
+        oa::ui::display_layout::Rect drawn_part{};   ///< the part that holds what it drew
+        uint64_t drawing{};                          ///< the drawing's number
     };
 
     /// What the front end's part of the layer shows in the window.
@@ -1290,6 +1376,11 @@ class OaLayer {
     /// The front end's screens the texture holds, at their places; none
     /// while it holds the match's layer or nothing.
     std::optional<FrontLook> front_uploaded_{};
+    /// The drawings of the front end's screens that promise their revision
+    /// covers what they draw, from the last present; a screen that no
+    /// longer shows loses its own.
+    std::vector<KeptDrawing> front_drawings_{};
+    uint64_t front_drawing_count_{}; ///< counts the front end's drawings, numbering each
     oa::ui::display_layout::Rect
         front_bounds_{}; ///< the window pixels the front end's texture covers
     std::array<uint8_t, 256> uploaded_gamma_{}; ///< the gamma table the texture was uploaded at
@@ -1468,6 +1559,11 @@ class NoticeScreen final : public LayerScreen {
     /// @return the revision
     [[nodiscard]] uint64_t revision() const override { return revision_; }
 
+    /// Tells that every change to what the screen draws moves its revision.
+    ///
+    /// @return true
+    [[nodiscard]] bool revision_covers_drawing() const override { return true; }
+
     /// Has nothing of its own to close.
     void close(bool /*by_key*/) override {}
 
@@ -1491,6 +1587,127 @@ class NoticeScreen final : public LayerScreen {
     Host host_;                  ///< what its host does
     uint64_t revision_{};        ///< counts the changes to its look
     bool any_menu_{};            ///< shows on any menu, never in a match
+};
+
+/// A work dialog of Open Annihilation's own (kit::WorkDialog) as a screen of
+/// the OA layer: modal over a backdrop, centred in the window at its scale
+/// over one screen of the game, its spinner turning. It has no buttons and
+/// takes every input, doing nothing with it, until its host closes it.
+class WorkScreen final : public LayerScreen {
+  public:
+
+    /// The name a work dialog has on the layer.
+    static constexpr std::string_view screen_name = "work";
+
+    /// What the work dialog's host does.
+    struct Host {
+        /// Tells, once a frame, whether the dialog must close, as when the
+        /// work is done; unset, it never must.
+        std::function<bool()> tick{};
+    };
+
+    /// Makes the screen of a work dialog.
+    ///
+    /// @param layer the layer it shows on, whose fonts it is placed in
+    /// @param shown_over the screen of the game it shows over; it shows on no other
+    /// @param title the header, as shown
+    /// @param line the one line, as shown
+    /// @param answers what its host does
+    WorkScreen(
+        OaLayer& layer, Screen shown_over, std::string title, std::string line, Host answers
+    );
+
+    /// Returns the dialog's name.
+    ///
+    /// @return screen_name
+    [[nodiscard]] std::string_view name() const override { return screen_name; }
+
+    /// Returns where the dialog shows: centred in the view's room at its
+    /// scale, its size class's notice width wide and as tall as its line
+    /// makes it, over its own screen of the game.
+    ///
+    /// @param view what the screen is placed on
+    /// @return its place; empty in a match, over another screen, or without fonts
+    [[nodiscard]] LayerPlacement placement(const LayerView& view) const override;
+
+    /// Lays the dialog out at the view's size class.
+    ///
+    /// @param view what the screen is placed on
+    void lay_out(const LayerView& view) override;
+
+    /// Tells that the dialog takes every input.
+    ///
+    /// @return true
+    [[nodiscard]] bool modal() const override { return true; }
+
+    /// Tells that what lies under the dialog darkens.
+    ///
+    /// @return true
+    [[nodiscard]] bool backdrop() const override { return true; }
+
+    /// Draws the dialog (kit::draw_work_dialog).
+    ///
+    /// @param canvas where it draws
+    void draw(const oa::ui::kit::Canvas& canvas) const override;
+
+    /// Takes a pointer, which does nothing under the dialog.
+    ///
+    /// @return none
+    LayerAnswer pointer(
+        ScreenInputKind /*kind*/,
+        uint8_t /*button*/,
+        oa::ui::kit::Point /*at*/,
+        int32_t /*finger_reach*/
+    ) override {
+        return LayerAnswer::none;
+    }
+
+    /// Takes a key, which does nothing under the dialog.
+    ///
+    /// @return none
+    LayerAnswer key(oa::ui::kit::Key /*pressed*/, uint32_t /*sdl_key*/) override {
+        return LayerAnswer::none;
+    }
+
+    /// Takes a turn of the wheel, which does nothing under the dialog.
+    ///
+    /// @return none
+    LayerAnswer wheel(oa::ui::kit::Point /*at*/, float /*notches*/) override {
+        return LayerAnswer::none;
+    }
+
+    /// Returns the dialog's display list (kit::work_dialog_list).
+    ///
+    /// @return the list
+    [[nodiscard]] oa::ui::kit::DisplayList display_list() const override;
+
+    /// Returns the dialog's interaction: nothing hovered, pressed or focused.
+    ///
+    /// @return the interaction
+    [[nodiscard]] oa::ui::kit::Interaction interaction() const override { return {}; }
+
+    /// Turns the spinner with the time it has shown, and asks the host
+    /// whether the dialog must close.
+    ///
+    /// @return close when it must; redraw when the spinner turned; otherwise none
+    LayerAnswer tick() override;
+
+    /// Returns the dialog's revision, which counts the changes to its look.
+    ///
+    /// @return the revision
+    [[nodiscard]] uint64_t revision() const override { return revision_; }
+
+    /// Has nothing of its own to close.
+    void close(bool /*by_key*/) override {}
+
+  private:
+
+    OaLayer& layer_;                 ///< the layer it shows on
+    Screen over_{};                  ///< the screen of the game it shows over
+    oa::ui::kit::WorkDialog dialog_; ///< the dialog
+    Host host_;                      ///< what its host does
+    uint32_t began_ms_{};            ///< when it was made, on the platform's clock
+    uint64_t revision_{};            ///< counts the changes to its look
 };
 
 /// A question of Open Annihilation's own (kit::Question) as a screen of the
@@ -1647,6 +1864,11 @@ class QuestionScreen final : public LayerScreen {
     /// @return the revision
     [[nodiscard]] uint64_t revision() const override { return revision_; }
 
+    /// Tells that every change to what the screen draws moves its revision.
+    ///
+    /// @return true
+    [[nodiscard]] bool revision_covers_drawing() const override { return true; }
+
     /// Tells the host the question leaves (Host::closed).
     void close(bool /*by_key*/) override;
 
@@ -1788,6 +2010,11 @@ class GalleryScreen final : public LayerScreen {
     ///
     /// @return the revision
     [[nodiscard]] uint64_t revision() const override { return revision_; }
+
+    /// Tells that every change to what the screen draws moves its revision.
+    ///
+    /// @return true
+    [[nodiscard]] bool revision_covers_drawing() const override { return true; }
 
     /// Has nothing of its own to close.
     void close(bool /*by_key*/) override {}
