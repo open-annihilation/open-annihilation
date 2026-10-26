@@ -2619,12 +2619,25 @@ class Runtime final : public menu::Host,
     };
 
     /// Resolves the layout in use again when the keyboard, the hacks, the pointer scheme,
-    /// SwitchAlt, the loaded layout, the side's order file or the panel on screen changed,
-    /// making the dispatcher on first use. A change of only the panel on screen keeps a key
-    /// that is already held. [runtime_key_bindings.cpp]
+    /// SwitchAlt, the loaded layout, the side's order file, the panel on screen or the
+    /// pointer-keys setting changed, making the dispatcher on first use. A change of only
+    /// the panel on screen keeps a key that is already held. [runtime_key_bindings.cpp]
     ///
     /// @param keymap_changed the keymap changed, so the keyboard map is read again
     void ensure_key_bindings(bool keymap_changed);
+
+    /// Notes pointer-key presses and releases among action events just stored.
+    ///
+    /// @param events the action events
+    void note_pointer_key_events(const std::vector<oa::ui::key_bindings::ActionEvent>& events);
+
+    /// Steps the numpad pointer and sends what it moved and which button changed.
+    /// [runtime_key_bindings.cpp]
+    void step_pointer_keys();
+
+    /// Drops every direction and sends an up for a button the numpad pointer already put down.
+    /// [runtime_key_bindings.cpp]
+    void drop_pointer_keys();
 
     /// The scancode of `order.attack`'s unmodified press.
     ///
@@ -3733,17 +3746,29 @@ class Runtime final : public menu::Host,
     };
 
     /// The art every page of the match's side column is drawn with, read
-    /// once a match (match_hud_art).
+    /// once a match (match_hud_art) and held once: the page shown draws with
+    /// it, and the next page takes it from that page (take_match_hud_art).
     struct MatchHudArt {
         std::size_t side{};     ///< the viewed side it was read for
         std::string tile;       ///< the side tile it was read for
         std::string panel;      ///< the side's interface GAF it was read for
         std::string font;       ///< the side's SIDEDATA font it was read for
         std::string read_panel; ///< the interface GAF read; empty when it could not be
+        /// The side tile's file as read, which each page after the first
+        /// decodes again for the background it draws its chrome over.
+        std::vector<uint8_t> tile_file;
         /// load_screen_art's resources, with no layout, captioned in the
-        /// shown language.
+        /// shown language, until the first page takes them; from then on
+        /// the page shown holds them (lent).
         renderer::ScreenResources screen;
-        /// The side's font; none when the side names none or it cannot be read.
+        std::size_t common_sequences = 0; ///< commongui.gaf's, the first of the art's sprites
+        /// The sequences of its own GAF the page shown put before the art's.
+        std::size_t page_sequences = 0;
+        bool lent = false;       ///< the page shown (match_hud_) holds the art
+        bool names_font = false; ///< the side names a font that could be read
+        /// The side's font until the art's first page takes it as
+        /// match_small_font_, which its later pages keep; none when the side
+        /// names none or it cannot be read.
         std::optional<oa::formats::fnt::Font> side_font;
     };
 
@@ -3752,14 +3777,27 @@ class Runtime final : public menu::Host,
     /// interface GAF in the shown language's captions, and the side's font.
     ///
     /// The art is read from the game's files as the match's first page
-    /// loads, and again only when the side's files are others, so that a
-    /// page reads only its own GUI file and GAF (load_match_hud_layout).
+    /// loads, and again only when the side's files are others or the page
+    /// holding it was dropped, so that a page reads only its own GUI file
+    /// and GAF (load_match_hud_layout).
     ///
     /// @param layout the page it is wanted for, named in a report of art that
     ///        cannot be read
     /// @return the art; null when it cannot be read even without the side's
     ///         interface GAF, which is reported on stderr
-    const MatchHudArt* match_hud_art(const std::string& layout);
+    MatchHudArt* match_hud_art(const std::string& layout);
+    /// Takes the side column's art for the page about to be laid out over it.
+    ///
+    /// The art's first page takes it from match_hud_art_; each later page
+    /// takes it from the page shown, which drew with it and gives it back
+    /// without the sequences it added and with the side tile decoded again
+    /// in place of the background it drew over. The art is moved, never
+    /// copied, so that the match holds it once.
+    ///
+    /// @param art the art match_hud_art returned
+    /// @return the art, with no layout; the page shown, if it held the art,
+    ///         is left holding none, to be replaced
+    renderer::ScreenResources take_match_hud_art(MatchHudArt& art);
     /// Loads an in-match panel layout as the match HUD with the viewed side's chrome.
     ///
     /// The panel's buttons keep their states and their GUI file's quick keys;
@@ -10704,12 +10742,26 @@ class Runtime final : public menu::Host,
     /// Uploads an RGB24 surface into a texture of the opaque layers' formats
     /// (opaque_layer_format) through the display gamma.
     ///
+    /// A frame that follows the one the texture holds, given unchanged as
+    /// `before`, uploads only its bands of xrgb_band_rows rows that differ
+    /// from it; any other frame is uploaded whole. The texture keeps the
+    /// number of the frame it holds, never its pixels.
+    ///
     /// Throws PresentError when the texture cannot be locked.
     ///
     /// @param texture XRGB8888, ARGB8888 or RGB565 texture of the surface's
     ///        size; null uploads nothing
     /// @param source RGB surface
-    void upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& source);
+    /// @param frame the caller's number for the surface's frame, one more
+    ///        than the frame before's
+    /// @param before the frame numbered one less, as it was uploaded and
+    ///        since unchanged; null uploads the surface whole
+    void upload_rgb24_frame(
+        SDL_Texture* texture,
+        const renderer::Surface& source,
+        uint64_t frame = 0,
+        const renderer::Surface* before = nullptr
+    );
 
     /// Uploads an RGB24 surface into a texture or its tiles, of the opaque
     /// layers' formats, through the display gamma as upload_rgb24_frame does.
@@ -12981,6 +13033,10 @@ class Runtime final : public menu::Host,
     /// Checks slow keys, bounce keys, the double-press time, the player's repeat and the drag
     /// threshold on one skirmish. Throws std::runtime_error on a failure. [runtime_key_timing_check.cpp]
     void check_key_timing();
+
+    /// Drives the pointer from the numpad on the main menu and in one skirmish.
+    /// Throws std::runtime_error on a failure. [runtime_pointer_keys_check.cpp]
+    void check_pointer_keys();
 
     /// Checks the screen's edges scrolling the camera through SDL input, on
     /// the skirmish check_pointer_interfaces() starts.
@@ -18491,8 +18547,9 @@ class Runtime final : public menu::Host,
     oa::Image match_chrome_{};
     std::optional<renderer::ScreenResources> match_hud_;
     std::string match_hud_panel_; // GUI file of match_hud_, as its loader named it
-    /// The side column's art (match_hud_art); dropped as a match loads and
-    /// ends and as the language shown or its packs change.
+    /// The side column's art (match_hud_art), held by match_hud_ while it
+    /// is lent; dropped as a match loads and ends and as the language shown
+    /// or its packs change.
     std::optional<MatchHudArt> match_hud_art_;
     /// Where draw_match_bars repeats the top bar's art right of PANELTOP.
     oa::ui::hud::TopBarPieces top_bar_pieces_{};
@@ -18814,6 +18871,27 @@ class Runtime final : public menu::Host,
     ///
     /// @param on true when a tap arms the next key or click
     void apply_sticky_modifiers(bool on);
+
+    /// Sends one step of the numpad pointer as synthetic mouse events.
+    ///
+    /// The events use pointer_keys_mouse_id and window 0, and the pointer stays
+    /// on the canvas. A real mouse that has moved is adopted first.
+    /// [runtime_pointer_keys.cpp]
+    ///
+    /// @param step the movement and the button edges
+    /// @param x the pointer's column, kept between steps
+    /// @param y the pointer's row, kept between steps
+    /// @param known whether x and y have been placed
+    /// @param buttons the buttons already down
+    void emit_pointer_keys_step(
+        oa::ui::key_bindings::PointerStep step, float& x, float& y, bool& known, uint32_t& buttons
+    );
+
+    /// Rebuilds the bindings for pointer keys, and lets a held button go when they turn off.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param on true when the numpad moves the pointer
+    void apply_pointer_keys(bool on);
     int radar_map_h_ = 0;
     std::optional<oa::present::world_renderer::TextureCatalog> texture_catalog_;
     std::shared_ptr<MatchModels> match_models_; // 3DO renderer state, runtime_match_render.cpp
@@ -19576,7 +19654,10 @@ class Runtime final : public menu::Host,
     TiledTexture match_dialog_tex_;
     renderer::Surface match_hud_cpu_{};
     // The HUD layer the frame before showed, whose memory the next frame's
-    // HUD is drawn into.
+    // HUD is drawn into. Until then the HUD's upload sends only the bands
+    // that differ from it (upload_rgb24_frame), which holds while the HUD
+    // layer is drawn on only between its composition (compose_match_hud)
+    // and its upload.
     renderer::Surface spare_match_hud_{};
     renderer::Surface match_world_cpu_{};
     /// The health bars the last match frame drew, in the order drawn, in

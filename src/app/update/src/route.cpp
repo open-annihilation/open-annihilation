@@ -29,6 +29,7 @@
 #elif defined(__APPLE__)
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
+#include <TargetConditionals.h>
 #include <mach-o/dyld.h>
 #include <unistd.h>
 #endif
@@ -240,6 +241,7 @@ constexpr std::string_view uninstall_key =
 ///
 /// @return the team identifier
 [[nodiscard]] std::string signing_team() {
+#if TARGET_OS_OSX
     SecCodeRef own = nullptr;
     if (SecCodeCopySelf(kSecCSDefaultFlags, &own) != errSecSuccess || own == nullptr)
         return {};
@@ -272,6 +274,11 @@ constexpr std::string_view uninstall_key =
     }
     CFRelease(information);
     return team;
+#else
+    // Code signing information is macOS's: an iOS copy installs from its
+    // store and is never replaced in place.
+    return {};
+#endif
 }
 
 /// True when this process may write `folder`.

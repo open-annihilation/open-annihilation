@@ -5,8 +5,11 @@
 // module does not read a clock and does not link SDL.
 #pragma once
 
+#include "oa/ui/key_bindings/layout.hpp"
+
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -264,5 +267,160 @@ class StickyModifiers {
     std::array<Arm, 8> arms_{};    ///< indexed by the bit's trailing zeros
     std::vector<uint8_t> shown_{}; ///< bits on, in the order turned on
 };
+
+/// How fast the pointer starts, in points of the 640×480 game a second.
+inline constexpr int pointer_keys_start_speed = 60;
+
+/// How fast the pointer moves once a direction has been held for
+/// `pointer_keys_ramp_ms`, in points of the 640×480 game a second.
+inline constexpr int pointer_keys_top_speed = 480;
+
+/// How long a direction is held before the pointer reaches
+/// `pointer_keys_top_speed`, in milliseconds.
+inline constexpr int pointer_keys_ramp_ms = 1000;
+
+/// The left button. A click, a double click and a held button use it.
+inline constexpr uint8_t pointer_keys_left = 1;
+
+/// The right button.
+inline constexpr uint8_t pointer_keys_right = 3;
+
+/// Movement and button edges for one step of the pointer keys.
+///
+/// `dx` and `dy` are points of the 640×480 game since the previous step.
+/// Down is positive. At most one button goes down and one comes up.
+struct PointerStep {
+    float dx{};                    ///< points to the right
+    float dy{};                    ///< points downward
+    std::optional<uint8_t> down{}; ///< a button going down, or none
+    std::optional<uint8_t> up{};   ///< a button coming up, or none
+    uint8_t clicks{};              ///< 1, or 2 when the down is a double click
+};
+
+/// The numpad pointer: eight directions that gather speed, clicks, and a held button.
+///
+/// The caller passes the time. A diagonal moves at the same speed along its
+/// line as a cardinal direction. The left button stays down while Hold left
+/// is on, and a click shares that button. Let go, and `clear`, release whatever
+/// is held. The caller sends the edges; this class does not move a cursor.
+class PointerKeys {
+  public:
+
+    /// How close a second click must be to count as a double click.
+    ///
+    /// Zero means a second click is never a double click. The game passes the
+    /// player's double-press time, using 500 ms when that preference asks for
+    /// the system's own time.
+    ///
+    /// @param double_press_ms the window, in milliseconds
+    void set_double_press_ms(uint32_t double_press_ms);
+
+    /// A pointer-key action went down.
+    ///
+    /// @param id the action id
+    /// @param now_ms the time, in milliseconds
+    void press(std::string_view id, uint64_t now_ms);
+
+    /// A pointer-key action came up. Hold left ignores the key coming up.
+    ///
+    /// @param id the action id
+    /// @param now_ms the time, in milliseconds
+    void release(std::string_view id, uint64_t now_ms);
+
+    /// Movement and at most one button down and one button up since the last step.
+    ///
+    /// A second button edge waits for the next step. A step at the same time
+    /// as the press moves nothing.
+    ///
+    /// @param now_ms the time, in milliseconds
+    /// @return the movement and the button edges
+    [[nodiscard]] PointerStep step(uint64_t now_ms);
+
+    /// Drops every direction and releases any button the caller has been sent.
+    ///
+    /// The button comes up on the next `step`, which adds no movement.
+    void clear();
+
+  private:
+
+    /// One direction key.
+    struct Direction {
+        std::string_view id{}; ///< the action id
+        float x{};             ///< right is positive
+        float y{};             ///< down is positive
+        bool held{};           ///< the key is down
+        uint64_t pressed_ms{}; ///< when this hold began
+    };
+
+    /// One mouse button shared by a click and Hold left.
+    struct Button {
+        int holders{};      ///< clicks and the hold that are keeping it down
+        bool toggled{};     ///< Hold left is on
+        bool sent{};        ///< the caller was sent a down that has not come up
+        uint64_t last_ms{}; ///< when it was last clicked
+        bool have_last{};   ///< `last_ms` is a click
+    };
+
+    /// A button edge waiting for a step.
+    struct Edge {
+        bool down{};      ///< going down; otherwise coming up
+        uint8_t button{}; ///< which button
+        uint8_t clicks{}; ///< the down's click count
+    };
+
+    /// The direction for an action, or null.
+    ///
+    /// @param id the action id
+    /// @return the direction
+    [[nodiscard]] Direction* find_direction(std::string_view id);
+
+    /// Queues a down when this press takes the button from up to down.
+    ///
+    /// @param button the button
+    /// @param which the button number
+    /// @param clicks the click count
+    void press_button(Button& button, uint8_t which, uint8_t clicks);
+
+    /// Queues an up when this release takes the button from down to up.
+    ///
+    /// @param button the button
+    /// @param which the button number
+    void release_button(Button& button, uint8_t which);
+
+    /// Drops edges for one button and queues an up when one was sent.
+    ///
+    /// @param button the button
+    /// @param which the button number
+    void release_sent(Button& button, uint8_t which);
+
+    std::array<Direction, 8> directions_{{
+        {"pointer.move-up", 0.F, -1.F, false, 0},
+        {"pointer.move-down", 0.F, 1.F, false, 0},
+        {"pointer.move-left", -1.F, 0.F, false, 0},
+        {"pointer.move-right", 1.F, 0.F, false, 0},
+        {"pointer.move-up-left", -1.F, -1.F, false, 0},
+        {"pointer.move-up-right", 1.F, -1.F, false, 0},
+        {"pointer.move-down-left", -1.F, 1.F, false, 0},
+        {"pointer.move-down-right", 1.F, 1.F, false, 0},
+    }};
+    Button left_{};
+    Button right_{};
+    std::vector<Edge> edges_{};
+    uint32_t double_press_ms_{500};
+    uint64_t last_step_ms_{};
+    bool have_step_{};
+};
+
+/// Sets aside chords a pointer-key default takes, while pointer keys are on.
+///
+/// A chord of the base, the chosen layout or the mod is set aside. The
+/// player's own chord stays, and so does every other chord of that action
+/// (Faster keeps `=`). While pointer keys are off the bindings are unchanged.
+/// Nothing is written back into a layout.
+///
+/// @param resolved the bindings in use
+/// @param on true while pointer keys are on
+/// @return the bindings the dispatcher should search
+[[nodiscard]] Resolved pointer_keys_bindings(const Resolved& resolved, bool on);
 
 } // namespace oa::ui::key_bindings

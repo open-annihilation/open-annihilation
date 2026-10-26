@@ -5,10 +5,12 @@
 // of its pages (load_screen_layout over load_screen_art): for the installed
 // game's Arm pages and in-game menu, the same layout, art and picture as
 // load_screen gives for the same names, with the page's GUI file the only
-// file read.
+// file read. The art handed from page to page (lay_out_screen), as the side
+// column hands it, gives the same and is never copied.
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/test/game_assets.hpp"
 
+#include <array>
 #include <cstdio>
 #include <exception>
 #include <string>
@@ -64,15 +66,21 @@ bool same_sprites(const oa::formats::gaf::Archive& a, const oa::formats::gaf::Ar
     return true;
 }
 
-void check_page(
-    oa::AssetStore& assets, const renderer::ScreenResources& art, const std::string& page
-) {
+/// Checks a page laid out over the Arm column's art against load_screen.
+///
+/// @param assets the game's files
+/// @param page the page's GUI file
+/// @param lay_out lays the page out over the art, reading what it reads
+/// @return the page laid out
+template <typename LayOut>
+renderer::ScreenResources
+check_page(oa::AssetStore& assets, const std::string& page, LayOut lay_out) {
     const auto loaded = renderer::load_screen(assets, arm_column(page));
     std::vector<std::string> read;
     assets.observe_lookups({&read, [](void* context, std::string_view name) {
                                 static_cast<std::vector<std::string>*>(context)->emplace_back(name);
                             }});
-    const auto laid = renderer::load_screen_layout(assets, art, page);
+    auto laid = lay_out();
     assets.observe_lookups({});
     check(
         read == std::vector<std::string>{page},
@@ -102,7 +110,12 @@ void check_page(
             drawn.rgb == expected.rgb,
         page + ": it is drawn otherwise"
     );
+    return laid;
 }
+
+constexpr std::array<const char*, 4> kPages{
+    "guis/ARMMAIN2.GUI", "guis/ARMGEN.GUI", "guis/ARMCOM1.GUI", "guis/ARMOPT.GUI"
+};
 
 } // namespace
 
@@ -111,9 +124,27 @@ int main() {
     try {
         const auto art = renderer::load_screen_art(assets, arm_column({}));
         check(art.layout.gadgets.empty(), "the art came with a layout");
-        for (const char* page :
-             {"guis/ARMMAIN2.GUI", "guis/ARMGEN.GUI", "guis/ARMCOM1.GUI", "guis/ARMOPT.GUI"})
-            check_page(assets, art, page);
+        for (const char* page : kPages)
+            check_page(assets, page, [&] {
+                return renderer::load_screen_layout(assets, art, page);
+            });
+        // Each page takes the art the page before it was laid out over, as
+        // the side column's pages take it: its sprites are the very ones the
+        // art was loaded with.
+        auto handed = renderer::load_screen_art(assets, arm_column({}));
+        const auto* icons = handed.sprites.sequences.data();
+        for (const char* page : kPages) {
+            auto laid = check_page(assets, page, [&] {
+                return renderer::lay_out_screen(
+                    std::move(handed), renderer::read_screen_layout(assets, page)
+                );
+            });
+            check(
+                icons != nullptr && laid.sprites.sequences.data() == icons,
+                std::string(page) + ": the art handed to it was copied"
+            );
+            handed = std::move(laid);
+        }
     } catch (const std::exception& error) {
         std::fprintf(stderr, "FAIL: %s\n", error.what());
         return 1;
@@ -121,8 +152,9 @@ int main() {
     if (failures != 0)
         return 1;
     std::puts(
-        "screen art: ARMMAIN2, ARMGEN, ARMCOM1 and ARMOPT laid out over the Arm column's art as "
-        "loaded whole, each reading only its GUI file"
+        "screen art: ARMMAIN2, ARMGEN, ARMCOM1 and ARMOPT laid out over the Arm column's art, "
+        "copied and handed from page to page uncopied, as loaded whole, each reading only its "
+        "GUI file"
     );
     return 0;
 }

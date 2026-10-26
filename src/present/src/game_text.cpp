@@ -520,6 +520,8 @@ struct KeptLayers {
     uint64_t digest{};                      ///< the letters' digest when they were built
     TextLayers layers{};                    ///< the layers
     std::size_t bytes{};                    ///< the bytes the layers and the letters take
+    /// Given since forget_undrawn_text_layers last let the undrawn lines go.
+    bool drawn{true};
 };
 
 /// The kept layers, the line used last first.
@@ -586,6 +588,7 @@ TextLayers finished_layers(
         if (const auto found = cache.lines.find(key); found != cache.lines.end()) {
             if (found->second->digest == digest) {
                 cache.order.splice(cache.order.begin(), cache.order, found->second);
+                found->second->drawn = true;
                 return found->second->layers;
             }
             cache.bytes -= found->second->bytes;
@@ -608,7 +611,7 @@ TextLayers finished_layers(
         cache.lines.erase(cache.order.back().key);
         cache.order.pop_back();
     }
-    cache.order.push_front({key, mask, digest, layers, bytes});
+    cache.order.push_front({key, mask, digest, layers, bytes, true});
     cache.lines.emplace(key, cache.order.begin());
     cache.bytes += bytes;
     return layers;
@@ -632,6 +635,21 @@ void forget_text_layers() noexcept {
     cache.lines.clear();
     cache.order.clear();
     cache.bytes = 0;
+}
+
+void forget_undrawn_text_layers() noexcept {
+    LayerCache& cache = layer_cache();
+    const base::threads::LockGuard lock(cache.mutex);
+    for (auto line = cache.order.begin(); line != cache.order.end();) {
+        if (line->drawn) {
+            line->drawn = false;
+            ++line;
+            continue;
+        }
+        cache.bytes -= line->bytes;
+        cache.lines.erase(line->key);
+        line = cache.order.erase(line);
+    }
 }
 
 std::optional<TextLayers> modern_text(
