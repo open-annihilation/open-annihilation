@@ -1871,6 +1871,11 @@ class Runtime final : public menu::Host,
     /// [runtime_hold_confirm_check.cpp]
     void check_hold_confirm();
 
+    /// Checks the order wheel a held mouse button opens, on a skirmish.
+    ///
+    /// Throws std::runtime_error on a failure. [runtime_order_wheel_check.cpp]
+    void check_order_wheel();
+
     /// Checks MULTI on the main menu.
     ///
     /// The extensions' check_multiplayer_menu hooks check the multiplayer
@@ -2589,10 +2594,102 @@ class Runtime final : public menu::Host,
 
     /// Admits keys whose slow-key time has passed, fires holds, and fires the player's repeats,
     /// once a frame after that frame's events. A key admitted here then reaches the rest of the
-    /// game. [runtime_key_bindings.cpp]
+    /// game. A mouse button held for the order wheel opens it from here once its
+    /// long-press time has passed. [runtime_key_bindings.cpp]
     ///
     /// @param[in,out] running loop flag; cleared when an admitted key ends the loop
     void advance_input_actions(bool& running);
+
+    /// Replays a mouse button the order wheel held back, at the press's point.
+    ///
+    /// A click is the press and its release. A drag is the press and the motion
+    /// that crossed the threshold. Nothing is replayed when no decision is waiting.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] running loop flag; cleared when a replayed event ends the loop
+    void replay_order_wheel(bool& running);
+
+    /// Reports whether the order wheel on screen was opened by a mouse button.
+    ///
+    /// @return true while that wheel is open
+    [[nodiscard]] bool order_wheel_mouse_open() const;
+
+    /// The wedge the mouse aims, as a slot of the open wheel.
+    ///
+    /// @return the slot, or none when the pointer is on the hub or outside
+    [[nodiscard]] std::optional<std::size_t> order_wheel_mouse_aim() const;
+
+    /// Drops a press the order wheel is holding and closes a wheel the mouse opened.
+    /// [runtime_key_bindings.cpp]
+    void cancel_order_wheel();
+
+    /// The mouse button the order wheel holds, or 0 when the setting is off.
+    ///
+    /// @return SDL's button number
+    [[nodiscard]] uint8_t order_wheel_button() const;
+
+    /// Converts a pointer event into canvas pixels.
+    ///
+    /// @param event the event, in window coordinates when a renderer is up
+    /// @param[out] x canvas column
+    /// @param[out] y canvas row
+    /// @return false when the renderer refused the conversion
+    [[nodiscard]] bool order_wheel_canvas(const SDL_Event& event, float& x, float& y) const;
+
+    /// Reports whether this press may be held back for the order wheel.
+    ///
+    /// Playing a seat, on the battlefield, and not on a panel, the minimap, a
+    /// placed HUD region, or while placing, the megamap or the whiteboard holds
+    /// the pointer.
+    ///
+    /// @param x canvas column
+    /// @param y canvas row
+    /// @return true when the press waits
+    [[nodiscard]] bool order_wheel_press_eligible(float x, float y);
+
+    /// Motion, and Escape, while a wheel the mouse opened is up or a press is waiting.
+    ///
+    /// @param event the event
+    /// @return true when the rest of the game should not see it
+    bool take_order_wheel_aside(const SDL_Event& event);
+
+    /// A button the order wheel is watching.
+    ///
+    /// Called after the dispatcher has seen the button.
+    ///
+    /// @param event the button event
+    /// @return true when the rest of the game should not see it
+    bool take_order_wheel_button(const SDL_Event& event);
+
+    /// Applies the helper's decision to the press that is waiting.
+    ///
+    /// @param event the motion or release that was just given to the helper
+    /// @return true when the rest of the game should not see it
+    bool order_wheel_decide(const SDL_Event& event);
+
+    /// Opens the touch wheel at the held press. [runtime_key_bindings.cpp]
+    void open_mouse_order_wheel();
+
+    /// Aims the wedge under the pointer. [runtime_key_bindings.cpp]
+    ///
+    /// @param event the motion
+    void aim_mouse_order_wheel(const SDL_Event& event);
+
+    /// Gives the aimed order, or closes the wheel. [runtime_key_bindings.cpp]
+    ///
+    /// @param event the button release
+    void release_mouse_order_wheel(const SDL_Event& event);
+
+    /// Closes a wheel the mouse opened, and no other radial. [runtime_key_bindings.cpp]
+    void close_mouse_order_wheel();
+
+    /// Writes the touch viewport from the match layout when nothing else is.
+    /// [runtime_key_bindings.cpp]
+    void ensure_order_wheel_viewport();
+
+    /// Opens the wheel once a held press reaches the long-press time.
+    /// [runtime_key_bindings.cpp]
+    void advance_order_wheel();
 
     /// Gives the dispatcher the key timings in effect, and sets the mouse's double-click time.
     ///
@@ -3162,11 +3259,20 @@ class Runtime final : public menu::Host,
     /// @param y canvas y of the point, pixels
     void zoom_match_about(float factor, float x, float y);
 
-    /// Takes back an armed order or a pending building (reloading the panel's page), else clears
-    /// the selection and closes an open unit info panel: the Escape key's first two steps, never
-    /// the in-game menu.
+    /// Takes back an armed order or a placement. With neither, it changes nothing
+    /// and the selection stays. The order panel's page reloads and the status
+    /// line says the command was cancelled. [runtime_hotkeys.cpp]
+    void cancel_match_order();
+
+    /// Clears the selection and closes an open unit info panel. An armed order
+    /// or a placement stays armed. [runtime_hotkeys.cpp]
+    void clear_match_selection();
+
+    /// Takes back an armed order or a placement, and otherwise clears the
+    /// selection and closes an open unit info panel: what a touch or pad clear
+    /// does, never the in-game menu.
     /// [runtime_hotkeys.cpp, extracted by the Interfaces stage]
-    void clear_or_cancel_match_command();
+    void cancel_or_clear_match_command();
 
     /// Arms an order by its order-panel name whatever page the panel shows, as its button does.
     ///
@@ -10874,6 +10980,14 @@ class Runtime final : public menu::Host,
     ///         its repeats or its key's release, which no screen may see
     bool take_full_screen_event(const SDL_Event& event);
 
+    /// Answers the keys overlay before a screen sees the key.
+    ///
+    /// The press is taken and the installed hook is called. With no hook,
+    /// nothing is drawn. A repeat and the key's release reach the screens.
+    ///
+    /// @return true when ui.keys-overlay was pressed
+    bool take_keys_overlay_action();
+
     /// With `--trace-input`, writes the game's window as window_trace_line
     /// says on standard error: where it lies on its display, its state, how
     /// the pointer is held and where the pointer is. Without the option, or
@@ -12006,6 +12120,15 @@ class Runtime final : public menu::Host,
     ///
     /// @return the way chosen
     [[nodiscard]] oa::ui::engine_settings::WindowEdge window_edge_mode() const;
+
+    /// Lets a captured pointer go until the next click on the battlefield.
+    ///
+    /// With Window edge Capture, in a match, the pointer waits as Escape makes
+    /// it wait. Sticky and Free change nothing. The key is taken whenever the
+    /// action is pressed.
+    ///
+    /// @return true when ui.release-pointer was pressed
+    bool take_release_pointer_action();
 
     /// Tells whether a match's battlefield shows, in play: the match runs,
     /// and no game menu, pause screen, settings dialog or message box is
@@ -13807,6 +13930,17 @@ class Runtime final : public menu::Host,
     /// @return true when a button was pressed
     bool press_shown_panel_action(std::string_view id, oa::ui::key_bindings::Phase phase);
 
+    /// Presses the nth shown build button, in reading order (top, then left).
+    ///
+    /// A shown button is a button with the unit or weapon build attribute,
+    /// active and with a size, grayed or not. The press is a left click, so
+    /// the queue modifier builds five. On the orders page, or past the last
+    /// such button, nothing is pressed and no page turns.
+    ///
+    /// @param cell 1 through 12
+    /// @return true when that button was pressed
+    bool press_build_cell(int cell);
+
     /// Answers one match action.
     ///
     /// The effect is the one the key had. False leaves the key to the rest of
@@ -14071,7 +14205,10 @@ class Runtime final : public menu::Host,
     /// (megamap_click) and a right press (megamap_right_press). A left drag
     /// selects a box of the viewer's units, one that takes in none closing
     /// the unit info panel, and a left double-click on one of them every
-    /// unit of its type, in either interface type. A press acts on the icon
+    /// unit of its type, in either interface type. A double-click bound to
+    /// megamap.jump, on ground or another player's unit, closes the megamap
+    /// and centres the view there; one on the viewer's own unit still selects
+    /// every unit of its type. A press acts on the icon
     /// last drawn under it (MegamapState::unit_at), as a finger's tap does
     /// with no frame drawn since it landed.
     /// Presses are taken in the overlays' area where the battlefield would
@@ -15567,6 +15704,12 @@ class Runtime final : public menu::Host,
     /// viewer included.
     void open_chat_line();
 
+    /// Opens the chat line with the allies prefix already typed.
+    ///
+    /// The line begins `a,`, which a sent line reads as allies only. Nothing
+    /// is sent. A watcher opens no line.
+    void open_allies_chat_line();
+
     /// Closes the chat line, drops the typed text and stops text input.
     void close_chat_line();
 
@@ -16991,6 +17134,17 @@ class Runtime final : public menu::Host,
     /// @param follow_pointer the zoom follows the pointer as it moves: the
     ///        wheel's; the touch buttons zoom about the point alone
     void handle_match_zoom(float wheel_y, float pointer_x, float pointer_y, bool follow_pointer);
+
+    /// Zooms from a zoom key about the battlefield's centre.
+    ///
+    /// camera.zoom-in-key and camera.zoom-out-key take one step of the wheel's
+    /// zoom, and a held key keeps stepping. camera.zoom-reset eases to the
+    /// battlefield's own scale. Nothing moves while Mouse wheel zoom is off,
+    /// and the zoom stays within its limits. The key is still taken then.
+    ///
+    /// @param id camera.zoom-in-key, camera.zoom-out-key or camera.zoom-reset
+    /// @return true when the id is one of those keys and a match is showing
+    bool zoom_match_from_key(std::string_view id);
 
     /// Returns the zoom's target after wheel steps (zoom_wheel_).
     ///
@@ -20558,6 +20712,8 @@ class Runtime final : public menu::Host,
     /// Set while the key now being handled was already given to the action
     /// dispatcher. A match hotkey reached any other way feeds its own press.
     bool match_key_already_fed_{};
+    /// Called when the keys overlay is pressed. Null draws nothing.
+    void (*keys_overlay_hook_)(Runtime&) = nullptr;
 
     /// A latch or sticky modifier chip, and when it was turned on.
     struct KeyLatchSeen {

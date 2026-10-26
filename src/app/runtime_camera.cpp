@@ -24,6 +24,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <utility>
 
@@ -794,6 +795,27 @@ void Runtime::handle_match_zoom(
     else
         zoom_focus_ = {follow_pointer, pointer_x, pointer_y};
     match_zoom_target_ = wheel_zoom_target(wheel_y);
+}
+
+bool Runtime::zoom_match_from_key(std::string_view id) {
+    if (screen_ != Screen::match || match_ == nullptr)
+        return false;
+    const bool zoom_in = id == "camera.zoom-in-key";
+    const bool zoom_out = id == "camera.zoom-out-key";
+    const bool reset = id == "camera.zoom-reset";
+    if (!zoom_in && !zoom_out && !reset)
+        return false;
+    // Mouse wheel zoom off is the game's own scale: the key is taken and the
+    // view stays where it is, including at either end of the zoom's range.
+    if (!engine_settings().wheel_zoom)
+        return true;
+    if (reset) {
+        EngineSettingsState::ease_zoom_about_centre(*this, kDefaultBattlefieldZoom);
+        return true;
+    }
+    const float target = wheel_zoom_target(zoom_in ? 1.0F : -1.0F);
+    EngineSettingsState::ease_zoom_about_centre(*this, target);
+    return true;
 }
 
 float Runtime::wheel_zoom_target(float wheel_y) {

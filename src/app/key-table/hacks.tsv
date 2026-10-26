@@ -253,3 +253,5 @@ build.move-queued-site	select=commander;armed=build	drag left queued-site shift	
 whiteboard.draw		hold Backslash 300	none
 whiteboard.move		drag left battlefield held=Backslash	none
 whiteboard.erase		button right battlefield clicks=2 held=Backslash	whiteboard=wiped
+ui.keys-overlay	select=commander;armed=build	key Slash primary	none
+ui.keys-overlay:ctrl	select=commander;armed=build	key Slash ctrl	none

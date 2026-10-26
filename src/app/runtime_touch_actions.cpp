@@ -220,7 +220,7 @@ void TouchDispatchAccess::battlefield_gestures(
             break;
         case gestures::GestureKind::two_finger_tap:
             if (!close_overlay(runtime))
-                runtime.clear_or_cancel_match_command();
+                runtime.cancel_or_clear_match_command();
             break;
         case gestures::GestureKind::cancelled:
             cancel_drags(runtime);
@@ -1146,7 +1146,7 @@ void TouchDispatchAccess::control_tap(
     case hud::Control::clear:
     case hud::Control::place_cancel:
     case hud::Control::banner_cancel:
-        runtime.clear_or_cancel_match_command();
+        runtime.cancel_or_clear_match_command();
         return;
     case hud::Control::select_menu:
         toggle(hud::Sheet::select_menu);

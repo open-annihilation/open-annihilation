@@ -493,6 +493,10 @@ bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
     namespace bindings = oa::ui::key_bindings;
     const bindings::ActionEvent* accept = fired_action("ui.menu-accept");
     const bindings::ActionEvent* cancel = fired_action("ui.menu-cancel");
+    // While the save dialog's name takes typing only a typed line's keys are
+    // searched, so its Escape comes as the line's cancel.
+    if (cancel == nullptr && save_dialog_open())
+        cancel = fired_action("chat.cancel");
     const bindings::ActionEvent* press = fired_action("ui.menu-press");
     const bool accept_down = accept != nullptr && accept->phase == bindings::Phase::pressed;
     const bool press_down = press != nullptr && press->phase == bindings::Phase::pressed;

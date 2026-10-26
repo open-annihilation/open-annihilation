@@ -8,7 +8,9 @@
 
 #include "oa/app/runtime.hpp"
 
+#include "oa/app/frame_coordinates.hpp"
 #include "gui_actions.hpp"
+#include "touch_dispatch.hpp"
 #include "device_state.hpp"
 #include "oa/app/input_hints.hpp"
 #include "engine_settings_state.hpp"
@@ -952,6 +954,23 @@ struct Runtime::KeyBindingsState {
     };
 
     HoldSession hold_session{};
+
+    /// A mouse button held back until it is a click, a drag or the order wheel.
+    struct OrderWheel {
+        keys::WheelButton button{};       ///< the press
+        bool tracking{};                  ///< the press is waiting on a decision
+        uint8_t button_id{};              ///< the button that is waiting, or that opened the wheel
+        SDL_Event down{};                 ///< the press, in the coordinates SDL delivered
+        bool replay{};                    ///< a click or a drag is waiting to reach the game
+        bool replay_drag{};               ///< the replay is a drag; otherwise a click
+        bool replay_up{};                 ///< the replay includes the button coming up
+        SDL_Event motion{};               ///< the motion that crossed the drag threshold
+        bool mouse_open{};                ///< the wheel on screen was opened by this button
+        std::optional<std::size_t> aim{}; ///< the wedge under the pointer, as a slot
+        bool escape_up{};                 ///< Escape's key-up still belongs to the wheel
+    };
+
+    OrderWheel order_wheel{};
 
     /// A shared latch this key is holding, so its release toggles that latch.
     struct SharedPress {
@@ -2000,6 +2019,353 @@ Runtime::HoldConfirmDraw Runtime::hold_confirm_draw() const {
     return draw;
 }
 
+namespace {
+
+/// A motion at the same window point as a button event.
+///
+/// @param event a motion, or the button event whose point crossed the threshold
+/// @return the motion
+SDL_Event motion_at(const SDL_Event& event) {
+    if (event.type == SDL_EVENT_MOUSE_MOTION)
+        return event;
+    const float x = event.button.x;
+    const float y = event.button.y;
+    const SDL_WindowID window = event.button.windowID;
+    SDL_Event motion{};
+    motion.type = SDL_EVENT_MOUSE_MOTION;
+    motion.motion.windowID = window;
+    motion.motion.x = x;
+    motion.motion.y = y;
+    return motion;
+}
+
+} // namespace
+
+uint8_t Runtime::order_wheel_button() const {
+    if (engine_settings_ == nullptr)
+        return 0;
+    switch (engine_settings_->current.order_wheel) {
+    case oa::ui::engine_settings::OrderWheel::hold_right:
+        return SDL_BUTTON_RIGHT;
+    case oa::ui::engine_settings::OrderWheel::hold_middle:
+        return SDL_BUTTON_MIDDLE;
+    case oa::ui::engine_settings::OrderWheel::off:
+        break;
+    }
+    return 0;
+}
+
+bool Runtime::order_wheel_canvas(const SDL_Event& event, float& x, float& y) const {
+    SDL_Event frame = event;
+    if (sdl_.renderer != nullptr && !convert_event_to_frame(sdl_.renderer, frame))
+        return false;
+    if (event.type == SDL_EVENT_MOUSE_MOTION) {
+        x = frame.motion.x;
+        y = frame.motion.y;
+    } else {
+        x = frame.button.x;
+        y = frame.button.y;
+    }
+    return true;
+}
+
+bool Runtime::order_wheel_mouse_open() const {
+    return key_bindings_state_ != nullptr && key_bindings_state_->order_wheel.mouse_open;
+}
+
+std::optional<std::size_t> Runtime::order_wheel_mouse_aim() const {
+    if (key_bindings_state_ == nullptr)
+        return std::nullopt;
+    return key_bindings_state_->order_wheel.aim;
+}
+
+bool Runtime::order_wheel_press_eligible(float x, float y) {
+    if (screen_ != Screen::match || match_ == nullptr || match_finished_ || match_paused_)
+        return false;
+    if ((current_extension_state() & extension_state::local_watcher) != 0)
+        return false;
+    if (match_command_ == MatchCommand::build || pending_build_type_ != 0)
+        return false;
+    if (megamap_shown() || megamap_open_)
+        return false;
+    if (whiteboard_input_.drawing || whiteboard_input_.erasing || whiteboard_input_.moving >= 0 ||
+        (whiteboard_on() && action_held("whiteboard.draw")))
+        return false;
+    if (match_->commander_placement() != oa::sim::match_runtime::CommanderPlacement::none)
+        return false;
+    if (resource_panel_.dragging || order_drag_unit_ != 0 || build_queue_drag_.has_value())
+        return false;
+    if (!battlefield_contains(x, y) || radar_contains(x, y) || placed_hud_covers(x, y))
+        return false;
+    if (unit_info_panel_.has_value() && unit_info_point(x, y))
+        return false;
+    update_pointer(x, y);
+    return !hovered_.has_value();
+}
+
+void Runtime::ensure_order_wheel_viewport() {
+    auto& state = touch_state();
+    const bool filling = touch_controls_active() || state.hud.pad.hud;
+    if (filling && state.viewport.width > 0 && state.viewport.height > 0)
+        return;
+    const auto& layout = match_layout_;
+    oa::ui::touch_hud::Viewport viewport{};
+    viewport.width = layout.width;
+    viewport.height = layout.height;
+    viewport.px_per_point =
+        (layout.px_per_point > 0.0 ? static_cast<float>(layout.px_per_point) : 1.0F) *
+        touch_control_scale();
+    viewport.safe = layout.safe;
+    viewport.device = oa::ui::touch_hud::DeviceClass::tablet;
+    viewport.left_handed = false;
+    viewport.chrome = layout;
+    state.viewport = viewport;
+}
+
+void Runtime::open_mouse_order_wheel() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    auto& wheel = key_bindings_state_->order_wheel;
+    float x = 0.0F;
+    float y = 0.0F;
+    if (!order_wheel_canvas(wheel.down, x, y))
+        return;
+    ensure_order_wheel_viewport();
+    TouchDispatchAccess::open_radial(*this, x, y);
+    if (touch_ == nullptr || !touch_->hud.radial)
+        return;
+    wheel.mouse_open = true;
+    wheel.aim.reset();
+    ++touch_->hud.revision;
+    // The hold took the middle button, so a pan that was running stops and
+    // this press does not start another.
+    if (wheel.button_id == SDL_BUTTON_MIDDLE)
+        middle_pan_ = {};
+}
+
+void Runtime::close_mouse_order_wheel() {
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->order_wheel.mouse_open)
+        return;
+    if (touch_ != nullptr && touch_->hud.radial)
+        std::ignore = TouchDispatchAccess::close_overlay(*this);
+    key_bindings_state_->order_wheel.mouse_open = false;
+    key_bindings_state_->order_wheel.aim.reset();
+    if (touch_ != nullptr)
+        ++touch_->hud.revision;
+}
+
+void Runtime::cancel_order_wheel() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    auto& wheel = key_bindings_state_->order_wheel;
+    wheel.button.cancel();
+    wheel.tracking = false;
+    wheel.replay = false;
+    wheel.replay_drag = false;
+    wheel.replay_up = false;
+    wheel.escape_up = false;
+    close_mouse_order_wheel();
+}
+
+void Runtime::aim_mouse_order_wheel(const SDL_Event& event) {
+    if (touch_ == nullptr || !touch_->hud.radial || key_bindings_state_ == nullptr)
+        return;
+    float x = 0.0F;
+    float y = 0.0F;
+    if (!order_wheel_canvas(event, x, y))
+        return;
+    const oa::ui::touch_hud::Point at{
+        static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y))
+    };
+    const auto hit = oa::ui::touch_hud::radial_hit(*touch_->hud.radial, at, touch_->viewport);
+    std::optional<std::size_t> aimed;
+    if (hit) {
+        const auto& wedges = touch_->hud.radial->wedges;
+        for (std::size_t index = 0; index < wedges.size(); ++index) {
+            if (wedges[index].item == *hit) {
+                aimed = index;
+                break;
+            }
+        }
+    }
+    if (aimed == key_bindings_state_->order_wheel.aim)
+        return;
+    key_bindings_state_->order_wheel.aim = aimed;
+    ++touch_->hud.revision;
+}
+
+void Runtime::release_mouse_order_wheel(const SDL_Event& event) {
+    if (touch_ == nullptr || !touch_->hud.radial || key_bindings_state_ == nullptr) {
+        close_mouse_order_wheel();
+        return;
+    }
+    float x = 0.0F;
+    float y = 0.0F;
+    if (!order_wheel_canvas(event, x, y)) {
+        close_mouse_order_wheel();
+        return;
+    }
+    const oa::ui::touch_hud::Point at{
+        static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y))
+    };
+    const auto hit = oa::ui::touch_hud::radial_hit(*touch_->hud.radial, at, touch_->viewport);
+    if (hit) {
+        TouchDispatchAccess::radial_pick(*this, *hit);
+        // A greyed wedge leaves the wheel open.
+        if (touch_->hud.radial)
+            return;
+        key_bindings_state_->order_wheel.mouse_open = false;
+        key_bindings_state_->order_wheel.aim.reset();
+        ++touch_->hud.revision;
+        return;
+    }
+    close_mouse_order_wheel();
+}
+
+bool Runtime::order_wheel_decide(const SDL_Event& event) {
+    auto& wheel = key_bindings_state_->order_wheel;
+    const uint32_t long_press =
+        engine_settings_ != nullptr ? engine_settings_->current.long_press_ms : 500U;
+    const auto decision =
+        wheel.button.tick(SDL_GetTicks(), long_press, static_cast<float>(drag_click_pixels()));
+    if (decision == keys::WheelDecision::waiting)
+        return true;
+    wheel.tracking = false;
+    if (decision == keys::WheelDecision::open_wheel) {
+        open_mouse_order_wheel();
+        return true;
+    }
+    wheel.replay = true;
+    wheel.replay_drag = decision == keys::WheelDecision::pass_drag;
+    wheel.replay_up =
+        decision == keys::WheelDecision::pass_click || event.type == SDL_EVENT_MOUSE_BUTTON_UP;
+    if (wheel.replay_drag)
+        wheel.motion = motion_at(event);
+    return true;
+}
+
+bool Runtime::take_order_wheel_aside(const SDL_Event& event) {
+    if (key_bindings_state_ == nullptr)
+        return false;
+    auto& wheel = key_bindings_state_->order_wheel;
+    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE &&
+        (wheel.mouse_open || wheel.escape_up)) {
+        if (wheel.mouse_open)
+            close_mouse_order_wheel();
+        wheel.escape_up = true;
+        return true;
+    }
+    if (event.type == SDL_EVENT_KEY_UP && event.key.key == SDLK_ESCAPE && wheel.escape_up) {
+        wheel.escape_up = false;
+        return true;
+    }
+    if (event.type != SDL_EVENT_MOUSE_MOTION)
+        return false;
+    if (wheel.mouse_open) {
+        aim_mouse_order_wheel(event);
+        return true;
+    }
+    if (!wheel.tracking)
+        return false;
+    float x = 0.0F;
+    float y = 0.0F;
+    if (!order_wheel_canvas(event, x, y))
+        return true;
+    wheel.button.motion({x, y});
+    return order_wheel_decide(event);
+}
+
+bool Runtime::take_order_wheel_button(const SDL_Event& event) {
+    if (key_bindings_state_ == nullptr)
+        return false;
+    if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN && event.type != SDL_EVENT_MOUSE_BUTTON_UP)
+        return false;
+    auto& wheel = key_bindings_state_->order_wheel;
+    if (wheel.mouse_open) {
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP && event.button.button == wheel.button_id)
+            release_mouse_order_wheel(event);
+        return true;
+    }
+    const uint8_t watched = order_wheel_button();
+    if (watched == 0 || event.button.button != watched)
+        return false;
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {
+        float x = 0.0F;
+        float y = 0.0F;
+        if (!order_wheel_canvas(event, x, y) || !order_wheel_press_eligible(x, y))
+            return false;
+        wheel.button.press({x, y}, SDL_GetTicks());
+        wheel.tracking = true;
+        wheel.button_id = watched;
+        wheel.down = event;
+        wheel.replay = false;
+        return true;
+    }
+    if (!wheel.tracking)
+        return false;
+    float x = 0.0F;
+    float y = 0.0F;
+    if (!order_wheel_canvas(event, x, y)) {
+        wheel.button.cancel();
+        wheel.tracking = false;
+        return false;
+    }
+    wheel.button.release({x, y});
+    return order_wheel_decide(event);
+}
+
+void Runtime::advance_order_wheel() {
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->order_wheel.tracking)
+        return;
+    auto& wheel = key_bindings_state_->order_wheel;
+    const uint32_t long_press =
+        engine_settings_ != nullptr ? engine_settings_->current.long_press_ms : 500U;
+    const auto decision =
+        wheel.button.tick(SDL_GetTicks(), long_press, static_cast<float>(drag_click_pixels()));
+    if (decision == keys::WheelDecision::waiting)
+        return;
+    wheel.tracking = false;
+    if (decision == keys::WheelDecision::open_wheel)
+        open_mouse_order_wheel();
+}
+
+void Runtime::replay_order_wheel(bool& running) {
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->order_wheel.replay)
+        return;
+    auto& wheel = key_bindings_state_->order_wheel;
+    wheel.replay = false;
+    const bool drag = wheel.replay_drag;
+    const bool release = wheel.replay_up;
+    // Kept in window coordinates. dispatch_after_actions converts the copy it is given.
+    const SDL_Event down_at = wheel.down;
+    const SDL_Event motion_at_event = wheel.motion;
+    wheel.replay_drag = false;
+    wheel.replay_up = false;
+    SDL_Event down = down_at;
+    dispatch_after_actions(down, running);
+    if (!running)
+        return;
+    if (drag) {
+        SDL_Event motion = motion_at_event;
+        dispatch_after_actions(motion, running);
+        if (!running || !release)
+            return;
+        SDL_Event up = down_at;
+        up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        up.button.down = false;
+        up.button.x = motion_at_event.motion.x;
+        up.button.y = motion_at_event.motion.y;
+        dispatch_after_actions(up, running);
+        return;
+    }
+    if (release) {
+        SDL_Event up = down_at;
+        up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+        up.button.down = false;
+        dispatch_after_actions(up, running);
+    }
+}
+
 bool Runtime::feed_input_actions(const SDL_Event& event) {
     const bool keymap_changed = event.type == SDL_EVENT_KEYMAP_CHANGED;
     ensure_key_bindings(keymap_changed);
@@ -2016,11 +2382,16 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
         key_latch_seen_.clear();
         key_latch_chips_drawn_.clear();
         cancel_hold_confirm();
+        cancel_order_wheel();
         refresh_pointer_modifiers();
         trace_fed_actions(state.events);
         forget_held_back_keys();
         return false;
     }
+    // Motion and Escape never become an input action. A wheel the mouse opened, or a press it is
+    // holding, takes them here.
+    if (take_order_wheel_aside(event))
+        return true;
     const std::optional<keys::InputEvent> input = input_from_sdl(event, SDL_GetTicks());
     if (!input)
         return false;
@@ -2043,6 +2414,9 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     }
     // The bindings accepted this event. A key held back or dropped returned above.
     apply_shared_key_latches(*input, contexts);
+    // The dispatcher has seen this button. The order wheel may hold it back.
+    if (take_order_wheel_button(event))
+        return true;
     return false;
 }
 
@@ -2080,6 +2454,7 @@ void Runtime::advance_input_actions(bool& running) {
         }
         match_key_already_fed_ = false;
     }
+    advance_order_wheel();
 }
 
 std::span<const keys::ActionEvent> Runtime::match_action_events() const {

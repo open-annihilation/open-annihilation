@@ -211,6 +211,8 @@ struct PaintContext {
     const renderer::Surface* hud_layer{};
     /// Where each build ring wedge's picture comes from and goes; null without the ring.
     const std::array<RingPicture, hud::build_ring_slot_count>* pictures{};
+    /// The wedge a mouse-opened wheel aims, lit as a pressed wedge. The pad's aim is separate.
+    std::optional<std::size_t> mouse_aim{};
 };
 
 /// How a control's icon and label are arranged inside it.
@@ -1720,10 +1722,13 @@ void paint_radial(const PaintContext& context) {
     if (outer <= inner || inner <= 0.0F)
         return;
     // The ring, then each wedge's lit or ringed look, then the gaps between them. The wedge the
-    // pad aims at is lit as a pressed one.
+    // pad aims at, and the wedge a mouse-opened wheel aims at, are lit as a pressed one.
     const auto& pad_look = state.pad;
     const auto aimed = [&](std::size_t slot) {
-        return pad_look.ring_by_pad && pad_look.radial_aim && *pad_look.radial_aim == slot;
+        const bool pad_aims =
+            pad_look.ring_by_pad && pad_look.radial_aim && *pad_look.radial_aim == slot;
+        const bool mouse_aims = context.mouse_aim && *context.mouse_aim == slot;
+        return pad_aims || mouse_aims;
     };
     context.painter.fill_sector(centre, 0.0F, outer, 0.0F, pi, sheet_colour);
     for (std::size_t slot = 0; slot < radial.wedges.size(); ++slot) {
@@ -2210,14 +2215,22 @@ bool same_frame(const hud::Frame& a, const hud::Frame& b) {
 } // namespace
 
 bool TouchDrawAccess::refresh_layer(Runtime& runtime) {
-    // The touch controls, or the pad HUD a gamepad brought; without either nothing is drawn.
-    if (runtime.touch_ == nullptr || runtime.screen_ != Screen::match ||
-        (!runtime.touch_controls_active() && !runtime.touch_->hud.pad.hud))
+    // The touch controls, the pad HUD a gamepad brought, or a wheel a mouse button opened.
+    // With neither the controls nor the pad HUD on, that wheel is the only thing drawn.
+    if (runtime.touch_ == nullptr || runtime.screen_ != Screen::match)
+        return false;
+    const bool controls = runtime.touch_controls_active() || runtime.touch_->hud.pad.hud;
+    const bool mouse_wheel =
+        runtime.order_wheel_mouse_open() && runtime.touch_->hud.radial.has_value();
+    if (!controls && !mouse_wheel)
         return false;
     auto& state = *runtime.touch_;
     auto& layer = state.layer;
     const auto& match = runtime.match_layout_;
-    if (!state.frame_ready || match.width <= 0 || match.height <= 0)
+    if (match.width <= 0 || match.height <= 0)
+        return false;
+    // The full controls need a laid-out frame. The wheel alone does not.
+    if (controls && !state.frame_ready)
         return false;
     double density = runtime.match_display_density();
     if (!std::isfinite(density) || density <= 0.0)
@@ -2263,9 +2276,13 @@ bool TouchDrawAccess::refresh_layer(Runtime& runtime) {
         state.hud,
         state.frame,
         state.hud.build_ring ? &runtime.match_hud_cpu_ : nullptr,
-        state.hud.build_ring ? &pictures : nullptr
+        state.hud.build_ring ? &pictures : nullptr,
+        runtime.order_wheel_mouse_aim()
     };
-    paint_controls(context);
+    if (controls)
+        paint_controls(context);
+    else
+        paint_radial(context);
     layer.bounds = painter.painted();
     layer.drawn = look;
     layer.drawn_frame = state.frame;

@@ -136,6 +136,13 @@ inline constexpr std::array<ChoiceWord<pad_controls::Prompts>, 6> prompts_words{
     {pad_controls::Prompts::off, "off"},
 }};
 
+/// Order wheel's words.
+inline constexpr std::array<ChoiceWord<OrderWheel>, 3> order_wheel_words{{
+    {OrderWheel::off, "off"},
+    {OrderWheel::hold_right, "hold-right"},
+    {OrderWheel::hold_middle, "hold-middle"},
+}};
+
 /// Returns the word the preferences keep a choice as.
 ///
 /// @param words the setting's choices and words

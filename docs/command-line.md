@@ -427,6 +427,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
 | `--check-key-latches` | Checks a latched Shift and Space, then sticky Ctrl and Alt, on a skirmish. |
 | `--check-hold-confirm` | Checks Hold to confirm: self-destruct, the order button and the surrender question, on a skirmish. |
+| `--check-order-wheel` | Checks the order wheel: a held right or middle button opens it, a short click and a drag do not, on a skirmish. |
 | `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
 | `--check-key-timing` | Checks slow keys, bounce keys, the double-press time, the player's key repeat and the drag threshold. |
 | `--check-pointer-keys` | Drives the pointer from the numpad on the main menu and in a skirmish. |

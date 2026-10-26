@@ -1055,6 +1055,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_order_wheel) {
+            check_order_wheel();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_paused_save) {
             check_paused_save();
             flush_preferences();
@@ -1329,8 +1334,12 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
         ~StickyEventGuard() { runtime.end_sticky_event(); }
     } sticky_event{*this};
 
-    if (feed_input_actions(event))
+    if (feed_input_actions(event)) {
+        // A click or a drag the order wheel held back reaches the game now,
+        // and not through another feed: that would hold the press back again.
+        replay_order_wheel(running);
         return;
+    }
     // The screen handlers run after the feed. A key they answer must not be
     // fed again: that second down lets a latch go.
     const bool key_event = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;
@@ -1367,6 +1376,10 @@ void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
         apply_screen_request();
         return;
     }
+    // The keys overlay and the release of a captured pointer are global, and
+    // come before a display rule, so Primary+/ does not turn a building.
+    if (take_keys_overlay_action() || take_release_pointer_action())
+        return;
     // Keys the profile's display rules take on every screen come next.
     if (handle_view_rule_key(event)) {
         apply_screen_request();
@@ -1375,6 +1388,15 @@ void Runtime::dispatch_after_actions(SDL_Event& event, bool& running) {
     if (!dispatch_screen_input(event))
         handle_sdl_event(event, running);
     apply_screen_request();
+}
+
+bool Runtime::take_keys_overlay_action() {
+    const auto* action = fired_action("ui.keys-overlay");
+    if (action == nullptr || action->phase != oa::ui::key_bindings::Phase::pressed)
+        return false;
+    if (keys_overlay_hook_ != nullptr)
+        keys_overlay_hook_(*this);
+    return true;
 }
 
 void Runtime::idle_tick() {
