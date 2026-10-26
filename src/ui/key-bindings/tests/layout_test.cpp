@@ -863,6 +863,8 @@ void gui_files_clash_only_when_shown_together() {
     add("gui.ridge.defend", U'K');
     add("gui.ridge.blast", U'K');
     add("gui.other.ok", U'K');
+    // A gadget without a name, as 3.1c's BRIEF.GUI has one, is still its file's.
+    add("gui.brief.", U'K');
     keys::ResolveInput input = fresh(us);
     input.mod = &mod;
     Resolved resolved = keys::resolve(input);
@@ -873,6 +875,8 @@ void gui_files_clash_only_when_shown_together() {
     OA_CHECK(clash_of(apart, "gui.ridge.defend", "gui.ridge.blast"));
     OA_CHECK(!clash_of(apart, "gui.ridge.defend", "gui.other.ok"));
     OA_CHECK(!clash_of(apart, "gui.ridge.blast", "gui.other.ok"));
+    OA_CHECK(!clash_of(apart, "gui.brief.", "gui.ridge.defend"));
+    OA_CHECK(!clash_of(apart, "gui.brief.", "gui.other.ok"));
 
     const uint32_t play = context_bit("play");
     const uint32_t panel = context_bit("panel");

@@ -112,7 +112,8 @@ bool stricter(uint32_t winner, uint32_t other) {
     return (winner & other) == other && winner != other;
 }
 
-/// The file stem of `gui.<file>.<gadget>`, or empty when the id is not one.
+/// The file stem of `gui.<file>.<gadget>`, or empty when the id is not one. A
+/// gadget without a name still belongs to its file.
 ///
 /// @param id an action id
 /// @return the stem between the two dots
@@ -122,7 +123,7 @@ std::string_view gui_file_stem(std::string_view id) {
         return {};
     const std::string_view rest = id.substr(prefix.size());
     const std::size_t dot = rest.find('.');
-    if (dot == std::string_view::npos || dot == 0 || dot + 1 == rest.size())
+    if (dot == std::string_view::npos || dot == 0)
         return {};
     return rest.substr(0, dot);
 }
