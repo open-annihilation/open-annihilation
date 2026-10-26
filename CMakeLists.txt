@@ -1332,6 +1332,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_renderer.cpp
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
   src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp
+  src/app/runtime_pointer_keys.cpp
   src/app/gui_actions.cpp src/app/runtime_gui_actions.cpp
   src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
@@ -1367,6 +1368,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
   src/app/runtime_key_latches_check.cpp
   src/app/runtime_key_timing_check.cpp
+  src/app/runtime_pointer_keys_check.cpp
   src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
   src/app/runtime_zoom_memory_check.cpp
@@ -3753,6 +3755,15 @@ endforeach()
         --preferences-file "${oa_key_timing_dir}/key-timing.conf")
       set_tests_properties(native-key-timing PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_timing_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The numpad moves the pointer, clicks and holds a button.
+      set(oa_pointer_keys_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/pointer-keys")
+      file(MAKE_DIRECTORY "${oa_pointer_keys_dir}")
+      add_test(NAME native-pointer-keys COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-pointer-keys --trace-input --resolution 640x480
+        --preferences-file "${oa_pointer_keys_dir}/pointer-keys.conf")
+      set_tests_properties(native-pointer-keys PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_pointer_keys_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same rows with the left and right mouse buttons exchanged, under
       # a layout that exchanges those roles.

@@ -13,6 +13,7 @@ add_library(oa-ui-key-bindings
   src/clashes.cpp
   src/dispatcher.cpp
   src/latches.cpp
+  src/pointer_keys.cpp
   src/timing.cpp
   src/layout_file.cpp
   src/legacy_keys.cpp)
@@ -47,6 +48,13 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME ui-key-bindings-latches COMMAND oa-ui-key-bindings-latches-exe)
   set_tests_properties(ui-key-bindings-latches PROPERTIES TIMEOUT 30)
+
+  # Pointer keys: the ramp, clicks, and chords set aside while they are on.
+  add_executable(oa-ui-key-bindings-pointer-keys-exe tests/pointer_keys_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-pointer-keys-exe PRIVATE oa-ui-key-bindings
+    oa-test-support oa-options)
+  add_test(NAME ui-key-bindings-pointer-keys COMMAND oa-ui-key-bindings-pointer-keys-exe)
+  set_tests_properties(ui-key-bindings-pointer-keys PROPERTIES TIMEOUT 30)
 
   # Slow keys, bounce keys, the player's times and the drag's tick limit.
   add_executable(oa-ui-key-bindings-timing-exe tests/timing_test.cpp)

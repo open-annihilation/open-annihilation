@@ -465,6 +465,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-build-preview", &Options::check_build_preview, {}},
         {"--check-pointer-interfaces", &Options::check_pointer_interfaces, {}},
         {"--check-key-timing", &Options::check_key_timing, {}},
+        {"--check-pointer-keys", &Options::check_pointer_keys, {}},
         {"--check-megamap-clicks", &Options::check_megamap_clicks, {}},
         {"--check-single-player-offers", &Options::check_single_player_offers, {}},
         {"--check-radar-orders", &Options::check_radar_orders, {}},

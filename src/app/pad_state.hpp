@@ -21,6 +21,8 @@ namespace oa::app {
 /// The mouse the pad pointer's synthetic events name: no device registers it, and it is
 /// neither SDL_TOUCH_MOUSEID nor SDL_PEN_MOUSEID, so the pointer rests like a mouse's.
 inline constexpr SDL_MouseID pad_mouse_id = 0x70ad;
+/// The mouse the numpad pointer's synthetic events name. No device registers it.
+inline constexpr SDL_MouseID pointer_keys_mouse_id = 0x70ae;
 /// The most gamepads kept open at once.
 inline constexpr std::size_t max_open_pads = 4;
 /// The key Open Annihilation's Steam Input layout sends for the R4 grip, read as the grip
