@@ -2123,6 +2123,46 @@ LayerAnswer OaLayer::deliver(LayerScreen& screen, const LayerView& seen, const S
     return std::exchange(close_asked_, false) ? LayerAnswer::close : answer;
 }
 
+namespace {
+
+/// The kit key a screen action delivers. Cancel, paste and a screen's own
+/// shortcut are answered apart from these.
+std::optional<kit::Key> screen_kit_key(std::string_view action) {
+    if (action == "ui.screen-accept")
+        return kit::Key::enter;
+    if (action == "ui.screen-up")
+        return kit::Key::up;
+    if (action == "ui.screen-down")
+        return kit::Key::down;
+    if (action == "ui.screen-left")
+        return kit::Key::left;
+    if (action == "ui.screen-right")
+        return kit::Key::right;
+    if (action == "ui.screen-press")
+        return kit::Key::space;
+    if (action == "ui.screen-focus-next")
+        return kit::Key::tab;
+    if (action == "ui.screen-focus-previous")
+        return kit::Key::back_tab;
+    if (action == "ui.screen-page-up")
+        return kit::Key::page_up;
+    if (action == "ui.screen-page-down")
+        return kit::Key::page_down;
+    if (action == "ui.screen-home")
+        return kit::Key::home;
+    if (action == "ui.screen-end")
+        return kit::Key::end;
+    if (action == "ui.screen-yes")
+        return kit::Key::yes;
+    if (action == "ui.screen-no")
+        return kit::Key::no;
+    if (action == "ui.screen-info")
+        return kit::Key::info;
+    return std::nullopt;
+}
+
+} // namespace
+
 LayerAnswer
 OaLayer::hand_input(LayerScreen& screen, const LayerView& seen, const ScreenInput& input) {
     const LayerPlacement placed = screen.placement(seen);
@@ -2158,11 +2198,30 @@ OaLayer::hand_input(LayerScreen& screen, const LayerView& seen, const ScreenInpu
         const LayerAnswer own = screen.shortcut(input.key, input.modifiers);
         if (own != LayerAnswer::pass)
             return own;
-        if (const auto pressed = layer_key(input.key, input.modifiers, seen.match))
+        // Backspace, Delete, and Home, End and the left and right arrows in a
+        // focused field stay text editing. They are the physical keys, so a
+        // layout cannot move them off the field.
+        if (const auto editing = layer_key(input.key, input.modifiers, seen.match)) {
+            if (*editing == kit::Key::backspace || *editing == kit::Key::delete_forward)
+                return screen.key(*editing, input.key);
+            if (screen.text_field() && (*editing == kit::Key::home || *editing == kit::Key::end ||
+                                        *editing == kit::Key::left || *editing == kit::Key::right))
+                return screen.key(*editing, input.key);
+        }
+        const std::string action = runtime_.screen_action_for_key(input.key, input.modifiers);
+        // Escape always cancels the screen on top, whichever action a layout
+        // gives the key in another context.
+        if (action == "ui.screen-cancel" || input.key == SDLK_ESCAPE)
+            return screen.key(kit::Key::escape, input.key);
+        if (const std::optional<kit::Key> pressed = screen_kit_key(action)) {
+            // In a match the information key is the game's unit information.
+            if (*pressed == kit::Key::info && seen.match)
+                return LayerAnswer::pass;
             return screen.key(*pressed, input.key);
-        // The paste shortcut gives a focused field the clipboard's text up to
-        // its first line break, as typed text arrives.
-        if (layer_paste(input.key, input.modifiers) && screen.text_field()) {
+        }
+        // Paste gives a focused field the clipboard's text up to its first
+        // line break, as typed text arrives. With no field, the key goes on.
+        if (action == "ui.screen-paste" && screen.text_field()) {
             char* clipboard = SDL_GetClipboardText();
             std::string pasted = clipboard != nullptr ? clipboard : "";
             SDL_free(clipboard);
@@ -2784,10 +2843,13 @@ void OaLayer::tick() {
 }
 
 bool OaLayer::take_match_button(const ScreenInput& input) {
-    if (input.kind == ScreenInputKind::key_down &&
-        Runtime::engine_settings_shortcut(input.key, input.modifiers)) {
-        runtime_.open_engine_settings_in_match();
-        return true;
+    if (input.kind == ScreenInputKind::key_down) {
+        const auto* settings_action = runtime_.fired_action("ui.settings");
+        if (settings_action != nullptr &&
+            settings_action->phase == oa::ui::key_bindings::Phase::pressed) {
+            runtime_.open_engine_settings_in_match();
+            return true;
+        }
     }
     // Ctrl+F2 opens the mod options while the profile offers them.
     if (input.kind == ScreenInputKind::key_down && input.key == SDLK_F2 &&

@@ -1210,9 +1210,9 @@ struct Runtime::MapBrowserScreen final : LayerScreen {
 /// button under the picker's map list, its right edge on the list's, or
 /// above the list where the place under it meets another gadget of the
 /// picker. It takes a press or a tap on its button, and the controller's
-/// Y and Cmd+F or Ctrl+F, which the pickers leave unused; everything else,
-/// a pointer move that only changes its hover included, goes on to the
-/// picker.
+/// Y and the find action, which the pickers leave unused; a plain slash
+/// stays with the picker. Everything else, a pointer move that only changes
+/// its hover included, goes on to the picker.
 struct Runtime::MoreMapsScreen final : LayerScreen {
     /// Makes the button.
     ///
@@ -1308,19 +1308,18 @@ struct Runtime::MoreMapsScreen final : LayerScreen {
         return LayerAnswer::pass;
     }
 
-    /// Takes Cmd+F on macOS and Ctrl+F elsewhere, which the pickers leave
-    /// unused, as a press on the button; every other key goes on.
+    /// Takes the find action, which the pickers leave unused, as a press on
+    /// the button. A plain slash stays with the picker, and so does every
+    /// other key.
     ///
-    /// @param sdl_key the key's SDL keycode
-    /// @param modifiers SDL_Keymod bits
-    /// @return none for the shortcut; pass otherwise
-    LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
-#ifdef SDL_PLATFORM_MACOS
-        constexpr uint16_t command = SDL_KMOD_GUI;
-#else
-        constexpr uint16_t command = SDL_KMOD_CTRL;
-#endif
-        if (sdl_key != SDLK_F || (modifiers & command) == 0 || !place_of(view_))
+    /// @return none for the find action; pass otherwise
+    LayerAnswer shortcut(uint32_t /*sdl_key*/, uint16_t /*modifiers*/) override {
+        const auto* find = runtime_.fired_action("ui.screen-find");
+        if (find == nullptr || !place_of(view_))
+            return LayerAnswer::pass;
+        const bool typed_slash = find->chord.kind == oa::ui::key_bindings::TriggerKind::character &&
+                                 find->chord.character == U'/' && find->chord.modifiers == 0;
+        if (typed_slash)
             return LayerAnswer::pass;
         open_browser();
         return LayerAnswer::none;
