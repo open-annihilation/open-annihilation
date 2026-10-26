@@ -765,6 +765,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_views) {
+            check_key_views();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();
@@ -1305,6 +1310,9 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
         release_hold_confirm_key(static_cast<uint16_t>(event.key.scancode));
     if (event.type == SDL_EVENT_MOUSE_BUTTON_UP)
         release_hold_confirm_button(static_cast<uint8_t>(event.button.button));
+    if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button >= 6 &&
+        event.button.button <= 8)
+        mouse_extra_buttons_ = true;
     // Shift let go after an order or a building was queued with it returns
     // to the default order before any event that follows acts: a click just
     // after the release gives the default order.

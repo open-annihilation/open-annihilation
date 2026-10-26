@@ -42,12 +42,36 @@
 	it=Una pressione;
 	}
 
+[A release]
+	{
+	de=Ein Loslassen;
+	fr=Un relâchement;
+	es=Una suelta;
+	it=Un rilascio;
+	}
+
 [After Replace, {action} is chosen in the list so you can give it another key.]
 	{
 	de=Nach dem Ersetzen ist {action} in der Liste gewählt, damit du ihm eine andere Taste geben kannst.;
 	fr=Après le remplacement, {action} est choisi dans la liste pour que tu lui donnes une autre touche.;
 	es=Tras Reemplazar, {action} queda elegido en la lista para que le des otra tecla.;
 	it=Dopo Sostituisci, {action} è scelto nell'elenco così puoi dargli un altro tasto.;
+	}
+
+[Alt]
+	{
+	de=Alt;
+	fr=Alt;
+	es=Alt;
+	it=Alt;
+	}
+
+[always]
+	{
+	de=immer;
+	fr=toujours;
+	es=siempre;
+	it=sempre;
 	}
 
 [Always {description} in Open Annihilation. Choose another key.]
@@ -58,6 +82,38 @@
 	it=Sempre {description} in Open Annihilation. Scegli un altro tasto.;
 	}
 
+[ANSI]
+	{
+	de=ANSI;
+	fr=ANSI;
+	es=ANSI;
+	it=ANSI;
+	}
+
+[Button 6]
+	{
+	de=Taste 6;
+	fr=Bouton 6;
+	es=Botón 6;
+	it=Pulsante 6;
+	}
+
+[Button 7]
+	{
+	de=Taste 7;
+	fr=Bouton 7;
+	es=Botón 7;
+	it=Pulsante 7;
+	}
+
+[Button 8]
+	{
+	de=Taste 8;
+	fr=Bouton 8;
+	es=Botón 8;
+	it=Pulsante 8;
+	}
+
 [CHOOSE ANOTHER KEY…]
 	{
 	de=ANDERE TASTE WÄHLEN…;
@@ -66,12 +122,100 @@
 	it=SCEGLI UN ALTRO TASTO…;
 	}
 
+[Click a button on the picture, or a role in the table, to change it. Buttons 6 to 8 of a gaming mouse appear here when the game sees them pressed.]
+	{
+	de=Klicke eine Taste auf der Abbildung oder eine Rolle in der Tabelle an, um sie zu ändern. Die Tasten 6 bis 8 einer Gaming-Maus erscheinen hier, sobald das Spiel sie gedrückt sieht.;
+	fr=Clique un bouton sur le dessin, ou un rôle dans le tableau, pour le changer. Les boutons 6 à 8 d'une souris de jeu apparaissent ici quand le jeu les voit enfoncés.;
+	es=Haz clic en un botón del dibujo, o en un papel de la tabla, para cambiarlo. Los botones 6 a 8 de un ratón de juego aparecen aquí cuando el juego los ve pulsados.;
+	it=Fai clic su un pulsante del disegno, o su un ruolo nella tabella, per cambiarlo. I pulsanti da 6 a 8 di un mouse da gioco compaiono qui quando il gioco li vede premuti.;
+	}
+
+[Clicks give orders with]
+	{
+	de=Klicks geben Befehle mit;
+	fr=Les clics donnent les ordres avec;
+	es=Los clics dan órdenes con;
+	it=I clic danno gli ordini con;
+	}
+
+[Close the line]
+	{
+	de=Zeile schließen;
+	fr=Fermer la ligne;
+	es=Cerrar la línea;
+	it=Chiudi la riga;
+	}
+
+[Cmd]
+	{
+	de=Cmd;
+	fr=Cmd;
+	es=Cmd;
+	it=Cmd;
+	}
+
+[Ctrl]
+	{
+	de=Ctrl;
+	fr=Ctrl;
+	es=Ctrl;
+	it=Ctrl;
+	}
+
+[Enter]
+	{
+	de=Eingabe;
+	fr=Entrée;
+	es=Intro;
+	it=Invio;
+	}
+
 [Escape cancels · hold Escape to bind Escape]
 	{
 	de=Escape bricht ab · halte Escape, um Escape zu belegen;
 	fr=Échap annule · maintiens Échap pour assigner Échap;
 	es=Escape cancela · mantén Escape para asignar Escape;
 	it=Esc annulla · tieni premuto Esc per assegnare Esc;
+	}
+
+[FIND ON KEYBOARD]
+	{
+	de=AUF DER TASTATUR FINDEN;
+	fr=TROUVER SUR LE CLAVIER;
+	es=BUSCAR EN EL TECLADO;
+	it=TROVA SULLA TASTIERA;
+	}
+
+[Forward]
+	{
+	de=Vor;
+	fr=Avant;
+	es=Adelante;
+	it=Avanti;
+	}
+
+[From your system]
+	{
+	de=Von deinem System;
+	fr=Depuis ton système;
+	es=De tu sistema;
+	it=Dal tuo sistema;
+	}
+
+[Game and window]
+	{
+	de=Spiel und Fenster;
+	fr=Partie et fenêtre;
+	es=Partida y ventana;
+	it=Partita e finestra;
+	}
+
+[Grey keys are free while playing. Click a free key to give it the action chosen in the list. Hover a key to see everything on it.]
+	{
+	de=Graue Tasten sind beim Spielen frei. Klicke eine freie Taste an, um ihr die in der Liste gewählte Aktion zu geben. Fahre über eine Taste, um alles darauf zu sehen.;
+	fr=Les touches grises sont libres en jeu. Clique une touche libre pour lui donner l'action choisie dans la liste. Survole une touche pour voir tout ce qu'elle fait.;
+	es=Las teclas grises están libres mientras juegas. Haz clic en una tecla libre para darle la acción elegida en la lista. Pasa por una tecla para ver todo lo que hace.;
+	it=I tasti grigi sono liberi mentre giochi. Fai clic su un tasto libero per dargli l'azione scelta nell'elenco. Passa su un tasto per vedere tutto quello che fa.;
 	}
 
 [Here, and in {name}. Both are read {context}.]
@@ -88,6 +232,46 @@
 	fr=Maintiens les modificateurs que tu veux, puis appuie sur une touche ou un bouton de souris, ou tourne la molette.;
 	es=Mantén los modificadores que quieras y pulsa una tecla o un botón del ratón, o gira la rueda.;
 	it=Tieni premuti i modificatori che vuoi, poi premi un tasto o un pulsante del mouse, oppure gira la rotella.;
+	}
+
+[Holding]
+	{
+	de=Gedrückt;
+	fr=Maintenu;
+	es=Pulsado;
+	it=Premuto;
+	}
+
+[in place of]
+	{
+	de=anstelle von;
+	fr=à la place de;
+	es=en lugar de;
+	it=al posto di;
+	}
+
+[In the chat line]
+	{
+	de=In der Chatzeile;
+	fr=Dans la ligne de discussion;
+	es=En la línea de chat;
+	it=Nella riga della chat;
+	}
+
+[ISO]
+	{
+	de=ISO;
+	fr=ISO;
+	es=ISO;
+	it=ISO;
+	}
+
+[JIS]
+	{
+	de=JIS;
+	fr=JIS;
+	es=JIS;
+	it=JIS;
 	}
 
 [KEEP IT FOR {name}]
@@ -114,6 +298,38 @@
 	it=Tenerlo qui lascia {name} con {chord}.;
 	}
 
+[Keyboard]
+	{
+	de=Tastatur;
+	fr=Clavier;
+	es=Teclado;
+	it=Tastiera;
+	}
+
+[Left]
+	{
+	de=Links;
+	fr=Gauche;
+	es=Izquierdo;
+	it=Sinistro;
+	}
+
+[Left-click]
+	{
+	de=Linksklick;
+	fr=Clic gauche;
+	es=Clic izquierdo;
+	it=Clic sinistro;
+	}
+
+[List]
+	{
+	de=Liste;
+	fr=Liste;
+	es=Lista;
+	it=Elenco;
+	}
+
 [Means]
 	{
 	de=Bedeutung;
@@ -122,12 +338,60 @@
 	it=Significa;
 	}
 
+[Middle]
+	{
+	de=Mitte;
+	fr=Milieu;
+	es=Central;
+	it=Centrale;
+	}
+
+[Mouse]
+	{
+	de=Maus;
+	fr=Souris;
+	es=Ratón;
+	it=Mouse;
+	}
+
 [Not on this keyboard]
 	{
 	de=Nicht auf dieser Tastatur;
 	fr=Pas sur ce clavier;
 	es=No está en este teclado;
 	it=Non c'è su questa tastiera;
+	}
+
+[On a build button]
+	{
+	de=Auf einer Bautaste;
+	fr=Sur un bouton de construction;
+	es=En un botón de construcción;
+	it=Su un pulsante di costruzione;
+	}
+
+[On Open Annihilation's screens]
+	{
+	de=Auf den Bildschirmen von Open Annihilation;
+	fr=Sur les écrans d'Open Annihilation;
+	es=En las pantallas de Open Annihilation;
+	it=Sulle schermate di Open Annihilation;
+	}
+
+[On the minimap]
+	{
+	de=Auf der Minikarte;
+	fr=Sur la minicarte;
+	es=En el minimapa;
+	it=Sulla minimappa;
+	}
+
+[Placing a building]
+	{
+	de=Beim Platzieren eines Gebäudes;
+	fr=En plaçant un bâtiment;
+	es=Al colocar un edificio;
+	it=Mentre piazzi un edificio;
 	}
 
 [Press a key…]
@@ -146,6 +410,38 @@
 	it=Premi i tasti per {action};
 	}
 
+[Right]
+	{
+	de=Rechts;
+	fr=Droite;
+	es=Derecho;
+	it=Destro;
+	}
+
+[Right-click]
+	{
+	de=Rechtsklick;
+	fr=Clic droit;
+	es=Clic derecho;
+	it=Clic destro;
+	}
+
+[Shift]
+	{
+	de=Shift;
+	fr=Shift;
+	es=Shift;
+	it=Shift;
+	}
+
+[Space]
+	{
+	de=Leertaste;
+	fr=Espace;
+	es=Espacio;
+	it=Spazio;
+	}
+
 [SWAP]
 	{
 	de=TAUSCHEN;
@@ -162,12 +458,60 @@
 	it=Inizia con;
 	}
 
+[Tab]
+	{
+	de=Tabulator;
+	fr=Tabulation;
+	es=Tabulador;
+	it=Tabulazione;
+	}
+
 [The letter {key}]
 	{
 	de=Der Buchstabe {key};
 	fr=La lettre {key};
 	es=La letra {key};
 	it=La lettera {key};
+	}
+
+[The mod's data]
+	{
+	de=Die Daten des Mods;
+	fr=Les données du mod;
+	es=Los datos del mod;
+	it=I dati del mod;
+	}
+
+[The mod's hacks]
+	{
+	de=Die Hacks des Mods;
+	fr=Les hacks du mod;
+	es=Los hacks del mod;
+	it=Gli hack del mod;
+	}
+
+[While playing]
+	{
+	de=Beim Spielen;
+	fr=En jouant;
+	es=Al jugar;
+	it=Mentre giochi;
+	}
+
+[While watching]
+	{
+	de=Beim Zuschauen;
+	fr=En observant;
+	es=Al observar;
+	it=Mentre guardi;
+	}
+
+[Whiteboard held]
+	{
+	de=Tafel gehalten;
+	fr=Tableau maintenu;
+	es=Pizarra mantenida;
+	it=Lavagna tenuta;
 	}
 
 [You are giving {action} the chord {chord} in place of {old}.]
@@ -224,6 +568,14 @@
 	fr={name} : {description} {context}. OK demande quoi faire.;
 	es={name}: {description} {context}. OK pregunta qué hacer.;
 	it={name}: {description} {context}. OK chiede cosa fare.;
+	}
+
+[{shape} · from your system]
+	{
+	de={shape} · von deinem System;
+	fr={shape} · de ton système;
+	es={shape} · de tu sistema;
+	it={shape} · dal tuo sistema;
 	}
 
 [{where}, {chord} already does what {other} does.]

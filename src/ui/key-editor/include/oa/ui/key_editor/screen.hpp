@@ -124,6 +124,39 @@ inline constexpr std::string_view name_card_there = "key-editor.card.keep-there"
 inline constexpr std::string_view name_card_choose = "key-editor.card.choose";
 /// The chord chip in the search, with its clear mark.
 inline constexpr std::string_view name_search_chord = "key-editor.search.chord";
+/// The List tab.
+inline constexpr std::string_view name_view_list = "key-editor.view.list";
+/// The Keyboard tab.
+inline constexpr std::string_view name_view_keyboard = "key-editor.view.keyboard";
+/// The Mouse tab.
+inline constexpr std::string_view name_view_mouse = "key-editor.view.mouse";
+/// The Nothing layer.
+inline constexpr std::string_view name_layer_none = "key-editor.layer.none";
+/// The Shift layer.
+inline constexpr std::string_view name_layer_shift = "key-editor.layer.shift";
+/// The Ctrl layer.
+inline constexpr std::string_view name_layer_ctrl = "key-editor.layer.ctrl";
+/// The Alt layer.
+inline constexpr std::string_view name_layer_alt = "key-editor.layer.alt";
+/// The Cmd layer, on macOS.
+inline constexpr std::string_view name_layer_cmd = "key-editor.layer.cmd";
+/// The keyboard shape drop-down. Its items are key-editor.keyboard-shape.system,
+/// .ansi, .iso and .jis.
+inline constexpr std::string_view name_keyboard_shape = "key-editor.keyboard-shape";
+/// The keyboard picture. Its keys are key-editor.keyboard.<code word>.
+inline constexpr std::string_view name_keyboard = "key-editor.keyboard";
+/// The card of the key under the pointer or the focus.
+inline constexpr std::string_view name_key_card = "key-editor.key-card";
+/// The mouse picture. Its buttons are key-editor.mouse.mouse-left and the rest.
+inline constexpr std::string_view name_mouse = "key-editor.mouse";
+/// Right-click, on the scheme strip.
+inline constexpr std::string_view name_scheme_right = "key-editor.scheme.right-click";
+/// Left-click, on the scheme strip.
+inline constexpr std::string_view name_scheme_left = "key-editor.scheme.left-click";
+/// What a mouse-table row's name starts with. The place and the row's number follow.
+inline constexpr std::string_view name_mouse_table_prefix = "key-editor.mouse-table.";
+/// FIND ON KEYBOARD, in the details.
+inline constexpr std::string_view name_detail_find = "key-editor.detail.find";
 
 /// The layout drop-down's least width at Large, in points.
 inline constexpr int32_t large_layout_width = 240;
@@ -158,6 +191,7 @@ enum class Menu : uint8_t {
     layout,   ///< LAYOUT
     category, ///< the category drop-down
     more,     ///< Compact's MORE
+    shape,    ///< the keyboard's shape
 };
 
 /// What one input asked of the host.
@@ -248,6 +282,22 @@ struct ScreenState {
     oa::ui::key_bindings::Clash pending_clash{};
     /// A chord the empty search is listing. The list ignores the category.
     std::optional<oa::ui::key_bindings::Chord> search_chord{};
+
+    View view{View::list}; ///< which picture is showing
+    /// The keyboard the picture draws. The host sets this from the system or the preference.
+    kit::KeyboardShape shape{kit::KeyboardShape::ansi};
+    /// The shape the system reported. Choosing From your system returns to it.
+    kit::KeyboardShape system_shape{kit::KeyboardShape::ansi};
+    bool shape_from_system{true}; ///< the drop-down is following the system
+    /// 0 is Nothing. Otherwise one modifier bit: Shift, Ctrl, Alt or Meta.
+    uint8_t layer{0};
+    int32_t keyboard_scroll{0}; ///< how far the compact keyboard is scrolled, in points
+    std::string card_code{};    ///< the key whose card is showing; empty shows the focus
+    std::string focus_code{};   ///< the key the arrows move
+    std::string outline{};      ///< the action FIND ON KEYBOARD is outlining
+    std::string finger_key{};   ///< the key a finger is on
+    bool finger_armed{false};   ///< the next tap on finger_key acts
+    bool extra_buttons{false};  ///< buttons 6 to 8 have been pressed this run
 };
 
 /// The name of one list row. An action id that would make

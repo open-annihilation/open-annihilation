@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The key editor drawn twice into the viewport: the list at Compact, Large
-// and Regular, Compact's details page, Large over a paused match, and the
-// capture (waiting, complete, clash and refused), the clash prompt and the
-// card at each class. The two drawings of a scene are byte for byte the
-// same. The dialog sits at the canvas origin; every pixel of it is painted,
+// and Regular, Compact's details page, Large over a paused match, the
+// keyboard and the mouse at each class, the ISO and JIS keyboards at Large,
+// and the capture (waiting, complete, clash and refused), the clash prompt
+// and the card at each class. The two drawings of a scene are byte for byte
+// the same. The dialog sits at the canvas origin; every pixel of it is painted,
 // and nothing is drawn outside it, so the margin around the dialog keeps
 // the colour the canvas started as. The picture is the whole viewport.
 // Focus is left unset, so the pictures have no focus ring.
@@ -84,6 +85,10 @@ struct Scene {
     bool details{false};      ///< Compact's details page
     bool in_match{false};     ///< the header says the game is paused
     Shown shown{Shown::list}; ///< which screen
+    /// The picture, when the screen is not a prompt. The list scenes leave this.
+    editor::View view{editor::View::list};
+    /// The keyboard the picture draws. ANSI follows the system in the drop-down.
+    kit::KeyboardShape shape{kit::KeyboardShape::ansi};
 };
 
 /// A drawing of a scene.
@@ -138,6 +143,31 @@ Scene picture(
     return scene;
 }
 
+/// One keyboard or mouse picture. ANSI reads as following the system.
+///
+/// @param name the file's name after "key-editor-"
+/// @param width the canvas width, in pixels
+/// @param height the canvas height, in pixels
+/// @param scale the scale, as a percentage
+/// @param window the dialog, in points
+/// @param view which picture
+/// @param shape the keyboard, when the picture is the keyboard
+/// @return the scene
+Scene shaped(
+    const char* name,
+    int32_t width,
+    int32_t height,
+    int32_t scale,
+    kit::Point window,
+    editor::View view,
+    kit::KeyboardShape shape
+) {
+    Scene scene = picture(name, width, height, scale, window, false, false, Shown::list);
+    scene.view = view;
+    scene.shape = shape;
+    return scene;
+}
+
 /// The list, then the capture, the clash prompt and the card at each class.
 ///
 /// @return the scenes, in table order
@@ -171,6 +201,58 @@ std::vector<Scene> all_scenes() {
         picture("card-compact", 640, 480, 100, compact, true, false, Shown::card),
         picture("card-regular", 1920, 1080, 200, regular, false, false, Shown::card),
         picture("card-large", 1280, 720, 100, large, false, false, Shown::card),
+        shaped(
+            "keyboard-compact",
+            640,
+            480,
+            100,
+            compact,
+            editor::View::keyboard,
+            kit::KeyboardShape::ansi
+        ),
+        shaped(
+            "keyboard-large",
+            1280,
+            720,
+            100,
+            large,
+            editor::View::keyboard,
+            kit::KeyboardShape::ansi
+        ),
+        shaped(
+            "keyboard-regular",
+            1920,
+            1080,
+            200,
+            regular,
+            editor::View::keyboard,
+            kit::KeyboardShape::ansi
+        ),
+        shaped(
+            "mouse-compact", 640, 480, 100, compact, editor::View::mouse, kit::KeyboardShape::ansi
+        ),
+        shaped("mouse-large", 1280, 720, 100, large, editor::View::mouse, kit::KeyboardShape::ansi),
+        shaped(
+            "mouse-regular", 1920, 1080, 200, regular, editor::View::mouse, kit::KeyboardShape::ansi
+        ),
+        shaped(
+            "keyboard-iso-large",
+            1280,
+            720,
+            100,
+            large,
+            editor::View::keyboard,
+            kit::KeyboardShape::iso
+        ),
+        shaped(
+            "keyboard-jis-large",
+            1280,
+            720,
+            100,
+            large,
+            editor::View::keyboard,
+            kit::KeyboardShape::jis
+        ),
     };
 }
 
@@ -219,6 +301,9 @@ std::string digest_of(const renderer::Surface& surface) {
 void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& scene) {
     state.details_page = scene.details;
     state.in_match = scene.in_match;
+    state.view = scene.view;
+    state.shape = scene.shape;
+    state.shape_from_system = scene.shape == kit::KeyboardShape::ansi;
     state.selected = "order.attack";
     state.capture.action = "order.attack";
     state.capture.means = oa::data::input_actions::By::letter;

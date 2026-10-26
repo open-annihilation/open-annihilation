@@ -9,7 +9,9 @@
 // in that order. Every
 // text fits, including a longer French lookup. Long German Save and Restore
 // grow and stay inside the window. Compact's details page has Back, Save
-// and Attack.
+// and Attack. The keyboard and the mouse are laid out at each class, and
+// the ISO and JIS keyboards at Large. A key that scrolls past the well is
+// clipped, so its own rectangle may leave the window.
 //
 // oa-ui-key-editor-layout-test
 
@@ -676,6 +678,142 @@ void check_prompts(const kit::Frame& frame, const std::string& where) {
     }
 }
 
+/// True for one key of the keyboard picture.
+///
+/// @param name the control's name
+/// @return true when it is a key
+bool key_control(std::string_view name) {
+    return starts(name, "key-editor.keyboard.");
+}
+
+/// True for one button of the mouse picture, not a row of the table.
+///
+/// @param name the control's name
+/// @return true when it is a button on the picture
+bool mouse_button_control(std::string_view name) {
+    return starts(name, "key-editor.mouse.");
+}
+
+/// Controls whose own rectangle leaves the window, apart from a key the
+/// compact keyboard has scrolled past the well. The press is clipped.
+///
+/// @param list the display list
+/// @param window the window's size
+/// @return a line for each control outside
+std::vector<std::string> picture_rects(const kit::DisplayList& list, kit::Point window) {
+    const kit::Rect whole{0, 0, window.x, window.y};
+    std::vector<std::string> problems;
+    for (const kit::Control& control : list.controls) {
+        if (key_control(control.name))
+            continue;
+        if (control.rect.width > 0 && control.rect.height > 0 &&
+            !kit::wholly_in(control.rect, whole))
+            problems.push_back(control.name);
+    }
+    return problems;
+}
+
+/// Pairs whose press areas meet. Keys share the picture's grid, and the
+/// mouse's buttons share its drawing, so those pairs are not a meeting.
+/// A key that meets the card still is.
+///
+/// @param list the display list
+/// @return a line for each pair
+std::vector<std::string> picture_meetings(const kit::DisplayList& list) {
+    std::vector<std::string> problems;
+    for (std::size_t first_at = 0; first_at < list.controls.size(); ++first_at) {
+        for (std::size_t second_at = first_at + 1; second_at < list.controls.size(); ++second_at) {
+            const kit::Control& first = list.controls[first_at];
+            const kit::Control& second = list.controls[second_at];
+            if (menu_item(first) || menu_item(second))
+                continue;
+            if (held_inside(first, second) || held_inside(second, first))
+                continue;
+            if (key_control(first.name) && key_control(second.name))
+                continue;
+            if (mouse_button_control(first.name) && mouse_button_control(second.name))
+                continue;
+            if (has_room(kit::intersect(press_area(first), press_area(second))))
+                problems.push_back(first.name + " meets " + second.name);
+        }
+    }
+    return problems;
+}
+
+/// The keyboard or the mouse at one size. Keys may scroll past the window.
+/// The card sits under the picture.
+///
+/// @param frame the frame
+/// @param window the dialog size this frame must give
+/// @param where the case
+/// @param shown the picture
+/// @param shape the keyboard, when the picture is the keyboard
+void check_view(
+    const kit::Frame& frame,
+    kit::Point window,
+    const std::string& where,
+    editor::View shown,
+    kit::KeyboardShape shape
+) {
+    const editor::Editor model(editor_fixture());
+    editor::ScreenState state;
+    state.view = shown;
+    state.shape = shape;
+    state.shape_from_system = shape == kit::KeyboardShape::ansi;
+    const kit::DisplayList list = laid_out(model, state, frame);
+    const kit::Point sized = editor::window_size(frame);
+    OA_CHECK(sized.x == window.x && sized.y == window.y);
+    expect_none(outside_window(list, sized), where + " drawn");
+    expect_none(picture_rects(list, sized), where + " control");
+    expect_none(picture_meetings(list), where + " meets");
+    expect_none(texts_not_fitting(list, fonts()), where + " text");
+    const std::string names = kit::name_problem(list);
+    if (!names.empty())
+        std::fprintf(stderr, "%s: %s\n", where.c_str(), names.c_str());
+    OA_CHECK(names.empty());
+    expect_none(repeated_names(list), where + " name");
+    if (find_named(list, editor::name_view_list) == nullptr)
+        std::fprintf(stderr, "%s: no view tabs\n", where.c_str());
+    OA_CHECK(find_named(list, editor::name_view_list) != nullptr);
+    OA_CHECK(find_named(list, editor::name_view_keyboard) != nullptr);
+    OA_CHECK(find_named(list, editor::name_view_mouse) != nullptr);
+
+    if (shown == editor::View::keyboard) {
+        OA_CHECK(find_named(list, editor::name_layer_none) != nullptr);
+        OA_CHECK(find_named(list, editor::name_keyboard_shape) != nullptr);
+        int32_t lowest = 0;
+        int keys = 0;
+        for (const kit::Control& control : list.controls) {
+            if (!key_control(control.name))
+                continue;
+            ++keys;
+            const int32_t bottom = control.rect.y + control.rect.height;
+            if (bottom > lowest)
+                lowest = bottom;
+        }
+        if (keys == 0)
+            std::fprintf(stderr, "%s: the keyboard has no keys\n", where.c_str());
+        OA_CHECK(keys > 0);
+        const kit::Control* card = find_named(list, editor::name_key_card);
+        if (card == nullptr || card->rect.y < lowest)
+            std::fprintf(stderr, "%s: the card is not under the keyboard\n", where.c_str());
+        OA_CHECK(card != nullptr && card->rect.y >= lowest);
+        return;
+    }
+
+    OA_CHECK(find_named(list, editor::name_scheme_right) != nullptr);
+    OA_CHECK(find_named(list, editor::name_scheme_left) != nullptr);
+    OA_CHECK(find_named(list, "key-editor.mouse.mouse-left") != nullptr);
+    bool table = false;
+    for (const kit::Control& control : list.controls) {
+        if (starts(control.name, editor::name_mouse_table_prefix))
+            table = true;
+    }
+    if (!table)
+        std::fprintf(stderr, "%s: the mouse table has no row\n", where.c_str());
+    OA_CHECK(table);
+}
+
 } // namespace
 
 int main() {
@@ -708,5 +846,20 @@ int main() {
     check_prompts(compact, "compact");
     check_prompts(large, "large");
     check_prompts(regular, "regular");
+
+    check_view(
+        compact, {480, 324}, "keyboard compact", editor::View::keyboard, kit::KeyboardShape::ansi
+    );
+    check_view(
+        large, {960, 600}, "keyboard large", editor::View::keyboard, kit::KeyboardShape::ansi
+    );
+    check_view(
+        regular, {720, 486}, "keyboard regular", editor::View::keyboard, kit::KeyboardShape::ansi
+    );
+    check_view(large, {960, 600}, "keyboard iso", editor::View::keyboard, kit::KeyboardShape::iso);
+    check_view(large, {960, 600}, "keyboard jis", editor::View::keyboard, kit::KeyboardShape::jis);
+    check_view(compact, {480, 324}, "mouse compact", editor::View::mouse, kit::KeyboardShape::ansi);
+    check_view(large, {960, 600}, "mouse large", editor::View::mouse, kit::KeyboardShape::ansi);
+    check_view(regular, {720, 486}, "mouse regular", editor::View::mouse, kit::KeyboardShape::ansi);
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }

@@ -1,12 +1,14 @@
 # Key editor
 
-The key editor's list: every rebindable action, by category, with its keys, where it works and whether the player changed it. Library `oa-ui-key-editor`, headers `include/oa/ui/key_editor/`, namespace `oa::ui::key_editor`.
+The key editor's list, keyboard and mouse: every rebindable action, by category, with its keys, where it works and whether the player changed it, and the player's keyboard and mouse with what each key and button does. Library `oa-ui-key-editor`, headers `include/oa/ui/key_editor/`, namespace `oa::ui::key_editor`.
 
 It reads no file, clock, preference or network. The host fills `EditorInputs` and lays the screen out for its frame. Every word a player reads comes from `text.hpp`. Nothing here hosts the screen on the OA layer. The pointer, a finger, the keys, typed text, the wheel and the controller drive the model and the screen state, as [Input](#input) describes.
 
 ## The screen
 
 `window_size` is the size class's dialog (480×324, 720×486, 960×600 points), no larger than the frame. `editor_layout` lays a modal kit window out from the model. Large and Regular put LAYOUT ▾, the aside and the search on one row: Large holds the aside between the drop-down and a 280-point search, and packs the pills at the right of the next row; Regular puts All categories on the left of the pills. Compact's header names the layout and its changes, and the row under it is the category drop-down and the search. LAYOUT ▾ is under MORE. Large keeps a 152-point category nav whose first entry is All with its count, and a long title wraps onto another line. Regular and Compact use a category drop-down, and Compact puts the filters in that menu. The filters are All, Changed, Clashes, Unbound and Latchable. Each row leads with the mark, then the action's name with a quiet aside, and up to four chord chips (one chip and "+n" at Compact). The category's tint square is on the nav and on the details' title. The chosen action's details sit beside the list at Regular and Large, and on a page of their own at Compact: what it does, where it works, its kind and its base, each chord with an explanation and a ✕, Latch and Hold to confirm when the action allows them, and RESET TO <base>. Groups starts with Number keys select groups. The footer is RESTORE DEFAULTS, CANCEL and SAVE. Compact's footer is MORE ▾, CANCEL and SAVE. Large's footer aside names the number-keys switch.
+
+List, Keyboard and Mouse are tabs. At Large and Regular they lead the filter row and the pills sit to their right. At Compact they head the screen. The keyboard is ANSI, ISO or JIS, from the system or the drop-down. Holding is Nothing, Shift, Ctrl and Alt, and Cmd where Primary is the command key. Each key shows what the player's keyboard prints and the short name of what that plain chord does while playing, tinted by its category's letter. No key is dashed. The layer's modifiers are drawn held, and a clash is marked. At Compact the picture scrolls sideways in its well. The legend, the grey-keys note and the card sit under it. The card lists every action on the key the pointer or the focus is on. The mouse shows left, right, the wheel, middle, back and forward, and buttons 6 to 8 once the game has seen them pressed. The scheme strip is Right-click and Left-click. It redraws the roles and does not change the layout's bindings. A table lists each place.
 
 The controls a journey presses, as `oa.` and the name:
 
@@ -40,6 +42,14 @@ The controls a journey presses, as `oa.` and the name:
 | `key-editor.restore`, `.cancel`, `.save` | RESTORE DEFAULTS, CANCEL and SAVE |
 | `key-editor.close` | The header's × |
 | `key-editor.summary`, `key-editor.footer-note` | Labels. No press |
+| `key-editor.view.list`, `.keyboard`, `.mouse` | The List, Keyboard and Mouse tabs. Only the open tab takes Tab |
+| `key-editor.layer.none`, `.shift`, `.ctrl`, `.alt`, `.cmd` | Holding. Cmd is absent where Primary is Ctrl |
+| `key-editor.keyboard-shape` | The shape drop-down. Items `.system`, `.ansi`, `.iso` and `.jis` |
+| `key-editor.keyboard.<code word>` | One key. The card under the picture is `key-editor.key-card` |
+| `key-editor.mouse.mouse-left`, `.mouse-right`, `.mouse-middle`, `.wheel`, `.mouse-back`, `.mouse-forward` | The mouse's buttons. `.mouse-6` to `.mouse-8` appear once the game has seen them pressed |
+| `key-editor.scheme.right-click`, `.left-click` | Clicks give orders with |
+| `key-editor.mouse-table.<place>.<n>` | One role in one place, numbered from 1 |
+| `key-editor.detail.find` | FIND ON KEYBOARD, in the details |
 | `key-editor.details.bar` | The details' scroll bar |
 
 Tab's order is LAYOUT ▾, the search, the categories, the pills, the list, the details' controls, the footer and the ×. At Compact the details page's order is its controls, BACK, RESET and SAVE. A switch's halves are `oa.<name>.off` and `oa.<name>.on`. A click on either half toggles the switch.
@@ -56,6 +66,10 @@ On the list, Up and Down move the chosen row, Page Up and Page Down move by the 
 
 In the empty, focused search, a chord with Ctrl, Alt, Meta or Primary, a function key, Print Screen, Pause, Insert, Page Up, Page Down, Home, End, a numpad key, or a side button over the field lists every action on that chord. A plain letter, digit or punctuation mark types into the search. The chip `key-editor.search.chord` clears that chord.
 
+On the keyboard, the arrows and the controller's D-pad move between keys by where they sit. Enter on a free key fills the capture for the action chosen in the list, with the layer's modifiers and that key, and waits for OK. Enter on a bound key selects that action. Tab stops on the open view, the chosen layer, the shape drop-down and the focused key, each as one stop. A key's focus or the pointer fills the card. A finger's first tap is a hover and the second tap acts. FIND ON KEYBOARD outlines that action's keys.
+
+On the mouse, a click on a button or a role in the table opens the capture for it. The scheme pills change the draft's scheme at once. The host writes Interface Type when the player saves, and CANCEL leaves it.
+
 A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KEEP IT FOR the other action, and CHOOSE ANOTHER KEY. KEEP IT HERE leaves the other action without that chord. The editor opens on the Clashes filter when the draft already names a clash and the host did not ask for another list.
 
 `focused_field` returns the search field's rectangle while it has the focus, so the host can place the system's text input.
@@ -70,24 +84,27 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 - `set_number_keys` is SwitchAlt. It is saved with the layout and is not one of the own changes the summary counts.
 - `choose_layout` chooses a base. Setting the changes aside clears the draft and leaves the previous own folder for the host to leave untouched. `duplicate` makes a new layout from the current one. An empty name does nothing. `rename` renames the chosen layout. OA default is not renamed.
 - `changes` counts the draft's bindings and helpers. `unsaved` counts those and a layout that was chosen, duplicated or renamed, and the number-keys switch. `clashes` is how many clashing pairs the bindings in use have, including a clash that lives only in the mod's data. `draft_clashes` counts the pairs that name an action the draft binds. `can_save` is false while `draft_clashes` is not zero. `result` is the manifest to write, SwitchAlt, and any layout just made or renamed.
+- `keyboard_look` is the keyboard for one shape and one layer. `key_card` is every action on one key. `mouse_look` and `mouse_table` are the mouse for one scheme. `keys_of` is the keys FIND ON KEYBOARD outlines. `set_scheme` changes the draft's scheme and leaves the bindings.
 
 ## Tests
 
 `ui-key-editor-model` checks the categories, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing, duplicating and renaming a layout, a clash in the mod's data that stays listed while SAVE stays allowed, a draft chord that blocks SAVE, an unknown action written back, Developer Mode, and Escape's fixed chord.
 
-`ui-key-editor-layout` lays the screen out at Compact, Regular and Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits.
+`ui-key-editor-layout` lays the screen out at Compact, Regular and Large, including the keyboard and the mouse, and the ISO and JIS keyboards at Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits. A key scrolled past the well is clipped.
 
 `ui-key-editor-input` drives the keys, the pad's commands, and a finger's scroll and tap.
 
 `ui-key-editor-capture` captures a chord, settles a clash and finds by key.
 
-`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list and the capture, clash and card, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`.
+`ui-key-editor-views` checks the labels, the layers, Escape, Settings, an AZERTY map, a free key's click, the mouse in both schemes, and FIND ON KEYBOARD.
+
+`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the keyboard, the mouse and the capture, clash and card, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large.
 
 ## State
 
 `Editor` holds the host's `EditorInputs`: the base layout, the chosen layout, the mod's keys, the hacks that are on, the scheme, the keyboard map, the platform, the own draft and its helpers, SwitchAlt, Developer Mode, Hold to confirm's setting, the played mod's name and the installed layouts. A call changes the draft. The host fills the inputs and writes `result()`.
 
-`ScreenState` holds the hover, the press and the focus, the list and details scrolls, the search, which menu is open, the category, the filter, the chosen action, whether Compact's details page is showing, whether the editor was opened over a match, the capture or clash prompt, and a chord the empty search is listing.
+`ScreenState` holds the hover, the press and the focus, the list and details scrolls, the search, which menu is open, the category, the filter, the chosen action, whether Compact's details page is showing, whether the editor was opened over a match, the capture or clash prompt, and a chord the empty search is listing. It also holds which view is showing, the keyboard's shape and whether it follows the system, the modifier layer, how far the compact keyboard is scrolled, the key whose card is showing, the key the arrows move, the action FIND ON KEYBOARD outlines, and whether buttons 6 to 8 are shown.
 
 ## Invariants
 
@@ -101,4 +118,4 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 
 ## Limitations
 
-Nothing here draws the keyboard and mouse views, and nothing here imports, shares or pastes a layout. The host opens the screen, feeds it nothing while a capture is waiting, asks the name questions, writes the layout and reloads the bindings. A layout's name is asked by the host. The module reads no preference, no clock and does not pause a match. A mouse or wheel chord carries no keyboard modifiers: the screen's wheel and pointer do not say which keys are held. The screen's wheel is the vertical turn.
+Nothing here imports, shares or pastes a layout. The host opens the screen, chooses the keyboard's shape, feeds it nothing while a capture is waiting, asks the name questions, writes the layout and Interface Type, and reloads the bindings. A layout's name is asked by the host. The module reads no preference, no clock and does not pause a match. A mouse or wheel chord carries no keyboard modifiers: the screen's wheel and pointer do not say which keys are held. The screen's wheel is the vertical turn. The keyboard is drawn by the kit's `add_keyboard`, and the mouse by `add_mouse`.

@@ -13,8 +13,10 @@
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/key_bindings/input.hpp"
+#include "oa/ui/key_bindings/key_codes.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
 #include "oa/ui/kit/components.hpp"
+#include "oa/ui/kit/keys.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/looks.hpp"
 
@@ -103,7 +105,8 @@ int32_t apart(int32_t from, int32_t to) {
 /// @param id the control
 /// @return true for a menu item
 bool menu_item(kit::ControlId id) {
-    return id >= controls::menu_first;
+    // Keyboard keys start at keyboard_first. A menu item stays below that.
+    return id >= controls::menu_first && id < controls::keyboard_first;
 }
 
 /// True when a control id removes one chord in the details.
@@ -129,13 +132,23 @@ bool chord_row(kit::ControlId id) {
 bool detail_control(kit::ControlId id) {
     return id == controls::detail_latch || id == controls::detail_confirm ||
            id == controls::detail_reset || id == controls::detail_add ||
-           id == controls::card_here || id == controls::card_there || id == controls::card_choose ||
-           chord_remove(id) || chord_row(id);
+           id == controls::detail_find || id == controls::card_here || id == controls::card_there ||
+           id == controls::card_choose || chord_remove(id) || chord_row(id);
 }
 
 void close_prompt(ScreenState& state);
 void focus_finished(const Editor& editor, ScreenState& state);
 void start_capture(const Editor& editor, ScreenState& state, std::optional<std::size_t> replacing);
+void show_view(Editor& editor, ScreenState& state, View shown);
+void find_on_keyboard(const Editor& editor, ScreenState& state);
+EditorResult press_picture_key(Editor& editor, ScreenState& state, std::string code);
+EditorResult press_mouse_button(Editor& editor, ScreenState& state, int index);
+EditorResult press_mouse_row(Editor& editor, ScreenState& state, int index);
+EditorResult move_key(ScreenState& state, const kit::DisplayList& list, kit::Key pressed);
+kit::ControlId key_control(const ScreenState& state, std::string_view code);
+std::string code_of_key(const ScreenState& state, kit::ControlId id);
+bool in_keyboard_well(const kit::DisplayList& list, kit::Point at);
+int32_t keyboard_scroll_limit(const kit::DisplayList& list);
 EditorResult finish_apply(Editor& editor, ScreenState& state, ClashChoice choice);
 EditorResult press_ok(Editor& editor, ScreenState& state);
 std::optional<std::size_t>
@@ -521,6 +534,23 @@ EditorResult choose_entry(Editor& editor, ScreenState& state, const MenuEntry& e
         state.list_scroll = 0;
         return redrawn();
     }
+    if (entry.kind == MenuKind::shape) {
+        if (entry.id == "system") {
+            state.shape = state.system_shape;
+            state.shape_from_system = true;
+        } else if (entry.id == "iso") {
+            state.shape = kit::KeyboardShape::iso;
+            state.shape_from_system = false;
+        } else if (entry.id == "jis") {
+            state.shape = kit::KeyboardShape::jis;
+            state.shape_from_system = false;
+        } else {
+            state.shape = kit::KeyboardShape::ansi;
+            state.shape_from_system = false;
+        }
+        close_menu(state);
+        return redrawn();
+    }
     close_menu(state);
     return redrawn();
 }
@@ -579,6 +609,8 @@ bool menu_opener(Menu menu, kit::ControlId id) {
         return id == controls::category;
     if (menu == Menu::more)
         return id == controls::more;
+    if (menu == Menu::shape)
+        return id == controls::keyboard_shape;
     return false;
 }
 
@@ -593,6 +625,57 @@ EditorResult
 activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::ControlId id) {
     if (menu_item(id))
         return choose_menu_id(editor, state, list, id);
+    if (id == controls::view_list || id == controls::view_keyboard || id == controls::view_mouse) {
+        View shown = View::list;
+        if (id == controls::view_keyboard)
+            shown = View::keyboard;
+        else if (id == controls::view_mouse)
+            shown = View::mouse;
+        show_view(editor, state, shown);
+        return redrawn();
+    }
+    if (id == controls::layer_none || id == controls::layer_shift || id == controls::layer_ctrl ||
+        id == controls::layer_alt || id == controls::layer_cmd) {
+        uint8_t layer = 0;
+        if (id == controls::layer_shift)
+            layer = keys::Modifier::shift;
+        else if (id == controls::layer_ctrl)
+            layer = keys::Modifier::ctrl;
+        else if (id == controls::layer_alt)
+            layer = keys::Modifier::alt;
+        else if (id == controls::layer_cmd)
+            layer = keys::Modifier::meta;
+        state.layer = layer;
+        state.menu = Menu::none;
+        focus_on(state, id);
+        return redrawn();
+    }
+    if (id == controls::keyboard_shape) {
+        toggle_menu(state, editor, list, Menu::shape);
+        return redrawn();
+    }
+    if (id == controls::scheme_right || id == controls::scheme_left) {
+        editor.set_scheme(
+            id == controls::scheme_left ? keys::PointerScheme::left_click
+                                        : keys::PointerScheme::right_click
+        );
+        focus_on(state, id);
+        return redrawn();
+    }
+    if (id == controls::detail_find) {
+        find_on_keyboard(editor, state);
+        return redrawn();
+    }
+    if (id >= controls::keyboard_first && id < controls::mouse_first) {
+        const std::string code = code_of_key(state, id);
+        if (code.empty())
+            return {};
+        return press_picture_key(editor, state, code);
+    }
+    if (id >= controls::mouse_first && id < controls::mouse_table_first)
+        return press_mouse_button(editor, state, static_cast<int>(id - controls::mouse_first));
+    if (id >= controls::mouse_table_first)
+        return press_mouse_row(editor, state, static_cast<int>(id - controls::mouse_table_first));
     if (id == controls::layout_choice) {
         toggle_menu(state, editor, list, Menu::layout);
         return redrawn();
@@ -930,6 +1013,17 @@ EditorResult finger_pointer(
                 return redrawn();
             return {};
         }
+        if (state.view == View::keyboard &&
+            (!code_of_key(state, under).empty() || in_keyboard_well(list, at))) {
+            state.finger = true;
+            state.finger_origin = at;
+            state.finger_at = at;
+            state.finger_moved = false;
+            state.finger_in_details = false;
+            state.finger_scroll = state.keyboard_scroll;
+            state.finger_row = code_of_key(state, under);
+            return {};
+        }
         state.finger = true;
         state.finger_origin = at;
         state.finger_at = at;
@@ -948,6 +1042,17 @@ EditorResult finger_pointer(
             state.finger_moved = true;
         if (!state.finger_moved)
             return {};
+        if (state.view == View::keyboard && in_keyboard_well(list, state.finger_origin)) {
+            const int32_t next = std::clamp(
+                state.finger_scroll + (state.finger_origin.x - at.x),
+                int32_t{0},
+                keyboard_scroll_limit(list)
+            );
+            if (next == state.keyboard_scroll)
+                return {};
+            state.keyboard_scroll = next;
+            return redrawn();
+        }
         const std::optional<kit::ScrollArea> area =
             state.finger_in_details ? details_area(state, list) : list_area(editor, state, list);
         if (!area)
@@ -961,6 +1066,31 @@ EditorResult finger_pointer(
         return redrawn();
     }
     if (kind == PointerKind::up) {
+        if (state.view == View::keyboard && in_keyboard_well(list, state.finger_origin)) {
+            const bool key_tap = !state.finger_moved;
+            const std::string pressed_key = state.finger_row;
+            state.finger = false;
+            state.finger_moved = false;
+            state.finger_row.clear();
+            if (!key_tap) {
+                state.finger_armed = false;
+                return redrawn();
+            }
+            const std::string now = code_of_key(state, kit::hit(list, at));
+            const std::string code = now.empty() ? pressed_key : now;
+            if (code.empty())
+                return {};
+            if (state.finger_armed && state.finger_key == code)
+                return press_picture_key(editor, state, code);
+            state.finger_armed = true;
+            state.finger_key = code;
+            state.focus_code = code;
+            state.card_code = code;
+            const kit::ControlId key_id = key_control(state, code);
+            if (key_id != kit::no_control)
+                focus_on(state, key_id);
+            return redrawn();
+        }
         const bool tap = !state.finger_moved;
         const std::string row = state.finger_row;
         state.finger = false;
@@ -1022,6 +1152,503 @@ void start_capture(const Editor& editor, ScreenState& state, std::optional<std::
     else
         state.capture.means = acts::By::letter;
     focus_on(state, controls::capture_cancel);
+}
+
+/// The control of one keyboard key.
+///
+/// @param state the shape
+/// @param code the W3C code
+/// @return the control, or none
+kit::ControlId key_control(const ScreenState& state, std::string_view code) {
+    const std::span<const kit::KeyPlace> places = kit::keyboard_places(state.shape);
+    for (std::size_t index = 0; index < places.size(); ++index) {
+        if (places[index].code == code)
+            return controls::keyboard_first + static_cast<kit::ControlId>(index);
+    }
+    return kit::no_control;
+}
+
+/// The W3C code of one keyboard control.
+///
+/// @param state the shape
+/// @param id the control
+/// @return the code, or empty
+std::string code_of_key(const ScreenState& state, kit::ControlId id) {
+    if (id < controls::keyboard_first || id >= controls::mouse_first)
+        return {};
+    const std::span<const kit::KeyPlace> places = kit::keyboard_places(state.shape);
+    const auto index = static_cast<std::size_t>(id - controls::keyboard_first);
+    if (index >= places.size())
+        return {};
+    return std::string(places[index].code);
+}
+
+/// True when a point lies in the keyboard's well.
+///
+/// @param list the display list
+/// @param at the point
+/// @return true when the well holds it
+bool in_keyboard_well(const kit::DisplayList& list, kit::Point at) {
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::keyboard)
+            continue;
+        const bool clipped = item.clip.width > 0 && item.clip.height > 0;
+        return kit::contains(clipped ? item.clip : item.rect, at);
+    }
+    return false;
+}
+
+/// How far the compact keyboard can scroll.
+///
+/// @param list the display list
+/// @return the furthest scroll, in points
+int32_t keyboard_scroll_limit(const kit::DisplayList& list) {
+    for (const kit::Item& item : list.items) {
+        if (item.role != kit::Role::keyboard)
+            continue;
+        const int32_t clip_w = item.clip.width > 0 ? item.clip.width : item.rect.width;
+        return std::max(item.rect.width - clip_w, int32_t{0});
+    }
+    return 0;
+}
+
+/// The modifier bits a new chord stores for the layer being shown.
+///
+/// Ctrl stays Ctrl. On macOS the Cmd layer stores Primary.
+///
+/// @param layer the layer's bit; 0 is Nothing
+/// @param platform the platform
+/// @return the bits to store
+uint8_t binding_modifiers(uint8_t layer, const keys::Platform& platform) noexcept {
+    if (layer == keys::Modifier::meta && platform.primary_is_meta)
+        return keys::Modifier::primary;
+    return layer;
+}
+
+/// The first action a key's card would select.
+///
+/// While playing wins. A fixed line, such as Escape on the chat line, does not.
+///
+/// @param editor the card
+/// @param code the W3C code
+/// @param layer the layer's bit
+/// @return the action id, or empty when the key is free
+std::string face_action(const Editor& editor, std::string_view code, uint8_t layer) {
+    const std::vector<CardLine> lines = key_card(editor, code, layer);
+    const std::string playing = show(editor.text(), words::card_while_playing);
+    for (const CardLine& line : lines) {
+        if (!line.fixed && line.context == playing && !line.id.empty())
+            return line.id;
+    }
+    for (const CardLine& line : lines) {
+        if (!line.fixed && !line.id.empty())
+            return line.id;
+    }
+    return {};
+}
+
+/// Fills a capture for a free key and leaves OK to bind it.
+///
+/// @param[in,out] editor the draft
+/// @param[in,out] state the prompt
+/// @param code the W3C code
+/// @return true when the prompt is showing the chord
+bool complete_key(Editor& editor, ScreenState& state, std::string_view code) {
+    if (keys::position_refused(code) || state.selected.empty())
+        return false;
+    const acts::Action* action = acts::find(state.selected);
+    if (action == nullptr)
+        return false;
+    const std::optional<uint16_t> scan = keys::scancode_of(code);
+    start_capture(editor, state, std::nullopt);
+    keys::Chord chord;
+    chord.modifiers = binding_modifiers(state.layer, editor.platform());
+    chord.gesture = keys::Gesture::press;
+    char32_t printed = 0;
+    if (scan)
+        printed = editor.keyboard().printed(*scan);
+    char32_t upper = printed;
+    if (upper >= U'a' && upper <= U'z')
+        upper = upper - U'a' + U'A';
+    const bool letter = action->by == acts::By::letter && upper >= U'A' && upper <= U'Z';
+    bool named = false;
+    uint8_t named_id = 0;
+    uint16_t named_scan = 0;
+    if (scan) {
+        for (const keys::NamedKeySpec& spec : keys::named_keys()) {
+            if (spec.scancode != *scan)
+                continue;
+            named = true;
+            named_id = static_cast<uint8_t>(spec.id);
+            named_scan = spec.scancode;
+        }
+    }
+    if (letter) {
+        chord.kind = keys::TriggerKind::character;
+        chord.character = upper;
+        if (scan)
+            chord.scancode = *scan;
+        state.capture.means = acts::By::letter;
+    } else if (named) {
+        chord.kind = keys::TriggerKind::named;
+        chord.named = named_id;
+        chord.scancode = named_scan;
+        state.capture.means = acts::By::place;
+    } else if (scan) {
+        chord.kind = keys::TriggerKind::place;
+        chord.scancode = *scan;
+        state.capture.means = acts::By::place;
+    } else {
+        close_prompt(state);
+        return false;
+    }
+    state.capture.chord = std::move(chord);
+    state.capture.held_modifiers = state.capture.chord->modifiers;
+    set_gesture(state.capture, editor, keys::Gesture::press);
+    focus_finished(editor, state);
+    return true;
+}
+
+/// Sets the capture's state from the chord, including a wheel.
+///
+/// @param[in,out] editor the draft
+/// @param[in,out] state the prompt
+/// @param chord the mouse button or the wheel
+void finish_device(Editor& editor, ScreenState& state, keys::Chord chord) {
+    const bool wheel = chord.kind == keys::TriggerKind::wheel;
+    state.capture.chord = std::move(chord);
+    state.capture.held_modifiers = state.capture.chord->modifiers;
+    state.capture.means = acts::By::none;
+    state.capture.starts = keys::Gesture::press;
+    if (wheel) {
+        const CaptureStatus status = capture_status(editor, state.capture);
+        if (status.refused)
+            state.capture.state = CaptureState::refused;
+        else if (status.clash)
+            state.capture.state = CaptureState::clash;
+        else
+            state.capture.state = CaptureState::complete;
+    } else {
+        set_gesture(state.capture, editor, keys::Gesture::press);
+    }
+    focus_finished(editor, state);
+}
+
+/// The word a mouse control shares with the table.
+///
+/// @param index the control's place, from 0
+/// @return the English word
+std::string_view mouse_word(int index) noexcept {
+    switch (index) {
+    case 0:
+        return words::button_left;
+    case 1:
+        return words::button_right;
+    case 2:
+        return words::button_middle;
+    case 3:
+        return words::button_wheel;
+    case 4:
+        return words::card_back;
+    case 5:
+        return words::button_forward;
+    case 6:
+        return words::button_6;
+    case 7:
+        return words::button_7;
+    case 8:
+        return words::button_8;
+    default:
+        return {};
+    }
+}
+
+/// The chord's button number for one mouse control. The wheel is 0.
+///
+/// @param index the control's place, from 0
+/// @return the button, 1 to 8
+uint8_t mouse_button_number(int index) noexcept {
+    if (index >= 0 && index <= 2)
+        return static_cast<uint8_t>(index + 1);
+    if (index >= 4 && index <= 8)
+        return static_cast<uint8_t>(index);
+    return 0;
+}
+
+/// The playing role drawn on one mouse button.
+///
+/// @param editor the table
+/// @param word the button's English word
+/// @return the action id, or empty when the button is free
+std::string playing_role(const Editor& editor, std::string_view word) {
+    if (word.empty())
+        return {};
+    const std::string shown = show(editor.text(), word);
+    for (const RoleLine& row : mouse_table(editor, editor.scheme())) {
+        if (row.place_id == "playing" && row.button == shown && !row.action.empty())
+            return row.action;
+    }
+    return {};
+}
+
+/// Presses one key of the picture: a bound key is chosen, a free key is captured.
+///
+/// @param[in,out] editor the draft
+/// @param[in,out] state the screen's state
+/// @param code the W3C code
+/// @return what the host is to do
+EditorResult press_picture_key(Editor& editor, ScreenState& state, std::string code) {
+    state.focus_code = code;
+    state.card_code = code;
+    state.finger_armed = false;
+    const kit::ControlId id = key_control(state, code);
+    if (id != kit::no_control)
+        focus_on(state, id);
+    const std::string bound = face_action(editor, code, state.layer);
+    if (!bound.empty()) {
+        state.selected = bound;
+        state.details_scroll = 0;
+        return redrawn();
+    }
+    if (complete_key(editor, state, code))
+        return redrawn();
+    return redrawn();
+}
+
+/// Opens the capture for a mouse button, or fills it when the button is free.
+///
+/// @param[in,out] editor the draft
+/// @param[in,out] state the prompt
+/// @param index the control's place, from 0
+/// @return what the host is to do
+EditorResult press_mouse_button(Editor& editor, ScreenState& state, int index) {
+    const std::string role = playing_role(editor, mouse_word(index));
+    if (!role.empty()) {
+        state.selected = role;
+        state.details_scroll = 0;
+        start_capture(editor, state, std::nullopt);
+        return redrawn();
+    }
+    if (state.selected.empty())
+        return {};
+    start_capture(editor, state, std::nullopt);
+    keys::Chord chord;
+    chord.gesture = keys::Gesture::press;
+    if (index == 3) {
+        chord.kind = keys::TriggerKind::wheel;
+        chord.wheel = 1;
+    } else {
+        chord.kind = keys::TriggerKind::mouse;
+        chord.button = mouse_button_number(index);
+    }
+    finish_device(editor, state, std::move(chord));
+    return redrawn();
+}
+
+/// Opens the capture for one row of the mouse table.
+///
+/// @param[in,out] editor the draft
+/// @param[in,out] state the prompt
+/// @param index the row, from 0
+/// @return what the host is to do
+EditorResult press_mouse_row(Editor& editor, ScreenState& state, int index) {
+    const std::vector<RoleLine> rows = mouse_table(editor, editor.scheme());
+    if (index < 0 || static_cast<std::size_t>(index) >= rows.size())
+        return {};
+    const RoleLine& row = rows[static_cast<std::size_t>(index)];
+    if (!row.free && !row.action.empty()) {
+        state.selected = row.action;
+        state.details_scroll = 0;
+    } else if (state.selected.empty()) {
+        return {};
+    }
+    start_capture(editor, state, std::nullopt);
+    return redrawn();
+}
+
+/// The control of one layer pill.
+///
+/// @param layer the layer's bit
+/// @return the control
+kit::ControlId layer_control(uint8_t layer) noexcept {
+    if (layer == keys::Modifier::shift)
+        return controls::layer_shift;
+    if (layer == keys::Modifier::ctrl)
+        return controls::layer_ctrl;
+    if (layer == keys::Modifier::alt)
+        return controls::layer_alt;
+    if (layer == keys::Modifier::meta)
+        return controls::layer_cmd;
+    return controls::layer_none;
+}
+
+/// The layer Left or Right reaches from the one showing.
+///
+/// @param layer the layer's bit
+/// @param forward true for Right
+/// @param command true when the Cmd layer is shown
+/// @return the next layer's bit
+uint8_t next_layer(uint8_t layer, bool forward, bool command) noexcept {
+    const uint8_t bits[] = {
+        0,
+        keys::Modifier::shift,
+        keys::Modifier::ctrl,
+        keys::Modifier::alt,
+        keys::Modifier::meta,
+    };
+    const int count = command ? 5 : 4;
+    int index = 0;
+    for (int place = 0; place < count; ++place) {
+        if (bits[place] == layer)
+            index = place;
+    }
+    if (forward)
+        index = (index + 1) % count;
+    else
+        index = (index + count - 1) % count;
+    return bits[index];
+}
+
+/// Shows one picture and puts the focus where that picture's keys start.
+///
+/// @param[in,out] editor the scheme, for the mouse
+/// @param[in,out] state the picture
+/// @param shown which picture
+void show_view(Editor& editor, ScreenState& state, View shown) {
+    state.view = shown;
+    state.details_page = false;
+    state.menu = Menu::none;
+    state.card_code.clear();
+    if (shown == View::mouse) {
+        const bool left = editor.scheme() == keys::PointerScheme::left_click;
+        focus_on(state, left ? controls::scheme_left : controls::scheme_right);
+        return;
+    }
+    if (shown != View::keyboard) {
+        focus_on(state, controls::view_list);
+        return;
+    }
+    if (state.focus_code.empty()) {
+        const std::span<const kit::KeyPlace> places = kit::keyboard_places(state.shape);
+        if (!places.empty())
+            state.focus_code = std::string(places.front().code);
+    }
+    const kit::ControlId id = key_control(state, state.focus_code);
+    if (id != kit::no_control)
+        focus_on(state, id);
+    else
+        focus_on(state, controls::view_keyboard);
+}
+
+/// Moves the focus to the nearest key in one direction, and scrolls it into the well.
+///
+/// @param[in,out] state the focus and the scroll
+/// @param list the display list
+/// @param pressed the arrow
+/// @return what the host is to do
+EditorResult move_key(ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
+    const std::span<const kit::KeyPlace> places = kit::keyboard_places(state.shape);
+    if (places.empty())
+        return {};
+    std::size_t from = 0;
+    bool found = false;
+    for (std::size_t index = 0; index < places.size(); ++index) {
+        if (places[index].code == state.focus_code) {
+            from = index;
+            found = true;
+        }
+    }
+    if (!found) {
+        const std::string code = code_of_key(state, state.interaction.focused);
+        for (std::size_t index = 0; index < places.size(); ++index) {
+            if (places[index].code == code) {
+                from = index;
+                found = true;
+            }
+        }
+    }
+    if (!found)
+        return {};
+    const int32_t from_x =
+        static_cast<int32_t>(places[from].x) + static_cast<int32_t>(places[from].w) / 2;
+    const int32_t from_y =
+        static_cast<int32_t>(places[from].y) + static_cast<int32_t>(places[from].h) / 2;
+    const int32_t x_sign = pressed == kit::Key::right ? 1 : pressed == kit::Key::left ? -1 : 0;
+    const int32_t y_sign = pressed == kit::Key::down ? 1 : pressed == kit::Key::up ? -1 : 0;
+    std::size_t best = from;
+    bool any = false;
+    int64_t best_score = 0;
+    for (std::size_t index = 0; index < places.size(); ++index) {
+        if (index == from)
+            continue;
+        const int32_t at_x =
+            static_cast<int32_t>(places[index].x) + static_cast<int32_t>(places[index].w) / 2;
+        const int32_t at_y =
+            static_cast<int32_t>(places[index].y) + static_cast<int32_t>(places[index].h) / 2;
+        const int32_t dx = at_x - from_x;
+        const int32_t dy = at_y - from_y;
+        const int32_t primary = x_sign != 0 ? dx * x_sign : dy * y_sign;
+        int32_t off = x_sign != 0 ? dy : dx;
+        if (off < 0)
+            off = -off;
+        if (primary <= 0 || off > primary * 2 + 4)
+            continue;
+        const int64_t score =
+            static_cast<int64_t>(primary) * primary + static_cast<int64_t>(off) * off * 4;
+        if (!any || score < best_score) {
+            best = index;
+            best_score = score;
+            any = true;
+        }
+    }
+    if (!any)
+        return {};
+    const std::string code(places[best].code);
+    const kit::ControlId id = controls::keyboard_first + static_cast<kit::ControlId>(best);
+    const kit::Control* key = kit::control_of(list, id);
+    if (key != nullptr) {
+        for (const kit::Item& item : list.items) {
+            if (item.role != kit::Role::keyboard)
+                continue;
+            const bool clipped = item.clip.width > 0 && item.clip.height > 0;
+            const kit::Rect& clip = clipped ? item.clip : item.rect;
+            int32_t scroll = state.keyboard_scroll;
+            if (key->rect.x < clip.x)
+                scroll -= clip.x - key->rect.x;
+            else if (key->rect.x + key->rect.width > clip.x + clip.width)
+                scroll += key->rect.x + key->rect.width - (clip.x + clip.width);
+            if (scroll < 0)
+                scroll = 0;
+            const int32_t limit = keyboard_scroll_limit(list);
+            if (scroll > limit)
+                scroll = limit;
+            state.keyboard_scroll = scroll;
+        }
+    }
+    state.focus_code = code;
+    state.card_code.clear();
+    focus_on(state, id);
+    return redrawn();
+}
+
+/// Outlines the chosen action on the keyboard.
+///
+/// @param editor the action's keys
+/// @param[in,out] state the picture
+void find_on_keyboard(const Editor& editor, ScreenState& state) {
+    state.outline = state.selected;
+    state.view = View::keyboard;
+    state.details_page = false;
+    state.menu = Menu::none;
+    state.card_code.clear();
+    const std::vector<std::string> codes = keys_of(editor, state.selected);
+    if (!codes.empty())
+        state.focus_code = codes.front();
+    const kit::ControlId id = key_control(state, state.focus_code);
+    if (id != kit::no_control)
+        focus_on(state, id);
+    else
+        focus_on(state, controls::view_keyboard);
 }
 
 /// Writes a finished capture and closes the prompt.
@@ -1200,6 +1827,14 @@ EditorResult editor_pointer(
         return finger_pointer(editor, state, list, kind, button, at, finger_reach);
 
     if (kind == PointerKind::move) {
+        bool card_changed = false;
+        if (state.view == View::keyboard) {
+            const std::string code = code_of_key(state, kit::hit(list, at));
+            if (code != state.card_code) {
+                state.card_code = code;
+                card_changed = true;
+            }
+        }
         const kit::PointerOutcome moved = kit::pointer_move(state.interaction, list, at);
         if (state.menu != Menu::none) {
             const kit::ControlId under = kit::hit(list, at);
@@ -1211,7 +1846,7 @@ EditorResult editor_pointer(
                 }
             }
         }
-        if (moved.result == kit::PointerResult::redraw)
+        if (moved.result == kit::PointerResult::redraw || card_changed)
             return redrawn();
         return {};
     }
@@ -1301,6 +1936,57 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
             static_cast<std::size_t>(state.interaction.focused - controls::chord_first)
         );
         return redrawn();
+    }
+
+    const kit::ControlId focused = state.interaction.focused;
+    const bool on_view = focused == controls::view_list || focused == controls::view_keyboard ||
+                         focused == controls::view_mouse;
+    const bool on_layer = focused == controls::layer_none || focused == controls::layer_shift ||
+                          focused == controls::layer_ctrl || focused == controls::layer_alt ||
+                          focused == controls::layer_cmd;
+    const bool on_scheme = focused == controls::scheme_right || focused == controls::scheme_left;
+    const bool on_key = focused >= controls::keyboard_first && focused < controls::mouse_first;
+    if (on_view && (pressed == kit::Key::left || pressed == kit::Key::right)) {
+        View shown = View::list;
+        if (state.view == View::keyboard)
+            shown = View::mouse;
+        else if (state.view == View::mouse)
+            shown = pressed == kit::Key::right ? View::list : View::keyboard;
+        else
+            shown = pressed == kit::Key::right ? View::keyboard : View::mouse;
+        if (state.view == View::list && pressed == kit::Key::left)
+            shown = View::mouse;
+        if (state.view == View::keyboard && pressed == kit::Key::left)
+            shown = View::list;
+        if (state.view == View::keyboard && pressed == kit::Key::right)
+            shown = View::mouse;
+        show_view(editor, state, shown);
+        return redrawn();
+    }
+    if (on_layer && (pressed == kit::Key::left || pressed == kit::Key::right)) {
+        const uint8_t layer =
+            next_layer(state.layer, pressed == kit::Key::right, editor.platform().primary_is_meta);
+        state.layer = layer;
+        focus_on(state, layer_control(layer));
+        return redrawn();
+    }
+    if (on_scheme && (pressed == kit::Key::left || pressed == kit::Key::right)) {
+        if (editor.scheme() == keys::PointerScheme::left_click) {
+            editor.set_scheme(keys::PointerScheme::right_click);
+            focus_on(state, controls::scheme_right);
+        } else {
+            editor.set_scheme(keys::PointerScheme::left_click);
+            focus_on(state, controls::scheme_left);
+        }
+        return redrawn();
+    }
+    if (on_key && (pressed == kit::Key::left || pressed == kit::Key::right ||
+                   pressed == kit::Key::up || pressed == kit::Key::down))
+        return move_key(state, list, pressed);
+    if (on_key && (pressed == kit::Key::enter || pressed == kit::Key::space)) {
+        const std::string code = code_of_key(state, focused);
+        if (!code.empty())
+            return press_picture_key(editor, state, code);
     }
 
     const bool on_list = state.interaction.focused == controls::list;
@@ -1407,6 +2093,16 @@ EditorResult editor_wheel(
             return redrawn();
         }
         return {};
+    }
+    if (state.view == View::keyboard && in_keyboard_well(list, at)) {
+        const int32_t step = 24;
+        const int32_t delta = notches > 0 ? -step : step;
+        const int32_t next =
+            std::clamp(state.keyboard_scroll + delta, int32_t{0}, keyboard_scroll_limit(list));
+        if (next == state.keyboard_scroll)
+            return {};
+        state.keyboard_scroll = next;
+        return redrawn();
     }
     const kit::Control* list_bar = kit::control_of(list, controls::list_bar);
     const kit::Control* details_bar = kit::control_of(list, controls::details_bar);

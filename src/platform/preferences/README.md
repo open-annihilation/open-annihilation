@@ -269,6 +269,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.keys.layout.<mod id>` | `same`, or an installed layout's id for that mod. `same` uses `open-annihilation.keys.layout` | `same` |
 | `open-annihilation.keys.show-on-buttons` | 0 or 1. Settings › Controls reads and writes it. Absent reads as on | 1 |
 | `open-annihilation.keys.imported` | comma-separated ids of the mods whose stored keys were carried into the player's own changes. A mod is listed once, the first time it is played with a build tool, click snap, a build preview or the options dialog, and not under `--keys` or `--keys-reset` | none imported |
+| `open-annihilation.keys.keyboard` | `system`, `ansi`, `iso` or `jis`. Absent reads as `system`: the keyboard picture follows the system, or ANSI where the system does not say | `system` |
 | `mutators.clash-default` | `add` or `replace`; any other text reads as `replace`. The clash mode a mutator uses when the player and its manifest leave it unset. `Runtime::apply_match_mutators` reads it, and so does the battle room on the host, which sends each mode with its list; a guest plays the host's modes and never reads its own | `replace` |
 
 The eight file-type keys are words, `on` and `off`, not the `0` and `1` of

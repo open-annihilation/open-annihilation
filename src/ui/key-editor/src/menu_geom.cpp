@@ -173,6 +173,22 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
         return layout_entries(editor);
     if (menu == Menu::category)
         return category_entries(editor, state, compact);
+    if (menu == Menu::shape) {
+        const std::string_view ids[] = {"system", "ansi", "iso", "jis"};
+        const std::string_view words_of[] = {
+            words::shape_system, words::shape_ansi, words::shape_iso, words::shape_jis
+        };
+        std::vector<MenuEntry> entries;
+        for (int index = 0; index < 4; ++index) {
+            MenuEntry entry;
+            entry.kind = MenuKind::shape;
+            entry.id = std::string(ids[index]);
+            entry.caption = show(editor.text(), words_of[index]);
+            entry.name = std::string(name_keyboard_shape) + "." + entry.id;
+            entries.push_back(std::move(entry));
+        }
+        return entries;
+    }
     if (menu == Menu::more) {
         // Compact has no LAYOUT drop-down. The layout's choices sit in MORE,
         // and Restore defaults follows them.
@@ -207,6 +223,22 @@ int32_t menu_chosen(
             if (entries[index].kind == MenuKind::category && entries[index].id == state.category)
                 return static_cast<int32_t>(index);
         }
+    }
+    if (menu == Menu::shape) {
+        std::string chosen = "system";
+        if (!state.shape_from_system) {
+            if (state.shape == kit::KeyboardShape::iso)
+                chosen = "iso";
+            else if (state.shape == kit::KeyboardShape::jis)
+                chosen = "jis";
+            else
+                chosen = "ansi";
+        }
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            if (entries[index].kind == MenuKind::shape && entries[index].id == chosen)
+                return static_cast<int32_t>(index);
+        }
+        return 0;
     }
     if (menu == Menu::more) {
         const std::string id = editor.layout_id();
