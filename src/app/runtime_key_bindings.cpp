@@ -2055,10 +2055,18 @@ bool Runtime::action_button_matches(
     }
     if (found == nullptr)
         return false;
+    // A chord numbers MouseLeft, MouseRight and MouseMiddle as 1, 2 and 3.
+    // SDL numbers the right and middle buttons 3 and 2. The caller passes
+    // SDL's number.
+    uint8_t chord_button = button;
+    if (button == SDL_BUTTON_RIGHT)
+        chord_button = 2;
+    else if (button == SDL_BUTTON_MIDDLE)
+        chord_button = 3;
     keys::InputEvent input;
     input.kind = keys::InputKind::button;
     input.down = true;
-    input.button = button;
+    input.button = chord_button;
     input.clicks = gesture == keys::Gesture::double_press ? 2 : 1;
     input.modifiers = binding_modifiers(device_state::modifiers_held());
     const keys::KeyboardMap& map = key_bindings_state_->dispatcher.keyboard();
