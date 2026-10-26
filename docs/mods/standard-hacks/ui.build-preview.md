@@ -260,3 +260,11 @@ hacks:
     fill: false
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `build.rotate` | `@Slash, Shift+@Slash` | Next facing |
+<!-- END GENERATED: keys -->

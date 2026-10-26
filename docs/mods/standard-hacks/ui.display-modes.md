@@ -141,3 +141,11 @@ hacks:
     dx-warning: true
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `game.screenshot` | `Ctrl+F9, PrintScreen` | Saves a screenshot |
+<!-- END GENERATED: keys -->

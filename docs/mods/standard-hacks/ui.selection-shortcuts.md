@@ -154,3 +154,18 @@ hacks:
     same-type-bitset-fix: true
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `pointer.select-type-on-screen` | `MouseLeft:double` | That type on screen only |
+| `build.hundred-modifier` | `Ctrl` | Held with the queue modifier: a build button adds or takes 100 |
+| `select.idle-builders` | `Ctrl+B` | Cycles idle constructors, centring on each |
+| `select.idle-factories` | `Ctrl+F` | Cycles idle factories |
+| `select.armed-on-screen` | `Ctrl+S` | Mobile armed units on screen, not aircraft |
+| `select.box-combat` | `@KeyW` | Held as a box is released: keep mobile combat units |
+| `select.box-builders` | `@KeyB` | Held as a box is released: keep constructors |
+| `select.box-factories` | `@KeyY` | Held as a box is released: keep factories |
+<!-- END GENERATED: keys -->

@@ -290,7 +290,7 @@ constexpr std::string_view megamap_jump_source[]{"ui.megamap"};
 constexpr std::string_view megamap_open_wheel_source[]{"ui.megamap"};
 constexpr std::string_view megamap_open_wheel_defaults[]{"WheelDown"};
 constexpr std::string_view megamap_toggle_source[]{"ui.megamap"};
-constexpr std::string_view megamap_toggle_defaults[]{"Tab"};
+constexpr std::string_view megamap_toggle_defaults[]{"Tab", "Shift+Tab"};
 constexpr std::string_view order_attack_source[]{"3.1c", "data"};
 constexpr std::string_view order_attack_defaults[]{"A"};
 constexpr std::string_view order_cancel_source[]{"OA"};

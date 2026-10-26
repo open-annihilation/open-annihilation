@@ -990,6 +990,8 @@ entries:
     ownership: owner-only
     scope: sim
     params: {}
+    actions:
+      - game.team-menu
   sharing.structure-gift-rate-limit:
     kind: hack
     title: Structure Gift Rate Limit
@@ -1094,6 +1096,9 @@ entries:
     ownership: all-machines
     scope: sim
     params: {}
+    actions:
+      - build.rotate
+      - build.rotate-wheel
   units.init-cloaked-after-build:
     kind: hack
     title: Cloak After Build
@@ -1144,6 +1149,9 @@ entries:
     ownership: local-view
     scope: sim
     params: {}
+    actions:
+      - game.repeat-command
+      - debug.keys
   console.game-speed-range:
     kind: hack
     title: Game Speed Range
@@ -1308,6 +1316,11 @@ entries:
       feature-blobs: {type: bool, baseline: false, default: true, adjustable: fixed, scope: view}
       ring-minimums: {type: list<int>, min: 0, max: 65535, length: 5, unit: pixels, baseline: [0, 0, 0, 0, 512], default: [128, 128, 64, 64, 512], adjustable: fixed, scope: view}
       icon-categories: {type: int, min: 0, max: 128, unit: categories, baseline: 0, default: 9, adjustable: fixed, scope: view}
+    actions:
+      - megamap.toggle
+      - megamap.open-wheel
+      - megamap.close-wheel
+      - megamap.jump
   ui.whiteboard:
     kind: hack
     title: Whiteboard
@@ -1318,6 +1331,15 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - whiteboard.draw
+      - whiteboard.jump
+      - whiteboard.line
+      - whiteboard.dot
+      - whiteboard.text
+      - whiteboard.move
+      - whiteboard.wipe
+      - whiteboard.erase
   ui.resource-panel:
     kind: hack
     title: Resource Panel
@@ -1328,6 +1350,10 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - game.resource-panel
+      - watch.player-view
+      - watch.lock-view
   ui.camera-sharing:
     kind: hack
     title: Camera Sharing
@@ -1359,6 +1385,15 @@ entries:
     scope: view
     params:
       same-type-bitset-fix: {type: bool, baseline: false, default: true, adjustable: fixed, scope: view}
+    actions:
+      - pointer.select-type-on-screen
+      - build.hundred-modifier
+      - select.idle-builders
+      - select.idle-factories
+      - select.armed-on-screen
+      - select.box-combat
+      - select.box-builders
+      - select.box-factories
   ui.build-tools:
     kind: hack
     title: Build Tools
@@ -1369,6 +1404,11 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - build.line
+      - build.spacing-up
+      - build.spacing-down
+      - build.snap-override
   ui.click-snap:
     kind: hack
     title: Click Snap
@@ -1386,6 +1426,8 @@ entries:
     constraints: [mex-default <= mex-max, wreck-default <= wreck-max]
     presets:
       baseline: {mex-default: 0, mex-max: 0, wreck-default: 0, wreck-max: 0}
+    actions:
+      - build.snap-override
   ui.build-preview:
     kind: hack
     title: Build Preview
@@ -1397,6 +1439,8 @@ entries:
     scope: view
     params:
       fill: {type: bool, baseline: false, default: false, adjustable: fixed, scope: view}
+    actions:
+      - build.rotate
   ui.options-dialog:
     kind: hack
     title: Options Dialog
@@ -1407,6 +1451,9 @@ entries:
     ownership: local-view
     scope: view
     params: {}
+    actions:
+      - game.options-dialog
+      - game.chat-macro
   ui.share-dialog-and-lobby-buttons:
     kind: hack
     title: Share Dialog and Lobby Buttons
@@ -1551,6 +1598,8 @@ entries:
       dx-warning: {type: bool, baseline: true, default: true, adjustable: fixed, scope: view}
     presets:
       baseline: {min-height-768: false, dx-warning: true}
+    actions:
+      - game.screenshot
   ui.external-exports:
     kind: hack
     title: External Exports

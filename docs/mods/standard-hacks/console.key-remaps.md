@@ -81,3 +81,12 @@ hacks:
   console.key-remaps: true
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `game.repeat-command` | `Insert` | Runs the last chat command again |
+| `debug.keys` | `F11, F10` | Debug keys on or off |
+<!-- END GENERATED: keys -->
