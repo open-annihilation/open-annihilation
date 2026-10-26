@@ -141,11 +141,13 @@ bool mark_covers(MarkShape shape, int64_t px, int64_t py) noexcept {
     if (shape == MarkShape::diamond)
         return dx + dy <= 430;
     if (shape == MarkShape::triangle) {
+        // Apex, then the base from right to left. The other way round makes
+        // the signed area negative, and the test below then covers nothing.
         constexpr int64_t x1 = 512;
         constexpr int64_t y1 = 80;
-        constexpr int64_t x2 = 80;
+        constexpr int64_t x2 = 944;
         constexpr int64_t y2 = 940;
-        constexpr int64_t x3 = 944;
+        constexpr int64_t x3 = 80;
         constexpr int64_t y3 = 940;
         constexpr int64_t denom = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3);
         const int64_t wa = (y2 - y3) * (px - x3) + (x3 - x2) * (py - y3);
