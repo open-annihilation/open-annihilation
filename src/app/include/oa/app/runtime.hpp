@@ -2749,6 +2749,41 @@ class Runtime final : public menu::Host,
     /// @param folder the folder a package change put in place
     void reload_key_layout_if_in_use(const fs::path& folder);
 
+    /// The text a screen shows for an action's first chord.
+    ///
+    /// The bindings are resolved on first use. With no chord, the action's
+    /// first default is named. [runtime_key_bindings.cpp]
+    ///
+    /// @param action_id the action
+    /// @return the text, or empty when the action has no chord
+    [[nodiscard]] std::string bound_chord_text(std::string_view action_id);
+
+    /// Fills the options dialog's three key sliders from the bound actions
+    /// and remembers them, so a later move can be written or put back.
+    ///
+    /// The current sliders show each binding's first chord. The defaults show
+    /// each action's own first chord. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] current the dialog's settings
+    /// @param[in,out] defaults the settings a reset returns to
+    void fill_mod_option_keys(
+        oa::ui::engine_settings::ModOptions& current, oa::ui::engine_settings::ModOptions& defaults
+    );
+
+    /// Writes a key slider that moved into the player's own key changes, and
+    /// reloads them so the match answers the new chord. A key the action
+    /// cannot take is logged and left as it was. Leaving the sliders where
+    /// they were writes nothing.
+    ///
+    /// @param chosen the dialog's settings
+    void take_mod_option_keys(const oa::ui::engine_settings::ModOptions& chosen);
+
+    /// Puts back the key changes a slider wrote, when the dialog is cancelled.
+    void restore_mod_option_keys();
+
+    /// Forgets the dialog's key sliders without putting them back.
+    void close_mod_option_keys();
+
     /// Prints one line for each action event when --trace-input is on.
     ///
     /// @param events the events just fed

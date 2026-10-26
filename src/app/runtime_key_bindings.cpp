@@ -217,6 +217,10 @@ namespace library = oa::data::key_library;
 constexpr std::string_view layout_preference = "open-annihilation.keys.layout";
 /// Mods whose stored keys have already been imported.
 constexpr std::string_view imported_preference = "open-annihilation.keys.imported";
+/// The options dialog's three key sliders, in slider order.
+constexpr std::array<std::string_view, 3> slider_action_ids{
+    "build.snap-override", "build.line", "build.rotate"
+};
 
 /// Returns a path's generic UTF-8 spelling.
 ///
@@ -580,6 +584,66 @@ oakeys::Manifest fresh_own(std::string_view base_id) {
     return manifest;
 }
 
+/// The chord texts one action lists, or none when the manifest does not name it.
+///
+/// @param manifest the own changes
+/// @param action the action id
+/// @return the texts, in file order
+std::vector<std::string> binding_texts(const oakeys::Manifest& manifest, std::string_view action) {
+    for (const oakeys::BindingEntry& entry : manifest.bindings) {
+        if (entry.action != action)
+            continue;
+        std::vector<std::string> texts;
+        texts.reserve(entry.chords.size());
+        for (const oakeys::ChordText& chord : entry.chords)
+            texts.push_back(chord.text);
+        return texts;
+    }
+    return {};
+}
+
+/// Drops one action from an own manifest.
+///
+/// @param[in,out] manifest the own changes
+/// @param action the action id
+void remove_binding(oakeys::Manifest& manifest, std::string_view action) {
+    std::vector<oakeys::BindingEntry> kept;
+    kept.reserve(manifest.bindings.size());
+    for (oakeys::BindingEntry& entry : manifest.bindings) {
+        if (entry.action != action)
+            kept.push_back(std::move(entry));
+    }
+    manifest.bindings = std::move(kept);
+}
+
+/// Parses chord texts a slider wrote.
+///
+/// @param texts the chord texts
+/// @return the chords that parse
+std::vector<keys::Chord> chords_of(const std::vector<std::string>& texts) {
+    std::vector<keys::Chord> chords;
+    chords.reserve(texts.size());
+    for (const std::string& text : texts) {
+        keys::ChordError error;
+        if (const std::optional<keys::Chord> parsed = keys::parse_chord(text, error))
+            chords.push_back(*parsed);
+    }
+    return chords;
+}
+
+/// Tells whether two manifests give the three key sliders the same chords.
+///
+/// @param left one manifest
+/// @param right the other
+/// @return true when each slider action lists the same texts
+bool same_slider_bindings(const oakeys::Manifest& left, const oakeys::Manifest& right) {
+    for (const std::string_view id : slider_action_ids) {
+        if (binding_texts(left, id) != binding_texts(right, id))
+            return false;
+    }
+    return true;
+}
+
 /// The word `--trace-input` prints for an action's phase.
 ///
 /// @param phase the phase
@@ -849,6 +913,20 @@ struct Runtime::KeyBindingsState {
         }
         return false;
     }
+
+    /// The options dialog's three key sliders while that dialog is open.
+    struct KeySliderEdit {
+        bool open{};    ///< the dialog is open
+        bool blocked{}; ///< the own file is there and cannot be read
+        std::string base_id{};
+        oakeys::Manifest original{};
+        oakeys::Manifest last_written{};
+        std::array<uint32_t, 3> shown{};
+        std::array<bool, 3> noted{};
+        std::array<uint32_t, 3> logged{};
+    };
+
+    KeySliderEdit key_sliders{};
 };
 
 void Runtime::destroy_key_bindings_state(KeyBindingsState* state) noexcept {
@@ -919,12 +997,6 @@ void Runtime::load_key_bindings() {
         text += preference_text(preference_values_, imported_preference);
         text += '\n';
         text += import_hacks ? "hacks\n" : "plain\n";
-        text += std::to_string(view_settings_.snap_override_key);
-        text += '\n';
-        text += std::to_string(view_settings_.autoclick_key);
-        text += '\n';
-        text += std::to_string(view_settings_.rotate_build_key);
-        text += '\n';
         text += utf8_of(user_folder_);
         return text;
     };
@@ -1076,36 +1148,31 @@ void Runtime::load_key_bindings() {
         const std::vector<std::string> already =
             split_ids(preference_text(preference_values_, imported_preference));
         if (!lists_id(already, mod_id)) {
-            struct StoredKey {
-                const char* setting;
-                const char* action;
-                uint32_t code;
-            };
-
-            const StoredKey stored[] = {
-                {"ClickSnapOverrideKey", "build.snap-override", view_settings_.snap_override_key},
-                {"KeyCode", "build.line", view_settings_.autoclick_key},
-                {"RotateBuildKey", "build.rotate", view_settings_.rotate_build_key},
-            };
             if (!have_own_manifest && !own_broken)
                 own_manifest = fresh_own(base_id);
-            for (const StoredKey& stored_key : stored) {
-                const actions::Action* action = actions::find(stored_key.action);
+            for (const std::string_view stored_action : slider_action_ids) {
+                const auto imported =
+                    view_rules::imported_key(stored_action, [&](std::string_view name) {
+                        return read_number(view_rules::view_settings_section, name);
+                    });
+                if (!imported)
+                    continue;
+                const actions::Action* action = actions::find(stored_action);
                 if (action == nullptr)
                     continue;
-                if (have_own_manifest && names_action(own_manifest, stored_key.action)) {
+                if (have_own_manifest && names_action(own_manifest, stored_action)) {
                     log_keys(
-                        std::string("skipped ") + stored_key.action +
+                        std::string("skipped ") + std::string(stored_action) +
                         "; your changes already name it"
                     );
                     continue;
                 }
-                const std::optional<keys::Chord> chord = keys::legacy_key_chord(
-                    stored_key.code, position_of(stored_key.code), action->by
-                );
+                const std::optional<keys::Chord> chord =
+                    keys::legacy_key_chord(imported->code, position_of(imported->code), action->by);
                 if (!chord) {
                     log_keys(
-                        std::string("skipped ") + stored_key.setting + "; it maps to no chord"
+                        std::string("skipped ") + std::string(imported->setting) +
+                        "; it maps to no chord"
                     );
                     continue;
                 }
@@ -1118,14 +1185,15 @@ void Runtime::load_key_bindings() {
                 }
                 if (same_as_default) {
                     log_keys(
-                        std::string("skipped ") + stored_key.setting + "; it is already the default"
+                        std::string("skipped ") + std::string(imported->setting) +
+                        "; it is already the default"
                     );
                     continue;
                 }
                 if (own_broken) {
                     needed_write = true;
                     log_keys(
-                        std::string("skipped ") + stored_key.action +
+                        std::string("skipped ") + std::string(stored_action) +
                         "; your changes cannot be read"
                     );
                     continue;
@@ -1133,7 +1201,8 @@ void Runtime::load_key_bindings() {
                 const std::vector<keys::Chord> chords = keys::imported_list(*action, *chord);
                 if (chords.empty()) {
                     log_keys(
-                        std::string("skipped ") + stored_key.setting + "; it maps to no chord"
+                        std::string("skipped ") + std::string(imported->setting) +
+                        "; it maps to no chord"
                     );
                     continue;
                 }
@@ -1144,11 +1213,11 @@ void Runtime::load_key_bindings() {
                         shown += ", ";
                     shown += keys::chord_text(one);
                 }
-                set_binding(own_manifest, std::string(stored_key.action), chords);
+                set_binding(own_manifest, std::string(stored_action), chords);
                 have_own_manifest = true;
                 log_keys(
-                    std::string("imported ") + stored_key.action + " from " + stored_key.setting +
-                    " as " + shown
+                    std::string("imported ") + std::string(stored_action) + " from " +
+                    std::string(imported->setting) + " as " + shown
                 );
             }
             bool wrote = !needed_write;
@@ -1223,6 +1292,169 @@ void Runtime::reload_key_layout_if_in_use(const fs::path& folder) {
         return;
     key_bindings_state_->signature.clear();
     load_key_bindings();
+}
+
+std::string Runtime::bound_chord_text(std::string_view action_id) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr)
+        return {};
+    keys::Chord held;
+    const keys::Chord* chord = nullptr;
+    if (key_bindings_state_->ready) {
+        for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+            if (bound.id == action_id && !bound.chords.empty()) {
+                chord = &bound.chords.front().chord;
+                break;
+            }
+        }
+    }
+    if (chord == nullptr) {
+        const actions::Action* action = actions::find(action_id);
+        if (action == nullptr || action->defaults.empty())
+            return {};
+        keys::ChordError error;
+        const std::optional<keys::Chord> parsed =
+            keys::parse_chord(action->defaults.front(), error);
+        if (!parsed)
+            return {};
+        held = *parsed;
+        chord = &held;
+    }
+    return keys::display_text(
+        *chord, key_bindings_state_->dispatcher.keyboard(), key_bindings_state_->platform
+    );
+}
+
+void Runtime::fill_mod_option_keys(
+    oa::ui::engine_settings::ModOptions& current, oa::ui::engine_settings::ModOptions& defaults
+) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState& state = *key_bindings_state_;
+    KeyBindingsState::KeySliderEdit edit{};
+    edit.base_id = state.has_chosen && !state.chosen.id.empty() ? state.chosen.id : "oa-default";
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const fs::path own_file =
+        keys_folder / library::own_folder_name(edit.base_id) / std::string(oakeys::manifest_file);
+    std::error_code exists_error;
+    if (fs::exists(own_file, exists_error) && !exists_error) {
+        const ReadLayout read = read_layout_file(own_file);
+        if (read.ok) {
+            edit.original = read.manifest;
+        } else {
+            edit.blocked = true;
+            edit.original = fresh_own(edit.base_id);
+            log_keys(edit.base_id + ": your changes cannot be read");
+        }
+    } else {
+        edit.original = fresh_own(edit.base_id);
+    }
+    edit.last_written = edit.original;
+    std::array<uint32_t, 3> shown{};
+    std::array<uint32_t, 3> factory{};
+    for (std::size_t slot = 0; slot < slider_action_ids.size(); ++slot) {
+        const std::string_view id = slider_action_ids[slot];
+        std::vector<std::string> texts;
+        if (state.ready) {
+            for (const keys::Bound& bound : state.dispatcher.bindings().actions) {
+                if (bound.id != id)
+                    continue;
+                for (const keys::BoundChord& item : bound.chords)
+                    texts.push_back(keys::chord_text(item.chord));
+                break;
+            }
+        }
+        std::vector<std::string_view> chord_views;
+        chord_views.reserve(texts.size());
+        for (const std::string& text : texts)
+            chord_views.emplace_back(text);
+        shown[slot] = view_rules::slider_value(id, chord_views);
+        const actions::Action* action = actions::find(id);
+        factory[slot] = action != nullptr ? view_rules::slider_value(id, action->defaults)
+                                          : oa::ui::engine_settings::option_keys[0].code;
+    }
+    edit.shown = shown;
+    edit.open = true;
+    state.key_sliders = std::move(edit);
+    oa::ui::engine_settings::set_mod_option_keys(current, shown[0], shown[1], shown[2]);
+    oa::ui::engine_settings::set_mod_option_keys(defaults, factory[0], factory[1], factory[2]);
+}
+
+void Runtime::take_mod_option_keys(const oa::ui::engine_settings::ModOptions& chosen) {
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->key_sliders.open)
+        return;
+    KeyBindingsState::KeySliderEdit& edit = key_bindings_state_->key_sliders;
+    if (edit.blocked)
+        return;
+    const std::array<uint32_t, 3> chosen_codes = oa::ui::engine_settings::mod_option_keys(chosen);
+    oakeys::Manifest editing = edit.original;
+    for (std::size_t slot = 0; slot < slider_action_ids.size(); ++slot) {
+        const std::string_view id = slider_action_ids[slot];
+        std::vector<std::string> desired = binding_texts(edit.original, id);
+        if (chosen_codes[slot] != edit.shown[slot]) {
+            const std::vector<std::string> mapped =
+                view_rules::slider_chords(id, chosen_codes[slot]);
+            if (mapped.empty()) {
+                desired = binding_texts(edit.last_written, id);
+                if (!edit.noted[slot] || edit.logged[slot] != chosen_codes[slot]) {
+                    const auto named = view_rules::imported_key(id, {});
+                    if (named) {
+                        log_keys(
+                            std::string("skipped ") + std::string(named->setting) +
+                            "; it maps to no chord"
+                        );
+                    }
+                    edit.noted[slot] = true;
+                    edit.logged[slot] = chosen_codes[slot];
+                }
+            } else {
+                desired = mapped;
+                edit.noted[slot] = false;
+            }
+        }
+        if (desired.empty())
+            remove_binding(editing, id);
+        else if (binding_texts(editing, id) != desired)
+            set_binding(editing, std::string(id), chords_of(desired));
+    }
+    if (same_slider_bindings(editing, edit.last_written))
+        return;
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    std::string error;
+    if (!library::write_own(keys_folder, edit.base_id, editing, error)) {
+        log_keys(edit.base_id + ": " + error);
+        return;
+    }
+    edit.last_written = std::move(editing);
+    key_bindings_state_->signature.clear();
+    ensure_key_bindings(false);
+}
+
+void Runtime::restore_mod_option_keys() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState::KeySliderEdit& edit = key_bindings_state_->key_sliders;
+    if (!edit.open)
+        return;
+    if (!edit.blocked && !same_slider_bindings(edit.last_written, edit.original)) {
+        const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+        std::string error;
+        if (library::write_own(keys_folder, edit.base_id, edit.original, error)) {
+            edit.last_written = edit.original;
+            key_bindings_state_->signature.clear();
+            ensure_key_bindings(false);
+        } else {
+            log_keys(edit.base_id + ": " + error);
+        }
+    }
+    if (key_bindings_state_ != nullptr)
+        key_bindings_state_->key_sliders.open = false;
+}
+
+void Runtime::close_mod_option_keys() {
+    if (key_bindings_state_ != nullptr)
+        key_bindings_state_->key_sliders.open = false;
 }
 
 void Runtime::ensure_key_bindings(bool keymap_changed) {

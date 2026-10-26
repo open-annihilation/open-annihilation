@@ -42,8 +42,6 @@ constexpr uint32_t quarter_turn = 0x4000;
 constexpr uint32_t building_heading = 0x8000;
 /// The interface sound a change of build facing plays.
 constexpr std::string_view rotate_sound = "MORE";
-/// The preferences section the player's display-rule settings are kept in.
-constexpr std::string_view view_settings_section = "Eye";
 /// The most bytes a stored display-rule text setting holds.
 constexpr std::size_t view_settings_text_capacity = 1024;
 /// The screenshots folder below the Image Output Directory, which in the
@@ -91,10 +89,10 @@ void Runtime::load_view_settings() {
     const oa::data::match_rules::OrdersConPatrolGuardOptions base_builders{};
     view_rules::ViewSettingsStore store{};
     store.number = [this](std::string_view name) {
-        return read_number(view_settings_section, name);
+        return read_number(view_rules::view_settings_section, name);
     };
     store.text = [this](std::string_view name) {
-        return read_string(view_settings_section, name, view_settings_text_capacity);
+        return read_string(view_rules::view_settings_section, name, view_settings_text_capacity);
     };
     view_settings_ = view_rules::read_view_settings(
         ui_rules(),
@@ -108,10 +106,10 @@ void Runtime::save_view_settings() {
         view_settings_,
         ui_rules(),
         [this](std::string_view name, uint32_t value) {
-            write_number(view_settings_section, name, value);
+            write_number(view_rules::view_settings_section, name, value);
         },
         [this](std::string_view name, std::string_view value) {
-            write_string(view_settings_section, name, value);
+            write_string(view_rules::view_settings_section, name, value);
         }
     );
     flush_preferences();

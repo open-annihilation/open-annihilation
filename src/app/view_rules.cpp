@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/app/view_rules.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/present/world_renderer/world_display_modes.hpp"
 #include "oa/ui/frontend_multiplayer/lobby.hpp"
 #include "oa/ui/frontend_state/main_menu.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/key_codes.hpp"
+#include "oa/ui/key_bindings/legacy.hpp"
 
 #include <algorithm>
 #include <array>
@@ -14,7 +18,10 @@
 #include <utility>
 #include <cstddef>
 #include <cstdio>
+#include <functional>
 #include <limits>
+#include <optional>
+#include <span>
 #include <vector>
 
 namespace oa::app::view_rules {
@@ -581,8 +588,8 @@ namespace {
 namespace setting_name {
 constexpr std::string_view snap_override_key = "ClickSnapOverrideKey";
 constexpr std::string_view autoclick_key = "KeyCode";
-constexpr std::string_view whiteboard_key = "WhiteboardKey";
-constexpr std::string_view megamap_key = "MegamapKey";
+[[maybe_unused]] constexpr std::string_view whiteboard_key = "WhiteboardKey";
+[[maybe_unused]] constexpr std::string_view megamap_key = "MegamapKey";
 constexpr std::string_view rotate_build_key = "RotateBuildKey";
 constexpr std::string_view rotate_key_discovered = "RotateBuildKeyDiscovered";
 constexpr std::string_view build_menu_rotation = "BuildMenuRotationOverlay";
@@ -602,16 +609,133 @@ constexpr std::string_view chat_backdrop = "ChatBackdrop";
 constexpr std::string_view vsync = "VSync";
 } // namespace setting_name
 
-/// The SDL key codes of the keys' defaults: Alt, X, backslash, Tab and slash.
-constexpr uint32_t default_snap_override_key = 0x400000e2U;
-constexpr uint32_t default_autoclick_key = 'x';
-constexpr uint32_t default_whiteboard_key = '\\';
-constexpr uint32_t default_megamap_key = '\t';
-constexpr uint32_t default_rotate_build_key = '/';
+/// The position name of an option key a place follows, or empty for a modifier.
+///
+/// @param code the slider's key code
+/// @return the UI Events code, such as KeyX
+std::string_view place_name(uint32_t code) noexcept {
+    struct Place {
+        uint32_t code;
+        std::string_view name;
+    };
+
+    static constexpr Place places[] = {
+        {'\t', "Tab"},
+        {'b', "KeyB"},
+        {'c', "KeyC"},
+        {'e', "KeyE"},
+        {'f', "KeyF"},
+        {'g', "KeyG"},
+        {'q', "KeyQ"},
+        {'r', "KeyR"},
+        {'v', "KeyV"},
+        {'x', "KeyX"},
+        {'z', "KeyZ"},
+        {'/', "Slash"},
+        {'\\', "Backslash"},
+    };
+    for (const Place& place : places) {
+        if (place.code == code)
+            return place.name;
+    }
+    return {};
+}
+
+/// The position of an option key, or 0 when the key is a modifier or unknown.
+///
+/// @param code the slider's key code
+/// @return the position number
+uint16_t place_scancode(uint32_t code) noexcept {
+    const std::string_view name = place_name(code);
+    if (name.empty())
+        return 0;
+    const std::optional<uint16_t> scan = oa::ui::key_bindings::scancode_of(name);
+    return scan ? *scan : uint16_t{0};
+}
+
+/// The key code a slider shows when the chord is not one of the option keys.
+///
+/// @return Alt, the first option key
+uint32_t alt_code() noexcept {
+    return oa::ui::engine_settings::option_keys[0].code;
+}
+
 /// The most characters the chat macro keeps.
 constexpr std::size_t chat_macro_limit = 512;
 
 } // namespace
+
+uint32_t slider_value(std::string_view action_id, std::span<const std::string_view> chords) {
+    namespace keys = oa::ui::key_bindings;
+    namespace actions = oa::data::input_actions;
+    const uint32_t alt = alt_code();
+    const actions::Action* action = actions::find(action_id);
+    if (action == nullptr || chords.empty())
+        return alt;
+    keys::ChordError error;
+    const std::optional<keys::Chord> first = keys::parse_chord(chords.front(), error);
+    if (!first)
+        return alt;
+    for (const oa::ui::engine_settings::OptionKey& key : oa::ui::engine_settings::option_keys) {
+        const std::optional<keys::Chord> offered =
+            keys::legacy_key_chord(key.code, place_scancode(key.code), action->by);
+        if (offered && *offered == *first)
+            return key.code;
+    }
+    return alt;
+}
+
+std::vector<std::string> slider_chords(std::string_view action_id, uint32_t code) {
+    namespace keys = oa::ui::key_bindings;
+    namespace actions = oa::data::input_actions;
+    const actions::Action* action = actions::find(action_id);
+    if (action == nullptr)
+        return {};
+    const std::optional<keys::Chord> chord =
+        keys::legacy_key_chord(code, place_scancode(code), action->by);
+    if (!chord)
+        return {};
+    if (chord->kind == keys::TriggerKind::modifier_alone && action->kind != actions::Kind::modifier)
+        return {};
+    const std::vector<keys::Chord> list = keys::imported_list(*action, *chord);
+    std::vector<std::string> texts;
+    texts.reserve(list.size());
+    for (const keys::Chord& item : list)
+        texts.push_back(keys::chord_text(item));
+    return texts;
+}
+
+std::optional<ImportedKey> imported_key(
+    std::string_view action_id,
+    const std::function<std::optional<uint32_t>(std::string_view)>& number
+) {
+    struct Row {
+        std::string_view action;
+        std::string_view setting;
+        uint32_t fallback;
+    };
+
+    static constexpr Row rows[] = {
+        {"build.snap-override", setting_name::snap_override_key, 0x400000e2U},
+        {"build.line", setting_name::autoclick_key, static_cast<uint32_t>('x')},
+        {"build.rotate", setting_name::rotate_build_key, static_cast<uint32_t>('/')},
+    };
+    const Row* matched = nullptr;
+    for (const Row& one : rows) {
+        if (one.action == action_id) {
+            matched = &one;
+            break;
+        }
+    }
+    if (matched == nullptr)
+        return std::nullopt;
+    uint32_t stored_code = matched->fallback;
+    if (number) {
+        if (const std::optional<uint32_t> stored = number(matched->setting))
+            stored_code = *stored;
+    }
+    return ImportedKey{matched->setting, stored_code};
+}
 
 ViewSettings read_view_settings(
     const data::mod_profile::UiRules& ui,
@@ -626,13 +750,6 @@ ViewSettings read_view_settings(
         return value ? *value != 0 : fallback;
     };
     ViewSettings settings{};
-    settings.snap_override_key =
-        number(setting_name::snap_override_key).value_or(default_snap_override_key);
-    settings.autoclick_key = number(setting_name::autoclick_key).value_or(default_autoclick_key);
-    settings.whiteboard_key = number(setting_name::whiteboard_key).value_or(default_whiteboard_key);
-    settings.megamap_key = number(setting_name::megamap_key).value_or(default_megamap_key);
-    settings.rotate_build_key =
-        number(setting_name::rotate_build_key).value_or(default_rotate_build_key);
     settings.rotate_key_discovered = flag(setting_name::rotate_key_discovered, false);
     settings.build_menu_rotation = flag(setting_name::build_menu_rotation, false);
     const std::array<PatrolOption, 3> patrol_defaults{
@@ -689,11 +806,6 @@ void write_view_settings(
     const std::function<void(std::string_view name, uint32_t value)>& number,
     const std::function<void(std::string_view name, std::string_view value)>& text
 ) {
-    number(setting_name::snap_override_key, settings.snap_override_key);
-    number(setting_name::autoclick_key, settings.autoclick_key);
-    number(setting_name::whiteboard_key, settings.whiteboard_key);
-    number(setting_name::megamap_key, settings.megamap_key);
-    number(setting_name::rotate_build_key, settings.rotate_build_key);
     number(setting_name::rotate_key_discovered, settings.rotate_key_discovered ? 1U : 0U);
     number(setting_name::build_menu_rotation, settings.build_menu_rotation ? 1U : 0U);
     for (std::size_t order = 0; order < settings.patrol.size(); ++order) {
@@ -740,9 +852,6 @@ void apply_builder_options(
 oa::ui::engine_settings::ModOptions
 dialog_options(const ViewSettings& settings, const data::mod_profile::UiRules& ui) noexcept {
     oa::ui::engine_settings::ModOptions options{};
-    options.snap_override_key = settings.snap_override_key;
-    options.autoclick_key = settings.autoclick_key;
-    options.rotate_build_key = settings.rotate_build_key;
     for (std::size_t order = 0; order < settings.patrol.size(); ++order) {
         options.patrol[order] = static_cast<uint8_t>(settings.patrol[order]);
         options.guard[order] = static_cast<uint8_t>(settings.guard[order]);
@@ -766,9 +875,6 @@ void apply_dialog_options(
     const data::mod_profile::UiRules& ui,
     ViewSettings& settings
 ) noexcept {
-    settings.snap_override_key = options.snap_override_key;
-    settings.autoclick_key = options.autoclick_key;
-    settings.rotate_build_key = options.rotate_build_key;
     for (std::size_t order = 0; order < settings.patrol.size(); ++order) {
         settings.patrol[order] = static_cast<PatrolOption>(std::min<uint8_t>(
             options.patrol[order], static_cast<uint8_t>(PatrolOption::assist_only)
