@@ -91,14 +91,26 @@ dispatcher times a double press and a hold from that time.
   that press's release. Mouse buttons, the wheel and keys typed into a
   field are never held back. With a repeat delay and a rate both set, the
   platform's repeats are ignored and a `repeat` action fires from `advance`.
+  A latch or a sticky modifier applies only to an event the bindings accept,
+  including a key `advance` admits late.
+- `Latches` keeps a latchable action named in `set_toggle`. A tap turns it
+  on and a second tap turns it off. A press held for `long_press_ms`, or
+  used while it is held, is a plain hold and leaves the latch as it was.
+  `StickyModifiers`, on while `set_sticky_modifiers` is set, takes a
+  modifier tapped with no other key or button between: the first tap arms
+  it for the next chord or click, a second tap within `double_press_ms`
+  locks it, and a tap while it is locked lets it go. `consume_sticky` lets
+  an armed modifier go and keeps a locked one. `release_all` clears the
+  latches and the sticky modifiers, which is what losing the window does.
+  `shown` is the order they were turned on. A repeat does not toggle a latch.
 
 ## State
 
 A chord, a map and an event are values the caller keeps. The position
 table and the named keys are fixed. A `Dispatcher` keeps the bindings, the
 keyboard map, the open contexts, the keys and buttons that are down, the
-actions each down started, the hold timers and the modifier roles that are
-active.
+actions each down started, the hold timers, the modifier roles that are
+active, the latches and the sticky modifiers.
 
 ## Invariants
 
@@ -168,6 +180,15 @@ not repeat; the status strip's press and release around a Shift; a
 double-click selecting the type; a hold that fires once after 500 ms; a
 key-up never seen down; `release_all`; and the queue role following Shift
 whether or not a Shift event was fed.
+
+`ui-key-bindings-latches` (`tests/latches_test.cpp`) walks the same kind of
+timeline for the hold helpers: a tap latches and a second tap lets go; a
+hold past the long-press time stays off; a hold used by a click does not
+latch; an action left out of `toggle`, and one that is not latchable, never
+latches; a sticky tap arms the next chord and then lets go; two taps within
+the double-press time lock until a third; a tap with another key between,
+and a modifier held during a click, stay plain; `release_all` empties both;
+and `shown` keeps the order turned on.
 
 `ui-key-bindings-timing` (`tests/timing_test.cpp`) walks synthetic
 timelines: a slow-key tap of 100 ms fires nothing and a hold fires once at

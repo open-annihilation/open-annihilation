@@ -14682,6 +14682,30 @@
 	it={name} non può giocare questo posto adesso, quindi parte con il giocatore integrato.;
 	}
 
+[{modifier} · locked]
+	{
+	de={modifier} · festgestellt;
+	fr={modifier} · bloqué;
+	es={modifier} · bloqueado;
+	it={modifier} · bloccato;
+	}
+
+[{modifier} · next key or click]
+	{
+	de={modifier} · nächste Taste oder Klick;
+	fr={modifier} · prochaine touche ou clic;
+	es={modifier} · próxima tecla o clic;
+	it={modifier} · prossimo tasto o clic;
+	}
+
+[{name} · latched]
+	{
+	de={name} · eingerastet;
+	fr={name} · enclenché;
+	es={name} · fijado;
+	it={name} · agganciato;
+	}
+
 [{name} from {installed} is installed. Replace it with {name} from {new}? The one from {installed} is kept, and ROLL BACK brings it back.]
 	{
 	de={name} von {installed} ist installiert. Durch {name} von {new} ersetzen? Das von {installed} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;

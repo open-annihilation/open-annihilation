@@ -1803,6 +1803,11 @@ class Runtime final : public menu::Host,
     /// std::runtime_error on a failure.
     void check_kill_board();
 
+    /// Checks latched Shift and Space, then sticky Ctrl and Alt, on a skirmish.
+    ///
+    /// Throws std::runtime_error on a failure. [runtime_key_latches_check.cpp]
+    void check_key_latches();
+
     /// Checks MULTI on the main menu.
     ///
     /// The extensions' check_multiplayer_menu hooks check the multiplayer
@@ -2480,13 +2485,14 @@ class Runtime final : public menu::Host,
     /// and those the automation endpoint holds), the pulse a synthetic key carries, and
     /// SDL_KMOD_LSHIFT when the use's latch is active.
     ///
-    /// `keyboard` stays those keys. For an order, a selection or a build button, Shift comes from
-    /// the role `order.queue-modifier`, `select.add-modifier` or `build.queue-modifier`, and for
-    /// an order Ctrl comes from `order.force-modifier`, once the bindings have been resolved.
-    /// Before that, and when a role is not among the bindings, the key's own bit is left as it
-    /// is. The pulse, the latch and the pad's FORCE are merged as before. With the stock bindings
-    /// the bits are the keys held. Every place the engine reads the modifier keys asks this for
-    /// its own use. [runtime_input_modifiers.cpp]
+    /// `keyboard` stays those keys, plus a sticky modifier that is armed or locked. For an order,
+    /// a selection or a build button, Shift comes from the role `order.queue-modifier`,
+    /// `select.add-modifier` or `build.queue-modifier`, and for an order Ctrl comes from
+    /// `order.force-modifier`, once the bindings have been resolved. Before that, and when a role
+    /// is not among the bindings, the key's own bit is left as it is. The pulse, the latch and
+    /// the pad's FORCE are merged as before, and the sticky modifiers are added for every use.
+    /// With the stock bindings and sticky modifiers off, the bits are the keys held. Every place
+    /// the engine reads the modifier keys asks this for its own use. [runtime_input_modifiers.cpp]
     ///
     /// @param use what the read is for
     /// @return SDL_Keymod bits
@@ -2496,13 +2502,27 @@ class Runtime final : public menu::Host,
     ///
     /// Called after the input method has taken the keys it is composing, and not for a touch or a
     /// pad event. A keymap change rebuilds the keyboard map and the bindings. Losing the window's
-    /// focus releases every held action and role. A running match answers the events through
-    /// handle_match_action. A key held back by slow keys, or dropped by bounce keys, does not
-    /// reach the rest of the game. [runtime_key_bindings.cpp]
+    /// focus releases every held action and role, and clears the keyboard latches, the sticky
+    /// modifiers and the shared QUEUE, ADD and x5 latches. A running match answers the events
+    /// through handle_match_action. A key held back by slow keys, or dropped by bounce keys,
+    /// does not reach the rest of the game. [runtime_key_bindings.cpp]
     ///
     /// @param event the event dispatch_event is given
     /// @return true when the rest of the game should not see this event
     bool feed_input_actions(const SDL_Event& event);
+
+    /// Presses and releases QUEUE, ADD and x5 on the shared latches when their
+    /// keys go down and up, and marks a held one used on a button press.
+    ///
+    /// Called only for an event the bindings accepted, including a key `advance`
+    /// admits late. A repeat does not toggle. [runtime_key_bindings.cpp]
+    ///
+    /// @param input the key, button or wheel
+    /// @param contexts the contexts this event is fed with
+    void apply_shared_key_latches(
+        const oa::ui::key_bindings::InputEvent& input,
+        const oa::ui::key_bindings::Contexts& contexts
+    );
 
     /// Admits keys whose slow-key time has passed, fires holds, and fires the player's repeats,
     /// once a frame after that frame's events. A key admitted here then reaches the rest of the
@@ -18400,6 +18420,57 @@ class Runtime final : public menu::Host,
     /// clock's showing on (oa::ui::hud::step_clock_fade), as the kills board
     /// drawn before it left the board's slide, on the strip's own clock.
     void draw_status_panel();
+
+    /// One chip for a latched hold or a sticky modifier, in the player's language.
+    struct KeyLatchChip {
+        std::string text{}; ///< the words
+        bool filled{};      ///< filled when latched or locked; outlined when only armed
+    };
+
+    /// The latches and sticky modifiers that are on, in the order they were turned on.
+    ///
+    /// QUEUE, ADD and x5 are left out while the touch or pad HUD shows them.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param[out] chips the chips, cleared first
+    void gather_key_latch_chips(std::vector<KeyLatchChip>& chips);
+
+    /// Draws those chips centred on the battlefield, 6 points under its top.
+    /// [runtime_hud.cpp]
+    void draw_key_latch_chips();
+
+    /// Whether a keyboard latch other than QUEUE, ADD or x5 is on.
+    ///
+    /// @param id the action id
+    /// @return true while that latch is on
+    [[nodiscard]] bool action_latched(std::string_view id) const;
+
+    /// The sticky modifiers this read should add: the event's memory, or the live ones.
+    ///
+    /// @return the modifier bits
+    [[nodiscard]] uint8_t sticky_modifier_bits() const;
+
+    /// Remembers the sticky modifiers as they were at the start of this event.
+    void begin_sticky_event();
+
+    /// Forgets that memory and brings the pointer's Shift and Ctrl up to date.
+    void end_sticky_event();
+
+    /// Lets an armed sticky modifier go. A locked one stays. [runtime_key_bindings.cpp]
+    void consume_sticky_modifiers();
+
+    /// Marks the shared latch of a class used, when that role latches from the keyboard.
+    ///
+    /// `which` is 0 for selection, 1 for an order and 2 for a build button.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param which the class
+    void note_shared_latch_used(int which);
+
+    /// Puts the sticky-modifier preference on the dispatcher. [runtime_key_bindings.cpp]
+    ///
+    /// @param on true when a tap arms the next key or click
+    void apply_sticky_modifiers(bool on);
     int radar_map_h_ = 0;
     std::optional<oa::present::world_renderer::TextureCatalog> texture_catalog_;
     std::shared_ptr<MatchModels> match_models_; // 3DO renderer state, runtime_match_render.cpp
@@ -19806,6 +19877,21 @@ class Runtime final : public menu::Host,
     // The key bindings' dispatcher; null until the first event or frame that feeds it.
     mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
         key_bindings_state_{nullptr, destroy_key_bindings_state};
+    /// Sticky modifiers as they were when this event began, so a tap does not
+    /// apply to the key that armed it and a chord still sees them after consume.
+    bool sticky_event_{};
+    uint8_t sticky_event_mods_{};
+
+    /// A latch or sticky modifier chip, and when it was turned on.
+    struct KeyLatchSeen {
+        std::string key{};    ///< which chip, stable when a modifier locks
+        uint64_t turned_on{}; ///< the order it joined the row
+    };
+
+    std::vector<KeyLatchSeen> key_latch_seen_{};
+    uint64_t key_latch_seen_next_{1};
+    /// The chip texts last drawn, including an overflow chip. Empty when none show.
+    std::vector<std::string> key_latch_chips_drawn_{};
     /// The pointer roles copied from those bindings. Empty until the first resolution.
     PointerRoleTable pointer_roles_{};
     /// Set once the view settings have been read, so a later mod change loads again.

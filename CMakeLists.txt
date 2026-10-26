@@ -1365,6 +1365,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
+  src/app/runtime_key_latches_check.cpp
   src/app/runtime_key_timing_check.cpp
   src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
@@ -3772,6 +3773,28 @@ endforeach()
         --preferences-file "${oa_key_table_hacks_dir}/key-table.conf")
       set_tests_properties(native-key-table-hacks PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_hacks_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
+      # with a layout that lists those two holds.
+      set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")
+      file(MAKE_DIRECTORY "${oa_key_latches_dir}")
+      file(WRITE "${oa_key_latches_dir}/oakeys.yaml"
+        "oakeys: 1\n"
+        "id: key-latches\n"
+        "name: \"Key latches\"\n"
+        "version: \"1.0\"\n"
+        "author: {name: \"Open Annihilation\"}\n"
+        "tags: [grid]\n"
+        "base: oa-default\n"
+        "helpers:\n"
+        "  toggle: [\"order.queue-modifier\", \"game.status-strip\"]\n")
+      add_test(NAME native-key-latches COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-latches
+        --keys "${oa_key_latches_dir}/oakeys.yaml"
+        --snapshot "${oa_key_latches_dir}/key-latches.ppm"
+        --preferences-file "${oa_key_latches_dir}/key-latches.conf")
+      set_tests_properties(native-key-latches PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_latches_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # With the request held, the frame hook keeps being called while the
       # window is inactive; released, the loop waits for an event.

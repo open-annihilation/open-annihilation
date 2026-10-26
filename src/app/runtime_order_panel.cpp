@@ -417,6 +417,8 @@ oa::ui::hud::BuildPanelHost Runtime::build_panel_host() {
             self.match_->change_queued_count(
                 builder.id, oa::data::mission_types::index_for_name(change.tag), change.type, count
             );
+            self.note_shared_latch_used(2);
+            self.consume_sticky_modifiers();
             self.status_ = std::string("Build ") + name + " x" +
                            std::to_string(self.match_->queued_build_count(builder.id, change.type));
         } catch (const std::exception& error) {
