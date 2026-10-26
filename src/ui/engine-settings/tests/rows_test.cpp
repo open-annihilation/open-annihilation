@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 100> kExpected{{
+constexpr std::array<Expected, 103> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -173,11 +173,15 @@ constexpr std::array<Expected, 100> kExpected{{
     {Setting::mod_limits_heading, RowKind::text, "Set by the mod", 0, 0, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::weapon_types, RowKind::text, "Weapon types", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::sides, RowKind::text, "Sides", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::key_layout, RowKind::value_and_button, "Key layout", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::key_layout_for_mod, RowKind::choice, "Key layout with {mod}", 1, 1, 1, 200, 0, false, Lock::none, nullptr},
+    {Setting::show_keys_on_buttons, RowKind::toggle, "Show keys on buttons", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::sides) + 1, "every setting has its row"
+    kExpected.size() == static_cast<std::size_t>(Setting::show_keys_on_buttons) + 1,
+    "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.
@@ -497,7 +501,8 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 24> kStoredChoices{{
+constexpr std::array<StoredChoice, 25> kStoredChoices{{
+    {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
     {Setting::view_past_map_edge, settings::key::view_past_map_edge},
@@ -549,6 +554,39 @@ void every_row_and_choice_has_an_id_of_one_word() {
             if (choice.setting == setting)
                 stored = &choice;
         OA_CHECK(stored != nullptr);
+        // Key layout with a mod is stored under the mod's id, and only while
+        // one is played. Same as the game is first; layouts made for it follow.
+        if (setting == Setting::key_layout_for_mod) {
+            settings::Dialog mod = dialog;
+            mod.played_mod = "Ridge";
+            mod.played_mod_id = "ridge";
+            mod.key_layouts.push_back({"plain-keys", "Plain keys", false});
+            mod.key_layouts.push_back({"ridge-keys", "Ridge keys", true});
+            const geometry::SettingsModel mod_model = geometry::reading(mod.chosen, mod);
+            std::vector<std::string> order;
+            std::vector<std::string> captions;
+            for (int32_t at = 0; at < kit::row_count(spec, mod_model); ++at) {
+                const std::string id = kit::row_choice_id(spec, mod_model, at);
+                OA_CHECK(kit::row_word(id));
+                order.push_back(id);
+                captions.push_back(kit::row_caption(spec, mod_model, at));
+            }
+            OA_CHECK(order == (std::vector<std::string>{"same", "ridge-keys", "plain-keys"}));
+            OA_CHECK(captions[0] == "Same as the game");
+            OA_CHECK(captions[1] == "Ridge keys · made for Ridge");
+            OA_CHECK(captions[2] == "Plain keys");
+            settings::EngineSettings chosen = mod.chosen;
+            geometry::SettingsModel choosing{&chosen, &mod};
+            kit::set_row_index(spec, choosing, 1);
+            settings::EngineSettings opened = chosen;
+            geometry::SettingsModel opening{&opened, &mod};
+            kit::set_row_index(spec, opening, 0);
+            oa::platform::preferences::Values values;
+            settings::write_settings(values, opened, chosen, mod.defaults, false, "ridge");
+            const auto written = values.find(std::string(stored->key));
+            OA_CHECK(written != values.end() && written->second == "ridge-keys");
+            continue;
+        }
         std::set<std::string> ids;
         const geometry::SettingsModel model = model_of(dialog);
         for (int32_t at = 0; at < kit::row_count(spec, model); ++at) {
@@ -623,9 +661,11 @@ void tab_follows_the_dialogs_focus_order() {
     const settings::Dialog controls =
         engine_dialog_of({}, settings::Page::controls, true, true, true);
     OA_CHECK(
-        tab_order(controls) ==
-        (std::vector<int32_t>{17, 18, 19, 20, 21, 22, 23, 13, 14, 15, 0, 1,
-                              2,  3,  4,  5,  6,  8,  9,  12, 11, 10, 7, settings::close_x_control})
+        tab_order(controls) == (std::vector<int32_t>{17, 18, 19, 20, 21,
+                                                     22, 23, 24, 13, 14,
+                                                     15, 0,  1,  2,  3,
+                                                     4,  5,  6,  8,  9,
+                                                     12, 11, 10, 7,  settings::close_x_control})
     );
     // Graphics: After zoom, locked while units are drawn whole, takes none.
     settings::Dialog graphics = controls;

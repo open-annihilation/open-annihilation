@@ -17353,3 +17353,91 @@
 	es=Desde {place}…;
 	it=Da {place}…;
 	}
+
+[EDIT KEYS…]
+	{
+	de=TASTEN BEARBEITEN…;
+	fr=MODIFIER LES TOUCHES…;
+	es=EDITAR TECLAS…;
+	it=MODIFICA I TASTI…;
+	}
+
+[Key layout]
+	{
+	de=Tastenbelegung;
+	fr=Disposition des touches;
+	es=Distribución de teclas;
+	it=Disposizione dei tasti;
+	}
+
+[Key layout with {mod}]
+	{
+	de=Tastenbelegung mit {mod};
+	fr=Disposition des touches avec {mod};
+	es=Distribución de teclas con {mod};
+	it=Disposizione dei tasti con {mod};
+	}
+
+[Order buttons and build cells show their key in a corner.]
+	{
+	de=Befehlsbuttons und Baufelder zeigen ihre Taste in einer Ecke.;
+	fr=Les boutons d'ordre et les cases de construction montrent leur touche dans un coin.;
+	es=Los botones de órdenes y las celdas de construcción muestran su tecla en una esquina.;
+	it=I pulsanti degli ordini e le caselle di costruzione mostrano il tasto in un angolo.;
+	}
+
+[Same as the game]
+	{
+	de=Wie im Spiel;
+	fr=Comme dans le jeu;
+	es=Como en el juego;
+	it=Come nel gioco;
+	}
+
+[Show keys on buttons]
+	{
+	de=Tasten auf Knöpfen zeigen;
+	fr=Afficher les touches sur les boutons;
+	es=Mostrar teclas en los botones;
+	it=Mostra i tasti sui pulsanti;
+	}
+
+[The keys, mouse buttons and wheel turns the game answers. {primary}+/ in a match shows them.]
+	{
+	de=Die Tasten, Maustasten und Raddrehungen, auf die das Spiel hört. {primary}+/ zeigt sie in einem Spiel.;
+	fr=Les touches, boutons de souris et tours de molette auxquels le jeu répond. {primary}+/ les montre dans une partie.;
+	es=Las teclas, botones del ratón y giros de la rueda a los que el juego responde. {primary}+/ las muestra en una partida.;
+	it=I tasti, i pulsanti del mouse e i giri della rotella a cui il gioco risponde. {primary}+/ li mostra in una partita.;
+	}
+
+[Used while {mod} is played. Same as the game uses Key layout.]
+	{
+	de=Gilt, solange {mod} läuft. Wie im Spiel nimmt Tastenbelegung.;
+	fr=Sert tant que {mod} est joué. Comme dans le jeu reprend Disposition des touches.;
+	es=Se usa mientras juegas {mod}. Como en el juego usa Distribución de teclas.;
+	it=Vale mentre giochi {mod}. Come nel gioco usa Disposizione dei tasti.;
+	}
+
+[{name} · 1 change of your own]
+	{
+	de={name} · 1 eigene Änderung;
+	fr={name} · 1 changement de ton côté;
+	es={name} · 1 cambio tuyo;
+	it={name} · 1 modifica tua;
+	}
+
+[{name} · made for {mod}]
+	{
+	de={name} · für {mod} gemacht;
+	fr={name} · fait pour {mod};
+	es={name} · hecho para {mod};
+	it={name} · fatto per {mod};
+	}
+
+[{name} · {n} changes of your own]
+	{
+	de={name} · {n} eigene Änderungen;
+	fr={name} · {n} changements de ton côté;
+	es={name} · {n} cambios tuyos;
+	it={name} · {n} modifiche tue;
+	}

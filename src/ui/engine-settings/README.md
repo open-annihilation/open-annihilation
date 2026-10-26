@@ -18,12 +18,15 @@ the locks a running game puts on them (`settings_locks`).
 | | A mod folder chosen outside the folders the game finds, kept while it is the Mod | any folder | none | `open-annihilation.picked-mod-directory` (the folder's path; absent for none, erased once another mod or No Mod is stored) |
 | (the Library) | Base game | Total Annihilation, or the demo | Total Annihilation, with every copied expansion of it that can be on, when the key is absent | `open-annihilation.base-game` (`totala` or `totala-demo`) |
 | | Expansions of that base game | on or off for each expansion that is copied | every copied expansion that can be on, when the key is absent | `open-annihilation.expansions.<game>` (comma-separated ids; empty means none on) |
-| Controls | Mouse wheel zoom | Off, On | On | `open-annihilation.wheel-zoom` |
+| Controls | Key layout: the layout in use, and how many of its keys you changed, with EDIT KEYS…, which opens the key editor over Settings | the layout's name, or "{name} · N changes of your own" (one change says "1 change") | OA default, the layout in use | the layout in use is `open-annihilation.keys.layout`, or `open-annihilation.keys.layout.<mod id>` while that mod chooses one |
+| | Key layout with <mod>, a drop-down, only while a mod is played. Same as the game uses Key layout. Installed layouts follow, those made for the mod first and marked made for it | Same as the game, or a layout id | Same as the game | `open-annihilation.keys.layout.<mod id>` (`same`, or a layout id). A choice is written at once, and Cancel writes the choice the dialog opened with |
+| | Show keys on buttons: order buttons and build cells show their key in a corner | Off, On | On | `open-annihilation.keys.show-on-buttons` (`0` or `1`; absent reads as on) |
+| | Mouse wheel zoom | Off, On | On | `open-annihilation.wheel-zoom` |
 | | Maximum zoom out, a drop-down: how far out the wheel, a pinch, the touch zoom buttons and a controller zoom | Automatic (half the game's scale, a sixth while Full draws the battlefield), Whole map, 1/32, 1/16, 1/8, 1/4, 1/2; no choice but Automatic goes past the whole map | Automatic | `open-annihilation.max-zoom-out` (`automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`) |
 | | Maximum zoom in, a drop-down: how close the same zooms go | None (the game's own scale), 2x, 3x, 4x | 4x | `open-annihilation.max-zoom-in` (`1`, `2`, `3` or `4`) |
 | | View past the map's edge, a strip: how much of the battlefield the view may show past the map's edges; at 25% and Off a zoom keeps to it too | Off (the view stays on the map, as 3.1c's does), 25%, 50% (the map's edge reaches the battlefield's middle) | 50% | `open-annihilation.view-past-map-edge` (`off`, `25` or `50`) |
 | | Middle-click pans: a middle click on the battlefield scrolls the view towards the pointer until another press or a key | Off, On | On | `open-annihilation.middle-click-pan` |
-| | Select groups without Alt | Off, On | Off | 3.1c's SwitchAlt |
+| | Number keys select groups is the key editor's switch, not a row of this section | Off, On | Off | 3.1c's SwitchAlt |
 | | Window edge, a strip: what a window does with the pointer while a match's battlefield shows. Capture keeps it in the window until the game menu, the pause screen, Settings, Escape or a lost focus, and a click on the battlefield captures it again. Sticky holds it on the edges so the view edge-scrolls, until a firm push or a flick lets it leave. Free leaves it free. Full screen holds the pointer either way | Capture, Sticky, Free | Capture | `open-annihilation.window-edge` (`capture`, `sticky` or `free`) |
 | | Edge stickiness, a slider: how firmly Sticky holds, the push and the flick growing with it; 0.0 never holds. Locked Needs Sticky (`Lock::needs_sticky`, which the dialog sets itself in `shown_locks`) while Window edge shows Capture or Free, when it keeps its value | 0.0 to 5.0 in steps of 0.1 | 1.0 | `open-annihilation.window-edge-stickiness` (a decimal, `1.0`) |
 | Engine Limits | Unit limit | 50 to 1500 per player, steps of 50, or on to a mod's higher maximum | the installation's `totala.ini` UnitLimit, else 250 or a mod's default | `open-annihilation.unit-limit` |
@@ -487,9 +490,9 @@ under 16 pixels. Graphics, with twenty-one rows, is taller than its view by
 the Text size slider, by 129, User Interface, with its three switches, Menu
 scaling's strip and Interface size's drop-down, by 88, Touch, with its
 three strips, the Hold delay slider and two switches, by 121, and Controls,
-with Mouse wheel zoom, the two zoom drop-downs, View past the map's edge,
-Middle-click pans, Select groups without Alt, Window edge and Edge
-stickiness, by 255; Engine Limits fits, its three sliders
+with Key layout, Show keys on buttons, Mouse wheel zoom, the two zoom
+drop-downs, View past the map's edge, Middle-click pans, Window edge and
+Edge stickiness, by 326; Engine Limits fits, its three sliders
 in 216 pixels, and draws as if there were no scrolling,
 with no bar. While the dialog's words are drawn in the modern fonts, as in
 Simplified Chinese, whose ideographs stand as tall as a hint line, the

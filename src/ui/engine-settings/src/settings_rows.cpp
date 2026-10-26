@@ -45,22 +45,38 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::sides) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::show_keys_on_buttons) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
 
-/// Controls' rows: the zoom's limits right under the switch for the wheel,
-/// how far past the map's edges the view goes under them, middle-click
-/// panning, whether a window keeps the pointer, and how firmly a sticky
-/// edge holds right under that.
-constexpr std::array<Setting, 8> kControlsRows{
+/// Controls' rows: the layout in use, whether buttons show their key, the
+/// zoom's limits right under the switch for the wheel, how far past the
+/// map's edges the view goes under them, middle-click panning, whether a
+/// window keeps the pointer, and how firmly a sticky edge holds right under
+/// that. Select groups without Alt stays declared and is the editor's
+/// Number keys select groups, not a row here.
+constexpr std::array<Setting, 9> kControlsRows{
+    Setting::key_layout,
+    Setting::show_keys_on_buttons,
     Setting::wheel_zoom,
     Setting::max_zoom_out,
     Setting::max_zoom_in,
     Setting::view_past_map_edge,
     Setting::middle_click_pan,
-    Setting::switch_alt,
+    Setting::window_edge,
+    Setting::window_edge_stickiness,
+};
+/// Controls while a mod is played: Key layout with that mod under Key layout.
+constexpr std::array<Setting, 10> kControlsModRows{
+    Setting::key_layout,
+    Setting::key_layout_for_mod,
+    Setting::show_keys_on_buttons,
+    Setting::wheel_zoom,
+    Setting::max_zoom_out,
+    Setting::max_zoom_in,
+    Setting::view_past_map_edge,
+    Setting::middle_click_pan,
     Setting::window_edge,
     Setting::window_edge_stickiness,
 };
@@ -2186,6 +2202,170 @@ builders_row(std::string_view id, std::string_view label, Stepper stepper, Hint 
 }
 
 // ---------------------------------------------------------------------------
+// Key layout.
+
+/// Same as the game, the first item of Key layout with a mod.
+constexpr std::string_view kSameAsTheGame = "same";
+
+/// The modifier a hint names: Cmd on macOS, Ctrl elsewhere.
+constexpr std::string_view primary_modifier() noexcept {
+#if defined(__APPLE__)
+    return "Cmd";
+#else
+    return "Ctrl";
+#endif
+}
+
+/// Installed layouts with those made for the mod first, in the order given.
+std::vector<std::size_t> key_layout_order(const Dialog& dialog) {
+    std::vector<std::size_t> made;
+    std::vector<std::size_t> other;
+    made.reserve(dialog.key_layouts.size());
+    other.reserve(dialog.key_layouts.size());
+    for (std::size_t index = 0; index < dialog.key_layouts.size(); ++index) {
+        if (dialog.key_layouts[index].made_for)
+            made.push_back(index);
+        else
+            other.push_back(index);
+    }
+    made.insert(made.end(), other.begin(), other.end());
+    return made;
+}
+
+/// Returns Key layout's value: the summary the host filled, or OA default.
+std::string key_layout_value(const SettingsModel& model) {
+    if (model.dialog != nullptr && !model.dialog->key_layout_summary.empty())
+        return model.dialog->key_layout_summary;
+    return std::string("OA default");
+}
+
+/// Returns Key layout's hint, with Cmd or Ctrl in place of {primary}.
+std::string key_layout_hint(const SettingsModel&, std::size_t line) {
+    if (line != 0)
+        return {};
+    return filled(
+        "The keys, mouse buttons and wheel turns the game answers. {primary}+/ in a match shows "
+        "them.",
+        {{"primary", primary_modifier()}}
+    );
+}
+
+/// Returns how many items Key layout with a mod offers.
+int32_t key_layout_for_mod_count(const SettingsModel& model) {
+    if (model.dialog == nullptr)
+        return 1;
+    return 1 + static_cast<int32_t>(model.dialog->key_layouts.size());
+}
+
+/// Returns the item of the layout chosen for the mod. An unknown id shows
+/// Same as the game.
+int32_t key_layout_for_mod_index(const SettingsModel& model) {
+    if (model.settings == nullptr || model.dialog == nullptr)
+        return 0;
+    const std::string& id = model.settings->key_layout_for_mod;
+    if (id.empty() || id == kSameAsTheGame)
+        return 0;
+    const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+    for (std::size_t place = 0; place < order.size(); ++place)
+        if (model.dialog->key_layouts[order[place]].id == id)
+            return static_cast<int32_t>(place) + 1;
+    return 0;
+}
+
+/// Sets the layout chosen for the mod, and the dialog's copy of it.
+void set_key_layout_for_mod(SettingsModel& model, int32_t index) {
+    if (model.settings == nullptr)
+        return;
+    std::string id{kSameAsTheGame};
+    if (model.dialog != nullptr && index > 0) {
+        const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+        const auto place = static_cast<std::size_t>(index - 1);
+        if (place < order.size())
+            id = model.dialog->key_layouts[order[place]].id;
+    }
+    model.settings->key_layout_for_mod = id;
+    if (model.dialog != nullptr)
+        const_cast<Dialog*>(model.dialog)->key_layout_for_mod = id;
+}
+
+/// Returns one item's text. Layouts made for the mod say so.
+std::string key_layout_for_mod_caption(const SettingsModel& model, int32_t index) {
+    if (index <= 0 || model.dialog == nullptr)
+        return std::string("Same as the game");
+    const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+    const auto place = static_cast<std::size_t>(index - 1);
+    if (place >= order.size())
+        return {};
+    const KeyLayoutChoice& choice = model.dialog->key_layouts[order[place]];
+    if (!choice.made_for)
+        return choice.name;
+    return filled(
+        "{name} · made for {mod}", {{"name", choice.name}, {"mod", model.dialog->played_mod}}
+    );
+}
+
+/// Returns one item's word.
+std::string key_layout_for_mod_id(const SettingsModel& model, int32_t index) {
+    if (index <= 0)
+        return std::string(kSameAsTheGame);
+    if (model.dialog == nullptr)
+        return {};
+    const std::vector<std::size_t> order = key_layout_order(*model.dialog);
+    const auto place = static_cast<std::size_t>(index - 1);
+    if (place >= order.size())
+        return {};
+    return model.dialog->key_layouts[order[place]].id;
+}
+
+/// Returns Key layout with <mod>, the mod's name in the label.
+std::string key_layout_for_mod_label(const SettingsModel& model) {
+    const std::string_view mod =
+        model.dialog != nullptr ? std::string_view{model.dialog->played_mod} : std::string_view{};
+    return filled("Key layout with {mod}", {{"mod", mod}});
+}
+
+/// Returns Key layout with a mod's hint.
+std::string key_layout_for_mod_hint(const SettingsModel& model, std::size_t line) {
+    if (line != 0)
+        return {};
+    const std::string_view mod =
+        model.dialog != nullptr ? std::string_view{model.dialog->played_mod} : std::string_view{};
+    return filled("Used while {mod} is played. Same as the game uses Key layout.", {{"mod", mod}});
+}
+
+/// Key layout: the layout in use, and EDIT KEYS….
+constexpr Spec key_layout_row() noexcept {
+    Spec spec = kit::value_and_button<SettingsModel>(
+        "key-layout", "Key layout", &key_layout_value, "EDIT KEYS…", "edit", edit_keys_action, {}
+    );
+    spec.hint_text = &key_layout_hint;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+/// Key layout with the mod being played.
+constexpr Spec key_layout_for_mod_row() noexcept {
+    Spec spec = kit::choice(
+        "key-layout-for-mod",
+        "Key layout with {mod}",
+        Stepper{
+            &key_layout_for_mod_count,
+            &key_layout_for_mod_index,
+            &set_key_layout_for_mod,
+            &key_layout_for_mod_caption,
+            nullptr,
+            &key_layout_for_mod_id,
+        },
+        {}
+    );
+    spec.control_width = choice_width;
+    spec.label_text = &key_layout_for_mod_label;
+    spec.hint_text = &key_layout_for_mod_hint;
+    spec.hint_lines = &lines<1>;
+    return spec;
+}
+
+// ---------------------------------------------------------------------------
 // The table.
 
 /// One setting's row: its spec, and what the dialog reads of it besides.
@@ -2567,6 +2747,13 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
     {.setting = S::mod_limits_heading, .spec = mod_limits_heading_row()},
     {.setting = S::weapon_types, .spec = weapon_types_row()},
     {.setting = S::sides, .spec = sides_row()},
+    {.setting = S::key_layout, .spec = key_layout_row()},
+    {.setting = S::key_layout_for_mod, .spec = key_layout_for_mod_row()},
+    {.setting = S::show_keys_on_buttons,
+     .spec = engine_switch<&E::show_keys_on_buttons>(
+         "show-keys-on-buttons",
+         "Show keys on buttons",
+         {"Order buttons and build cells show their key in a corner.", {}})},
 }};
 // clang-format on
 
@@ -2673,6 +2860,9 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "set-by-the-mod",
     "weapon-types",
     "sides",
+    "key-layout",
+    "key-layout-for-mod",
+    "show-keys-on-buttons",
 };
 
 /// Tells whether every row stands at its setting's place and is named by
@@ -2924,6 +3114,8 @@ section_settings(Page page, const SectionHooks* section, const RowContext& conte
             return std::span<const Setting>(kSteamInputControllerRows);
         if (page == Page::language && context.library_link)
             return std::span<const Setting>(kLanguageLibraryRows);
+        if (page == Page::controls && context.played_mod)
+            return std::span<const Setting>(kControlsModRows);
         return page_settings(page);
     }
     return section->settings(section->context, page);

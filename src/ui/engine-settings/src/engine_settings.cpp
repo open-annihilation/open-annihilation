@@ -681,6 +681,8 @@ EngineSettings read_settings(
             clamped(*number, base_path_search_nodes, highest_path_search_nodes);
     if (const auto number = stored_number(values, key::wheel_zoom))
         settings.wheel_zoom = *number > 0;
+    if (const auto number = stored_number(values, key::keys_show_on_buttons))
+        settings.show_keys_on_buttons = *number > 0;
     if (const auto number = stored_number(values, key::sticky_modifiers))
         settings.sticky_modifiers = *number > 0;
     if (const auto number = stored_number(values, key::pointer_keys))
@@ -888,6 +890,29 @@ void write_settings(
         chosen.wheel_zoom == defaults.wheel_zoom,
         restored
     );
+    store(
+        values,
+        key::keys_show_on_buttons,
+        switch_text(chosen.show_keys_on_buttons),
+        chosen.show_keys_on_buttons != opened.show_keys_on_buttons,
+        chosen.show_keys_on_buttons == defaults.show_keys_on_buttons,
+        restored
+    );
+    // A mod's layout is kept under its id. The base game, and a dialog with
+    // no mod, leave that family of keys alone.
+    if (!profile_id.empty() && profile_id != mod_profile::base_game_id) {
+        const std::string layout_key =
+            std::string(key::keys_layout) + "." + std::string(profile_id);
+        const bool same = chosen.key_layout_for_mod.empty() || chosen.key_layout_for_mod == "same";
+        store(
+            values,
+            layout_key,
+            same ? std::string("same") : chosen.key_layout_for_mod,
+            chosen.key_layout_for_mod != opened.key_layout_for_mod,
+            same,
+            restored
+        );
+    }
     store(
         values,
         key::sticky_modifiers,

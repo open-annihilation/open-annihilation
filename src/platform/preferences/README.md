@@ -266,7 +266,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.access.drag-threshold` | pixels of the 640×480 game a drag may travel and still be a click, 32 to 96. The tick limit widens in proportion. Absent, or any text that is not a whole number, reads as 32 | 32 |
 | `open-annihilation.keys.layout` | an installed layout's id; `oa-default` is the game's own layout. Any other text is an id. A layout that is not installed is left unused for that run and `oa-default` is played instead | `oa-default` |
 | `open-annihilation.keys.layout.<mod id>` | `same`, or an installed layout's id for that mod. `same` uses `open-annihilation.keys.layout` | `same` |
-| `open-annihilation.keys.show-on-buttons` | 0 or 1. Read from K36; this build does not read it yet | 1 |
+| `open-annihilation.keys.show-on-buttons` | 0 or 1. Settings › Controls reads and writes it. Absent reads as on | 1 |
 | `open-annihilation.keys.imported` | comma-separated ids of the mods whose stored keys were carried into the player's own changes. A mod is listed once, the first time it is played with a build tool, click snap, a build preview or the options dialog, and not under `--keys` or `--keys-reset` | none imported |
 | `mutators.clash-default` | `add` or `replace`; any other text reads as `replace`. The clash mode a mutator uses when the player and its manifest leave it unset. `Runtime::apply_match_mutators` reads it, and so does the battle room on the host, which sends each mode with its list; a guest plays the host's modes and never reads its own | `replace` |
 
@@ -279,8 +279,9 @@ is the default opener now, and a start does not replace a choice made in
 Finder. On iOS the page shows a text row instead of the switches, because
 there is no way to choose a default opener.
 
-The settings dialog's Select groups without Alt is the game's own
-`Total Annihilation|SwitchAlt`, which `+switchalt` also sets. `+stats`
+Settings no longer shows Select groups without Alt. The key editor's
+Number keys select groups writes the same `Total Annihilation|SwitchAlt`,
+which `+switchalt` also sets. `+stats`
 without an argument shows or hides the performance statistics and writes
 `open-annihilation.frame-stats`; `+stats 1` and `+stats 0` write nothing.
 `--max-fps` sets the frame rate for its run and writes nothing, and so do

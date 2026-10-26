@@ -32,8 +32,11 @@
 #include "oa/netgame/presence.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/registry/descriptor.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile/overrides.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
+#include "oa/ui/key_editor/text.hpp"
 #include "render_host.hpp"
 #include "render_run.hpp"
 #include "screen_size.hpp"
@@ -65,6 +68,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -1724,6 +1728,216 @@ std::string kept_opener_hint_for(
     oa::platform::file_types::TypeSet asked, oa::platform::file_types::TypeSet open
 );
 
+namespace {
+
+namespace library = oa::data::key_library;
+namespace oakeys = oa::formats::oakeys;
+
+/// The most bytes of an own layout's manifest this dialog will read.
+constexpr std::size_t kOwnManifestBytes = 256U * 1024U;
+
+/// Reads a preference. An absent key is empty, and the map is not changed.
+///
+/// @param values the preferences
+/// @param key the key
+/// @return the value, or empty
+std::string stored_text(const std::map<std::string, std::string>& values, std::string_view key) {
+    const auto found = values.find(std::string(key));
+    if (found == values.end())
+        return {};
+    return found->second;
+}
+
+/// Reads oakeys.yaml when it is a regular file of at most kOwnManifestBytes.
+///
+/// @param file the manifest
+/// @param[out] manifest the manifest, when it reads
+/// @return true when the file was read
+bool read_own_manifest(const fs::path& file, oakeys::Manifest& manifest) {
+    std::error_code error;
+    const fs::file_status status = fs::symlink_status(file, error);
+    if (error || !fs::is_regular_file(status))
+        return false;
+    const auto size = fs::file_size(file, error);
+    if (error || size > kOwnManifestBytes)
+        return false;
+    std::ifstream in(file, std::ios::binary);
+    if (!in)
+        return false;
+    std::vector<uint8_t> bytes;
+    bytes.reserve(static_cast<std::size_t>(size));
+    for (std::istreambuf_iterator<char> at{in}, end; at != end; ++at)
+        bytes.push_back(static_cast<uint8_t>(*at));
+    if (!in && !in.eof())
+        return false;
+    std::vector<oakeys::Problem> problems;
+    return oakeys::read_manifest(bytes, manifest, problems);
+}
+
+/// How many actions an own layout names, each once. Helpers are not bindings.
+///
+/// @param manifest the own layout
+/// @return the count, held to what a 32-bit int stores
+int32_t actions_named(const oakeys::Manifest& manifest) {
+    std::vector<std::string> named;
+    named.reserve(manifest.bindings.size());
+    for (const oakeys::BindingEntry& binding : manifest.bindings) {
+        if (binding.action.empty())
+            continue;
+        bool seen = false;
+        for (const std::string& have : named) {
+            if (have == binding.action) {
+                seen = true;
+                break;
+            }
+        }
+        if (!seen)
+            named.push_back(binding.action);
+    }
+    return static_cast<int32_t>(named.size());
+}
+
+/// True when a layout's works-with names the mod.
+///
+/// @param manifest the layout
+/// @param mod_id the mod's id
+/// @return true when one condition's id is that mod
+bool made_for_mod(const oakeys::Manifest& manifest, std::string_view mod_id) {
+    if (mod_id.empty())
+        return false;
+    for (const auto& condition : manifest.works_with)
+        if (condition.id == mod_id)
+            return true;
+    return false;
+}
+
+/// The layout in use: a per-mod choice, else the base preference, else OA default.
+struct LayoutInUse {
+    std::string id{"oa-default"}; ///< the layout's id, which the own folder is named for
+    std::string name{std::string(oa::ui::key_editor::words::oa_default)}; ///< the name players see
+    bool builtin{true}; ///< OA default, whose name the catalogue translates
+};
+
+/// Resolves the layout in use the way the bindings do.
+///
+/// A per-mod id that is not installed is OA default, not the base preference.
+///
+/// @param listing the installed layouts
+/// @param per_mod the played mod's stored id; empty or `same` defers to the base
+/// @param base the base preference; empty or `oa-default` is OA default
+/// @return the layout
+LayoutInUse
+layout_in_use(const library::Listing& listing, std::string_view per_mod, std::string_view base) {
+    const auto from_installed = [](const library::Installed& installed) {
+        LayoutInUse used;
+        used.builtin = false;
+        used.id = installed.manifest.id;
+        used.name = installed.manifest.name.empty() ? used.id : installed.manifest.name;
+        return used;
+    };
+    if (!per_mod.empty() && per_mod != "same") {
+        if (const library::Installed* installed = library::find(listing, per_mod))
+            return from_installed(*installed);
+        return {};
+    }
+    if (!base.empty() && base != "oa-default" && base != "same") {
+        if (const library::Installed* installed = library::find(listing, base))
+            return from_installed(*installed);
+    }
+    return {};
+}
+
+/// Tells whether an id is the base game, not a mod.
+///
+/// Overrides are kept under `ta-3.1c`. The profile the base game resolves
+/// to carries `base-game`. Neither is a mod the Key layout row names.
+///
+/// @param id a profile id
+/// @return true when the id is empty or names the base game
+bool base_game_profile(std::string_view id) {
+    return id.empty() || id == oa::data::mod_profile::base_game_id || id == "base-game";
+}
+
+} // namespace
+
+void Runtime::fill_settings_key_layout(settings::Dialog& dialog) {
+    const auto* profile = mod_profile();
+    if (profile != nullptr && !base_game_profile(profile->id)) {
+        dialog.played_mod = profile->name.empty() ? profile->id : profile->name;
+        dialog.played_mod_id = profile->id;
+    } else {
+        dialog.played_mod.clear();
+        dialog.played_mod_id.clear();
+    }
+
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const library::Listing listing = library::list_installed(keys_folder);
+    dialog.key_layouts.clear();
+    for (const library::Installed& installed : listing.layouts) {
+        if (installed.origin == library::Origin::own || installed.manifest.id.starts_with("own-"))
+            continue;
+        settings::KeyLayoutChoice choice;
+        choice.id = installed.manifest.id;
+        choice.name = installed.manifest.name.empty() ? choice.id : installed.manifest.name;
+        choice.made_for = made_for_mod(installed.manifest, dialog.played_mod_id);
+        dialog.key_layouts.push_back(std::move(choice));
+    }
+
+    std::string chosen{"same"};
+    if (!dialog.played_mod_id.empty()) {
+        const std::string stored = stored_text(
+            preference_values_, std::string(settings::key::keys_layout) + "." + dialog.played_mod_id
+        );
+        if (!stored.empty())
+            chosen = stored;
+    }
+    dialog.key_layout_for_mod = chosen;
+    dialog.opened.key_layout_for_mod = chosen;
+    dialog.chosen.key_layout_for_mod = chosen;
+    engine_settings_state().current.key_layout_for_mod = chosen;
+    refresh_settings_key_layout_summary(dialog);
+}
+
+void Runtime::refresh_settings_key_layout_summary(settings::Dialog& dialog) {
+    const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    const library::Listing listing = library::list_installed(keys_folder);
+    const std::string per_mod =
+        dialog.played_mod_id.empty()
+            ? std::string{}
+            : stored_text(
+                  preference_values_,
+                  std::string(settings::key::keys_layout) + "." + dialog.played_mod_id
+              );
+    const std::string base = stored_text(preference_values_, settings::key::keys_layout);
+    const LayoutInUse used = layout_in_use(listing, per_mod, base);
+    const fs::path own_file =
+        keys_folder / library::own_folder_name(used.id) / std::string(oakeys::manifest_file);
+    oakeys::Manifest own;
+    const int32_t changes = read_own_manifest(own_file, own) ? actions_named(own) : 0;
+    std::string name = used.name;
+    if (used.builtin && changes > 0)
+        name = std::string(oa::data::languages::interface_text(name));
+    dialog.key_layout_summary = settings::key_layout_summary_text(name, changes);
+}
+
+void Runtime::apply_key_layout_preference(settings::Dialog& dialog) {
+    if (base_game_profile(dialog.played_mod_id))
+        return;
+    const std::string key = std::string(settings::key::keys_layout) + "." + dialog.played_mod_id;
+    std::string chosen = dialog.chosen.key_layout_for_mod;
+    if (chosen.empty())
+        chosen = "same";
+    const std::string stored_value = stored_text(preference_values_, key);
+    const std::string stored = stored_value.empty() ? std::string("same") : stored_value;
+    if (stored == chosen)
+        return;
+    preference_values_[key] = chosen;
+    preferences_dirty_ = true;
+    flush_preferences();
+    load_key_bindings();
+    refresh_settings_key_layout_summary(dialog);
+}
+
 settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind) {
     EngineSettingsState::take_live_settings(*this);
     auto& state = engine_settings_state();
@@ -1885,6 +2099,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
         mod_shown.loaded_sides = side_table_.count;
     }
     dialog.mod_limits = std::move(mod_shown);
+    fill_settings_key_layout(dialog);
     return dialog;
 }
 
@@ -2129,6 +2344,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             live.update_check = dialog->opened.update_check;
             live.update_download = dialog->opened.update_download;
             apply_engine_settings(live);
+            apply_key_layout_preference(*dialog);
             if (dialog->page == settings::Page::updates)
                 paint_updates(*dialog, update_snapshot(), release_version(dialog->version));
             apply_update_download(*dialog);
@@ -2233,6 +2449,9 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         }
         const bool zoom_changed = match_ && match_zoom_target_ != state.opened_zoom_target;
         restore_renderer_records();
+        // Cancel put the opened choice back. Write that, and load it, when
+        // the choice had already been stored.
+        apply_key_layout_preference(*dialog);
         apply_engine_settings(dialog->opened);
         // The battlefield's zoom and the next game's unit limit go back to
         // what they were, a loaded game's limit included.
@@ -2252,6 +2471,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // The gallery covers the window over the dialog, which stays open
         // under it; Escape and its CLOSE come back to Developer.
         oa_layer().open_gallery();
+        return false;
+    case settings::DialogAction::edit_keys:
+        // The key editor covers the window over the dialog, which stays open
+        // under it, in the menus and in a match.
+        std::ignore = open_key_editor(KeyEditorRequest{.over_settings = true});
         return false;
     case settings::DialogAction::check_content:
         // A copy is already reading the files. The check waits for it.

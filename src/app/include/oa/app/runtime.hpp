@@ -7791,6 +7791,24 @@ class Runtime final : public menu::Host,
     /// @param[in,out] dialog the open dialog
     void fill_game_files_rows(oa::ui::engine_settings::Dialog& dialog);
 
+    /// Fills Controls' key-layout rows from the layouts installed and the
+    /// preferences: the mod being played, the layouts, the choice and the summary.
+    ///
+    /// @param[in,out] dialog the open dialog
+    void fill_settings_key_layout(oa::ui::engine_settings::Dialog& dialog);
+
+    /// Sets Key layout's value from the layout in use and the actions the
+    /// player's own layout names.
+    ///
+    /// @param[in,out] dialog the open dialog
+    void refresh_settings_key_layout_summary(oa::ui::engine_settings::Dialog& dialog);
+
+    /// Writes the played mod's layout preference when the choice differs from
+    /// what is stored, and loads that layout. Nothing is written with no mod.
+    ///
+    /// @param dialog the open dialog
+    void apply_key_layout_preference(oa::ui::engine_settings::Dialog& dialog);
+
     /// Tells whether a key opens the settings: Cmd+, on macOS, Ctrl+, elsewhere.
     ///
     /// @param key SDL keycode
@@ -7874,6 +7892,10 @@ class Runtime final : public menu::Host,
     /// sections, as windows of several sizes show them (part of
     /// --check-engine-settings).
     void check_engine_settings_window_sizes();
+
+    /// Checks Controls' key-layout rows, the editor opened over Settings, and
+    /// +switchalt (part of --check-engine-settings).
+    void check_engine_settings_controls();
 
     /// The state of the renderer the runtime borrows (render_run.hpp).
     struct RenderRun;

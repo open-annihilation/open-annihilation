@@ -3204,6 +3204,8 @@ bool Runtime::save_key_editor(const editor::SaveResult& saved, std::string& erro
         }
     }
     reload_bindings();
+    if (oa::ui::engine_settings::Dialog* open = engine_settings_dialog())
+        refresh_settings_key_layout_summary(*open);
     error.clear();
     return true;
 }
