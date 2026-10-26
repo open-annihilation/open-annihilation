@@ -151,6 +151,14 @@ systems the game starts again. If a step fails, the helper puts back what
 it had changed and starts the version you had. The helper makes no request
 of its own.
 
+On a Mac, the helper checks that the new app is signed by the same team,
+that the signature is valid, and that Apple has notarized it. It then moves
+the app you were running aside and puts the new one in its place, and
+starts it. A folder you cannot write opens the signed installer instead,
+and the window says Installer will put the release in Applications. A copy
+macOS is running from a protected place asks you to move it to Applications
+first, and is not replaced where it stands.
+
 ## Linux and Steam Deck
 
 A Linux or Steam Deck copy in a folder you own updates in that folder. The

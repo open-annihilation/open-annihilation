@@ -36,6 +36,11 @@ bool list_children(const fs::path& folder, std::vector<fs::path>& children, std:
     return true;
 }
 
+bool ends_with_app(const fs::path& path) {
+    const std::string name = utf8_of(path.filename());
+    return name.size() >= 4 && name.compare(name.size() - 4, 4, ".app") == 0;
+}
+
 std::vector<Operation>
 folder_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
     if (why != nullptr)
@@ -91,6 +96,149 @@ folder_operations(const oa::app::update::Plan& plan, const fs::path& staged, std
 }
 
 } // namespace
+
+bool macos_staged_application(const fs::path& staged, fs::path& application, std::string* why) {
+    std::vector<fs::path> staged_children;
+    if (!list_children(staged, staged_children, why))
+        return false;
+    if (staged_children.size() != 1 || !fs::is_directory(fs::symlink_status(staged_children[0])) ||
+        fs::is_symlink(fs::symlink_status(staged_children[0]))) {
+        set_why(why, "the staged package is not one folder");
+        return false;
+    }
+    std::vector<fs::path> top_children;
+    if (!list_children(staged_children[0], top_children, why))
+        return false;
+    const fs::path* found = nullptr;
+    for (const fs::path& child : top_children) {
+        if (!ends_with_app(child))
+            continue;
+        if (fs::is_symlink(fs::symlink_status(child)) ||
+            !fs::is_directory(fs::symlink_status(child))) {
+            set_why(why, "the staged package is not one application");
+            return false;
+        }
+        if (found != nullptr) {
+            set_why(why, "the staged package is not one application");
+            return false;
+        }
+        found = &child;
+    }
+    if (found == nullptr) {
+        set_why(why, "the staged package is not one application");
+        return false;
+    }
+    application = *found;
+    return true;
+}
+
+MacosDecision
+macos_may_swap(const BundleSignature& running, const BundleSignature& staged, bool test_key) {
+    MacosDecision decision;
+    const bool running_ad_hoc = running.team.empty();
+    const bool staged_ad_hoc = staged.team.empty();
+    if (running_ad_hoc || staged_ad_hoc) {
+        if (test_key && running_ad_hoc && staged_ad_hoc && running.valid && staged.valid) {
+            decision.go = true;
+            return decision;
+        }
+        decision.why = test_key && running_ad_hoc && staged_ad_hoc
+                           ? "the new bundle's signature is not valid"
+                           : "an ad hoc signed build does not update in place";
+        return decision;
+    }
+    if (!running.valid || !staged.valid) {
+        decision.why = "the new bundle's signature is not valid";
+        return decision;
+    }
+    if (running.team != staged.team) {
+        decision.why = "the new bundle is signed by another team";
+        return decision;
+    }
+    if (!staged.notarized) {
+        decision.why = "the new bundle is not notarized";
+        return decision;
+    }
+    decision.go = true;
+    return decision;
+}
+
+std::vector<Operation> macos_bundle_operations(
+    const oa::app::update::Plan& plan, const fs::path& staged, MacosVolume volume, std::string* why
+) {
+    if (why != nullptr)
+        why->clear();
+    if (plan.installer) {
+        if (plan.file.empty()) {
+            set_why(why, "the installer is missing");
+            return {};
+        }
+        Operation open;
+        open.kind = Operation::Kind::run_and_wait;
+        open.program = "/usr/bin/open";
+        open.arguments.push_back(plan.file);
+        return {std::move(open)};
+    }
+
+    const fs::path install = path_from(plan.install);
+    std::error_code io;
+    if (!fs::is_directory(install, io) || io || fs::is_symlink(fs::symlink_status(install))) {
+        set_why(why, "the installed bundle is missing");
+        return {};
+    }
+    fs::path application;
+    if (!macos_staged_application(staged, application, why))
+        return {};
+
+    const fs::path previous = path_from(plan.updates) / "previous" / install.filename();
+    std::vector<Operation> operations;
+    if (fs::exists(previous, io) && !io) {
+        Operation remove_kept;
+        remove_kept.kind = Operation::Kind::remove_tree;
+        remove_kept.path = previous;
+        operations.push_back(std::move(remove_kept));
+    }
+    if (volume == MacosVolume::exdev) {
+        Operation copy_old;
+        copy_old.kind = Operation::Kind::copy_tree;
+        copy_old.from = install;
+        copy_old.to = previous;
+        operations.push_back(std::move(copy_old));
+        Operation drop_old;
+        drop_old.kind = Operation::Kind::remove_tree;
+        drop_old.path = install;
+        operations.push_back(std::move(drop_old));
+        Operation copy_new;
+        copy_new.kind = Operation::Kind::copy_tree;
+        copy_new.from = application;
+        copy_new.to = install;
+        operations.push_back(std::move(copy_new));
+        return operations;
+    }
+    Operation move_old;
+    move_old.kind = Operation::Kind::rename;
+    move_old.from = install;
+    move_old.to = previous;
+    operations.push_back(std::move(move_old));
+    Operation move_new;
+    move_new.kind = Operation::Kind::rename;
+    move_new.from = application;
+    move_new.to = install;
+    operations.push_back(std::move(move_new));
+    return operations;
+}
+
+#if !defined(__APPLE__)
+std::vector<Operation> macos_checked_operations(
+    const oa::app::update::Plan& plan, const fs::path& staged, bool test_key, std::string* why
+) {
+    (void)plan;
+    (void)staged;
+    (void)test_key;
+    set_why(why, "this route is not carried out");
+    return {};
+}
+#endif
 
 std::vector<Operation>
 plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {

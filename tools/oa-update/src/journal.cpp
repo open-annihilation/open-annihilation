@@ -11,6 +11,10 @@
 #include <optional>
 #include <utility>
 
+#if defined(__APPLE__)
+#include <copyfile.h>
+#endif
+
 namespace oa::update_helper {
 namespace {
 
@@ -335,6 +339,18 @@ bool copy_one(const fs::path& from, const fs::path& to, std::string* reason) {
         set_error(reason, "refusing a special file");
         return false;
     }
+#if defined(__APPLE__)
+    // A bundle keeps the flags and resource forks a rename would have kept.
+    // An attribute that is already there, including a quarantine attribute,
+    // is left as it is.
+    if (copyfile(from.c_str(), to.c_str(), nullptr, COPYFILE_ALL | COPYFILE_RECURSIVE) != 0) {
+        set_error(reason, "cannot copy " + utf8_of(from));
+        std::error_code removed;
+        fs::remove_all(to, removed);
+        return false;
+    }
+    return true;
+#else
     fs::create_directory(to, io);
     if (io) {
         set_error(reason, "cannot copy " + utf8_of(from));
@@ -356,6 +372,7 @@ bool copy_one(const fs::path& from, const fs::path& to, std::string* reason) {
         return false;
     }
     return true;
+#endif
 }
 
 bool run_step(
