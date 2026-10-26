@@ -114,13 +114,23 @@ int Runtime::check_live_renderer() {
         require(!match_world_cpu_.rgb.empty(), "Skirmish produced an empty world picture");
         return match_world_cpu_;
     };
+    // A key goes in as the event loop takes it: with the place a keyboard
+    // sends, fed to the action dispatcher first, whose actions the live
+    // renderer answers, and then let go.
     const auto key = [&](SDL_Keycode code, SDL_Keymod modifiers = SDL_KMOD_NONE) {
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
         event.key.key = code;
+        event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
         event.key.down = true;
         event.key.mod = modifiers;
-        return live_renderer_take_event(event);
+        std::ignore = feed_input_actions(event);
+        const bool taken = live_renderer_take_event(event);
+        SDL_Event release = event;
+        release.type = SDL_EVENT_KEY_UP;
+        release.key.down = false;
+        std::ignore = feed_input_actions(release);
+        return taken;
     };
     const auto orbit = [&](uint8_t button = SDL_BUTTON_MIDDLE, float travel = orbit_travel) {
         const float x = static_cast<float>(match_layout_.left) +
