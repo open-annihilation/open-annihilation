@@ -686,6 +686,7 @@ enum class LibraryTab : uint8_t {
     languages,  ///< Languages
     updates,    ///< Updates
     registries, ///< Registries
+    keys,       ///< Keys. Appended so the earlier tabs keep their numbers.
 };
 
 /// How the OA button looks.

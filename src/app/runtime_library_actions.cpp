@@ -439,6 +439,31 @@ void Runtime::library_uninstall(const library::EntryId& entry) {
             if (stored != preference_values_.end() && stored->second == entry.key)
                 set_default_brain({});
         }
+        // Uninstalling the layout in use forgets every preference that names
+        // it, so the next load plays OA default. Own-change folders stay.
+        if (entry.kind == library::Kind::key_layout) {
+            const std::string prefix{oa::ui::engine_settings::key::keys_layout};
+            bool forgot = false;
+            for (auto stored = preference_values_.begin(); stored != preference_values_.end();) {
+                const bool names_layout =
+                    stored->first == prefix ||
+                    (stored->first.size() > prefix.size() && stored->first.starts_with(prefix) &&
+                     stored->first[prefix.size()] == '.');
+                if (names_layout && stored->second == entry.key) {
+                    stored = preference_values_.erase(stored);
+                    forgot = true;
+                } else {
+                    ++stored;
+                }
+            }
+            if (forgot) {
+                preferences_dirty_ = true;
+                save_preferences();
+                load_key_bindings();
+                if (oa::ui::engine_settings::Dialog* open = engine_settings_dialog())
+                    refresh_settings_key_layout_summary(*open);
+            }
+        }
         // What reads the kind's folder reads it again, and the Library's
         // feed lists what is installed again.
         package_changed(*kind, at);

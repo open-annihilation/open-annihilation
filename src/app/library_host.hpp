@@ -252,6 +252,11 @@ struct LibraryWork {
     std::vector<std::optional<oa::ui::library::BrainFacts>> installed_brains{};
     /// The Brains folder as the last search listed it. Read on the worker.
     oa::data::brain_library::Listing brain_listing{};
+    /// Each installed package's key-layout facts, in `installed`'s order.
+    /// Unset for every other kind. Own-change folders are not packages.
+    std::vector<std::optional<oa::ui::library::KeyLayoutFacts>> installed_keys{};
+    /// How many actions `own-oa-default` names. The built-in layout has no package.
+    uint32_t default_layout_own_changes{};
     uint64_t searches{};  ///< counts the searches done
     bool pictures_due{};  ///< pictures wait to be read or fetched
     bool match_running{}; ///< a match runs: nothing is fetched

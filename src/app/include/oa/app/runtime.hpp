@@ -175,6 +175,8 @@ enum class Tab : uint8_t;
 enum class Action : uint8_t;
 struct EntryId;
 struct Inputs;
+struct KeyUse;
+struct KeyUseResult;
 } // namespace oa::ui::library
 
 namespace oa::ui::kit {
@@ -2890,6 +2892,20 @@ class Runtime final : public menu::Host,
     /// `.oakeys` file the installer refuses, sets key_bindings_refusal_; any other problem is
     /// logged and the built-in layout is used. [runtime_key_bindings.cpp]
     void load_key_bindings();
+
+    /// Applies USE from the Library's question: copies own changes when Keep
+    /// is marked and the new layout has none, writes the helpers left on,
+    /// writes the layout preference, and loads that layout. CANCEL never
+    /// calls this. The interface mode is left as it is.
+    ///
+    /// @param used what USE applies
+    /// @param question the question, still open, including helpers left off
+    /// @param played_mod_id the mod being played; empty when none is
+    void apply_library_key_use(
+        const oa::ui::library::KeyUseResult& used,
+        const oa::ui::library::KeyUse& question,
+        std::string_view played_mod_id
+    );
 
     /// Reads every GUI file's quick keys for the mod in use.
     ///
