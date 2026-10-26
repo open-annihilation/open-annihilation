@@ -50,8 +50,9 @@ class SharedRandom {
 
 /// Code and engine-function indices shared by every unit of one script.
 ///
-/// Built once for a COB program. Every unit of that program holds this, so
-/// the interpreter's code and the name lookup exist once per unit type.
+/// A match builds one for each loaded unit type and keeps it for the match.
+/// Every unit of that type is given that one, so the interpreter's code and
+/// the name lookup exist once per type.
 struct SharedScriptProgram {
     /// Prepared interpreter program. Its code is never written.
     std::shared_ptr<const sim::script_vm::Program> vm_program;
@@ -59,6 +60,17 @@ struct SharedScriptProgram {
     /// has none. A loaded program's names never change.
     std::array<int32_t, sim::unit_script::script_function_count> function_index{};
 };
+
+/// Prepares one type's interpreter program and resolves its engine-function names.
+///
+/// The caller keeps the result for as long as units of that type run, and
+/// passes the same one to each of them. A null program prepares an empty
+/// interpreter, which starts no script.
+///
+/// @param program Loaded COB program, or null when the type has no script.
+/// @return The prepared program and the engine-function indices.
+[[nodiscard]] SharedScriptProgram
+prepare_type_script(const std::shared_ptr<const formats::cob::CobProgram>& program);
 
 // COB scheduler ownership and the named-call wrappers. Host is a real
 // model/world adapter, never an internal successful no-op implementation.
@@ -72,10 +84,12 @@ class ScriptInstance {
     /// Builds the COB interpreter for a program against a model/world host.
     ///
     /// A null program, or one the interpreter refuses, leaves an instance that
-    /// starts no script; the refusal is noted. Units built from one COB
-    /// program share its code and the engine-function indices.
+    /// starts no script; the refusal is noted. Units of one type are given
+    /// the same prepared program, so they share its code and indices.
     ///
     /// @param program Loaded COB program.
+    /// @param shared Prepared program for this type. The instance keeps the
+    ///     code alive; the match keeps `shared` for its own life.
     /// @param host Model and world adapter the interpreter calls for piece
     ///     and unit-value operations; must outlive the instance.
     /// @param clock_scale SLEEP multiplier supplied by the owning
@@ -85,6 +99,7 @@ class ScriptInstance {
     ///     must outlive the instance.
     ScriptInstance(
         std::shared_ptr<const formats::cob::CobProgram> program,
+        const SharedScriptProgram& shared,
         sim::script_vm::Host& host,
         int32_t clock_scale,
         MatchFault* fault = nullptr
@@ -308,9 +323,6 @@ class ScriptInstance {
     bool run_query(int32_t index, std::array<int32_t, 4>& arguments);
 
     std::shared_ptr<const formats::cob::CobProgram> program_;
-    /// Keeps the shared code alive for this unit, and holds the function
-    /// indices resolved for that code.
-    std::shared_ptr<const SharedScriptProgram> shared_;
     sim::script_vm::Vm vm_;
     MatchFault* fault_{};
     /// The COB index of each engine function's exact name, or -1 when the

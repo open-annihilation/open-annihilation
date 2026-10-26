@@ -24,6 +24,38 @@ SpawnBridge::SpawnBridge(
         fault_.note("spawn runtime tables do not match world");
         loaded_ = {};
     }
+    prepare_type_scripts();
+}
+
+void SpawnBridge::prepare_type_scripts() {
+    type_script_count_ = loaded_.size();
+    if (type_script_count_ == 0)
+        return;
+    type_scripts_ = std::make_unique<SharedScriptProgram[]>(type_script_count_);
+    for (std::size_t index = 0; index < type_script_count_; ++index) {
+        const auto& cob = loaded_[index].script;
+        if (!cob)
+            continue;
+        std::size_t earlier = 0;
+        for (; earlier < index; ++earlier) {
+            if (loaded_[earlier].script.get() == cob.get()) {
+                type_scripts_[index] = type_scripts_[earlier];
+                break;
+            }
+        }
+        if (earlier == index)
+            type_scripts_[index] = prepare_type_script(cob);
+    }
+}
+
+const SharedScriptProgram*
+SpawnBridge::script_for(const formats::cob::CobProgram* cob) const noexcept {
+    if (cob == nullptr)
+        return nullptr;
+    for (std::size_t index = 0; index < type_script_count_; ++index)
+        if (loaded_[index].script.get() == cob)
+            return &type_scripts_[index];
+    return nullptr;
 }
 
 void SpawnBridge::note(sim::unit_spawn::SpawnFault fault) noexcept {
@@ -172,7 +204,16 @@ SpawnBridge::create_model_instance(sim::unit_spawn::AssetHandle model) {
     loaded.type.cob = 0;
     auto& state = runtime(*active_);
     state.instance = std::make_unique<UnitInstance>(
-        loaded, *active_, views_.slots(), state_, values_, effects_, random_, clock_scale_, &fault_
+        loaded,
+        *active_,
+        views_.slots(),
+        state_,
+        values_,
+        effects_,
+        random_,
+        clock_scale_,
+        nullptr,
+        &fault_
     );
     ++state.instance_generation;
     return reinterpret_cast<sim::unit_spawn::AssetHandle>(state.instance.get());
@@ -216,6 +257,7 @@ sim::unit_spawn::AssetHandle SpawnBridge::create_scripted_model(
         effects_,
         random_,
         clock_scale_,
+        script_for(loaded.script.get()),
         &fault_
     );
     ++state.instance_generation;
