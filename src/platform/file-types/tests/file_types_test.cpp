@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The registration of the seven file types: the texts it writes, the launch file's own desktop
+// The registration of the eight file types: the texts it writes, the launch file's own desktop
 // entry, command and magic among them; on every system but Windows the XDG files in a scratch
 // data folder, written once and only again when they differ, the database tools run once after
 // a change (recording scripts on a scratch PATH), missing tools and a tool that hangs, each run
@@ -84,7 +84,8 @@ void test_texts() {
                  "Terminal=false\n"
                  "Categories=Game;StrategyGame;\n"
                  "MimeType=application/x-oamod;application/x-oalang;application/x-oamap;"
-                 "application/x-oamut;application/x-oabrain;application/x-oareg;\n"
+                 "application/x-oamut;application/x-oabrain;application/x-oakeys;"
+                 "application/x-oareg;\n"
                  "NoDisplay=true\n"
     );
     OA_CHECK(
@@ -120,6 +121,11 @@ void test_texts() {
         "    <sub-class-of type=\"application/zip\"/>\n"
         "    <glob pattern=\"*.oabrain\"/>\n"
         "  </mime-type>\n"
+        "  <mime-type type=\"application/x-oakeys\">\n"
+        "    <comment>Open Annihilation key layout</comment>\n"
+        "    <sub-class-of type=\"application/zip\"/>\n"
+        "    <glob pattern=\"*.oakeys\"/>\n"
+        "  </mime-type>\n"
         "  <mime-type type=\"application/x-oareg\">\n"
         "    <comment>Open Annihilation registry</comment>\n"
         "    <sub-class-of type=\"text/plain\"/>\n"
@@ -151,8 +157,8 @@ void test_texts() {
         "NoDisplay=true\n"
     );
     OA_CHECK(file_types::launch_desktop_entry(fs::path("/a\tb")).empty());
-    // The entry of the six never lists a launch file; with only a launch file it lists none.
-    file_types::TypeSet launch_only{false, false, false, false, true, false, false};
+    // The entry of the seven never lists a launch file; with only a launch file it lists none.
+    file_types::TypeSet launch_only{false, false, false, false, true, false, false, false};
     OA_CHECK(!launch_only.installs_any() && !launch_only.none() && !launch_only.all());
     OA_CHECK(launch_only.complement().installs_any() && !launch_only.complement().launch);
     OA_CHECK(
@@ -343,6 +349,7 @@ void test_xdg_registration() {
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oamap.png",
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oamut.png",
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oabrain.png",
+        scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oakeys.png",
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oareg.png",
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oalaunch.png",
     };
@@ -360,7 +367,7 @@ void test_xdg_registration() {
         return true;
     };
 
-    // The first start writes the eight icon files, the MIME package and the two desktop entries,
+    // The first start writes the nine icon files, the MIME package and the two desktop entries,
     // and runs the two database tools once each.
     file_types::Registration done = file_types::register_xdg(executable, icon, places);
     OA_CHECK(done.supported);
@@ -613,6 +620,7 @@ void test_xdg_subset_and_withdrawal() {
     packages.language = false;
     packages.mutator = false;
     packages.brain = false;
+    packages.keys = false;
     packages.registry = false;
     packages.launch = false;
     const fs::path package = scratch.data / "mime/packages/net.coreprime.open-annihilation.xml";
@@ -631,6 +639,8 @@ void test_xdg_subset_and_withdrawal() {
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oamut.png";
     const fs::path brain_icon =
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oabrain.png";
+    const fs::path keys_icon =
+        scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oakeys.png";
     const fs::path language_icon =
         scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oalang.png";
     const fs::path registry_icon =
@@ -645,6 +655,7 @@ void test_xdg_subset_and_withdrawal() {
     OA_CHECK(fs::exists(map_icon));
     OA_CHECK(!fs::exists(mutator_icon));
     OA_CHECK(!fs::exists(brain_icon));
+    OA_CHECK(!fs::exists(keys_icon));
     OA_CHECK(!fs::exists(language_icon));
     OA_CHECK(!fs::exists(registry_icon));
     OA_CHECK(!fs::exists(launch_icon));
@@ -661,6 +672,7 @@ void test_xdg_subset_and_withdrawal() {
     maps.language = false;
     maps.mutator = false;
     maps.brain = false;
+    maps.keys = false;
     maps.registry = false;
     maps.launch = false;
     done = file_types::withdraw_xdg(maps, places);
@@ -670,6 +682,7 @@ void test_xdg_subset_and_withdrawal() {
     mods.map = false;
     mods.mutator = false;
     mods.brain = false;
+    mods.keys = false;
     mods.registry = false;
     mods.launch = false;
     OA_CHECK(read_file(package) == file_types::mime_package(mods));
@@ -693,6 +706,7 @@ void test_xdg_subset_and_withdrawal() {
     none.map = false;
     none.mutator = false;
     none.brain = false;
+    none.keys = false;
     none.registry = false;
     none.launch = false;
     done = file_types::register_xdg(executable, icon, places, none);
@@ -722,8 +736,8 @@ void test_xdg_subset_and_withdrawal() {
     OA_CHECK(fs::exists(program_icon));
     OA_CHECK(read_file(other_package) == "<mime-info>other</mime-info>\n");
 
-    // With the six switches off, a launch file is still registered: its entry, its icon and
-    // its part of the package stay, and the entry of the six goes. Withdrawn, the launch
+    // With the seven switches off, a launch file is still registered: its entry, its icon and
+    // its part of the package stay, and the entry of the seven goes. Withdrawn, the launch
     // file's entry and the package go.
     file_types::TypeSet launch_only = none;
     launch_only.launch = true;
@@ -747,7 +761,7 @@ void test_xdg_subset_and_withdrawal() {
     fs::remove_all(scratch.root, error);
 }
 
-/// A set with only the brain off registers the other six, and withdrawing that set's
+/// A set with only the brain off registers the other seven, and withdrawing that set's
 /// complement removes the brain alone.
 void test_brain_off_registers_the_other_six() {
     const XdgScratch scratch = make_xdg_scratch();
@@ -793,7 +807,7 @@ void test_brain_off_registers_the_other_six() {
     const file_types::TypeSet only_brain = without_brain.complement();
     OA_CHECK(
         only_brain.brain && !only_brain.mod && !only_brain.language && !only_brain.map &&
-        !only_brain.mutator && !only_brain.registry && !only_brain.launch
+        !only_brain.mutator && !only_brain.keys && !only_brain.registry && !only_brain.launch
     );
     done = file_types::withdraw_xdg(only_brain, places);
     OA_CHECK(done.supported && done.changed && done.error.empty());
@@ -801,6 +815,67 @@ void test_brain_off_registers_the_other_six() {
     OA_CHECK(read_file(package) == file_types::mime_package(without_brain));
     OA_CHECK(read_file(entry) == file_types::desktop_entry(executable, without_brain));
     OA_CHECK(fs::exists(mutator_icon));
+    OA_CHECK(fs::exists(launch_icon));
+    OA_CHECK(read_file(launch_entry) == file_types::launch_desktop_entry(executable));
+
+    std::error_code error;
+    fs::remove_all(scratch.root, error);
+}
+
+/// A set with only the key layout off registers the other seven, and withdrawing that set's
+/// complement removes the layout alone.
+void test_keys_off_registers_the_other_seven() {
+    const XdgScratch scratch = make_xdg_scratch();
+    const ScopedVariable path("PATH", scratch.tools.c_str());
+    const ScopedVariable flatpak("FLATPAK_ID", nullptr);
+    const ScopedVariable snap("SNAP", nullptr);
+    file_types::Places places{};
+    places.data_home = scratch.data;
+    places.run_tools = false;
+    const fs::path executable("/opt/Open Annihilation/open-annihilation");
+    const std::vector<uint8_t> icon = icon_bytes(4);
+    file_types::TypeSet without_keys;
+    without_keys.keys = false;
+    const fs::path package = scratch.data / "mime/packages/net.coreprime.open-annihilation.xml";
+    const fs::path entry = scratch.data / "applications/net.coreprime.open-annihilation.desktop";
+    const fs::path launch_entry =
+        scratch.data / "applications/net.coreprime.open-annihilation.launch.desktop";
+    const fs::path keys_icon =
+        scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oakeys.png";
+    const fs::path brain_icon =
+        scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oabrain.png";
+    const fs::path launch_icon =
+        scratch.data / "icons/hicolor/256x256/mimetypes/application-x-oalaunch.png";
+
+    file_types::Registration done =
+        file_types::register_xdg(executable, icon, places, without_keys);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(read_file(package) == file_types::mime_package(without_keys));
+    OA_CHECK(read_file(entry) == file_types::desktop_entry(executable, without_keys));
+    OA_CHECK(read_file(package).find("oakeys") == std::string::npos);
+    OA_CHECK(read_file(entry).find("application/x-oakeys") == std::string::npos);
+    OA_CHECK(read_file(package).find("application/x-oabrain") != std::string::npos);
+    OA_CHECK(read_file(entry).find("application/x-oabrain") != std::string::npos);
+    OA_CHECK(!fs::exists(keys_icon));
+    OA_CHECK(fs::exists(brain_icon));
+    OA_CHECK(fs::exists(launch_icon));
+    OA_CHECK(read_file(launch_entry) == file_types::launch_desktop_entry(executable));
+
+    done = file_types::register_xdg(executable, icon, places);
+    OA_CHECK(done.changed && done.error.empty());
+    OA_CHECK(fs::exists(keys_icon));
+    OA_CHECK(read_file(package).find("application/x-oakeys") != std::string::npos);
+    const file_types::TypeSet only_keys = without_keys.complement();
+    OA_CHECK(
+        only_keys.keys && !only_keys.mod && !only_keys.language && !only_keys.map &&
+        !only_keys.mutator && !only_keys.brain && !only_keys.registry && !only_keys.launch
+    );
+    done = file_types::withdraw_xdg(only_keys, places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(!fs::exists(keys_icon));
+    OA_CHECK(read_file(package) == file_types::mime_package(without_keys));
+    OA_CHECK(read_file(entry) == file_types::desktop_entry(executable, without_keys));
+    OA_CHECK(fs::exists(brain_icon));
     OA_CHECK(fs::exists(launch_icon));
     OA_CHECK(read_file(launch_entry) == file_types::launch_desktop_entry(executable));
 
@@ -846,8 +921,8 @@ void test_windows_registration() {
     OA_CHECK(done.supported);
     OA_CHECK(done.changed);
     OA_CHECK(done.error.empty());
-    OA_CHECK(done.lines.size() == 42);
-    // The five the game installs or adds open with --open, a launch file with -c.
+    OA_CHECK(done.lines.size() == 48);
+    // The seven the game installs or adds open with --open, a launch file with -c.
     const auto command_of = [](const std::wstring& path, const file_types::FileType& type) {
         return L"\"" + path + L"\" " +
                (type.opening == file_types::Opening::launch ? std::wstring(L"-c")
@@ -883,7 +958,7 @@ void test_windows_registration() {
     const fs::path moved(L"D:\\Spiele\\open-annihilation.exe");
     done = file_types::register_windows(moved, places);
     OA_CHECK(done.changed && done.error.empty());
-    OA_CHECK(done.lines.size() == 14);
+    OA_CHECK(done.lines.size() == 16);
     for (const file_types::FileType& type : file_types::file_types) {
         const std::wstring moved_command = command_of(moved.wstring(), type);
         const std::wstring program_id(type.program_id.begin(), type.program_id.end());
@@ -986,6 +1061,7 @@ void test_windows_withdrawal() {
     packages.language = false;
     packages.mutator = false;
     packages.brain = false;
+    packages.keys = false;
     packages.registry = false;
     packages.launch = false;
     file_types::Registration done = file_types::register_windows(executable, places, packages);
@@ -1001,9 +1077,11 @@ void test_windows_withdrawal() {
     OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.Launch"));
     OA_CHECK(!key_exists(classes + L"\\.oamut"));
     OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.Mutator"));
+    OA_CHECK(!key_exists(classes + L"\\.oakeys"));
+    OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.KeyLayout"));
 
     done = file_types::register_windows(executable, places);
-    OA_CHECK(done.changed && done.lines.size() == 30);
+    OA_CHECK(done.changed && done.lines.size() == 36);
     OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Mutator"));
     OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Language"));
     OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Registry"));
@@ -1021,6 +1099,7 @@ void test_windows_withdrawal() {
     maps.language = false;
     maps.mutator = false;
     maps.brain = false;
+    maps.keys = false;
     maps.registry = false;
     maps.launch = false;
     done = file_types::withdraw_windows(maps, places);
@@ -1047,6 +1126,7 @@ void test_windows_withdrawal() {
     mods.map = false;
     mods.mutator = false;
     mods.brain = false;
+    mods.keys = false;
     mods.registry = false;
     mods.launch = false;
     done = file_types::withdraw_windows(mods, places);
@@ -1070,7 +1150,7 @@ void test_windows_withdrawal() {
     // A launch file withdrawn alone: its program identifier and its extension's values go, and
     // the other types stay.
     OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Launch"));
-    file_types::TypeSet launches{false, false, false, false, true, false, false};
+    file_types::TypeSet launches{false, false, false, false, true, false, false, false};
     done = file_types::withdraw_windows(launches, places);
     OA_CHECK(done.changed && done.error.empty());
     OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.Launch"));
@@ -1193,7 +1273,7 @@ void test_windows_shared_association() {
     places.notify_shell = false;
     const fs::path executable(L"C:\\Games\\Open Annihilation\\open-annihilation.exe");
     const fs::path installed(L"C:\\Program Files\\Open Annihilation\\open-annihilation.exe");
-    const file_types::TypeSet launches{false, false, false, false, true, false, false};
+    const file_types::TypeSet launches{false, false, false, false, true, false, false, false};
     const file_types::TypeSet without_launch = launches.complement();
     const std::wstring launch_command = L"\"" + executable.wstring() + L"\" -c \"%1\"";
 
@@ -1203,7 +1283,7 @@ void test_windows_shared_association() {
     OA_CHECK(installed_values.size() == 14);
     OA_CHECK(program_id_opening(classes, machine, L".oalaunch") == L"OpenAnnihilation.Launch");
 
-    // A start with every switch on registers the seven for this user.
+    // A start with every switch on registers the eight for this user.
     file_types::Registration done = file_types::register_windows(executable, places);
     OA_CHECK(done.changed && done.error.empty());
     OA_CHECK(read_value(classes + L"\\.oalaunch", nullptr) == L"OpenAnnihilation.Launch");
@@ -1294,7 +1374,7 @@ void test_windows_shared_association() {
 
     // Only launch files are hidden: the installer associates no other type for every user.
     write_sz(machine + L"\\.oamod", nullptr, L"OpenAnnihilation.Mod");
-    const file_types::TypeSet mods{true, false, false, false, false, false, false};
+    const file_types::TypeSet mods{true, false, false, false, false, false, false, false};
     done = file_types::withdraw_windows(mods, places);
     OA_CHECK(done.changed && done.error.empty());
     OA_CHECK(!read_value(classes + L"\\.oamod", nullptr));
@@ -1304,7 +1384,7 @@ void test_windows_shared_association() {
     static_cast<void>(RegDeleteKeyW(HKEY_CURRENT_USER, parent.c_str()));
 }
 
-/// A set with only the brain off registers the other six, and withdrawing that set's
+/// A set with only the brain off registers the other seven, and withdrawing that set's
 /// complement removes the brain alone.
 void test_brain_off_registers_the_other_six() {
     const std::wstring parent = L"Software\\OpenAnnihilationFileTypesTest";
@@ -1322,7 +1402,7 @@ void test_brain_off_registers_the_other_six() {
 
     file_types::Registration done = file_types::register_windows(executable, places, without_brain);
     OA_CHECK(done.supported && done.changed && done.error.empty());
-    OA_CHECK(done.lines.size() == 36);
+    OA_CHECK(done.lines.size() == 42);
     OA_CHECK(!key_exists(classes + L"\\.oabrain"));
     OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.Brain"));
     OA_CHECK(read_value(classes + L"\\.oamut", nullptr) == L"OpenAnnihilation.Mutator");
@@ -1344,6 +1424,54 @@ void test_brain_off_registers_the_other_six() {
     OA_CHECK(!read_value(classes + L"\\.oabrain\\OpenWithProgids", L"OpenAnnihilation.Brain"));
     OA_CHECK(read_value(classes + L"\\.oamut", nullptr) == L"OpenAnnihilation.Mutator");
     OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Mutator"));
+    OA_CHECK(read_value(classes + L"\\.oamod", nullptr) == L"OpenAnnihilation.Mod");
+    OA_CHECK(read_value(classes + L"\\.oalaunch", nullptr) == L"OpenAnnihilation.Launch");
+    OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Launch"));
+
+    OA_CHECK(SHDeleteKeyW(HKEY_CURRENT_USER, scratch.c_str()) == ERROR_SUCCESS);
+    static_cast<void>(RegDeleteKeyW(HKEY_CURRENT_USER, parent.c_str()));
+}
+
+/// A set with only the key layout off registers the other seven, and withdrawing that set's
+/// complement removes the layout alone.
+void test_keys_off_registers_the_other_seven() {
+    const std::wstring parent = L"Software\\OpenAnnihilationFileTypesTest";
+    const std::wstring scratch = parent + L"\\" + std::to_wstring(GetCurrentProcessId()) + L"-" +
+                                 std::to_wstring(GetTickCount()) + L"-keys";
+    const std::wstring classes = scratch + L"\\Classes";
+    file_types::Places places{};
+    places.classes_key = fs::path(classes).string();
+    places.machine_classes_root = file_types::RegistryRoot::current_user;
+    places.machine_classes_key = fs::path(scratch + L"\\Machine").string();
+    places.notify_shell = false;
+    const fs::path executable(L"C:\\Games\\Open Annihilation\\open-annihilation.exe");
+    file_types::TypeSet without_keys;
+    without_keys.keys = false;
+
+    file_types::Registration done = file_types::register_windows(executable, places, without_keys);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(done.lines.size() == 42);
+    OA_CHECK(!key_exists(classes + L"\\.oakeys"));
+    OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.KeyLayout"));
+    OA_CHECK(read_value(classes + L"\\.oabrain", nullptr) == L"OpenAnnihilation.Brain");
+    OA_CHECK(read_value(classes + L"\\.oamod", nullptr) == L"OpenAnnihilation.Mod");
+    OA_CHECK(read_value(classes + L"\\.oalaunch", nullptr) == L"OpenAnnihilation.Launch");
+
+    done = file_types::register_windows(executable, places);
+    OA_CHECK(done.changed && done.error.empty() && done.lines.size() == 6);
+    OA_CHECK(read_value(classes + L"\\.oakeys", nullptr) == L"OpenAnnihilation.KeyLayout");
+    OA_CHECK(read_value(classes + L"\\.oakeys", L"Content Type") == L"application/x-oakeys");
+    OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.KeyLayout"));
+
+    const file_types::TypeSet only_keys = without_keys.complement();
+    done = file_types::withdraw_windows(only_keys, places);
+    OA_CHECK(done.supported && done.changed && done.error.empty());
+    OA_CHECK(!key_exists(classes + L"\\OpenAnnihilation.KeyLayout"));
+    OA_CHECK(!read_value(classes + L"\\.oakeys", nullptr));
+    OA_CHECK(!read_value(classes + L"\\.oakeys", L"Content Type"));
+    OA_CHECK(!read_value(classes + L"\\.oakeys\\OpenWithProgids", L"OpenAnnihilation.KeyLayout"));
+    OA_CHECK(read_value(classes + L"\\.oabrain", nullptr) == L"OpenAnnihilation.Brain");
+    OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Brain"));
     OA_CHECK(read_value(classes + L"\\.oamod", nullptr) == L"OpenAnnihilation.Mod");
     OA_CHECK(read_value(classes + L"\\.oalaunch", nullptr) == L"OpenAnnihilation.Launch");
     OA_CHECK(key_exists(classes + L"\\OpenAnnihilation.Launch"));
@@ -1385,7 +1513,8 @@ void test_user_override_step() {
     OA_CHECK(file_types::user_override_program_id.empty());
     OA_CHECK(
         file_types::installer_types.launch && !file_types::installer_types.mutator &&
-        !file_types::installer_types.brain && !file_types::installer_types.installs_any()
+        !file_types::installer_types.brain && !file_types::installer_types.keys &&
+        !file_types::installer_types.installs_any()
     );
 }
 
@@ -1466,12 +1595,13 @@ void test_opener_changes() {
     fallback.launch = false;
     fallback.mutator = false;
     fallback.brain = false;
+    fallback.keys = false;
     const file_types::OpenerReport open =
         file_types::reported_openers(fake_calls(fake), application.bundle_id, fallback);
     OA_CHECK(open.error.empty());
     OA_CHECK(open.open.mod && open.open.language && open.open.map && open.open.mutator);
-    OA_CHECK(open.open.brain && open.open.registry && open.open.launch);
-    OA_CHECK(fake.reads.size() == 7);
+    OA_CHECK(open.open.brain && open.open.keys && open.open.registry && open.open.launch);
+    OA_CHECK(fake.reads.size() == 8);
     fake.reads.clear();
 
     fake.handlers[std::string(file_types::exported_content_types[0].content_type)] = archive;
@@ -1523,6 +1653,9 @@ void test_opener_changes() {
     );
     OA_CHECK(
         fake.handlers["net.coreprime.open-annihilation.oabrain"].bundle_id == application.bundle_id
+    );
+    OA_CHECK(
+        fake.handlers["net.coreprime.open-annihilation.oakeys"].bundle_id == application.bundle_id
     );
 
     fake.reads.clear();
@@ -1609,7 +1742,7 @@ void test_opener_changes() {
 }
 
 /// A set with only the brain off, asked of the default-opener stand-in, hands the brain
-/// back alone and leaves the other six with this copy.
+/// back alone and leaves the other seven with this copy.
 void test_brain_off_hands_the_brain_back_alone() {
     const file_types::Handler application = handler_named("net.coreprime.open-annihilation");
     const file_types::Handler archive = handler_named("com.example.archive");
@@ -1630,6 +1763,33 @@ void test_brain_off_hands_the_brain_back_alone() {
     );
     for (const file_types::ExportedContentType& type : file_types::exported_content_types)
         if (type.extension != file_types::brain_extension)
+            OA_CHECK(
+                fake.handlers[std::string(type.content_type)].bundle_id == application.bundle_id
+            );
+}
+
+/// A set with only the key layout off, asked of the default-opener stand-in, hands the layout
+/// back alone and leaves the other seven with this copy.
+void test_keys_off_hands_the_keys_back_alone() {
+    const file_types::Handler application = handler_named("net.coreprime.open-annihilation");
+    const file_types::Handler archive = handler_named("com.example.archive");
+    FakeLaunchServices fake;
+    fake.handlers["public.zip-archive"] = archive;
+    fake.handlers["public.plain-text"] = handler_named("com.example.editor");
+    for (const file_types::ExportedContentType& type : file_types::exported_content_types)
+        fake.handlers[std::string(type.content_type)] = application;
+
+    const file_types::OpenerChange off[] = {{file_types::keys_extension, false}};
+    const file_types::Registration handed =
+        file_types::apply_opener_changes(fake_calls(fake), application, off);
+    OA_CHECK(handed.supported && handed.changed && handed.error.empty());
+    OA_CHECK(handed.lines.size() == 1);
+    OA_CHECK(handed.lines[0] == "hand back oakeys to com.example.archive");
+    OA_CHECK(
+        fake.handlers["net.coreprime.open-annihilation.oakeys"].bundle_id == "com.example.archive"
+    );
+    for (const file_types::ExportedContentType& type : file_types::exported_content_types)
+        if (type.extension != file_types::keys_extension)
             OA_CHECK(
                 fake.handlers[std::string(type.content_type)].bundle_id == application.bundle_id
             );
@@ -1667,6 +1827,7 @@ int main() {
     test_running_executable();
     test_opener_changes();
     test_brain_off_hands_the_brain_back_alone();
+    test_keys_off_hands_the_keys_back_alone();
     test_user_override_step();
 #ifndef _WIN32
     test_xdg_registration();
@@ -1675,11 +1836,13 @@ int main() {
     test_registration_by_system();
     test_xdg_subset_and_withdrawal();
     test_brain_off_registers_the_other_six();
+    test_keys_off_registers_the_other_seven();
 #else
     test_windows_registration();
     test_windows_withdrawal();
     test_windows_shared_association();
     test_brain_off_registers_the_other_six();
+    test_keys_off_registers_the_other_seven();
 #endif
     return oa::test::check_exit_status();
 }

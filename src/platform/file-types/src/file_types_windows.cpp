@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The Windows registration: the seven file types, each extension and its program identifier,
+// The Windows registration: the eight file types, each extension and its program identifier,
 // the program's icon and its open command under HKEY_CURRENT_USER, through calls Windows XP has.
 // A withdrawal of launch files also hides the installer's association for every user from this
 // one, with an override under HKEY_CURRENT_USER; the computer's own key is only read.

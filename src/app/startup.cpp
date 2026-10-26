@@ -937,7 +937,7 @@ namespace {
 /// Tells whether a bare argument names a file to open, by its extension, any case.
 ///
 /// @param argument the argument
-/// @return true for a .oamod, .oalang, .oamap, .oamut, .oabrain or .oareg file
+/// @return true for a .oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg file
 [[nodiscard]] bool names_opened_file(std::string_view argument) {
     return package_install::opens_file(path_from_utf8(argument));
 }
@@ -1831,7 +1831,7 @@ void write_startup_line(std::string_view text) {
             // macOS names the process it started from the Finder; nothing to read.
             continue;
         } else if (names_opened_file(argument)) {
-            // One of the six file types the game installs or adds, opened with the
+            // One of the seven file types the game installs or adds, opened with the
             // game or dropped on it.
             result.open_files.push_back(opened_file_path(argument));
         } else {
@@ -2155,14 +2155,16 @@ void write_startup_line(std::string_view text) {
     // run nobody watches never shows; --check-mod-install answers them itself.
     if (!result.open_files.empty() && result.headless_check)
         throw std::runtime_error(
-            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain or .oareg), after --open or "
+            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg), after "
+            "--open or "
             "on its "
             "own, "
             "needs the game's window, which asks before it installs"
         );
     if (!result.open_files.empty() && result.unattended && !result.check_mod_install)
         throw std::runtime_error(
-            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain or .oareg), after --open or "
+            "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or .oareg), after "
+            "--open or "
             "on its "
             "own, "
             "is asked about before it installs, which headless, check, benchmark, --frames and "

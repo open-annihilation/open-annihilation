@@ -906,7 +906,7 @@ of the game's file types this copy opens.
   menu. **Cancel** leaves it as it was. During a game the row is locked
   and says "Choose from the main menu." The welcome itself is
   [the first-run setup](first-run.md).
-- **File Type Registration**, on Windows, Linux and macOS. Seven switches,
+- **File Type Registration**, on Windows, Linux and macOS. Eight switches,
   all On at first:
   - **Mod packages (.oamod)**
   - **Map packs (.oamap)**
@@ -914,11 +914,12 @@ of the game's file types this copy opens.
   - **Registry files (.oareg)**
   - **Mutator packages (.oamut)**
   - **Brain packages (.oabrain)**
+  - **Key layout packages (.oakeys)**
   - **Launch files (.oalaunch)**: a launch file opened from the file
     manager starts the game in its battle room
     ([Opening a launch file](command-line.md#opening-a-launch-file))
 
-  ![The end of the System section: File Type Registration with its line, then the Mod packages, Map packs, Language packs, Registry files, Mutator packages, Brain packages and Launch files switches, each On.](images/settings/system-2.png)
+  ![The end of the System section: File Type Registration with its line, then the Mod packages, Map packs, Language packs, Registry files, Mutator packages, Brain packages, Key layout packages and Launch files switches, each On.](images/settings/system-2.png)
 
   The hint says "Open these files with the game from your file manager."
   **OK** applies a switch you moved, at once. **Cancel** leaves every
@@ -927,7 +928,7 @@ of the game's file types this copy opens.
   the game does not put a type back.
   Each switch is kept as `on` or `off` under
   `open-annihilation.file-types.` and its extension (`.oamod`, `.oamap`,
-  `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oalaunch`). A missing key, or any text other than
+  `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oakeys`, `.oalaunch`). A missing key, or any text other than
   `off`, leaves the type on. Each switch acts on its own type alone: moving
   one never registers, withdraws or changes the opener of another.
 
@@ -947,7 +948,7 @@ of the game's file types this copy opens.
   On a Mac, a switch that is on means Open Annihilation is the program
   Finder uses to open that type. The switch shows that choice as it is
   now, not only what was stored. Off hands the type back to the program
-  that opens a zip archive (the five packages, usually Archive Utility)
+  that opens a zip archive (the six packages, usually Archive Utility)
   or plain text (a registry file or a launch file). The app keeps the type
   and its icon either way; only the program that opens it changes. If the
   system refuses, the log says so and the switch shows the choice the
@@ -960,7 +961,7 @@ of the game's file types this copy opens.
   System opens in this run, and it goes away when every switch matches
   what you asked. [macOS](installation/macos.md) says the same for opening
   a file.
-- **File types**, on iPhone and iPad, in place of the seven switches. The
+- **File types**, on iPhone and iPad, in place of the eight switches. The
   system takes the types from the app, and there is no way to choose a
   default opener, so there is no switch. The hint is one sentence.
 
