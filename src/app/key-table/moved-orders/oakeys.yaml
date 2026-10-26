@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Attack and Stop move to other keys. Every other binding stays with the base.
+oakeys: 1
+id: moved-orders
+name: "Moved orders"
+version: "1.0"
+author: {name: "Open Annihilation"}
+description: "Attack and Stop move to other keys."
+tags: [orders]
+base: oa-default
+bindings:
+  order.attack: ["@KeyQ"]
+  order.stop: ["@KeyJ"]
