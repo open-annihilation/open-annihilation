@@ -78,7 +78,8 @@ endforeach()
 get_filename_component(oa_capability_app_dir "${CMAKE_CURRENT_LIST_DIR}/../src/app" ABSOLUTE)
 set_property(SOURCE "${oa_capability_app_dir}/video_capture.cpp"
   "${oa_capability_app_dir}/director_output.cpp" "${oa_capability_app_dir}/startup.cpp"
-  "${oa_capability_app_dir}/user_folder_open.cpp" APPEND
+  "${oa_capability_app_dir}/user_folder_open.cpp"
+  "${oa_capability_app_dir}/runtime_update_install.cpp" APPEND
   PROPERTY COMPILE_DEFINITIONS "OA_PROCESS_SPAWNING=${oa_OA_PROCESS_SPAWNING_value}")
 set_property(SOURCE "${oa_capability_app_dir}/game_directory_dialog.cpp"
   "${oa_capability_app_dir}/runtime_library.cpp" APPEND

@@ -16,6 +16,7 @@
 #include "oa/platform/display_modes.hpp"
 #include "oa/platform/job_pool.hpp"
 #include "oa/base/signing/ed25519.hpp"
+#include "oa/formats/oamod/package_keys.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/platform/system.hpp"
 #include <algorithm>
@@ -775,6 +776,10 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {!options.update_keys.empty(), "--update-key"},
             {options.check_engine_feed, "--check-engine-feed"},
             {options.check_update_offer, "--check-update-offer"},
+            {options.check_update_download, "--check-update-download"},
+            {options.update_install_folder.has_value(), "--update-install-folder"},
+            {options.update_and_quit, "--update-and-quit"},
+            {!options.update_download_case.empty(), "--update-download-case"},
             {options.check_icloud_wait, "--check-icloud-wait"},
             {options.check_text_fit, "--check-text-fit"},
             {!options.check_languages.empty(), "--check-language"},
@@ -1028,6 +1033,8 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-progress", &Options::check_progress},
     {"--check-engine-feed", &Options::check_engine_feed},
     {"--check-update-offer", &Options::check_update_offer},
+    {"--check-update-download", &Options::check_update_download},
+    {"--update-and-quit", &Options::update_and_quit},
     {"--check-icloud-wait", &Options::check_icloud_wait},
     {"--check-text-fit", &Options::check_text_fit},
     {"--check-folder-chooser", &Options::check_folder_chooser},
@@ -1391,6 +1398,27 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.update_keys.emplace_back(text);
         return true;
     }
+    if (argument == "--updated-from") {
+        const std::string text{option_value(cursor)};
+        if (!oa::formats::oamod::parse_engine_version(text).has_value())
+            throw std::runtime_error("--updated-from must be a version such as 0.8.7");
+        options.updated_from = text;
+        return true;
+    }
+    if (argument == "--update-install-folder") {
+        const std::string_view text = option_value(cursor);
+        if (text.empty())
+            throw std::runtime_error("--update-install-folder needs a folder");
+        options.update_install_folder = path_from_utf8(text);
+        return true;
+    }
+    if (argument == "--update-download-case") {
+        const std::string text{option_value(cursor)};
+        if (text.empty())
+            throw std::runtime_error("--update-download-case needs a name");
+        options.update_download_case = text;
+        return true;
+    }
     return false;
 }
 
@@ -1694,7 +1722,9 @@ void write_startup_line(std::string_view text) {
                      "[--check-language-notice] [--check-first-run] [--check-setup-window] "
                      "[--check-window-place] "
                      "[--check-progress] [--update-feed URL] [--update-key ID=ed25519:KEY] "
-                     "[--check-engine-feed] [--check-update-offer] [--check-icloud-wait] "
+                     "[--updated-from VERSION] [--update-install-folder DIR] [--update-and-quit] "
+                     "[--check-engine-feed] [--check-update-offer] [--check-update-download] "
+                     "[--update-download-case NAME] [--check-icloud-wait] "
                      "[--check-text-fit [--check-language TAG]...] "
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
@@ -1832,6 +1862,12 @@ void write_startup_line(std::string_view text) {
     refuse_left_out_self_checks(result);
     if (!result.update_keys.empty() && !result.update_feed.has_value())
         throw std::runtime_error("--update-key needs --update-feed");
+    if (result.update_install_folder.has_value() && !result.update_feed.has_value())
+        throw std::runtime_error("--update-install-folder needs --update-feed");
+    if (result.update_and_quit && !result.update_feed.has_value())
+        throw std::runtime_error("--update-and-quit needs --update-feed");
+    if (!result.update_download_case.empty() && !result.check_update_download)
+        throw std::runtime_error("--update-download-case needs --check-update-download");
     if (!result.keys.empty() && result.keys_reset)
         throw std::runtime_error("--keys and --keys-reset cannot be used together");
     if (acceleration_differing) {
@@ -1960,6 +1996,10 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error(
             "--check-update-offer draws in a window and cannot be used with --headless-check"
         );
+    if (result.check_update_download && result.headless_check)
+        throw std::runtime_error(
+            "--check-update-download draws in a window and cannot be used with --headless-check"
+        );
     if (result.check_icloud_wait && result.headless_check)
         throw std::runtime_error(
             "--check-icloud-wait draws in a window and cannot be used with --headless-check"
@@ -2004,11 +2044,12 @@ void write_startup_line(std::string_view text) {
         !result.check_unit_language.empty() || result.check_language_switch ||
         result.check_language_registry || result.check_language_notice || result.check_first_run ||
         result.check_setup_window || result.check_window_place || result.check_progress ||
-        result.check_engine_feed || result.check_update_offer || result.check_text_fit ||
-        result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
-        result.check_wreck_pick || result.check_build_preview || result.check_pointer_interfaces ||
-        result.check_megamap_clicks || result.check_single_player_offers ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
+        result.check_engine_feed || result.check_update_offer || result.check_update_download ||
+        result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
+        result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
+        result.check_pointer_interfaces || result.check_megamap_clicks ||
+        result.check_single_player_offers || result.check_radar_orders ||
+        result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||

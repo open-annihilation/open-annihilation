@@ -107,9 +107,12 @@ inline constexpr std::string_view interface_words[] = {
     "INFO",
     "INSTALL LANGUAGE",
     "INSTALL MAP PACK",
+    "Installing {version}",
     "Interface",
     "Interface size",
     "It cannot be read.",
+    "It installs when you quit, or now if you restart. Restarting takes a few seconds and "
+    "brings you back to the main menu.",
     "It is not a kind of package this game installs.",
     "Its catalogue says it does not fit {game}.",
     "Its games can't start until the mod's files are added to its folder:",
@@ -187,6 +190,7 @@ inline constexpr std::string_view interface_words[] = {
     "One-finger drag",
     "Open Annihilation",
     "Open Annihilation {version} is out",
+    "Open Annihilation {version} is ready",
     "Open Annihilation opens a launch file's battle room from the main menu. Go back to the main "
     "menu, then open the file again.",
     "Open Annihilation remembers it for later starts; start it with --choose-game-dir to choose "
@@ -209,6 +213,7 @@ inline constexpr std::string_view interface_words[] = {
     "REPAIR",
     "REPLACE",
     "REPLACE MOD",
+    "RESTART NOW",
     "RESTORE DEFAULTS",
     "RESTORE PROFILE VALUES",
     "ROLL BACK MOD",
@@ -293,11 +298,13 @@ inline constexpr std::string_view interface_words[] = {
     "Unit limit",
     "Units",
     "Update all",
+    "Updated to {version}",
     "Use modern fonts for game text",
     "Vertical sync",
     "View",
     "View past the map's edge",
     "Vote Yes or Vote No in the console answers the vote",
+    "WHEN I QUIT",
     "Welcome setup",
     "Whiteboard",
     "Whole steps",
@@ -360,6 +367,7 @@ inline constexpr std::string_view interface_words[] = {
     "{unit}: {field} {value} held at {max}",
     "{used} on this {device}",
     "{used} · {free} free on this {device}",
+    "{version} is kept, in case you want it back. The game starts again by itself.",
     "{version} is out",
 };
 

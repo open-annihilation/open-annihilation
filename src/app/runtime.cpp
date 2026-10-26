@@ -1020,6 +1020,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_update_download) {
+            const int download_status = check_update_download();
+            flush_preferences();
+            return download_status;
+        }
         if (options_.check_text_fit) {
             check_text_fit();
             flush_preferences();

@@ -823,17 +823,32 @@ change.
 ![The Updates section while a release is offered: that release's version, Stable, when it was checked, and UPDATE….](images/settings/updates-2.png)
 
 Updates says whether a newer Open Annihilation is out, and when the game
-looks for one. The line names the stable channel. Nothing is downloaded
-from this section.
+looks for one. The line names the stable channel. Where this copy can
+install a release, the section also downloads it.
 
 - **Open Annihilation** and the version you are running, with a line under
   it: up to date, checking, a release out, could not check, or not checked
   yet. The line names Stable and when the last check reached the server:
   today at a time, yesterday at a time, or on a date. **CHECK NOW** asks at
-  once. While a release is offered the button is **UPDATE…**, which opens
-  that release's page, as the question on the main menu does. The button
-  is greyed while a check is running. With Check for updates at Never the
-  button is not shown, and the line says OA never checks.
+  once. While a release is offered the button is **UPDATE…**. Where this
+  copy can install that release, UPDATE… downloads it. Where it cannot,
+  UPDATE… opens the release's page, as the question on the main menu does.
+  The button is greyed while a check is running. With Check for updates at
+  Never the button is not shown, and the line says OA never checks.
+- **Download in the background**, off unless you turn it on. While it is
+  on, a release that can be installed here starts downloading at the
+  settled main menu. The hint says it gets the package ready while you are
+  in the menus, and stops during a match. It takes effect when you press
+  OK. The setting is `open-annihilation.update-download`, `0` or `1`.
+  Absent reads as off, so a found update is not fetched until UPDATE.
+- While a package is being fetched the status reads "Downloading {version}
+  · {done} of {size}", or "Paused during the game" while a match is being
+  played. When the file matches the feed it reads "{version} is ready ·
+  {size} downloaded", and **RESTART TO UPDATE** quits so the package
+  installs. When the download stops it reads "The download stopped:
+  {reason}", and **RETRY** starts it again. The header of every Settings
+  page, and the Library header, show "{version} downloading" while it is
+  being fetched and "{version} ready" once it is.
 - **Check for updates**, Automatically, Only when I ask, or Never,
   Automatically by default. Automatically looks once a day when the game
   starts, after the main menu has settled. Only when I ask waits for

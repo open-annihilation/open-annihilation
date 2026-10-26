@@ -1,0 +1,894 @@
+// SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+// SPDX-License-Identifier: GPL-3.0-only
+
+// The download, the ready prompt, the Updated notice and the hand-off to
+// oa-update. A check records the helper instead of starting it. With
+// self-update left out, none of the download or the hand-off is compiled in.
+#include "oa/app/runtime.hpp"
+
+#include "oa_layer.hpp"
+#include "update_state.hpp"
+
+#include "oa/app/game_directory.hpp"
+#include "oa/app/update/build.hpp"
+#include "oa/app/update/offer.hpp"
+#include "oa/app/update/plan.hpp"
+#include "oa/data/engine_feed/feed.hpp"
+#include "oa/data/languages.hpp"
+#include "oa/data/languages/interface_text.hpp"
+#include "oa/formats/oamod/package_keys.hpp"
+#include "oa/platform/files.hpp"
+#include "oa/ui/engine_settings.hpp"
+#include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/library/text.hpp"
+
+#include <SDL3/SDL.h>
+
+#include <cstdint>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
+#include <iterator>
+#include <optional>
+#include <ostream>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#ifndef OA_PROCESS_SPAWNING
+#error "OA_PROCESS_SPAWNING (0 or 1) says whether this build starts other programs"
+#endif
+
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+#include "oa/app/update/download.hpp"
+#include "oa/app/update/route.hpp"
+#endif
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+namespace oa::app {
+
+namespace feed = oa::data::engine_feed;
+namespace library = oa::ui::library;
+namespace kit = oa::ui::kit;
+namespace settings = oa::ui::engine_settings;
+namespace languages = oa::data::languages;
+
+namespace {
+
+namespace fs = std::filesystem;
+namespace update = oa::app::update;
+
+/// The ready prompt's word, so it is not the update question.
+constexpr std::string_view kReadyWord = "ready-update";
+/// WHEN I QUIT, and the button Escape answers.
+constexpr int32_t kWhenIQuit = 0;
+/// RESTART NOW, the primary button.
+constexpr int32_t kRestartNow = 1;
+/// The Updated notice's name on the layer.
+constexpr std::string_view kUpdatedNotice = "updated-notice";
+
+/// The title of the ready prompt.
+constexpr std::string_view kReadyTitle = "Open Annihilation {version} is ready";
+/// The ready prompt's one paragraph.
+constexpr std::string_view kReadyBody =
+    "It installs when you quit, or now if you restart. Restarting takes a few seconds and "
+    "brings you back to the main menu.";
+/// The helper's window title. {version} is the release being installed.
+constexpr std::string_view kInstalling = "Installing {version}";
+/// The helper's window line. {version} is the version that is running.
+constexpr std::string_view kKept =
+    "{version} is kept, in case you want it back. The game starts again by itself.";
+/// The Updated notice's title. {version} is this build.
+constexpr std::string_view kUpdatedTo = "Updated to {version}";
+/// The header note while a verified package is waiting.
+constexpr std::string_view kHeaderReady = "{version} ready";
+/// The header note while a package is being fetched.
+constexpr std::string_view kHeaderFetching = "{version} downloading";
+
+/// Returns one of the interface's words in the language shown.
+///
+/// @param context unused
+/// @param english the word, in English
+/// @return its translation, or the English
+std::string_view shown_word(void* /*context*/, std::string_view english) {
+    return languages::interface_text(english);
+}
+
+/// Returns the English word. The helper's window uses this when the player's
+/// language is not one the bundled fonts can draw.
+///
+/// @param context unused
+/// @param english the word
+/// @return the same word
+std::string_view english_word(void* /*context*/, std::string_view english) {
+    return english;
+}
+
+/// The hooks a line of the player's own is looked up through.
+///
+/// @return the hooks
+library::TextHooks shown_hooks() {
+    return library::TextHooks{nullptr, shown_word};
+}
+
+/// The hooks the helper's title and line are looked up through.
+///
+/// English, and a language compiled into the game, are translated. Any other
+/// language stays English: the helper draws with the fonts the game ships.
+///
+/// @return the hooks
+library::TextHooks plan_hooks() {
+    const languages::Language& shown = languages::interface_language();
+    if (shown.source == languages::Source::built_in || shown.tag == "en")
+        return shown_hooks();
+    return library::TextHooks{nullptr, english_word};
+}
+
+/// This program's build. The base path is cached for the process.
+update::ThisBuild running_build() {
+    // SDL caches this string for the process. The caller does not free it.
+    const char* const base = SDL_GetBasePath();
+    if (base == nullptr)
+        return update::this_build({});
+    return update::this_build(path_from_utf8(base));
+}
+
+/// The folder that holds this program. Empty when it cannot be named.
+fs::path program_folder() {
+    const char* const base = SDL_GetBasePath();
+    if (base == nullptr)
+        return {};
+    return path_from_utf8(base);
+}
+
+/// `<data>/updates`, or nothing when the data folder cannot be named.
+std::optional<fs::path> updates_folder(const Options& options, std::string& failure) {
+    try {
+        const fs::path data =
+            options.data_dir ? *options.data_dir : oa::platform::preferences::data_directory();
+        return data / "updates";
+    } catch (const std::exception& thrown) {
+        failure = thrown.what();
+        return std::nullopt;
+    }
+}
+
+/// An absolute path as UTF-8. A path the system cannot make absolute is
+/// returned as it was given.
+std::string absolute_utf8(const fs::path& path) {
+    std::error_code error;
+    const fs::path full = fs::absolute(path, error);
+    if (error || full.empty())
+        return path_to_utf8(path);
+    return path_to_utf8(full);
+}
+
+/// This process's id, for the plan's wait.
+int64_t own_process() noexcept {
+#ifdef _WIN32
+    return static_cast<int64_t>(GetCurrentProcessId());
+#else
+    return static_cast<int64_t>(getpid());
+#endif
+}
+
+/// The ready prompt, named by its WHEN I QUIT button.
+bool is_ready_question(const LayerScreen* screen) {
+    if (screen == nullptr || screen->name() != QuestionScreen::screen_name)
+        return false;
+    const kit::Question& asked = static_cast<const QuestionScreen*>(screen)->question();
+    return !asked.buttons.empty() && asked.buttons.front().id == "when-i-quit";
+}
+
+/// The ready prompt, up or waiting.
+bool ready_question_queued(OaLayer& layer) {
+    return is_ready_question(layer.find(QuestionScreen::screen_name)) ||
+           is_ready_question(layer.waiting(QuestionScreen::screen_name));
+}
+
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+
+/// The route this run may install through.
+update::Where route_for(const Options& options, feed::Way way) {
+    update::RouteFacts facts = update::this_machine(program_folder());
+    facts.install_folder = options.update_install_folder;
+    facts.test_feed = options.update_feed.has_value();
+    facts.way = way;
+    return update::find_route(running_build(), facts);
+}
+
+/// True when the stored switch asks for a download in the background.
+bool background_switch_on(const platform::preferences::Values& values) {
+    const auto found = values.find(std::string(settings::key::update_download));
+    return found != values.end() && found->second == "1";
+}
+
+/// The helper beside this program. Windows adds the suffix.
+fs::path helper_path(const fs::path& folder) {
+#ifdef _WIN32
+    return folder / "oa-update.exe";
+#else
+    return folder / "oa-update";
+#endif
+}
+
+/// A recorded helper start. The caller has already stored the path and the
+/// arguments, and this build starts nothing.
+bool record_helper(
+    void* /*context*/,
+    const fs::path& /*helper*/,
+    const std::vector<std::string>& /*arguments*/,
+    std::string& /*why*/
+) {
+    return true;
+}
+
+/// Starts the helper and does not wait for it.
+bool spawn_helper(
+    void* /*context*/,
+    const fs::path& helper,
+    const std::vector<std::string>& arguments,
+    std::string& why
+) {
+#if OA_PROCESS_SPAWNING == 0
+    why = "this build starts no other program";
+    (void)helper;
+    (void)arguments;
+    return false;
+#else
+    std::vector<std::string> stored;
+    stored.reserve(arguments.size() + 1);
+    stored.push_back(path_to_utf8(helper));
+    stored.insert(stored.end(), arguments.begin(), arguments.end());
+    std::vector<char*> argv;
+    argv.reserve(stored.size() + 1);
+    for (std::string& word : stored)
+        argv.push_back(word.data());
+    argv.push_back(nullptr);
+    const SDL_PropertiesID properties = SDL_CreateProperties();
+    if (properties == 0) {
+        why = SDL_GetError();
+        return false;
+    }
+    // SDL reads the arguments as a mutable array but never writes them.
+    void* const argument_list = argv.data();
+    std::ignore =
+        SDL_SetPointerProperty(properties, SDL_PROP_PROCESS_CREATE_ARGS_POINTER, argument_list);
+    std::ignore =
+        SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true);
+    SDL_Process* process = SDL_CreateProcessWithProperties(properties);
+    SDL_DestroyProperties(properties);
+    if (process == nullptr) {
+        why = std::string("cannot start ") + stored.front() + ": " + SDL_GetError();
+        return false;
+    }
+    SDL_DestroyProcess(process);
+    return true;
+#endif
+}
+
+/// Tells whether nobody is watching this run.
+bool nobody_watching(const Options& options) {
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (driver == nullptr)
+        driver = SDL_GetHint(SDL_HINT_VIDEO_DRIVER);
+    const char* const ci = SDL_getenv("CI");
+    const std::string_view ci_text = ci == nullptr ? std::string_view{} : std::string_view(ci);
+    const std::string_view driver_text =
+        driver == nullptr ? std::string_view{} : std::string_view(driver);
+    return options.unattended || unattended_environment(ci_text, driver_text);
+}
+
+/// Writes the plan. The name is the one a build without self-update must not contain.
+bool write_update_plan(const fs::path& path, const update::Plan& plan, std::string& why) {
+    const std::string text = update::plan_text(plan);
+    const std::vector<uint8_t> bytes(text.begin(), text.end());
+    if (!oa::platform::replace_file(path, bytes, &why))
+        return false;
+    return true;
+}
+
+/// One allowed argument of the plan, and whether its value is a path.
+bool known_plan_flag(std::string_view flag, bool& path_value) {
+    path_value = flag == "--game-dir" || flag == "--data-dir" || flag == "--user-folder" ||
+                 flag == "--preferences-file" || flag == "--log-dir";
+    return path_value || flag == "--update-feed" || flag == "--update-key";
+}
+
+#endif
+
+/// Reads a whole file. Empty when it cannot be read.
+std::vector<uint8_t> read_bytes(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return {};
+    return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+} // namespace
+
+bool Runtime::update_menu_settled() {
+    return screen_ == Screen::main_menu && !frame_owned_by_package() &&
+           state_.state == frontend::state_id::main_menu &&
+           state_.pending_signal != frontend::signal_id::multiplayer &&
+           oa::ui::frontend_dialogs::dialog_count() == 0 && engine_settings_dialog() == nullptr;
+}
+
+bool Runtime::hand_off_requested() const {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return false;
+#else
+    if (update_ == nullptr || update_->download == nullptr)
+        return false;
+    return update_->download->snapshot().state == update::DownloadState::ready;
+#endif
+}
+
+void Runtime::hand_off_update() {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return;
+#else
+    if (update_ == nullptr || update_->handed || !hand_off_requested())
+        return;
+    const update::DownloadSnapshot shot = update_->download->snapshot();
+    if (shot.state != update::DownloadState::ready || shot.path.empty())
+        return;
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (!folder) {
+        std::cerr << "open-annihilation: update: " << failure << '\n';
+        return;
+    }
+    const feed::Way way = update_->held.offer.way == feed::Way::page_only ? feed::Way::page_only
+                                                                          : feed::Way::in_place;
+    const update::Where where = route_for(options_, way);
+    if (!where.route.has_value() || where.program.empty() || where.install.empty()) {
+        const std::string why =
+            where.why.empty() ? std::string("no route for this platform yet") : where.why;
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return;
+    }
+    const std::string kept =
+        update_->from_version.empty() ? running_build().version_text : update_->from_version;
+    const library::TextHooks hooks = plan_hooks();
+    update::Plan plan;
+    plan.plan = update::plan_format;
+    plan.action = update::Action::install;
+    plan.route = *where.route;
+    plan.wait_for = own_process();
+    plan.install = absolute_utf8(where.install);
+    plan.program = absolute_utf8(where.program);
+    if (options_.game_dir_named && !options_.game_dir.empty()) {
+        plan.arguments.push_back("--game-dir");
+        plan.arguments.push_back(absolute_utf8(options_.game_dir));
+    }
+    if (options_.data_dir && !options_.data_dir->empty()) {
+        plan.arguments.push_back("--data-dir");
+        plan.arguments.push_back(absolute_utf8(*options_.data_dir));
+    }
+    if (options_.user_folder && !options_.user_folder->empty()) {
+        plan.arguments.push_back("--user-folder");
+        plan.arguments.push_back(absolute_utf8(*options_.user_folder));
+    }
+    if (options_.preferences_file && !options_.preferences_file->empty()) {
+        plan.arguments.push_back("--preferences-file");
+        plan.arguments.push_back(absolute_utf8(*options_.preferences_file));
+    } else if (!preference_path_.empty()) {
+        plan.arguments.push_back("--preferences-file");
+        plan.arguments.push_back(absolute_utf8(preference_path_));
+    }
+    if (options_.log_dir && !options_.log_dir->empty()) {
+        plan.arguments.push_back("--log-dir");
+        plan.arguments.push_back(absolute_utf8(*options_.log_dir));
+    }
+    if (options_.skip_intro)
+        plan.arguments.push_back("--skip-intro");
+    if (options_.mute)
+        plan.arguments.push_back("--mute");
+    if (options_.update_feed.has_value() && !options_.update_feed->empty()) {
+        plan.arguments.push_back("--update-feed");
+        plan.arguments.push_back(*options_.update_feed);
+    }
+    for (const std::string& key : options_.update_keys) {
+        plan.arguments.push_back("--update-key");
+        plan.arguments.push_back(key);
+    }
+    plan.from_version = kept;
+    plan.feed = absolute_utf8(*folder / "feed.json");
+    plan.signature = absolute_utf8(*folder / "feed.json.sig");
+    plan.release = update_->download_release;
+    plan.package = update_->download_package;
+    plan.file = absolute_utf8(shot.path);
+    plan.installer = false;
+    plan.preferences = preference_path_.empty() ? plan.install : absolute_utf8(preference_path_);
+    if (options_.preferences_file && !options_.preferences_file->empty())
+        plan.preferences = absolute_utf8(*options_.preferences_file);
+    plan.updates = absolute_utf8(*folder);
+    plan.title = library::filled(hooks, kInstalling, {{"version", update_->download_version}});
+    plan.line = library::filled(hooks, kKept, {{"version", kept}});
+
+    const fs::path plan_file = *folder / "plan.json";
+    std::string why;
+    if (!write_update_plan(plan_file, plan, why)) {
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return;
+    }
+
+    const fs::path helper = helper_path(program_folder());
+    std::vector<std::string> helper_arguments;
+    helper_arguments.push_back("--plan");
+    helper_arguments.push_back(absolute_utf8(plan_file));
+    for (const std::string& key : options_.update_keys) {
+        helper_arguments.push_back("--feed-key");
+        helper_arguments.push_back(key);
+    }
+    update_->helper = path_to_utf8(helper);
+    update_->helper_arguments = helper_arguments;
+    update_->handed = true;
+    if (!update_->helper_chosen) {
+        update_->helper_chosen = true;
+        const bool record = options_.fixed_clock ||
+                            (nobody_watching(options_) && !options_.update_feed.has_value());
+        if (record) {
+            update_->start_helper = record_helper;
+            update_->helper_context = update_.get();
+        } else {
+            update_->start_helper = spawn_helper;
+            update_->helper_context = nullptr;
+        }
+    }
+    if (update_->start_helper == nullptr) {
+        std::cerr << "open-annihilation: update: the helper was not started\n";
+        return;
+    }
+    std::string start_why;
+    if (!update_->start_helper(update_->helper_context, helper, helper_arguments, start_why))
+        std::cerr << "open-annihilation: update: " << start_why << '\n';
+#endif
+}
+
+bool Runtime::report_update_handoff() {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return true;
+#else
+    if (!options_.check_update_download || update_ == nullptr || !update_->handed)
+        return true;
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (!folder) {
+        std::cerr << "open-annihilation: update: " << failure << '\n';
+        return false;
+    }
+    const std::vector<uint8_t> bytes = read_bytes(*folder / "plan.json");
+    std::string why;
+    const std::optional<update::Plan> read = update::read_plan(bytes, &why);
+    if (!read) {
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return false;
+    }
+    std::size_t index = 0;
+    while (index < read->arguments.size()) {
+        const std::string& flag = read->arguments[index];
+        if (flag == "--skip-intro" || flag == "--mute") {
+            ++index;
+            continue;
+        }
+        bool path_value = false;
+        if (!known_plan_flag(flag, path_value) || index + 1 >= read->arguments.size()) {
+            std::cerr << "open-annihilation: update: an argument is not allowed\n";
+            return false;
+        }
+        const std::string& value = read->arguments[index + 1];
+        if (value.empty() || (path_value && !path_from_utf8(value).is_absolute())) {
+            std::cerr << "open-annihilation: update: " << flag << " is not an absolute path\n";
+            return false;
+        }
+        index += 2;
+    }
+    const fs::path file_path = path_from_utf8(read->file);
+    const bool file_ok =
+        path_to_utf8(file_path.parent_path().filename()) == std::to_string(read->release);
+    const bool feed_ok = read->feed.size() >= 9 && read->feed.ends_with("feed.json");
+    const bool signature_ok =
+        read->signature.size() >= 13 && read->signature.ends_with("feed.json.sig");
+    const bool words_ok = read->title.find(update_->download_version) != std::string::npos &&
+                          read->line.find(read->from_version) != std::string::npos;
+    if (read->route != update::Route::check_folder || read->installer ||
+        read->wait_for != own_process() || !file_ok || !feed_ok || !signature_ok ||
+        read->package.empty() || read->release == 0 || !words_ok || read->preferences.empty() ||
+        read->updates.empty() || read->program.empty() || read->install.empty()) {
+        std::cerr << "open-annihilation: update: the plan does not read back\n";
+        return false;
+    }
+    std::cout << "update-download: helper " << update_->helper;
+    for (const std::string& argument : update_->helper_arguments)
+        std::cout << ' ' << argument;
+    std::cout << '\n';
+    std::cout << "update-download: plan read back\n";
+    std::cout.flush();
+    return true;
+#endif
+}
+
+bool Runtime::start_update_download() {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return false;
+#else
+    if (!update::replaces_itself())
+        return false;
+    if (match_ != nullptr || screen_ == Screen::match)
+        return false;
+    if (update_ == nullptr)
+        return false;
+    const update::CheckSnapshot& held = update_->held;
+    if (held.state != update::CheckState::offered || held.offer.release == nullptr ||
+        held.offer.package == nullptr)
+        return false;
+    if (held.offer.way != feed::Way::in_place)
+        return false;
+    // Copied before anything else replaces the snapshot the pointers address.
+    const feed::Release release = *held.offer.release;
+    const feed::Package package = *held.offer.package;
+    const update::Where where = route_for(options_, held.offer.way);
+    update_->route = where;
+    update_->route_known = true;
+    if (!where.route.has_value()) {
+        if (!update_->logged_route) {
+            update_->logged_route = true;
+            std::cerr << "open-annihilation: update download: " << where.why << '\n';
+        }
+        return false;
+    }
+    if (update_->download != nullptr && update_->download_release == release.release) {
+        const update::DownloadState state = update_->download->snapshot().state;
+        if (state == update::DownloadState::downloading ||
+            state == update::DownloadState::paused_for_match ||
+            state == update::DownloadState::verifying || state == update::DownloadState::ready)
+            return true;
+    }
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (!folder) {
+        std::cerr << "open-annihilation: update download: " << failure << '\n';
+        return false;
+    }
+    if (update_->download == nullptr)
+        update_->download = std::make_unique<update::PackageDownload>();
+    update_->download_release = release.release;
+    update_->download_version = release.version_text;
+    update_->download_package = package.id;
+    update_->download_installer = false;
+    update_->from_version = running_build().version_text;
+    update_->download_attempted = true;
+    update_->download->set_match_running(match_ != nullptr || screen_ == Screen::match);
+    update_->download->start(release, package, false, *folder);
+    return true;
+#endif
+}
+
+void Runtime::retry_update_download() {
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    if (update_ != nullptr)
+        update_->download_attempted = false;
+    static_cast<void>(start_update_download());
+#endif
+}
+
+bool Runtime::background_download_covers_offer() const {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return false;
+#else
+    if (update_ == nullptr)
+        return false;
+    const update::CheckSnapshot& held = update_->held;
+    if (held.state != update::CheckState::offered || held.offer.release == nullptr ||
+        held.offer.way != feed::Way::in_place)
+        return false;
+    if (!update::offer_wanted(held.offer, update::read_skipped(preference_values_)))
+        return false;
+    if (!background_switch_on(preference_values_))
+        return false;
+    return route_for(options_, held.offer.way).route.has_value();
+#endif
+}
+
+void Runtime::offer_ready() {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return;
+#else
+    if (options_.update_and_quit || update_ == nullptr || update_->download == nullptr)
+        return;
+    if (match_ != nullptr || screen_ == Screen::match) {
+        update_->ready_prompt_release.reset();
+        return;
+    }
+    if (screen_ != Screen::main_menu || frame_owned_by_package() ||
+        state_.state != frontend::state_id::main_menu ||
+        state_.pending_signal == frontend::signal_id::multiplayer)
+        return;
+    if (!options_.update_feed.has_value() && (options_.unattended || options_.headless_check))
+        return;
+    const update::DownloadSnapshot shot = update_->download->snapshot();
+    if (shot.state != update::DownloadState::ready)
+        return;
+    const int64_t release_number = update_->download_release;
+    if (update_->ready_prompt_release.has_value() &&
+        *update_->ready_prompt_release >= release_number)
+        return;
+    OaLayer& layer = oa_layer();
+    if (ready_question_queued(layer))
+        return;
+    const std::string version = update_->download_version;
+    kit::Question asked;
+    asked.word = std::string(kReadyWord);
+    asked.title = library::filled(shown_hooks(), kReadyTitle, {{"version", version}});
+    asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
+    asked.buttons.push_back(
+        {std::string(languages::interface_text("WHEN I QUIT")), false, "when-i-quit"}
+    );
+    asked.buttons.push_back(
+        {std::string(languages::interface_text("RESTART NOW")), true, "restart-now"}
+    );
+    asked.cancel_button = kWhenIQuit;
+    asked.primary_button = kRestartNow;
+    asked.marked = kRestartNow;
+    update_->ready_prompt_release = release_number;
+    Runtime* runtime = this;
+    QuestionScreen::Host host;
+    host.answer = [runtime](int32_t button) {
+        if (button == kRestartNow) {
+            runtime->quit_requested_ = true;
+            runtime->exit_status_ = 0;
+        }
+        return true;
+    };
+    host.tick = [runtime]() {
+        const bool in_match = runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+        if (in_match && runtime->update_)
+            runtime->update_->ready_prompt_release.reset();
+        return in_match;
+    };
+    auto question = std::make_unique<QuestionScreen>(
+        layer, Screen::main_menu, std::move(asked), std::move(host)
+    );
+    question->show_on_any_menu();
+    layer.show_when_free(std::move(question));
+#endif
+}
+
+void Runtime::offer_updated_notice() {
+    if (options_.update_and_quit || !options_.updated_from.has_value())
+        return;
+    if (update_ == nullptr)
+        update_.reset(new UpdateState());
+    if (update_->updated_notice_shown)
+        return;
+    if (match_ != nullptr || screen_ == Screen::match || !update_menu_settled())
+        return;
+    const std::optional<formats::oamod::EngineVersion> previous =
+        formats::oamod::parse_engine_version(*options_.updated_from);
+    const update::ThisBuild built = running_build();
+    if (!previous.has_value() || !(built.version > *previous))
+        return;
+    update_->updated_notice_shown = true;
+    kit::Notice told;
+    told.word = std::string(kUpdatedNotice);
+    told.title = library::filled(shown_hooks(), kUpdatedTo, {{"version", built.version_text}});
+    told.ok_caption = std::string(languages::interface_text("OK"));
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (folder) {
+        const std::vector<uint8_t> bytes = read_bytes(*folder / "feed.json");
+        std::string error;
+        const std::optional<feed::Feed> stored = feed::read_feed(bytes, &error);
+        const feed::Release* notes_release = nullptr;
+        if (stored) {
+            for (const feed::Release& release : stored->releases) {
+                if (release.version_text == built.version_text) {
+                    notes_release = &release;
+                    break;
+                }
+            }
+            if (notes_release == nullptr && !stored->releases.empty())
+                notes_release = &stored->releases.front();
+        }
+        if (notes_release != nullptr) {
+            const feed::Notes* notes = feed::notes_for(*notes_release, shown_language().tag);
+            if (notes != nullptr) {
+                for (const std::string& line : notes->lines)
+                    told.paragraphs.push_back({line, false});
+            }
+        }
+    }
+    NoticeScreen::Host host;
+    host.ok = []() {};
+    Runtime* runtime = this;
+    host.tick = [runtime]() {
+        return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+    };
+    OaLayer& layer = oa_layer();
+    auto notice =
+        std::make_unique<NoticeScreen>(layer, Screen::main_menu, std::move(told), std::move(host));
+    notice->show_on_any_menu();
+    layer.show_when_free(std::move(notice));
+}
+
+std::string Runtime::update_header_note() const {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return {};
+#else
+    if (update_ == nullptr || update_->download == nullptr || update_->download_version.empty())
+        return {};
+    const update::DownloadSnapshot shot = update_->download->snapshot();
+    const bool ready = shot.state == update::DownloadState::ready;
+    const bool fetching = shot.state == update::DownloadState::downloading ||
+                          shot.state == update::DownloadState::paused_for_match ||
+                          shot.state == update::DownloadState::verifying;
+    if (!ready && !fetching)
+        return {};
+    const std::string_view pattern = ready ? kHeaderReady : kHeaderFetching;
+    return library::filled(shown_hooks(), pattern, {{"version", update_->download_version}});
+#endif
+}
+
+bool Runtime::apply_update_download(settings::Dialog& dialog) {
+    const bool show = update::replaces_itself() && !options_.check_engine_settings;
+    settings::DownloadShown shown = settings::DownloadShown::none;
+    std::string version;
+    std::string done_text;
+    std::string size_text;
+    std::string reason;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    if (show && update_ != nullptr && update_->download != nullptr) {
+        const update::DownloadSnapshot shot = update_->download->snapshot();
+        version = update_->download_version;
+        switch (shot.state) {
+        case update::DownloadState::downloading:
+        case update::DownloadState::verifying:
+            shown = settings::DownloadShown::downloading;
+            break;
+        case update::DownloadState::paused_for_match:
+            shown = settings::DownloadShown::paused;
+            break;
+        case update::DownloadState::ready:
+            shown = settings::DownloadShown::ready;
+            break;
+        case update::DownloadState::failed:
+            shown = settings::DownloadShown::stopped;
+            reason = shot.failure;
+            break;
+        case update::DownloadState::waiting:
+            shown = settings::DownloadShown::none;
+            break;
+        }
+        if (shown != settings::DownloadShown::none) {
+            done_text = settings::download_size_text(shot.received);
+            size_text = settings::download_size_text(shot.total);
+        }
+    }
+#else
+    (void)show;
+#endif
+    const std::string note = update_header_note();
+    const bool changed = dialog.updates.show_download != show || dialog.updates.download != shown ||
+                         dialog.updates.download_version != version ||
+                         dialog.updates.download_done != done_text ||
+                         dialog.updates.download_size != size_text ||
+                         dialog.updates.download_reason != reason || dialog.header_note != note;
+    dialog.updates.show_download = show;
+    dialog.updates.download = shown;
+    dialog.updates.download_version = std::move(version);
+    dialog.updates.download_done = std::move(done_text);
+    dialog.updates.download_size = std::move(size_text);
+    dialog.updates.download_reason = std::move(reason);
+    dialog.header_note = note;
+    return changed;
+}
+
+void Runtime::consider_background_download() {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return;
+#else
+    if (options_.update_and_quit || update_ == nullptr)
+        return;
+    if (match_ != nullptr || screen_ == Screen::match)
+        return;
+    if (!background_switch_on(preference_values_))
+        return;
+    const update::CheckSnapshot& held = update_->held;
+    if (held.state != update::CheckState::offered || held.offer.way != feed::Way::in_place)
+        return;
+    if (!update::offer_wanted(held.offer, update::read_skipped(preference_values_)))
+        return;
+    if (update_->download_attempted)
+        return;
+    static_cast<void>(start_update_download());
+#endif
+}
+
+void Runtime::consider_update_and_quit() {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return;
+#else
+    if (!options_.update_and_quit || update_ == nullptr || quit_requested_)
+        return;
+    const update::CheckSnapshot& held = update_->held;
+    if (held.state == update::CheckState::idle || held.state == update::CheckState::checking) {
+        if (!update_->ran) {
+            const update::CheckMode mode = update::read_check_mode(preference_values_);
+            if (mode == update::CheckMode::never)
+                update::write_check_mode(preference_values_, update::CheckMode::automatically);
+            start_update_check(true);
+            if (mode == update::CheckMode::never)
+                update::write_check_mode(preference_values_, update::CheckMode::never);
+            update_->ran = true;
+        } else if (update_->checker == nullptr) {
+            std::cout << "update-download: no offer\n";
+            quit_requested_ = true;
+            exit_status_ = 1;
+        }
+        return;
+    }
+    if (held.state == update::CheckState::offered && held.offer.way == feed::Way::in_place) {
+        if (!update_->download_attempted) {
+            if (!start_update_download()) {
+                const std::string why =
+                    update_->route.why.empty() ? std::string("no offer") : update_->route.why;
+                std::cout << "update-download: " << why << '\n';
+                quit_requested_ = true;
+                exit_status_ = 1;
+            }
+            return;
+        }
+        if (update_->download == nullptr)
+            return;
+        const update::DownloadSnapshot shot = update_->download->snapshot();
+        if (shot.state == update::DownloadState::failed) {
+            std::cout << "update-download: " << shot.failure << '\n';
+            quit_requested_ = true;
+            exit_status_ = 1;
+            return;
+        }
+        if (shot.state == update::DownloadState::ready) {
+            quit_requested_ = true;
+            exit_status_ = 0;
+        }
+        return;
+    }
+    std::cout << "update-download: no offer\n";
+    if (held.state == update::CheckState::failed && !held.failure.empty())
+        std::cout << "update-download: " << held.failure << '\n';
+    quit_requested_ = true;
+    exit_status_ = 1;
+#endif
+}
+
+void Runtime::tick_update_install() {
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    if (update_ != nullptr && update_->download != nullptr)
+        update_->download->set_match_running(match_ != nullptr || screen_ == Screen::match);
+#endif
+    offer_ready();
+    if (!update_menu_settled())
+        return;
+    offer_updated_notice();
+    consider_background_download();
+    consider_update_and_quit();
+}
+
+} // namespace oa::app
