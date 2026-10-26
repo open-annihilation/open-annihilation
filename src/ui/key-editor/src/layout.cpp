@@ -1343,7 +1343,7 @@ std::vector<Piece> detail_pieces(
         add.y = y;
         add.height = std::max(button_side, int32_t{16});
         add.chip.add = true;
-        add.chip.none_text = show(editor.text(), words::add_key);
+        add.chip.add_caption = std::string(show(editor.text(), words::add_key));
         add.width = std::min(kit::chord_chip_width(fonts, add.chip), std::max(width, int32_t{0}));
         add.id = controls::detail_add;
         add.name = std::string(name_detail_add);

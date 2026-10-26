@@ -666,8 +666,9 @@ struct KeycapLook {
 };
 
 /// A chord chip: keycaps joined by "+", then a gesture word. add draws the
-/// dashed "+ ADD KEY" form, with keys empty and its caption in none_text.
-/// none_text alone is the quiet unbound text.
+/// dashed add form, with keys empty. Its caption is add_caption, or
+/// "+ ADD KEY" when that is empty. none_text after that caption is a quiet
+/// note. none_text alone, with add clear, is the unbound text.
 struct ChordChipLook {
     std::vector<std::string> keys{}; ///< the keycaps' labels, in order
     std::string gesture{};           ///< the gesture word after the keycaps
@@ -675,7 +676,8 @@ struct ChordChipLook {
     bool selected{false};            ///< the chip is chosen
     bool hovered{false};             ///< the pointer is over it
     bool add{false};                 ///< the dashed add form
-    std::string none_text{};         ///< the add form's caption, or the unbound text
+    std::string add_caption{};       ///< the add form's words; empty draws "+ ADD KEY"
+    std::string none_text{};         ///< a quiet note on the add form, or the unbound text
 };
 
 /// Which keyboard a picture draws.
