@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Which install layout this machine can use. This build knows the
-// self-check folder only; each platform's own route is filled in later.
-// Nothing here writes a file or starts a program.
+// self-check folder and a Linux versions folder. Nothing here writes a
+// file or starts a program.
 #pragma once
 
 #include "oa/app/update/build.hpp"
@@ -16,16 +16,30 @@
 
 namespace oa::app::update {
 
+/// Shown once when this copy is installed for the whole system.
+inline constexpr std::string_view whole_system_copy =
+    "This copy is installed for the whole system, so it cannot replace itself. Install the new "
+    "release the way this copy was installed.";
+
+/// Shown on a Steam Deck, and by the helper, when the update waits for the next start.
+/// {version} is the release being installed.
+inline constexpr std::string_view installs_next_start =
+    "{version} installs the next time you start Open Annihilation.";
+
 /// What the machine, and the options of this run, say about an install.
 ///
 /// A test passes any platform's facts. `this_machine` fills the ones this
 /// process can see, and leaves the option, the test feed and the offer's
 /// way for the caller to set.
 struct RouteFacts {
-    std::filesystem::path executable;                    ///< the program to start again
-    std::filesystem::path program_folder;                ///< the folder that holds that program
-    bool folder_writable{false};                         ///< the program folder can be written
-    std::string platform;                                ///< the package platform name
+    std::filesystem::path executable;     ///< the program to start again
+    std::filesystem::path program_folder; ///< the folder that holds that program
+    bool folder_writable{false};          ///< the program folder can be written
+    bool owned_by_player{true};           ///< the install's owner is this user
+    bool appimage{false};                 ///< APPIMAGE is set
+    bool flatpak{false};                  ///< FLATPAK_ID is set
+    bool launcher_present{false};         ///< the versions layout's launcher is there
+    std::string platform;                 ///< the package platform name
     std::optional<std::filesystem::path> install_folder; ///< `--update-install-folder`, when set
     bool test_feed{false};                               ///< this run fetched a test feed
     oa::data::engine_feed::Way way{
@@ -45,8 +59,11 @@ struct Where {
 ///
 /// A release offered on its page has none. A development build has none
 /// unless a test feed is in use. Otherwise the self-check install folder
-/// selects `check-folder`. Every platform is still without a route of its
-/// own: `why` is "no route for this platform yet".
+/// selects `check-folder`. A Linux install in a folder the player owns
+/// selects `linux-versions`, unless it lives under `/opt`, `/usr`, `/snap`
+/// or `/var/lib/flatpak`, or `APPIMAGE` or `FLATPAK_ID` is set: `why` is
+/// then the whole-system sentence. Every other platform is still without a
+/// route of its own: `why` is "no route for this platform yet".
 ///
 /// @param build the build that is running
 /// @param facts what the machine and this run say

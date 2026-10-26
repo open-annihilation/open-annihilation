@@ -10,7 +10,9 @@
 
 #include <algorithm>
 #include <exception>
+#include <filesystem>
 #include <string>
+#include <system_error>
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
@@ -86,6 +88,26 @@ std::string desktop_exec_argument(std::string_view path_utf8) {
 
 namespace {
 
+/// The program a desktop entry should name.
+///
+/// When the executable sits in `versions/<version>/` and the folder above that holds the
+/// launcher, the entry names the launcher, so it does not point into `versions/`.
+///
+/// @param executable the program, absolute
+/// @return the launcher when this is a versions layout, otherwise `executable`
+fs::path program_for_desktop(const fs::path& executable) {
+    const fs::path folder = executable.parent_path();
+    const fs::path above = folder.parent_path();
+    if (above.filename() != "versions")
+        return executable;
+    const fs::path launcher = above.parent_path() / "open-annihilation";
+    std::error_code error;
+    const fs::file_status status = fs::symlink_status(launcher, error);
+    if (error || !(fs::is_regular_file(status) || fs::is_symlink(status)))
+        return executable;
+    return launcher;
+}
+
 /// Returns a desktop entry that opens files of `opening` with `executable`: the file a bare
 /// argument, or after `-c` for a launch file.
 ///
@@ -96,7 +118,7 @@ namespace {
 /// @return the entry's text, UTF-8; empty when the path cannot be written in an entry
 std::string
 entry_for(const fs::path& executable, TypeSet types, Opening opening, std::string_view comment) {
-    const std::string path = detail::utf8_of(executable);
+    const std::string path = detail::utf8_of(program_for_desktop(executable));
     const std::string argument = desktop_exec_argument(path);
     if (argument.empty())
         return {};

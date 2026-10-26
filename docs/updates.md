@@ -106,8 +106,10 @@ they show "{version} ready".
 
 The prompt says "Open Annihilation {version} is ready". WHEN I QUIT leaves
 the file where it is. The next time you quit normally, or when you press
-RESTART NOW, the game writes the plan and starts `oa-update`. Where this
-copy has no route, UPDATE opens the release page as before.
+RESTART NOW, the game writes the plan and starts `oa-update`. On a Steam
+Deck the prompt says the version installs the next time you start Open
+Annihilation, and the helper does not start the game. Where this copy has
+no route, UPDATE opens the release page as before.
 
 The first settled main menu of a start that names `--updated-from` with an
 older version shows "Updated to {version}" once, with the notes from the
@@ -142,6 +144,30 @@ and a copy of the preferences file sits beside it. `updates/state.json`
 records what is installed and what was kept. The game then starts again.
 If a step fails, the helper puts back what it had changed and starts the
 version you had. The helper makes no request of its own.
+
+## Linux and Steam Deck
+
+A Linux or Steam Deck copy in a folder you own updates in that folder. The
+first update moves the program into `versions/<old>/`, puts the new release
+in `versions/<new>/`, and points `current` at the old one until the next
+start. A launcher takes the place of `open-annihilation`, so a Steam
+shortcut or a desktop entry that names that file keeps working. It does not
+name a folder inside `versions/`. The next start makes `current` name the
+new version and starts it. The launcher deletes nothing. A later update
+removes a version that is neither the one running nor the new one.
+
+On a desktop the helper starts that launcher at once. On a Steam Deck it
+does not start the game. The window says "{version} installs the next time
+you start Open Annihilation."
+
+A copy under `/opt`, `/usr`, `/snap` or `/var/lib/flatpak`, a copy you do
+not own, and an AppImage or Flatpak only shows "This copy is installed for
+the whole system, so it cannot replace itself. Install the new release the
+way this copy was installed."
+
+An install of 0.8.6 or older is still updated by hand once, to 0.8.7.
+After that the game updates itself. `oa-tool` is `current/oa-tool` once
+the first update has made `current`.
 
 ## Copies a package manager updates
 
