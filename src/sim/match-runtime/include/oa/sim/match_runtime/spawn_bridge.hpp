@@ -103,7 +103,8 @@ class SpawnBridge final : public sim::unit_spawn::Host {
     /// @param views Legacy views over `state`.
     /// @param loaded Loaded model/COB assets per type, as many as the tables'
     ///     types; when the counts differ, the refusal is noted and no asset
-    ///     is found.
+    ///     is found. One interpreter program is prepared for each loaded
+    ///     script and kept for the match.
     /// @param values Unit-value services for the unit scripts.
     /// @param effects Effect and attachment services for the unit scripts.
     /// @param subsystems Engine operations unit creation calls out to.
@@ -328,6 +329,19 @@ class SpawnBridge final : public sim::unit_spawn::Host {
     std::vector<SlotRuntime> runtime_;
     SlotRuntime spare_runtime_; // what runtime() gives for a slot outside the pool
     std::vector<std::unique_ptr<PendingScript>> scripts_;
+    /// Prepared interpreter programs, one per loaded type, in type order.
+    /// A type with no script, or one that shares another type's COB program,
+    /// holds that shared program (or none). Lives as long as the match.
+    std::unique_ptr<SharedScriptProgram[]> type_scripts_;
+    std::size_t type_script_count_ = 0;
+    /// Prepares one interpreter program for each loaded type.
+    void prepare_type_scripts();
+    /// Finds the prepared program for a loaded COB program.
+    ///
+    /// @param cob COB program a loaded type holds, or null.
+    /// @return That type's prepared program, or null when this match did not
+    ///     load it.
+    const SharedScriptProgram* script_for(const formats::cob::CobProgram* cob) const noexcept;
     /// Finds a pending script by its handle.
     ///
     /// @param handle Handle allocate_script returned.

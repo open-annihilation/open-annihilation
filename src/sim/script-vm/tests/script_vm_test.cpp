@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -31,13 +32,40 @@ void require(bool condition, const std::string& message) {
         throw std::runtime_error(message);
 }
 
+namespace {
+
+struct HeldWords {
+    std::vector<uint32_t> code;
+    std::vector<uint32_t> entry_points;
+};
+
+vm::Program owning_program(
+    std::vector<uint32_t> code,
+    std::vector<uint32_t> entries,
+    std::size_t statics,
+    std::size_t pieces = 0
+) {
+    const auto held = std::make_shared<HeldWords>();
+    held->code = std::move(code);
+    held->entry_points = std::move(entries);
+    vm::Program program;
+    program.code = held->code;
+    program.entry_points = held->entry_points;
+    program.static_count = statics;
+    program.piece_count = pieces;
+    program.owner = held;
+    return program;
+}
+
+} // namespace
+
 vm::Vm make_vm(
     std::vector<uint32_t> code,
     std::vector<uint32_t> entries = {0},
     std::size_t statics = 1,
     int32_t time_scale = 1000
 ) {
-    return vm::Vm({std::move(code), std::move(entries), statics}, time_scale);
+    return vm::Vm(owning_program(std::move(code), std::move(entries), statics), time_scale);
 }
 
 struct MockHost final : vm::Host {
@@ -509,7 +537,7 @@ void launch_of_missing_script_or_arguments() {
 
 void piece_motion_waits_and_callbacks() {
     MockHost host;
-    vm::Program program{
+    vm::Program program = owning_program(
         {
             vm::opcode::push_constant,
             2000,
@@ -550,7 +578,7 @@ void piece_motion_waits_and_callbacks() {
         {0},
         0,
         1
-    };
+    );
     vm::Vm machine(std::move(program), host, 1000);
     const auto started = machine.start(0);
     require(started.ok() && machine.tick(0).ok(), "piece motion script did not reach WAIT_MOVE");
@@ -595,28 +623,30 @@ void piece_motion_waits_and_callbacks() {
 void spin_acceleration_and_stop_wait() {
     MockHost host;
     vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             1000,
-             vm::opcode::push_constant,
-             3000,
-             vm::opcode::spin,
-             0,
-             2,
-             vm::opcode::return_,
-             vm::opcode::push_constant,
-             1000,
-             vm::opcode::stop_spin,
-             0,
-             2,
-             vm::opcode::wait_turn,
-             0,
-             2,
-             vm::opcode::return_,
-         },
-         {0, 8},
-         0,
-         1},
+        owning_program(
+            {
+                vm::opcode::push_constant,
+                1000,
+                vm::opcode::push_constant,
+                3000,
+                vm::opcode::spin,
+                0,
+                2,
+                vm::opcode::return_,
+                vm::opcode::push_constant,
+                1000,
+                vm::opcode::stop_spin,
+                0,
+                2,
+                vm::opcode::wait_turn,
+                0,
+                2,
+                vm::opcode::return_,
+            },
+            {0, 8},
+            0,
+            1
+        ),
         host,
         1000
     );
@@ -637,35 +667,37 @@ void spin_acceleration_and_stop_wait() {
 void spin_reversal_preserves_per_piece_activity() {
     MockHost host;
     vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             0,
-             vm::opcode::push_constant,
-             static_cast<uint32_t>(-2000),
-             vm::opcode::spin,
-             0,
-             0,
-             vm::opcode::return_,
-             vm::opcode::push_constant,
-             1000,
-             vm::opcode::push_constant,
-             2000,
-             vm::opcode::spin,
-             0,
-             0,
-             vm::opcode::return_,
-             vm::opcode::push_constant,
-             0,
-             vm::opcode::push_constant,
-             1000,
-             vm::opcode::spin,
-             1,
-             0,
-             vm::opcode::return_,
-         },
-         {0, 8, 16},
-         0,
-         2},
+        owning_program(
+            {
+                vm::opcode::push_constant,
+                0,
+                vm::opcode::push_constant,
+                static_cast<uint32_t>(-2000),
+                vm::opcode::spin,
+                0,
+                0,
+                vm::opcode::return_,
+                vm::opcode::push_constant,
+                1000,
+                vm::opcode::push_constant,
+                2000,
+                vm::opcode::spin,
+                0,
+                0,
+                vm::opcode::return_,
+                vm::opcode::push_constant,
+                0,
+                vm::opcode::push_constant,
+                1000,
+                vm::opcode::spin,
+                1,
+                0,
+                vm::opcode::return_,
+            },
+            {0, 8, 16},
+            0,
+            2
+        ),
         host,
         1000
     );
@@ -688,22 +720,24 @@ void spin_reversal_preserves_per_piece_activity() {
 void turn_completion_uses_signed_wrapped_step() {
     MockHost host;
     vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             0x7fffffffU,
-             vm::opcode::push_constant,
-             10,
-             vm::opcode::turn,
-             0,
-             0,
-             vm::opcode::wait_turn,
-             0,
-             0,
-             vm::opcode::return_,
-         },
-         {0},
-         0,
-         1},
+        owning_program(
+            {
+                vm::opcode::push_constant,
+                0x7fffffffU,
+                vm::opcode::push_constant,
+                10,
+                vm::opcode::turn,
+                0,
+                0,
+                vm::opcode::wait_turn,
+                0,
+                0,
+                vm::opcode::return_,
+            },
+            {0},
+            0,
+            1
+        ),
         host,
         1
     );
@@ -720,22 +754,24 @@ void turn_direction_preserves_wrapped_abs_edge() {
     MockHost host;
     host.angles[0][0] = std::numeric_limits<int32_t>::min();
     vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             5,
-             vm::opcode::push_constant,
-             0,
-             vm::opcode::turn,
-             0,
-             0,
-             vm::opcode::wait_turn,
-             0,
-             0,
-             vm::opcode::return_,
-         },
-         {0},
-         0,
-         1},
+        owning_program(
+            {
+                vm::opcode::push_constant,
+                5,
+                vm::opcode::push_constant,
+                0,
+                vm::opcode::turn,
+                0,
+                0,
+                vm::opcode::wait_turn,
+                0,
+                0,
+                vm::opcode::return_,
+            },
+            {0},
+            0,
+            1
+        ),
         host,
         1
     );
@@ -750,45 +786,47 @@ void turn_direction_preserves_wrapped_abs_edge() {
 void unit_callback_stack_order() {
     MockHost host;
     vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             11,
-             vm::opcode::get_unit_value,
-             vm::opcode::pop_static,
-             0,
-             vm::opcode::push_constant,
-             1,
-             vm::opcode::push_constant,
-             2,
-             vm::opcode::push_constant,
-             3,
-             vm::opcode::push_constant,
-             4,
-             vm::opcode::push_constant,
-             5,
-             vm::opcode::get,
-             vm::opcode::pop_static,
-             1,
-             vm::opcode::push_constant,
-             9,
-             vm::opcode::push_constant,
-             10,
-             vm::opcode::set_unit_value,
-             vm::opcode::push_constant,
-             20,
-             vm::opcode::push_constant,
-             21,
-             vm::opcode::push_constant,
-             22,
-             vm::opcode::attach_unit,
-             vm::opcode::push_constant,
-             23,
-             vm::opcode::drop_unit,
-             vm::opcode::return_,
-         },
-         {0},
-         2,
-         0},
+        owning_program(
+            {
+                vm::opcode::push_constant,
+                11,
+                vm::opcode::get_unit_value,
+                vm::opcode::pop_static,
+                0,
+                vm::opcode::push_constant,
+                1,
+                vm::opcode::push_constant,
+                2,
+                vm::opcode::push_constant,
+                3,
+                vm::opcode::push_constant,
+                4,
+                vm::opcode::push_constant,
+                5,
+                vm::opcode::get,
+                vm::opcode::pop_static,
+                1,
+                vm::opcode::push_constant,
+                9,
+                vm::opcode::push_constant,
+                10,
+                vm::opcode::set_unit_value,
+                vm::opcode::push_constant,
+                20,
+                vm::opcode::push_constant,
+                21,
+                vm::opcode::push_constant,
+                22,
+                vm::opcode::attach_unit,
+                vm::opcode::push_constant,
+                23,
+                vm::opcode::drop_unit,
+                vm::opcode::return_,
+            },
+            {0},
+            2,
+            0
+        ),
         host
     );
     require(machine.start(0).ok() && machine.tick(0).ok(), "unit callback script faulted");
@@ -812,20 +850,20 @@ void unit_callback_stack_order() {
 }
 
 void host_opcode_rejects_before_consuming_stack() {
-    vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             1000,
-             vm::opcode::push_constant,
-             5,
-             vm::opcode::move,
-             0,
-             0,
-         },
-         {0},
-         0,
-         1}
-    );
+    vm::Vm machine(owning_program(
+        {
+            vm::opcode::push_constant,
+            1000,
+            vm::opcode::push_constant,
+            5,
+            vm::opcode::move,
+            0,
+            0,
+        },
+        {0},
+        0,
+        1
+    ));
     const auto started = machine.start(0);
     require(started.ok(), "missing-host script did not start");
     const auto result = machine.tick(0);
@@ -838,14 +876,16 @@ void host_opcode_rejects_before_consuming_stack() {
 }
 
 void constructor_checks_bounds_before_allocation() {
-    vm::Vm machine({{vm::opcode::return_}, {0}, std::numeric_limits<std::size_t>::max(), 0});
+    vm::Vm machine(
+        owning_program({vm::opcode::return_}, {0}, std::numeric_limits<std::size_t>::max(), 0)
+    );
     require(
         machine.program_error() &&
             machine.program_error()->code == vm::ErrorCode::invalid_program &&
             !machine.start(0).ok(),
         "oversized static table was not rejected before allocation"
     );
-    vm::Vm outside({{vm::opcode::return_}, {1}, 0, 0});
+    vm::Vm outside(owning_program({vm::opcode::return_}, {1}, 0, 0));
     require(
         outside.program_error() && !outside.start(0).ok(),
         "entry point outside code was not rejected"
@@ -893,42 +933,44 @@ void context_reuse_preserves_unreset_words() {
 void piece_carrier_and_random_opcodes() {
     MockHost host;
     vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             20,
-             vm::opcode::push_constant,
-             30,
-             vm::opcode::ignored_piece_op,
-             7,
-             vm::opcode::dont_shadow,
-             8,
-             vm::opcode::push_constant,
-             9,
-             vm::opcode::is_carrying_unit,
-             vm::opcode::pop_static,
-             0,
-             vm::opcode::carrier_unit_id,
-             vm::opcode::pop_static,
-             1,
-             vm::opcode::push_constant,
-             5,
-             vm::opcode::push_constant,
-             9,
-             vm::opcode::random,
-             vm::opcode::pop_static,
-             2,
-             vm::opcode::push_constant,
-             1,
-             vm::opcode::push_constant,
-             2,
-             vm::opcode::discard_call,
-             0xdeadbeefU,
-             2,
-             vm::opcode::return_,
-         },
-         {0},
-         3,
-         0},
+        owning_program(
+            {
+                vm::opcode::push_constant,
+                20,
+                vm::opcode::push_constant,
+                30,
+                vm::opcode::ignored_piece_op,
+                7,
+                vm::opcode::dont_shadow,
+                8,
+                vm::opcode::push_constant,
+                9,
+                vm::opcode::is_carrying_unit,
+                vm::opcode::pop_static,
+                0,
+                vm::opcode::carrier_unit_id,
+                vm::opcode::pop_static,
+                1,
+                vm::opcode::push_constant,
+                5,
+                vm::opcode::push_constant,
+                9,
+                vm::opcode::random,
+                vm::opcode::pop_static,
+                2,
+                vm::opcode::push_constant,
+                1,
+                vm::opcode::push_constant,
+                2,
+                vm::opcode::discard_call,
+                0xdeadbeefU,
+                2,
+                vm::opcode::return_,
+            },
+            {0},
+            3,
+            0
+        ),
         host
     );
     require(
@@ -957,16 +999,16 @@ void piece_carrier_and_random_opcodes() {
 }
 
 void return_callback_order_and_value() {
-    vm::Vm machine(
-        {{
-             vm::opcode::push_constant,
-             42,
-             vm::opcode::return_,
-         },
-         {0},
-         0,
-         0}
-    );
+    vm::Vm machine(owning_program(
+        {
+            vm::opcode::push_constant,
+            42,
+            vm::opcode::return_,
+        },
+        {0},
+        0,
+        0
+    ));
     bool invoked = false;
     bool observed_active = false;
     int32_t observed_sp = 99;
@@ -992,7 +1034,7 @@ void return_callback_order_and_value() {
         "allocator did not clear callback or null-callback RETURN popped a value"
     );
 
-    vm::Vm missing_value({{vm::opcode::return_}, {0}, 0, 0});
+    vm::Vm missing_value(owning_program({vm::opcode::return_}, {0}, 0, 0));
     require(missing_value.start(0, {}, [](int32_t) {}).ok(), "empty callback RETURN did not start");
     const auto error = missing_value.tick(0);
     require(
@@ -1022,7 +1064,7 @@ void discard_call_bounds_before_pop() {
 }
 
 vm::Program state_bridge_program() {
-    return {
+    return owning_program(
         {
             vm::opcode::stack_alloc,
             vm::opcode::push_constant,
@@ -1067,7 +1109,7 @@ vm::Program state_bridge_program() {
         {0, 36},
         2,
         1
-    };
+    );
 }
 
 void state_bridge_round_trip_and_continuation() {
@@ -1163,16 +1205,16 @@ void state_bridge_round_trip_and_continuation() {
 
 void state_restore_clears_return_callback() {
     bool callback_invoked = false;
-    vm::Vm source(
-        {{
-             vm::opcode::push_constant,
-             42,
-             vm::opcode::return_,
-         },
-         {0},
-         0,
-         0}
-    );
+    vm::Vm source(owning_program(
+        {
+            vm::opcode::push_constant,
+            42,
+            vm::opcode::return_,
+        },
+        {0},
+        0,
+        0
+    ));
     require(
         source.start(0, {}, [&](int32_t) { callback_invoked = true; }).ok(),
         "callback-clearing source did not start"
@@ -1180,16 +1222,16 @@ void state_restore_clears_return_callback() {
     const auto saved = source.export_state(7);
     require(saved.ok(), "callback-clearing source did not export");
 
-    vm::Vm restored(
-        {{
-             vm::opcode::push_constant,
-             42,
-             vm::opcode::return_,
-         },
-         {0},
-         0,
-         0}
-    );
+    vm::Vm restored(owning_program(
+        {
+            vm::opcode::push_constant,
+            42,
+            vm::opcode::return_,
+        },
+        {0},
+        0,
+        0
+    ));
     require(
         restored.start(0, {}, [&](int32_t) { callback_invoked = true; }).ok(),
         "callback-clearing destination did not start with an installed callback"
@@ -1206,7 +1248,7 @@ void state_restore_clears_return_callback() {
 }
 
 void state_import_rejects_invalid_context_before_mutation() {
-    vm::Vm machine({{vm::opcode::return_}, {0}, 0, 0});
+    vm::Vm machine(owning_program({vm::opcode::return_}, {0}, 0, 0));
     const auto before = machine.context(0);
     auto invalid = machine.export_state(1);
     require(invalid.ok(), "invalid-state fixture did not export");
@@ -1431,6 +1473,49 @@ void instruction_budget_stops_infinite_loop() {
 // the VM sizes every context's stack for its program's deepest script. The
 // saved state keeps the first 32 slots of a context, and a context's stack
 // stops at limit::stack_slots.
+void shared_program_keeps_separate_machines() {
+    const auto shared = vm::prepare_program(owning_program(
+        {
+            vm::opcode::push_constant,
+            5,
+            vm::opcode::pop_static,
+            0,
+            vm::opcode::push_constant,
+            2000,
+            vm::opcode::sleep,
+            vm::opcode::return_,
+        },
+        {0},
+        1
+    ));
+    vm::Vm first(shared, 10);
+    vm::Vm second(shared, 10);
+    require(
+        first.program().code.data() == second.program().code.data() &&
+            !first.program().code.empty(),
+        "two VMs built from one program do not share its code"
+    );
+    require(first.start(0).ok() && first.tick(0).ok(), "first shared VM did not sleep");
+    require(
+        first.static_value(0) == 5 && first.active_count() == 1 &&
+            first.context(0).state == vm::ContextState::sleeping &&
+            first.context(0).stack_pointer == -1,
+        "first shared VM did not keep its own static and context"
+    );
+    require(
+        second.static_value(0) == 0 && second.active_count() == 0 &&
+            second.context(0).state == vm::ContextState::stopped,
+        "the second VM saw the first VM's statics or thread"
+    );
+    const std::array<int32_t, 1> argument{11};
+    require(second.start(0, argument).ok(), "second shared VM did not start");
+    require(
+        second.context(0).stack_pointer == 0 && second.context(0).slots[0] == 11 &&
+            first.context(0).stack_pointer == -1 && first.context(0).slots[0] == 2000,
+        "the two VMs did not keep separate stacks"
+    );
+}
+
 void deep_expression_fits_the_stack() {
     constexpr uint32_t terms = 78;
     std::vector<uint32_t> code;
@@ -1493,6 +1578,7 @@ void deep_expression_fits_the_stack() {
 
 int main() {
     try {
+        shared_program_keeps_separate_machines();
         deep_expression_fits_the_stack();
         arithmetic_locals_and_statics();
         signed_branching_and_logic();
