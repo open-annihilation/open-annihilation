@@ -7,6 +7,7 @@
 #include <iostream>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #if __has_include("oa_engine_build.hpp")
@@ -15,8 +16,10 @@
 #include "oa/app/version_line.hpp"
 
 int main(int argc, char** argv) {
-    // The same line as the game, before any command reads a file.
-    if (oa::app::version_argument_present(argc, argv)) {
+    // The same line as the game, before any command reads a file. Only as the
+    // first argument: a command such as engine-feed write or mutator import
+    // takes a --version of its own.
+    if (argc > 1 && argv[1] != nullptr && std::string_view(argv[1]) == "--version") {
         std::cout << oa::app::running_engine_version_line() << '\n';
         return oa::tool::exit_done;
     }
