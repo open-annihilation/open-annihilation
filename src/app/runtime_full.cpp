@@ -1618,7 +1618,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
         }
         const auto* gamma = gamma_identity_ ? nullptr : &gamma_table_;
         const auto upload_start = std::chrono::steady_clock::now();
-        upload_rgb24_frame(match_hud_tex_, match_hud_cpu_);
+        upload_rgb24_frame(
+            match_hud_tex_, match_hud_cpu_, accelerated_.hud_revision, &spare_match_hud_
+        );
         // What the painters painted on the canvas, by its key, uploaded in
         // the bands that hold it now or held it at the last upload, so the
         // texture holds this frame's overlay whatever came before.

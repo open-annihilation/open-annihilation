@@ -10210,12 +10210,26 @@ class Runtime final : public menu::Host,
     /// Uploads an RGB24 surface into a texture of the opaque layers' formats
     /// (opaque_layer_format) through the display gamma.
     ///
+    /// A frame that follows the one the texture holds, given unchanged as
+    /// `before`, uploads only its bands of xrgb_band_rows rows that differ
+    /// from it; any other frame is uploaded whole. The texture keeps the
+    /// number of the frame it holds, never its pixels.
+    ///
     /// Throws PresentError when the texture cannot be locked.
     ///
     /// @param texture XRGB8888, ARGB8888 or RGB565 texture of the surface's
     ///        size; null uploads nothing
     /// @param source RGB surface
-    void upload_rgb24_frame(SDL_Texture* texture, const renderer::Surface& source);
+    /// @param frame the caller's number for the surface's frame, one more
+    ///        than the frame before's
+    /// @param before the frame numbered one less, as it was uploaded and
+    ///        since unchanged; null uploads the surface whole
+    void upload_rgb24_frame(
+        SDL_Texture* texture,
+        const renderer::Surface& source,
+        uint64_t frame = 0,
+        const renderer::Surface* before = nullptr
+    );
 
     /// Uploads an RGB24 surface into a texture or its tiles, of the opaque
     /// layers' formats, through the display gamma as upload_rgb24_frame does.
@@ -18706,7 +18720,10 @@ class Runtime final : public menu::Host,
     TiledTexture match_dialog_tex_;
     renderer::Surface match_hud_cpu_{};
     // The HUD layer the frame before showed, whose memory the next frame's
-    // HUD is drawn into.
+    // HUD is drawn into. Until then the HUD's upload sends only the bands
+    // that differ from it (upload_rgb24_frame), which holds while the HUD
+    // layer is drawn on only between its composition (compose_match_hud)
+    // and its upload.
     renderer::Surface spare_match_hud_{};
     renderer::Surface match_world_cpu_{};
     /// The health bars the last match frame drew, in the order drawn, in
