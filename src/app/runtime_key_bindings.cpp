@@ -1379,7 +1379,7 @@ keys::Contexts Runtime::input_contexts() {
             contexts.active |= context_bit("unit-info");
         if (megamap_shown())
             contexts.active |= context_bit("megamap");
-        if (whiteboard_on() && device_state::key_held(SDL_SCANCODE_BACKSLASH))
+        if (whiteboard_on() && action_held("whiteboard.draw"))
             contexts.active |= context_bit("whiteboard");
         if (match_command_ == MatchCommand::build || pending_build_type_ != 0)
             contexts.active |= context_bit("placing");
@@ -1806,6 +1806,38 @@ bool Runtime::action_held(std::string_view action) const {
     if (key_bindings_state_->dispatcher.chord_key_held(action, keys_held))
         return true;
     return modifier_role_active(action);
+}
+
+bool Runtime::action_button_matches(
+    std::string_view action, uint8_t button, keys::Gesture gesture
+) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready || button == 0)
+        return false;
+    const keys::Bound* found = nullptr;
+    for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+        if (bound.id == action) {
+            found = &bound;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return false;
+    keys::InputEvent input;
+    input.kind = keys::InputKind::button;
+    input.down = true;
+    input.button = button;
+    input.clicks = gesture == keys::Gesture::double_press ? 2 : 1;
+    input.modifiers = binding_modifiers(device_state::modifiers_held());
+    const keys::KeyboardMap& map = key_bindings_state_->dispatcher.keyboard();
+    const keys::Platform where = key_bindings_state_->platform;
+    for (const keys::BoundChord& item : found->chords) {
+        if (item.chord.gesture != gesture)
+            continue;
+        if (keys::match(item.chord, input, map, where) != keys::Match::none)
+            return true;
+    }
+    return false;
 }
 
 bool Runtime::action_key_matches(std::string_view action, const SDL_KeyboardEvent& key) {

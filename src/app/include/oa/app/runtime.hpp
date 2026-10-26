@@ -2607,6 +2607,19 @@ class Runtime final : public menu::Host,
     /// @return true when the key is one of that action's chords
     [[nodiscard]] bool action_key_matches(std::string_view action, const SDL_KeyboardEvent& key);
 
+    /// Whether this mouse button is one of the action's chords of that gesture.
+    ///
+    /// A double-press chord does not match a plain press. Resolves the
+    /// bindings on first use. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param button the SDL button number
+    /// @param gesture the gesture the chord must name
+    /// @return true when one chord is that button and gesture
+    [[nodiscard]] bool action_button_matches(
+        std::string_view action, uint8_t button, oa::ui::key_bindings::Gesture gesture
+    );
+
     /// The contexts, the conditions and text entry for the event about to be fed.
     ///
     /// Computed for that event, not once a frame. While a modal Open Annihilation screen shows,
@@ -13817,11 +13830,15 @@ class Runtime final : public menu::Host,
     /// @param open true to open
     void set_megamap_open(bool open);
 
-    /// Takes Tab for ui.megamap: it opens and closes the megamap.
+    /// Opens or closes the megamap when the key is megamap.toggle.
+    ///
+    /// The chord is matched on the key itself, so a check that sends Tab
+    /// without feeding the dispatcher still opens the map. A repeat does not
+    /// toggle again. Nothing is taken while the megamap hack is off.
     ///
     /// @param key the key event
     /// @return true when the megamap took the key
-    bool megamap_key(const SDL_KeyboardEvent& key);
+    bool take_megamap_toggle(const SDL_KeyboardEvent& key);
 
     /// Takes the wheel for ui.megamap: rolled toward the player it opens the
     /// megamap; rolled away it closes it, the camera centred where the
@@ -13951,10 +13968,9 @@ class Runtime final : public menu::Host,
     /// @return map x and y
     [[nodiscard]] std::array<int32_t, 2> battlefield_map_point(float x, float y) const;
 
-    /// Takes a pointer event for ui.whiteboard while its key is held or a
-    /// stroke runs: the left button draws, carries a marker or, double, writes
-    /// one; the middle button's release places a dot; the right button wipes
-    /// along its path or, double, erases a spot.
+    /// Takes a pointer event for ui.whiteboard while whiteboard.draw is held
+    /// or a stroke runs. The line, text, move, wipe, erase and dot actions
+    /// name the buttons. A dot is placed when its button is released.
     /// A stroke starts in the overlays' area and not where placed_hud_covers
     /// claims.
     ///
@@ -13964,12 +13980,12 @@ class Runtime final : public menu::Host,
     /// @return true when the whiteboard took the event
     bool whiteboard_pointer(const SDL_Event& event, float x, float y);
 
-    /// Takes a key for ui.whiteboard: the open text editor's keys, and Ctrl
-    /// with the whiteboard key to the newest received marker.
+    /// Takes a key for ui.whiteboard: the open text editor's keys, the draw
+    /// chord, and the jump chord to the newest received marker.
     ///
     /// @param key the key event
     /// @return true when the whiteboard took the key
-    bool whiteboard_key(const SDL_KeyboardEvent& key);
+    bool take_whiteboard_chord(const SDL_KeyboardEvent& key);
 
     /// Takes typed text into ui.whiteboard's open text editor.
     ///
@@ -14011,7 +14027,7 @@ class Runtime final : public menu::Host,
 
     /// Takes a double-click for ui.selection-shortcuts: on the second click of
     /// a pair, over one of the local player's units in the battlefield and
-    /// without the line build key held, the selection becomes the local
+    /// without build.line held, the selection becomes the local
     /// player's finished units on screen of the selected types
     /// (selection::select_selected_types_on_screen).
     ///
@@ -14021,17 +14037,24 @@ class Runtime final : public menu::Host,
     /// @return true when the double-click was taken, and the game's own click is skipped
     bool selection_shortcut_double_click(float x, float y, int32_t clicks);
 
-    /// Takes Ctrl+S, Ctrl+B or Ctrl+F for ui.selection-shortcuts: the mobile
-    /// combat units on screen, the next idle constructor or the next idle
-    /// factory. With shift the game's own key runs instead.
-    ///
-    /// @param sym the key, pressed with Ctrl
-    /// @param shift shift is held
-    /// @return true when the key was taken
-    bool selection_shortcut_key(SDL_Keycode sym, bool shift);
+    /// Which selection shortcut a key asked for. Shift leaves the game's own key.
+    enum class SelectionShortcut : uint8_t {
+        on_screen,     ///< mobile armed units on screen
+        idle_builders, ///< the next idle constructor
+        idle_factories ///< the next idle factory
+    };
 
-    /// Filters the selection a drag box just made by the W, B or Y key held
-    /// (ui.selection-shortcuts).
+    /// Takes one selection shortcut for ui.selection-shortcuts. With shift the
+    /// game's own key runs instead.
+    ///
+    /// @param which the shortcut the action named
+    /// @param shift shift is held
+    /// @return true when the shortcut was taken
+    bool selection_shortcut_key(SelectionShortcut which, bool shift);
+
+    /// Filters the selection a drag box just made by the box-filter actions
+    /// held as the box was released (ui.selection-shortcuts). A press of those
+    /// keys is never this filter.
     void selection_shortcut_drag_filter();
 
     /// Takes the selection the selection module left in the unit flags: each selected local unit

@@ -2789,11 +2789,17 @@ bool OaLayer::take_match_button(const ScreenInput& input) {
         runtime_.open_engine_settings_in_match();
         return true;
     }
-    // Ctrl+F2 opens the mod options while the profile offers them.
-    if (input.kind == ScreenInputKind::key_down && input.key == SDLK_F2 &&
-        (input.modifiers & SDL_KMOD_CTRL) != 0 && runtime_.ui_rules().options_dialog.enabled) {
-        runtime_.open_engine_settings_in_match(settings::DialogKind::mod_options);
-        return true;
+    // The options action opens the mod options while that hack is on. The
+    // press was already given to the dispatcher, so a moved chord still opens
+    // it and Ctrl+F2 does not when the player has moved the key.
+    if (input.kind == ScreenInputKind::key_down && runtime_.ui_rules().options_dialog.enabled) {
+        for (const oa::ui::key_bindings::ActionEvent& fed : runtime_.match_action_events()) {
+            if (fed.action == "game.options-dialog" &&
+                fed.phase == oa::ui::key_bindings::Phase::pressed) {
+                runtime_.open_engine_settings_in_match(settings::DialogKind::mod_options);
+                return true;
+            }
+        }
     }
     const bool pointer = input.kind == ScreenInputKind::pointer_move ||
                          input.kind == ScreenInputKind::pointer_down ||

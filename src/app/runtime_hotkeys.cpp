@@ -327,14 +327,14 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     }
     if (id == "select.idle-builders") {
         const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
-        if (selection_shortcut_key(SDLK_B, shift))
+        if (selection_shortcut_key(SelectionShortcut::idle_builders, shift))
             return true;
         select_builders_by_movement(true);
         return true;
     }
     if (id == "select.idle-factories") {
         const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
-        if (selection_shortcut_key(SDLK_F, shift))
+        if (selection_shortcut_key(SelectionShortcut::idle_factories, shift))
             return true;
         select_builders_by_movement(false);
         return true;
@@ -362,7 +362,7 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     }
     if (id == "select.on-screen" || id == "select.armed-on-screen") {
         const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
-        if (selection_shortcut_key(SDLK_S, shift))
+        if (selection_shortcut_key(SelectionShortcut::on_screen, shift))
             return true;
         // Ctrl+S selects the local units of the on-screen list: those whose
         // box overlaps the view.
@@ -504,7 +504,7 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     const auto events = match_action_events();
     if (key.repeat && !deletes_typed_text && !repeats_speed_or_page(events))
         return false;
-    if ((!question && whiteboard_key(key)) || megamap_key(key))
+    if ((!question && take_whiteboard_chord(key)) || take_megamap_toggle(key))
         return true;
     if (const keys::ActionEvent* pressed = find_pressed(
             events,
