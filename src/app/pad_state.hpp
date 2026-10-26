@@ -390,12 +390,6 @@ struct PadAccess {
     /// @param runtime the runtime
     /// @return whether a held grip presses QUEUE or x5
     [[nodiscard]] static bool queue_grip_held(const Runtime& runtime);
-    /// Presses a match key as the keyboard would, with modifiers.
-    ///
-    /// @param runtime the runtime
-    /// @param key the key
-    /// @param mods its modifiers
-    static void match_key(Runtime& runtime, SDL_Keycode key, SDL_Keymod mods = SDL_KMOD_NONE);
     /// Sends a key's press and release through dispatch_event, as the keyboard would.
     ///
     /// @param runtime the runtime
