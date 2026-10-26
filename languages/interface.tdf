@@ -1202,6 +1202,14 @@
 	it=Indietro;
 	}
 
+[Back on {version}]
+	{
+	de=Wieder bei {version};
+	fr=De retour sur {version};
+	es=De nuevo en {version};
+	it=Di nuovo su {version};
+	}
+
 [Base]
 	{
 	de=Basis;
@@ -4080,6 +4088,22 @@
 	fr=Donne cet ordre au point maintenu.;
 	es=Da esta orden en el punto mantenido.;
 	it=Dà questo ordine nel punto tenuto.;
+	}
+
+[Go back to {version}?]
+	{
+	de=Zurück zu {version}?;
+	fr=Revenir à {version} ?;
+	es=¿Volver a {version}?;
+	it=Tornare a {version}?;
+	}
+
+[Going back to {version}]
+	{
+	de=Zurück zu {version};
+	fr=Retour à {version};
+	es=Volviendo a {version};
+	it=Ritorno a {version};
 	}
 
 [Graphics]
@@ -7330,6 +7354,14 @@
 	it=OA non controlla mai;
 	}
 
+[OA restarts on {version}, with the settings it had. {current} won't be offered again until you choose it.]
+	{
+	de=OA startet neu mit {version} und den Einstellungen, die es hatte. {current} wird erst wieder angeboten, wenn du es wählst.;
+	fr=OA redémarre sur {version}, avec les réglages qu'il avait. {current} ne sera plus proposé tant que tu ne le choisiras pas.;
+	es=OA se reinicia en {version}, con los ajustes que tenía. {current} no se volverá a ofrecer hasta que lo elijas.;
+	it=OA si riavvia su {version}, con le impostazioni che aveva. {current} non verrà più offerto finché non lo scegli.;
+	}
+
 [OA settings › Game files adds an expansion or removes the files later.]
 	{
 	de=OA-Einstellungen › Spieldateien fügt später eine Erweiterung hinzu oder entfernt die Dateien.;
@@ -8128,6 +8160,14 @@
 	fr=Précédent;
 	es=Anterior;
 	it=Precedente;
+	}
+
+[Previous version]
+	{
+	de=Vorherige Version;
+	fr=Version précédente;
+	es=Versión anterior;
+	it=Versione precedente;
 	}
 
 [Program Files]
@@ -8992,6 +9032,14 @@
 	fr=AFFICHER DANS LE FINDER;
 	es=MOSTRAR EN EL FINDER;
 	it=MOSTRA NEL FINDER;
+	}
+
+[SHOW THE LOG]
+	{
+	de=PROTOKOLL ZEIGEN;
+	fr=AFFICHER LE JOURNAL;
+	es=MOSTRAR EL REGISTRO;
+	it=MOSTRA IL REGISTRO;
 	}
 
 [SIZE]
@@ -12674,6 +12722,14 @@
 	it=Ti serve la cartella di una copia installata di Total Annihilation, quella che contiene totala1.hpi: circa 1.1 GB con entrambe le espansioni e la musica. Gli installer del gioco completo sono programmi Windows e non si possono usare qui. Installa il gioco su un computer e porta la sua cartella.;
 	}
 
+[You went back to {old}, with the settings you had.]
+	{
+	de=Du bist zu {old} zurück, mit den Einstellungen, die du hattest.;
+	fr=Tu es revenu à {old}, avec les réglages que tu avais.;
+	es=Volviste a {old}, con los ajustes que tenías.;
+	it=Sei tornato a {old}, con le impostazioni che avevi.;
+	}
+
 [Your Brains folder changed while this brain was being installed; nothing was changed. Open the file again.]
 	{
 	de=Dein Ordner Brains hat sich geändert, während dieses Gehirn installiert wurde. Es wurde nichts geändert. Öffne die Datei erneut.;
@@ -15186,6 +15242,14 @@
 	it={name}: {reason};
 	}
 
+[{new} won't be offered again until a newer release, or choose it in Settings › Updates.]
+	{
+	de={new} wird erst wieder angeboten, wenn eine neuere Version da ist, oder wähle es unter Einstellungen › Updates.;
+	fr={new} ne sera plus proposé avant une version plus récente, ou choisis-le dans Réglages › Mises à jour.;
+	es={new} no se volverá a ofrecer hasta una versión más nueva, o elígelo en Ajustes › Actualizaciones.;
+	it={new} non verrà più offerto fino a una versione più nuova, oppure sceglilo in Impostazioni › Aggiornamenti.;
+	}
+
 [{n} GB]
 	{
 	de={n} GB;
@@ -15818,6 +15882,14 @@
 	it={used} · {free} liberi su questo {device};
 	}
 
+[{version} closed twice before it reached the main menu, so OA went back to {old}, with the settings you had.]
+	{
+	de={version} wurde zweimal geschlossen, bevor es das Hauptmenü erreicht hat, also ist OA zu {old} zurück, mit den Einstellungen, die du hattest.;
+	fr={version} s'est fermé deux fois avant d'atteindre le menu principal, alors OA est revenu à {old}, avec les réglages que tu avais.;
+	es={version} se cerró dos veces antes de llegar al menú principal, así que OA volvió a {old}, con los ajustes que tenías.;
+	it={version} si è chiuso due volte prima di arrivare al menu principale, così OA è tornato a {old}, con le impostazioni che avevi.;
+	}
+
 [{version} installs the next time you start Open Annihilation.]
 	{
 	de={version} wird beim nächsten Start von Open Annihilation installiert.;
@@ -15842,6 +15914,14 @@
 	it={version} viene conservata, nel caso la rivoglia. Il gioco riparte da solo.;
 	}
 
+[{version} is kept. To go back to it, open Settings › Updates and press ROLL BACK.]
+	{
+	de={version} bleibt erhalten. Um dorthin zurückzugehen, öffne Einstellungen › Updates und drücke ZURÜCKROLLEN.;
+	fr={version} est conservée. Pour y revenir, ouvre Réglages › Mises à jour et appuie sur RESTAURER.;
+	es={version} se conserva. Para volver a ella, abre Ajustes › Actualizaciones y pulsa REVERTIR.;
+	it={version} è conservata. Per tornarci, apri Impostazioni › Aggiornamenti e premi RIPRISTINA.;
+	}
+
 [{version} is out · Stable · checked {when}]
 	{
 	de={version} ist da · Stabil · geprüft {when};
@@ -15856,6 +15936,14 @@
 	fr={version} est prêt · {size} téléchargés;
 	es={version} está listo · {size} descargados;
 	it={version} è pronto · {size} scaricati;
+	}
+
+[{version} kept]
+	{
+	de={version} behalten;
+	fr={version} conservée;
+	es={version} conservada;
+	it={version} conservata;
 	}
 
 [{version} ready]
@@ -15920,6 +16008,14 @@
 	fr={version} révision {n};
 	es={version} revisión {n};
 	it={version} revisione {n};
+	}
+
+[{version} won't be offered again. The next release will be, or choose {version} in Settings › Updates to try it again.]
+	{
+	de={version} wird nicht mehr angeboten. Die nächste Version schon, oder wähle {version} unter Einstellungen › Updates, um es noch einmal zu versuchen.;
+	fr={version} ne sera plus proposé. La prochaine version le sera, ou choisis {version} dans Réglages › Mises à jour pour l'essayer encore.;
+	es={version} no se volverá a ofrecer. La próxima versión sí, o elige {version} en Ajustes › Actualizaciones para probarla otra vez.;
+	it={version} non verrà più offerto. La prossima versione sì, oppure scegli {version} in Impostazioni › Aggiornamenti per riprovarlo.;
 	}
 
 [{version} · rev {revision}]

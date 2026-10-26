@@ -542,6 +542,19 @@ namespace update {
 struct CheckSnapshot;
 } // namespace update
 
+/// Counts one unconfirmed start on macOS and Windows, before the game loads.
+///
+/// A check, a headless check and an unattended run are not counted. When the
+/// count reaches the roll-back threshold the helper is started and this
+/// process should exit. Any other result, including a helper that cannot
+/// start, leaves the start to continue.
+///
+/// @param argc the argument count
+/// @param argv the arguments
+/// @param options the options already parsed, including the data folder
+/// @return 0 when the helper was started, otherwise -1
+[[nodiscard]] int guard_unconfirmed_start(int argc, char** argv, const Options& options);
+
 class Runtime final : public menu::Host,
                       public entry::SinglePlayerHost,
                       public frontend::Host,
@@ -629,6 +642,23 @@ class Runtime final : public menu::Host,
     ///
     /// A helper that cannot start leaves the package ready and says why.
     void hand_off_update();
+
+    /// Tells whether ROLL BACK asked to put the kept version back.
+    ///
+    /// main() calls this after run() returns, as it does for a ready package.
+    ///
+    /// @return true when the next normal exit should start the helper
+    [[nodiscard]] bool roll_back_requested() const noexcept { return roll_back_requested_; }
+
+    /// Writes a roll-back plan and starts oa-update, or records that start.
+    void hand_off_roll_back();
+
+    /// Reads the plan a roll-back check's hand-off wrote.
+    ///
+    /// A run that is not that check leaves the process status as it is.
+    ///
+    /// @return false when the plan was written and does not say roll-back
+    [[nodiscard]] bool report_roll_back_handoff();
 
     /// Reads the plan a check's hand-off wrote, and says whether it holds.
     ///
@@ -3353,6 +3383,8 @@ class Runtime final : public menu::Host,
     // A package asked to end the run (ScreenServices::quit), with this reason
     // (empty for none); finish_quit_request ends it.
     bool quit_requested_{};
+    /// ROLL BACK was confirmed. main() starts the helper after run() returns.
+    bool roll_back_requested_{};
     std::string quit_reason_{};
 
     /// Returns the side the viewed player plays, from its skirmish slot.
@@ -6535,6 +6567,18 @@ class Runtime final : public menu::Host,
     /// Queues "Updated to {version}" once, when this start was newer than
     /// --updated-from and the main menu has settled.
     void offer_updated_notice();
+
+    /// Applies --rolled-back-from to the preferences and the state, once.
+    ///
+    /// The Linux launcher leaves the unconfirmed bad version in the state.
+    /// A helper that already restored only leaves the prompt to show.
+    void settle_roll_back();
+
+    /// Marks this build good once the main menu has settled.
+    void confirm_installed_version();
+
+    /// Queues "Back on {version}" once the main menu has settled.
+    void offer_roll_back_prompt();
 
     /// The header note beside the version, or empty when nothing is fetching
     /// or ready.
@@ -15129,6 +15173,12 @@ class Runtime final : public menu::Host,
     ///
     /// @return 0 when the case finished, 1 when it had no offer or could not
     int check_update_download();
+
+    /// Checks confirming a start, the roll-back prompt, ROLL BACK and that a
+    /// check does not count as a failed start. Returns the status to report.
+    ///
+    /// @return 0 when the case finished, 1 when it could not
+    int check_update_roll_back();
 
     /// Opens every Open Annihilation screen in English, German, French,
     /// Spanish, Italian and Simplified Chinese, or in the languages

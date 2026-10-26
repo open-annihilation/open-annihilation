@@ -42,6 +42,7 @@ add_library(oa-update-core STATIC
   src/unpack.cpp
   src/verify.cpp
   src/wait.cpp
+  src/watch.cpp
   src/window.cpp)
 add_library(oa::update::core ALIAS oa-update-core)
 target_include_directories(oa-update-core PUBLIC include)

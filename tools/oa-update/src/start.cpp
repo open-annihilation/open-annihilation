@@ -44,7 +44,7 @@ void fill_argv(
     argv.pointers.push_back(nullptr);
 }
 
-SDL_Process* spawn(Argv& argv, bool background, std::string* reason) {
+SDL_Process* spawn(Argv& argv, bool background, bool discard_stdio, std::string* reason) {
     const SDL_PropertiesID properties = SDL_CreateProperties();
     if (properties == 0) {
         set_error(reason, SDL_GetError());
@@ -59,6 +59,20 @@ SDL_Process* spawn(Argv& argv, bool background, std::string* reason) {
         static_cast<void>(
             SDL_SetBooleanProperty(properties, SDL_PROP_PROCESS_CREATE_BACKGROUND_BOOLEAN, true)
         );
+    } else if (discard_stdio) {
+        // Not a background process: on POSIX that is a short-lived child, and
+        // SDL never learns the program's pid, so a watch cannot see it end.
+        // Stdio is still discarded, so the program does not hold the helper's
+        // output open after the helper has finished.
+        static_cast<void>(SDL_SetNumberProperty(
+            properties, SDL_PROP_PROCESS_CREATE_STDIN_NUMBER, SDL_PROCESS_STDIO_NULL
+        ));
+        static_cast<void>(SDL_SetNumberProperty(
+            properties, SDL_PROP_PROCESS_CREATE_STDOUT_NUMBER, SDL_PROCESS_STDIO_NULL
+        ));
+        static_cast<void>(SDL_SetNumberProperty(
+            properties, SDL_PROP_PROCESS_CREATE_STDERR_NUMBER, SDL_PROCESS_STDIO_NULL
+        ));
     }
     SDL_Process* process = SDL_CreateProcessWithProperties(properties);
     SDL_DestroyProperties(properties);
@@ -70,6 +84,22 @@ SDL_Process* spawn(Argv& argv, bool background, std::string* reason) {
 }
 
 } // namespace
+
+SDL_Process* start_process(
+    const std::filesystem::path& program,
+    const std::vector<std::string>& arguments,
+    bool add_updated_from,
+    std::string_view from_version,
+    std::string* error
+) {
+    if (program.empty()) {
+        set_error(error, "the program is empty");
+        return nullptr;
+    }
+    Argv argv;
+    fill_argv(argv, program, arguments, add_updated_from, from_version);
+    return spawn(argv, false, true, error);
+}
 
 bool start_detached(
     const std::filesystem::path& program,
@@ -84,7 +114,9 @@ bool start_detached(
     }
     Argv argv;
     fill_argv(argv, program, arguments, add_updated_from, from_version);
-    SDL_Process* process = spawn(argv, true, error);
+    // Detached: a background process, so the helper does not have to wait
+    // for it. A watched start uses start_process, which stays a direct child.
+    SDL_Process* process = spawn(argv, true, false, error);
     if (process == nullptr)
         return false;
     SDL_DestroyProcess(process);
@@ -102,7 +134,7 @@ bool run_and_wait(
     }
     Argv argv;
     fill_argv(argv, program, arguments, false, {});
-    SDL_Process* process = spawn(argv, false, error);
+    SDL_Process* process = spawn(argv, false, false, error);
     if (process == nullptr)
         return false;
     int status = 0;

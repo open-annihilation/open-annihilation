@@ -199,6 +199,7 @@ inline constexpr std::string_view interface_words[] = {
     "Game text background",
     "Get",
     "Gets it ready while you're in the menus, and stops during a match.",
+    "Go back to {version}?",
     "Graphics",
     "Guard Respects Hold Position",
     "Guarding",
@@ -340,6 +341,8 @@ inline constexpr std::string_view interface_words[] = {
     "OA looks for new content and updates in the registries' lists. It never installs anything "
     "until you say so.",
     "OA never checks",
+    "OA restarts on {version}, with the settings it had. {current} won't be offered again until "
+    "you choose it.",
     "OFF",
     "OK",
     "ON",
@@ -383,6 +386,7 @@ inline constexpr std::string_view interface_words[] = {
     "Pointer acceleration",
     "Pointer speed",
     "Prebuilt Base",
+    "Previous version",
     "QUEUE and ADD",
     "REGISTRIES IN THE LIBRARY…",
     "RESET",
@@ -634,6 +638,7 @@ inline constexpr std::string_view interface_words[] = {
     "{version} downloading",
     "{version} is out · Stable · checked {when}",
     "{version} is ready · {size} downloaded",
+    "{version} kept",
     "{version} ready",
     "·",
     "‹ DOWNLOADS",

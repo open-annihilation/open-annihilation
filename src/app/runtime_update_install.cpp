@@ -10,6 +10,7 @@
 #include "update_state.hpp"
 
 #include "oa/app/game_directory.hpp"
+#include "oa/app/user_folder.hpp"
 #include "oa/app/update/build.hpp"
 #include "oa/app/update/offer.hpp"
 #include "oa/app/update/plan.hpp"
@@ -20,6 +21,8 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/formats/oamod/package_keys.hpp"
 #include "oa/platform/files.hpp"
+#include "oa/platform/preferences.hpp"
+#include "oa/platform/system.hpp"
 #include "oa/ui/engine_settings.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/library/text.hpp"
@@ -100,6 +103,30 @@ constexpr std::string_view kInstallerWill =
     "Installer will put {version} in Applications. Start it from there when it finishes.";
 /// The Updated notice's title. {version} is this build.
 constexpr std::string_view kUpdatedTo = "Updated to {version}";
+/// The Updated notice's line while a version is kept. {version} is that one.
+constexpr std::string_view kKeptSentence =
+    "{version} is kept. To go back to it, open Settings › Updates and press ROLL BACK.";
+/// The prompt's title. {version} is this build.
+constexpr std::string_view kBackOn = "Back on {version}";
+/// Failed starts: {version} is the one that closed, {old} is this build.
+constexpr std::string_view kClosedTwice =
+    "{version} closed twice before it reached the main menu, so OA went back to {old}, with the "
+    "settings you had.";
+/// Failed starts: {version} is the one that will not be offered.
+constexpr std::string_view kWontBeOffered =
+    "{version} won't be offered again. The next release will be, or choose {version} in "
+    "Settings › Updates to try it again.";
+/// The player's roll back. {old} is this build.
+constexpr std::string_view kYouWentBack = "You went back to {old}, with the settings you had.";
+/// The player's roll back. {new} is the version that was left.
+constexpr std::string_view kNewWont =
+    "{new} won't be offered again until a newer release, or choose it in Settings › Updates.";
+/// The helper's title for a roll back. {version} is the one being restored.
+constexpr std::string_view kGoingBack = "Going back to {version}";
+/// SHOW THE LOG, and the button that leaves the question up.
+constexpr int32_t kShowTheLog = 0;
+/// OK, the button Escape answers.
+constexpr int32_t kBackOk = 1;
 /// The header note while a verified package is waiting.
 constexpr std::string_view kHeaderReady = "{version} ready";
 /// The header note while a package is being fetched.
@@ -374,12 +401,55 @@ bool known_plan_flag(std::string_view flag, bool& path_value) {
 
 #endif
 
+/// The preferences file this run reads and writes.
+fs::path live_preferences(const Options& options, const fs::path& preference_path) {
+    if (options.preferences_file && !options.preferences_file->empty())
+        return *options.preferences_file;
+    if (!preference_path.empty())
+        return preference_path;
+    return oa::platform::preferences::default_file();
+}
+
+/// The install folder's `update-starts`, removed once this build is confirmed.
+///
+/// The program sits in `versions/<version>` or behind the `current` link.
+/// Anything that is not that file is left alone.
+void remove_update_starts() {
+#if defined(__linux__)
+    fs::path folder{oa::platform::program_directory()};
+    if (!folder.empty() && folder.filename().empty())
+        folder = folder.parent_path();
+    fs::path install = folder;
+    if (folder.filename() == "current")
+        install = folder.parent_path();
+    else if (folder.parent_path().filename() == "versions")
+        install = folder.parent_path().parent_path();
+    else if (folder.parent_path().filename() == "current")
+        install = folder.parent_path().parent_path();
+    const fs::path counter = install / "update-starts";
+    std::error_code error;
+    if (fs::is_regular_file(counter, error))
+        fs::remove(counter, error);
+#else
+    return;
+#endif
+}
+
 /// Reads a whole file. Empty when it cannot be read.
 std::vector<uint8_t> read_bytes(const fs::path& path) {
     std::ifstream input(path, std::ios::binary);
     if (!input)
         return {};
     return {std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+}
+
+/// Reads a state file. Nothing when it is missing or refused.
+std::optional<update::State> read_installed_state(const fs::path& updates) {
+    const std::vector<uint8_t> bytes = read_bytes(updates / "state.json");
+    if (bytes.empty())
+        return std::nullopt;
+    std::string error;
+    return update::read_state(bytes, &error);
 }
 
 } // namespace
@@ -653,6 +723,146 @@ bool Runtime::report_update_handoff() {
 #endif
 }
 
+void Runtime::hand_off_roll_back() {
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return;
+#else
+    if (update_ == nullptr || update_->handed || !roll_back_requested_)
+        return;
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (!folder) {
+        std::cerr << "open-annihilation: update: " << failure << '\n';
+        return;
+    }
+    const update::Where where = route_for(options_, feed::Way::in_place);
+    const update::ThisBuild built = running_build();
+    const std::string kept = update_->kept_version;
+    const library::TextHooks hooks = plan_hooks();
+    update::Plan plan;
+    plan.plan = update::plan_format;
+    plan.action = update::Action::roll_back;
+    plan.roll_back_reason = update::RollBackReason::player;
+    plan.wait_for = own_process();
+    if (where.route.has_value() && !where.program.empty() && !where.install.empty()) {
+        plan.route = *where.route;
+        plan.install = absolute_utf8(where.install);
+        plan.program = absolute_utf8(where.program);
+        plan.installer = where.installer;
+    } else {
+        plan.route = update::Route::check_folder;
+        fs::path install =
+            options_.update_install_folder ? *options_.update_install_folder : program_folder();
+        if (install.empty())
+            install = *folder;
+        plan.install = absolute_utf8(install);
+        const update::RouteFacts facts = update::this_machine(program_folder());
+        const fs::path program = facts.executable.empty() ? install : facts.executable;
+        plan.program = absolute_utf8(program);
+        plan.installer = false;
+    }
+    if (options_.game_dir_named && !options_.game_dir.empty()) {
+        plan.arguments.push_back("--game-dir");
+        plan.arguments.push_back(absolute_utf8(options_.game_dir));
+    }
+    if (options_.data_dir && !options_.data_dir->empty()) {
+        plan.arguments.push_back("--data-dir");
+        plan.arguments.push_back(absolute_utf8(*options_.data_dir));
+    }
+    if (options_.user_folder && !options_.user_folder->empty()) {
+        plan.arguments.push_back("--user-folder");
+        plan.arguments.push_back(absolute_utf8(*options_.user_folder));
+    }
+    if (options_.preferences_file && !options_.preferences_file->empty()) {
+        plan.arguments.push_back("--preferences-file");
+        plan.arguments.push_back(absolute_utf8(*options_.preferences_file));
+    } else if (!preference_path_.empty()) {
+        plan.arguments.push_back("--preferences-file");
+        plan.arguments.push_back(absolute_utf8(preference_path_));
+    }
+    if (options_.log_dir && !options_.log_dir->empty()) {
+        plan.arguments.push_back("--log-dir");
+        plan.arguments.push_back(absolute_utf8(*options_.log_dir));
+    }
+    if (options_.skip_intro)
+        plan.arguments.push_back("--skip-intro");
+    if (options_.mute)
+        plan.arguments.push_back("--mute");
+    plan.from_version = built.version_text;
+    plan.feed = absolute_utf8(*folder / "feed.json");
+    plan.signature = absolute_utf8(*folder / "feed.json.sig");
+    plan.release = update_->release > 0 ? update_->release : built.release;
+    plan.package = "kept";
+    plan.file = absolute_utf8(*folder / "kept.pkg");
+    plan.preferences = preference_path_.empty() ? plan.install : absolute_utf8(preference_path_);
+    if (options_.preferences_file && !options_.preferences_file->empty())
+        plan.preferences = absolute_utf8(*options_.preferences_file);
+    plan.updates = absolute_utf8(*folder);
+    plan.title = library::filled(hooks, kGoingBack, {{"version", kept}});
+    if (plan.title.size() > update::max_window_line_bytes)
+        plan.title.resize(update::max_window_line_bytes);
+    plan.line.clear();
+
+    const fs::path plan_file = *folder / "roll-back.json";
+    std::string why;
+    if (!write_update_plan(plan_file, plan, why)) {
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return;
+    }
+    const fs::path helper = helper_path(program_folder());
+    std::vector<std::string> helper_arguments;
+    helper_arguments.push_back("--plan");
+    helper_arguments.push_back(absolute_utf8(plan_file));
+    update_->helper = path_to_utf8(helper);
+    update_->helper_arguments = std::move(helper_arguments);
+    update_->handed = true;
+    if (!update_->helper_chosen) {
+        update_->helper_chosen = true;
+        const bool record = options_.fixed_clock ||
+                            (nobody_watching(options_) && !options_.update_feed.has_value());
+        update_->start_helper = record ? record_helper : spawn_helper;
+        update_->helper_context = record ? update_.get() : nullptr;
+    }
+    if (update_->start_helper == nullptr) {
+        std::cerr << "open-annihilation: update: the helper was not started\n";
+        return;
+    }
+    std::string start_why;
+    if (!update_->start_helper(
+            update_->helper_context, helper, update_->helper_arguments, start_why
+        ))
+        std::cerr << "open-annihilation: update: " << start_why << '\n';
+#endif
+}
+
+bool Runtime::report_roll_back_handoff() {
+    if (!options_.check_update_roll_back || options_.roll_back_case != "settings")
+        return true;
+#if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
+    return false;
+#else
+    if (update_ == nullptr || !update_->handed)
+        return false;
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (!folder) {
+        std::cerr << "open-annihilation: update: " << failure << '\n';
+        return false;
+    }
+    const std::vector<uint8_t> bytes = read_bytes(*folder / "roll-back.json");
+    std::string why;
+    const std::optional<update::Plan> read = update::read_plan(bytes, &why);
+    if (!read || read->action != update::Action::roll_back ||
+        read->roll_back_reason != update::RollBackReason::player) {
+        std::cerr << "open-annihilation: update: the plan does not roll back\n";
+        return false;
+    }
+    std::cout << "update-roll-back: plan roll-back\n";
+    std::cout.flush();
+    return true;
+#endif
+}
+
 bool Runtime::start_update_download() {
 #if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
     return false;
@@ -846,6 +1056,13 @@ void Runtime::offer_updated_notice() {
                     told.paragraphs.push_back({line, false});
             }
         }
+        const std::optional<update::State> state = read_installed_state(*folder);
+        if (state && !state->kept_version.empty()) {
+            told.paragraphs.push_back(
+                {library::filled(shown_hooks(), kKeptSentence, {{"version", state->kept_version}}),
+                 false}
+            );
+        }
     }
     NoticeScreen::Host host;
     host.ok = []() {};
@@ -916,18 +1133,30 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
 #else
     (void)show;
 #endif
+    if (update_ == nullptr)
+        update_.reset(new UpdateState());
+    if (!update_->kept_loaded) {
+        update_->kept_loaded = true;
+        std::string folder_failure;
+        if (const std::optional<fs::path> folder = updates_folder(options_, folder_failure)) {
+            if (const std::optional<update::State> state = read_installed_state(*folder))
+                update_->kept_version = state->kept_version;
+        }
+    }
+    const std::string kept = update_->kept_version;
     const std::string note = update_header_note();
-    const bool changed = dialog.updates.show_download != show || dialog.updates.download != shown ||
-                         dialog.updates.download_version != version ||
-                         dialog.updates.download_done != done_text ||
-                         dialog.updates.download_size != size_text ||
-                         dialog.updates.download_reason != reason || dialog.header_note != note;
+    const bool changed =
+        dialog.updates.show_download != show || dialog.updates.download != shown ||
+        dialog.updates.download_version != version || dialog.updates.download_done != done_text ||
+        dialog.updates.download_size != size_text || dialog.updates.download_reason != reason ||
+        dialog.updates.kept_version != kept || dialog.header_note != note;
     dialog.updates.show_download = show;
     dialog.updates.download = shown;
     dialog.updates.download_version = std::move(version);
     dialog.updates.download_done = std::move(done_text);
     dialog.updates.download_size = std::move(size_text);
     dialog.updates.download_reason = std::move(reason);
+    dialog.updates.kept_version = kept;
     dialog.header_note = note;
     return changed;
 }
@@ -1010,14 +1239,173 @@ void Runtime::consider_update_and_quit() {
 #endif
 }
 
+void Runtime::settle_roll_back() {
+    if (!options_.rolled_back_from.has_value())
+        return;
+    if (update_ == nullptr)
+        update_.reset(new UpdateState());
+    if (update_->roll_back_bookkept)
+        return;
+    update_->roll_back_bookkept = true;
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (!folder)
+        return;
+    const std::optional<update::State> loaded = read_installed_state(*folder);
+    if (!loaded)
+        return;
+    // The helper already rewrote a restored install: this build is confirmed
+    // and nothing is kept. The skip is already in the preferences that loaded.
+    if (loaded->confirmed || loaded->installed_version != *options_.rolled_back_from)
+        return;
+    const int64_t bad_release = loaded->installed_release;
+    oa::platform::preferences::Values values = preference_values_;
+    if (!loaded->preferences_copy.empty()) {
+        try {
+            values = oa::platform::preferences::load(path_from_utf8(loaded->preferences_copy));
+        } catch (const std::exception& thrown) {
+            std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+            values = preference_values_;
+        }
+    }
+    update::write_skipped(values, bad_release);
+    try {
+        const fs::path live = live_preferences(options_, preference_path_);
+        oa::platform::preferences::save(live, values);
+        preference_values_ = std::move(values);
+        preferences_dirty_ = false;
+    } catch (const std::exception& thrown) {
+        std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+        update::write_skipped(preference_values_, bad_release);
+        preferences_dirty_ = true;
+    }
+    const update::ThisBuild built = running_build();
+    update::State state = *loaded;
+    state.installed_version = built.version_text;
+    state.installed_release = built.release;
+    update::confirm_state(state);
+    state.kept_version.clear();
+    state.kept_path.clear();
+    state.preferences_copy.clear();
+    std::string why;
+    if (!update::write_state(*folder / "state.json", state, &why))
+        std::cerr << "open-annihilation: update: " << why << '\n';
+    remove_update_starts();
+    update_->version_confirmed = true;
+}
+
+void Runtime::confirm_installed_version() {
+    if (update_ == nullptr)
+        update_.reset(new UpdateState());
+    if (update_->version_confirmed)
+        return;
+    if (!update_menu_settled())
+        return;
+    update_->version_confirmed = true;
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    if (!folder)
+        return;
+    const std::optional<update::State> loaded = read_installed_state(*folder);
+    if (!loaded || loaded->confirmed)
+        return;
+    const update::ThisBuild built = running_build();
+    if (loaded->installed_version != built.version_text)
+        return;
+    update::State state = *loaded;
+    update::confirm_state(state);
+    std::string why;
+    if (!update::write_state(*folder / "state.json", state, &why)) {
+        update_->version_confirmed = false;
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return;
+    }
+    remove_update_starts();
+}
+
+void Runtime::offer_roll_back_prompt() {
+    if (!options_.rolled_back_from.has_value() || options_.roll_back_reason.empty())
+        return;
+    if (update_ == nullptr)
+        update_.reset(new UpdateState());
+    if (update_->roll_back_prompted)
+        return;
+    if (match_ != nullptr || screen_ == Screen::match || !update_menu_settled())
+        return;
+    update_->roll_back_prompted = true;
+    const update::ThisBuild built = running_build();
+    const std::string bad = *options_.rolled_back_from;
+    const bool player = options_.roll_back_reason == "player";
+    kit::Question asked;
+    asked.word = "roll-back";
+    asked.title = library::filled(shown_hooks(), kBackOn, {{"version", built.version_text}});
+    if (player) {
+        asked.paragraphs.push_back(
+            {library::filled(shown_hooks(), kYouWentBack, {{"old", built.version_text}}), false}
+        );
+        asked.paragraphs.push_back(
+            {library::filled(shown_hooks(), kNewWont, {{"new", bad}}), false}
+        );
+    } else {
+        asked.paragraphs.push_back(
+            {library::filled(
+                 shown_hooks(), kClosedTwice, {{"version", bad}, {"old", built.version_text}}
+             ),
+             false}
+        );
+        asked.paragraphs.push_back(
+            {library::filled(shown_hooks(), kWontBeOffered, {{"version", bad}}), false}
+        );
+    }
+    asked.buttons.push_back(
+        {std::string(languages::interface_text("SHOW THE LOG")), false, "show-the-log"}
+    );
+    asked.buttons.push_back({std::string(languages::interface_text("OK")), true, "ok"});
+    asked.cancel_button = kBackOk;
+    asked.primary_button = kBackOk;
+    asked.marked = kBackOk;
+    Runtime* runtime = this;
+    QuestionScreen::Host host;
+    host.answer = [runtime](int32_t button) {
+        if (button != kShowTheLog)
+            return true;
+        fs::path logs;
+        try {
+            const fs::path data = runtime->options_.data_dir
+                                      ? *runtime->options_.data_dir
+                                      : oa::platform::preferences::data_directory();
+            logs = data / "logs";
+        } catch (const std::exception& thrown) {
+            std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+            return false;
+        }
+        std::ignore = runtime->open_player_folder(logs);
+        return false;
+    };
+    host.tick = [runtime]() {
+        return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+    };
+    OaLayer& layer = oa_layer();
+    auto question = std::make_unique<QuestionScreen>(
+        layer, Screen::main_menu, std::move(asked), std::move(host)
+    );
+    question->show_on_any_menu();
+    layer.show_when_free(std::move(question));
+}
+
 void Runtime::tick_update_install() {
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
     if (update_ != nullptr && update_->download != nullptr)
         update_->download->set_match_running(match_ != nullptr || screen_ == Screen::match);
 #endif
+    // The skip is stored before a prompt can offer the bad release, and
+    // before the menu has settled. Confirming waits for that menu.
+    settle_roll_back();
     offer_ready();
     if (!update_menu_settled())
         return;
+    confirm_installed_version();
+    offer_roll_back_prompt();
     offer_updated_notice();
     consider_background_download();
     consider_update_and_quit();

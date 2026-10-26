@@ -7,6 +7,7 @@
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/paths.hpp"
 #include "oa/update_helper/route_windows.hpp"
+#include "oa/update_helper/routes.hpp"
 
 #include "oa/test/check.hpp"
 
@@ -325,6 +326,85 @@ void restore_and_markers() {
     OA_CHECK(!fs::exists(scratch.path / "updates" / "journal.json"));
 }
 
+struct RecordedVersion {
+    std::vector<std::string> versions;
+};
+
+bool record_version(
+    void* context, const fs::path&, const std::vector<std::string>& arguments, std::string*
+) {
+    auto* recorded = static_cast<RecordedVersion*>(context);
+    if (!arguments.empty())
+        recorded->versions.push_back(arguments.front());
+    return true;
+}
+
+void journal_restores_the_folder_and_the_installer() {
+    Scratch scratch("journal-restore");
+    const fs::path install = scratch.path / "Open Annihilation";
+    const fs::path previous = install / "previous";
+    const fs::path updates = scratch.path / "updates";
+    write_file(previous / "open-annihilation.exe", "old");
+    write_file(previous / "preferences.conf", "prefs");
+    write_file(install / "open-annihilation.exe", "new");
+    write_file(install / "notes.txt", "player");
+    write_file(install / "oa-write-check.tmp", "scratch");
+    update::State state;
+    state.installed_version = "0.8.7";
+    state.kept_version = "0.8.6";
+    state.kept_path = helper::utf8_of(previous);
+    state.kept_route = update::Route::windows_folder;
+    std::string why;
+    const std::vector<helper::Operation> folder =
+        helper::restore_operations(state, install, "0.8.7", &why);
+    OA_CHECK(why.empty());
+    fs::create_directories(updates);
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(updates, folder, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old");
+    OA_CHECK(read_file(install / "notes.txt") == "player");
+    OA_CHECK(read_file(install / "oa-write-check.tmp") == "scratch");
+    OA_CHECK(!fs::exists(install / "preferences.conf"));
+    OA_CHECK(helper::undo_journal(updates, helper::JournalHooks{}, &error));
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "new");
+    OA_CHECK(read_file(previous / "open-annihilation.exe") == "old");
+
+    const fs::path kept = scratch.path / "kept";
+    write_file(kept / "open-annihilation.exe", "kept-game");
+    write_file(kept / "preferences.conf", "kept-prefs");
+    write_file(install / "open-annihilation.exe", "new");
+    state.kept_path = helper::utf8_of(kept);
+    state.kept_route = update::Route::windows_installer;
+    state.kept_version = "0.8.6";
+    const std::vector<helper::Operation> installer =
+        helper::restore_operations(state, install, "0.8.7", &why);
+    OA_CHECK(why.empty());
+    OA_CHECK(!installer.empty());
+    OA_CHECK(installer.back().program == "oa-display-version");
+    OA_CHECK(installer.back().arguments.size() == 1u);
+    OA_CHECK(installer.back().arguments[0] == "0.8.6");
+    OA_CHECK(installer.back().inverse_arguments.size() == 1u);
+    OA_CHECK(installer.back().inverse_arguments[0] == "0.8.7");
+    RecordedVersion recorded;
+    helper::JournalHooks hooks;
+    hooks.context = &recorded;
+    hooks.run = record_version;
+    OA_CHECK(
+        helper::apply_journal(updates, installer, hooks, &error) == helper::JournalResult::finished
+    );
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "kept-game");
+    OA_CHECK(read_file(install / "notes.txt") == "player");
+    OA_CHECK(!fs::exists(install / "preferences.conf"));
+    OA_CHECK(helper::undo_journal(updates, hooks, &error));
+    OA_CHECK(recorded.versions.size() == 2u);
+    OA_CHECK(recorded.versions[0] == "0.8.6");
+    OA_CHECK(recorded.versions[1] == "0.8.7");
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "new");
+}
+
 helper::MoveOutcome stay_put(void*, const fs::path&, const fs::path&, std::string*) {
     return helper::MoveOutcome::postponed;
 }
@@ -374,5 +454,6 @@ void test_windows_routes() {
     installer_operations();
     folder_operations();
     restore_and_markers();
+    journal_restores_the_folder_and_the_installer();
     postponed_rename_undoes_as_nothing();
 }

@@ -633,6 +633,15 @@ struct Options {
     bool check_update_download = false;
     /// Which part of --check-update-download to run. Empty runs the resume.
     std::string update_download_case;
+    /// The version this start replaced by rolling back. Every build. The
+    /// settled main menu says it is back on this build.
+    std::optional<std::string> rolled_back_from;
+    /// Why that roll back happened: `failed-starts` or `player`.
+    std::string roll_back_reason;
+    /// Checks confirming, the prompt, ROLL BACK and that a check is not a start.
+    bool check_update_roll_back = false;
+    /// Which part of --check-update-roll-back to run.
+    std::string roll_back_case;
     // Holds one evicted archive's read, checks the window keeps drawing the
     // iCloud line, then continues the folder step.
     bool check_icloud_wait = false;

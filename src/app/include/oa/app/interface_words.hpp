@@ -40,6 +40,7 @@ inline constexpr std::string_view interface_words[] = {
     "BACK",
     "BLAST",
     "BUILD",
+    "Back on {version}",
     "Basic",
     "CANCEL",
     "CAPTURE",
@@ -98,6 +99,7 @@ inline constexpr std::string_view interface_words[] = {
     "Game content",
     "Game files",
     "Game text background",
+    "Going back to {version}",
     "HUD scaling",
     "Haptics",
     "Hardware acceleration",
@@ -232,6 +234,7 @@ inline constexpr std::string_view interface_words[] = {
     "SELF-DESTRUCT · HOLD",
     "SHOW",
     "SHOW IN FINDER",
+    "SHOW THE LOG",
     "SIZE",
     "SKIP THIS VERSION",
     "SPEED",
@@ -318,6 +321,7 @@ inline constexpr std::string_view interface_words[] = {
     "Whole steps",
     "Window frame",
     "You have {current}. The update is {size}.",
+    "You went back to {old}, with the settings you had.",
     "Your files",
     "Your saved games, settings and mods stay as they are.",
     "Zoomed out units",
@@ -373,14 +377,20 @@ inline constexpr std::string_view interface_words[] = {
     "{name} · latched",
     "{name} from {installed} is installed. Replace it with {name} from {new}? The one from "
     "{installed} is kept, and ROLL BACK brings it back.",
+    "{new} won't be offered again until a newer release, or choose it in Settings › Updates.",
     "{n} UNITS",
     "{registry} asked for a check the game cannot do. Try again later.",
     "{unit}: {field} {value} held at {max}",
     "{used} on this {device}",
     "{used} · {free} free on this {device}",
+    "{version} closed twice before it reached the main menu, so OA went back to {old}, with the "
+    "settings you had.",
     "{version} installs the next time you start Open Annihilation.",
     "{version} is kept, in case you want it back. The game starts again by itself.",
+    "{version} is kept. To go back to it, open Settings › Updates and press ROLL BACK.",
     "{version} is out",
+    "{version} won't be offered again. The next release will be, or choose {version} in "
+    "Settings › Updates to try it again.",
 };
 
 } // namespace oa::app
