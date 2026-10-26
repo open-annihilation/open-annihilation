@@ -436,6 +436,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-unit-page-memory", &Options::check_unit_page_memory, {}},
         {"--check-side-column", &Options::check_side_column, {}},
         {"--check-match-bars", &Options::check_match_bars, {}},
+        {"--check-key-latches", &Options::check_key_latches, {}},
         {"--check-kill-board", &Options::check_kill_board, {}},
         {"--check-paused-save", &Options::check_paused_save, {}},
         {"--check-saved-brains", &Options::check_saved_brains, {}},

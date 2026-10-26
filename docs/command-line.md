@@ -416,6 +416,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-single-player-offers` | Opens Single Player and checks New Campaign and Any Mission when a side has a campaign, and when neither side has one. |
 | `--check-radar-orders` | Checks presses on the radar for every order. |
 | `--check-pointer-interfaces` | Drives the pointer's buttons in both interface types. |
+| `--check-key-latches` | Checks a latched Shift and Space, then sticky Ctrl and Alt, on a skirmish. |
 | `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
 | `--check-pad-controls` | Drives the gamepad controls with SDL's virtual pads ([controllers](controllers.md)). |
 | `--check-touch-controls` | Drives the touch controls with finger events ([touch controls](touch-controls.md)). |

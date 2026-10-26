@@ -12,6 +12,7 @@ add_library(oa-ui-key-bindings
   src/resolve.cpp
   src/clashes.cpp
   src/dispatcher.cpp
+  src/latches.cpp
   src/layout_file.cpp
   src/legacy_keys.cpp)
 add_library(oa::ui::key_bindings ALIAS oa-ui-key-bindings)
@@ -38,6 +39,13 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-key-bindings-dispatcher-exe PRIVATE oa-ui-key-bindings oa-test-support
     oa-options)
   add_test(NAME ui-key-bindings-dispatcher COMMAND oa-ui-key-bindings-dispatcher-exe)
+
+  # Hold latches and sticky modifiers, on synthetic timelines.
+  add_executable(oa-ui-key-bindings-latches-exe tests/latches_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-latches-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-latches COMMAND oa-ui-key-bindings-latches-exe)
+  set_tests_properties(ui-key-bindings-latches PROPERTIES TIMEOUT 30)
   # A manifest's chords, warnings and the text form, against a layout.
   add_executable(oa-ui-key-bindings-files-exe tests/layout_file_test.cpp)
   target_link_libraries(oa-ui-key-bindings-files-exe PRIVATE oa-ui-key-bindings oa-test-support

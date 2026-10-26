@@ -1406,7 +1406,9 @@ void Runtime::draw_status_panel() {
     namespace hud = oa::ui::hud;
     if (!match_)
         return;
-    const bool held = control_key_down(oa::ui::gui_input::ControlKey::space) && !chat_composing_;
+    const bool held = (control_key_down(oa::ui::gui_input::ControlKey::space) ||
+                       action_latched("game.status-strip")) &&
+                      !chat_composing_;
     auto& game = match_->state().game;
     // The strip sounds "Panel" as it leaves an end and "Options" as it
     // reaches one, as the kills board does.
@@ -1515,6 +1517,98 @@ void Runtime::draw_status_panel() {
     for (const auto& [x, line] : readouts) {
         const auto at = pen(x);
         draw_match_label(at.x, at.y, line, hud::kPaletteWhite, scale);
+    }
+}
+
+void Runtime::draw_key_latch_chips() {
+    key_latch_chips_drawn_.clear();
+    if (screen_ != Screen::match || match_ == nullptr)
+        return;
+    std::vector<KeyLatchChip> chips;
+    gather_key_latch_chips(chips);
+    if (chips.empty())
+        return;
+
+    const auto area = overlay_area();
+    const auto corner = canvas_paint(area.x, area.y);
+    const int scale = std::max(1, hud_text_scale());
+    const kit::Canvas canvas = overlay_kit_canvas(
+        paint_target(),
+        engine_settings_fonts(),
+        corner,
+        scale,
+        {corner.x, corner.y, area.width, area.height}
+    );
+    const int32_t gap = 4;
+    const int32_t chip_height = kit::compact_metrics.chip_height;
+    const int32_t top = canvas.placement.clip.y + 6;
+    const int32_t span = canvas.placement.clip.width;
+
+    struct Placed {
+        std::string text;
+        bool filled;
+        int32_t width;
+    };
+
+    const auto width_of = [&](const std::string& text, bool filled) {
+        kit::ChipLook look;
+        look.text = text;
+        look.state = filled ? kit::ChipState::playing : kit::ChipState::installed;
+        if (canvas.fonts == nullptr)
+            return 2 * kit::compact_metrics.chip_padding;
+        return kit::chip_width(*canvas.fonts, look);
+    };
+    if (span <= 0 || canvas.surface == nullptr) {
+        for (const KeyLatchChip& chip : chips)
+            key_latch_chips_drawn_.push_back(chip.text);
+        return;
+    }
+
+    std::vector<Placed> row;
+    int32_t used_width = 0;
+    int dropped = 0;
+    for (const KeyLatchChip& chip : chips) {
+        const int32_t width = width_of(chip.text, chip.filled);
+        const int32_t next = used_width + (row.empty() ? 0 : gap) + width;
+        if (!row.empty() && next > span) {
+            ++dropped;
+            continue;
+        }
+        used_width = next;
+        row.push_back(Placed{chip.text, chip.filled, width});
+    }
+    if (dropped > 0) {
+        const auto more_width = [&](int count) {
+            return width_of("+" + std::to_string(count), true);
+        };
+        int extra = dropped;
+        while (!row.empty()) {
+            const int32_t width = more_width(extra);
+            const int32_t with_more = used_width + gap + width;
+            if (with_more <= span)
+                break;
+            used_width -= row.back().width;
+            if (row.size() > 1)
+                used_width -= gap;
+            row.pop_back();
+            ++extra;
+        }
+        row.push_back(Placed{"+" + std::to_string(extra), true, more_width(extra)});
+    }
+
+    int32_t total = 0;
+    for (std::size_t index = 0; index < row.size(); ++index)
+        total += row[index].width + (index == 0 ? int32_t{0} : gap);
+    int32_t origin = canvas.placement.clip.x;
+    if (total < span)
+        origin += (span - total) / 2;
+    for (const Placed& item : row) {
+        key_latch_chips_drawn_.push_back(item.text);
+        kit::ChipLook look;
+        look.text = item.text;
+        look.state = item.filled ? kit::ChipState::playing : kit::ChipState::installed;
+        kit::draw_chip(canvas, {origin, top, item.width, chip_height}, look);
+        origin += item.width + gap;
     }
 }
 

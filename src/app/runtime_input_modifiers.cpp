@@ -15,6 +15,7 @@
 #include "touch_state.hpp"
 #include "oa/app/platform_hooks.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/pad_controls.hpp"
 #include "oa/ui/touch_hud.hpp"
 #include <SDL3/SDL.h>
@@ -140,6 +141,18 @@ SDL_Keymod Runtime::input_modifiers(ModifierUse use) const {
     // FORCE is the pad's Ctrl for clicks, never for the keys the pad presses.
     if ((use == ModifierUse::order || use == ModifierUse::selection) && pad_force_held())
         modifiers |= SDL_KMOD_LCTRL;
+    // Sticky modifiers apply to every use, including the keyboard. During an
+    // event they stay as they were when the event began.
+    const uint8_t sticky = sticky_modifier_bits();
+    namespace keys = oa::ui::key_bindings;
+    if ((sticky & keys::ctrl) != 0)
+        modifiers |= SDL_KMOD_LCTRL;
+    if ((sticky & keys::shift) != 0)
+        modifiers |= SDL_KMOD_LSHIFT;
+    if ((sticky & keys::alt) != 0)
+        modifiers |= SDL_KMOD_LALT;
+    if ((sticky & keys::meta) != 0)
+        modifiers |= SDL_KMOD_LGUI;
     return static_cast<SDL_Keymod>(modifiers);
 }
 

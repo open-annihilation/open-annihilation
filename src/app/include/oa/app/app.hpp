@@ -547,6 +547,8 @@ struct Options {
     std::string check_key_table;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
+    // Latches Shift and Space from a scratch layout, then sticky Ctrl and Alt.
+    bool check_key_latches = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.

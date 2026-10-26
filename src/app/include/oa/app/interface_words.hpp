@@ -348,6 +348,9 @@ inline constexpr std::string_view interface_words[] = {
     "{file} cannot be installed.",
     "{file} left out: {size} bytes, not {expected}",
     "{folder} is a folder of your own, not {name}. Move or rename it, then RETRY.",
+    "{modifier} · locked",
+    "{modifier} · next key or click",
+    "{name} · latched",
     "{name} from {installed} is installed. Replace it with {name} from {new}? The one from "
     "{installed} is kept, and ROLL BACK brings it back.",
     "{n} UNITS",

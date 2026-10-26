@@ -197,6 +197,8 @@ bool Runtime::follow_pointer_modes(const SDL_Event& event) {
 void Runtime::handle_match_right_press(float x, float y) {
     if (!match_)
         return;
+    consume_sticky_modifiers();
+    note_shared_latch_used(1);
     auto& world = match_->state();
     // The frame's pointer pass: the unit under the pointer, the armed
     // command, the pointer area and the ground under it.

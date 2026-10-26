@@ -1026,6 +1026,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_latches) {
+            check_key_latches();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_paused_save) {
             check_paused_save();
             flush_preferences();
@@ -1268,7 +1273,19 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // While an input method composes, the keys it uses are its own.
     if (take_composition_event(event))
         return;
-    // The action events are kept. Nothing acts on them.
+
+    // The action events are kept. Nothing acts on them. The sticky modifiers
+    // this event sees are the ones it began with.
+    struct StickyEventGuard {
+        Runtime& runtime;
+
+        explicit StickyEventGuard(Runtime& runtime) : runtime(runtime) {
+            runtime.begin_sticky_event();
+        }
+
+        ~StickyEventGuard() { runtime.end_sticky_event(); }
+    } sticky_event{*this};
+
     feed_input_actions(event);
     // Alt+Enter switches between full screen and a window on every screen,
     // before the screen or a screen package sees the key; its repeats reach
