@@ -172,6 +172,12 @@ void a_development_build_has_no_route_without_a_test_feed() {
     OA_CHECK(*linux.route == update::Route::linux_versions);
 
     facts.platform = "windows-x64";
+    const update::Where on_windows = update::find_route(build, facts);
+    OA_CHECK(on_windows.route.has_value());
+    OA_CHECK(*on_windows.route == update::Route::windows_folder);
+    OA_CHECK(on_windows.why.empty());
+
+    facts.platform = "macos-universal";
     const update::Where no_platform = update::find_route(build, facts);
     OA_CHECK(!no_platform.route.has_value());
     OA_CHECK(no_platform.why == "no route for this platform yet");
