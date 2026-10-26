@@ -1600,6 +1600,7 @@ actions:
     default: ["Tab"]
     hacks:
       teams.alliance-menu-all-game-types:
+        default: ["Tab", "Shift+Tab"]
         when: []
     pad: team_menu
     words: {name: "Allies menu", description: "The allies menu"}

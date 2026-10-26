@@ -224,8 +224,9 @@ constexpr std::string_view game_status_strip_source[]{"3.1c"};
 constexpr std::string_view game_status_strip_defaults[]{"Space"};
 constexpr std::string_view game_team_menu_source[]{"3.1c", "teams.alliance-menu-all-game-types"};
 constexpr std::string_view game_team_menu_defaults[]{"Tab"};
+constexpr std::string_view game_team_menu_hack_0_defaults[]{"Tab", "Shift+Tab"};
 constexpr HackChange game_team_menu_hacks[]{
-    {"teams.alliance-menu-all-game-types", false, std::span<const std::string_view>{}, true, uint32_t{0}},
+    {"teams.alliance-menu-all-game-types", true, std::span<const std::string_view>(game_team_menu_hack_0_defaults), true, uint32_t{0}},
 };
 constexpr std::string_view game_unit_info_source[]{"3.1c"};
 constexpr std::string_view game_unit_info_defaults[]{"F1", "Ctrl+F1"};
