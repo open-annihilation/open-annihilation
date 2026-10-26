@@ -425,6 +425,7 @@ Network play's own checks, the last rows, are in every build.
 | `--check-hold-confirm` | Checks Hold to confirm: self-destruct, the order button and the surrender question, on a skirmish. |
 | `--check-key-table FILE` | Drives every key, click and wheel turn the match answers and compares what each did with FILE. |
 | `--check-key-timing` | Checks slow keys, bounce keys, the double-press time, the player's key repeat and the drag threshold. |
+| `--check-pointer-keys` | Drives the pointer from the numpad on the main menu and in a skirmish. |
 | `--check-pad-controls` | Drives the gamepad controls with SDL's virtual pads ([controllers](controllers.md)). |
 | `--check-touch-controls` | Drives the touch controls with finger events ([touch controls](touch-controls.md)). |
 | `--check-running-while-inactive` | Checks the game keeps running while its window is inactive, when it must. |

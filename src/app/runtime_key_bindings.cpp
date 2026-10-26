@@ -784,6 +784,18 @@ struct Runtime::KeyBindingsState {
     std::string shown_stem{};
     uint64_t map_generation{};
     bool ready{};
+    /// Pointer keys were on when these bindings were resolved.
+    bool pointer_keys_on{};
+    /// The numpad pointer's directions and buttons.
+    keys::PointerKeys pointer_keys{};
+    /// Where the numpad pointer last was, in canvas pixels.
+    float pointer_keys_x{};
+    /// Where the numpad pointer last was, in canvas pixels.
+    float pointer_keys_y{};
+    /// pointer_keys_x and pointer_keys_y have been placed.
+    bool pointer_keys_known{};
+    /// The buttons the numpad pointer already has down.
+    uint32_t pointer_keys_buttons{};
     keys::Base base{keys::Base::oa_default};
     keys::Layout chosen{};
     bool has_chosen{};
@@ -1244,10 +1256,12 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
                                            ? keys::PointerScheme::left_click
                                            : keys::PointerScheme::right_click;
     const bool number_keys = EngineSettingsState::live_switch_alt(*this);
+    const bool pointer_keys = engine_settings().pointer_keys;
     const std::string order_stem = order_side_stem();
     const std::string shown_stem = shown_hud_stem();
     const bool bindings_same = state.ready && !map_changed && state.hacks == hacks &&
                                state.scheme == scheme && state.number_keys == number_keys &&
+                               state.pointer_keys_on == pointer_keys &&
                                state.order_stem == order_stem;
     if (bindings_same && state.shown_stem == shown_stem)
         return;
@@ -1270,7 +1284,7 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
         input.mod = &mod;
         keys::Resolved made = keys::resolve(input);
         apply_shown_gui_file(made, panel_stem);
-        return made;
+        return keys::pointer_keys_bindings(made, pointer_keys);
     };
     keys::Resolved resolved = resolved_for(order_stem, shown_stem);
     resolved.hold_to_confirm = state.hold_to_confirm;
@@ -1303,10 +1317,14 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
         state.dispatcher.set_sticky_modifiers(engine_settings().sticky_modifiers);
         forget_held_back_keys();
         apply_key_timings();
+        // The keys the dispatcher was holding are gone, and so is a direction
+        // or a button the numpad pointer still had down.
+        state.pointer_keys.clear();
     }
     state.hacks = std::move(hacks);
     state.scheme = scheme;
     state.number_keys = number_keys;
+    state.pointer_keys_on = pointer_keys;
     state.order_stem = order_stem;
     state.shown_stem = shown_stem;
     state.ready = true;
@@ -1386,6 +1404,8 @@ keys::Contexts Runtime::input_contexts() {
         contexts.conditions |= condition_bit("wheel-zoom");
     else
         contexts.conditions |= condition_bit("no-wheel-zoom");
+    if (engine_settings().pointer_keys)
+        contexts.conditions |= condition_bit("pointer-keys");
     return contexts;
 }
 
@@ -1443,6 +1463,8 @@ void Runtime::apply_key_timings() {
     timings.repeat_delay_ms = current.repeat_delay_ms;
     timings.repeat_rate = current.repeat_rate;
     key_bindings_state_->dispatcher.set_timings(timings);
+    const uint32_t double_press = current.double_press_ms == 0 ? 500U : current.double_press_ms;
+    key_bindings_state_->pointer_keys.set_double_press_ms(double_press);
 }
 
 bool Runtime::selection_counting_down() const {
@@ -1680,6 +1702,8 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     KeyBindingsState& state = *key_bindings_state_;
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
         state.events = state.dispatcher.release_all(SDL_GetTicks()).events;
+        note_pointer_key_events(state.events);
+        drop_pointer_keys();
         if (touch_state_if_made() != nullptr)
             touch_state().hud.latches.clear();
         state.shared_presses.clear();
@@ -1700,6 +1724,7 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
     state.dispatcher.set_contexts(contexts);
     const keys::Fed fed = state.dispatcher.feed(*input);
     state.events = fed.events;
+    note_pointer_key_events(state.events);
     trace_fed_actions(state.events);
     if (fed.legacy == keys::LegacyGate::hold && event.type == SDL_EVENT_KEY_DOWN) {
         KeyBindingsState::HeldBack& slot = state.held_back[held_back_slot(input->scancode)];
@@ -1727,8 +1752,10 @@ void Runtime::advance_input_actions(bool& running) {
     // not printed again.
     if (!fed.events.empty()) {
         state.events = fed.events;
+        note_pointer_key_events(fed.events);
         trace_fed_actions(state.events);
     }
+    step_pointer_keys();
     for (const keys::InputEvent& admitted : fed.admitted) {
         // The down was held back, so the shared latches did not see it then.
         apply_shared_key_latches(admitted, contexts);
@@ -1909,6 +1936,82 @@ void Runtime::apply_sticky_modifiers(bool on) {
     if (key_bindings_state_ == nullptr)
         return;
     key_bindings_state_->dispatcher.set_sticky_modifiers(on);
+}
+
+void Runtime::note_pointer_key_events(const std::vector<keys::ActionEvent>& events) {
+    if (key_bindings_state_ == nullptr || !engine_settings().pointer_keys)
+        return;
+    KeyBindingsState& state = *key_bindings_state_;
+    const uint64_t now = SDL_GetTicks();
+    for (const keys::ActionEvent& action_event : events) {
+        const std::string_view id = action_event.action;
+        const bool pointer_action = id.starts_with("pointer.move-") ||
+                                    id.starts_with("pointer.click-") || id == "pointer.hold-left" ||
+                                    id == "pointer.let-go";
+        if (!pointer_action)
+            continue;
+        if (action_event.phase == keys::Phase::pressed)
+            state.pointer_keys.press(id, now);
+        else if (action_event.phase == keys::Phase::released)
+            state.pointer_keys.release(id, now);
+    }
+}
+
+void Runtime::step_pointer_keys() {
+    if (key_bindings_state_ == nullptr || !engine_settings().pointer_keys)
+        return;
+    KeyBindingsState& state = *key_bindings_state_;
+    const uint32_t window =
+        engine_settings().double_press_ms == 0 ? 500U : engine_settings().double_press_ms;
+    state.pointer_keys.set_double_press_ms(window);
+    if (input_contexts().text_entry) {
+        const uint64_t now = SDL_GetTicks();
+        for (const char* id : {
+                 "pointer.move-up",
+                 "pointer.move-down",
+                 "pointer.move-left",
+                 "pointer.move-right",
+                 "pointer.move-up-left",
+                 "pointer.move-up-right",
+                 "pointer.move-down-left",
+                 "pointer.move-down-right",
+             })
+            state.pointer_keys.release(id, now);
+    }
+    const keys::PointerStep moved = state.pointer_keys.step(SDL_GetTicks());
+    emit_pointer_keys_step(
+        moved,
+        state.pointer_keys_x,
+        state.pointer_keys_y,
+        state.pointer_keys_known,
+        state.pointer_keys_buttons
+    );
+}
+
+void Runtime::drop_pointer_keys() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState& state = *key_bindings_state_;
+    state.pointer_keys.clear();
+    for (int attempt = 0; attempt < 4; ++attempt) {
+        const keys::PointerStep moved = state.pointer_keys.step(SDL_GetTicks());
+        const bool quiet = moved.dx == 0.F && moved.dy == 0.F && !moved.down && !moved.up;
+        emit_pointer_keys_step(
+            moved,
+            state.pointer_keys_x,
+            state.pointer_keys_y,
+            state.pointer_keys_known,
+            state.pointer_keys_buttons
+        );
+        if (quiet)
+            break;
+    }
+}
+
+void Runtime::apply_pointer_keys(bool on) {
+    ensure_key_bindings(false);
+    if (!on)
+        drop_pointer_keys();
 }
 
 uint8_t Runtime::sticky_modifier_bits() const {

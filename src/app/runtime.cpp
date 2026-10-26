@@ -1090,6 +1090,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_pointer_keys) {
+            check_pointer_keys();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_megamap_clicks) {
             check_megamap_clicks();
             flush_preferences();

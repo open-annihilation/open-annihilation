@@ -2619,12 +2619,25 @@ class Runtime final : public menu::Host,
     };
 
     /// Resolves the layout in use again when the keyboard, the hacks, the pointer scheme,
-    /// SwitchAlt, the loaded layout, the side's order file or the panel on screen changed,
-    /// making the dispatcher on first use. A change of only the panel on screen keeps a key
-    /// that is already held. [runtime_key_bindings.cpp]
+    /// SwitchAlt, the loaded layout, the side's order file, the panel on screen or the
+    /// pointer-keys setting changed, making the dispatcher on first use. A change of only
+    /// the panel on screen keeps a key that is already held. [runtime_key_bindings.cpp]
     ///
     /// @param keymap_changed the keymap changed, so the keyboard map is read again
     void ensure_key_bindings(bool keymap_changed);
+
+    /// Notes pointer-key presses and releases among action events just stored.
+    ///
+    /// @param events the action events
+    void note_pointer_key_events(const std::vector<oa::ui::key_bindings::ActionEvent>& events);
+
+    /// Steps the numpad pointer and sends what it moved and which button changed.
+    /// [runtime_key_bindings.cpp]
+    void step_pointer_keys();
+
+    /// Drops every direction and sends an up for a button the numpad pointer already put down.
+    /// [runtime_key_bindings.cpp]
+    void drop_pointer_keys();
 
     /// The scancode of `order.attack`'s unmodified press.
     ///
@@ -13009,6 +13022,10 @@ class Runtime final : public menu::Host,
     /// threshold on one skirmish. Throws std::runtime_error on a failure. [runtime_key_timing_check.cpp]
     void check_key_timing();
 
+    /// Drives the pointer from the numpad on the main menu and in one skirmish.
+    /// Throws std::runtime_error on a failure. [runtime_pointer_keys_check.cpp]
+    void check_pointer_keys();
+
     /// Checks the screen's edges scrolling the camera through SDL input, on
     /// the skirmish check_pointer_interfaces() starts.
     ///
@@ -18801,6 +18818,27 @@ class Runtime final : public menu::Host,
     ///
     /// @param on true when a tap arms the next key or click
     void apply_sticky_modifiers(bool on);
+
+    /// Sends one step of the numpad pointer as synthetic mouse events.
+    ///
+    /// The events use pointer_keys_mouse_id and window 0, and the pointer stays
+    /// on the canvas. A real mouse that has moved is adopted first.
+    /// [runtime_pointer_keys.cpp]
+    ///
+    /// @param step the movement and the button edges
+    /// @param x the pointer's column, kept between steps
+    /// @param y the pointer's row, kept between steps
+    /// @param known whether x and y have been placed
+    /// @param buttons the buttons already down
+    void emit_pointer_keys_step(
+        oa::ui::key_bindings::PointerStep step, float& x, float& y, bool& known, uint32_t& buttons
+    );
+
+    /// Rebuilds the bindings for pointer keys, and lets a held button go when they turn off.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param on true when the numpad moves the pointer
+    void apply_pointer_keys(bool on);
     int radar_map_h_ = 0;
     std::optional<oa::present::world_renderer::TextureCatalog> texture_catalog_;
     std::shared_ptr<MatchModels> match_models_; // 3DO renderer state, runtime_match_render.cpp
