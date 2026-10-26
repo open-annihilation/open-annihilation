@@ -5570,6 +5570,14 @@
 	it=Tieni premuto {chord}: l'anello si riempie in {seconds} s. Lascia per annullare.;
 	}
 
+[Key layout packages (.oakeys)]
+	{
+	de=Tastenbelegungs-Pakete (.oakeys);
+	fr=Paquets de disposition des touches (.oakeys);
+	es=Paquetes de distribución de teclas (.oakeys);
+	it=Pacchetti di disposizione dei tasti (.oakeys);
+	}
+
 [Key Remaps]
 	{
 	de=Tastenbelegungen;
