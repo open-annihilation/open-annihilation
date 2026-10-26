@@ -190,7 +190,9 @@ void Runtime::tick_update_check() {
     }
     // Ask while the main menu is up, including while a dialog or Settings
     // keeps the question waiting. A match took the branch above and cancels
-    // there; the question is not offered over it.
+    // there; the question is not offered over it. A protected place is asked
+    // to move before any update is offered.
+    offer_move_to_applications();
     offer_update();
     // The download, the ready prompt and the Updated notice run while Settings
     // is open. The two-frame wait below is only the automatic check.

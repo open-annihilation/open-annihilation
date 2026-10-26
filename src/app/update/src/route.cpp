@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The route for this machine. The self-check folder, Windows and Linux are answered.
+// The route for this machine. The self-check folder, Windows and Linux are
+// answered, and macOS answers a signed bundle.
 #include "oa/app/update/route.hpp"
 
 #include "oa/app/version_line.hpp"
@@ -26,7 +27,10 @@
 #include <windows.h>
 #include <winreg.h>
 #elif defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
 #include <mach-o/dyld.h>
+#include <unistd.h>
 #endif
 #if !defined(_WIN32)
 #include <sys/stat.h>
@@ -230,6 +234,103 @@ constexpr std::string_view uninstall_key =
     return {reinterpret_cast<const char*>(text.data()), text.size()};
 }
 
+#if defined(__APPLE__)
+/// The signing team of this process. Empty when the signature names none,
+/// which is an ad hoc signature.
+///
+/// @return the team identifier
+[[nodiscard]] std::string signing_team() {
+    SecCodeRef own = nullptr;
+    if (SecCodeCopySelf(kSecCSDefaultFlags, &own) != errSecSuccess || own == nullptr)
+        return {};
+    SecStaticCodeRef disk_code = nullptr;
+    const OSStatus made = SecCodeCopyStaticCode(own, kSecCSDefaultFlags, &disk_code);
+    CFRelease(own);
+    if (made != errSecSuccess || disk_code == nullptr)
+        return {};
+    CFDictionaryRef information = nullptr;
+    const OSStatus copied =
+        SecCodeCopySigningInformation(disk_code, kSecCSSigningInformation, &information);
+    CFRelease(disk_code);
+    if (copied != errSecSuccess || information == nullptr)
+        return {};
+    std::string team;
+    const void* const value = CFDictionaryGetValue(information, kSecCodeInfoTeamIdentifier);
+    if (value != nullptr && CFGetTypeID(value) == CFStringGetTypeID()) {
+        const auto text = static_cast<CFStringRef>(value);
+        const char* const direct = CFStringGetCStringPtr(text, kCFStringEncodingUTF8);
+        if (direct != nullptr) {
+            team = direct;
+        } else {
+            const CFIndex length = CFStringGetLength(text);
+            const CFIndex bytes =
+                CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
+            std::string buffer(static_cast<std::size_t>(bytes), '\0');
+            if (CFStringGetCString(text, buffer.data(), bytes, kCFStringEncodingUTF8))
+                team.assign(buffer.c_str());
+        }
+    }
+    CFRelease(information);
+    return team;
+}
+
+/// True when this process may write `folder`.
+///
+/// @param folder the folder that holds the bundle
+/// @return true when access allows writing
+[[nodiscard]] bool directory_writable(const fs::path& folder) {
+    if (folder.empty())
+        return false;
+    return access(folder.c_str(), W_OK) == 0;
+}
+#endif
+
+/// The bundle around `executable`, when it sits in Contents/MacOS.
+///
+/// @param executable the program file
+/// @param[out] facts the bundle, the protected place, the team and the folder
+void read_bundle(const fs::path& executable, RouteFacts& facts) {
+#if defined(__APPLE__)
+    const std::string spelling = executable.generic_string();
+    facts.translocated = spelling.find("/AppTranslocation/") != std::string::npos;
+    const fs::path folder = executable.parent_path();
+    if (folder.filename() != "MacOS" || folder.parent_path().filename() != "Contents")
+        return;
+    facts.bundle = folder.parent_path().parent_path();
+    facts.signing_team = signing_team();
+    facts.parent_writable = directory_writable(facts.bundle.parent_path());
+#else
+    (void)executable;
+    (void)facts;
+#endif
+}
+
+/// The macOS route for a bundle the facts already describe.
+///
+/// @param facts the machine
+/// @return the route, or why there is none
+[[nodiscard]] Where macos_route(const RouteFacts& facts) {
+    Where where;
+    if (facts.bundle.empty()) {
+        where.why = "no route for this platform yet";
+        return where;
+    }
+    if (facts.translocated) {
+        where.why = "macOS is running this copy from a protected place";
+        return where;
+    }
+    const bool ad_hoc = facts.signing_team.empty();
+    if (ad_hoc && !(facts.self_check && facts.test_feed)) {
+        where.why = "an ad hoc signed build does not update in place";
+        return where;
+    }
+    where.route = Route::macos_bundle;
+    where.install = facts.bundle;
+    where.program = facts.executable;
+    where.installer = !facts.parent_writable;
+    return where;
+}
+
 /// A path as UTF-8 with forward slashes.
 ///
 /// @param path the path
@@ -292,6 +393,10 @@ bool launcher_file(const fs::path& path) {
 
 Where find_route(const ThisBuild& build, const RouteFacts& facts) {
     Where where;
+    if (facts.no_install_route) {
+        where.why = "this check has no install route";
+        return where;
+    }
     if (facts.way == oa::data::engine_feed::Way::page_only) {
         where.why = "the release is offered on its page";
         return where;
@@ -306,6 +411,8 @@ Where find_route(const ThisBuild& build, const RouteFacts& facts) {
         where.program = facts.executable;
         return where;
     }
+    if (facts.platform == "macos-universal")
+        return macos_route(facts);
     if (facts.platform.starts_with("windows-")) {
         where.program = facts.executable;
         where.install = facts.program_folder;
@@ -314,6 +421,8 @@ Where find_route(const ThisBuild& build, const RouteFacts& facts) {
             where.route = Route::windows_installer;
         else
             where.route = Route::windows_folder;
+        // The installer route downloads and runs the setup program.
+        where.installer = where.route == Route::windows_installer;
         return where;
     }
     if (!linux_platform(facts.platform)) {
@@ -342,6 +451,12 @@ RouteFacts this_machine(const fs::path& program_folder) {
     facts.install_location = install_location_from_registry();
 #endif
     facts.platform = std::string(release_platform_name());
+    read_bundle(facts.executable, facts);
+#if defined(OA_SELF_CHECKS) && OA_SELF_CHECKS
+    facts.self_check = true;
+#else
+    facts.self_check = false;
+#endif
     facts.owned_by_player = true;
 #if !defined(_WIN32)
     struct stat info{};

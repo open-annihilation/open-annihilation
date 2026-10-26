@@ -6442,8 +6442,15 @@ class Runtime final : public menu::Host,
     /// Queues the update question when a verified check offers a release the
     /// player has not skipped and the main menu is up. A match, Settings or
     /// a message box keeps it waiting. A match that starts while it is open
-    /// closes it, and the next settled menu of this run asks again.
+    /// closes it, and the next settled menu of this run asks again. A copy
+    /// macOS is running from a protected place is not offered an update.
     void offer_update();
+
+    /// Queues "Move OA to Applications" once, when macOS is running this
+    /// copy from a protected place and the main menu has settled. LATER
+    /// dismisses it. SHOW IN FINDER reveals the app. A match closes it and
+    /// this run does not ask again.
+    void offer_move_to_applications();
 
     /// The main menu on its own, with no dialog and no settings window.
     ///
