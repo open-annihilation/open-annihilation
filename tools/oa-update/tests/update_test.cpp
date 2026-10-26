@@ -750,8 +750,8 @@ void test_macos_route();
 int main() {
     {
         const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
-        const fs::path root = fs::temp_directory_path() /
-                              (std::string("oa-v11-folder-") + std::to_string(ticks));
+        const fs::path root =
+            fs::temp_directory_path() / (std::string("oa-v11-folder-") + std::to_string(ticks));
         fs::create_directories(root);
         restoring_a_plain_folder_puts_the_kept_files_back(root);
         std::error_code ignored;
