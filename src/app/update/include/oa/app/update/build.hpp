@@ -69,7 +69,7 @@ struct ThisBuild {
 ///
 /// @param platform_name the name release_platform_name would give
 /// @param windows_95 this build is a Windows 95 build
-/// @param steam_deck_folder the program's folder holds a steam-deck folder
+/// @param steam_deck_folder the install holds a steam-deck folder
 /// @return the package id
 [[nodiscard]] std::string
 package_id(std::string_view platform_name, bool windows_95, bool steam_deck_folder);
@@ -77,9 +77,10 @@ package_id(std::string_view platform_name, bool windows_95, bool steam_deck_fold
 /// The build that is running, and the package its program folder selects.
 ///
 /// The version and the label are the ones compiled into this module. A
-/// Windows 95 build is `windows-95`. A Linux x86_64 build whose program
-/// folder holds a `steam-deck` directory is `steam-deck`. Any other build
-/// uses its platform name.
+/// Windows 95 build is `windows-95`. A Linux x86_64 build whose install
+/// holds a `steam-deck` directory is `steam-deck`. Once the program sits in
+/// `versions/`, that directory is the one beside `versions/`, not one inside
+/// the version folder. Any other build uses its platform name.
 ///
 /// @param program_folder the folder that holds the program; empty skips the Deck folder
 /// @return this build

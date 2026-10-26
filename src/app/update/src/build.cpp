@@ -7,6 +7,7 @@
 #include "oa/app/version_line.hpp"
 #include "oa/data/engine_feed/feed.hpp"
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -120,7 +121,10 @@ ThisBuild this_build(const std::filesystem::path& program_folder) {
         built.version_text = std::string(version_text);
     }
     built.development = !compiled_label().empty();
-    const bool deck = folder_exists(program_folder / "steam-deck");
+    std::filesystem::path deck_root = program_folder;
+    if (program_folder.parent_path().filename() == "versions")
+        deck_root = program_folder.parent_path().parent_path();
+    const bool deck = folder_exists(deck_root / "steam-deck");
     built.package = package_id(release_platform_name(), windows_95_build(), deck);
     return built;
 }

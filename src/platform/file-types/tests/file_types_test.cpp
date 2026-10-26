@@ -1635,11 +1635,35 @@ void test_brain_off_hands_the_brain_back_alone() {
             );
 }
 
+void test_versions_layout_names_the_launcher() {
+    const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
+    const fs::path root =
+        fs::temp_directory_path() / (std::string("oa-v10-desktop-") + std::to_string(ticks));
+    std::error_code error;
+    const fs::path version = root / "versions" / "0.8.7";
+    fs::create_directories(version, error);
+    const fs::path game = version / "open-annihilation";
+    const fs::path launcher = root / "open-annihilation";
+    {
+        std::ofstream binary(game, std::ios::binary);
+        binary << "game";
+        std::ofstream script(launcher, std::ios::binary);
+        script << "#!/bin/sh\n";
+    }
+    OA_CHECK(file_types::desktop_entry(game) == file_types::desktop_entry(launcher));
+    OA_CHECK(file_types::launch_desktop_entry(game) == file_types::launch_desktop_entry(launcher));
+    OA_CHECK(file_types::desktop_entry(game).find("versions/") == std::string::npos);
+    fs::remove(launcher, error);
+    OA_CHECK(file_types::desktop_entry(game).find("versions/") != std::string::npos);
+    fs::remove_all(root, error);
+}
+
 } // namespace
 
 int main() {
     test_desktop_exec_argument();
     test_texts();
+    test_versions_layout_names_the_launcher();
     test_running_executable();
     test_opener_changes();
     test_brain_off_hands_the_brain_back_alone();

@@ -40,45 +40,8 @@ bool ends_with_app(const fs::path& path) {
     return name.size() >= 4 && name.compare(name.size() - 4, 4, ".app") == 0;
 }
 
-} // namespace
-
-bool macos_staged_application(const fs::path& staged, fs::path& application, std::string* why) {
-    std::vector<fs::path> staged_children;
-    if (!list_children(staged, staged_children, why))
-        return false;
-    if (staged_children.size() != 1 || !fs::is_directory(fs::symlink_status(staged_children[0])) ||
-        fs::is_symlink(fs::symlink_status(staged_children[0]))) {
-        set_why(why, "the staged package is not one folder");
-        return false;
-    }
-    std::vector<fs::path> top_children;
-    if (!list_children(staged_children[0], top_children, why))
-        return false;
-    const fs::path* found = nullptr;
-    for (const fs::path& child : top_children) {
-        if (!ends_with_app(child))
-            continue;
-        if (fs::is_symlink(fs::symlink_status(child)) ||
-            !fs::is_directory(fs::symlink_status(child))) {
-            set_why(why, "the staged package is not one application");
-            return false;
-        }
-        if (found != nullptr) {
-            set_why(why, "the staged package is not one application");
-            return false;
-        }
-        found = &child;
-    }
-    if (found == nullptr) {
-        set_why(why, "the staged package is not one application");
-        return false;
-    }
-    application = *found;
-    return true;
-}
-
 std::vector<Operation>
-plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
+folder_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
     if (why != nullptr)
         why->clear();
     const fs::path install = path_from(plan.install);
@@ -129,6 +92,43 @@ plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::
         operations.push_back(std::move(operation));
     }
     return operations;
+}
+
+} // namespace
+
+bool macos_staged_application(const fs::path& staged, fs::path& application, std::string* why) {
+    std::vector<fs::path> staged_children;
+    if (!list_children(staged, staged_children, why))
+        return false;
+    if (staged_children.size() != 1 || !fs::is_directory(fs::symlink_status(staged_children[0])) ||
+        fs::is_symlink(fs::symlink_status(staged_children[0]))) {
+        set_why(why, "the staged package is not one folder");
+        return false;
+    }
+    std::vector<fs::path> top_children;
+    if (!list_children(staged_children[0], top_children, why))
+        return false;
+    const fs::path* found = nullptr;
+    for (const fs::path& child : top_children) {
+        if (!ends_with_app(child))
+            continue;
+        if (fs::is_symlink(fs::symlink_status(child)) ||
+            !fs::is_directory(fs::symlink_status(child))) {
+            set_why(why, "the staged package is not one application");
+            return false;
+        }
+        if (found != nullptr) {
+            set_why(why, "the staged package is not one application");
+            return false;
+        }
+        found = &child;
+    }
+    if (found == nullptr) {
+        set_why(why, "the staged package is not one application");
+        return false;
+    }
+    application = *found;
+    return true;
 }
 
 MacosDecision
@@ -238,5 +238,17 @@ std::vector<Operation> macos_checked_operations(
     return {};
 }
 #endif
+
+std::vector<Operation>
+plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
+    if (why != nullptr)
+        why->clear();
+    if (plan.route == oa::app::update::Route::linux_versions)
+        return linux_operations(plan, staged, why);
+    if (plan.route == oa::app::update::Route::check_folder)
+        return folder_operations(plan, staged, why);
+    set_why(why, "this route is not carried out");
+    return {};
+}
 
 } // namespace oa::update_helper

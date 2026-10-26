@@ -1412,9 +1412,12 @@ void Runtime::check_key_table() {
             }
             preassign_group(row.id);
             select_role(prepared.select);
-            if (prepared.armed == "attack")
-                tap(SDL_SCANCODE_A, SDL_KMOD_NONE, false);
-            else if (prepared.armed == "build")
+            if (prepared.armed == "attack") {
+                const SDL_Scancode attack = self.order_attack_press_scancode();
+                if (attack == SDL_SCANCODE_UNKNOWN)
+                    fail("order.attack has no unmodified press key");
+                tap(attack, SDL_KMOD_NONE, false);
+            } else if (prepared.armed == "build")
                 arm_build(
                     row.id.find("snap") != std::string::npos ||
                     row.id.find("place") != std::string::npos
@@ -1780,11 +1783,93 @@ void Runtime::check_key_table() {
             return text;
         }
 
+        /// Prints each order and tab key of the two stock order files, and fails
+        /// unless each is the letter those files give it.
+        void require_stock_order_letters() {
+            struct Stock {
+                std::string_view action;
+                char32_t letter;
+            };
+
+            // The letters the stock order files give these actions.
+            static constexpr Stock stock[] = {
+                {"panel.orders-tab", U'o'},
+                {"panel.build-tab", U'b'},
+                {"order.move", U'm'},
+                {"order.stop", U's'},
+                {"order.patrol", U'p'},
+                {"order.attack", U'a'},
+                {"order.guard", U'g'},
+                {"order.reclaim", U'e'},
+                {"order.repair", U'r'},
+                {"order.capture", U'c'},
+                {"order.load", U'l'},
+                {"order.unload", U'u'},
+                {"order.dgun", U'd'},
+                {"order.fire-state", U'f'},
+                {"order.move-state", U'v'},
+                {"order.on-off", U'x'},
+                {"order.cloak", U'k'},
+            };
+            const auto fold = [](char32_t letter) -> char32_t {
+                if (letter >= U'A' && letter <= U'Z')
+                    return static_cast<char32_t>(letter - U'A' + U'a');
+                return letter;
+            };
+            const auto show = [](char32_t letter) {
+                if (letter >= 32 && letter < 127)
+                    return std::string(1, static_cast<char>(letter));
+                return std::to_string(static_cast<uint32_t>(letter));
+            };
+            const auto found = self.order_file_quick_keys();
+            bool matches = true;
+            for (const char* gui_file : {"ARMGEN.GUI", "CORGEN.GUI"}) {
+                for (const Stock& stock_row : stock) {
+                    int copies = 0;
+                    const OrderFileKey* match = nullptr;
+                    for (const auto& key : found) {
+                        if (key.file == gui_file && key.action == stock_row.action) {
+                            ++copies;
+                            match = &key;
+                        }
+                    }
+                    if (copies == 1 && match != nullptr) {
+                        std::cout << "order key " << stock_row.action << ' ' << gui_file << ' '
+                                  << match->gadget << ' ' << show(match->letter) << '\n';
+                        if (fold(match->letter) != fold(stock_row.letter))
+                            matches = false;
+                    } else {
+                        std::cout << "order key " << stock_row.action << ' ' << gui_file
+                                  << " missing\n";
+                        matches = false;
+                    }
+                }
+                for (const auto& key : found) {
+                    if (key.file != gui_file)
+                        continue;
+                    bool known = false;
+                    for (const Stock& stock_row : stock) {
+                        if (stock_row.action == key.action)
+                            known = true;
+                    }
+                    if (!known) {
+                        std::cout << "order key " << key.action << ' ' << gui_file << ' '
+                                  << key.gadget << ' ' << show(key.letter) << '\n';
+                        matches = false;
+                    }
+                }
+            }
+            std::cout.flush();
+            if (!matches)
+                fail("order quick keys do not match the stock order files");
+        }
+
         void run() {
             if (self.sdl_.renderer == nullptr || self.sdl_.window == nullptr)
                 fail("needs the SDL window");
             if ((SDL_GetWindowFlags(self.sdl_.window) & SDL_WINDOW_MOUSE_FOCUS) == 0)
                 fail("the window does not have the pointer");
+            require_stock_order_letters();
             self.start_benchmark_skirmish();
             self.apply_output_mode();
             spawn_all();

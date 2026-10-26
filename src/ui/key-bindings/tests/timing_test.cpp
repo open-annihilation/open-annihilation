@@ -168,7 +168,7 @@ Resolved prepared(const KeyboardMap& map) {
 /// @return the dispatcher
 Dispatcher open_dispatcher(const Resolved& resolved, const KeyboardMap& map) {
     Dispatcher dispatcher;
-    dispatcher.set_bindings(resolved);
+    dispatcher.set_bindings(Resolved{resolved});
     dispatcher.set_keyboard(map);
     Platform where;
     where.primary_is_meta = true;
@@ -426,7 +426,7 @@ void bindings_forget_a_wait(const Resolved& resolved, const KeyboardMap& map) {
     timings.slow_keys_ms = 300;
     attack.set_timings(timings);
     OA_CHECK(attack.feed(letter_event(place_of("KeyA"), 'a', true, 0)).legacy == LegacyGate::hold);
-    attack.set_bindings(resolved);
+    attack.set_bindings(Resolved{resolved});
     attack.set_timings(timings);
     const Fed fed = attack.advance(1000);
     OA_CHECK(fed.events.empty());

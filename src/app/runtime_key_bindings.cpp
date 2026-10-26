@@ -603,6 +603,21 @@ const char* phase_word(keys::Phase phase) noexcept {
     return "pressed";
 }
 
+/// Whether two resolutions list the same action ids in the same order.
+///
+/// @param before the bindings in use
+/// @param after the bindings just resolved
+/// @return true when every id matches
+bool same_action_ids(const keys::Resolved& before, const keys::Resolved& after) {
+    if (before.actions.size() != after.actions.size())
+        return false;
+    for (std::size_t action_index = 0; action_index < before.actions.size(); ++action_index) {
+        if (before.actions[action_index].id != after.actions[action_index].id)
+            return false;
+    }
+    return true;
+}
+
 /// The modifier bit a key's own position holds, or 0.
 ///
 /// @param scancode the position
@@ -749,8 +764,6 @@ const char* modifier_label(uint8_t bit) {
 
 struct Runtime::KeyBindingsState {
     keys::Dispatcher dispatcher{};
-    keys::Resolved resolved{};
-    keys::KeyboardMap keyboard{};
     keys::Platform platform{};
     std::vector<keys::ActionEvent> events{};
 
@@ -764,6 +777,10 @@ struct Runtime::KeyBindingsState {
     std::vector<std::string> hacks{};
     keys::PointerScheme scheme{keys::PointerScheme::right_click};
     bool number_keys{};
+    /// The order file stem the last resolution used.
+    std::string order_stem{};
+    /// The shown panel stem the last resolution used.
+    std::string shown_stem{};
     uint64_t map_generation{};
     bool ready{};
     keys::Base base{keys::Base::oa_default};
@@ -789,7 +806,7 @@ struct Runtime::KeyBindingsState {
     /// @param action the action id
     /// @return true when the id is in the bindings
     [[nodiscard]] bool has_action(std::string_view action) const {
-        for (const keys::Bound& bound : resolved.actions) {
+        for (const keys::Bound& bound : dispatcher.bindings().actions) {
             if (bound.id == action)
                 return true;
         }
@@ -876,6 +893,7 @@ void Runtime::load_key_bindings() {
     };
     if (key_bindings_state_ != nullptr && key_bindings_state_->signature == signature_now())
         return;
+    gui_quick_keys_gathered_ = false;
 
     const bool one_run = options_.keys_reset || !options_.keys.empty();
     const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
@@ -1171,9 +1189,12 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
         key_bindings_state_ = std::move(made);
     }
     KeyBindingsState& state = *key_bindings_state_;
+    keys::KeyboardMap loaded_map;
+    const keys::KeyboardMap* map = &state.dispatcher.keyboard();
     bool map_changed = false;
     if (keymap_changed || state.map_generation == 0) {
-        state.keyboard = keyboard_from_sdl();
+        loaded_map = keyboard_from_sdl();
+        map = &loaded_map;
         state.platform = platform_here();
         ++state.map_generation;
         if (state.map_generation == 0)
@@ -1192,47 +1213,96 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
                                            ? keys::PointerScheme::left_click
                                            : keys::PointerScheme::right_click;
     const bool number_keys = EngineSettingsState::live_switch_alt(*this);
-    if (state.ready && !map_changed && state.hacks == hacks && state.scheme == scheme &&
-        state.number_keys == number_keys)
+    const std::string order_stem = order_side_stem();
+    const std::string shown_stem = shown_hud_stem();
+    const bool bindings_same = state.ready && !map_changed && state.hacks == hacks &&
+                               state.scheme == scheme && state.number_keys == number_keys &&
+                               state.order_stem == order_stem;
+    if (bindings_same && state.shown_stem == shown_stem)
         return;
 
-    // The release events would point into the bindings set_bindings replaces.
-    (void)state.dispatcher.release_all(SDL_GetTicks());
-    state.events.clear();
-    if (touch_state_if_made() != nullptr) {
-        auto& hud_latches = touch_state().hud.latches;
-        for (const KeyBindingsState::SharedPress& press : state.shared_presses)
-            hud_latches.cancel(press.latch);
+    // The mod list is a local of the lambda. resolve copies what it keeps, and
+    // the returned bindings do not point into it.
+    const auto resolved_for = [&](std::string_view side_stem, std::string_view panel_stem) {
+        if (!gui_quick_keys_gathered_)
+            gather_gui_quick_keys();
+        const keys::ModData mod = gui_mod_data(side_stem);
+        keys::ResolveInput input;
+        input.base = state.base;
+        input.chosen = state.has_chosen ? &state.chosen : nullptr;
+        input.own = state.has_own ? &state.own : nullptr;
+        input.keyboard = map;
+        input.platform = state.platform;
+        input.hacks_on = hacks;
+        input.scheme = scheme;
+        input.number_keys_select_groups = number_keys;
+        input.mod = &mod;
+        keys::Resolved made = keys::resolve(input);
+        apply_shown_gui_file(made, panel_stem);
+        return made;
+    };
+    keys::Resolved resolved = resolved_for(order_stem, shown_stem);
+    // A shown-file change keeps the same action ids, so a held page key, a
+    // latch and a key held back stay. Anything else replaces the bindings.
+    const bool keep_held = bindings_same && same_action_ids(state.dispatcher.bindings(), resolved);
+    if (keep_held) {
+        state.events.clear();
+        state.dispatcher.retarget(std::move(resolved));
+    } else {
+        // The release events would point into the bindings set_bindings replaces.
+        (void)state.dispatcher.release_all(SDL_GetTicks());
+        state.events.clear();
+        if (touch_state_if_made() != nullptr) {
+            auto& hud_latches = touch_state().hud.latches;
+            for (const KeyBindingsState::SharedPress& press : state.shared_presses)
+                hud_latches.cancel(press.latch);
+        }
+        state.shared_presses.clear();
+        if (map_changed)
+            state.dispatcher.set_keyboard(loaded_map);
+        state.dispatcher.set_platform(state.platform);
+        state.dispatcher.set_bindings(std::move(resolved));
+        std::vector<std::string> dispatcher_toggle;
+        for (const std::string& id : state.toggle) {
+            if (shared_role_of(id) == nullptr)
+                dispatcher_toggle.push_back(id);
+        }
+        state.dispatcher.set_toggle(std::move(dispatcher_toggle));
+        state.dispatcher.set_sticky_modifiers(engine_settings().sticky_modifiers);
+        forget_held_back_keys();
+        apply_key_timings();
     }
-    state.shared_presses.clear();
-    keys::ResolveInput input;
-    input.base = state.base;
-    input.chosen = state.has_chosen ? &state.chosen : nullptr;
-    input.own = state.has_own ? &state.own : nullptr;
-    input.keyboard = &state.keyboard;
-    input.platform = state.platform;
-    input.hacks_on = hacks;
-    input.scheme = scheme;
-    input.number_keys_select_groups = number_keys;
-    keys::Resolved resolved = keys::resolve(input);
-    state.dispatcher.set_keyboard(state.keyboard);
-    state.dispatcher.set_platform(state.platform);
-    state.dispatcher.set_bindings(resolved);
-    std::vector<std::string> dispatcher_toggle;
-    for (const std::string& id : state.toggle) {
-        if (shared_role_of(id) == nullptr)
-            dispatcher_toggle.push_back(id);
-    }
-    state.dispatcher.set_toggle(std::move(dispatcher_toggle));
-    state.dispatcher.set_sticky_modifiers(engine_settings().sticky_modifiers);
-    forget_held_back_keys();
-    apply_key_timings();
-    state.resolved = std::move(resolved);
     state.hacks = std::move(hacks);
     state.scheme = scheme;
     state.number_keys = number_keys;
+    state.order_stem = order_stem;
+    state.shown_stem = shown_stem;
     state.ready = true;
-    rebuild_pointer_roles(state.resolved);
+    if (!keep_held)
+        rebuild_pointer_roles(state.dispatcher.bindings());
+}
+
+SDL_Scancode Runtime::order_attack_press_scancode() {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr)
+        return SDL_SCANCODE_UNKNOWN;
+    for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+        if (bound.id != "order.attack")
+            continue;
+        for (const keys::BoundChord& binding : bound.chords) {
+            const keys::Chord& chord = binding.chord;
+            if (chord.gesture != keys::Gesture::press || chord.modifiers != 0)
+                continue;
+            if (chord.kind == keys::TriggerKind::place)
+                return static_cast<SDL_Scancode>(chord.scancode);
+            if (chord.kind == keys::TriggerKind::character && chord.character >= U'A' &&
+                chord.character <= U'Z') {
+                const auto offset = static_cast<int>(chord.character - U'A');
+                return static_cast<SDL_Scancode>(static_cast<int>(SDL_SCANCODE_A) + offset);
+            }
+        }
+    }
+    return SDL_SCANCODE_UNKNOWN;
 }
 
 keys::Contexts Runtime::input_contexts() {
@@ -1539,7 +1609,7 @@ void Runtime::apply_shared_key_latches(
         if (role == nullptr)
             continue;
         const keys::Bound* bound = nullptr;
-        for (const keys::Bound& item : state.resolved.actions) {
+        for (const keys::Bound& item : state.dispatcher.bindings().actions) {
             if (item.id == id) {
                 bound = &item;
                 break;
@@ -1556,7 +1626,7 @@ void Runtime::apply_shared_key_latches(
             continue;
         if (touch_state_if_made() != nullptr && touch_state().hud.latches.held(role->latch))
             continue;
-        if (!binding_key(*bound, input, bit, state.keyboard, state.platform))
+        if (!binding_key(*bound, input, bit, state.dispatcher.keyboard(), state.platform))
             continue;
         touch_state().hud.latches.press(role->latch, input.time_ms);
         state.shared_presses.push_back(KeyBindingsState::SharedPress{input.scancode, role->latch});

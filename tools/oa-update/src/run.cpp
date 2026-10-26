@@ -4,6 +4,8 @@
 #include "oa/update_helper/run.hpp"
 
 #include "oa/app/update/plan.hpp"
+#include "oa/app/update/route.hpp"
+#include "oa/platform/machine.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/lock.hpp"
@@ -82,7 +84,30 @@ void drop_journal(const fs::path& updates) {
     fs::remove_all(updates / "journal-held", io);
 }
 
-int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
+/// The Deck sentence, with {version} filled. A line past the window's limit is cut.
+///
+/// @param version the release being installed
+/// @return the line
+std::string next_start_line(std::string_view version) {
+    std::string line(update::installs_next_start);
+    const std::string token = "{version}";
+    const std::string::size_type at = line.find(token);
+    if (at != std::string::npos)
+        line.replace(at, token.size(), version.data(), version.size());
+    if (line.size() > update::max_window_line_bytes)
+        line.resize(update::max_window_line_bytes);
+    return line;
+}
+
+/// True on a Steam Deck, or while Steam is in Game Mode.
+///
+/// @return true when the helper must not start the game
+bool deck_session() {
+    return oa::platform::running_steam_deck_model() != oa::platform::SteamDeckModel::none ||
+           oa::platform::running_in_steam_game_mode();
+}
+
+int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool stage_only) {
     const fs::path updates = path_from(plan.updates);
     std::error_code io;
     fs::create_directories(updates, io);
@@ -140,7 +165,8 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
 #endif
     const bool folder = plan.route == update::Route::check_folder;
     const bool bundle = plan.route == update::Route::macos_bundle;
-    if (!folder && !bundle) {
+    const bool linux = plan.route == update::Route::linux_versions;
+    if (!folder && !bundle && !linux) {
         log.line("this route is not carried out");
         start_old(plan, log, window);
         return exit_usage;
@@ -233,7 +259,11 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
     state.installed_version = verified.version;
     state.installed_release = verified.release;
     state.kept_version = plan.from_version;
-    state.kept_path = utf8_of(updates / "previous");
+    if (plan.route == update::Route::linux_versions)
+        state.kept_path =
+            utf8_of(path_from(plan.install) / "versions" / path_from(plan.from_version));
+    else
+        state.kept_path = utf8_of(updates / "previous");
     state.kept_route = plan.route;
     state.preferences_copy = utf8_of(updates / "previous" / "preferences.conf");
     state.confirmed = false;
@@ -274,17 +304,30 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
             window.close();
             return exit_refused;
         }
-    } else if (!start_detached(
-                   path_from(plan.program), plan.arguments, true, plan.from_version, &error
-               )) {
-        log.line(error.empty() ? "the game could not be started" : error);
-        std::string undo_error;
-        if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
-            log.line(undo_error);
-        remove_stage(stage);
-        window.show(plan.title, could_not_check, 0, true);
-        start_old(plan, log, window);
-        return exit_undone;
+    } else {
+        // The launcher adds --updated-from itself. On a Deck, and with
+        // --stage-only, the new version waits until the next start.
+        if (linux && (stage_only || deck_session())) {
+            const std::string line = next_start_line(verified.version);
+            log.line(line);
+            window.show(plan.title, line, oa::ui::kit::question_progress_whole, true);
+            drop_journal(updates);
+            remove_stage(stage);
+            window.close();
+            return exit_swapped;
+        }
+        const fs::path program =
+            linux ? path_from(plan.install) / "open-annihilation" : path_from(plan.program);
+        if (!start_detached(program, plan.arguments, !linux, plan.from_version, &error)) {
+            log.line(error.empty() ? "the game could not be started" : error);
+            std::string undo_error;
+            if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
+                log.line(undo_error);
+            remove_stage(stage);
+            window.show(plan.title, could_not_check, 0, true);
+            start_old(plan, log, window);
+            return exit_undone;
+        }
     }
 
     drop_journal(updates);
@@ -296,10 +339,14 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys) {
 
 } // namespace
 
-int run_plan(const fs::path& plan_path, const std::vector<FeedKey>& keys) {
+int run_plan(const fs::path& plan_path, const std::vector<FeedKey>& keys, bool stage_only) {
 #if !OA_SELF_CHECKS_BUILT
     if (!keys.empty()) {
         std::cerr << "oa-update: --feed-key is not in this build\n";
+        return exit_usage;
+    }
+    if (stage_only) {
+        std::cerr << "oa-update: --stage-only is not in this build\n";
         return exit_usage;
     }
 #else
@@ -317,9 +364,9 @@ int run_plan(const fs::path& plan_path, const std::vector<FeedKey>& keys) {
         return exit_usage;
     }
 #if OA_SELF_CHECKS_BUILT
-    return carry_out(*plan, keys);
+    return carry_out(*plan, keys, stage_only);
 #else
-    return carry_out(*plan, {});
+    return carry_out(*plan, {}, false);
 #endif
 }
 

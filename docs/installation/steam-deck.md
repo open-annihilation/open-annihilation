@@ -45,7 +45,8 @@ with the game's log (see [Logs](#logs-and-reporting-a-problem)).
    `open-annihilation`, and the `steam-deck` folder with the game's
    controller layouts and artwork for Steam.
 
-Keep the folder where it is: Steam's shortcut points at it.
+Keep the folder where it is. Steam's shortcut points at `open-annihilation`
+in it, and that file keeps starting the game after an update.
 
 ## 3. Get the game data
 
@@ -376,14 +377,12 @@ the unpacked demo in `~/.local/share/open-annihilation`.
 
 ## Updating and removing
 
-- **To update:** in Desktop Mode, unzip the newer package into
-  `Applications` beside the old one, then in the game's **Properties**
-  point **Target** at the new `open-annihilation` and **Start In** at its
-  folder, or add the new `open-annihilation` to Steam as in step 4 and
-  remove the old entry. Copy
-  the newer package's templates as in step 5 too, since a release may
-  change them, and restart Steam. Your settings, saved games and the Total
-  Annihilation folder you chose are kept.
+- **To update:** from 0.8.7 on, Open Annihilation updates itself. On a
+  Deck the new version installs the next time you start the game, and the
+  shortcut you added keeps working. An install of 0.8.6 or older is moved
+  to 0.8.7 once, by unzipping the new package and pointing the shortcut at
+  it as in step 4; after that the game updates itself. Your settings, saved
+  games and the Total Annihilation folder you chose are kept.
 - **To remove:** in Steam, right-click Open Annihilation, choose
   **Manage**, then **Remove non-Steam game from your library**, and delete
   the game's folder. To remove the templates too, delete

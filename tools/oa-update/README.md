@@ -54,16 +54,17 @@ and the journal are removed after the new version has started.
 `tools-oa-update` covers the plan and state texts, the refusals, a package
 that does not match the feed, zip-slip, the executable bit, a journal that
 fails at each step of a five-step list, a journal left on disk, the wait
-giving up, the window's text placed without fonts, and the macOS decision
-and operation list. No test signs a bundle or starts a program.
+giving up, the window's text placed without fonts, the Linux versions
+folder, and the macOS decision and operation list. No test signs a bundle
+or starts a program.
 `tools-oa-update-run` runs the program on a plain folder, in a
 self-check build. `app-update-plan` covers the plan from the game's side.
 
 ## Limitations
 
-- Windows and Linux routes are later work. This build carries out
-  `check-folder`, and only in a self-check build, and the macOS bundle.
-  A signed bundle is swapped in place. A folder the player cannot write
+- The Windows route is later work. This build carries out `check-folder`,
+  and only in a self-check build, the Linux versions folder, and the macOS
+  bundle. A signed bundle is swapped in place. A folder the player cannot write
   opens the signed installer. An ad hoc signature is swapped only when a
   self-check run was given a feed key, and only for another ad hoc
   signature. `roll-back` is read and not carried out.

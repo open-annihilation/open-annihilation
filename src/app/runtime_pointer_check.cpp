@@ -74,6 +74,7 @@ constexpr std::array<std::string_view, 8> kSideColumnArt{
 struct PanelReads {
     int art = 0;
     int pages = 0;
+    std::string art_names; ///< the art files read, each followed by a space
 };
 
 /// Counts a file the asset store is asked for into PanelReads.
@@ -88,8 +89,10 @@ void count_panel_read(void* context, std::string_view path) {
     });
     if (std::any_of(kSideColumnArt.begin(), kSideColumnArt.end(), [&](std::string_view art) {
             return name.ends_with(art);
-        }))
+        })) {
         ++reads.art;
+        reads.art_names += name + ' ';
+    }
     if (name.ends_with(".gui"))
         ++reads.pages;
 }
@@ -401,7 +404,7 @@ void Runtime::check_pointer_interfaces() {
             reads.art == 0 && reads.pages >= 2 && !has_local_selection(),
             "left-click interface: the pages a selection and the right presses opened read the "
             "side column's art " +
-                std::to_string(reads.art) + " times"
+                std::to_string(reads.art) + " times: " + reads.art_names
         );
     }
 

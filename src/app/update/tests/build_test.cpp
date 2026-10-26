@@ -118,6 +118,21 @@ void steam_deck_folder_follows_the_platform() {
     );
 }
 
+void steam_deck_folder_is_beside_the_versions() {
+    Scratch scratch("deck-root");
+    const fs::path version = scratch.path / "versions" / "0.8.6";
+    fs::create_directories(version / "steam-deck");
+    const update::ThisBuild inside = update::this_build(version);
+    OA_CHECK(
+        inside.package == update::package_id(oa::app::release_platform_name(), kWindows95, false)
+    );
+    fs::create_directory(scratch.path / "steam-deck");
+    const update::ThisBuild beside = update::this_build(version);
+    OA_CHECK(
+        beside.package == update::package_id(oa::app::release_platform_name(), kWindows95, true)
+    );
+}
+
 /// The words a notice looked up, and the marked translation it was given.
 struct LookedUp {
     std::vector<std::string> words;
@@ -223,6 +238,7 @@ int main() {
     package_ids();
     this_build_matches_the_compiled_version();
     steam_deck_folder_follows_the_platform();
+    steam_deck_folder_is_beside_the_versions();
     this_build_replaces_itself();
     packager_notice_names_a_command();
     packager_notice_names_no_command();

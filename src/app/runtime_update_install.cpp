@@ -13,6 +13,8 @@
 #include "oa/app/update/build.hpp"
 #include "oa/app/update/offer.hpp"
 #include "oa/app/update/plan.hpp"
+#include "oa/app/update/route.hpp"
+#include "oa/platform/machine.hpp"
 #include "oa/data/engine_feed/feed.hpp"
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -45,7 +47,6 @@
 
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
 #include "oa/app/update/download.hpp"
-#include "oa/app/update/route.hpp"
 #endif
 
 #ifdef _WIN32
@@ -121,6 +122,14 @@ std::string_view shown_word(void* /*context*/, std::string_view english) {
 /// @return the same word
 std::string_view english_word(void* /*context*/, std::string_view english) {
     return english;
+}
+
+/// True when this machine is a Steam Deck or this run is in Steam Game Mode.
+///
+/// @return true when the update installs at the next start
+bool installs_at_next_start() {
+    return oa::platform::running_steam_deck_model() != oa::platform::SteamDeckModel::none ||
+           oa::platform::running_in_steam_game_mode();
 }
 
 /// The hooks a line of the player's own is looked up through.
@@ -523,10 +532,16 @@ void Runtime::hand_off_update() {
         plan.preferences = absolute_utf8(*options_.preferences_file);
     plan.updates = absolute_utf8(*folder);
     plan.title = library::filled(hooks, kInstalling, {{"version", update_->download_version}});
-    plan.line =
-        where.installer
-            ? library::filled(hooks, kInstallerWill, {{"version", update_->download_version}})
-            : library::filled(hooks, kKept, {{"version", kept}});
+    if (where.installer) {
+        plan.line =
+            library::filled(hooks, kInstallerWill, {{"version", update_->download_version}});
+    } else if (installs_at_next_start()) {
+        plan.line = library::filled(
+            hooks, update::installs_next_start, {{"version", update_->download_version}}
+        );
+    } else {
+        plan.line = library::filled(hooks, kKept, {{"version", kept}});
+    }
 
     const fs::path plan_file = *folder / "plan.json";
     std::string why;
@@ -743,7 +758,11 @@ void Runtime::offer_ready() {
     kit::Question asked;
     asked.word = std::string(kReadyWord);
     asked.title = library::filled(shown_hooks(), kReadyTitle, {{"version", version}});
-    asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
+    const std::string body =
+        installs_at_next_start()
+            ? library::filled(shown_hooks(), update::installs_next_start, {{"version", version}})
+            : std::string(languages::interface_text(kReadyBody));
+    asked.paragraphs.push_back({body, false});
     asked.buttons.push_back(
         {std::string(languages::interface_text("WHEN I QUIT")), false, "when-i-quit"}
     );

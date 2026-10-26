@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Turning a plan into journal operations. This build carries out the plain
-// folder route and, on macOS, the application bundle. The other routes are
-// later work and produce no operations.
+// folder route, the Linux versions folder and, on macOS, the application
+// bundle. The other routes produce no operations.
 #pragma once
 
 #include "oa/app/update/plan.hpp"
@@ -17,13 +17,15 @@
 
 namespace oa::update_helper {
 
-/// The operations that put a staged plain folder in place of `plan.install`.
+/// The operations that put a staged package in place for `plan.route`.
 ///
-/// The install's top-level entries move into `<updates>/previous/`, then the
-/// staged top folder's entries move into the install. The caller adds the
-/// preferences copy and the state file.
+/// `check-folder` moves the install's top-level entries into
+/// `<updates>/previous/`, then the staged top folder's entries into the
+/// install. `linux-versions` converts a flat folder into `versions/` on the
+/// first update, then stages the new version beside a `next` link. The
+/// caller adds the preferences copy and the state file.
 ///
-/// @param plan the plan; its route is the plain folder
+/// @param plan the plan
 /// @param staged the staging folder, holding one top folder
 /// @param[out] why why no operations were produced; may be null; cleared on success
 /// @return the operations; empty when `why` is set, or when there was nothing to move
@@ -135,5 +137,20 @@ macos_may_swap(const BundleSignature& running, const BundleSignature& staged, bo
     std::string* error
 );
 #endif
+
+/// The operations for a Linux or Steam Deck install.
+///
+/// @param plan the plan; its route is the versions folder
+/// @param staged the staging folder, holding one top folder
+/// @param[out] why why no operations were produced; may be null; cleared on success
+/// @return the operations; empty when `why` is set
+[[nodiscard]] std::vector<Operation> linux_operations(
+    const oa::app::update::Plan& plan, const std::filesystem::path& staged, std::string* why
+);
+
+/// The launcher script a Linux install runs, the same bytes the package ships.
+///
+/// @return the script
+[[nodiscard]] std::string_view linux_launcher_script() noexcept;
 
 } // namespace oa::update_helper

@@ -33,6 +33,7 @@ struct Operation {
     std::filesystem::path to{};           ///< rename and copy: the destination
     std::filesystem::path path{};         ///< the file the other kinds change
     std::string bytes{};                  ///< write_file: the new bytes
+    bool executable{false};               ///< write_file: mark the file executable
     std::string link_target{};            ///< make_link and replace_link: the new target
     std::string program{};                ///< run_and_wait: the program
     std::vector<std::string> arguments{}; ///< run_and_wait: its arguments
