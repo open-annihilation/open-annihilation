@@ -292,6 +292,55 @@ void Runtime::check_registered_kit() {
             "the shortcut did not open Settings"
         );
     };
+    // The section list scrolls once it is longer than the dialog, as it is in
+    // a small window: the wheel over it brings Check's entry into view, as a
+    // player would.
+    const auto check_entry_laid_out = [&] {
+        const settings::Dialog* dialog = engine_settings_dialog();
+        if (dialog == nullptr)
+            return false;
+        const int32_t entry = settings::registered_nav_control(0);
+        for (const settings::LayoutPart& part : settings::dialog_layout(*dialog)) {
+            if (part.control == entry)
+                return true;
+        }
+        return false;
+    };
+    const auto show_check_entry = [&] {
+        for (int notch = 0; notch < 24 && !check_entry_laid_out(); ++notch) {
+            std::vector<AutomationControl> controls;
+            oa_layer().automation_controls(controls);
+            const AutomationControl* over = nullptr;
+            for (const AutomationControl& control : controls) {
+                if (control.name.starts_with("oa.settings.nav.") && control.visible &&
+                    control.window_width > 0 && control.window_height > 0) {
+                    over = &control;
+                    break;
+                }
+            }
+            require(over != nullptr, "no entry of the section list is shown");
+            const layout::Point pixel{
+                over->window_x + over->window_width / 2, over->window_y + over->window_height / 2
+            };
+            SDL_Event motion =
+                window_pointer_event(sdl_.window, sdl_.renderer, SDL_EVENT_MOUSE_MOTION, pixel, 0);
+            bool running = true;
+            dispatch_event(motion, running);
+            SDL_Event wheel{};
+            wheel.type = SDL_EVENT_MOUSE_WHEEL;
+            wheel.wheel.windowID = motion.motion.windowID;
+            wheel.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
+            wheel.wheel.y = -1.0F;
+            wheel.wheel.mouse_x = motion.motion.x;
+            wheel.wheel.mouse_y = motion.motion.y;
+            dispatch_event(wheel, running);
+            require(running, "the wheel ended the run");
+        }
+        require(
+            check_entry_laid_out(),
+            "the wheel over the section list did not bring Check's entry into view"
+        );
+    };
     const auto page_under_check = [&] {
         const settings::Dialog* dialog = engine_settings_dialog();
         require(dialog != nullptr, "Settings closed before the page was read");
@@ -316,7 +365,9 @@ void Runtime::check_registered_kit() {
         require(
             developer_y >= 0 && divider_y >= 0 && entry_y >= 0 && developer_y < divider_y &&
                 divider_y < entry_y,
-            "the page is not under a divider reading Check after Developer"
+            "the page is not under a divider reading Check after Developer (Developer at " +
+                std::to_string(developer_y) + ", the divider at " + std::to_string(divider_y) +
+                ", the entry at " + std::to_string(entry_y) + ")"
         );
     };
 
@@ -337,6 +388,7 @@ void Runtime::check_registered_kit() {
         const std::string on = std::to_string(window.width) + 'x' + std::to_string(window.height);
         window_of(window.width, window.height);
         open_settings();
+        show_check_entry();
         require(
             oa_layer().screen_class() == window.size_class &&
                 oa_layer().screen_scale() == window.scale,
@@ -368,6 +420,7 @@ void Runtime::check_registered_kit() {
     }
 
     open_settings();
+    show_check_entry();
     click_named("oa.settings.nav.check.page");
     int32_t presses = 0;
     while (engine_settings_dialog() != nullptr &&

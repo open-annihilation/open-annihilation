@@ -573,7 +573,8 @@ void file_type_switches_store_on_and_off() {
     const settings::EngineSettings defaults{};
     CHECK(
         defaults.file_type_oamod && defaults.file_type_oamap && defaults.file_type_oalang &&
-        defaults.file_type_oareg && defaults.file_type_oamut && defaults.file_type_oabrain
+        defaults.file_type_oareg && defaults.file_type_oamut && defaults.file_type_oabrain &&
+        defaults.file_type_oakeys
     );
 
     // Absent keys, "on", and any other text read as on. Only "off" turns one off.
@@ -581,7 +582,7 @@ void file_type_switches_store_on_and_off() {
     CHECK(
         from_absent.file_type_oamod && from_absent.file_type_oamap &&
         from_absent.file_type_oalang && from_absent.file_type_oareg &&
-        from_absent.file_type_oamut && from_absent.file_type_oabrain
+        from_absent.file_type_oamut && from_absent.file_type_oabrain && from_absent.file_type_oakeys
     );
     Values mixed;
     mixed[std::string{settings::key::file_type_oamod}] = "off";
@@ -590,6 +591,7 @@ void file_type_switches_store_on_and_off() {
     mixed[std::string{settings::key::file_type_oareg}] = "no";
     mixed[std::string{settings::key::file_type_oamut}] = "off";
     mixed[std::string{settings::key::file_type_oabrain}] = "off";
+    mixed[std::string{settings::key::file_type_oakeys}] = "off";
     const auto read = settings::read_settings(mixed, {}, false);
     CHECK(!read.file_type_oamod);
     CHECK(read.file_type_oamap);
@@ -597,8 +599,10 @@ void file_type_switches_store_on_and_off() {
     CHECK(read.file_type_oareg);
     CHECK(!read.file_type_oamut);
     CHECK(!read.file_type_oabrain);
+    CHECK(!read.file_type_oakeys);
     CHECK(settings::key::file_type_oamut == "open-annihilation.file-types.oamut");
     CHECK(settings::key::file_type_oabrain == "open-annihilation.file-types.oabrain");
+    CHECK(settings::key::file_type_oakeys == "open-annihilation.file-types.oakeys");
 
     // A switch moved off is stored as off. One left on writes nothing.
     auto chosen = defaults;
@@ -612,6 +616,7 @@ void file_type_switches_store_on_and_off() {
     CHECK(written.count(std::string{settings::key::file_type_oareg}) == 0);
     CHECK(written.count(std::string{settings::key::file_type_oamut}) == 0);
     CHECK(written.count(std::string{settings::key::file_type_oabrain}) == 0);
+    CHECK(written.count(std::string{settings::key::file_type_oakeys}) == 0);
     CHECK(settings::read_settings(written, {}, false).file_type_oamod == false);
     CHECK(settings::read_settings(written, {}, false).file_type_oalang);
 
@@ -644,6 +649,16 @@ void file_type_switches_store_on_and_off() {
     CHECK(brain_written.at(std::string{settings::key::file_type_oabrain}) == "off");
     CHECK(!settings::read_settings(brain_written, {}, false).file_type_oabrain);
     CHECK(settings::read_settings(brain_written, {}, false).file_type_oamut);
+    CHECK(settings::read_settings(brain_written, {}, false).file_type_oakeys);
+
+    // The key layout packages' switch moved off is stored as off, and reads back off.
+    auto keys_off = defaults;
+    keys_off.file_type_oakeys = false;
+    Values keys_written;
+    settings::write_settings(keys_written, defaults, keys_off, defaults, false);
+    CHECK(keys_written.at(std::string{settings::key::file_type_oakeys}) == "off");
+    CHECK(!settings::read_settings(keys_written, {}, false).file_type_oakeys);
+    CHECK(settings::read_settings(keys_written, {}, false).file_type_oabrain);
 }
 
 void the_launch_file_switch_round_trips() {
@@ -664,10 +679,10 @@ void the_launch_file_switch_round_trips() {
     CHECK(!off.file_type_oalaunch);
     CHECK(
         off.file_type_oamod && off.file_type_oamap && off.file_type_oalang && off.file_type_oareg &&
-        off.file_type_oamut && off.file_type_oabrain
+        off.file_type_oamut && off.file_type_oabrain && off.file_type_oakeys
     );
 
-    // Moved off, it alone is stored, as off, and reads back off with the other six on.
+    // Moved off, it alone is stored, as off, and reads back off with the other seven on.
     auto chosen = defaults;
     chosen.file_type_oalaunch = false;
     Values written;
@@ -679,13 +694,15 @@ void the_launch_file_switch_round_trips() {
           settings::key::file_type_oalang,
           settings::key::file_type_oareg,
           settings::key::file_type_oamut,
-          settings::key::file_type_oabrain})
+          settings::key::file_type_oabrain,
+          settings::key::file_type_oakeys})
         CHECK(written.count(std::string{other}) == 0);
     const auto read = settings::read_settings(written, {}, false);
     CHECK(!read.file_type_oalaunch);
     CHECK(
         read.file_type_oamod && read.file_type_oamap && read.file_type_oalang &&
-        read.file_type_oareg && read.file_type_oamut && read.file_type_oabrain
+        read.file_type_oareg && read.file_type_oamut && read.file_type_oabrain &&
+        read.file_type_oakeys
     );
 
     // Moved on again, it is stored as on and reads back on.

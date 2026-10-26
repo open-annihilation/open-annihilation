@@ -15,6 +15,10 @@
 #include <string_view>
 #include <system_error>
 
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -396,7 +400,10 @@ void this_machine_names_the_executable() {
         folder, fs::perms::owner_read | fs::perms::owner_exec, fs::perm_options::replace, error
     );
     const update::RouteFacts locked = update::this_machine(folder);
-    OA_CHECK(!locked.folder_writable);
+    // Root writes whatever the folder's permissions say, as a container's
+    // test run does.
+    if (geteuid() != 0)
+        OA_CHECK(!locked.folder_writable);
     fs::permissions(folder, fs::perms::owner_all, fs::perm_options::replace, error);
 #endif
     fs::remove_all(folder, error);

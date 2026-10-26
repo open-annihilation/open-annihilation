@@ -146,11 +146,12 @@ bottom right of the main menu opens. See [Settings](../settings.md), and
 Each start on a desktop registers this copy of the game, for your account,
 as the opener of the file types left on in [Settings › System](../settings.md#system):
 mod packages (`.oamod`), map packs (`.oamap`), language packs (`.oalang`),
-mutator packages (`.oamut`), brain packages (`.oabrain`), registry files
+mutator packages (`.oamut`), brain packages (`.oabrain`), key layout packages
+(`.oakeys`), registry files
 (`.oareg`) and launch files
-(`.oalaunch`). All seven are on
+(`.oalaunch`). All eight are on
 until you turn one off. Turning one off and pressing OK withdraws that type
-at once; turning one on registers it at once. With all seven off, the
+at once; turning one on registers it at once. With all eight off, the
 desktop entries and the MIME package are removed. Neither waits for a restart. The game's icon is put
 on the types it opens. Open a `.oamod` file from the file manager to
 install the mod it holds
@@ -266,14 +267,15 @@ command, still takes the screenshots and films.
   too, delete the two folders above; your saved games, screenshots, films,
   recordings and mods are in the Open Annihilation folder in Documents. To make your
   desktop forget the game as the opener of `.oamod`, `.oalang`, `.oamap`,
-  `.oamut`, `.oabrain`, `.oareg` and `.oalaunch` files, delete
+  `.oamut`, `.oabrain`, `.oakeys`, `.oareg` and `.oalaunch` files, delete
   `~/.local/share/mime/packages/net.coreprime.open-annihilation.xml`,
   `~/.local/share/applications/net.coreprime.open-annihilation.desktop`,
   `~/.local/share/applications/net.coreprime.open-annihilation.launch.desktop`,
-  the eight icon files `apps/net.coreprime.open-annihilation.png`,
+  the nine icon files `apps/net.coreprime.open-annihilation.png`,
   `mimetypes/application-x-oamod.png`, `mimetypes/application-x-oalang.png`,
   `mimetypes/application-x-oamap.png`, `mimetypes/application-x-oamut.png`,
-  `mimetypes/application-x-oabrain.png`, `mimetypes/application-x-oareg.png`
+  `mimetypes/application-x-oabrain.png`, `mimetypes/application-x-oakeys.png`,
+  `mimetypes/application-x-oareg.png`
   and `mimetypes/application-x-oalaunch.png`
   under `~/.local/share/icons/hicolor/256x256`, and the hidden empty
   `.net.coreprime.open-annihilation.updated` files in the `mime`,

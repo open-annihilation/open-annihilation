@@ -2661,14 +2661,26 @@ class Runtime final : public menu::Host,
     /// A later mod load reads them again. [runtime_gui_actions.cpp]
     void gather_gui_quick_keys();
 
-    /// The mod data resolution reads: one gui key per gathered button.
+    /// The mod data resolution reads: one gui key per gathered button, and the
+    /// category letters the loaded units use.
     ///
     /// The gadget word is set only for `order_stem`, so only that side's order
-    /// file moves a registry action. [runtime_gui_actions.cpp]
+    /// file moves a registry action. The letters are `loaded_category_letters`.
+    /// [runtime_gui_actions.cpp]
     ///
     /// @param order_stem the order file's stem
-    /// @return the keys, in file order
+    /// @return the keys, in file order, and the category letters
     [[nodiscard]] oa::ui::key_bindings::ModData gui_mod_data(std::string_view order_stem) const;
+
+    /// The single letters of `CTRL_<letter>` categories the loaded units use.
+    ///
+    /// A letter is kept when that category's mask holds a unit type. The letters
+    /// are lower case and sorted. None are gathered before units are loaded, and
+    /// a letter a named Ctrl action holds still makes no category action: the
+    /// key resolution leaves that chord with the named action. [runtime_gui_actions.cpp]
+    ///
+    /// @return the letters, or empty when no loaded unit uses one
+    [[nodiscard]] std::string loaded_category_letters() const;
 
     /// Gives the shown file's gui actions the play and panel contexts, and a
     /// unit info file's actions the unit-info context only.
@@ -7528,7 +7540,7 @@ class Runtime final : public menu::Host,
     /// window at 640x480 and the language as it found it.
     void check_window_edge_rows_fit();
 
-    /// Checks that System's File Type Registration and its seven file-type
+    /// Checks that System's File Type Registration and its eight file-type
     /// switches fit the settings dialog on a 640x480 window in English and
     /// German, at the section's top and its end, as part of
     /// --check-engine-settings. Leaves the window at 640x480 and the
@@ -13533,6 +13545,28 @@ class Runtime final : public menu::Host,
     /// @param pred tests each local unit slot
     void select_units_matching(const std::function<bool(const oa::sim::unit_spawn::Slot&)>& pred);
 
+    /// Selects the local player's units of one category tag, anywhere on the map.
+    ///
+    /// One press. Shift adds those units to the selection; without Shift the
+    /// selection becomes just those units. A tag no loaded unit uses, or that
+    /// none of the player's units have, leaves the selection and the page as
+    /// they are. This is the one route every Ctrl+letter tag selection takes.
+    /// [runtime_selection.cpp]
+    ///
+    /// @param word the category name, such as CTRL_B
+    /// @param add true to keep the units already selected
+    /// @return false when the selection is left as it is; true when units of
+    ///     the tag were selected
+    bool select_by_tag(std::string_view word, bool add);
+
+    /// Selects every local builder that can move, or every one that stays put.
+    ///
+    /// This is the whole-map selection the idle-builder and idle-factory keys
+    /// keep when Shift is held. [runtime_selection.cpp]
+    ///
+    /// @param mobile true for builders that move, false for the ones that do not
+    void select_builders_by_movement(bool mobile);
+
     /// Presses the shown panel's button for an order, a tab or a gui action.
     ///
     /// An order or a tab finds the button whose name holds that registry word.
@@ -16010,6 +16044,25 @@ class Runtime final : public menu::Host,
     std::string check_console_cheat_effects(
         const std::function<void(const char*)>& enter_line, bool start_strike
     );
+
+    /// Stores the view the player sees as a bookmark.
+    ///
+    /// The live view is copied into the match, then into the slot. A slot other
+    /// than 0, 1, 2 or 3 does nothing. The SelectSquad sound is played by the
+    /// console key that calls this. [runtime_console.cpp]
+    ///
+    /// @param slot bookmark 0 to 3
+    void store_camera_bookmark(int32_t slot);
+
+    /// Moves the view to a bookmark and stops following a unit.
+    ///
+    /// The view returns to the stored place, including a view that looked past
+    /// the map's edge. An empty bookmark jumps to the map corner. A slot other
+    /// than 0, 1, 2 or 3 does nothing. The SelectSquad sound is played by the
+    /// console key that calls this. [runtime_console.cpp]
+    ///
+    /// @param slot bookmark 0 to 3
+    void recall_camera_bookmark(int32_t slot);
 
     /// Runs one console hotkey code: the host and the dispatch.
     ///
