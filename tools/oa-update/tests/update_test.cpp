@@ -7,6 +7,7 @@
 #include "oa/app/update/plan.hpp"
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/paths.hpp"
+#include "oa/update_helper/routes.hpp"
 #include "oa/update_helper/run.hpp"
 #include "oa/update_helper/unpack.hpp"
 #include "oa/update_helper/verify.hpp"
@@ -698,11 +699,64 @@ void window() {
 
 } // namespace
 
+void restoring_a_plain_folder_puts_the_kept_files_back(const fs::path& root) {
+    const fs::path install = root / "install";
+    const fs::path kept = root / "updates" / "previous";
+    const fs::path updates = root / "updates";
+    fs::create_directories(install);
+    fs::create_directories(kept);
+    fs::create_directories(updates);
+    std::ofstream(install / "one.txt") << "new";
+    std::ofstream(install / "notes.txt") << "player";
+    std::ofstream(kept / "one.txt") << "old";
+    std::ofstream(kept / "preferences.conf") << "prefs";
+    update::State state;
+    state.installed_version = "0.0.2";
+    state.kept_version = "0.0.1";
+    state.kept_path = helper::utf8_of(kept);
+    state.kept_route = update::Route::check_folder;
+    state.preferences_copy = helper::utf8_of(kept / "preferences.conf");
+    std::string why;
+    const std::vector<helper::Operation> operations =
+        helper::restore_operations(state, install, "0.0.2", &why);
+    OA_CHECK(why.empty());
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(updates, operations, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    std::ifstream restored(install / "one.txt");
+    std::string body;
+    std::getline(restored, body);
+    OA_CHECK(body == "old");
+    std::ifstream notes(install / "notes.txt");
+    std::getline(notes, body);
+    OA_CHECK(body == "player");
+    OA_CHECK(!fs::exists(install / "preferences.conf"));
+    OA_CHECK(fs::exists(kept / "preferences.conf"));
+    OA_CHECK(helper::undo_journal(updates, helper::JournalHooks{}, &error));
+    std::ifstream put_back(install / "one.txt");
+    std::getline(put_back, body);
+    OA_CHECK(body == "new");
+    std::ifstream kept_back(kept / "one.txt");
+    std::getline(kept_back, body);
+    OA_CHECK(body == "old");
+}
+
 void test_windows_routes();
 void test_linux_versions_route();
 void test_macos_route();
 
 int main() {
+    {
+        const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
+        const fs::path root =
+            fs::temp_directory_path() / (std::string("oa-v11-folder-") + std::to_string(ticks));
+        fs::create_directories(root);
+        restoring_a_plain_folder_puts_the_kept_files_back(root);
+        std::error_code ignored;
+        fs::remove_all(root, ignored);
+    }
     plan_and_state();
     verification();
     unpacking();

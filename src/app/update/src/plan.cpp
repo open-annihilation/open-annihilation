@@ -270,6 +270,26 @@ std::optional<Action> parse_action(std::string_view text) noexcept {
     return std::nullopt;
 }
 
+const char* roll_back_reason_name(RollBackReason reason) noexcept {
+    switch (reason) {
+    case RollBackReason::none:
+        return "";
+    case RollBackReason::failed_starts:
+        return "failed-starts";
+    case RollBackReason::player:
+        return "player";
+    }
+    return "";
+}
+
+std::optional<RollBackReason> parse_roll_back_reason(std::string_view text) noexcept {
+    if (text == "failed-starts")
+        return RollBackReason::failed_starts;
+    if (text == "player")
+        return RollBackReason::player;
+    return std::nullopt;
+}
+
 const char* route_name(Route route) noexcept {
     switch (route) {
     case Route::check_folder:
@@ -323,6 +343,28 @@ std::optional<Plan> read_plan(std::span<const uint8_t> bytes, std::string* error
         return std::nullopt;
     }
     plan.action = *parsed_action;
+
+    if (const json::Json* reason = member_of(*root, "roll_back_reason")) {
+        const std::string* text = reason->string();
+        if (text == nullptr) {
+            set_error(error, "roll_back_reason is not text");
+            return std::nullopt;
+        }
+        const std::optional<RollBackReason> parsed_reason = parse_roll_back_reason(*text);
+        if (!parsed_reason) {
+            set_error(error, "the roll-back reason is not known");
+            return std::nullopt;
+        }
+        plan.roll_back_reason = *parsed_reason;
+    }
+    if (plan.action == Action::roll_back && plan.roll_back_reason == RollBackReason::none) {
+        set_error(error, "the plan has no roll_back_reason");
+        return std::nullopt;
+    }
+    if (plan.action == Action::install && plan.roll_back_reason != RollBackReason::none) {
+        set_error(error, "an install has a roll_back_reason");
+        return std::nullopt;
+    }
 
     std::string route;
     if (!require_string(*root, "route", "the plan", route, error))
@@ -405,6 +447,10 @@ std::string plan_text(const Plan& plan) {
     writer.integer(plan.plan);
     writer.key("action");
     writer.string(action_name(plan.action));
+    if (plan.roll_back_reason != RollBackReason::none) {
+        writer.key("roll_back_reason");
+        writer.string(roll_back_reason_name(plan.roll_back_reason));
+    }
     writer.key("route");
     writer.string(route_name(plan.route));
     writer.key("wait_for");
@@ -456,9 +502,24 @@ std::optional<State> read_state(std::span<const uint8_t> bytes, std::string* err
         set_error(error, "installed_release is not a release number");
         return std::nullopt;
     }
-    if (!require_version(*root, "kept_version", "the state", state.kept_version, error) ||
-        !require_absolute(*root, "kept_path", "the state", state.kept_path, error))
+    if (!require_string(*root, "kept_version", "the state", state.kept_version, error))
         return std::nullopt;
+    const bool nothing_kept = state.kept_version.empty();
+    if (!nothing_kept && !oa::formats::oamod::parse_engine_version(state.kept_version)) {
+        set_error(error, "kept_version is not a version");
+        return std::nullopt;
+    }
+    if (nothing_kept) {
+        if (!require_string(*root, "kept_path", "the state", state.kept_path, error) ||
+            !require_string(*root, "preferences_copy", "the state", state.preferences_copy, error))
+            return std::nullopt;
+        if (!state.kept_path.empty() || !state.preferences_copy.empty()) {
+            set_error(error, "a state with nothing kept still names a path");
+            return std::nullopt;
+        }
+    } else if (!require_absolute(*root, "kept_path", "the state", state.kept_path, error)) {
+        return std::nullopt;
+    }
     std::string route;
     if (!require_string(*root, "kept_route", "the state", route, error))
         return std::nullopt;
@@ -468,8 +529,10 @@ std::optional<State> read_state(std::span<const uint8_t> bytes, std::string* err
         return std::nullopt;
     }
     state.kept_route = *parsed_route;
-    if (!require_absolute(*root, "preferences_copy", "the state", state.preferences_copy, error) ||
-        !require_bool(*root, "confirmed", "the state", state.confirmed, error))
+    if (!nothing_kept &&
+        !require_absolute(*root, "preferences_copy", "the state", state.preferences_copy, error))
+        return std::nullopt;
+    if (!require_bool(*root, "confirmed", "the state", state.confirmed, error))
         return std::nullopt;
     int64_t failed = 0;
     if (!require_integer(*root, "failed_starts", "the state", failed, error))
@@ -507,6 +570,17 @@ std::string state_text(const State& state) {
 
 bool write_state(const fs::path& path, const State& state, std::string* error) {
     return replace_file(path, state_text(state), error);
+}
+
+void confirm_state(State& state) noexcept {
+    state.confirmed = true;
+    state.failed_starts = 0;
+}
+
+int32_t count_failed_start(State& state) noexcept {
+    if (state.failed_starts < std::numeric_limits<int32_t>::max())
+        state.failed_starts += 1;
+    return state.failed_starts;
 }
 
 } // namespace oa::app::update

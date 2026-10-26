@@ -20,6 +20,10 @@ save-file section framing (`Script_%i` unit sections) is handled elsewhere;
   active-context count with 32-bit wrap. Sleep, wait, child and stack slots are
   left unchanged. Context word 8, a return callback, is set to zero;
   `ContextRecord` has no callback field.
+- Units of one type share the loaded script's own code words. The interpreter
+  views those words and does not keep a second copy. Each unit still has its
+  own statics, contexts and piece motion, and a save still writes one payload
+  per unit.
 
 ## Payload layout
 

@@ -6,8 +6,12 @@
 #include "oa/app/runtime.hpp"
 
 #include "oa/app/game_directory.hpp"
+#include "oa/app/update/build.hpp"
+#include "oa/app/update/plan.hpp"
 #include "update_state.hpp"
+#include "oa/platform/files.hpp"
 #include "oa/platform/preferences.hpp"
+#include "oa/platform/system.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 
@@ -17,12 +21,32 @@
 #include <cstdint>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <ostream>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#include <mach-o/dyld.h>
+#include <spawn.h>
+#include <unistd.h>
+extern char** environ;
+#endif
 
 namespace oa::app {
 namespace {
@@ -206,6 +230,298 @@ void Runtime::tick_update_check() {
         ++update_->menu_frames;
     if (update_->menu_frames >= kUpdateMenuFrames)
         start_update_check(false);
+}
+
+namespace {
+
+namespace fs = std::filesystem;
+
+/// True when this start must not be counted.
+///
+/// A check, a headless check and an unattended run are decided from the
+/// arguments before any state file is read.
+bool guard_skipped(int argc, char** argv, const Options& options) {
+    if (options.unattended || options.headless_check)
+        return true;
+    if (argv == nullptr)
+        return false;
+    for (int index = 1; index < argc; ++index) {
+        const char* const argument = argv[index];
+        if (argument == nullptr)
+            continue;
+        const std::string_view text{argument};
+        if (text.starts_with("--check-") || text == "--headless-check" || text == "--unattended")
+            return true;
+    }
+    return false;
+}
+
+/// The file this process was started from. Empty when the system will not name it.
+fs::path guard_executable() {
+#if defined(_WIN32)
+    std::wstring wide(MAX_PATH, L'\0');
+    for (;;) {
+        const DWORD length =
+            GetModuleFileNameW(nullptr, wide.data(), static_cast<DWORD>(wide.size()));
+        if (length == 0) {
+            std::string narrow(MAX_PATH, '\0');
+            const DWORD narrow_length =
+                GetModuleFileNameA(nullptr, narrow.data(), static_cast<DWORD>(narrow.size()));
+            if (narrow_length == 0 || narrow_length >= narrow.size())
+                return {};
+            narrow.resize(narrow_length);
+            return fs::path(narrow);
+        }
+        if (length < wide.size()) {
+            wide.resize(length);
+            return fs::path(wide);
+        }
+        if (wide.size() >= 32768)
+            return {};
+        wide.resize(wide.size() * 2);
+    }
+#elif defined(__APPLE__)
+    uint32_t size = 0;
+    _NSGetExecutablePath(nullptr, &size);
+    std::vector<char> buffer(static_cast<std::size_t>(size) + 1U, '\0');
+    if (_NSGetExecutablePath(buffer.data(), &size) != 0)
+        return {};
+    return fs::path(buffer.data());
+#else
+    return {};
+#endif
+}
+
+/// An absolute path as UTF-8.
+std::string guard_absolute(const fs::path& path) {
+    std::error_code error;
+    const fs::path full = fs::absolute(path, error);
+    if (error || full.empty())
+        return path_to_utf8(path);
+    return path_to_utf8(full);
+}
+
+/// Reads a state file, capped at the plan's limit. Nothing when it cannot be read.
+std::optional<update::State> guard_read_state(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return std::nullopt;
+    std::vector<char> raw(
+        (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
+    );
+    if (raw.size() > update::max_plan_bytes)
+        return std::nullopt;
+    const std::vector<uint8_t> bytes(raw.begin(), raw.end());
+    std::string error;
+    return update::read_state(bytes, &error);
+}
+
+/// One argument of the program the helper starts again, when this run named it.
+void guard_add_argument(update::Plan& plan, std::string flag, std::string value) {
+    plan.arguments.push_back(std::move(flag));
+    plan.arguments.push_back(std::move(value));
+}
+
+/// The arguments the kept version is started with, before the roll-back flags.
+void guard_restart_arguments(update::Plan& plan, const Options& options) {
+    if (options.game_dir_named && !options.game_dir.empty())
+        guard_add_argument(plan, "--game-dir", guard_absolute(options.game_dir));
+    if (options.data_dir && !options.data_dir->empty())
+        guard_add_argument(plan, "--data-dir", guard_absolute(*options.data_dir));
+    if (options.user_folder && !options.user_folder->empty())
+        guard_add_argument(plan, "--user-folder", guard_absolute(*options.user_folder));
+    if (options.preferences_file && !options.preferences_file->empty())
+        guard_add_argument(plan, "--preferences-file", guard_absolute(*options.preferences_file));
+    if (options.log_dir && !options.log_dir->empty())
+        guard_add_argument(plan, "--log-dir", guard_absolute(*options.log_dir));
+    if (options.skip_intro)
+        plan.arguments.emplace_back("--skip-intro");
+    if (options.mute)
+        plan.arguments.emplace_back("--mute");
+}
+
+/// Starts the helper and does not wait for it.
+bool guard_spawn(const fs::path& helper, const fs::path& plan_file, std::string& why) {
+#if defined(_WIN32)
+    const std::wstring helper_text = helper.wstring();
+    const std::wstring plan_text = plan_file.wstring();
+    std::wstring command = L"\"" + helper_text + L"\" --plan \"" + plan_text + L"\"";
+    STARTUPINFOW wide_info{};
+    wide_info.cb = sizeof wide_info;
+    PROCESS_INFORMATION process{};
+    if (CreateProcessW(
+            nullptr,
+            command.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            DETACHED_PROCESS,
+            nullptr,
+            nullptr,
+            &wide_info,
+            &process
+        )) {
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return true;
+    }
+    const std::string helper_narrow = path_to_utf8(helper);
+    const std::string plan_narrow = path_to_utf8(plan_file);
+    std::string narrow = "\"" + helper_narrow + "\" --plan \"" + plan_narrow + "\"";
+    STARTUPINFOA narrow_info{};
+    narrow_info.cb = sizeof narrow_info;
+    if (!CreateProcessA(
+            helper_narrow.c_str(),
+            narrow.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            DETACHED_PROCESS,
+            nullptr,
+            nullptr,
+            &narrow_info,
+            &process
+        )) {
+        why = "cannot start the helper";
+        return false;
+    }
+    CloseHandle(process.hThread);
+    CloseHandle(process.hProcess);
+    return true;
+#elif defined(__APPLE__)
+    std::string helper_text = path_to_utf8(helper);
+    std::string plan_flag = "--plan";
+    std::string plan_text = path_to_utf8(plan_file);
+    char* args[] = {helper_text.data(), plan_flag.data(), plan_text.data(), nullptr};
+    pid_t child = 0;
+    const int spawned = posix_spawn(&child, helper_text.c_str(), nullptr, nullptr, args, environ);
+    if (spawned != 0) {
+        why = "cannot start the helper";
+        return false;
+    }
+    return true;
+#else
+    (void)helper;
+    (void)plan_file;
+    why = "this system has no early guard";
+    return false;
+#endif
+}
+
+} // namespace
+
+int guard_unconfirmed_start(int argc, char** argv, const Options& options) {
+    if (guard_skipped(argc, argv, options))
+        return -1;
+#if !defined(_WIN32) && !defined(__APPLE__)
+    return -1;
+#elif defined(__APPLE__) && TARGET_OS_IPHONE
+    return -1;
+#else
+    const fs::path executable = guard_executable();
+    if (executable.empty())
+        return -1;
+    fs::path data;
+    try {
+        data = options.data_dir ? *options.data_dir : oa::platform::preferences::data_directory();
+    } catch (const std::exception& thrown) {
+        std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+        return -1;
+    }
+    const fs::path updates = data / "updates";
+    const std::optional<update::State> loaded = guard_read_state(updates / "state.json");
+    if (!loaded)
+        return -1;
+    update::State state = *loaded;
+    const update::ThisBuild built = update::this_build({});
+    if (state.confirmed || state.installed_version != built.version_text)
+        return -1;
+    if (state.kept_version.empty() || state.kept_path.empty()) {
+        std::cerr << "open-annihilation: update: nothing is kept, so this start continues\n";
+        return -1;
+    }
+    const int32_t counted = update::count_failed_start(state);
+    std::string write_error;
+    if (!update::write_state(updates / "state.json", state, &write_error)) {
+        std::cerr << "open-annihilation: update: " << write_error << '\n';
+        return -1;
+    }
+    if (counted < update::failed_starts_that_roll_back)
+        return -1;
+
+    const fs::path executable_dir = executable.parent_path();
+#if defined(__APPLE__)
+    const fs::path helper = executable_dir / "oa-update";
+    const bool bundle = executable_dir.filename() == "MacOS";
+    const fs::path install = bundle ? executable_dir.parent_path().parent_path() : executable_dir;
+    const update::Route route = update::Route::macos_bundle;
+    const bool installer = false;
+#else
+    const fs::path helper = executable_dir / "oa-update.exe";
+    const fs::path install = executable_dir;
+    std::error_code uninstall_error;
+    const bool installer = fs::is_regular_file(executable_dir / "Uninstall.exe", uninstall_error);
+    const update::Route route =
+        installer ? update::Route::windows_installer : update::Route::windows_folder;
+#endif
+    fs::path preferences;
+    try {
+        preferences = options.preferences_file && !options.preferences_file->empty()
+                          ? *options.preferences_file
+                          : oa::platform::preferences::default_file();
+    } catch (const std::exception& thrown) {
+        std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+        return -1;
+    }
+
+    update::Plan plan;
+    plan.plan = update::plan_format;
+    plan.action = update::Action::roll_back;
+    plan.roll_back_reason = update::RollBackReason::failed_starts;
+    plan.route = route;
+#if defined(_WIN32)
+    plan.wait_for = static_cast<int64_t>(GetCurrentProcessId());
+#else
+    plan.wait_for = static_cast<int64_t>(getpid());
+#endif
+    plan.install = guard_absolute(install);
+    plan.program = guard_absolute(executable);
+    guard_restart_arguments(plan, options);
+    plan.from_version = built.version_text;
+    plan.feed = guard_absolute(updates / "feed.json");
+    plan.signature = guard_absolute(updates / "feed.json.sig");
+    plan.release = state.installed_release;
+    plan.package = "kept";
+    plan.file = guard_absolute(updates / "kept.pkg");
+    plan.installer = installer;
+    plan.preferences = guard_absolute(preferences);
+    plan.updates = guard_absolute(updates);
+    plan.title = "Going back to " + state.kept_version;
+    if (plan.title.size() > update::max_window_line_bytes)
+        plan.title.resize(update::max_window_line_bytes);
+    plan.line.clear();
+
+    std::error_code directory_error;
+    fs::create_directories(updates, directory_error);
+    if (directory_error) {
+        std::cerr << "open-annihilation: update: " << directory_error.message() << '\n';
+        return -1;
+    }
+    const fs::path plan_file = updates / "roll-back.json";
+    std::string why;
+    const std::string text = update::plan_text(plan);
+    const std::vector<uint8_t> bytes(text.begin(), text.end());
+    if (!oa::platform::replace_file(plan_file, bytes, &why)) {
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return -1;
+    }
+    if (!guard_spawn(helper, plan_file, why)) {
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return -1;
+    }
+    std::cerr << "open-annihilation: update: going back to " << state.kept_version << '\n';
+    return 0;
+#endif
 }
 
 } // namespace oa::app

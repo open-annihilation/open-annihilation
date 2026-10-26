@@ -334,4 +334,47 @@ linux_operations(const oa::app::update::Plan& plan, const fs::path& staged, std:
     return operations;
 }
 
+std::vector<Operation> linux_restore_operations(
+    const oa::app::update::State& state, const fs::path& install, std::string* why
+) {
+    if (why != nullptr)
+        why->clear();
+    std::error_code io;
+    if (!fs::is_directory(install, io)) {
+        set_why(why, "the install folder is missing");
+        return {};
+    }
+    const fs::path kept = path_from(state.kept_path);
+    if (!real_directory(kept)) {
+        set_why(why, "the kept folder is missing");
+        return {};
+    }
+    const std::string name = utf8_of(kept.filename());
+    if (!single_component(name)) {
+        set_why(why, "the kept version's name cannot be used");
+        return {};
+    }
+    const std::string target = std::string("versions/") + name;
+    const fs::path current = install / "current";
+    const fs::file_status status = fs::symlink_status(current, io);
+    const bool exists = !io && fs::exists(status);
+    std::vector<Operation> operations;
+    if (exists && fs::is_symlink(status)) {
+        Operation replace;
+        replace.kind = Operation::Kind::replace_link;
+        replace.path = current;
+        replace.link_target = target;
+        operations.push_back(std::move(replace));
+    } else if (exists) {
+        operations.push_back(move_aside(current));
+        operations.push_back(link_to(current, target));
+    } else {
+        operations.push_back(link_to(current, target));
+    }
+    const fs::path starts = install / "update-starts";
+    if (entry_exists(starts))
+        operations.push_back(move_aside(starts));
+    return operations;
+}
+
 } // namespace oa::update_helper

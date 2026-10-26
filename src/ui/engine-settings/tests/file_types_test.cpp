@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// System's seven file-type switches: each stands for its own type alone, so the launch file's
+// System's eight file-type switches: each stands for its own type alone, so the launch file's
 // switch, moved and kept with OK, registers and withdraws launch files alone and leaves the
-// other six types as they were. On every system but Windows the XDG files are written in a
+// other seven types as they were. On every system but Windows the XDG files are written in a
 // scratch data folder, and on Windows the registry values under a scratch key of
 // HKEY_CURRENT_USER, as OK writes them there; with the installer's association for every user
 // under a second scratch key, Off hides it from this user and On puts this user's registration
@@ -55,14 +55,15 @@ struct SwitchCase {
     std::string_view extension{};              ///< its type's extension, without its dot
 };
 
-/// The seven switches, in the order System lists them.
-constexpr std::array<SwitchCase, 7> switch_cases{{
+/// The eight switches, in the order System lists them.
+constexpr std::array<SwitchCase, 8> switch_cases{{
     {&settings::EngineSettings::file_type_oamod, file_types::mod_extension},
     {&settings::EngineSettings::file_type_oamap, file_types::map_extension},
     {&settings::EngineSettings::file_type_oalang, file_types::language_extension},
     {&settings::EngineSettings::file_type_oareg, file_types::registry_extension},
     {&settings::EngineSettings::file_type_oamut, file_types::mutator_extension},
     {&settings::EngineSettings::file_type_oabrain, file_types::brain_extension},
+    {&settings::EngineSettings::file_type_oakeys, file_types::keys_extension},
     {&settings::EngineSettings::file_type_oalaunch, file_types::launch_extension},
 }};
 
@@ -167,19 +168,20 @@ void the_launch_switch_registers_and_withdraws_launch_files_alone_in_xdg() {
         data / "applications/net.coreprime.open-annihilation.launch.desktop";
     const fs::path launch_icon =
         data / "icons/hicolor/256x256/mimetypes/application-x-oalaunch.png";
-    // The files of the other six, and the program's icon.
-    const std::array<fs::path, 8> others{
+    // The files of the other seven, and the program's icon.
+    const std::array<fs::path, 9> others{
         data / "applications/net.coreprime.open-annihilation.desktop",
         data / "icons/hicolor/256x256/mimetypes/application-x-oamod.png",
         data / "icons/hicolor/256x256/mimetypes/application-x-oamap.png",
         data / "icons/hicolor/256x256/mimetypes/application-x-oalang.png",
         data / "icons/hicolor/256x256/mimetypes/application-x-oamut.png",
         data / "icons/hicolor/256x256/mimetypes/application-x-oabrain.png",
+        data / "icons/hicolor/256x256/mimetypes/application-x-oakeys.png",
         data / "icons/hicolor/256x256/mimetypes/application-x-oareg.png",
         data / "icons/hicolor/256x256/apps/net.coreprime.open-annihilation.png",
     };
 
-    // A start with every switch on registers the seven.
+    // A start with every switch on registers the eight.
     const settings::EngineSettings opened{};
     file_types::Registration done =
         file_types::register_xdg(executable, icon, places, settings::file_type_set(opened));
@@ -191,7 +193,7 @@ void the_launch_switch_registers_and_withdraws_launch_files_alone_in_xdg() {
         OA_CHECK(fs::exists(file));
         before[file] = read_file(file);
     }
-    // No line of a later step names a file of the other six, or the program's icon.
+    // No line of a later step names a file of the other seven, or the program's icon.
     const auto lines_leave_the_others = [&others](const file_types::Registration& step) {
         for (const std::string& line : step.lines)
             for (const fs::path& file : others)
@@ -232,7 +234,7 @@ void the_launch_switch_registers_and_withdraws_launch_files_alone_in_xdg() {
         OA_CHECK(fs::exists(file) && read_file(file) == before[file]);
     OA_CHECK(lines_leave_the_others(done) && lines_leave_the_others(withdrawn));
 
-    // With the other six off, the launch file's switch alone keeps launch files registered.
+    // With the other seven off, the launch file's switch alone keeps launch files registered.
     settings::EngineSettings launch_only{};
     launch_only.file_type_oamod = false;
     launch_only.file_type_oamap = false;
@@ -240,6 +242,7 @@ void the_launch_switch_registers_and_withdraws_launch_files_alone_in_xdg() {
     launch_only.file_type_oareg = false;
     launch_only.file_type_oamut = false;
     launch_only.file_type_oabrain = false;
+    launch_only.file_type_oakeys = false;
     const file_types::TypeSet only = settings::file_type_set(launch_only);
     done = file_types::register_xdg(executable, icon, places, only);
     OA_CHECK(done.error.empty());
@@ -293,8 +296,8 @@ bool key_exists(const std::wstring& key_name) {
     return true;
 }
 
-/// Reports whether the six types other than launch files keep their six values each, as a
-/// registration of the seven wrote them.
+/// Reports whether the seven types other than launch files keep their six values each, as a
+/// registration of the eight wrote them.
 bool other_install_types_registered(const std::wstring& classes, const fs::path& executable) {
     bool kept = true;
     for (const file_types::FileType& type : file_types::file_types) {
@@ -321,7 +324,7 @@ bool other_install_types_registered(const std::wstring& classes, const fs::path&
 
 /// The launch file's switch off, then on again, in the registry, as OK does on Windows:
 /// register the types left on, then withdraw the rest. The launch file's program identifier and
-/// its extension's values go and come back; the other six's values are never written or
+/// its extension's values go and come back; the other seven's values are never written or
 /// removed.
 void the_launch_switch_registers_and_withdraws_launch_files_alone_in_the_registry() {
     const std::wstring parent = L"Software\\OpenAnnihilationSettingsFileTypesTest";
@@ -337,7 +340,7 @@ void the_launch_switch_registers_and_withdraws_launch_files_alone_in_the_registr
     places.notify_shell = false;
     const fs::path executable(L"C:\\Games\\Open Annihilation\\open-annihilation.exe");
 
-    // A start with every switch on registers the seven.
+    // A start with every switch on registers the eight.
     const settings::EngineSettings opened{};
     file_types::Registration done =
         file_types::register_windows(executable, places, settings::file_type_set(opened));
@@ -345,7 +348,7 @@ void the_launch_switch_registers_and_withdraws_launch_files_alone_in_the_registr
     OA_CHECK(read_value(classes + L"\\.oalaunch", nullptr) == L"OpenAnnihilation.Launch");
     OA_CHECK(other_install_types_registered(classes, executable));
 
-    // OK with the launch file's switch off: the registration of the six writes nothing, and
+    // OK with the launch file's switch off: the registration of the seven writes nothing, and
     // the withdrawal removes the launch file's values alone.
     settings::EngineSettings chosen = opened;
     chosen.file_type_oalaunch = false;
@@ -423,7 +426,7 @@ std::optional<std::wstring> program_id_opening(
 /// The launch file's switch on a computer where the installer associated launch files with the
 /// game for every user, as OK does on Windows: Off withdraws this user's registration and hides
 /// that association from this user alone, so launch files no longer open the game; On puts this
-/// user's registration back over it. The computer's key, and the other six types, are never
+/// user's registration back over it. The computer's key, and the other seven types, are never
 /// written.
 void the_launch_switch_hides_the_installers_association_for_this_user() {
     const std::wstring parent = L"Software\\OpenAnnihilationSettingsFileTypesTest";
@@ -444,7 +447,7 @@ void the_launch_switch_hides_the_installers_association_for_this_user() {
     write_sz(machine + L"\\.oalaunch\\OpenWithProgids", L"OpenAnnihilation.Launch", L"");
     write_sz(machine + L"\\OpenAnnihilation.Launch\\shell\\open\\command", nullptr, command);
 
-    // A start with every switch on registers the seven for this user.
+    // A start with every switch on registers the eight for this user.
     const settings::EngineSettings opened{};
     file_types::Registration done =
         file_types::register_windows(executable, places, settings::file_type_set(opened));
