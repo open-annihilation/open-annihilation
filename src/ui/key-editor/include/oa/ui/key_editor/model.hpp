@@ -421,8 +421,19 @@ class Editor {
     std::vector<std::string> written_{}; ///< ids created or renamed, for result()
     Snapshot opened_{};
 
+    /// Resolves the base, the chosen layout, the mod's data and the draft.
+    ///
+    /// @return the bindings SAVE would put in use
     [[nodiscard]] oa::ui::key_bindings::Resolved resolved() const;
+
+    /// The resolution's inputs, pointing into this editor.
+    ///
+    /// @return the input; it lives no longer than the editor
     [[nodiscard]] oa::ui::key_bindings::ResolveInput resolve_input() const;
+
+    /// The chosen layout's helpers with the draft's latch and confirm lists over them.
+    ///
+    /// @return the helpers in use
     [[nodiscard]] oa::formats::oakeys::Helpers effective_helpers() const;
 };
 

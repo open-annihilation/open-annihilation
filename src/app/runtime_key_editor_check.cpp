@@ -118,6 +118,7 @@ fs::path step_snapshot(const fs::path& snapshot, std::string_view step) {
 struct RestoreStream {
     std::ostream& stream;       ///< the stream
     std::streambuf* previous{}; ///< its buffer
+
     ~RestoreStream() { stream.rdbuf(previous); }
 };
 
@@ -172,7 +173,8 @@ void Runtime::check_key_editor() {
     const auto click_named = [&](std::string_view name) {
         const AutomationControl control = require_named(name, std::string(name) + " is not shown");
         const layout::Point pixel{
-            control.window_x + control.window_width / 2, control.window_y + control.window_height / 2
+            control.window_x + control.window_width / 2,
+            control.window_y + control.window_height / 2
         };
         pointer_at(pixel, SDL_EVENT_MOUSE_MOTION, 0);
         pointer_at(pixel, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
@@ -239,7 +241,8 @@ void Runtime::check_key_editor() {
     };
     const auto resize = [&](const CheckWindow& window) {
         require(
-            SDL_SetWindowSize(sdl_.window, window.width, window.height) && SDL_SyncWindow(sdl_.window),
+            SDL_SetWindowSize(sdl_.window, window.width, window.height) &&
+                SDL_SyncWindow(sdl_.window),
             std::string("the window did not take ") + std::to_string(window.width) + 'x' +
                 std::to_string(window.height)
         );
@@ -268,8 +271,9 @@ void Runtime::check_key_editor() {
         require(open_key_editor(request), "the editor did not open over Settings");
         frames(1);
         require(
-            oa_layer().find(editor::screen_name) != nullptr && oa_layer().find("settings") != nullptr &&
-                oa_layer().top() != nullptr && oa_layer().top()->name() == editor::screen_name,
+            oa_layer().find(editor::screen_name) != nullptr &&
+                oa_layer().find("settings") != nullptr && oa_layer().top() != nullptr &&
+                oa_layer().top()->name() == editor::screen_name,
             "the editor is not over Settings"
         );
     };
@@ -283,8 +287,11 @@ void Runtime::check_key_editor() {
             if (filter == "oa.key-editor.filter.all")
                 all = count;
             else
-                require(all >= count, std::string(filter) + " counts past All " + std::string(where));
-            std::cout << "key editor check: " << filter << " " << control.text << ' ' << where << '\n';
+                require(
+                    all >= count, std::string(filter) + " counts past All " + std::string(where)
+                );
+            std::cout << "key editor check: " << filter << " " << control.text << ' ' << where
+                      << '\n';
         }
         require(all > 0, std::string("All counts nothing ") + std::string(where));
     };
@@ -294,14 +301,16 @@ void Runtime::check_key_editor() {
         resize(window);
         prepare_menu();
         require(
-            oa_layer().screen_class() == window.size_class && oa_layer().screen_scale() == window.scale,
+            oa_layer().screen_class() == window.size_class &&
+                oa_layer().screen_scale() == window.scale,
             size + " is not " + std::string(size_class_name(window.size_class))
         );
         open_over_settings();
         const LayerPlacement placed = oa_layer().placement_of(editor::screen_name);
         const kit::Metrics& metrics = kit::metrics_of(window.size_class);
         require(
-            placed.points_width == metrics.dialog_width && placed.points_height == metrics.dialog_height &&
+            placed.points_width == metrics.dialog_width &&
+                placed.points_height == metrics.dialog_height &&
                 placed.scale_percent == window.scale * 100,
             size + " is not the class dialog"
         );
@@ -355,7 +364,9 @@ void Runtime::check_key_editor() {
 
     PadAccess::send_key(*this, SDLK_ESCAPE);
     frames(1);
-    require(oa_layer().find(editor::screen_name) != nullptr, "Escape left the editor with a search");
+    require(
+        oa_layer().find(editor::screen_name) != nullptr, "Escape left the editor with a search"
+    );
     require(
         require_named("oa.key-editor.search", "the search is not shown").text.empty(),
         "Escape did not clear the search"
@@ -374,7 +385,8 @@ void Runtime::check_key_editor() {
     require(oa_layer().find(editor::screen_name) == nullptr, "SAVE did not close the editor");
     require(engine_settings().switch_alt, "SAVE did not set SwitchAlt");
     const fs::path own_file = user_folder_ / std::string(keys::keys_folder_name) /
-                              keys::own_folder_name("oa-default") / std::string(oakeys::manifest_file);
+                              keys::own_folder_name("oa-default") /
+                              std::string(oakeys::manifest_file);
     std::ifstream in(own_file, std::ios::binary);
     require(static_cast<bool>(in), "the own layout was not written");
     const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>{in}, {}};
@@ -432,8 +444,8 @@ void Runtime::check_key_editor() {
     click_named("oa.key-editor.number-keys.off");
     click_named("oa.key-editor.cancel");
     require(
-        require_named("oa.prompt.body", "CANCEL did not ask to leave").text.find("Leave without saving") !=
-            std::string::npos,
+        require_named("oa.prompt.body", "CANCEL did not ask to leave")
+                .text.find("Leave without saving") != std::string::npos,
         "the leave question does not ask"
     );
     require(named("oa.prompt.leave").has_value(), "LEAVE is not shown");
@@ -444,14 +456,19 @@ void Runtime::check_key_editor() {
 
     std::cout << "key editor check: developer off\n";
     open_over_settings();
-    require(!listed("oa.key-editor.nav.developer"), "Developer is listed while Developer Mode is off");
+    require(
+        !listed("oa.key-editor.nav.developer"), "Developer is listed while Developer Mode is off"
+    );
     close_editor();
     const settings::EngineSettings opened = engine_settings();
     settings::EngineSettings chosen = opened;
     chosen.developer_mode = true;
     apply_engine_settings(chosen);
     open_over_settings();
-    require(named("oa.key-editor.nav.developer").has_value(), "Developer is not listed in Developer Mode");
+    require(
+        named("oa.key-editor.nav.developer").has_value(),
+        "Developer is not listed in Developer Mode"
+    );
     std::cout << "key editor check: developer on\n";
     close_editor();
     apply_engine_settings(opened);
@@ -492,7 +509,10 @@ void Runtime::check_key_editor() {
     std::cout << "key editor check: Escape stays fixed\n";
     PadAccess::send_key(*this, SDLK_ESCAPE);
     frames(1);
-    require(oa_layer().find(editor::screen_name) != nullptr, "Escape left instead of clearing the search");
+    require(
+        oa_layer().find(editor::screen_name) != nullptr,
+        "Escape left instead of clearing the search"
+    );
     PadAccess::send_key(*this, SDLK_ESCAPE);
     frames(1);
     require(oa_layer().find(editor::screen_name) == nullptr, "Escape did not close the editor");
@@ -512,18 +532,19 @@ void Runtime::check_key_editor() {
         require(match_timing_.tick == tick, "the clock moved while the editor was open");
         const LayerView seen = oa_layer().view();
         require(seen.match && seen.match_layout != nullptr, "the match has no layout");
-        const MatchDialogPlace place = OaLayer::match_dialog(
-            *seen.match_layout, seen.interface_percent, seen.fit_safe_area
-        );
+        const MatchDialogPlace place =
+            OaLayer::match_dialog(*seen.match_layout, seen.interface_percent, seen.fit_safe_area);
         const LayerPlacement placed = oa_layer().placement_of(editor::screen_name);
         const kit::Metrics& metrics = kit::metrics_of(place.size_class);
         require(
             placed.shown.x == place.shown.x && placed.shown.y == place.shown.y &&
-                placed.shown.width == place.shown.width && placed.shown.height == place.shown.height,
+                placed.shown.width == place.shown.width &&
+                placed.shown.height == place.shown.height,
             "the editor is not beside the side column"
         );
         require(
-            placed.points_width == metrics.dialog_width && placed.points_height == metrics.dialog_height &&
+            placed.points_width == metrics.dialog_width &&
+                placed.points_height == metrics.dialog_height &&
                 placed.scale_percent == place.scale_percent,
             "the match editor is not the dialog's class"
         );
@@ -531,7 +552,9 @@ void Runtime::check_key_editor() {
         snapshot(std::string("match-") + size);
         PadAccess::send_key(*this, SDLK_ESCAPE);
         frames(1);
-        require(oa_layer().find(editor::screen_name) == nullptr, "Escape did not close the match editor");
+        require(
+            oa_layer().find(editor::screen_name) == nullptr, "Escape did not close the match editor"
+        );
         // The pause the editor opened belongs to this match. The next size
         // starts another, which must not inherit that pause.
         leave_match();

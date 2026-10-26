@@ -40,9 +40,8 @@ struct MenuEntry {
 /// @param state the category and the filter
 /// @param compact true at Compact, where the filters live in the category menu
 /// @return the items, top to bottom
-[[nodiscard]] std::vector<MenuEntry> menu_entries(
-    const Editor& editor, Menu menu, const ScreenState& state, bool compact
-);
+[[nodiscard]] std::vector<MenuEntry>
+menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool compact);
 
 /// The item the menu shows as chosen.
 ///
@@ -52,10 +51,7 @@ struct MenuEntry {
 /// @param entries what menu_entries gave
 /// @return the item's place, from 0; -1 when none is chosen
 [[nodiscard]] int32_t menu_chosen(
-    const Editor& editor,
-    Menu menu,
-    const ScreenState& state,
-    const std::vector<MenuEntry>& entries
+    const Editor& editor, Menu menu, const ScreenState& state, const std::vector<MenuEntry>& entries
 );
 
 } // namespace oa::ui::key_editor
