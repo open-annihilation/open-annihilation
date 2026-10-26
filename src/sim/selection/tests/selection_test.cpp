@@ -212,6 +212,34 @@ int main() {
         world_destroy(w);
     }
     {
+        // On-screen units of the mask are selected. Additive leaves the rest.
+        // A unit that is not selectable, and another player's unit, stay as they are.
+        World* w = make_world();
+        uint16_t ids[8]{1, 2, 3, 5};
+        w->game.hot_unit_count = 4;
+        const VisibleLists shown{ids, 8, nullptr, 0};
+        data::defs::CategoryMaskStorage storage;
+        TypeMask mask = data::defs::category_mask_over(storage, data::limits::base_type_bits);
+        data::defs::category_mask_set(&mask, 1);
+        w->units[2].flags |= OA_UNIT_FLAG_SELECTED;
+        w->units[3].capture_cooldown = 5;
+        w->game.panel_unit_id = 7;
+        const int resets = r.resets;
+        select_type_mask_on_screen(*w, shown, mask, true, h);
+        CHECK(selected(*w, 1) && selected(*w, 2));
+        CHECK(!selected(*w, 3) && !selected(*w, 4) && !selected(*w, 5));
+        CHECK(w->game.panel_unit_id == 0);
+        CHECK(r.resets == resets + 1);
+        CHECK((w->game.frame_flags & frame_flag_selection_changed) != 0);
+        w->units[3].capture_cooldown = 0;
+        w->units[3].flags &= ~OA_UNIT_FLAG_SELECTED;
+        w->game.hot_unit_count = 2;
+        select_type_mask_on_screen(*w, shown, mask, false, h);
+        CHECK(selected(*w, 1) && !selected(*w, 2) && !selected(*w, 3));
+        CHECK(!selected(*w, 4) && !selected(*w, 5));
+        world_destroy(w);
+    }
+    {
         World* w = make_world();
         // Box over units 1 and 2 (x 100, 200; screen z 100 - 0).
         w->game.drag_start[0] = 50;

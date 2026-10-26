@@ -370,7 +370,7 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
             tag = "CTRL_B";
         else if (id == "select.factories")
             tag = "CTRL_F";
-        select_by_tag(tag, shift);
+        select_by_tag(tag, shift, TagReach::map);
         return true;
     }
     constexpr std::string_view category = "select.category-";
@@ -380,7 +380,7 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
             const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
             std::string word = "CTRL_";
             word.push_back(static_cast<char>(letter - 'a' + 'A'));
-            select_by_tag(word, shift);
+            select_by_tag(word, shift, TagReach::map);
             return true;
         }
     }

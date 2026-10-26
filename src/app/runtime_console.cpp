@@ -880,7 +880,7 @@ void Runtime::run_console_hotkey(uint32_t code) {
     host.select_by_category = [](void* context, const char* category, bool add) {
         if (category == nullptr)
             return;
-        runtime_of(context)->select_by_tag(category, add);
+        runtime_of(context)->select_by_tag(category, add, TagReach::map);
     };
     host.store_camera = [](void* context, int32_t slot) {
         runtime_of(context)->store_camera_bookmark(slot);
