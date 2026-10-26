@@ -1040,29 +1040,26 @@ void TouchDispatchAccess::show_drawer_page(Runtime& runtime, int page) {
 
 void TouchDispatchAccess::select_item(Runtime& runtime, uint8_t index) {
     close_sheet(runtime, false);
-    const auto control = SDL_KMOD_LCTRL;
     const bool add = runtime.touch_state().hud.latches.active(hud::Latch::add);
     switch (static_cast<hud::SelectItem>(index)) {
     case hud::SelectItem::all:
-        runtime.press_match_key(SDLK_A, control);
+        runtime.press_match_action("select.all");
         break;
     case hud::SelectItem::builders:
-        runtime.press_match_key(SDLK_B, control);
+        runtime.press_match_action("select.builders");
         break;
     case hud::SelectItem::factories:
-        runtime.press_match_key(SDLK_F, control);
+        runtime.press_match_action("select.factories");
         break;
     case hud::SelectItem::aircraft:
-        runtime.press_match_key(SDLK_V, control);
+        runtime.press_match_action("select.aircraft");
         break;
     case hud::SelectItem::on_screen:
-        runtime.press_match_key(SDLK_S, control);
+        runtime.press_match_action("select.on-screen");
         break;
     case hud::SelectItem::commander: {
-        // With ADD the commander joins the selection, as Ctrl+Shift+C does.
-        runtime.press_match_key(
-            SDLK_C, add ? static_cast<SDL_Keymod>(control | SDL_KMOD_LSHIFT) : control
-        );
+        // With ADD the commander joins the selection.
+        runtime.press_match_action(add ? "select.commander-add" : "select.commander");
         if (add) {
             auto& look = runtime.touch_state().hud;
             look.latches.used(hud::ActionClass::selection, look.latch_mode);
@@ -1071,19 +1068,19 @@ void TouchDispatchAccess::select_item(Runtime& runtime, uint8_t index) {
         break;
     }
     case hud::SelectItem::same_type:
-        runtime.press_match_key(SDLK_Z, control);
+        runtime.press_match_action("select.same-type");
         break;
     case hud::SelectItem::centre:
-        runtime.press_match_key(SDLK_HOME, SDL_KMOD_NONE);
+        runtime.press_match_action("camera.centre");
         break;
     case hud::SelectItem::follow:
-        runtime.press_match_key(SDLK_T, SDL_KMOD_NONE);
+        runtime.press_match_action("camera.follow");
         break;
     case hud::SelectItem::next_unit:
-        runtime.press_match_key(SDLK_N, SDL_KMOD_NONE);
+        runtime.press_match_action("camera.next-unit");
         break;
     case hud::SelectItem::next_report:
-        runtime.press_match_key(SDLK_F3, SDL_KMOD_NONE);
+        runtime.press_match_action("camera.next-report");
         break;
     }
 }
@@ -1173,7 +1170,7 @@ void TouchDispatchAccess::control_tap(
         return;
     }
     case hud::Control::pause:
-        runtime.press_match_key(SDLK_PAUSE, SDL_KMOD_NONE);
+        runtime.press_match_action("game.pause");
         return;
     case hud::Control::speed:
         toggle(hud::Sheet::speed);
@@ -1182,13 +1179,13 @@ void TouchDispatchAccess::control_tap(
         runtime.open_chat_line();
         return;
     case hud::Control::centre:
-        runtime.press_match_key(SDLK_HOME, SDL_KMOD_NONE);
+        runtime.press_match_action("camera.centre");
         return;
     case hud::Control::follow:
-        runtime.press_match_key(SDLK_T, SDL_KMOD_NONE);
+        runtime.press_match_action("camera.follow");
         return;
     case hud::Control::next_unit:
-        runtime.press_match_key(SDLK_N, SDL_KMOD_NONE);
+        runtime.press_match_action("camera.next-unit");
         return;
     case hud::Control::info:
         show_unit_info(runtime);
@@ -1197,7 +1194,7 @@ void TouchDispatchAccess::control_tap(
         if (phone)
             toggle(hud::Sheet::phone_menu);
         else
-            runtime.press_match_key(SDLK_F2, SDL_KMOD_NONE);
+            runtime.press_match_action("game.menu");
         return;
     case hud::Control::build_drawer:
         if (state.hud.sheet == hud::Sheet::drawer)
@@ -1270,7 +1267,7 @@ void TouchDispatchAccess::control_tap(
             switch (static_cast<hud::PhoneMenuItem>(control.index)) {
             case hud::PhoneMenuItem::game_menu:
                 close_sheet(runtime, false);
-                runtime.press_match_key(SDLK_F2, SDL_KMOD_NONE);
+                runtime.press_match_action("game.menu");
                 return;
             case hud::PhoneMenuItem::slower:
                 if (!watcher)
@@ -1638,7 +1635,7 @@ void TouchDispatchAccess::hold_timers(Runtime& runtime, uint64_t now) {
                 continue;
             finger.fired = true;
             runtime.play_haptic(Haptic::hold_started);
-            runtime.press_match_key(SDLK_D, SDL_KMOD_LCTRL);
+            runtime.press_match_action("order.self-destruct");
         }
     }
 }
