@@ -1795,6 +1795,9 @@ void test_keys_off_hands_the_keys_back_alone() {
             );
 }
 
+// The launcher beside versions/ is a Linux install. The desktop entry names
+// that layout, which this case checks.
+#ifndef _WIN32
 void test_versions_layout_names_the_launcher() {
     const auto ticks = std::chrono::steady_clock::now().time_since_epoch().count();
     const fs::path root =
@@ -1817,13 +1820,16 @@ void test_versions_layout_names_the_launcher() {
     OA_CHECK(file_types::desktop_entry(game).find("versions/") != std::string::npos);
     fs::remove_all(root, error);
 }
+#endif
 
 } // namespace
 
 int main() {
     test_desktop_exec_argument();
     test_texts();
+#ifndef _WIN32
     test_versions_layout_names_the_launcher();
+#endif
     test_running_executable();
     test_opener_changes();
     test_brain_off_hands_the_brain_back_alone();

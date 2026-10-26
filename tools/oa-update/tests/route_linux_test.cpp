@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The Linux versions route, against scratch folders and real links. Undoing
-// either update puts the folder back. A system that cannot hold a link skips
-// the cases. Nothing is fetched and no program is started.
+// either update puts the folder back. Windows does not run the cases: that
+// install does not use these links, and a link made there is not the one the
+// route reads back. A system that cannot hold a link skips the cases. Nothing
+// is fetched and no program is started.
 
 #include "oa/app/update/plan.hpp"
 #include "oa/update_helper/journal.hpp"
@@ -21,6 +23,8 @@
 #include <string_view>
 #include <system_error>
 #include <vector>
+
+#if !defined(_WIN32)
 
 namespace {
 
@@ -315,3 +319,10 @@ void test_linux_versions_route() {
         restoring_points_current_at_the_kept_version(restored.path);
     }
 }
+
+#else
+
+void test_linux_versions_route() {
+}
+
+#endif
