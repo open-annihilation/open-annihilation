@@ -109,9 +109,10 @@ inline kit::Frame frame_for(int32_t width, int32_t height, int32_t scale_percent
 }
 
 /// The fixture. OA default under a made-up layout named Ridge grid, with the
-/// player's own Ctrl+B on select.all. The mod is Ridge: one GUI key and the
-/// category letter E. Ctrl+Z is already select.same-type, so Z would be
-/// dropped; play does not bind Ctrl+E.
+/// player's own Ctrl+B on select.all. The mod is Ridge: one GUI key, the
+/// category letters E and W, and the Category words KBOT, CTRL_W and
+/// RIDGE_SCOUT. Ctrl+Z is already select.same-type, so Z would be dropped;
+/// play does not bind Ctrl+E or Ctrl+W.
 ///
 /// @return the inputs
 inline editor::EditorInputs editor_fixture() {
@@ -135,7 +136,8 @@ inline editor::EditorInputs editor_fixture() {
     ridge.letter = U'R';
     ridge.help = "Ridge menu";
     inputs.mod.keys.push_back(std::move(ridge));
-    inputs.mod.categories = "E";
+    inputs.mod.categories = "EW";
+    inputs.mod.tags = {"KBOT", "CTRL_W", "RIDGE_SCOUT"};
 
     inputs.hacks_on = {"ui.megamap"};
     inputs.keyboard = keys::KeyboardMap::us();

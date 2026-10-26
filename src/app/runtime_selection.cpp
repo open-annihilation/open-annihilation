@@ -615,9 +615,30 @@ bool local_unit_has_tag(oa::World& world, const oa::data::defs::CategoryMask& ma
     return false;
 }
 
+/// True when the two words are the same category name, ignoring ASCII case.
+///
+/// @param left one spelling
+/// @param right the other spelling
+/// @return true when they match
+bool same_tag_word(std::string_view left, std::string_view right) {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        unsigned char a = static_cast<unsigned char>(left[index]);
+        unsigned char b = static_cast<unsigned char>(right[index]);
+        if (a >= 'A' && a <= 'Z')
+            a = static_cast<unsigned char>(a - 'A' + 'a');
+        if (b >= 'A' && b <= 'Z')
+            b = static_cast<unsigned char>(b - 'A' + 'a');
+        if (a != b)
+            return false;
+    }
+    return true;
+}
+
 } // namespace
 
-bool Runtime::select_by_tag(std::string_view word, bool add) {
+bool Runtime::select_by_tag(std::string_view word, bool add, TagReach reach) {
     if (!match_ || word.empty())
         return false;
     auto& world = match_->state();
@@ -625,11 +646,39 @@ bool Runtime::select_by_tag(std::string_view word, bool add) {
     const std::string name{word};
     const oa::data::defs::CategoryMask* mask =
         oa::data::defs::category_registry_find(&unit_table_.tables.categories, name.c_str());
-    // A letter whose tag names nothing, or names no unit the player has, does
-    // nothing: the selection and the page stay as they are.
-    if (!mask_holds_a_type(mask) || !local_unit_has_tag(world, *mask))
+    // A letter whose tag names nothing does nothing: the selection and the
+    // page stay as they are. A map-wide press also does nothing when the
+    // player has no unit of the tag. A two-press call still runs, so a second
+    // press can reach units that were off screen.
+    if (!mask_holds_a_type(mask))
         return false;
-    oa::sim::selection::apply_type_mask_selection(world, *mask, add, selection_hooks());
+    if (reach == TagReach::map && !local_unit_has_tag(world, *mask))
+        return false;
+    const auto selected_ids = [&]() {
+        std::vector<uint16_t> ids;
+        for (const auto& slot : match_->world().slots) {
+            if (slot.unit == nullptr || slot.owner_index != match_local_player_)
+                continue;
+            if ((slot.unit->flags & OA_UNIT_FLAG_SELECTED) == 0)
+                continue;
+            ids.push_back(slot.unit_index);
+        }
+        std::sort(ids.begin(), ids.end());
+        return ids;
+    };
+    const bool second = reach == TagReach::two_press && same_tag_word(tag_reach_word_, word) &&
+                        selected_ids() == tag_reach_slots_;
+    if (reach == TagReach::two_press && !second) {
+        oa::sim::selection::select_type_mask_on_screen(
+            world, on_screen_lists(), *mask, add, selection_hooks()
+        );
+    } else {
+        oa::sim::selection::apply_type_mask_selection(world, *mask, add, selection_hooks());
+    }
+    if (reach == TagReach::two_press) {
+        tag_reach_word_.assign(word);
+        tag_reach_slots_ = selected_ids();
+    }
     adopt_selected_units();
     int count = 0;
     for (const auto& slot : match_->world().slots) {

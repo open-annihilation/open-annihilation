@@ -2896,8 +2896,8 @@ class Runtime final : public menu::Host,
     /// A later mod load reads them again. [runtime_gui_actions.cpp]
     void gather_gui_quick_keys();
 
-    /// The mod data resolution reads: one gui key per gathered button, and the
-    /// category letters the loaded units use.
+    /// The mod data resolution reads: one gui key per gathered button, the
+    /// category letters the loaded units use, and every gathered Category word.
     ///
     /// The gadget word is set only for `order_stem`, so only that side's order
     /// file moves a registry action. The letters are `loaded_category_letters`.
@@ -13956,19 +13956,32 @@ class Runtime final : public menu::Host,
     /// @param pred tests each local unit slot
     void select_units_matching(const std::function<bool(const oa::sim::unit_spawn::Slot&)>& pred);
 
-    /// Selects the local player's units of one category tag, anywhere on the map.
+    /// How far one tag selection reaches.
+    enum class TagReach {
+        map,       ///< one press selects the player's units of the tag across the map
+        two_press, ///< on screen first; the whole map on a second press while unchanged
+    };
+
+    /// Selects the local player's units of one category tag.
     ///
-    /// One press. Shift adds those units to the selection; without Shift the
-    /// selection becomes just those units. A tag no loaded unit uses, or that
-    /// none of the player's units have, leaves the selection and the page as
-    /// they are. This is the one route every Ctrl+letter tag selection takes.
-    /// [runtime_selection.cpp]
+    /// `TagReach::map` is one press across the map. Shift adds those units to
+    /// the selection; without Shift the selection becomes just those units. A
+    /// tag no loaded unit uses, or that none of the player's units have,
+    /// leaves the selection and the page as they are. Ctrl+letter actions and
+    /// the console host use this reach.
     ///
-    /// @param word the category name, such as CTRL_B
+    /// `TagReach::two_press` selects the on-screen units of the tag. The same
+    /// word again, while the selection is still exactly those units, selects
+    /// across the map. The word is compared with case ignored. Shift adds.
+    /// With none of the tag on screen the first press selects none of them,
+    /// and the second still reaches the whole map. [runtime_selection.cpp]
+    ///
+    /// @param word the category name, such as CTRL_B, as the data spells it
     /// @param add true to keep the units already selected
-    /// @return false when the selection is left as it is; true when units of
-    ///     the tag were selected
-    bool select_by_tag(std::string_view word, bool add);
+    /// @param reach map-wide, or the two-press on-screen reach
+    /// @return false when the selection is left as it is; true when the call
+    ///     selected
+    bool select_by_tag(std::string_view word, bool add, TagReach reach);
 
     /// Selects every local builder that can move, or every one that stays put.
     ///
@@ -20766,6 +20779,30 @@ class Runtime final : public menu::Host,
     std::vector<GuiQuickKey> gui_quick_keys_{};
     /// Set once the mod's GUI files have been read. Cleared when the mod changes.
     bool gui_quick_keys_gathered_{};
+
+    /// One Category word gathered at mod load, and the action that selects it.
+    struct GatheredTag {
+        std::string word{};   ///< the data's spelling
+        std::string action{}; ///< the action id
+    };
+
+    /// Category words of the mod's units, in registry order. Empty until the
+    /// GUI keys are gathered.
+    std::vector<GatheredTag> gathered_tags_{};
+    /// Reads the units' Category lines into `gathered_tags_`. [runtime_gui_actions.cpp]
+    void gather_tag_words();
+    /// The `select.tag-` actions this layout binds, and the `select.tag-` names
+    /// it keeps that the loaded units do not carry. Both stay empty when the
+    /// layout names no tag key. [runtime_key_bindings.cpp]
+    ///
+    /// @param bound tag actions that hold a chord
+    /// @param unknown tag names kept with their chords
+    void tag_layout_ids(std::vector<std::string>& bound, std::vector<std::string>& unknown) const;
+    /// The word of the last two-press tag selection, as the data spells it.
+    std::string tag_reach_word_{};
+    /// Selected local unit ids after that press, in id order. The next press
+    /// of the same word reaches the whole map while the selection is still these.
+    std::vector<uint16_t> tag_reach_slots_{};
     /// Sticky modifiers as they were when this event began, so a tap does not
     /// apply to the key that armed it and a chord still sees them after consume.
     bool sticky_event_{};

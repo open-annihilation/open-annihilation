@@ -2,7 +2,7 @@
 
 `--check-key-table FILE` starts a headless skirmish, plays every row of `FILE` through `Runtime::dispatch_event`, and compares the effect of each row with the file. The check writes `key-table-observed.tsv` in the working directory, including when a row does not match. It writes any saved toggle back before it exits, so the preferences file is the same after a run as before it.
 
-`base.tsv` is today's game, with no mod: 222 rows. `hacks.tsv` plays those rows again with the twelve catalogue hacks turned on, then the rows that exist only while those hacks answer: 256 rows. Where a hack's action replaces the base action, the hacks row is named by the replacing action. A migration ticket that changes a row updates the table in that ticket and says why in its report. `new-actions.tsv` plays the actions a layout may bind, with `new-actions/oakeys.yaml`, and with the megamap hack on.
+`base.tsv` is today's game, with no mod: 222 rows. `hacks.tsv` plays those rows again with the twelve catalogue hacks turned on, then the rows that exist only while those hacks answer: 256 rows. Where a hack's action replaces the base action, the hacks row is named by the replacing action. A migration ticket that changes a row updates the table in that ticket and says why in its report. `new-actions.tsv` plays the actions a layout may bind, with `new-actions/oakeys.yaml`, and with the megamap hack on. `tags.tsv` is `base.tsv` plus the Category-word rows, played with `tags/oakeys.yaml`: J selects KBOT on screen, J twice with one construction kbot off screen selects it too, Shift+J keeps the aircraft, Q selects the units on screen that are not aircraft, and Y names a tag the loaded units lack.
 
 ## Columns
 
@@ -27,16 +27,17 @@ The header is `row`, `setup`, `input`, `effect`, separated by tabs.
 - `marker=received`
 - `platform=macos` (played only on macOS; skipped elsewhere, and not counted)
 - `escape-menu` (Escape opens the game menu)
+- `far=commander|builder|factory|aircraft|combat` (one more unit of that role, spawned out of the view, and removed after the row)
 
 `input` is one of:
 
-- `key <scancode> [ctrl] [alt] [shift] [primary] [repeat] [held=<scancode>]`
+- `key <scancode> [ctrl] [alt] [shift] [primary] [repeat] [twice] [held=<scancode>]`
 - `hold <scancode> <milliseconds>`
 - `button <left|right|middle> <place> [clicks=2] [ctrl] [alt] [shift] [primary] [held=<scancode>]`
 - `drag <left|right> battlefield [held=<scancode>] [modifiers]`
 - `wheel <up|down> <battlefield|megamap> [modifiers]`
 
-`primary` is Command on macOS and Ctrl elsewhere. `held=` on a key or a button is a grammar extension: the named key is down for the gesture (a build tool, or the whiteboard key). Places are `battlefield`, `unit`, `minimap`, `build-button`, `queued-site`, and `edge-left`, `edge-right`, `edge-top`, `edge-bottom`. The edge rows still say `button` so they stay in the grammar; the check moves the pointer to that outermost window pixel and does not press, because a click there would land on a gadget. Those rows are `camera.edge-scroll`. `pointer.pan` is the middle button.
+`primary` is Command on macOS and Ctrl elsewhere. `twice` on a key plays that chord again with nothing between the two presses. `held=` on a key or a button is a grammar extension: the named key is down for the gesture (a build tool, or the whiteboard key). Places are `battlefield`, `unit`, `minimap`, `build-button`, `queued-site`, and `edge-left`, `edge-right`, `edge-top`, `edge-bottom`. The edge rows still say `button` so they stay in the grammar; the check moves the pointer to that outermost window pixel and does not press, because a click there would land on a gadget. Those rows are `camera.edge-scroll`. `pointer.pan` is the middle button.
 
 `effect` is `;`-joined `name=value` of the probes that changed, sorted by name, or `none`. Probes are counts, roles, and on/off words. They are never a function name, a unit name, a status line, or a map coordinate.
 

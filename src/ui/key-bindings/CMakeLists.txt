@@ -10,6 +10,7 @@ add_library(oa-ui-key-bindings
   src/chord.cpp
   src/key_names.cpp
   src/resolve.cpp
+  src/tags.cpp
   src/clashes.cpp
   src/dispatcher.cpp
   src/latches.cpp

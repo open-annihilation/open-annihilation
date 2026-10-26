@@ -7,6 +7,7 @@
 // registry.
 
 #include "oa/ui/key_bindings/layout.hpp"
+#include "oa/ui/key_bindings/tags.hpp"
 
 #include "overlap.hpp"
 
@@ -214,7 +215,7 @@ Row* find_row(std::vector<Row>& rows, std::string_view id) {
 
 /// The family with this id, or null.
 ///
-/// @param id `gui` or `select.category`
+/// @param id `gui`, `select.category` or `select.tag`
 /// @return the family
 const Family* family_named(std::string_view id) {
     for (const Family& family : actions::families()) {
@@ -291,7 +292,10 @@ std::optional<Chord> letter_chord(char32_t letter) {
     return parsed(text);
 }
 
-/// True when a family makes this id, whether or not this mod did.
+/// True when a family makes this id without a row from the loaded data.
+///
+/// A `select.tag-` id is not one of these. The scan adds a row for each word
+/// the data has, and a layout that names a missing word stays in `unknown`.
 ///
 /// @param id the id a layout wrote
 /// @return true for `gui.` and `select.category-` plus one letter
@@ -833,7 +837,7 @@ bool play_binds(const std::vector<Row>& rows, const Chord& chord, const Keyboard
     return false;
 }
 
-/// Adds the mod's made actions: GUI keys, then category letters in string order.
+/// Adds the mod's made actions: GUI keys, category letters, then tag words.
 ///
 /// @param mod the mod data
 /// @param rows the actions
@@ -889,6 +893,18 @@ void add_made(const ModData& mod, std::vector<Row>& rows, const ResolveInput& in
             held.step = Step::base;
             row.chords.push_back(held);
         }
+        rows.push_back(std::move(row));
+    }
+
+    const Family* tags = family_named("select.tag");
+    for (const std::string& word : mod.tags) {
+        const std::string id = tag_action_id(word);
+        if (!id.starts_with("select.tag-") || find_row(rows, id) != nullptr)
+            continue;
+        Row row;
+        row.id = id;
+        row.kind = tags != nullptr ? tags->kind : Kind::press;
+        row.contexts = tags != nullptr ? tags->context : 0;
         rows.push_back(std::move(row));
     }
 }

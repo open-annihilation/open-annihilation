@@ -196,6 +196,27 @@ void apply_type_mask_selection(
     mark_selection_changed(world);
 }
 
+void select_type_mask_on_screen(
+    World& world, const VisibleLists& lists, const TypeMask& mask, bool additive, const Hooks& hooks
+) {
+    if (const Player* player = local_player(world)) {
+        for_player_units(world, *player, [&](Unit& unit) {
+            if (!selectable(world, unit))
+                return true;
+            const bool on_screen = unit_listed(world, lists, unit.id);
+            const bool tagged = data::defs::category_mask_contains(&mask, unit.type_index);
+            if (on_screen && tagged)
+                unit.flags |= OA_UNIT_FLAG_SELECTED;
+            else if (!additive)
+                unit.flags &= ~OA_UNIT_FLAG_SELECTED;
+            return true;
+        });
+    }
+    world.game.panel_unit_id = 0;
+    reset_command(hooks);
+    mark_selection_changed(world);
+}
+
 void select_visible_units(World& world, const VisibleLists& lists, const Hooks& hooks) {
     bool any = false;
     clear_selection(world, hooks);

@@ -7,8 +7,8 @@
 # that table differs from this file, or this file breaks a rule.
 #
 # Top level: input-actions (must be 1), contexts, conditions, areas, families,
-# actions. gui. and select.category- actions are made at load, from families,
-# and are not listed here.
+# actions. gui., select.category- and select.tag- actions are made at load,
+# from families, and are not listed here.
 #
 # Context fields: parent (null only on global), overlay and title. The order
 # of the contexts is the bit order of an action's context mask.
@@ -17,8 +17,9 @@
 # Area fields: order (the editor's category order) and title.
 #
 # Family fields: area, context, kind, by, source, and when they apply
-# default-template (kept as text, not parsed as a chord) and order-panel
-# (area and context for an order-panel gadget).
+# default-template (kept as text, not parsed as a chord), order-panel
+# (area and context for an order-panel gadget) and words (name and
+# description templates; `{word}` is the data's spelling).
 #
 # Action fields, always: area, order, context, kind, source, words.
 #   area, order   the editor category and the order within it, from 1
@@ -172,6 +173,15 @@ families:
     by: letter
     source: [3.1c, data]
     default-template: "Ctrl+<letter>"
+  select.tag:
+    area: selection
+    context: [play]
+    kind: press
+    by: letter
+    source: [data]
+    words:
+      name: "Select {word}"
+      description: "Selects your units tagged {word}: those on screen, then the whole map on a second press."
 
 actions:
   order.move:
