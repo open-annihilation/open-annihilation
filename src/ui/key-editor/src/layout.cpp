@@ -416,13 +416,15 @@ void add_summary(
         show(editor.text(), words::by_author),
         {{"author", editor.layout_author()}, {"version", editor.layout_version()}}
     );
-    const std::string own =
-        editor.changes() == 1
-            ? std::string(show(editor.text(), words::own_change_one))
-            : fill(
-                  show(editor.text(), words::own_changes), {{"n", std::to_string(editor.changes())}}
-              );
-    const std::string shown = by + " · " + own;
+    // With no changes of the player's own the summary names the layout alone.
+    std::string shown = by;
+    if (editor.changes() == 1)
+        shown += " · " + std::string(show(editor.text(), words::own_change_one));
+    else if (editor.changes() > 1)
+        shown += " · " + fill(
+                             show(editor.text(), words::own_changes),
+                             {{"n", std::to_string(editor.changes())}}
+                         );
     add_line(built, fonts, rect, shown, kit::FontRole::small, kit::colour::hint);
     if (!roomy(rect))
         return;
