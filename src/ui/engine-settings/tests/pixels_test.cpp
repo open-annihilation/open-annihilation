@@ -153,6 +153,8 @@ std::string_view page_slug(Page page) {
         return "game-content";
     case Page::updates:
         return "updates";
+    case Page::accessibility:
+        return "accessibility";
     case Page::mod_keys:
         return "mod-keys";
     case Page::mod_patrol:
@@ -249,7 +251,7 @@ void show_scroll_end(Dialog& dialog) {
             return;
         }
     }
-    problem("graphics did not leave its rows");
+    problem("the section did not leave its rows");
 }
 
 settings::Notice short_notice() {
@@ -377,6 +379,19 @@ std::vector<Picture> scenes(const DialogFonts& fonts, const Icon& icon) {
         if (graphics_end.scroll[static_cast<std::size_t>(Page::graphics)] <= 0)
             problem("graphics is not at its scroll end");
         add(pictures, "dialog/graphics-end", drawn_dialog(graphics_end, fonts, no_icon, 1));
+
+        Dialog accessibility_end = engine_dialog(Page::accessibility);
+        show_scroll_end(accessibility_end);
+        if (accessibility_end.scroll[static_cast<std::size_t>(Page::accessibility)] <= 0)
+            problem("accessibility is not at its scroll end");
+        add(pictures,
+            "dialog/accessibility-end",
+            drawn_dialog(accessibility_end, fonts, no_icon, 1));
+        Dialog accessibility_regular = engine_dialog(Page::accessibility);
+        accessibility_regular.size_class = oa::ui::kit::SizeClass::regular;
+        add(pictures,
+            "dialog/accessibility-regular",
+            drawn_class_dialog(accessibility_regular, fonts));
 
         Dialog limits_end = engine_dialog(Page::common_tweaks);
         limits_end.scroll[static_cast<std::size_t>(Page::common_tweaks)] =

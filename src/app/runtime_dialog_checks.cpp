@@ -782,11 +782,14 @@ void Runtime::check_frontend_keyboard() {
         );
     };
     bool running = true;
+    // A keyboard sends a key's place with its code; the key bindings read it.
     const auto key = [&](SDL_Keycode code, SDL_Keymod modifiers) {
         SDL_Event event{};
         event.type = SDL_EVENT_KEY_DOWN;
         event.key.key = code;
+        event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
         event.key.mod = modifiers;
+        event.key.down = true;
         handle_sdl_event(event, running);
     };
     // Single Player has the GUI keyboard: the loader focuses NewCamp, the

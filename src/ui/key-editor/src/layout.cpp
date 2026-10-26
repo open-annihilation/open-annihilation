@@ -1722,6 +1722,33 @@ void add_footer(
     }
 }
 
+/// True when a category-menu item is the filter the editor is using.
+///
+/// Compact keeps the filters in that menu. The menu's chosen row stays the
+/// category, and the filter's own row still reports that it is on, as its
+/// pill does at Regular and Large.
+///
+/// @param entry the item
+/// @param filter the filter in use
+/// @return true when the item is that filter
+bool filter_in_use(const MenuEntry& entry, Filter filter) {
+    if (entry.kind != MenuKind::filter)
+        return false;
+    switch (filter) {
+    case Filter::changed:
+        return entry.id == "changed";
+    case Filter::clashes:
+        return entry.id == "clashes";
+    case Filter::unbound:
+        return entry.id == "unbound";
+    case Filter::latchable:
+        return entry.id == "latchable";
+    case Filter::all:
+        break;
+    }
+    return entry.id == "all";
+}
+
 /// Appends the open menu over the window.
 ///
 /// @param[in,out] built the layout
@@ -1795,7 +1822,7 @@ void add_menu(
         control.name = entry.name;
         control.kind = kit::ControlKind::list_item;
         control.focusable = false;
-        control.checked = index == look.chosen;
+        control.checked = index == look.chosen || filter_in_use(entry, state.filter);
         if (visible) {
             const kit::Rect box = kit::choice_item(menu, index - first);
             const std::string caption = kit::cut_to_width(

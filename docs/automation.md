@@ -200,7 +200,9 @@ centre would land on the line between Off and On.
 | A drop-down's item, while open | `oa.settings.<row>.<value>` | check box, checked on the choice |
 | A slider | `oa.settings.<row>` | slider; its text the value shown |
 | A row's own button (MANAGE…) | `oa.settings.<row>.<button>`, as `oa.settings.game-files-summary.manage` | button |
-| Key layout's EDIT KEYS… | `oa.settings.key-layout.edit` | button, its text "EDIT KEYS…". It opens the key editor over Settings |
+| Key layout's EDIT KEYS… | `oa.settings.key-layout.edit` | button, its text "EDIT KEYS…". It opens the key editor over Settings, on All |
+| Hold keys that latch's CHOOSE… | `oa.settings.latching.choose` | button, its text "CHOOSE…". It opens the key editor over Settings, on Latchable |
+| Edge scrolling | `oa.settings.edge-scroll`, with `.off` and `.on` | as a switch. Off stops the view scrolling while the pointer rests at the window's edge |
 | Key layout with the mod being played | `oa.settings.key-layout-for-mod`, and while open `.same` and `.<id>` (a layout's id, as `.ridge-keys`) | drop-down, its text the choice shown; absent while no mod is played |
 | Show keys on buttons | `oa.settings.show-keys-on-buttons`, with `.off` and `.on` | as a switch |
 | Game Content's buttons | `oa.settings.content-check.check-again`, `oa.settings.content-copy.copy-again`, `oa.settings.content-open.open-folder` | button. The section's entry is `oa.settings.nav.game-content`. While a bundle is being copied, that bundle's row offers Cancel as `oa.settings.<id>.cancel-copy` |
@@ -227,7 +229,7 @@ centre would land on the line between Off and On.
 | The Add registry window, in dialog `oa.add-registry` | `oa.add-registry.url`, `oa.add-registry.key-field` (the Signing key field, under the address, for an address add only; absent for an `.oareg` file and for a mirror), `oa.add-registry.check`, `oa.add-registry.add`, `oa.add-registry.cancel`, and the labels `oa.add-registry.name`, `oa.add-registry.address`, `oa.add-registry.key` (the fingerprints), `oa.add-registry.refusal` | the fields are text fields; the buttons are buttons; the labels are labels. The names of the controls that were already there are unchanged |
 
 `<page>` is the section's word (`controls`, `engine-limits`, `language`,
-`graphics`, `user-interface`, `downloads`, `updates`, `system`, `mod-keys`). A stage
+`graphics`, `user-interface`, `accessibility`, `downloads`, `updates`, `system`, `mod-keys`). A stage
 file's `settings system` opens System, and `settings engine-limits` opens
 Engine Limits. A stage file may still say `common-tweaks` for that
 section. Language & Text keeps the word

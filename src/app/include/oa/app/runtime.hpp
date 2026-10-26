@@ -7807,6 +7807,11 @@ class Runtime final : public menu::Host,
     /// @param[in,out] dialog the open dialog
     void fill_settings_key_layout(oa::ui::engine_settings::Dialog& dialog);
 
+    /// How many latchable actions the layout in use has turned on.
+    ///
+    /// @return the count; 0 when no bindings are loaded
+    [[nodiscard]] uint32_t latched_action_count() const;
+
     /// Sets Key layout's value from the layout in use and the actions the
     /// player's own layout names.
     ///

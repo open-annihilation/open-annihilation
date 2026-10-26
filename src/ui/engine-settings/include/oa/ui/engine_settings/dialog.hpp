@@ -104,6 +104,11 @@ enum class Page : uint8_t {
     /// Game Content. Its number follows Game Content's, so Downloads, System
     /// and Game Content stay 9, 10 and 11.
     updates,
+    /// Accessibility: the input helpers, in one section. Listed after User
+    /// Interface and before Touch. Its number follows Updates', so Touch,
+    /// Controller, Developer, Game files, Downloads, System, Game Content
+    /// and Updates stay 5, 6, 7, 8, 9, 10, 11 and 12.
+    accessibility,
     mod_keys,   ///< the mod's keys
     mod_patrol, ///< what patrolling builders do
     mod_guard,  ///< what guarding builders do
@@ -115,12 +120,12 @@ enum class Page : uint8_t {
 };
 
 /// The number of sections, of every kind of dialog, counting Downloads,
-/// Updates, Game Content, System and the registered page.
-inline constexpr std::size_t page_count = 19;
-/// The most sections a dialog lists: the engine's settings' thirteen with
-/// Touch, Controller and Game files, ten without them; a mod's options have
+/// Updates, Accessibility, Game Content, System and the registered page.
+inline constexpr std::size_t page_count = 20;
+/// The most sections a dialog lists: the engine's settings' fourteen with
+/// Touch, Controller and Game files, eleven without them; a mod's options have
 /// five.
-inline constexpr std::size_t most_listed_pages = 13;
+inline constexpr std::size_t most_listed_pages = 14;
 /// Windows and Linux register the eight file types at run time, and macOS
 /// chooses whether this copy is the default opener of each, so System lists
 /// a switch for each. iOS takes the types from the app and has no way to
@@ -149,18 +154,18 @@ enum class DialogKind : uint8_t {
 ///
 /// @param kind the dialog's kind
 /// @param touch the game has touch controls (Dialog::touch), so that the
-///     engine's settings list Touch after User Interface and before Downloads
+///     engine's settings list Touch after Accessibility and before Downloads
 /// @param game_files the dialog lists Game files (Dialog::game_files),
 ///     after Touch and Controller and before Developer
 /// @param controller a gamepad has sent input in this run
 ///     (Dialog::controller), so that the engine's settings list Controller
 ///     after Touch and before Game files and Developer
-/// @return ten sections for the engine's settings (Controls, Common
-///     Tweaks, Language & Text, Graphics, User Interface, Downloads, Updates,
-///     Game Content, System and Developer), one more for each of Touch,
-///     Controller and Game files listed, thirteen with all three; five
-///     for a mod's options and one for Language & Text alone, whatever the
-///     others say
+/// @return eleven sections for the engine's settings (Controls, Common
+///     Tweaks, Language & Text, Graphics, User Interface, Accessibility,
+///     Downloads, Updates, Game Content, System and Developer), one more
+///     for each of Touch, Controller and Game files listed, fourteen with
+///     all three; five for a mod's options and one for Language & Text
+///     alone, whatever the others say
 [[nodiscard]] std::span<const Page> dialog_pages(
     DialogKind kind, bool touch = false, bool game_files = false, bool controller = false
 ) noexcept;
@@ -346,6 +351,25 @@ enum class Setting : uint8_t {
     key_layout_for_mod,
     /// Show keys on buttons: order buttons and build cells show their key.
     show_keys_on_buttons,
+    /// Hold keys that latch: how many latchable actions are on, and CHOOSE…
+    /// which opens the key editor on its Latchable filter. It keeps no setting.
+    latching,
+    sticky_modifiers, ///< Sticky modifiers: a switch
+    hold_to_confirm,  ///< Hold to confirm: a switch
+    long_press,       ///< Long press: a slider of milliseconds
+    slow_keys,        ///< Slow keys: a slider of milliseconds, Off at 0
+    bounce_keys,      ///< Bounce keys: a slider of milliseconds, Off at 0
+    order_wheel,      ///< Order wheel: a strip of Off, Hold right and Hold middle
+    pointer_keys,     ///< Pointer keys: a switch
+    /// Double press: a slider of milliseconds. The first stop is the system's time.
+    double_press,
+    /// Key repeat delay: a slider of milliseconds. The first stop is the system's delay.
+    repeat_delay,
+    /// Key repeat rate: a slider of repeats a second. The first stop is the system's rate.
+    repeat_rate,
+    drag_threshold, ///< Drag threshold: a slider of pixels
+    /// Edge scrolling: a switch. Off stops the view scrolling at the window's edge.
+    edge_scroll,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -428,9 +452,9 @@ inline constexpr int32_t first_registered_nav_control = -10000;
 /// Returns the control of a section's entry in the list: its place among
 /// its kind of dialog's sections, each section counted whether or not it is
 /// listed, so that Touch is 5, Controller 6, Developer 7, Game files 8,
-/// Downloads 9, System 10, Game Content 11 and Updates 12 in every dialog of
-/// the engine's settings, and a dialog without Touch has no control 5, one
-/// without Controller no control 6.
+/// Downloads 9, System 10, Game Content 11, Updates 12 and Accessibility 13
+/// in every dialog of the engine's settings, and a dialog without Touch has
+/// no control 5, one without Controller no control 6.
 /// The registered page has no entry of this form; its entries are
 /// registered_nav_control.
 ///
@@ -623,9 +647,16 @@ enum class DialogAction : uint8_t {
     /// ROLL BACK on Updates: ask, then put the kept version back. The dialog
     /// stays open until that question is answered.
     roll_back,
-    /// EDIT KEYS… on Key layout: the host opens the key editor over the
-    /// dialog, which stays open under it, in the menus and in a match.
+    /// EDIT KEYS… on Key layout, or CHOOSE… on Hold keys that latch: the host
+    /// opens the key editor over the dialog, which stays open under it, in
+    /// the menus and in a match. Dialog::edit_keys_filter says which list.
     edit_keys,
+};
+
+/// Which list EDIT KEYS… or CHOOSE… opens the key editor on.
+enum class KeyEditorFilter : uint8_t {
+    all,       ///< every action. Key layout's EDIT KEYS… asks for this.
+    latchable, ///< actions the registry marks latchable. Hold keys that latch asks for this.
 };
 
 /// One installed layout Key layout with a mod offers.
@@ -1086,6 +1117,13 @@ struct Dialog {
     /// What Key layout shows: the layout in use and how many keys the player
     /// changed. The host sets it as the dialog opens and after the editor saves.
     std::string key_layout_summary;
+    /// Which list the next EDIT KEYS… or CHOOSE… opens the key editor on.
+    /// EDIT KEYS… sets all. CHOOSE… on Hold keys that latch sets latchable.
+    KeyEditorFilter edit_keys_filter{KeyEditorFilter::all};
+    /// How many latchable actions the layout in use holds on. The host sets
+    /// it as the dialog opens and after the editor saves. The row's total is
+    /// the registry's count of latchable actions.
+    uint32_t latched_count{};
     /// Installed layouts Key layout with the mod offers, after Same as the
     /// game. The row lists those made for the mod first. The host sets it as
     /// the dialog opens.
@@ -1158,7 +1196,7 @@ struct Dialog {
     /// writes a key whose text differs.
     oa::ui::kit::PreferenceModel registered_opened{};
     /// The section list's scroll, in source pixels, while the list is taller
-    /// than its room: registered pages, or the engine's own thirteen sections
+    /// than its room: registered pages, or the engine's own fourteen sections
     /// at Compact. Developer stays pinned under the divider and does not scroll.
     int32_t nav_scroll{};
     /// The part of a source pixel the wheel has turned over the section list

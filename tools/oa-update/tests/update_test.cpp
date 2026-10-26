@@ -731,22 +731,21 @@ void restoring_a_plain_folder_puts_the_kept_files_back(const fs::path& root) {
         helper::apply_journal(updates, operations, helper::JournalHooks{}, &error) ==
         helper::JournalResult::finished
     );
-    std::ifstream restored(install / "one.txt");
-    std::string body;
-    std::getline(restored, body);
-    OA_CHECK(body == "old");
-    std::ifstream notes(install / "notes.txt");
-    std::getline(notes, body);
-    OA_CHECK(body == "player");
+    // Each file is closed after it is read: Windows does not replace a file
+    // that is still open, and the undo below replaces these.
+    const auto first_line = [](const fs::path& path) {
+        std::ifstream in(path);
+        std::string line;
+        std::getline(in, line);
+        return line;
+    };
+    OA_CHECK(first_line(install / "one.txt") == "old");
+    OA_CHECK(first_line(install / "notes.txt") == "player");
     OA_CHECK(!fs::exists(install / "preferences.conf"));
     OA_CHECK(fs::exists(kept / "preferences.conf"));
     OA_CHECK(helper::undo_journal(updates, helper::JournalHooks{}, &error));
-    std::ifstream put_back(install / "one.txt");
-    std::getline(put_back, body);
-    OA_CHECK(body == "new");
-    std::ifstream kept_back(kept / "one.txt");
-    std::getline(kept_back, body);
-    OA_CHECK(body == "old");
+    OA_CHECK(first_line(install / "one.txt") == "new");
+    OA_CHECK(first_line(kept / "one.txt") == "old");
 }
 
 void test_windows_routes();

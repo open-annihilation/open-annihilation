@@ -47,7 +47,7 @@ struct EnginePageList {
 };
 
 /// Returns the engine's sections a dialog lists, in the list's order: the
-/// five that every dialog lists, then Touch, Controller and Game files where
+/// six that every dialog lists, then Touch, Controller and Game files where
 /// each is listed, then Downloads, then Updates, then Game Content, then
 /// System, then Developer.
 ///
@@ -63,7 +63,8 @@ constexpr EnginePageList engine_page_list(bool touch, bool controller, bool game
           Page::common_tweaks,
           Page::language,
           Page::graphics,
-          Page::user_interface})
+          Page::user_interface,
+          Page::accessibility})
         add(page);
     if (touch)
         add(Page::touch);
@@ -101,7 +102,7 @@ constexpr std::array<EnginePageList, 8> kEnginePageLists{
     engine_page_list(false, true, true),
     engine_page_list(true, true, true),
 };
-static_assert(kEnginePageLists.front().count == 10, "ten sections without the optional three");
+static_assert(kEnginePageLists.front().count == 11, "eleven sections without the optional three");
 static_assert(
     kEnginePageLists.back().count == most_listed_pages,
     "the longest list holds the most sections a dialog lists"
@@ -109,24 +110,26 @@ static_assert(
 /// The one section a Language dialog lists.
 constexpr std::array<Page, 1> kLanguageTextPages{Page::language};
 
-/// Tells whether the sections before Downloads keep their places in the list
-/// with Touch and Controller, and every engine list ends Downloads, Updates,
-/// Game Content, System, Developer.
+/// Tells whether the sections before Accessibility keep their places, Accessibility
+/// is 13, and every engine list ends Downloads, Updates, Game Content, System, Developer.
 ///
 /// @return true when those numbers hold
 constexpr bool entries_follow_the_list() noexcept {
     const EnginePageList& list = kEnginePageLists[engine_page_list_index(true, true, false)];
-    if (list.count < 5)
+    if (list.count < 6)
         return false;
-    for (std::size_t index = 0; index + 5 < list.count; ++index)
+    for (std::size_t index = 0; index < 5; ++index)
         if (page_control(list.pages[index]) != static_cast<int32_t>(index))
             return false;
+    if (list.pages[5] != Page::accessibility || page_control(Page::accessibility) != 13)
+        return false;
     if (page_control(Page::downloads) != 9 || page_control(Page::updates) != 12 ||
         page_control(Page::game_content) != 11 || page_control(Page::system) != 10 ||
         page_control(Page::developer) != 7)
         return false;
     for (const EnginePageList& listed : kEnginePageLists) {
-        if (listed.count < 5 || listed.pages[listed.count - 5] != Page::downloads ||
+        if (listed.count < 6 || listed.pages[5] != Page::accessibility ||
+            listed.pages[listed.count - 5] != Page::downloads ||
             listed.pages[listed.count - 4] != Page::updates ||
             listed.pages[listed.count - 3] != Page::game_content ||
             listed.pages[listed.count - 2] != Page::system ||
@@ -138,8 +141,8 @@ constexpr bool entries_follow_the_list() noexcept {
 
 static_assert(
     entries_follow_the_list(),
-    "entries before Downloads keep their places, and Downloads, Updates, Game Content, System, "
-    "Developer end every list"
+    "entries before Accessibility keep their places, Accessibility is 13, and Downloads, Updates, "
+    "Game Content, System, Developer end every list"
 );
 static_assert(
     page_control(Page::game_files) == page_control(Page::developer) + 1,
@@ -1853,8 +1856,33 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
                  layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
         "EDIT KEYS… asks for an action no other row's button asks for"
     );
-    if (action == layout::edit_keys_action)
+    static_assert(
+        layout::choose_latch_action != layout::edit_keys_action &&
+            layout::choose_latch_action != downloads::reset_install_id_action &&
+            layout::choose_latch_action != downloads::empty_downloads_action &&
+            layout::choose_latch_action != downloads::manage_registries_action &&
+            layout::choose_latch_action != layout::manage_game_files_action &&
+            layout::choose_latch_action != layout::open_library_action &&
+            layout::choose_latch_action != layout::show_gallery_action &&
+            layout::choose_latch_action != layout::show_welcome_action &&
+            layout::choose_latch_action != updates::check_updates_action &&
+            layout::choose_latch_action != updates::open_release_action &&
+            layout::choose_latch_action != updates::restart_update_action &&
+            layout::choose_latch_action != updates::retry_update_action &&
+            layout::choose_latch_action != updates::roll_back_action &&
+            (layout::choose_latch_action < layout::first_folder_action ||
+             layout::choose_latch_action >=
+                 layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
+        "CHOOSE… asks for an action no other row's button asks for"
+    );
+    if (action == layout::edit_keys_action) {
+        dialog.edit_keys_filter = KeyEditorFilter::all;
         return DialogAction::edit_keys;
+    }
+    if (action == layout::choose_latch_action) {
+        dialog.edit_keys_filter = KeyEditorFilter::latchable;
+        return DialogAction::edit_keys;
+    }
     if (action == layout::show_welcome_action) {
         // The preference stays until OK. Cancel drops the dialog, and the
         // flag with it.

@@ -1918,6 +1918,7 @@ void Runtime::refresh_settings_key_layout_summary(settings::Dialog& dialog) {
     if (used.builtin && changes > 0)
         name = std::string(oa::data::languages::interface_text(name));
     dialog.key_layout_summary = settings::key_layout_summary_text(name, changes);
+    dialog.latched_count = latched_action_count();
 }
 
 void Runtime::apply_key_layout_preference(settings::Dialog& dialog) {
@@ -2472,11 +2473,17 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
         // under it; Escape and its CLOSE come back to Developer.
         oa_layer().open_gallery();
         return false;
-    case settings::DialogAction::edit_keys:
+    case settings::DialogAction::edit_keys: {
         // The key editor covers the window over the dialog, which stays open
-        // under it, in the menus and in a match.
-        std::ignore = open_key_editor(KeyEditorRequest{.over_settings = true});
+        // under it, in the menus and in a match. CHOOSE… opens on Latchable.
+        // EDIT KEYS… leaves the filter unset, which opens on All.
+        KeyEditorRequest request;
+        request.over_settings = true;
+        if (dialog->edit_keys_filter == settings::KeyEditorFilter::latchable)
+            request.filter = oa::ui::key_editor::Filter::latchable;
+        std::ignore = open_key_editor(request);
         return false;
+    }
     case settings::DialogAction::check_content:
         // A copy is already reading the files. The check waits for it.
         if (content_copy_watch().active)

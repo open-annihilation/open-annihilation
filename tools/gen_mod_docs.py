@@ -809,7 +809,8 @@ def keys_body(hack_id, action_ids, catalogue):
         description = (action.get("words") or {}).get("description", "")
         if not isinstance(description, str) or not description:
             raise DocsError(f"{hack_id}: action {action_id} has no description")
-        rows.append(f"| {code(action_id)} | {code(shown)} | {description.replace('|', '\\|')} |")
+        cell = description.replace("|", "\\|")
+        rows.append(f"| {code(action_id)} | {code(shown)} | {cell} |")
     return "\n".join(rows)
 
 
