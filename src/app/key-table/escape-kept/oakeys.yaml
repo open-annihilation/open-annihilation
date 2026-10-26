@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# Escape still closes the chat line and the screen on top. The other keys
+# this layout names move.
+oakeys: 1
+id: escape-kept
+name: "Escape kept"
+version: "1.0"
+author: {name: "Open Annihilation"}
+description: "Escape still closes the chat line and the screen on top."
+tags: [window]
+base: oa-default
+bindings:
+  game.back: ["@KeyJ"]
+  order.stop: [Escape]
+  chat.cancel: [F9]
+  ui.screen-cancel: [F10]
+  ui.settings: ["Primary+@KeyJ"]
+  ui.screen-focus-next: [F6]
