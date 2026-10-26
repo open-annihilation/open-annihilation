@@ -31,7 +31,7 @@ enum class Phase : uint8_t {
 /// One action a binding started.
 ///
 /// `action` points at the id kept by the dispatcher. It stays valid until the
-/// next `set_bindings`.
+/// next `set_bindings` or `retarget`.
 struct ActionEvent {
     std::string_view action{}; ///< the action id
     Phase phase{};             ///< what happened
@@ -223,6 +223,15 @@ class Dispatcher {
     ///
     /// @return the bindings
     [[nodiscard]] const Resolved& bindings() const;
+
+    /// Replaces the bindings the next event is chosen from, and keeps held keys.
+    ///
+    /// Roles, timers and keys already down stay. Use this when the action ids
+    /// are unchanged and only a context bit moved, so a held page key is not
+    /// dropped. Events returned before this call are no longer valid.
+    ///
+    /// @param bindings the bindings in use
+    void retarget(Resolved&& bindings);
 
     /// Replaces the keyboard map a letter and a place are compared on.
     ///

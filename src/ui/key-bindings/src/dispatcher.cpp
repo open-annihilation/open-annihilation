@@ -1477,6 +1477,10 @@ void Dispatcher::set_bindings(Resolved&& bindings) {
     clear_clocks(state_->clocks);
 }
 
+void Dispatcher::retarget(Resolved&& bindings) {
+    state_->resolved = std::move(bindings);
+}
+
 void Dispatcher::set_keyboard(const KeyboardMap& keyboard) {
     state_->keyboard = keyboard;
 }
