@@ -196,8 +196,8 @@ uint64_t committed_bytes(const fs::path& part, uint64_t expected) {
     std::error_code error;
     if (!fs::is_regular_file(part, error) || error)
         return 0;
-    const std::uintmax_t wide = fs::file_size(part, error);
-    if (error || wide > static_cast<std::uintmax_t>(expected)) {
+    const uintmax_t wide = fs::file_size(part, error);
+    if (error || wide > static_cast<uintmax_t>(expected)) {
         if (!error)
             fs::resize_file(part, 0, error);
         return 0;
@@ -206,7 +206,7 @@ uint64_t committed_bytes(const fs::path& part, uint64_t expected) {
     if (have != expected) {
         const uint64_t aligned = have - (have % download_step_bytes);
         if (aligned != have) {
-            fs::resize_file(part, static_cast<std::uintmax_t>(aligned), error);
+            fs::resize_file(part, static_cast<uintmax_t>(aligned), error);
             if (error)
                 return 0;
             have = aligned;
