@@ -5,6 +5,8 @@
 # of the player's own layout, and the kit window that lists them. It reads
 # no file, clock, preference or network.
 add_library(oa-ui-key-editor
+  src/capture.cpp
+  src/clash.cpp
   src/draw.cpp
   src/input.cpp
   src/layout.cpp
@@ -38,7 +40,13 @@ if(BUILD_TESTING)
   add_test(NAME ui-key-editor-input COMMAND oa-ui-key-editor-input-test)
   set_tests_properties(ui-key-editor-input PROPERTIES TIMEOUT 60)
 
-  # The five pictures, in the block font and again in the installed game's fonts.
+  # Capturing a chord, settling a clash, and finding by key.
+  add_executable(oa-ui-key-editor-capture-test tests/capture_test.cpp)
+  target_link_libraries(oa-ui-key-editor-capture-test PRIVATE oa-ui-key-editor oa-test-support)
+  add_test(NAME ui-key-editor-capture COMMAND oa-ui-key-editor-capture-test)
+  set_tests_properties(ui-key-editor-capture PROPERTIES TIMEOUT 60)
+
+  # The list, and the capture, clash and card, in the block font and again in the installed game's fonts.
   add_executable(oa-ui-key-editor-draw-test tests/draw_test.cpp)
   target_link_libraries(oa-ui-key-editor-draw-test PRIVATE oa-ui-key-editor oa-ui-kit oa-base-sha256
     oa-data-languages oa-formats-png oa-formats-hpi oa-platform-text-font oa-present oa-test-game-data

@@ -794,6 +794,9 @@ struct Options {
     // then the list's edits, the save, a paused skirmish and Developer Mode.
     // A scratch folder holds the player's own layout.
     bool check_key_editor = false;
+    // Captures a chord over a paused skirmish, settles a clash, and opens a
+    // draft clash on the Clashes filter. A scratch folder holds the layout.
+    bool check_key_capture = false;
     // Opens the mutator picker over the main menu at four window sizes, on
     // a feed of made-up mutators, and requires the rows, a download, the
     // turn-off question, a drag, the handed set and the verdict chip.

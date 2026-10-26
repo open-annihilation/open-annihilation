@@ -16,8 +16,12 @@
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/input.hpp"
 #include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/kit/chrome.hpp"
+
+#include <SDL3/SDL.h>
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
@@ -30,6 +34,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace oa::app {
 
@@ -37,6 +42,7 @@ namespace {
 
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
+namespace keys = oa::ui::key_bindings;
 namespace settings = oa::ui::engine_settings;
 namespace display = oa::ui::display_layout;
 namespace pad = oa::ui::pad_controls;
@@ -76,7 +82,8 @@ constexpr uint8_t kLeftButton = 1;
 LayerPlacement place_in_dialog(const MatchDialogPlace& dialog, int32_t width, int32_t height) {
     display::Rect shown = dialog.shown;
     if (dialog.scale_percent != 0) {
-        const kit::Rect drawn = kit::to_canvas(kit::Rect{0, 0, width, height}, dialog.scale_percent);
+        const kit::Rect drawn =
+            kit::to_canvas(kit::Rect{0, 0, width, height}, dialog.scale_percent);
         shown.x = dialog.shown.x + (dialog.shown.width - static_cast<int>(drawn.width)) / 2;
         shown.y = dialog.shown.y + (dialog.shown.height - static_cast<int>(drawn.height)) / 2;
         shown.width = static_cast<int>(drawn.width);
@@ -103,7 +110,8 @@ MatchDialogPlace match_place(const LayerView& placed_on) {
 /// @return the height, in points
 int32_t name_height(kit::SizeClass size_class) noexcept {
     const kit::Metrics& metrics = kit::metrics_of(size_class);
-    return metrics.header_height + metrics.padding * 2 + metrics.field_height + metrics.footer_height;
+    return metrics.header_height + metrics.padding * 2 + metrics.field_height +
+           metrics.footer_height;
 }
 
 /// Tells whether a question, a notice or the name screen is already up.
@@ -165,7 +173,9 @@ kit::Question keep_question(const editor::Editor& model, std::string_view id) {
     body.text = editor::fill(editor::show(hooks, pattern), {{"n", count}, {"layout", layout}});
     question.paragraphs.push_back(std::move(body));
     question.buttons.push_back(question_button(hooks, editor::words::keep_them, true, "keep-them"));
-    question.buttons.push_back(question_button(hooks, editor::words::set_aside, false, "set-aside"));
+    question.buttons.push_back(
+        question_button(hooks, editor::words::set_aside, false, "set-aside")
+    );
     question.buttons.push_back(question_button(hooks, editor::words::cancel, false, "cancel"));
     question.primary_button = 0;
     question.cancel_button = 2;
@@ -206,7 +216,8 @@ kit::Notice write_notice(const editor::TextHooks& hooks, std::string_view reason
     kit::Notice notice;
     notice.title = editor::show(hooks, editor::words::keys);
     kit::Paragraph body;
-    body.text = editor::fill(editor::show(hooks, editor::words::write_failed), {{"reason", reason}});
+    body.text =
+        editor::fill(editor::show(hooks, editor::words::write_failed), {{"reason", reason}});
     notice.paragraphs.push_back(std::move(body));
     notice.ok_caption = editor::show(hooks, editor::words::ok);
     return notice;
@@ -218,7 +229,10 @@ kit::Notice write_notice(const editor::TextHooks& hooks, std::string_view reason
 /// @return the hover, the press, the mark and a finger's shift
 auto question_look(const kit::Question& question) noexcept {
     return std::make_tuple(
-        question.hovered, question.pressed, question.marked, question.finger_shift_x,
+        question.hovered,
+        question.pressed,
+        question.marked,
+        question.finger_shift_x,
         question.finger_shift_y
     );
 }
@@ -259,7 +273,9 @@ class MatchPrompt final : public LayerScreen {
     /// @param asked the question
     /// @param answer what a button does
     /// @param close_when tells, once a frame, whether the question must close
-    MatchPrompt(OaLayer& layer, kit::Question asked, Answer answer, std::function<bool()> close_when)
+    MatchPrompt(
+        OaLayer& layer, kit::Question asked, Answer answer, std::function<bool()> close_when
+    )
         : layer_(layer), question_(std::move(asked)), answer_(std::move(answer)),
           close_when_(std::move(close_when)) {}
 
@@ -918,7 +934,8 @@ class NameScreen final : public LayerScreen {
         cancel_look.caption = editor::show(hooks_, editor::words::cancel);
         cancel_look.style = kit::ButtonStyle::plain;
         cancel_look.hovered = interaction_.hovered == kNameCancel;
-        cancel_look.held = interaction_.pressed == kNameCancel && interaction_.hovered == kNameCancel;
+        cancel_look.held =
+            interaction_.pressed == kNameCancel && interaction_.hovered == kNameCancel;
         kit::add_button(
             list_,
             {cancel_x, button_y, kNameButtonWidth, metrics.button_height},
@@ -945,17 +962,17 @@ class NameScreen final : public LayerScreen {
         }
     }
 
-    OaLayer& layer_;                      ///< the layer
-    editor::TextHooks hooks_;             ///< how the captions are looked up
-    Apply apply_;                         ///< what an accepted name does
-    bool in_match_{false};                ///< the editor was opened over a match
-    std::function<bool()> close_when_;    ///< whether the screen must close
+    OaLayer& layer_;                                     ///< the layer
+    editor::TextHooks hooks_;                            ///< how the captions are looked up
+    Apply apply_;                                        ///< what an accepted name does
+    bool in_match_{false};                               ///< the editor was opened over a match
+    std::function<bool()> close_when_;                   ///< whether the screen must close
     kit::SizeClass size_class_{kit::SizeClass::compact}; ///< the class it is laid out at
-    bool laid_{false};                    ///< lay_out has built the list
-    kit::TextField field_{};              ///< the name and its caret
-    kit::Interaction interaction_{};      ///< the hover, the press and the focus
-    kit::DisplayList list_{};             ///< what it draws
-    uint64_t revision_{};                 ///< counts the changes to its look
+    bool laid_{false};                                   ///< lay_out has built the list
+    kit::TextField field_{};                             ///< the name and its caret
+    kit::Interaction interaction_{};                     ///< the hover, the press and the focus
+    kit::DisplayList list_{};                            ///< what it draws
+    uint64_t revision_{};                                ///< counts the changes to its look
 };
 
 /// Tells whether the editor's screen is still on the layer.
@@ -964,6 +981,58 @@ class NameScreen final : public LayerScreen {
 /// @return true when it has gone
 bool editor_gone(const OaLayer& layer) {
     return layer.find(editor::screen_name) == nullptr;
+}
+
+/// The physical modifier bits an event carries. Never `primary`.
+///
+/// @param mods the SDL modifier bits
+/// @return the binding bits
+uint8_t capture_modifiers(uint16_t mods) {
+    uint8_t bits = 0;
+    if ((mods & SDL_KMOD_CTRL) != 0)
+        bits = static_cast<uint8_t>(bits | keys::ctrl);
+    if ((mods & SDL_KMOD_SHIFT) != 0)
+        bits = static_cast<uint8_t>(bits | keys::shift);
+    if ((mods & SDL_KMOD_ALT) != 0)
+        bits = static_cast<uint8_t>(bits | keys::alt);
+    if ((mods & SDL_KMOD_GUI) != 0)
+        bits = static_cast<uint8_t>(bits | keys::meta);
+    return bits;
+}
+
+/// One key as the capture reads it. The time is this process's clock, and
+/// never 0, so a held Escape can tell that its timer has started.
+///
+/// @param sdl_key the key code
+/// @param modifiers the SDL modifier bits
+/// @param down the key went down
+/// @param repeat the platform repeated a key that is still held
+/// @param scancode the key's position
+/// @return the input event
+keys::InputEvent
+capture_key_event(uint32_t sdl_key, uint16_t modifiers, bool down, bool repeat, uint16_t scancode) {
+    keys::InputEvent input;
+    input.kind = keys::InputKind::key;
+    input.down = down;
+    input.repeat = repeat;
+    input.key_code = sdl_key;
+    input.scancode = scancode;
+    input.modifiers = capture_modifiers(modifiers);
+    const uint64_t now = SDL_GetTicks();
+    input.time_ms = now == 0 ? uint64_t{1} : now;
+    return input;
+}
+
+/// The position number of a key code, or 0 when it is past the map.
+///
+/// @param sdl_key the key code
+/// @return the position
+uint16_t capture_scancode(uint32_t sdl_key) {
+    const SDL_Scancode scan = SDL_GetScancodeFromKey(static_cast<SDL_Keycode>(sdl_key), nullptr);
+    const auto value = static_cast<uint32_t>(scan);
+    if (value == 0 || value >= keys::scancode_limit)
+        return 0;
+    return static_cast<uint16_t>(value);
 }
 
 } // namespace
@@ -977,13 +1046,22 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     /// @param inputs the layouts, the mod and the settings
     /// @param request the list it opens on, and whether Settings is under it
     /// @param in_match the editor was opened over a match
-    KeyEditorScreen(Runtime& runtime, editor::EditorInputs inputs, KeyEditorRequest request, bool in_match)
+    KeyEditorScreen(
+        Runtime& runtime, editor::EditorInputs inputs, KeyEditorRequest request, bool in_match
+    )
         : runtime_(runtime), editor_(std::move(inputs)), over_settings_(request.over_settings) {
         state_.in_match = in_match;
         if (request.filter)
             state_.filter = *request.filter;
+        else if (editor_.draft_clashes() != 0)
+            state_.filter = editor::Filter::clashes;
         if (!request.select.empty())
             state_.selected = std::move(request.select);
+        else if (state_.filter == editor::Filter::clashes && state_.selected.empty()) {
+            const std::vector<editor::Row> clashing = editor_.rows({}, editor::Filter::clashes, "");
+            if (!clashing.empty())
+                state_.selected = clashing.front().id;
+        }
     }
 
     /// Returns "key-editor".
@@ -1029,8 +1107,9 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     /// @param placed_on what the screen is placed on
     void lay_out(const LayerView& placed_on) override {
         const kit::Frame next = frame_for(placed_on);
-        if (laid_ && next.area.width == frame_.area.width && next.area.height == frame_.area.height &&
-            next.size_class == frame_.size_class && next.scale_percent == frame_.scale_percent &&
+        if (laid_ && next.area.width == frame_.area.width &&
+            next.area.height == frame_.area.height && next.size_class == frame_.size_class &&
+            next.scale_percent == frame_.scale_percent &&
             next.reduced_motion == frame_.reduced_motion)
             return;
         frame_ = next;
@@ -1061,7 +1140,9 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             moved = editor::PointerKind::up;
         else if (kind != ScreenInputKind::pointer_move)
             return LayerAnswer::none;
-        return take(editor::editor_pointer(editor_, state_, list_, moved, button, at, finger_reach));
+        return take(
+            editor::editor_pointer(editor_, state_, list_, moved, button, at, finger_reach)
+        );
     }
 
     /// Takes a key, as the kit names it. Escape's fixed job is the editor's.
@@ -1072,22 +1153,64 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         return take(editor::editor_key(editor_, state_, list_, pressed));
     }
 
-    /// Y finds, B goes back, Menu saves, and the shoulders are Tab.
+    /// While a capture is waiting, every key is the chord's, including
+    /// Escape. Once the chord is finished the prompt is an ordinary dialog.
+    /// An empty, focused search takes a chord with a modifier, or a key that
+    /// types nothing, and lists what that chord does.
+    ///
+    /// @param sdl_key the key code
+    /// @param modifiers the SDL modifier bits
+    /// @return what the editor did; pass when the key is ordinary text
+    LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
+        if (state_.prompt == editor::Prompt::capture &&
+            state_.capture.state == editor::CaptureState::waiting) {
+            const keys::InputEvent event =
+                capture_key_event(sdl_key, modifiers, true, false, capture_scancode(sdl_key));
+            return take(editor::editor_capture_input(editor_, state_, event));
+        }
+        if (state_.prompt != editor::Prompt::none)
+            return LayerAnswer::pass;
+        if (!editor::focused_field(state_, list_) || !state_.search.text.empty())
+            return LayerAnswer::pass;
+        const keys::InputEvent event =
+            capture_key_event(sdl_key, modifiers, true, false, capture_scancode(sdl_key));
+        const std::optional<keys::Chord> found = editor::chord_to_find(editor_, event);
+        if (!found)
+            return LayerAnswer::pass;
+        state_.search_chord = *found;
+        state_.search.text.clear();
+        state_.search.caret = 0;
+        state_.list_scroll = 0;
+        relayout();
+        return LayerAnswer::redraw;
+    }
+
+    /// Y finds, B goes back, Menu saves, X adds a key, and the shoulders are Tab.
     ///
     /// @param action the gamepad action
     /// @return what the editor did; pass for every other action
     LayerAnswer pad_action(pad::Action action) override {
         switch (action) {
         case pad::Action::library_search:
-            return take(editor::editor_command(editor_, state_, list_, editor::EditorCommand::find));
+            return take(
+                editor::editor_command(editor_, state_, list_, editor::EditorCommand::find)
+            );
         case pad::Action::back:
-            return take(editor::editor_command(editor_, state_, list_, editor::EditorCommand::back));
+            return take(
+                editor::editor_command(editor_, state_, list_, editor::EditorCommand::back)
+            );
         case pad::Action::default_button:
-            return take(editor::editor_command(editor_, state_, list_, editor::EditorCommand::save));
+            return take(
+                editor::editor_command(editor_, state_, list_, editor::EditorCommand::save)
+            );
         case pad::Action::focus_previous:
             return take(editor::editor_key(editor_, state_, list_, kit::Key::back_tab));
         case pad::Action::focus_next:
             return take(editor::editor_key(editor_, state_, list_, kit::Key::tab));
+        case pad::Action::library_action:
+            return take(
+                editor::editor_command(editor_, state_, list_, editor::EditorCommand::add_key)
+            );
         default:
             return LayerAnswer::pass;
         }
@@ -1146,13 +1269,27 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             if (runtime_.screen_ != Screen::match || runtime_.match_ == nullptr ||
                 runtime_.match_finished_)
                 return LayerAnswer::close;
-            return LayerAnswer::none;
+        } else if (runtime_.screen_ == Screen::match) {
+            return LayerAnswer::close;
+        } else if (over_settings_ && runtime_.oa_layer().find(kSettingsScreen) == nullptr) {
+            return LayerAnswer::close;
         }
-        if (runtime_.screen_ == Screen::match)
-            return LayerAnswer::close;
-        if (over_settings_ && runtime_.oa_layer().find(kSettingsScreen) == nullptr)
-            return LayerAnswer::close;
+        if (state_.prompt == editor::Prompt::capture)
+            return take(editor::editor_capture_tick(editor_, state_, SDL_GetTicks()));
         return LayerAnswer::none;
+    }
+
+    /// True while the capture prompt or the clash prompt covers the list.
+    ///
+    /// @return true while a prompt is open
+    [[nodiscard]] bool capturing() const { return state_.prompt != editor::Prompt::none; }
+
+    /// Gives a key-up to the capture. The layer does not call the screen for
+    /// a key-up, and a held Escape cancels when it is let go before a second.
+    ///
+    /// @param event the key
+    void capture_event(const keys::InputEvent& event) {
+        take(editor::editor_capture_input(editor_, state_, event));
     }
 
     /// Returns the editor's revision.
@@ -1329,9 +1466,15 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             return true;
         };
         auto close_when = [runtime]() { return editor_gone(runtime->oa_layer()); };
-        runtime_.oa_layer().push(std::make_unique<NameScreen>(
-            runtime_.oa_layer(), editor_.text(), std::move(apply), state_.in_match, std::move(close_when)
-        ));
+        runtime_.oa_layer().push(
+            std::make_unique<NameScreen>(
+                runtime_.oa_layer(),
+                editor_.text(),
+                std::move(apply),
+                state_.in_match,
+                std::move(close_when)
+            )
+        );
     }
 
     /// Pushes a question: a QuestionScreen on the menus, a match prompt in a match.
@@ -1345,9 +1488,14 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         std::function<bool()> close_when
     ) {
         if (state_.in_match) {
-            runtime_.oa_layer().push(std::make_unique<MatchPrompt>(
-                runtime_.oa_layer(), std::move(question), std::move(answer), std::move(close_when)
-            ));
+            runtime_.oa_layer().push(
+                std::make_unique<MatchPrompt>(
+                    runtime_.oa_layer(),
+                    std::move(question),
+                    std::move(answer),
+                    std::move(close_when)
+                )
+            );
             return;
         }
         QuestionScreen::Host host;
@@ -1371,7 +1519,9 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         kit::Notice notice = write_notice(editor_.text(), reason);
         if (state_.in_match) {
             runtime_.oa_layer().push(
-                std::make_unique<MatchNotice>(runtime_.oa_layer(), std::move(notice), std::move(close_when))
+                std::make_unique<MatchNotice>(
+                    runtime_.oa_layer(), std::move(notice), std::move(close_when)
+                )
             );
             return;
         }
@@ -1384,15 +1534,41 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         runtime_.oa_layer().push(std::move(screen));
     }
 
-    Runtime& runtime_;             ///< the runtime
-    editor::Editor editor_;        ///< the draft
-    editor::ScreenState state_{};  ///< the list, the focus and the search
-    bool over_settings_{false};    ///< Settings was under the editor when it opened
-    kit::Frame frame_{};           ///< the frame it is laid out on
-    bool laid_{false};             ///< lay_out has built the list
-    kit::DisplayList list_{};      ///< what it draws
-    uint64_t revision_{};          ///< counts the changes to what it draws
+    Runtime& runtime_;            ///< the runtime
+    editor::Editor editor_;       ///< the draft
+    editor::ScreenState state_{}; ///< the list, the focus and the search
+    bool over_settings_{false};   ///< Settings was under the editor when it opened
+    kit::Frame frame_{};          ///< the frame it is laid out on
+    bool laid_{false};            ///< lay_out has built the list
+    kit::DisplayList list_{};     ///< what it draws
+    uint64_t revision_{};         ///< counts the changes to what it draws
 };
+
+bool Runtime::key_editor_capturing() {
+    LayerScreen* found = oa_layer().find(editor::screen_name);
+    if (found == nullptr)
+        return false;
+    return static_cast<KeyEditorScreen*>(found)->capturing();
+}
+
+void Runtime::key_editor_capture_event(const SDL_Event& event) {
+    if (event.type != SDL_EVENT_KEY_UP)
+        return;
+    LayerScreen* found = oa_layer().find(editor::screen_name);
+    if (found == nullptr)
+        return;
+    const auto scan = static_cast<uint32_t>(event.key.scancode);
+    const uint16_t scancode =
+        scan > 0 && scan < keys::scancode_limit ? static_cast<uint16_t>(scan) : uint16_t{0};
+    const keys::InputEvent input = capture_key_event(
+        static_cast<uint32_t>(event.key.key),
+        static_cast<uint16_t>(static_cast<uint32_t>(event.key.mod)),
+        false,
+        event.key.repeat,
+        scancode
+    );
+    static_cast<KeyEditorScreen*>(found)->capture_event(input);
+}
 
 bool Runtime::open_key_editor(KeyEditorRequest request) {
     if (oa_layer().screen_fonts() == nullptr)
@@ -1429,7 +1605,9 @@ bool Runtime::open_key_editor(KeyEditorRequest request) {
     editor::EditorInputs inputs;
     fill_key_editor(inputs);
     play_ui_sound(kOpenSound, 0);
-    oa_layer().push(std::make_unique<KeyEditorScreen>(*this, std::move(inputs), std::move(request), in_match));
+    oa_layer().push(
+        std::make_unique<KeyEditorScreen>(*this, std::move(inputs), std::move(request), in_match)
+    );
     return true;
 }
 

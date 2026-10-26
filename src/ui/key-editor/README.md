@@ -20,7 +20,19 @@ The controls a journey presses, as `oa.` and the name:
 | `key-editor.list` | The list. Its scroll bar is `key-editor.list.bar` |
 | `key-editor.row.<id>` | A row. Its text is the name and its chords. A `gui.` id longer than 80 bytes, or any id that would make the name unsound or longer than 100 bytes, is `key-editor.row.n<k>` |
 | `key-editor.number-keys` | Number keys select groups, at the head of Groups. Parts `off` and `on` |
+| `key-editor.detail.chord.<n>` | A chord, numbered from 1. Enter changes it. A fixed Escape chord is not a control |
 | `key-editor.detail.chord.<n>.remove` | A chord's ✕, numbered from 1. A fixed chord has none |
+| `key-editor.detail.add` | + ADD KEY |
+| `key-editor.capture` | The capture prompt. Its text is the title, the chord and the status line |
+| `key-editor.capture.well` | The well. A click or a wheel turn here finishes the chord, or starts again once one is showing |
+| `key-editor.capture.means.letter`, `.place` | Means: the letter, or the key in that place |
+| `key-editor.capture.starts.press`, `.double`, `.hold` | Starts on: a press, a double press or a hold |
+| `key-editor.capture.status` | The line that says the chord is free, what it clashes with, or why it is refused |
+| `key-editor.capture.cancel`, `.ok` | The capture's CANCEL and OK. OK is disabled while the chord is refused or still waiting |
+| `key-editor.clash` | "{chord} is taken" |
+| `key-editor.clash.replace`, `.swap`, `.cancel` | REPLACE, SWAP and CANCEL. SWAP is absent for + ADD KEY |
+| `key-editor.card.keep-here`, `.keep-there`, `.choose` | The draft card: KEEP IT HERE, KEEP IT FOR the other action, and CHOOSE ANOTHER KEY |
+| `key-editor.search.chord` | The chord chip in the search, with its ✕ |
 | `key-editor.detail.latch`, `.confirm` | Latch and Hold to confirm. Parts `off` and `on` |
 | `key-editor.detail.reset` | RESET TO <base> |
 | `key-editor.back` | Compact's details page's BACK |
@@ -38,7 +50,13 @@ Tab's order is LAYOUT ▾, the search, the categories, the pills, the list, the 
 
 On the list, Up and Down move the chosen row, Page Up and Page Down move by the rows shown, and Home and End go to the ends. Enter on a row opens Compact's details page, or moves the focus to the details' first control at Regular and Large. Delete on a focused chord removes it. Escape closes an open menu, else clears a search that holds words, else leaves Compact's details page, else asks to leave or closes. Typed text goes to a focused search. The search matches names, descriptions, ids and category titles, folded as the Library folds them. The wheel and a finger scroll the pane under them. A tap selects the row. A press on a chord's ✕ takes that chord off.
 
-`find` focuses the search. `back` closes a menu, or leaves the details page, or answers `cancel`. `save` answers `save`. The host maps a controller as it does for the Library: Y is `find`, B is `back`, Menu is `save`, and L1 and R1 are Shift+Tab and Tab. The right stick is `editor_stick`.
+`find` focuses the search. `back` closes a menu, or leaves the details page, or answers `cancel`. `save` answers `save`. `add_key` is + ADD KEY on the chosen row: the controller's X. The host maps a controller as it does for the Library: Y is `find`, X is `add_key`, B is `back`, Menu is `save`, and L1 and R1 are Shift+Tab and Tab. The right stick is `editor_stick`.
+
++ ADD KEY, or Enter on a chord, opens "Press the keys for {action}". While that prompt is waiting, keys go to the capture, and a button or a wheel turn in the well finishes the chord. Held modifiers show as keycaps. A lone modifier finishes only a modifier action. Escape cancels; Escape held for a second binds Escape. Once the chord is finished the prompt is an ordinary dialog: Tab and Enter reach OK, and Escape cancels. OK on a clash opens "{chord} is taken", with REPLACE, and SWAP only when a chord is being changed. CANCEL changes nothing. A click on OK or CANCEL is not itself a chord. The host must feed the dispatcher nothing while the prompt is open, and its tick runs the Escape timer. The platform's remaps run before the prompt sees the key.
+
+In the empty, focused search, a chord with Ctrl, Alt, Meta or Primary, a function key, Print Screen, Pause, Insert, Page Up, Page Down, Home, End, a numpad key, or a side button over the field lists every action on that chord. A plain letter, digit or punctuation mark types into the search. The chip `key-editor.search.chord` clears that chord.
+
+A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KEEP IT FOR the other action, and CHOOSE ANOTHER KEY. KEEP IT HERE leaves the other action without that chord. The editor opens on the Clashes filter when the draft already names a clash and the host did not ask for another list.
 
 `focused_field` returns the search field's rectangle while it has the focus, so the host can place the system's text input.
 
@@ -61,13 +79,15 @@ On the list, Up and Down move the chosen row, Page Up and Page Down move by the 
 
 `ui-key-editor-input` drives the keys, the pad's commands, and a finger's scroll and tap.
 
-`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the five pictures, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`.
+`ui-key-editor-capture` captures a chord, settles a clash and finds by key.
+
+`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list and the capture, clash and card, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`.
 
 ## State
 
 `Editor` holds the host's `EditorInputs`: the base layout, the chosen layout, the mod's keys, the hacks that are on, the scheme, the keyboard map, the platform, the own draft and its helpers, SwitchAlt, Developer Mode, Hold to confirm's setting, the played mod's name and the installed layouts. A call changes the draft. The host fills the inputs and writes `result()`.
 
-`ScreenState` holds the hover, the press and the focus, the list and details scrolls, the search, which menu is open, the category, the filter, the chosen action, whether Compact's details page is showing, and whether the editor was opened over a match.
+`ScreenState` holds the hover, the press and the focus, the list and details scrolls, the search, which menu is open, the category, the filter, the chosen action, whether Compact's details page is showing, whether the editor was opened over a match, the capture or clash prompt, and a chord the empty search is listing.
 
 ## Invariants
 
@@ -81,4 +101,4 @@ On the list, Up and Down move the chosen row, Page Up and Page Down move by the 
 
 ## Limitations
 
-Nothing here captures a chord, draws a clash card, finds a binding by the key pressed, or draws the keyboard and mouse views. Nothing here imports, shares or pastes a layout. The host opens the screen, asks the questions, writes the layout and reloads the bindings. A layout's name is asked by the host. The module reads no preference and does not pause a match.
+Nothing here draws the keyboard and mouse views, and nothing here imports, shares or pastes a layout. The host opens the screen, feeds it nothing while a capture is waiting, asks the name questions, writes the layout and reloads the bindings. A layout's name is asked by the host. The module reads no preference, no clock and does not pause a match. A mouse or wheel chord carries no keyboard modifiers: the screen's wheel and pointer do not say which keys are held. The screen's wheel is the vertical turn.

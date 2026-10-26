@@ -13,7 +13,9 @@
 //
 // oa-ui-key-editor-layout-test
 
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/test/check.hpp"
+#include "oa/ui/key_bindings/key_codes.hpp"
 #include "oa/ui/key_editor/model.hpp"
 #include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/key_editor/text.hpp"
@@ -37,6 +39,8 @@ namespace {
 
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
+namespace keys = oa::ui::key_bindings;
+namespace acts = oa::data::input_actions;
 using key_editor_fixture::editor_fixture;
 using key_editor_fixture::fonts;
 using key_editor_fixture::frame_for;
@@ -94,8 +98,8 @@ bool held_inside(const kit::Control& outer, const kit::Control& inner) {
     if (!kit::wholly_in(press_area(inner), press_area(outer)))
         return false;
     if (outer.name == editor::name_list) {
-        return starts(inner.name, editor::name_row_prefix) || inner.name == editor::name_number_keys ||
-               inner.name == editor::name_list_bar;
+        return starts(inner.name, editor::name_row_prefix) ||
+               inner.name == editor::name_number_keys || inner.name == editor::name_list_bar;
     }
     if (!starts(outer.name, editor::name_row_prefix))
         return false;
@@ -133,7 +137,8 @@ std::vector<std::string> rects_outside(const kit::DisplayList& list, kit::Point 
     const kit::Rect whole{0, 0, window.x, window.y};
     std::vector<std::string> problems;
     for (const kit::Control& control : list.controls) {
-        if (control.rect.width > 0 && control.rect.height > 0 && !kit::wholly_in(control.rect, whole))
+        if (control.rect.width > 0 && control.rect.height > 0 &&
+            !kit::wholly_in(control.rect, whole))
             problems.push_back(control.name);
     }
     return problems;
@@ -218,11 +223,14 @@ std::string caption_of(const kit::DisplayList& list, std::string_view name) {
 /// @param word the word
 /// @return true when it is shown
 bool shows(const kit::DisplayList& list, std::string_view word) {
-    const auto holds = [word](std::string_view text) { return text.find(word) != std::string_view::npos; };
+    const auto holds = [word](std::string_view text) {
+        return text.find(word) != std::string_view::npos;
+    };
     for (const kit::Item& item : list.items) {
         if (holds(item.text))
             return true;
-        if (const auto* button = std::get_if<kit::ButtonLook>(&item.look); button && holds(button->caption))
+        if (const auto* button = std::get_if<kit::ButtonLook>(&item.look);
+            button && holds(button->caption))
             return true;
         if (const auto* header = std::get_if<kit::HeaderLook>(&item.look)) {
             if (holds(header->title) || holds(header->second) || holds(header->note))
@@ -236,7 +244,8 @@ bool shows(const kit::DisplayList& list, std::string_view word) {
                     return true;
             }
         }
-        if (const auto* choice = std::get_if<kit::ChoiceLook>(&item.look); choice && holds(choice->text))
+        if (const auto* choice = std::get_if<kit::ChoiceLook>(&item.look);
+            choice && holds(choice->text))
             return true;
         if (const auto* search = std::get_if<kit::SearchLook>(&item.look)) {
             if (holds(search->placeholder) || holds(search->field.text))
@@ -268,7 +277,8 @@ std::string placeholder_of(const kit::DisplayList& list) {
 /// @param state the screen's state
 /// @param frame the frame
 /// @return the display list
-kit::DisplayList laid_out(const editor::Editor& model, const editor::ScreenState& state, const kit::Frame& frame) {
+kit::DisplayList
+laid_out(const editor::Editor& model, const editor::ScreenState& state, const kit::Frame& frame) {
     return editor::editor_layout(model, state, frame, fonts());
 }
 
@@ -289,7 +299,11 @@ void check_frame(
     const kit::Point sized = editor::window_size(frame);
     if (sized.x != window.x || sized.y != window.y) {
         std::fprintf(
-            stderr, "%s: window %d x %d\n", where.c_str(), static_cast<int>(sized.x), static_cast<int>(sized.y)
+            stderr,
+            "%s: window %d x %d\n",
+            where.c_str(),
+            static_cast<int>(sized.x),
+            static_cast<int>(sized.y)
         );
     }
     OA_CHECK(sized.x == window.x && sized.y == window.y);
@@ -330,7 +344,14 @@ void check_frame(
         const std::string_view name = order[step];
         const int index = tab_index(tabs, name);
         if (index <= previous)
-            std::fprintf(stderr, "%s: tab misses %.*s after %d\n", where.c_str(), static_cast<int>(name.size()), name.data(), previous);
+            std::fprintf(
+                stderr,
+                "%s: tab misses %.*s after %d\n",
+                where.c_str(),
+                static_cast<int>(name.size()),
+                name.data(),
+                previous
+            );
         OA_CHECK(index > previous);
         previous = index;
     }
@@ -403,8 +424,9 @@ void check_french(const kit::Frame& frame, const std::string& where) {
         std::fprintf(stderr, "%s: save shows \"%s\"\n", where.c_str(), save.c_str());
     OA_CHECK(save == "ENREGISTRER");
     const bool large = frame.size_class == kit::SizeClass::large;
-    const std::string want = large ? std::string(french_shown(nullptr, editor::words::search_actions))
-                                   : std::string(french_shown(nullptr, editor::words::search_short));
+    const std::string want = large
+                                 ? std::string(french_shown(nullptr, editor::words::search_actions))
+                                 : std::string(french_shown(nullptr, editor::words::search_short));
     const std::string placeholder = placeholder_of(list);
     if (placeholder != want)
         std::fprintf(stderr, "%s: search shows \"%s\"\n", where.c_str(), placeholder.c_str());
@@ -436,7 +458,11 @@ void check_german(const kit::Frame& frame, const std::string& where) {
     const int32_t save_after = control_width(after, editor::name_save);
     if (save_after <= save_before) {
         std::fprintf(
-            stderr, "%s: save width %d then %d\n", where.c_str(), static_cast<int>(save_before), static_cast<int>(save_after)
+            stderr,
+            "%s: save width %d then %d\n",
+            where.c_str(),
+            static_cast<int>(save_before),
+            static_cast<int>(save_after)
         );
     }
     OA_CHECK(save_after > save_before);
@@ -487,6 +513,166 @@ void check_details() {
         if (!shows(list, "Attack"))
             std::fprintf(stderr, "compact details: Attack is not shown\n");
         OA_CHECK(shows(list, "Attack"));
+        if (find_named(list, editor::name_detail_add) == nullptr)
+            std::fprintf(stderr, "compact details: no + ADD KEY\n");
+        OA_CHECK(find_named(list, editor::name_detail_add) != nullptr);
+    }
+}
+
+/// A letter chord with Primary held.
+///
+/// @param character the letter
+/// @return the chord
+keys::Chord primary_letter(char32_t character) {
+    keys::Chord chord;
+    chord.modifiers = keys::primary;
+    chord.kind = keys::TriggerKind::character;
+    chord.character = character;
+    return chord;
+}
+
+/// True when a named control is enabled.
+///
+/// @param list the display list
+/// @param name the name
+/// @return true when it is shown and enabled
+bool control_enabled(const kit::DisplayList& list, std::string_view name) {
+    const kit::Control* control = find_named(list, name);
+    return control != nullptr && control->enabled;
+}
+
+/// The capture, the clash prompt and the card at one size.
+///
+/// @param frame the frame
+/// @param where the size
+void check_prompts(const kit::Frame& frame, const std::string& where) {
+    const editor::Editor model(editor_fixture());
+    const kit::Point window = editor::window_size(frame);
+    const auto check_list = [&](const kit::DisplayList& list, const std::string& name) {
+        expect_none(outside_window(list, window), name + " drawn");
+        expect_none(rects_outside(list, window), name + " control");
+        expect_none(meeting_controls(list), name + " meets");
+        expect_none(texts_not_fitting(list, fonts()), name + " text");
+        const std::string names = kit::name_problem(list);
+        if (!names.empty())
+            std::fprintf(stderr, "%s: %s\n", name.c_str(), names.c_str());
+        OA_CHECK(names.empty());
+        expect_none(repeated_names(list), name + " name");
+    };
+    const auto require_named =
+        [&](const kit::DisplayList& list, std::string_view name, const std::string& why) {
+            if (find_named(list, name) == nullptr)
+                std::fprintf(stderr, "%s: missing %s\n", why.c_str(), std::string(name).c_str());
+            OA_CHECK(find_named(list, name) != nullptr);
+        };
+
+    {
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::capture;
+        state.selected = "order.attack";
+        state.capture.action = "order.attack";
+        state.capture.means = acts::By::letter;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " waiting");
+        require_named(list, editor::name_capture, where + " waiting");
+        require_named(list, editor::name_capture_well, where + " waiting");
+        require_named(list, editor::name_capture_letter, where + " waiting");
+        require_named(list, editor::name_capture_place, where + " waiting");
+        require_named(list, editor::name_capture_press, where + " waiting");
+        require_named(list, editor::name_capture_double, where + " waiting");
+        require_named(list, editor::name_capture_hold, where + " waiting");
+        require_named(list, editor::name_capture_cancel, where + " waiting");
+        require_named(list, editor::name_capture_ok, where + " waiting");
+        OA_CHECK(!control_enabled(list, editor::name_capture_ok));
+        if (!shows(list, "Press a key"))
+            std::fprintf(stderr, "%s waiting: the well has no prompt\n", where.c_str());
+        OA_CHECK(shows(list, "Press a key"));
+    }
+    {
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::capture;
+        state.selected = "order.attack";
+        state.capture.action = "order.attack";
+        state.capture.chord = primary_letter(U'Q');
+        state.capture.state = editor::CaptureState::complete;
+        state.capture.means = acts::By::letter;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " complete");
+        require_named(list, editor::name_capture_status, where + " complete");
+        if (!shows(list, "is free"))
+            std::fprintf(stderr, "%s complete: the chord is not free\n", where.c_str());
+        OA_CHECK(shows(list, "is free"));
+        OA_CHECK(control_enabled(list, editor::name_capture_ok));
+    }
+    {
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::capture;
+        state.selected = "order.attack";
+        state.capture.action = "order.attack";
+        state.capture.chord = primary_letter(U'B');
+        state.capture.state = editor::CaptureState::clash;
+        state.capture.means = acts::By::letter;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " clash");
+        if (!shows(list, "Select builders"))
+            std::fprintf(
+                stderr, "%s clash: the line does not name Select builders\n", where.c_str()
+            );
+        OA_CHECK(shows(list, "Select builders"));
+        OA_CHECK(control_enabled(list, editor::name_capture_ok));
+    }
+    {
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::capture;
+        state.selected = "chat.send";
+        state.capture.action = "chat.send";
+        state.capture.state = editor::CaptureState::refused;
+        state.capture.means = acts::By::place;
+        keys::Chord escape;
+        escape.kind = keys::TriggerKind::named;
+        escape.named = static_cast<uint8_t>(keys::NamedKey::escape);
+        state.capture.chord = escape;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " refused");
+        if (!shows(list, "Choose another key"))
+            std::fprintf(stderr, "%s refused: the line does not refuse the chord\n", where.c_str());
+        OA_CHECK(shows(list, "Choose another key"));
+        OA_CHECK(!control_enabled(list, editor::name_capture_ok));
+    }
+    {
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::clash;
+        state.selected = "select.all";
+        state.capture.action = "select.all";
+        state.capture.replacing = 0;
+        state.capture.chord = primary_letter(U'B');
+        state.capture.state = editor::CaptureState::clash;
+        state.pending_clash.a = "select.all";
+        state.pending_clash.b = "select.builders";
+        state.pending_clash.chord = *state.capture.chord;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " question");
+        require_named(list, editor::name_clash, where + " question");
+        require_named(list, editor::name_clash_replace, where + " question");
+        require_named(list, editor::name_clash_swap, where + " question");
+        require_named(list, editor::name_clash_cancel, where + " question");
+        state.capture.replacing.reset();
+        const kit::DisplayList added = laid_out(model, state, frame);
+        check_list(added, where + " question add");
+        if (find_named(added, editor::name_clash_swap) != nullptr)
+            std::fprintf(stderr, "%s: + ADD KEY shows SWAP\n", where.c_str());
+        OA_CHECK(find_named(added, editor::name_clash_swap) == nullptr);
+    }
+    {
+        editor::ScreenState state;
+        state.selected = "select.all";
+        state.filter = editor::Filter::clashes;
+        state.details_page = frame.size_class == kit::SizeClass::compact;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " card");
+        require_named(list, editor::name_card_here, where + " card");
+        require_named(list, editor::name_card_there, where + " card");
+        require_named(list, editor::name_card_choose, where + " card");
     }
 }
 
@@ -504,7 +690,9 @@ int main() {
     OA_CHECK(large.area.width == 1280 && large.area.height == 720);
     if (regular.area.width != 960 || regular.area.height != 540 || regular.scale_percent != 200)
         std::fprintf(stderr, "1920x1080 at 2x is not 960x540\n");
-    OA_CHECK(regular.area.width == 960 && regular.area.height == 540 && regular.scale_percent == 200);
+    OA_CHECK(
+        regular.area.width == 960 && regular.area.height == 540 && regular.scale_percent == 200
+    );
 
     check_frame(compact, {480, 324}, kit::SizeClass::compact, "compact");
     check_frame(large, {960, 600}, kit::SizeClass::large, "large");
@@ -517,5 +705,8 @@ int main() {
     check_german(large, "german large");
     check_german(regular, "german regular");
     check_details();
+    check_prompts(compact, "compact");
+    check_prompts(large, "large");
+    check_prompts(regular, "regular");
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }

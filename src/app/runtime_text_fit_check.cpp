@@ -23,7 +23,8 @@
 // "Load with the built-in player?" is painted with two 64-byte names.
 // The brain picker is painted on its fixture feed: the list, the inline
 // details at Regular and Large, and Compact's details page.
-// The key editor's list is painted at both sizes, and Compact's details page.
+// The key editor's list is painted at both sizes, and Compact's details page,
+// then the capture, the clash prompt and the draft card.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
@@ -40,7 +41,9 @@
 #include "oa/data/brain_library/seats.hpp"
 #include "oa/formats/oabrain/manifest.hpp"
 #include "oa/formats/oamut/manifest.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
 #include "oa/platform/preferences.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/first_run/first_run.hpp"
@@ -92,6 +95,8 @@ namespace brain = oa::data::brain_library;
 namespace layout = oa::ui::display_layout;
 namespace menu = oa::ui::frontend_state::main_menu;
 namespace mp = oa::ui::frontend_multiplayer;
+namespace oakeys = oa::formats::oakeys;
+namespace key_library = oa::data::key_library;
 
 /// Languages the check opens every screen in, in order, unless --check-language
 /// names others.
@@ -1360,8 +1365,139 @@ void Runtime::check_text_fit() {
                     PadAccess::send_key(*this, SDLK_RETURN);
                     paint("key-editor/details");
                 }
+                const auto named =
+                    [this](std::string_view name) -> std::optional<AutomationControl> {
+                    std::vector<AutomationControl> controls;
+                    oa_layer().automation_controls(controls);
+                    for (const AutomationControl& control : controls) {
+                        if (control.name == name && control.visible && control.window_width > 0 &&
+                            control.window_height > 0)
+                            return control;
+                    }
+                    return std::nullopt;
+                };
+                const auto click_named = [&](std::string_view name) {
+                    const std::optional<AutomationControl> control = named(name);
+                    require(control.has_value(), std::string(name) + " is not shown");
+                    const layout::Point pixel{
+                        control->window_x + control->window_width / 2,
+                        control->window_y + control->window_height / 2
+                    };
+                    bool going = true;
+                    for (const SDL_EventType type :
+                         {SDL_EVENT_MOUSE_MOTION,
+                          SDL_EVENT_MOUSE_BUTTON_DOWN,
+                          SDL_EVENT_MOUSE_BUTTON_UP}) {
+                        SDL_Event event = window_pointer_event(
+                            sdl_.window,
+                            sdl_.renderer,
+                            type,
+                            pixel,
+                            type == SDL_EVENT_MOUSE_MOTION ? 0 : SDL_BUTTON_LEFT
+                        );
+                        dispatch_event(event, going);
+                        require(going, std::string(name) + " ended the run");
+                    }
+                    going = true;
+                    run_frame(going);
+                    require(going, std::string(name) + " ended the run");
+                };
+                const auto key_event = [&](SDL_EventType type, SDL_Keycode key, SDL_Keymod mods) {
+                    SDL_Event event{};
+                    event.type = type;
+                    event.key.windowID = sdl_.window != nullptr ? SDL_GetWindowID(sdl_.window) : 0;
+                    event.key.scancode = SDL_GetScancodeFromKey(key, nullptr);
+                    event.key.key = key;
+                    event.key.mod = mods;
+                    event.key.down = type == SDL_EVENT_KEY_DOWN;
+                    event.key.repeat = false;
+                    bool going = true;
+                    dispatch_event(event, going);
+                    require(going, "a key in the key editor ended the run");
+                };
+                if (named("oa.key-editor.back").has_value())
+                    click_named("oa.key-editor.back");
+                click_named("oa.key-editor.row.order.attack");
+                if (!named("oa.key-editor.detail.add").has_value()) {
+                    PadAccess::send_key(*this, SDLK_RETURN);
+                    bool going = true;
+                    run_frame(going);
+                    require(going, "opening the key editor's details ended the run");
+                }
+                click_named("oa.key-editor.detail.add");
+                paint("key-editor/capture");
+                key_event(SDL_EVENT_KEY_DOWN, SDLK_LCTRL, SDL_KMOD_CTRL);
+                key_event(SDL_EVENT_KEY_DOWN, SDLK_B, SDL_KMOD_CTRL);
+                key_event(SDL_EVENT_KEY_UP, SDLK_B, SDL_KMOD_CTRL);
+                key_event(SDL_EVENT_KEY_UP, SDLK_LCTRL, SDL_KMOD_NONE);
+                paint("key-editor/capture");
+                click_named("oa.key-editor.capture.ok");
+                paint("key-editor/clash");
+                click_named("oa.key-editor.clash.cancel");
+
                 if (LayerScreen* keys_open = oa_layer().find("key-editor"))
                     oa_layer().close(keys_open);
+
+                require(!user_folder_.empty(), "the run has no folder of the player's own");
+                oakeys::Manifest manifest;
+                manifest.format = oakeys::format_version;
+                manifest.id = "own-oa-default";
+                manifest.name = "Your changes";
+                manifest.version.major = 1;
+                manifest.version.minor = 0;
+                manifest.version.parts = 2;
+                manifest.author.name = "You";
+                manifest.tags = {"own"};
+                manifest.base = oakeys::Base::oa_default;
+                oakeys::BindingEntry attack_binding;
+                attack_binding.action = "order.attack";
+                attack_binding.chords.push_back(oakeys::ChordText{"Ctrl+Alt+Shift+F12", 0, 0});
+                oakeys::BindingEntry move_binding;
+                move_binding.action = "order.move";
+                move_binding.chords.push_back(oakeys::ChordText{"Ctrl+Alt+Shift+F12", 0, 0});
+                manifest.bindings.push_back(std::move(attack_binding));
+                manifest.bindings.push_back(std::move(move_binding));
+                const std::filesystem::path own_dir = std::filesystem::path(user_folder_) /
+                                                      std::string(key_library::keys_folder_name) /
+                                                      key_library::own_folder_name("oa-default");
+                std::error_code made;
+                std::filesystem::create_directories(own_dir, made);
+                require(!made, "the own layout folder was not made");
+                const std::filesystem::path own_file = own_dir / std::string(oakeys::manifest_file);
+                {
+                    std::ofstream out(own_file, std::ios::binary);
+                    require(static_cast<bool>(out), "the own layout was not opened");
+                    out << oakeys::write_manifest(manifest);
+                    require(static_cast<bool>(out), "the own layout was not written");
+                }
+                require(open_key_editor({}), "the key editor did not open on the clash");
+                if (!named("oa.key-editor.card.keep-here").has_value() && width <= 640) {
+                    std::optional<AutomationControl> clash_row;
+                    std::vector<AutomationControl> clash_controls;
+                    oa_layer().automation_controls(clash_controls);
+                    for (const AutomationControl& control : clash_controls) {
+                        if (control.name.starts_with("oa.key-editor.row.") && control.visible &&
+                            control.window_width > 0 && control.window_height > 0) {
+                            clash_row = control;
+                            break;
+                        }
+                    }
+                    require(clash_row.has_value(), "the clashes list shows no row");
+                    click_named(clash_row->name);
+                    PadAccess::send_key(*this, SDLK_RETURN);
+                    bool going = true;
+                    run_frame(going);
+                    require(going, "opening the clash card ended the run");
+                }
+                require(
+                    named("oa.key-editor.card.keep-here").has_value(), "the clash card is not shown"
+                );
+                paint("key-editor/card");
+                if (LayerScreen* keys_card = oa_layer().find("key-editor"))
+                    oa_layer().close(keys_card);
+                std::error_code removed;
+                std::filesystem::remove(own_file, removed);
+                require(!removed, "the own layout was not removed");
             }
 
             // The brain picker, on the check's feed: the list, and the

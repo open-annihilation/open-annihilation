@@ -1,19 +1,20 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The key editor drawn twice into the viewport: Compact and Large at 1x,
-// Regular at 2x, Compact's details page, and Large over a paused match.
-// The two drawings of a scene are byte for byte the same. The dialog sits
-// at the canvas origin; every pixel of it is painted, and nothing is drawn
-// outside it, so the margin around the dialog keeps the colour the canvas
-// started as. The picture is the whole viewport.
+// The key editor drawn twice into the viewport: the list at Compact, Large
+// and Regular, Compact's details page, Large over a paused match, and the
+// capture (waiting, complete, clash and refused), the clash prompt and the
+// card at each class. The two drawings of a scene are byte for byte the
+// same. The dialog sits at the canvas origin; every pixel of it is painted,
+// and nothing is drawn outside it, so the margin around the dialog keeps
+// the colour the canvas started as. The picture is the whole viewport.
+// Focus is left unset, so the pictures have no focus ring.
 //
-// --frames DIR writes key-editor-compact.png, key-editor-large.png,
-// key-editor-regular.png, key-editor-compact-details.png and
-// key-editor-large-match.png at 640x480, 1280x720, 1920x1080, 640x480 and
-// 1280x720. --record merges this group's hashes into the frames table and
-// leaves the other group. --data draws in the installed game's fonts.
-// A scene with no hash fails unless --record is set.
+// --frames DIR writes key-editor-<scene>.png, including key-editor-capture-*.png,
+// key-editor-clash-*.png and key-editor-card-regular.png. --record merges this
+// group's hashes into the frames table and leaves the other group. --data
+// draws in the installed game's fonts. A scene with no hash fails unless
+// --record is set.
 //
 //   oa-ui-key-editor-draw-test [--data] [--record] [--frames DIR]
 
@@ -51,6 +52,7 @@ namespace {
 
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
+namespace keys = oa::ui::key_bindings;
 namespace renderer = oa::ui::frontend_renderer;
 namespace png = oa::formats::png;
 namespace sha256 = oa::base::sha256;
@@ -61,6 +63,17 @@ using key_editor_fixture::frame_for;
 /// The colour the picture starts as. Only this test names it.
 constexpr kit::Colour untouched{0x12, 0x34, 0x56};
 
+/// Which screen a picture shows.
+enum class Shown : uint8_t {
+    list,     ///< the list, or Compact's details page
+    waiting,  ///< the capture, before a key
+    complete, ///< the capture, with a free chord
+    taken,    ///< the capture, with a clash
+    refused,  ///< the capture, with a fixed chord
+    question, ///< the clash prompt
+    card,     ///< the draft card
+};
+
 /// One picture.
 struct Scene {
     const char* name{};       ///< the file's name after "key-editor-"
@@ -70,6 +83,7 @@ struct Scene {
     kit::Point window{};      ///< the dialog, in points
     bool details{false};      ///< Compact's details page
     bool in_match{false};     ///< the header says the game is paused
+    Shown shown{Shown::list}; ///< which screen
 };
 
 /// A drawing of a scene.
@@ -79,14 +93,86 @@ struct Drawing {
     int32_t scale{1};            ///< pixels a point
 };
 
-/// The five pictures, in table order.
-const Scene kScenes[] = {
-    {"compact", 640, 480, 100, {480, 324}, false, false},
-    {"large", 1280, 720, 100, {960, 600}, false, false},
-    {"regular", 1920, 1080, 200, {720, 486}, false, false},
-    {"compact-details", 640, 480, 100, {480, 324}, true, false},
-    {"large-match", 1280, 720, 100, {960, 600}, false, true},
-};
+/// A letter chord with Primary held.
+///
+/// @param character the letter
+/// @return the chord
+keys::Chord primary_letter(char32_t character) {
+    keys::Chord chord;
+    chord.modifiers = keys::primary;
+    chord.kind = keys::TriggerKind::character;
+    chord.character = character;
+    return chord;
+}
+
+/// One picture at a size class.
+///
+/// @param name the file's name after "key-editor-"
+/// @param width the canvas width, in pixels
+/// @param height the canvas height, in pixels
+/// @param scale the scale, as a percentage
+/// @param window the dialog, in points
+/// @param details Compact's details page
+/// @param in_match the header says the game is paused
+/// @param shown which screen
+/// @return the scene
+Scene picture(
+    const char* name,
+    int32_t width,
+    int32_t height,
+    int32_t scale,
+    kit::Point window,
+    bool details,
+    bool in_match,
+    Shown shown
+) {
+    Scene scene;
+    scene.name = name;
+    scene.width = width;
+    scene.height = height;
+    scene.scale_percent = scale;
+    scene.window = window;
+    scene.details = details;
+    scene.in_match = in_match;
+    scene.shown = shown;
+    return scene;
+}
+
+/// The list, then the capture, the clash prompt and the card at each class.
+///
+/// @return the scenes, in table order
+std::vector<Scene> all_scenes() {
+    const kit::Point compact{480, 324};
+    const kit::Point regular{720, 486};
+    const kit::Point large{960, 600};
+    return {
+        picture("compact", 640, 480, 100, compact, false, false, Shown::list),
+        picture("large", 1280, 720, 100, large, false, false, Shown::list),
+        picture("regular", 1920, 1080, 200, regular, false, false, Shown::list),
+        picture("compact-details", 640, 480, 100, compact, true, false, Shown::list),
+        picture("large-match", 1280, 720, 100, large, false, true, Shown::list),
+        picture("capture-waiting-compact", 640, 480, 100, compact, false, false, Shown::waiting),
+        picture("capture-waiting-regular", 1920, 1080, 200, regular, false, false, Shown::waiting),
+        picture("capture-waiting-large", 1280, 720, 100, large, false, false, Shown::waiting),
+        picture("capture-complete-compact", 640, 480, 100, compact, false, false, Shown::complete),
+        picture(
+            "capture-complete-regular", 1920, 1080, 200, regular, false, false, Shown::complete
+        ),
+        picture("capture-complete-large", 1280, 720, 100, large, false, false, Shown::complete),
+        picture("capture-clash-compact", 640, 480, 100, compact, false, false, Shown::taken),
+        picture("capture-clash-regular", 1920, 1080, 200, regular, false, false, Shown::taken),
+        picture("capture-clash-large", 1280, 720, 100, large, false, false, Shown::taken),
+        picture("capture-refused-compact", 640, 480, 100, compact, false, false, Shown::refused),
+        picture("capture-refused-regular", 1920, 1080, 200, regular, false, false, Shown::refused),
+        picture("capture-refused-large", 1280, 720, 100, large, false, false, Shown::refused),
+        picture("clash-compact", 640, 480, 100, compact, false, false, Shown::question),
+        picture("clash-regular", 1920, 1080, 200, regular, false, false, Shown::question),
+        picture("clash-large", 1280, 720, 100, large, false, false, Shown::question),
+        picture("card-compact", 640, 480, 100, compact, true, false, Shown::card),
+        picture("card-regular", 1920, 1080, 200, regular, false, false, Shown::card),
+        picture("card-large", 1280, 720, 100, large, false, false, Shown::card),
+    };
+}
 
 /// True when a text is 64 hexadecimal digits.
 ///
@@ -125,17 +211,70 @@ std::string digest_of(const renderer::Surface& surface) {
     return std::string(hex.begin(), hex.end());
 }
 
+/// Puts the scene's prompt or card on the screen. Focus stays unset.
+///
+/// @param[in,out] model the editor; the clash prompt returns Select all to Ctrl+A
+/// @param[out] state the screen
+/// @param scene the scene
+void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& scene) {
+    state.details_page = scene.details;
+    state.in_match = scene.in_match;
+    state.selected = "order.attack";
+    state.capture.action = "order.attack";
+    state.capture.means = oa::data::input_actions::By::letter;
+    state.capture.starts = keys::Gesture::press;
+    if (scene.shown == Shown::list)
+        return;
+    if (scene.shown == Shown::card) {
+        state.selected = "select.all";
+        state.filter = editor::Filter::clashes;
+        return;
+    }
+    if (scene.shown == Shown::question) {
+        model.reset_action("select.all");
+        state.selected = "select.all";
+        state.prompt = editor::Prompt::clash;
+        state.capture.action = "select.all";
+        state.capture.replacing = 0;
+        state.capture.chord = primary_letter(U'B');
+        state.capture.state = editor::CaptureState::clash;
+        state.pending_clash.a = "select.all";
+        state.pending_clash.b = "select.builders";
+        state.pending_clash.chord = *state.capture.chord;
+        return;
+    }
+    state.prompt = editor::Prompt::capture;
+    if (scene.shown == Shown::waiting)
+        return;
+    if (scene.shown == Shown::complete) {
+        state.capture.chord = primary_letter(U'Q');
+        state.capture.state = editor::CaptureState::complete;
+        return;
+    }
+    if (scene.shown == Shown::taken) {
+        state.capture.chord = primary_letter(U'B');
+        state.capture.state = editor::CaptureState::clash;
+        return;
+    }
+    state.selected = "chat.send";
+    state.capture.action = "chat.send";
+    state.capture.means = oa::data::input_actions::By::place;
+    state.capture.state = editor::CaptureState::refused;
+    keys::Chord escape;
+    escape.kind = keys::TriggerKind::named;
+    escape.named = static_cast<uint8_t>(keys::NamedKey::escape);
+    state.capture.chord = escape;
+}
+
 /// Lays one scene out and draws it at the canvas origin.
 ///
 /// @param scene the scene
 /// @param measured the fonts
 /// @return the drawing
 Drawing draw_scene(const Scene& scene, const kit::Fonts& measured) {
-    const editor::Editor model(editor_fixture());
+    editor::Editor model(editor_fixture());
     editor::ScreenState state;
-    state.selected = "order.attack";
-    state.details_page = scene.details;
-    state.in_match = scene.in_match;
+    arm_scene(model, state, scene);
     const kit::Frame frame = frame_for(scene.width, scene.height, scene.scale_percent);
     Drawing drawing;
     drawing.scale = frame.scale_percent / 100;
@@ -237,10 +376,10 @@ bool write_canvas(const Drawing& drawing, const std::filesystem::path& path) {
 
 /// One stored line of the frames table.
 struct TableLine {
-    std::string text{};  ///< the line, without its newline
-    bool scene{false};   ///< a group/scene hash
-    std::string name{};  ///< group/scene, when scene
-    std::string hex{};   ///< the hash, when scene
+    std::string text{}; ///< the line, without its newline
+    bool scene{false};  ///< a group/scene hash
+    std::string name{}; ///< group/scene, when scene
+    std::string hex{};  ///< the hash, when scene
 };
 
 /// Reads the frames table. A missing file is an empty table and a failed check.
@@ -268,14 +407,18 @@ std::vector<TableLine> read_table(const std::filesystem::path& path) {
             continue;
         }
         const std::size_t space = text.find(' ');
-        const bool one_space = space != std::string::npos && text.find(' ', space + 1) == std::string::npos;
+        const bool one_space =
+            space != std::string::npos && text.find(' ', space + 1) == std::string::npos;
         if (one_space) {
             line.name = text.substr(0, space);
             line.hex = text.substr(space + 1);
-            line.scene = !line.name.empty() && line.name.find('/') != std::string::npos && hex_digits(line.hex);
+            line.scene = !line.name.empty() && line.name.find('/') != std::string::npos &&
+                         hex_digits(line.hex);
         }
         if (!line.scene) {
-            std::fprintf(stderr, "draw: %s:%zu is not a scene line\n", path.string().c_str(), number);
+            std::fprintf(
+                stderr, "draw: %s:%zu is not a scene line\n", path.string().c_str(), number
+            );
             OA_CHECK(false);
         }
         lines.push_back(std::move(line));
@@ -356,7 +499,8 @@ int main(int argc, char** argv) {
     }
 
     std::vector<std::pair<std::string, std::string>> digests;
-    for (const Scene& scene : kScenes) {
+    const std::vector<Scene> scenes = all_scenes();
+    for (const Scene& scene : scenes) {
         const Drawing first = draw_scene(scene, measured);
         const Drawing second = draw_scene(scene, measured);
         if (first.surface.width != static_cast<uint32_t>(scene.width) ||
@@ -377,7 +521,8 @@ int main(int argc, char** argv) {
         check_dialog(scene, first);
         digests.emplace_back(scene.name, digest_of(first.surface));
         if (frames) {
-            const std::filesystem::path path = *frames / (std::string("key-editor-") + scene.name + ".png");
+            const std::filesystem::path path =
+                *frames / (std::string("key-editor-") + scene.name + ".png");
             const bool written = write_canvas(first, path);
             if (!written)
                 std::fprintf(stderr, "draw: cannot write %s\n", path.string().c_str());
@@ -397,7 +542,9 @@ int main(int argc, char** argv) {
         }
         if (found == nullptr) {
             if (!record) {
-                std::fprintf(stderr, "draw: %s is missing from %s\n", name.c_str(), table.string().c_str());
+                std::fprintf(
+                    stderr, "draw: %s is missing from %s\n", name.c_str(), table.string().c_str()
+                );
                 OA_CHECK(false);
             }
             continue;

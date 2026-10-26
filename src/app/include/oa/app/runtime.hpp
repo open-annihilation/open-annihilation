@@ -450,7 +450,8 @@ struct KeyEditorRequest {
     /// modal screen other than Settings is up, and when Settings is up
     /// without this set.
     bool over_settings{false};
-    /// The filter the list opens on. Unset opens on All.
+    /// The filter the list opens on. Unset opens on Clashes when the draft
+    /// names a clash, and on All otherwise.
     std::optional<oa::ui::key_editor::Filter> filter{};
     /// The action the list opens on. Empty opens with none chosen.
     std::string select{};
@@ -2599,6 +2600,20 @@ class Runtime final : public menu::Host,
     ///
     /// @param[in,out] running loop flag; cleared when an admitted key ends the loop
     void advance_input_actions(bool& running);
+
+    /// True while the key editor's capture or clash prompt is open.
+    ///
+    /// feed_input_actions returns before the dispatcher while this is true, so
+    /// no action fires. [runtime_key_editor.cpp]
+    ///
+    /// @return true while a prompt covers the editor
+    bool key_editor_capturing();
+
+    /// Gives a key-up to the key editor's capture. The layer does not hand a
+    /// key-up to the screen. [runtime_key_editor.cpp]
+    ///
+    /// @param event the event dispatch_event is given
+    void key_editor_capture_event(const SDL_Event& event);
 
     /// Replays a mouse button the order wheel held back, at the press's point.
     ///
@@ -7688,6 +7703,15 @@ class Runtime final : public menu::Host,
     ///
     /// Throws std::runtime_error naming the first step that failed.
     void check_key_editor();
+
+    /// Runs --check-key-capture: capturing a chord, a clash, Escape held for
+    /// a second, a refused Escape, Settings' chord, and a draft clash's card,
+    /// over a paused skirmish. Writes key-capture-<w>x<h>.ppm and
+    /// key-clash-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080 when
+    /// --snapshot names a file.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_capture();
 
     /// Writes --check-mutator-picker's and --check-brain-picker's registry
     /// list into the player's folder, every built-in registry turned off,
