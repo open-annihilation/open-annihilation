@@ -260,6 +260,27 @@ void a_self_check_ad_hoc_build_may_update() {
     OA_CHECK(no_feed.why == "a development build has no route");
 }
 
+void a_check_can_be_told_there_is_no_route() {
+    update::ThisBuild build = release_build();
+    build.development = true;
+    update::RouteFacts macos = macos_bundle_facts();
+    macos.self_check = true;
+    macos.test_feed = true;
+    macos.no_install_route = true;
+    const update::Where bundle = update::find_route(build, macos);
+    OA_CHECK(!bundle.route.has_value());
+    OA_CHECK(!bundle.installer);
+    OA_CHECK(bundle.why == "this check has no install route");
+
+    update::RouteFacts linux = facts_for("linux-x86_64");
+    linux.test_feed = true;
+    linux.no_install_route = true;
+    linux.install_folder = fs::path("/tmp/oa-v08-install");
+    const update::Where folder = update::find_route(build, linux);
+    OA_CHECK(!folder.route.has_value());
+    OA_CHECK(folder.why == "this check has no install route");
+}
+
 void the_self_check_folder_still_wins_on_macos() {
     update::RouteFacts facts = macos_bundle_facts();
     facts.install_folder = fs::path("/tmp/oa-v08-install");
@@ -301,6 +322,7 @@ int main() {
     an_unwritable_folder_uses_the_installer();
     a_writable_folder_uses_the_zip();
     a_self_check_ad_hoc_build_may_update();
+    a_check_can_be_told_there_is_no_route();
     the_self_check_folder_still_wins_on_macos();
     check_folder_uses_the_option();
     a_development_build_has_no_route_without_a_test_feed();

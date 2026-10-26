@@ -58,6 +58,9 @@ struct RouteFacts {
     bool parent_writable{false};
     /// This build is a self-check build. A test sets it directly.
     bool self_check{false};
+    /// A check that must be told there is no install route. A player run
+    /// leaves this false, and it wins over every route.
+    bool no_install_route{false};
 };
 
 /// The route a download may use, or why it may not.
@@ -73,7 +76,9 @@ struct Where {
 /// The route for this build on these facts.
 ///
 /// A release offered on its page has none. A development build has none
-/// unless a test feed is in use. Otherwise the self-check install folder
+/// unless a test feed is in use. A check that sets `no_install_route` has
+/// none on every platform, including the self-check folder. Otherwise the
+/// self-check install folder
 /// selects `check-folder`. On macOS, a bundle that is not running from a
 /// protected place and is signed with a team uses `macos-bundle`: the zip
 /// when its folder can be written, and the installer when it cannot. An

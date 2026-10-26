@@ -217,11 +217,16 @@ bool ready_question_queued(OaLayer& layer) {
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
 
 /// The route this run may install through.
+///
+/// The offer check asks to be told there is none, so Update opens the
+/// release page. The download check names an install folder and keeps its
+/// route.
 update::Where route_for(const Options& options, feed::Way way) {
     update::RouteFacts facts = update::this_machine(program_folder());
     facts.install_folder = options.update_install_folder;
     facts.test_feed = options.update_feed.has_value();
     facts.way = way;
+    facts.no_install_route = options.check_update_offer;
     return update::find_route(running_build(), facts);
 }
 

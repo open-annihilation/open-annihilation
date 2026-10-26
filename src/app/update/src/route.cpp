@@ -252,6 +252,10 @@ bool launcher_file(const fs::path& path) {
 
 Where find_route(const ThisBuild& build, const RouteFacts& facts) {
     Where where;
+    if (facts.no_install_route) {
+        where.why = "this check has no install route";
+        return where;
+    }
     if (facts.way == oa::data::engine_feed::Way::page_only) {
         where.why = "the release is offered on its page";
         return where;
