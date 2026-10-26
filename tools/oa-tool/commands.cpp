@@ -319,6 +319,78 @@ const Command brain_commands[] = {
     },
 };
 
+const Command keys_commands[] = {
+    {
+        "pack",
+        "FOLDER [--out FILE] [--force]",
+        "Pack a key-layout folder as a .oakeys.",
+        "Reads FOLDER, whose top holds oakeys.yaml, and writes a .oakeys. The package is the one "
+        "the key-layout packer writes: oakeys.yaml first, then every other file in byte order of "
+        "its name. A .png is stored and every other file is deflated, and the archive records no "
+        "clock time. Without --out the name is <id>-<version>.oakeys in the current folder. "
+        "--force replaces an existing file. --game-dir is a usage error. A manifest problem, a "
+        "file outside the layout, an icon that is not a square PNG within the limits and a chord "
+        "that does not parse are listed, each with its file, and nothing is written. A warning "
+        "does not refuse the package. A folder the installer would refuse is not packed. A folder "
+        "without oakeys.yaml is a usage error. oa-tool check reports the layout's facts.",
+        1,
+        any_count,
+        run_keys_pack,
+        {},
+    },
+    {
+        "check",
+        "FILE|FOLDER [--json] [--strict]",
+        "Check a key layout and report the facts a catalogue lists.",
+        "FILE is a .oakeys or a folder whose top holds oakeys.yaml. The report is the one check "
+        "writes for a key layout: summary, description, homepage, tags, author, requires, "
+        "works_with, base, keyboard, pointer, helpers, changes, triggers, unknown_actions, "
+        "clashes and icon. revision is null. keyboard, base, changes, triggers, unknown_actions "
+        "and clashes are always written. --json prints one object. --strict refuses a layout "
+        "that has a warning and keeps those warnings in the report. --game-dir is a usage error. "
+        "Exit 0 when the layout would be installed, 1 when it would be refused or --strict meets "
+        "a warning, and 2 when the arguments are not the command's. A file of another kind, or a "
+        "folder without oakeys.yaml, is a usage error.",
+        1,
+        any_count,
+        run_keys_check,
+        {},
+    },
+    {
+        "picture",
+        "FILE|FOLDER --out PNG [--width PIXELS] [--fonts DIR]",
+        "Draw the keyboard picture of what a layout changes.",
+        "FILE is a .oakeys or a folder whose top holds oakeys.yaml. Draws the keyboard, marking "
+        "each key the layout's own triggers change, and writes a PNG. The labels are the US "
+        "keyboard's. any draws an ANSI keyboard. --out names the PNG and is required. --width is "
+        "the picture's width in pixels and is 1200 when omitted. --fonts is the folder of text "
+        "fonts; the fonts beside the program are used when it is omitted. A font that cannot be "
+        "opened writes nothing. A layout whose chords do not parse writes nothing. Exit 0 when "
+        "the PNG was written, 1 when the layout or the fonts cannot be read, and 2 when the "
+        "arguments are not the command's.",
+        1,
+        any_count,
+        run_keys_picture,
+        {},
+    },
+    {
+        "show",
+        "FILE|FOLDER|oa-default [--json]",
+        "Print the bindings after the base and one layout.",
+        "FILE is a .oakeys, a folder whose top holds oakeys.yaml, or the literal oa-default. "
+        "Prints each action with its context and its chords, in the registry's order, then each "
+        "action this build does not know. oa-default is the base with no layout. No mod and no "
+        "own changes are applied. --json prints one array of action, context and chords. A layout "
+        "whose chords do not parse is refused. A warning is still shown. Exit 0 when the bindings "
+        "were printed, 1 when the layout cannot be read, and 2 when the arguments are not the "
+        "command's.",
+        1,
+        any_count,
+        run_keys_show,
+        {},
+    },
+};
+
 const Command command_table[] = {
     {
         "list",
@@ -379,27 +451,32 @@ const Command command_table[] = {
     {
         "pack",
         "FOLDER [--out FILE] [--force] [--game-dir DIR]",
-        "Pack a folder as a mod, a language package, a map pack, an expansion, a mutator or a "
-        "brain.",
-        "Reads FOLDER and writes a .oamod, a .oalang, a .oamap, a .oaexp, a .oamut or a .oabrain. "
-        "The folder's top holds one manifest, oamod.yaml, language.yaml, oamap.yaml, oaexp.yaml, "
-        "oamut.yaml or oabrain.yaml. The manifest is written first, then every other file in byte "
+        "Pack a folder as a mod, a language package, a map pack, an expansion, a mutator, a "
+        "brain or a key layout.",
+        "Reads FOLDER and writes a .oamod, a .oalang, a .oamap, a .oaexp, a .oamut, a .oabrain or "
+        "a .oakeys. The folder's top holds one manifest, oamod.yaml, language.yaml, oamap.yaml, "
+        "oaexp.yaml, oamut.yaml, oabrain.yaml or oakeys.yaml. The manifest is written first, then "
+        "every other file in byte "
         "order of its path, with fixed times. A file whose extension, without case, is png, jpg, "
         "jpeg, gif, ogg, mp3, zip, gz, bz2, xz, 7z, oamod, oalang or oamap, and an empty file, is "
         "stored; every other file is deflated. An expansion's files are all stored. The same files "
         "give the same bytes on any machine with the same zlib. --out names the package file; "
         "without it the name comes from the manifest and is written in the current folder. A "
         "mutator's default name is <id>-<version>.oamut. A brain's default name is "
-        "<id>-<version>.oabrain. --force replaces an existing file. A folder the installer would "
+        "<id>-<version>.oabrain. A key layout's default name is <id>-<version>.oakeys. A key "
+        "layout stores a .png and deflates every other file, and the archive records no clock "
+        "time. --force replaces an existing file. A folder the installer would "
         "refuse is not packed. A mutator whose manifest, Lua source or rule file is broken is not "
         "packed, and every problem is listed. A brain whose manifest, layout, Lua source, network "
-        "SHA-256 or icon is broken is not packed, and every problem is listed. Lua is compiled and "
-        "not run. check reports a brain's summary, description, homepage, tags, author, requires, "
-        "works_with, levels, full_awareness, networks, network_bytes, options, icon, entry, "
-        "scripts "
-        "and data. A map pack reads the game's palette from --game-dir: map packs need the game's "
-        "palette for previews. --game-dir on a mod, a language pack, an expansion, a mutator or a "
-        "brain is a usage error.",
+        "SHA-256 or icon is broken is not packed, and every problem is listed. A key layout whose "
+        "manifest, icon or chords are broken is not packed, and every problem is listed. Lua is "
+        "compiled and not run. check reports a brain's summary, description, homepage, tags, "
+        "author, requires, works_with, levels, full_awareness, networks, network_bytes, options, "
+        "icon, entry, scripts and data. check reports a key layout's summary, description, "
+        "homepage, tags, author, requires, works_with, base, keyboard, pointer, helpers, changes, "
+        "triggers, unknown_actions, clashes and icon. A map pack reads the game's palette from "
+        "--game-dir: map packs need the game's palette for previews. --game-dir on a mod, a "
+        "language pack, an expansion, a mutator, a brain or a key layout is a usage error.",
         1,
         any_count,
         run_pack,
@@ -407,7 +484,8 @@ const Command command_table[] = {
     },
     {
         "check",
-        "FILE [--game-dir DIR] [--mod FOLDER[=KEY]]... [--accept-unimplemented-hacks] [--json]",
+        "FILE|FOLDER [--game-dir DIR] [--mod FOLDER[=KEY]]... [--accept-unimplemented-hacks] "
+        "[--json] [--strict]",
         "Check a package and report the facts a catalogue lists.",
         "Opens FILE through the same checks an install runs before it writes, and reports "
         "whether that install would accept it. The report's keys, in order, are check, ok, "
@@ -420,7 +498,9 @@ const Command command_table[] = {
         "and author; for a mutator, summary, description, homepage, tags, author, requires, "
         "works_with, conflicts_with, layers, options, icon, entry, scripts, rules and legacy; "
         "for a brain, summary, description, homepage, tags, author, requires, works_with, levels, "
-        "full_awareness, networks, network_bytes, options, icon, entry, scripts and data. "
+        "full_awareness, networks, network_bytes, options, icon, entry, scripts and data; for a "
+        "key layout, summary, description, homepage, tags, author, requires, works_with, base, "
+        "keyboard, pointer, helpers, changes, triggers, unknown_actions, clashes and icon. "
         "A mutator's Lua is compiled and its rule files are parsed, and neither is run. A brain's "
         "Lua is compiled and not run, and a .oann file is hashed and not interpreted. "
         "full_awareness is a boolean and network_bytes is a whole number, and both are always "
@@ -430,8 +510,14 @@ const Command command_table[] = {
         "supportedGames instead of requires.base, or requiredExpansions instead of an expansion "
         "archive named in layout.installation-archives. A key the package does not have is left "
         "out, and revision is null when a language pack has no packaging revision, for every "
-        "mutator and for every brain. An expansion does not take "
-        "--game-dir. A brain does not take --game-dir. A map pack needs --game-dir, "
+        "mutator, for every brain and for every key layout. keyboard, base, changes, triggers, "
+        "unknown_actions and clashes are always written for a key layout. A key layout may also "
+        "be a folder whose top holds oakeys.yaml; the report then names that folder, and the "
+        "size and hash are the package the folder would pack to. --strict refuses a key layout "
+        "that has a warning and keeps those warnings in the report. It changes no other kind. "
+        "An expansion does not take "
+        "--game-dir. A brain does not take --game-dir. A key layout does not take --game-dir. "
+        "A map pack needs --game-dir, "
         "the game folder. The check builds each target the way the game would. Each --mod "
         "FOLDER[=KEY] is one more target, after the base game ta-3.1c. The key is the text "
         "after the last =, or the folder's catalogue origin as id@release, or the profile's id "
@@ -481,6 +567,23 @@ const Command command_table[] = {
         0,
         nullptr,
         brain_commands,
+    },
+    {
+        "keys",
+        "COMMAND",
+        "Pack, check and draw key layouts.",
+        "Packs a key-layout folder into a .oakeys, checks a .oakeys or a folder whose top holds "
+        "oakeys.yaml, draws the keyboard picture of what the layout changes, and prints the "
+        "bindings after the base and the layout. keys pack reads a folder whose top holds "
+        "oakeys.yaml. oa-tool check reports a key layout's facts: summary, description, homepage, "
+        "tags, author, requires, works_with, base, keyboard, pointer, helpers, changes, triggers, "
+        "unknown_actions, clashes and icon. A folder without oakeys.yaml, or a file of another "
+        "kind, is a usage error. keys picture writes a PNG. keys show prints the resolved "
+        "bindings, and oa-default is the base with no layout.",
+        0,
+        0,
+        nullptr,
+        keys_commands,
     },
     {
         "catalogue",

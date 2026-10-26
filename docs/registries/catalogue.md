@@ -52,7 +52,7 @@ accepts, including one with a query. The descriptor's `catalogue`,
 
 | Member | Required | Rule |
 |---|---|---|
-| `kind` | yes | `oamod`, `oamap`, `oalang`, `expansion`, `oamut` or `oabrain`. |
+| `kind` | yes | `oamod`, `oamap`, `oalang`, `expansion`, `oamut`, `oabrain` or `oakeys`. |
 | `id` | yes | The package key. No key contains `@`. |
 | `name` | yes | 1 to 64 bytes. |
 | `release` | yes | A whole number from 1 to 2147483647. |
@@ -60,9 +60,9 @@ accepts, including one with a query. The descriptor's `catalogue`,
 | `sha256` | yes | 64 lower-case hex digits. |
 | `file` | yes | A catalogue reference whose last segment is `<sha256>.<kind>`, or `<sha256>.oaexp` for an expansion. |
 
-A mod, map-pack, mutator or brain key is lower-case kebab-case of 1 to 64
-bytes, and a key is unique across kinds, so a mutator's or a brain's id
-must not be any other package's id. A language key is a language tag of 2
+A mod, map-pack, mutator, brain or key-layout key is lower-case kebab-case
+of 1 to 64 bytes, and a key is unique across kinds, so a mutator's, a brain's
+or a key layout's id must not be any other package's id. A language key is a language tag of 2
 to 35 bytes: a first part of letters (`A-Z` or `a-z`), then hyphen-joined
 parts of letters and digits.
 
@@ -77,7 +77,7 @@ hex digest, a dot, and the kind, except an expansion, whose last segment is
 
 | Member | Required | Rule |
 |---|---|---|
-| `version` | mods, expansions, mutators and brains | 1 to 32 bytes. A mutator's or a brain's version is a mutator version: one to three dotted parts, each 0 to 65535 with no leading zero. Optional for a map pack or a language pack. |
+| `version` | mods, expansions, mutators, brains and key layouts | 1 to 32 bytes. A mutator's, a brain's or a key layout's version is a mutator version: one to three dotted parts, each 0 to 65535 with no leading zero. Optional for a map pack or a language pack. |
 | `revision` | mods only | A whole number from 1 to 65535. If any other kind names it, the same rule applies. |
 | `publisher`, `author` | no | 1 to 64 bytes when present. |
 | `summary` | no | 0 to 200 bytes. |
@@ -221,6 +221,32 @@ duplicate-key check, so neither the entry nor its key affects anything else.
 The manifest inside the package is described by
 [oabrain.yaml](../../src/formats/oabrain/README.md) until the OABrain standard
 exists.
+
+## Key layouts
+
+A key layout (`oakeys`) MUST name `version` and `base`. `version` is a mutator
+version: one to three dotted parts, each 0 to 65535 with no leading zero, in
+at most 32 bytes. `base` is `oa-default` or `none`, as written. The file's
+last segment is `<sha256>.oakeys`. A key layout's key is lower-case
+kebab-case, and it is unique across kinds. The manifest inside the package
+is described by [the key-layout standard](../keys/oakeys-standard.md).
+
+| Member | Required | Rule |
+|---|---|---|
+| `base` | yes | `oa-default` or `none`. |
+| `works_with` | no | The mutator's rule, above. |
+| `keyboard` | no | `any`, `ansi`, `iso` or `jis`. Absent is stored as `any`. Any other value leaves the entry out. |
+| `pointer` | no | `right-click` or `left-click`. Absent names none. Any other value leaves the entry out. |
+| `helpers` | no | At most 6 of `toggle`, `sticky-modifiers`, `hold-to-confirm`, `pointer-keys`, `radial-orders` and `edge-scroll`, each once, kept in the order written. An unknown name is skipped. A list longer than 6, a repeated known name, or a value that is not text leaves the entry out. The limit is the list's length before unknown names are skipped. |
+| `changes` | no | A whole number from 0 to 2048: how many actions the layout binds. Absent is 0. Any other value leaves the entry out. |
+| `triggers` | no | At most 128 strings, each a trigger of the chord grammar once, kept in the order of first use. A string this build cannot read is skipped. A list longer than 128, a repeated trigger, or a value that is not text leaves the entry out. The limit is the list's length before unreadable strings are skipped. A trigger is one byte from 0x21 to 0x7E, `@` followed by letters and digits, a named key, a mouse button, a wheel turn (`WheelUp`, `WheelDown`, `WheelLeft` or `WheelRight`), or `Pad.` and a name whose first character is a capital letter and whose rest is letters and digits. A modifier on its own (`Primary`, `Ctrl`, `Alt`, `Shift` or `Meta`) is not a trigger. |
+| `preview` | no | A picture reference ending `.png`, the keyboard picture for sites. |
+| `tags` | no | The same rule as on every other kind. |
+| `badge` | no | The same rule as on every other kind. |
+| `requires.engine` | no | The same range as on every other kind. |
+
+An older reader leaves an `oakeys` entry out as an unknown kind, before the
+duplicate-key check, so neither the entry nor its key affects anything else.
 
 ## Language packs
 

@@ -13306,6 +13306,14 @@
 	it=kB;
 	}
 
+[key layouts]
+	{
+	de=Tastenbelegungen;
+	fr=dispositions des touches;
+	es=distribuciones de teclas;
+	it=disposizioni dei tasti;
+	}
+
 [later than {version}]
 	{
 	de=später als {version};

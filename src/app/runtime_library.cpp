@@ -152,6 +152,10 @@ library::Kind kind_of(data::catalogue::Kind kind) noexcept {
         return library::Kind::mutator;
     case data::catalogue::Kind::oabrain:
         return library::Kind::brain;
+    case data::catalogue::Kind::oakeys:
+        // Not reached: library_inputs sets a layout aside before it builds a
+        // row. The Keys tab is K41's, and library::Kind has no layout until then.
+        return library::Kind::mod;
     }
     return library::Kind::mod;
 }
@@ -2257,6 +2261,11 @@ library::Inputs Runtime::library_inputs() {
                 offered.size = package.size;
                 offered.extends = package.extends;
                 inputs.downloadable_expansions.push_back(std::move(offered));
+                continue;
+            }
+            if (package.kind == data::catalogue::Kind::oakeys) {
+                // The Keys tab is K41's. A layout is not listed as a mod, a
+                // map, a language, a mutator or a brain.
                 continue;
             }
             library::Listing listing;

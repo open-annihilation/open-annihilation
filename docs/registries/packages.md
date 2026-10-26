@@ -91,9 +91,9 @@ made by hand; that is not an error.
 ## `oa-tool pack` and `oa-tool check`
 
 `oa-tool pack FOLDER` writes a `.oamod`, a `.oalang`, a `.oamap`, a
-`.oaexp`, a `.oamut` or a `.oabrain`. The folder's top holds one manifest,
-`oamod.yaml`, `language.yaml`, `oamap.yaml`, `oaexp.yaml`, `oamut.yaml` or
-`oabrain.yaml`. The manifest is written first, then every other file in
+`.oaexp`, a `.oamut`, a `.oabrain` or a `.oakeys`. The folder's top holds
+one manifest, `oamod.yaml`, `language.yaml`, `oamap.yaml`, `oaexp.yaml`,
+`oamut.yaml`, `oabrain.yaml` or `oakeys.yaml`. The manifest is written first, then every other file in
 byte order of its path, with fixed times. A file whose extension, without
 regard to case, is `png`, `jpg`, `jpeg`, `gif`, `ogg`, `mp3`, `zip`, `gz`,
 `bz2`, `xz`, `7z`, `oamod`, `oalang` or `oamap`, and an empty file, is
@@ -104,6 +104,7 @@ zlib.
 `--out FILE` names the package. Without it, the name comes from the manifest
 and is written in the current folder. A mutator's default name is
 `<id>-<version>.oamut`. A brain's default name is `<id>-<version>.oabrain`.
+A key layout's default name is `<id>-<version>.oakeys`.
 `--force` replaces an existing file. A folder the installer would refuse is
 not packed, and a mutator whose manifest, Lua source or rule file is broken
 is not packed: every problem is listed, a manifest problem as
@@ -118,7 +119,7 @@ not the digest the manifest names is
 compiled and rule files are parsed, and neither is run. A network file is
 hashed and not interpreted. A map pack needs `--game-dir DIR` for the
 game's palette, which previews use. `--game-dir` on a mod, a language pack,
-an expansion, a mutator or a brain is a usage error.
+an expansion, a mutator, a brain or a key layout is a usage error.
 
 `oa-tool check FILE` runs the same checks an install runs before it writes,
 and reports whether that install would accept the file. `--json` prints one
@@ -137,7 +138,10 @@ JSON object. The keys, in order, are `check`, `ok`, `problems`, `warnings`,
   `entry`, `scripts`, `rules` and `legacy`;
 - a brain: `summary`, `description`, `homepage`, `tags`, `author`,
   `requires`, `works_with`, `levels`, `full_awareness`, `networks`,
-  `network_bytes`, `options`, `icon`, `entry`, `scripts` and `data`.
+  `network_bytes`, `options`, `icon`, `entry`, `scripts` and `data`;
+- a key layout: `summary`, `description`, `homepage`, `tags`, `author`,
+  `requires`, `works_with`, `base`, `keyboard`, `pointer`, `helpers`,
+  `changes`, `triggers`, `unknown_actions`, `clashes` and `icon`.
 
 `requires.engine` is the requirement as written. `requires.mutators` and
 `conflicts_with` are objects with `id` and, when a range was written,
@@ -167,11 +171,43 @@ brain's Lua is compiled and not run, and a `.oann` file is hashed and not
 interpreted. `oa-tool brain pack` is `pack` limited to a brain: a folder
 without `oabrain.yaml` is a usage error.
 
+A key layout's `summary` is the description's first line, cut at 200 bytes.
+`author` is the name. `requires` is an object whose only member is `engine`,
+as written, and is left out when the manifest names none. `works_with` is
+the conditions as written. `base` is `oa-default` or `none`. `keyboard` is
+`any`, `ansi`, `iso` or `jis`, and `any` when the manifest names none.
+`pointer` is `right-click` or `left-click`, left out when the manifest names
+none. `helpers` lists the names the manifest sets, in the order toggle,
+sticky-modifiers, hold-to-confirm, pointer-keys, radial-orders and
+edge-scroll, including one set to false or to an empty list, and is left
+out when none are set. `changes` is how many actions the layout binds.
+`triggers` lists each trigger the layout's own bindings name, once, in the
+order of first use. `unknown_actions` and `clashes` are whole numbers, and
+`keyboard`, `base`, `changes`, `triggers`, `unknown_actions` and `clashes`
+are always written. `icon` has the mutator's shape. A warning is a layout
+problem reported with no keyboard map, written as
+`oakeys.yaml:<line>:<column>: <key>: <message>`. `ok` is false for an error,
+and, with `--strict`, for any warning. `--strict` changes no other kind.
+The package is the one the key-layout packer writes: `oakeys.yaml` first,
+then every other file in byte order of its path, with no clock time. A
+`.png` is stored and every other file is deflated. `oa-tool keys pack` is
+`pack` limited to a key layout: a folder without `oakeys.yaml` is a usage
+error. `oa-tool keys check` is `check` limited to a `.oakeys` or a folder
+whose top holds `oakeys.yaml`. A folder check names the folder, and the size
+and hash are the package the folder would pack to. `oa-tool keys picture
+FILE --out PNG` draws the keyboard picture of what the layout changes, 1200
+pixels wide unless `--width` says otherwise, with the fonts beside the
+program unless `--fonts` names a folder. `any` draws an ANSI keyboard.
+`oa-tool keys show FILE` prints each action with its context and chords
+after the base and the layout. `oa-default` is the base with no layout.
+`--json` prints an array of `action`, `context` and `chords`.
+
 An expansion does not take `--game-dir`. A brain does not take `--game-dir`.
+A key layout does not take `--game-dir`.
 
 A key the package does not have is left out. `revision` is null when a
-language pack has no packaging revision, and for every mutator and every
-brain. A map pack
+language pack has no packaging revision, and for every mutator, every brain
+and every key layout. A map pack
 needs `--game-dir`, the
 game folder. Each `--mod FOLDER[=KEY]` is one more target after the base
 game `ta-3.1c`. `maps` lists each map. `compatible` holds `ta-3.1c` and then

@@ -180,8 +180,8 @@ void check_catalogue(const std::filesystem::path& examples) {
     OA_CHECK(
         loaded.icon == "/v1/i/cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc.png"
     );
-    OA_CHECK(loaded.packages.size() == 5);
-    if (loaded.packages.size() == 5) {
+    OA_CHECK(loaded.packages.size() == 6);
+    if (loaded.packages.size() == 6) {
         OA_CHECK(loaded.packages[0].kind == catalogue::Kind::oamod);
         OA_CHECK(loaded.packages[0].id == "example-mod");
         OA_CHECK(loaded.packages[1].kind == catalogue::Kind::oamap);
@@ -248,6 +248,44 @@ void check_catalogue(const std::filesystem::path& examples) {
         OA_CHECK(
             brain.badge ==
             "/v1/i/8888888888888888888888888888888888888888888888888888888888888888.png"
+        );
+        const catalogue::Package& layout = loaded.packages[5];
+        OA_CHECK(layout.kind == catalogue::Kind::oakeys);
+        OA_CHECK(layout.id == "grid-left-hand");
+        OA_CHECK(layout.version == "1.0");
+        OA_CHECK(layout.key_base == "oa-default");
+        OA_CHECK(layout.keyboard == "any");
+        OA_CHECK(layout.pointer == "right-click");
+        OA_CHECK(layout.changes == 11);
+        OA_CHECK(layout.helpers == std::vector<std::string>({"toggle", "sticky-modifiers"}));
+        OA_CHECK(
+            layout.triggers == std::vector<std::string>({
+                                   "@KeyQ",
+                                   "@KeyW",
+                                   "@KeyE",
+                                   "@KeyR",
+                                   "@KeyS",
+                                   "@KeyG",
+                                   "@KeyZ",
+                                   "@KeyX",
+                                   "@KeyC",
+                                   "@KeyV",
+                                   "@KeyB",
+                               })
+        );
+        OA_CHECK(layout.works_with == std::vector<std::string>({"ta-3.1c", "ridge >= 28"}));
+        OA_CHECK(layout.tags == std::vector<std::string>({"grid", "left-hand"}));
+        OA_CHECK(
+            layout.badge ==
+            "/v1/i/1313131313131313131313131313131313131313131313131313131313131313.png"
+        );
+        OA_CHECK(
+            layout.preview ==
+            "/v1/i/1414141414141414141414141414141414141414141414141414141414141414.png"
+        );
+        OA_CHECK(
+            layout.file.size() >= 7 &&
+            layout.file.compare(layout.file.size() - 7, 7, ".oakeys") == 0
         );
     }
 
