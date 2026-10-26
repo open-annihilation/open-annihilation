@@ -3739,6 +3739,10 @@ struct Runtime::LibraryScreen final : LayerScreen {
             );
             return false;
         }
+        case library::Action::use_layout:
+            return false;
+        case library::Action::edit_keys:
+            return false;
         }
         return false;
     }

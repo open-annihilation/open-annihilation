@@ -97,13 +97,14 @@ constexpr std::array<Tab, tab_total> tab_order{
     Tab::maps,
     Tab::mutators,
     Tab::brains,
+    Tab::keys,
     Tab::languages,
     Tab::updates,
     Tab::registries
 };
 /// The words the tabs are named by, in that order.
 constexpr std::array<std::string_view, tab_total> tab_words{
-    "active", "mods", "maps", "mutators", "brains", "languages", "updates", "registries"
+    "active", "mods", "maps", "mutators", "brains", "keys", "languages", "updates", "registries"
 };
 /// The filters, in the order they are shown.
 constexpr std::array<Filter, filter_total> filter_order{
@@ -217,6 +218,10 @@ std::string_view action_word(Action action) {
         return "use-by-default";
     case Action::get_with:
         return "get-with";
+    case Action::use_layout:
+        return "use";
+    case Action::edit_keys:
+        return "edit-keys";
     }
     return "action";
 }
@@ -1516,6 +1521,8 @@ std::string_view placeholder_of(const Library& library) {
         return shown(library.text, words::search_mutators);
     case Tab::brains:
         return shown(library.text, words::search_brains);
+    case Tab::keys:
+        return shown(library.text, words::search_keys);
     case Tab::languages:
         return shown(library.text, words::search_languages);
     case Tab::updates:

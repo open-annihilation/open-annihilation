@@ -22,8 +22,8 @@ target_include_directories(oa-ui-library PUBLIC include)
 target_compile_features(oa-ui-library PUBLIC cxx_std_20)
 target_link_libraries(oa-ui-library PUBLIC oa-formats-oamod oa-base-sha256 oa-ui-kit
   oa-data-mutators PRIVATE
-  oa-base-text oa-data-mod-profile oa-data-content-bundles oa-data-languages oa-formats-oamut
-  oa-formats-oabrain oa-options)
+  oa-base-text oa-data-mod-profile oa-data-content-bundles oa-data-languages
+  oa-data-input-actions oa-formats-oamut oa-formats-oabrain oa-options)
 
 if(BUILD_TESTING)
   # Entries and their states, blocking, registries, tabs, each tab's filter,

@@ -113,6 +113,8 @@ const install::PackageKind* package_kind_of(library::Kind kind) {
         return install::find_kind("oamut");
     case library::Kind::brain:
         return install::find_kind("oabrain");
+    case library::Kind::key_layout:
+        return install::find_kind("oakeys");
     }
     return nullptr;
 }

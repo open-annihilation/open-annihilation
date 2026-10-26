@@ -195,6 +195,8 @@ std::string_view tab_word(library::Tab tab) noexcept {
         return "mutators";
     case library::Tab::brains:
         return "brains";
+    case library::Tab::keys:
+        return "keys";
     case library::Tab::languages:
         return "languages";
     case library::Tab::updates:
