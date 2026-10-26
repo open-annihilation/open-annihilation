@@ -1081,6 +1081,7 @@ void Runtime::load_key_bindings() {
     if (key_bindings_state_ != nullptr && key_bindings_state_->signature == signature_now())
         return;
     gui_quick_keys_gathered_ = false;
+    gathered_tags_.clear();
 
     const bool one_run = options_.keys_reset || !options_.keys.empty();
     const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);

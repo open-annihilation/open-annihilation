@@ -384,6 +384,17 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
             return true;
         }
     }
+    constexpr std::string_view tag_action = "select.tag-";
+    if (id.starts_with(tag_action)) {
+        const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
+        for (const GatheredTag& tag : gathered_tags_) {
+            if (tag.action != id)
+                continue;
+            select_by_tag(tag.word, shift, TagReach::two_press);
+            return true;
+        }
+        return true;
+    }
     if (id == "select.on-screen" || id == "select.armed-on-screen") {
         const bool shift = (input_modifiers(ModifierUse::keyboard) & SDL_KMOD_SHIFT) != 0;
         if (selection_shortcut_key(SelectionShortcut::on_screen, shift))

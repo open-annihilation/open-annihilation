@@ -2896,8 +2896,8 @@ class Runtime final : public menu::Host,
     /// A later mod load reads them again. [runtime_gui_actions.cpp]
     void gather_gui_quick_keys();
 
-    /// The mod data resolution reads: one gui key per gathered button, and the
-    /// category letters the loaded units use.
+    /// The mod data resolution reads: one gui key per gathered button, the
+    /// category letters the loaded units use, and every gathered Category word.
     ///
     /// The gadget word is set only for `order_stem`, so only that side's order
     /// file moves a registry action. The letters are `loaded_category_letters`.
@@ -20779,6 +20779,18 @@ class Runtime final : public menu::Host,
     std::vector<GuiQuickKey> gui_quick_keys_{};
     /// Set once the mod's GUI files have been read. Cleared when the mod changes.
     bool gui_quick_keys_gathered_{};
+
+    /// One Category word gathered at mod load, and the action that selects it.
+    struct GatheredTag {
+        std::string word{};   ///< the data's spelling
+        std::string action{}; ///< the action id
+    };
+
+    /// Category words of the mod's units, in registry order. Empty until the
+    /// GUI keys are gathered.
+    std::vector<GatheredTag> gathered_tags_{};
+    /// Reads the units' Category lines into `gathered_tags_`. [runtime_gui_actions.cpp]
+    void gather_tag_words();
     /// The word of the last two-press tag selection, as the data spells it.
     std::string tag_reach_word_{};
     /// Selected local unit ids after that press, in id order. The next press

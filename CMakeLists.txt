@@ -435,6 +435,10 @@ if(BUILD_TESTING)
   add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
   target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
   add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
+  add_executable(oa-app-tag-actions-test src/app/tag_actions_test.cpp src/app/tag_actions.cpp)
+  target_link_libraries(oa-app-tag-actions-test PRIVATE oa-data-defs oa-ui-key-bindings
+    oa-test-support oa-options)
+  add_test(NAME app-tag-actions COMMAND oa-app-tag-actions-test)
 endif()
 # The game's three icons (branding/, made by tools/make_icons.py), each
 # embedded as a PNG file. The 256-pixel pictures: the app icon is the
@@ -1342,7 +1346,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
   src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp
   src/app/runtime_pointer_keys.cpp
-  src/app/gui_actions.cpp src/app/runtime_gui_actions.cpp
+  src/app/gui_actions.cpp src/app/tag_actions.cpp src/app/runtime_gui_actions.cpp
   src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
   src/app/game_files_screen.cpp src/app/game_files_paint.cpp src/app/game_files_dialog.cpp
