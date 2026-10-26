@@ -244,7 +244,8 @@ RowContext row_context(const Dialog& dialog) noexcept {
         dialog.steam_input,
         dialog.steam_deck_panel_hz,
         dialog.library_link && dialog.kind == DialogKind::engine,
-        dialog.file_type_switches
+        dialog.file_type_switches,
+        !dialog.played_mod.empty()
     };
 }
 
@@ -619,6 +620,8 @@ Rows place_rows(
     shown.steam_deck_panel_hz = context.steam_deck_panel_hz;
     shown.library_link = context.library_link;
     shown.file_type_switches = context.file_type_switches;
+    if (context.played_mod)
+        shown.played_mod = "mod";
     Rows placed = place_section(shown, page, locks, section, &estimated_width);
     scroll_rows(placed, scroll);
     return placed;
@@ -1169,6 +1172,16 @@ std::string_view lock_text(Lock lock) noexcept {
 }
 
 } // namespace geometry
+
+std::string key_layout_summary_text(std::string_view name, int32_t changes) {
+    if (changes <= 0)
+        return std::string(name);
+    if (changes == 1)
+        return geometry::filled("{name} · 1 change of your own", {{"name", name}});
+    return geometry::filled(
+        "{name} · {n} changes of your own", {{"name", name}, {"n", std::to_string(changes)}}
+    );
+}
 
 namespace layout = geometry;
 
@@ -1822,6 +1835,26 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
                  layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
         "SHOW AGAIN asks for an action no other row's button asks for"
     );
+    static_assert(
+        layout::edit_keys_action != downloads::reset_install_id_action &&
+            layout::edit_keys_action != downloads::empty_downloads_action &&
+            layout::edit_keys_action != downloads::manage_registries_action &&
+            layout::edit_keys_action != layout::manage_game_files_action &&
+            layout::edit_keys_action != layout::open_library_action &&
+            layout::edit_keys_action != layout::show_gallery_action &&
+            layout::edit_keys_action != layout::show_welcome_action &&
+            layout::edit_keys_action != updates::check_updates_action &&
+            layout::edit_keys_action != updates::open_release_action &&
+            layout::edit_keys_action != updates::restart_update_action &&
+            layout::edit_keys_action != updates::retry_update_action &&
+            layout::edit_keys_action != updates::roll_back_action &&
+            (layout::edit_keys_action < layout::first_folder_action ||
+             layout::edit_keys_action >=
+                 layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
+        "EDIT KEYS… asks for an action no other row's button asks for"
+    );
+    if (action == layout::edit_keys_action)
+        return DialogAction::edit_keys;
     if (action == layout::show_welcome_action) {
         // The preference stays until OK. Cancel drops the dialog, and the
         // flag with it.
@@ -2912,7 +2945,34 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         const oa::ui::kit::RowView& view = placed.rows[index].view;
         // A locked row's control is drawn but takes no press.
         const int32_t control = row.lock == Lock::none ? row.control : no_control;
-        row_part(LayoutPart{row.label, view.label, DialogFont::regular, 0, no_control});
+        // A value that shares the label's box, as Key layout's does when it
+        // fits beside EDIT KEYS…, keeps the right of that line. The label
+        // keeps the left, so the two texts do not cover each other.
+        layout::SourceRect label_box = row.label;
+        layout::SourceRect value_box = placed.rows[index].value;
+        if (view.kind == oa::ui::kit::RowKind::value_and_button && !view.value.empty() &&
+            value_box.x == label_box.x && value_box.y == label_box.y &&
+            value_box.width == label_box.width && value_box.height == label_box.height) {
+            const auto span_of = [&](std::string_view words) {
+                return std::max(text_width(words), int32_t{1});
+            };
+            int32_t value_span = span_of(view.value);
+            const int32_t label_span = view.label.empty() ? 0 : span_of(view.label);
+            const int32_t room = std::max(label_box.width - layout::label_gap, int32_t{1});
+            if (label_span + layout::label_gap + value_span > label_box.width)
+                value_span = std::min(value_span, std::max(room / 2, int32_t{1}));
+            value_span = std::min(value_span, label_box.width);
+            value_box = {
+                label_box.x + label_box.width - value_span,
+                label_box.y,
+                value_span,
+                label_box.height
+            };
+            if (!view.label.empty())
+                label_box.width =
+                    std::max(value_box.x - layout::label_gap - label_box.x, int32_t{1});
+        }
+        row_part(LayoutPart{label_box, view.label, DialogFont::regular, 0, no_control});
         if (row.lock != Lock::none) {
             const layout::SourceRect text_area{
                 row.lock_area.x + layout::padlock_width + layout::padlock_gap,
@@ -2938,14 +2998,11 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
                 );
         switch (view.kind) {
         case oa::ui::kit::RowKind::value_and_button:
-            // Previous version names the kept release beside the label. The
-            // other buttons of this kind show a caption and no value.
-            if (row.updates == 3 && !view.value.empty())
-                row_part(
-                    LayoutPart{
-                        placed.rows[index].value, view.value, DialogFont::regular, 0, no_control
-                    }
-                );
+            // Previous version names the kept release, and Key layout names
+            // the layout in use, beside the label. A button with no value
+            // shows its caption alone.
+            if (!view.value.empty())
+                row_part(LayoutPart{value_box, view.value, DialogFont::regular, 0, no_control});
             if (!view.buttons.empty())
                 row_part(
                     LayoutPart{

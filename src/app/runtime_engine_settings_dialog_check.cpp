@@ -960,41 +960,31 @@ void Runtime::check_engine_settings_dialog() {
     );
 
     click(settings::page_control(settings::Page::controls), {}, "Controls' entry");
-    click(settings::first_row_control, "OFF", "Mouse wheel zoom's Off");
+    // Key layout and Show keys on buttons sit above the wheel. The wheel and
+    // the limits keep their own names, so those rows do not move the press.
+    click(control_named("settings.wheel-zoom"), "OFF", "Mouse wheel zoom's Off");
     chosen.wheel_zoom = false;
     expect("Mouse wheel zoom Off");
     // The zoom's limits, on their drop-downs: Right steps a choice on and
     // Left one back.
-    focus(settings::first_row_control + 1, "Maximum zoom out");
+    focus(control_named("settings.max-zoom-out"), "Maximum zoom out");
     tap(SDLK_RIGHT);
     chosen.max_zoom_out = settings::ZoomOutLimit::whole_map;
     expect("Maximum zoom out Whole map");
-    focus(settings::first_row_control + 2, "Maximum zoom in");
+    focus(control_named("settings.max-zoom-in"), "Maximum zoom in");
     tap(SDLK_LEFT);
     chosen.max_zoom_in = settings::ZoomInLimit::three_times;
     expect("Maximum zoom in 3x");
     // The rows under them, scrolled into view as the focus reaches them.
     // View past the map's edge: 25% is the share the view's limits take.
-    focus(settings::first_row_control + 3, "View past the map's edge");
-    click(settings::first_row_control + 3, "25%", "View past the map's edge's 25%");
+    focus(control_named("settings.view-past-map-edge"), "View past the map's edge");
+    click(control_named("settings.view-past-map-edge"), "25%", "View past the map's edge's 25%");
     chosen.view_past_map_edge = settings::ViewPastMapEdge::one_quarter;
     expect("View past the map's edge 25%");
     require(
         past_map_edge_share() == 0.25,
         "View past the map's edge 25% is not the view's limits' share"
     );
-    const int32_t groups = control_named("settings.switch-alt");
-    focus(groups, "Select groups without Alt");
-    click(groups, "ON", "Select groups without Alt's On");
-    chosen.switch_alt = true;
-    expect("Select groups without Alt On");
-    require(
-        (preferences_.graphics_flags & init::preference_flags::switch_alt) != 0,
-        "Select groups without Alt did not set SwitchAlt"
-    );
-    // A click on the side a switch already shows changes nothing.
-    click(groups, "ON", "Select groups without Alt's On");
-    expect("a second click on On");
     // Window edge opens on Capture, with Edge stickiness under it locked at
     // 1.0: Tab passes it by and its keys change nothing. Sticky frees it,
     // and a step of it is the sticky edge's firmness at once. Free locks it
@@ -1407,7 +1397,10 @@ void Runtime::check_engine_settings_dialog() {
     expected_keys.emplace(std::string(settings::key::fog_of_war), "classic");
     const auto saved = oa::platform::preferences::load(preference_path_);
     require(engine_keys(saved) == expected_keys, "OK did not save exactly the settings changed");
-    require(saved_general_number("SwitchAlt") == 1, "OK did not save SwitchAlt");
+    require(
+        saved_general_number("SwitchAlt") == -1,
+        "OK wrote SwitchAlt though Controls no longer shows it"
+    );
     dialog = open("again");
     require(
         same_settings(dialog->opened, chosen) && dialog->page == settings::Page::developer,
@@ -1417,7 +1410,7 @@ void Runtime::check_engine_settings_dialog() {
     // Cancel (its button) puts back what the dialog opened with and saves nothing.
     click(settings::first_row_control + 1, "OFF", "Show performance statistics' Off");
     click(settings::page_control(settings::Page::controls), {}, "Controls' entry");
-    click(settings::first_row_control, "ON", "Mouse wheel zoom's On");
+    click(control_named("settings.wheel-zoom"), "ON", "Mouse wheel zoom's On");
     require(
         !engine_settings().frame_stats && engine_settings().wheel_zoom && !frame_stats_shown_,
         "the changes before Cancel did not take effect at once"

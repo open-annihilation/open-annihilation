@@ -672,18 +672,47 @@ void each_section_shows_its_rows() {
     CHECK(graphics_entry.y + graphics_entry.height <= divider.y);
     CHECK(divider.y + divider.height <= geometry::list_item(Page::developer).y);
 
-    // Controls: the wheel's switch with the zoom's two limits under it, how
-    // far past the map's edges the view goes, middle-click panning, whether
-    // a window keeps the pointer, and how firmly a sticky edge holds.
-    CHECK(settings::page_settings(Page::controls).size() == 8);
-    CHECK(settings::page_settings(Page::controls)[0] == Setting::wheel_zoom);
-    CHECK(settings::page_settings(Page::controls)[1] == Setting::max_zoom_out);
-    CHECK(settings::page_settings(Page::controls)[2] == Setting::max_zoom_in);
-    CHECK(settings::page_settings(Page::controls)[3] == Setting::view_past_map_edge);
-    CHECK(settings::page_settings(Page::controls)[4] == Setting::middle_click_pan);
-    CHECK(settings::page_settings(Page::controls)[5] == Setting::switch_alt);
-    CHECK(settings::page_settings(Page::controls)[6] == Setting::window_edge);
-    CHECK(settings::page_settings(Page::controls)[7] == Setting::window_edge_stickiness);
+    // Controls: the layout in use, whether buttons show their key, then the
+    // wheel's switch with the zoom's two limits under it, how far past the
+    // map's edges the view goes, middle-click panning, whether a window
+    // keeps the pointer, and how firmly a sticky edge holds. Select groups
+    // without Alt stays off this section. While a mod is played, Key layout
+    // with that mod sits under Key layout.
+    CHECK(settings::page_settings(Page::controls).size() == 9);
+    CHECK(settings::page_settings(Page::controls)[0] == Setting::key_layout);
+    CHECK(settings::page_settings(Page::controls)[1] == Setting::show_keys_on_buttons);
+    CHECK(settings::page_settings(Page::controls)[2] == Setting::wheel_zoom);
+    CHECK(settings::page_settings(Page::controls)[3] == Setting::max_zoom_out);
+    CHECK(settings::page_settings(Page::controls)[4] == Setting::max_zoom_in);
+    CHECK(settings::page_settings(Page::controls)[5] == Setting::view_past_map_edge);
+    CHECK(settings::page_settings(Page::controls)[6] == Setting::middle_click_pan);
+    CHECK(settings::page_settings(Page::controls)[7] == Setting::window_edge);
+    CHECK(settings::page_settings(Page::controls)[8] == Setting::window_edge_stickiness);
+    for (const Setting setting : settings::page_settings(Page::controls))
+        CHECK(setting != Setting::switch_alt);
+    geometry::RowContext played;
+    played.played_mod = true;
+    const auto with_mod = geometry::section_settings(Page::controls, nullptr, played);
+    CHECK(with_mod.size() == 10);
+    CHECK(with_mod[0] == Setting::key_layout);
+    CHECK(with_mod[1] == Setting::key_layout_for_mod);
+    CHECK(with_mod[2] == Setting::show_keys_on_buttons);
+    CHECK(with_mod[3] == Setting::wheel_zoom);
+    CHECK(with_mod[4] == Setting::max_zoom_out);
+    CHECK(with_mod[5] == Setting::max_zoom_in);
+    CHECK(with_mod[6] == Setting::view_past_map_edge);
+    CHECK(with_mod[7] == Setting::middle_click_pan);
+    CHECK(with_mod[8] == Setting::window_edge);
+    CHECK(with_mod[9] == Setting::window_edge_stickiness);
+    for (const Setting setting : with_mod)
+        CHECK(setting != Setting::switch_alt);
+    CHECK(settings::key_layout_summary_text("OA default", 0) == "OA default");
+    CHECK(
+        settings::key_layout_summary_text("OA default", 1) == "OA default · 1 change of your own"
+    );
+    CHECK(
+        settings::key_layout_summary_text("OA default", 4) == "OA default · 4 changes of your own"
+    );
     // Engine Limits: the unit limit, pathfinding, the skirmish player count,
     // then the heading and the two rows the mod fixes.
     CHECK(settings::page_settings(Page::common_tweaks).size() == 6);
@@ -788,33 +817,22 @@ void each_section_shows_its_rows() {
           "User Interface",
           "Developer",
           "CONTROLS",
-          "Mouse wheel zoom",
-          "Scroll to zoom the battlefield in and out.",
-          "Maximum zoom out",
-          "As far as the view always went: 1/6 of normal size",
-          "with Full hardware acceleration, else 1/2.",
-          "Maximum zoom in",
-          "In to 4x normal size at most. The wheel, a pinch",
-          "and a controller stop there.",
+          "Key layout",
+          "EDIT KEYS…",
+          "OA default",
+          "Show keys on buttons",
           "OFF",
           "ON",
           "RESTORE DEFAULTS",
           "CANCEL",
           "OK"})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
-    // The limits' fields show their choices.
     const auto controls_rows = geometry::place_rows(Page::controls, {});
-    for (const auto& [row, choice] :
-         {std::pair{std::size_t{1}, std::string_view{"Automatic"}},
-          std::pair{std::size_t{2}, std::string_view{"4x"}}})
-        CHECK(
-            find_part(parts, choice, settings::first_row_control + static_cast<int32_t>(row)) !=
-            nullptr
-        );
-    CHECK(controls_rows.rows.size() == 8);
-    // View past the map's edge, scrolled into view.
+    CHECK(controls_rows.rows.size() == 9);
+    // View past the map's edge, scrolled into view. Key layout and Show keys
+    // on buttons sit above it, so 200 shows the row and its hint.
     settings::Dialog middle = opened(Page::controls);
-    middle.scroll[static_cast<std::size_t>(Page::controls)] = 100;
+    middle.scroll[static_cast<std::size_t>(Page::controls)] = 200;
     parts = settings::dialog_layout(middle);
     for (const std::string_view text :
          {"View past the map's edge",
@@ -829,8 +847,6 @@ void each_section_shows_its_rows() {
          {"Middle-click pans",
           "A middle click pans the view towards the pointer",
           "until you click or press a key.",
-          "Select groups without Alt",
-          "A number key selects its group on its own.",
           "Window edge",
           "The pointer stays in the window while you play.",
           "Capture",
@@ -841,6 +857,7 @@ void each_section_shows_its_rows() {
           "1.0",
           "How firmly Sticky holds the pointer at the edge."})
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
+    CHECK(find_part(parts, "Select groups without Alt", settings::no_control) == nullptr);
     CHECK(find_part(parts, "Shared game - still running", settings::no_control) == nullptr);
     // Each entry is its section's control.
     for (const Page page : kPages) {
@@ -903,49 +920,51 @@ void every_control_is_pressed_where_it_is_drawn() {
 void switches_take_a_click_on_either_half_and_keys() {
     settings::Dialog dialog = opened(Page::controls);
     const auto rows = geometry::place_rows(Page::controls, {});
-    const auto& zoom = rows.rows[0].control_area;
-    const Point off{zoom.x + 4, zoom.y + zoom.height / 2};
-    const Point on{zoom.x + zoom.width - 4, zoom.y + zoom.height / 2};
-    CHECK(dialog.chosen.wheel_zoom);
+    // EDIT KEYS… is the first row's button. Show keys on buttons is the
+    // switch under it, On until a click on its Off half.
+    CHECK(click(dialog, centre(rows.rows[0].control_area)) == DialogAction::edit_keys);
+    const auto& keys = rows.rows[1].control_area;
+    const Point off{keys.x + 4, keys.y + keys.height / 2};
+    const Point on{keys.x + keys.width - 4, keys.y + keys.height / 2};
+    CHECK(dialog.chosen.show_keys_on_buttons);
     CHECK(click(dialog, off) == DialogAction::changed);
-    CHECK(!dialog.chosen.wheel_zoom);
+    CHECK(!dialog.chosen.show_keys_on_buttons);
     CHECK(click(dialog, off) == DialogAction::redraw);
-    CHECK(!dialog.chosen.wheel_zoom);
+    CHECK(!dialog.chosen.show_keys_on_buttons);
     CHECK(click(dialog, on) == DialogAction::changed);
-    CHECK(dialog.chosen.wheel_zoom);
+    CHECK(dialog.chosen.show_keys_on_buttons);
 
-    // Keys: the first moves the focus to the first row; Space flips it,
-    // Left sets Off and Right On.
+    // Keys: the first moves the focus to Key layout; Space opens the editor.
+    // Down reaches Show keys on buttons, then the wheel, then the limits.
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control);
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::edit_keys);
     CHECK(dialog.chosen.wheel_zoom);
-    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
-    CHECK(!dialog.chosen.wheel_zoom);
-    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
-    CHECK(dialog.chosen.wheel_zoom);
-    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::redraw);
-    // Down to the limits' drop-downs: Right steps a choice on, Left back.
+    CHECK(!dialog.chosen.switch_alt);
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 1);
-    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
-    CHECK(dialog.chosen.max_zoom_out == settings::ZoomOutLimit::whole_map);
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
+    CHECK(!dialog.chosen.show_keys_on_buttons);
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 2);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
-    CHECK(dialog.chosen.max_zoom_in == settings::ZoomInLimit::three_times);
-    // View past the map's edge's strip: Left steps a level down from 50%.
+    CHECK(!dialog.chosen.wheel_zoom);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.wheel_zoom);
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 3);
-    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
-    CHECK(dialog.chosen.view_past_map_edge == settings::ViewPastMapEdge::one_quarter);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.max_zoom_out == settings::ZoomOutLimit::whole_map);
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 4);
-    CHECK(dialog.chosen.middle_click_pan);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.max_zoom_in == settings::ZoomInLimit::three_times);
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 5);
-    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
-    CHECK(dialog.chosen.switch_alt);
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.view_past_map_edge == settings::ViewPastMapEdge::one_quarter);
     CHECK(dialog.chosen.middle_click_pan);
+    CHECK(!dialog.chosen.switch_alt);
     CHECK(dialog.chosen != dialog.opened);
 
     // Escape opens the game menu moved to User Interface, its last row.
@@ -2357,6 +2376,7 @@ void the_focus_moves_round_every_control() {
         settings::first_row_control + 4,
         settings::first_row_control + 5,
         settings::first_row_control + 6,
+        settings::first_row_control + 7,
         settings::restore_control,
         settings::cancel_control,
         settings::ok_control,
@@ -2596,9 +2616,10 @@ void the_view_and_the_scroll_bar_keep_their_places() {
 
 void sections_that_fit_do_not_scroll() {
     // Each section's content: its rows, and the end gap under the last.
-    // Controls' three switches, the zoom's two drop-downs, View past the
-    // map's edge's strip, Window edge's strip and Edge stickiness's slider
-    // are 491. Engine Limits' three sliders, the mod's heading and its two
+    // Controls' Key layout, Show keys on buttons, Mouse wheel zoom, the
+    // zoom's two drop-downs, View past the map's edge's strip, Middle-click
+    // pans, Window edge's strip and Edge stickiness's slider are 562.
+    // Engine Limits' three sliders, the mod's heading and its two
     // rows are 369. Graphics' twenty-one rows are 1208, Language's
     // drop-down, five switches and slider 424, and User Interface's four
     // strips and switches with Interface size's row are 324. All of them
@@ -2606,8 +2627,8 @@ void sections_that_fit_do_not_scroll() {
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{491, 369, 1208, 424, 324};
-    const std::array<int32_t, 5> limits{255, 133, 972, 188, 88};
+    const std::array<int32_t, 5> content{562, 369, 1208, 424, 324};
+    const std::array<int32_t, 5> limits{326, 133, 972, 188, 88};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -4320,13 +4341,13 @@ void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) 
     );
     CHECK(canvas.at(geometry::ok_button.x + 2, geometry::ok_button.y + 2) == kAccent);
     const auto rows = geometry::place_rows(Page::controls, {});
-    const auto& zoom = rows.rows[0].control_area;
-    CHECK(canvas.at(zoom.x + zoom.width - 3, zoom.y + 2) == kAccent); // On
+    const auto& keys_on = rows.rows[1].control_area;
+    CHECK(canvas.at(keys_on.x + keys_on.width - 3, keys_on.y + 2) == kAccent); // On
     Canvas off = blank(settings::dialog_width, settings::dialog_height);
     settings::Dialog zoom_off = dialog;
-    zoom_off.chosen.wheel_zoom = false;
+    zoom_off.chosen.show_keys_on_buttons = false;
     settings::draw_dialog(off.surface, {0, 0, 1}, zoom_off, fonts, kNoIcon);
-    CHECK(off.at(zoom.x + 2, zoom.y + 2) == kOffSelected); // Off
+    CHECK(off.at(keys_on.x + 2, keys_on.y + 2) == kOffSelected); // Off
 
     // At twice the size, offset into a larger surface.
     Canvas larger = blank(1200, 800);
@@ -5257,7 +5278,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
     // is printed, so that a change meant to move these parts can pin them
     // again.
     const std::array<std::pair<Page, uint64_t>, 11> kBefore{{
-        {Page::controls, 0x1353c5107226492b},
+        {Page::controls, 0x831ac156fdb361e8},
         {Page::common_tweaks, 0x574d80f303b6ba2c},
         {Page::language, 0x4b044c1ccf4c14cf},
         {Page::graphics, 0xe142c80554355985},
@@ -5265,7 +5286,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
         {Page::touch, 0x06e04c8c7adeaedf},
         {Page::controller, 0x33bfab27a238bf5b},
         {Page::game_files, 0x91919fcbfa7bd9a4},
-        {Page::downloads, 0xe8c219c70e49efd6},
+        {Page::downloads, 0x7ff41610e0f29c13},
         {Page::updates, 0x44e95e2faa63e655},
         {Page::game_content, 0x8ff6dbe85ecb0582},
     }};
@@ -6229,19 +6250,34 @@ void hint_lines_part_while_the_modern_fonts_draw_the_words() {
     oa::data::languages::set_interface_language(nullptr, modern);
     const auto tall = geometry::place_rows(Page::controls, {});
     oa::data::languages::set_interface_language(nullptr, oa::data::languages::english());
-    CHECK(game_fonts.rows.size() == 8 && tall.rows.size() == 8);
-    if (game_fonts.rows.size() != 8 || tall.rows.size() != 8)
+    CHECK(game_fonts.rows.size() == 9 && tall.rows.size() == 9);
+    if (game_fonts.rows.size() != 9 || tall.rows.size() != 9)
         return;
-    // Mouse wheel zoom: one line, in the same place.
-    CHECK(tall.rows[0].hint_lines == 1 && tall.rows[0].height == game_fonts.rows[0].height);
-    // Maximum zoom out: two lines, 12 rows apart beside the game's fonts
-    // and 15 beside the modern fonts; the row is 3 rows taller.
-    const auto& escape = game_fonts.rows[1];
-    const auto& parted = tall.rows[1];
+    // Key layout and Show keys on buttons each wrap to two lines, so each
+    // is 3 rows taller beside the modern fonts and the rows under them sit
+    // lower by that.
+    CHECK(game_fonts.rows[0].hint_lines == 2 && tall.rows[0].hint_lines == 2);
+    CHECK(game_fonts.rows[0].hints[1].y == game_fonts.rows[0].hints[0].y + 12);
+    CHECK(tall.rows[0].hints[1].y == tall.rows[0].hints[0].y + 15);
+    CHECK(tall.rows[0].height == game_fonts.rows[0].height + 3);
+    CHECK(game_fonts.rows[1].hint_lines == 2 && tall.rows[1].hint_lines == 2);
+    CHECK(game_fonts.rows[1].hints[1].y == game_fonts.rows[1].hints[0].y + 12);
+    CHECK(tall.rows[1].hints[0].y == game_fonts.rows[1].hints[0].y + 3);
+    CHECK(tall.rows[1].hints[1].y == tall.rows[1].hints[0].y + 15);
+    CHECK(tall.rows[1].height == game_fonts.rows[1].height + 3);
+    // Mouse wheel zoom: one line, six lower, the same height.
+    CHECK(tall.rows[2].hint_lines == 1 && tall.rows[2].height == game_fonts.rows[2].height);
+    CHECK(tall.rows[2].top == game_fonts.rows[2].top + 6);
+    // Maximum zoom out: two lines, 12 apart beside the game's fonts and 15
+    // beside the modern fonts. It starts 6 lower and is 3 taller, so the
+    // next starts 9 lower.
+    const auto& escape = game_fonts.rows[3];
+    const auto& parted = tall.rows[3];
     CHECK(escape.hint_lines == 2 && parted.hint_lines == 2);
     CHECK(escape.hints[1].y == escape.hints[0].y + 12);
-    CHECK(parted.hints[0].y == escape.hints[0].y && parted.hints[1].y == parted.hints[0].y + 15);
-    CHECK(parted.height == escape.height + 3 && tall.rows[2].top == game_fonts.rows[2].top + 3);
+    CHECK(parted.hints[0].y == escape.hints[0].y + 6);
+    CHECK(parted.hints[1].y == parted.hints[0].y + 15);
+    CHECK(parted.height == escape.height + 3 && tall.rows[4].top == game_fonts.rows[4].top + 9);
 }
 
 /// While the dialog's words are drawn in the modern fonts, the view's top
@@ -8119,8 +8155,8 @@ void window_edge_and_edge_stickiness_show_and_change() {
     CHECK(geometry::strip_caption(Setting::window_edge, 2) == "Free");
     CHECK(settings::EngineSettings{}.window_edge == settings::WindowEdge::capture);
     CHECK(settings::EngineSettings{}.edge_stickiness == settings::default_edge_stickiness);
-    constexpr int32_t strip = settings::first_row_control + 6;
-    constexpr int32_t slider = settings::first_row_control + 7;
+    constexpr int32_t strip = settings::first_row_control + 7;
+    constexpr int32_t slider = settings::first_row_control + 8;
 
     settings::Dialog dialog = opened(Page::controls);
     dialog.scroll[static_cast<std::size_t>(Page::controls)] = std::numeric_limits<int32_t>::max();
@@ -9511,11 +9547,14 @@ void endpoint_names_at(oa::ui::kit::SizeClass size_class) {
     for (uint8_t& open : engine.developer.hacks_open)
         open = 1;
     check_every_section_endpoint_names(engine, "engine", seen);
-    // A drop-down open on Controls: Maximum zoom out, the second row.
+    // A drop-down open on Controls: Maximum zoom out. Key layout, Show keys
+    // on buttons and Mouse wheel zoom take the focus before it.
     settings::Dialog dropped = engine;
     dropped.page = Page::controls;
-    for (const auto key : {DialogKey::tab, DialogKey::tab, DialogKey::space})
-        static_cast<void>(settings::dialog_key(dropped, key));
+    for (int32_t press = 0; press < 4; ++press)
+        static_cast<void>(settings::dialog_key(dropped, DialogKey::tab));
+    CHECK(dropped.focused == settings::first_row_control + 3);
+    static_cast<void>(settings::dialog_key(dropped, DialogKey::space));
     CHECK(dropped.open_list != settings::no_control);
     check_endpoint_names(dropped, "Controls, a drop-down open", seen);
     // Interface size's drop-down open, User Interface's fourth row.
@@ -9664,28 +9703,28 @@ std::vector<int32_t> tab_round(settings::Dialog dialog) {
 }
 
 void the_arrows_move_by_geometry() {
-    // Controls: Down walks the seven of its rows that take the focus (Edge
+    // Controls: Down walks the eight of its rows that take the focus (Edge
     // stickiness, locked while Window edge shows Capture, takes none), and
     // from the last, which it brings into view, reaches the footer under
     // it. A row lies across the
     // section, so Cancel and OK both lie in line with it; Cancel's middle
     // is nearer the row's. Up comes back to the last row.
     settings::Dialog controls = opened(Page::controls);
-    for (int32_t row = 0; row < 7; ++row) {
+    for (int32_t row = 0; row < 8; ++row) {
         CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
         CHECK(controls.focused == settings::first_row_control + row);
     }
-    CHECK(inside(geometry::open_rows(controls).rows.rows[6].control_area, geometry::view));
+    CHECK(inside(geometry::open_rows(controls).rows.rows[7].control_area, geometry::view));
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::redraw);
     CHECK(controls.focused == settings::cancel_control);
     CHECK(settings::dialog_key(controls, DialogKey::up) == DialogAction::redraw);
-    CHECK(controls.focused == settings::first_row_control + 6);
+    CHECK(controls.focused == settings::first_row_control + 7);
     // Down from the footer finds nothing: the focus stays.
     controls.focused = settings::ok_control;
     CHECK(settings::dialog_key(controls, DialogKey::down) == DialogAction::none);
     CHECK(controls.focused == settings::ok_control);
     // Right from a section's entry reaches the row at its height: at the
-    // section's top, Controls' entry, Use the wheel to zoom.
+    // section's top, Controls' entry, Key layout.
     controls = opened(Page::controls);
     controls.focused = settings::page_control(Page::controls);
     CHECK(settings::dialog_key(controls, DialogKey::right) == DialogAction::redraw);
@@ -9769,7 +9808,7 @@ void the_arrows_move_by_geometry() {
     };
     CHECK(
         tab_round(opened(Page::controls)) ==
-        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6})
+        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7})
     );
     CHECK(tab_round(opened(Page::common_tweaks)) == then_rest({row, row + 1, row + 2}));
     // Language: Text size waits for the modern fonts.

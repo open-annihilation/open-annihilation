@@ -347,6 +347,15 @@ static_assert(access_repeat_rate.find('|') == std::string_view::npos);
 static_assert(access_drag_threshold.find('|') == std::string_view::npos);
 static_assert(access_slow_keys.find('\\') == std::string_view::npos);
 static_assert(access_drag_threshold.find('\\') == std::string_view::npos);
+/// The layout in use. Empty, `oa-default` and `same` are the built-in layout.
+/// A mod's own choice is this key, a dot, and the mod's id.
+inline constexpr std::string_view keys_layout = "open-annihilation.keys.layout";
+/// Whether order buttons and build cells show their key. 1 or 0; absent is on.
+inline constexpr std::string_view keys_show_on_buttons = "open-annihilation.keys.show-on-buttons";
+static_assert(keys_layout.find('|') == std::string_view::npos);
+static_assert(keys_layout.find('\\') == std::string_view::npos);
+static_assert(keys_show_on_buttons.find('|') == std::string_view::npos);
+static_assert(keys_show_on_buttons.find('\\') == std::string_view::npos);
 } // namespace key
 
 /// Tells whether two tags are the same, ignoring ASCII case and reading '_' as '-'.
@@ -1161,6 +1170,14 @@ struct EngineSettings {
     bool middle_click_pan{true};
     bool escape_opens_menu{}; ///< Escape with nothing to cancel opens the game menu
     bool switch_alt{};        ///< 3.1c's SwitchAlt: a number key alone selects its group
+    /// The layout chosen for the mod being played: `same`, or an installed
+    /// layout's id. The dialog's host writes it under
+    /// open-annihilation.keys.layout.<mod id> as the choice moves. With no
+    /// mod it stays `same` and nothing is written.
+    std::string key_layout_for_mod{"same"};
+    /// Order buttons and build cells show their key. Absent in the
+    /// preferences is on.
+    bool show_keys_on_buttons{true};
     /// Whether a window keeps the pointer while a match's battlefield
     /// shows. Full screen holds the pointer either way.
     WindowEdge window_edge{WindowEdge::capture};
@@ -1620,7 +1637,8 @@ void follow_acceleration_with_unset_effects(
 /// that count as NumSkirmishPlayers): after Restore defaults (`restored`), a
 /// setting at its default has its key erased; otherwise a setting that
 /// differs from `opened` has its key written, in decimal, a switch as 1 or
-/// 0, the screen size as "desktop" or "WIDTHxHEIGHT", hardware
+/// 0, Show keys on buttons among them, the screen size as "desktop" or
+/// "WIDTHxHEIGHT", hardware
 /// acceleration as "off", "basic" or "full", Menu scaling, One-finger drag
 /// and QUEUE and ADD as their words (menu_scaling_text, touch_drag_text,
 /// touch_latches_text), Explosion flash as "off", "reduced" or "full", the
@@ -1637,6 +1655,9 @@ void follow_acceleration_with_unset_effects(
 /// from `opened`, are written under the key `profile_id` ends, as
 /// oa::data::mod_profile::overrides_text writes them, or that key is
 /// erased when none are left; Restore defaults leaves them as they are.
+/// While `profile_id` names a mod, not the base game, Key layout with that
+/// mod is written under open-annihilation.keys.layout.<id> (`same` or a
+/// layout id), or erased when Restore defaults puts it back to `same`.
 /// Every other key is left as it is. switch_alt is never written here:
 /// 3.1c's SwitchAlt key goes with the frontend's own preferences.
 ///

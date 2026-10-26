@@ -415,6 +415,14 @@ std::vector<Picture> scenes(const DialogFonts& fonts, const Icon& icon) {
         }
         add(pictures, "dialog/controls-focus", drawn_dialog(controls, fonts, no_icon, 1));
 
+        Dialog controls_mod = engine_dialog(Page::controls);
+        controls_mod.played_mod = "Ridge";
+        controls_mod.played_mod_id = "ridge";
+        controls_mod.key_layout_summary = "OA default";
+        controls_mod.key_layouts.push_back({"plain-keys", "Plain keys", false});
+        controls_mod.key_layouts.push_back({"ridge-keys", "Ridge keys", true});
+        add(pictures, "dialog/controls-mod", drawn_dialog(controls_mod, fonts, no_icon, 1));
+
         add(pictures,
             "dialog/engine-limits-locked",
             drawn_dialog(engine_dialog(Page::common_tweaks, game), fonts, no_icon, 1));
