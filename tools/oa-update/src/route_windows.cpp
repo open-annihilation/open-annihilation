@@ -267,7 +267,7 @@ void add_bookkeeping(
 
 struct ExeStamp {
     bool present{false};
-    std::uintmax_t bytes{0};
+    uintmax_t bytes{0};
     fs::file_time_type when{};
 };
 
@@ -318,7 +318,7 @@ bool folder_accepts_file(const fs::path& folder) {
 // GetVersion is deprecated and the Windows build treats that warning as an
 // error. The high bit is still the 9x test, so the call goes through the
 // exported function without naming it in this file.
-std::uint32_t current_windows_version() {
+uint32_t current_windows_version() {
     const HMODULE kernel = GetModuleHandleA("kernel32.dll");
     if (kernel == nullptr)
         return 0;
@@ -326,7 +326,7 @@ std::uint32_t current_windows_version() {
     auto* function = reinterpret_cast<GetVersionFn>(GetProcAddress(kernel, "GetVersion"));
     if (function == nullptr)
         return 0;
-    return static_cast<std::uint32_t>(function());
+    return static_cast<uint32_t>(function());
 }
 
 fs::path this_program() {
@@ -466,7 +466,7 @@ windows_move(void* context, const fs::path& from, const fs::path& to, std::strin
 struct ShellWait {
     bool started{false};
     bool cancelled{false};
-    std::uint32_t exit_code{1};
+    uint32_t exit_code{1};
     std::string error;
 };
 
@@ -685,15 +685,15 @@ void clear_postponed_wininit(const fs::path&) {
 
 } // namespace
 
-bool windows_9x(std::uint32_t version) noexcept {
+bool windows_9x(uint32_t version) noexcept {
     return (version & 0x80000000u) != 0u;
 }
 
-bool windows_vista_or_later(std::uint32_t version) noexcept {
+bool windows_vista_or_later(uint32_t version) noexcept {
     return (version & 0x80000000u) == 0u && (version & 0xffu) >= 6u;
 }
 
-bool folder_needs_elevation(bool writable, std::uint32_t version) noexcept {
+bool folder_needs_elevation(bool writable, uint32_t version) noexcept {
     return !writable && windows_vista_or_later(version) && !windows_9x(version);
 }
 
@@ -861,7 +861,7 @@ FolderPlan plan_windows_folder(
     const update::Plan& plan,
     const fs::path& staged,
     bool writable,
-    std::uint32_t version,
+    uint32_t version,
     const fs::path& helper,
     const fs::path& plan_file,
     std::string* why
@@ -1021,7 +1021,7 @@ int finish_windows_route(
             return failed(could_not_check, exit_undone);
         }
 
-        const std::uint32_t version = current_windows_version();
+        const uint32_t version = current_windows_version();
         const std::wstring verb = verb_wide(windows_vista_or_later(version) ? "runas" : "open");
         const std::wstring file = path_from(setup.program).wstring();
         const std::wstring parameters = wide_from_utf8(join_plain(setup.arguments));
@@ -1075,7 +1075,7 @@ int finish_windows_route(
         return exit_swapped;
     }
 
-    const std::uint32_t version = current_windows_version();
+    const uint32_t version = current_windows_version();
     const bool writable = folder_accepts_file(install);
     std::string why;
 #if defined(_WIN32)

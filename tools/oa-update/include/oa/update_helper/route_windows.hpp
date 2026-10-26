@@ -44,7 +44,7 @@ inline constexpr std::string_view restart_to_finish =
 ///
 /// @param version a `GetVersion` value; 0 is not Windows 9x
 /// @return true for Windows 95, 98 and Me
-[[nodiscard]] bool windows_9x(std::uint32_t version) noexcept;
+[[nodiscard]] bool windows_9x(uint32_t version) noexcept;
 
 /// True when `version` is Windows Vista or later.
 ///
@@ -53,7 +53,7 @@ inline constexpr std::string_view restart_to_finish =
 ///
 /// @param version a `GetVersion` value
 /// @return true for Vista, 7 and later
-[[nodiscard]] bool windows_vista_or_later(std::uint32_t version) noexcept;
+[[nodiscard]] bool windows_vista_or_later(uint32_t version) noexcept;
 
 /// True when a folder swap must start a second, elevated helper.
 ///
@@ -63,7 +63,7 @@ inline constexpr std::string_view restart_to_finish =
 /// @param writable the install folder accepted a scratch file
 /// @param version a `GetVersion` value
 /// @return true when the swap asks for elevation
-[[nodiscard]] bool folder_needs_elevation(bool writable, std::uint32_t version) noexcept;
+[[nodiscard]] bool folder_needs_elevation(bool writable, uint32_t version) noexcept;
 
 /// The setup program's arguments. `/D=` is last and is not quoted.
 ///
@@ -187,7 +187,7 @@ struct FolderPlan {
     const oa::app::update::Plan& plan,
     const std::filesystem::path& staged,
     bool writable,
-    std::uint32_t version,
+    uint32_t version,
     const std::filesystem::path& helper,
     const std::filesystem::path& plan_file,
     std::string* why
@@ -217,7 +217,7 @@ struct FolderPlan {
 );
 
 /// What a leftover Windows swap means before this run undoes a journal.
-enum class UpdatesGate : std::uint8_t {
+enum class UpdatesGate : uint8_t {
     ready,          ///< a leftover journal may be undone
     restart,        ///< Windows 9x is waiting for a restart; the journal was dropped
     restore_failed, ///< the kept installer copy could not be put back; the journal stays
