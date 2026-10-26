@@ -999,10 +999,15 @@ int short_line(void* context, int pixel_size, bool bold) {
 
 /// Checks the fit record: a text wider than its box, and a text whose ink
 /// crosses another, are named; a text that fits and stays clear is not, and
-/// a new frame drops what the last one kept.
+/// a new frame drops what the last one kept. A release build records
+/// nothing.
 void a_text_wider_than_its_box_or_across_another_is_recorded() {
     kit::set_text_fit_screen("language");
     kit::begin_text_fit_frame();
+#if defined(NDEBUG)
+    kit::note_text_fit("Benutzeroberfläche", 126, 0, 20, 116, 12, 0);
+    OA_CHECK(kit::text_fit_records().empty());
+#else
     kit::note_text_fit("fits", 40, 0, 0, 80, 12, 0);
     OA_CHECK(kit::text_fit_records().empty());
     kit::note_text_fit("Benutzeroberfläche", 126, 0, 20, 116, 12, 0);
@@ -1030,6 +1035,7 @@ void a_text_wider_than_its_box_or_across_another_is_recorded() {
     OA_CHECK(kit::text_fit_records().empty());
     kit::note_text_fit("", 20, 0, 0, 4, 12, 0);
     OA_CHECK(kit::text_fit_records().empty());
+#endif
 }
 
 /// Checks the modern fonts' measure: the hooks when they are set, an estimate when not, and

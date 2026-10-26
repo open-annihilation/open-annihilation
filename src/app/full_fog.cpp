@@ -594,7 +594,9 @@ uint32_t append_unseen_terrain(
     for (const auto& level : levels)
         if (level.level >= gw::tile_level_count)
             return 0;
-    std::vector<GreyedPiece> pieces;
+    // The pieces are gathered into one list a thread keeps from frame to
+    // frame, which holds the room the busiest frame needed.
+    thread_local std::vector<GreyedPiece> pieces;
     collect_greyed_pieces(grid, atlas, placement, pieces);
     if (pieces.empty())
         return 0;

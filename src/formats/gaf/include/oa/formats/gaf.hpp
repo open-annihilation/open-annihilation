@@ -192,8 +192,8 @@ struct SequenceResult {
 enum class PixelData {
     /// The pixels and coverage are decoded and kept.
     decoded,
-    /// The pixels are decoded and checked as `decoded` checks them, and the
-    /// frame's pixels and coverage are left empty; `parse_sequence` decodes a
+    /// The pixels are checked as `decoded` checks them, and the frame's
+    /// pixels and coverage are left empty; `parse_sequence` decodes a
     /// sequence's pixels when they are needed, and `render_ranged` one
     /// frame's as it is drawn. Since nothing is kept, the file's frames
     /// together may decode past `limit::total_decoded_bytes`.

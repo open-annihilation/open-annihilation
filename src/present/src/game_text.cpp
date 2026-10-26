@@ -4,10 +4,12 @@
 #include "oa/present/game_text.hpp"
 
 #include "oa/base/text/line_break.hpp"
+#include "oa/base/threads.hpp"
 #include "oa/present/blit.hpp"
 
 #include <algorithm>
 #include <limits>
+#include <list>
 #include <unordered_map>
 #include <utility>
 
@@ -372,6 +374,7 @@ std::vector<TextRun> split_text(std::string_view text, const FontCharacters& fon
 
 void set_game_text_hooks(const GameTextHooks& hooks) noexcept {
     installed_hooks = hooks;
+    forget_text_layers();
 }
 
 const GameTextHooks& game_text_hooks() noexcept {
@@ -473,6 +476,164 @@ TextLayers build_text_layers(const TextMask& mask, const TextStyle& style, int32
     return layers;
 }
 
+namespace {
+
+/// The most lines whose layers are kept.
+constexpr std::size_t kept_layer_lines = 256;
+/// The most bytes the kept layers and the lines they were built from take.
+constexpr std::size_t kept_layer_bytes = std::size_t{16} * 1024 * 1024;
+
+/// What a line's layers are built from besides its letters.
+struct LayerKey {
+    const TextMask* mask{}; ///< the letters
+    bool outline{};         ///< the style's outline
+    bool shadow{};          ///< the style's shadow
+    bool background{};      ///< the style's background box
+    int32_t thickness{};    ///< the borders' thickness
+
+    /// Tells whether two keys are the same.
+    ///
+    /// @param other the other key
+    /// @return true when every part is the same
+    bool operator==(const LayerKey& other) const = default;
+};
+
+/// Hashes a layer key.
+struct LayerKeyHash {
+    /// Returns a key's hash.
+    ///
+    /// @param key the key
+    /// @return its hash
+    std::size_t operator()(const LayerKey& key) const noexcept {
+        const std::size_t hash = std::hash<const TextMask*>{}(key.mask);
+        const uint32_t parts = (static_cast<uint32_t>(key.thickness) << 3) |
+                               (key.outline ? 4U : 0U) | (key.shadow ? 2U : 0U) |
+                               (key.background ? 1U : 0U);
+        return hash ^ (std::hash<uint32_t>{}(parts) + 0x9E3779B9U + (hash << 6) + (hash >> 2));
+    }
+};
+
+/// A line's finished layers, kept with the letters they were built from.
+struct KeptLayers {
+    LayerKey key{};                         ///< what they were built from
+    std::shared_ptr<const TextMask> mask{}; ///< the letters, held so the key stays theirs
+    uint64_t digest{};                      ///< the letters' digest when they were built
+    TextLayers layers{};                    ///< the layers
+    std::size_t bytes{};                    ///< the bytes the layers and the letters take
+};
+
+/// The kept layers, the line used last first.
+struct LayerCache {
+    base::threads::Mutex mutex{};  ///< held while the cache is read or changed
+    std::list<KeptLayers> order{}; ///< the kept lines, the one used last first
+    /// Each kept line by what it was built from.
+    std::unordered_map<LayerKey, std::list<KeptLayers>::iterator, LayerKeyHash> lines{};
+    std::size_t bytes{}; ///< the bytes the kept lines take
+};
+
+/// Returns the one cache of finished layers.
+///
+/// @return the cache
+LayerCache& layer_cache() {
+    static LayerCache cache;
+    return cache;
+}
+
+/// Returns a digest of every part of a line's letters its layers are built
+/// from, so that letters changed in place are never laid from layers built
+/// before.
+///
+/// @param mask the letters
+/// @return the 64-bit FNV-1a digest of their size, places and coverage
+uint64_t mask_digest(const TextMask& mask) noexcept {
+    constexpr uint64_t fnv_offset = 0xCBF29CE484222325ULL;
+    constexpr uint64_t fnv_prime = 0x100000001B3ULL;
+    uint64_t digest = fnv_offset;
+    const auto mix_byte = [&digest](uint32_t byte) {
+        digest ^= byte & 0xFFU;
+        digest *= fnv_prime;
+    };
+    const auto mix = [&mix_byte](uint32_t value) {
+        for (uint32_t shift = 0; shift < 32; shift += 8)
+            mix_byte(value >> shift);
+    };
+    mix(static_cast<uint32_t>(mask.width));
+    mix(static_cast<uint32_t>(mask.height));
+    mix(static_cast<uint32_t>(mask.baseline));
+    mix(static_cast<uint32_t>(mask.origin));
+    mix(static_cast<uint32_t>(mask.advance));
+    mix(static_cast<uint32_t>(mask.alpha.size()));
+    for (const uint8_t coverage : mask.alpha)
+        mix_byte(coverage);
+    return digest;
+}
+
+/// Gives a line's layers, built once for each line, style and thickness
+/// and kept while the line is among those used last.
+///
+/// @param mask the line's letters
+/// @param style which borders
+/// @param thickness pixels of the outline and of the shadow's offset
+/// @return the layers, the same as build_text_layers gives
+TextLayers finished_layers(
+    const std::shared_ptr<const TextMask>& mask, const TextStyle& style, int32_t thickness
+) {
+    const LayerKey key{mask.get(), style.outline, style.shadow, style.background, thickness};
+    const uint64_t digest = mask_digest(*mask);
+    LayerCache& cache = layer_cache();
+    {
+        const base::threads::LockGuard lock(cache.mutex);
+        if (const auto found = cache.lines.find(key); found != cache.lines.end()) {
+            if (found->second->digest == digest) {
+                cache.order.splice(cache.order.begin(), cache.order, found->second);
+                return found->second->layers;
+            }
+            cache.bytes -= found->second->bytes;
+            cache.order.erase(found->second);
+            cache.lines.erase(found);
+        }
+    }
+    TextLayers layers = build_text_layers(*mask, style, thickness);
+    const std::size_t bytes = layers.fill.size() + layers.outline.size() + layers.shadow.size() +
+                              mask->alpha.size() + mask->character_ends.size() * sizeof(int32_t);
+    if (bytes > kept_layer_bytes)
+        return layers;
+    const base::threads::LockGuard lock(cache.mutex);
+    // Another caller may have kept the same line meanwhile.
+    if (cache.lines.find(key) != cache.lines.end())
+        return layers;
+    while (!cache.order.empty() &&
+           (cache.lines.size() >= kept_layer_lines || cache.bytes + bytes > kept_layer_bytes)) {
+        cache.bytes -= cache.order.back().bytes;
+        cache.lines.erase(cache.order.back().key);
+        cache.order.pop_back();
+    }
+    cache.order.push_front({key, mask, digest, layers, bytes});
+    cache.lines.emplace(key, cache.order.begin());
+    cache.bytes += bytes;
+    return layers;
+}
+
+/// Gives the style a modern line is drawn in now.
+///
+/// @param allow_background false leaves out the background box
+/// @return the settings' style
+TextStyle modern_style(bool allow_background) {
+    TextStyle style = game_text_settings().style;
+    style.background = style.background && allow_background;
+    return style;
+}
+
+} // namespace
+
+void forget_text_layers() noexcept {
+    LayerCache& cache = layer_cache();
+    const base::threads::LockGuard lock(cache.mutex);
+    cache.lines.clear();
+    cache.order.clear();
+    cache.bytes = 0;
+}
+
 std::optional<TextLayers> modern_text(
     std::string_view text, TextFace face, int32_t scale, int32_t size, bool allow_background
 ) {
@@ -483,9 +644,23 @@ std::optional<TextLayers> modern_text(
     const auto mask = installed_hooks.draw(installed_hooks.context, text, face, scale, size);
     if (!mask)
         return std::nullopt;
-    TextStyle style = game_text_settings().style;
-    style.background = style.background && allow_background;
-    return build_text_layers(*mask, style, text_border(scale, size));
+    return finished_layers(mask, modern_style(allow_background), text_border(scale, size));
+}
+
+std::optional<int32_t>
+modern_text_advance(std::string_view text, TextFace face, int32_t scale, int32_t size) {
+    if (installed_hooks.draw == nullptr || text.empty())
+        return std::nullopt;
+    scale = std::max(scale, 1);
+    size = held_text_size(size);
+    const auto mask = installed_hooks.draw(installed_hooks.context, text, face, scale, size);
+    if (!mask)
+        return std::nullopt;
+    // As build_text_layers moves the pen: one thickness further past a line
+    // with either border.
+    const TextStyle style = modern_style(false);
+    const int32_t thickness = std::max(text_border(scale, size), 1);
+    return mask->advance + (style.outline || style.shadow ? thickness : 0);
 }
 
 namespace {
@@ -688,17 +863,27 @@ void lay_text(
         return;
     const int32_t left = x - layers.pen;
     const int32_t top = baseline_y - layers.baseline;
-    // The few colours a line makes are reduced once each.
+    // The few colours a line makes are reduced once each; a run of pixels
+    // of one colour, as inside a letter or along its outline, takes the
+    // last colour's index without looking it up.
     std::unordered_map<uint32_t, uint8_t> reduced;
+    uint32_t last_key = 0;
+    uint8_t last_index = 0;
+    bool any_reduced = false;
     const auto reduce = [&](std::array<uint8_t, 3> mixed) -> uint8_t {
         const auto key = (uint32_t{mixed[0]} << 16) | (uint32_t{mixed[1]} << 8) | mixed[2];
+        if (any_reduced && key == last_key)
+            return last_index;
         auto found = reduced.find(key);
         if (found == reduced.end())
             found =
                 reduced
                     .emplace(key, nearest_palette_index(canvas.palette, palette_entry_bytes, mixed))
                     .first;
-        return found->second;
+        last_key = key;
+        last_index = found->second;
+        any_reduced = true;
+        return last_index;
     };
     // Pixels the picture under an RGB canvas shows through, and the runs of
     // them each layer leaves to the canvas's world_run.

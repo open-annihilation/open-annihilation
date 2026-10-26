@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cmath>
 #include <cstdint>
+#include <span>
 #include <vector>
 
 namespace oa::app::renderer_effect_sources {
@@ -72,6 +73,25 @@ float wreck_heat(Timeline& timeline, std::size_t index, bool present, bool visib
 /// @param[in,out] timeline visual ages
 /// @return the index of the first wreck that may still glow
 std::size_t first_live_wreck(Timeline& timeline) noexcept;
+
+/// Colour a weapon's light as its shot is drawn. A laser's and a lightning
+/// bolt's `color` names an entry of the interface palette (GUIPAL.PAL), and
+/// the beam is drawn in the battlefield palette's entry nearest it, not in
+/// the battlefield entry of that number; plasma's picks its sprite. Plasma,
+/// every other shot and a missing or near-black colour light warm, as
+/// physical ammunition does.
+/// @param[in,out] source light whose red, green and blue are set
+/// @param color the weapon's `color`
+/// @param render_type the weapon's `rendertype`
+/// @param palette battlefield palette, four bytes an entry
+/// @param interface_colours the battlefield entry nearest each interface entry
+void weapon_colour(
+    Source& source,
+    uint8_t color,
+    uint8_t render_type,
+    std::span<const uint8_t> palette,
+    std::span<const uint8_t> interface_colours
+) noexcept;
 
 /// Return the remaining strength of a transient light at simulation time.
 /// @param birth source tick

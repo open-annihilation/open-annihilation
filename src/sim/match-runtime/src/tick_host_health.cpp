@@ -357,7 +357,7 @@ void TickHost::kill_unit(oa::Unit& record, uint8_t kind) {
             killed_percent = 100;
         if (auto* instance = match.instance(s.unit_index); instance && instance->script()) {
             std::array<int32_t, 4> args{killed_percent, killed_flag, 0, 0};
-            instance->script()->query("Killed", args);
+            instance->script()->query(ScriptFunction::killed, args);
             killed_percent = args[0];
             killed_flag = args[1];
         }

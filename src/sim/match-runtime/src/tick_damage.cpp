@@ -10,6 +10,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <functional>
 
 namespace oa::sim::match_runtime {
 
@@ -38,20 +39,63 @@ bool side_commander(const oa::World& world, const oa::Unit& unit) noexcept {
     return formats::tdf::compare_nocase(side->commander, definition->unit_name) == 0;
 }
 
+std::size_t Match::order_bucket(const sim::simulation_state::Order* order) noexcept {
+    // The entry picked from the order's address cannot change what a match
+    // does: a lookup searches only that entry's list, for the record of this
+    // very order, and nothing walks the entries or their lists in turn. Where
+    // an order lies in memory changes how long finding its record takes,
+    // never which record is found.
+    // Fibonacci hashing: the top bits of the address times 2^64 / phi.
+    constexpr uint64_t golden_multiplier = 0x9e3779b97f4a7c15ull;
+    const auto address = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(order));
+    return static_cast<std::size_t>((address * golden_multiplier) >> (64 - order_bucket_bits));
+}
+
 Match::RuntimeOrder* Match::runtime_order(const sim::simulation_state::Order* order) {
     if (order == nullptr)
         return nullptr;
-    for (auto& entry : orders_)
+    for (auto* entry = order_buckets_[order_bucket(order)]; entry != nullptr;
+         entry = entry->bucket_next)
         if (&entry->order == order)
-            return entry.get();
+            return entry;
     return nullptr;
 }
 
+const Match::RuntimeOrder* Match::runtime_order(const sim::simulation_state::Order* order) const {
+    return const_cast<Match*>(this)->runtime_order(order);
+}
+
+Match::RuntimeOrder& Match::adopt_order(std::unique_ptr<RuntimeOrder> entry) {
+    auto& record = *entry;
+    orders_.push_back(std::move(entry));
+    auto& head = order_buckets_[order_bucket(&record.order)];
+    record.bucket_next = head;
+    head = &record;
+    return record;
+}
+
+void Match::drop_order(const RuntimeOrder& record) {
+    for (auto** link = &order_buckets_[order_bucket(&record.order)]; *link != nullptr;
+         link = &(*link)->bucket_next)
+        if (*link == &record) {
+            *link = record.bucket_next;
+            break;
+        }
+    std::erase_if(orders_, [&](const auto& candidate) { return candidate.get() == &record; });
+}
+
+Match::RuntimeOrder** Match::observer_head(const sim::simulation_state::Unit& unit) noexcept {
+    const auto* first = units_.data();
+    if (std::less<>{}(&unit, first) || !std::less<>{}(&unit, first + units_.size()))
+        return nullptr;
+    return &target_observers_[static_cast<std::size_t>(&unit - first)];
+}
+
 void Match::wake_target_observers(sim::simulation_state::Unit& unit, uint32_t event) {
-    const auto found = target_observers_.find(&unit);
-    if (found == target_observers_.end())
+    auto* const* head = observer_head(unit);
+    if (head == nullptr)
         return;
-    for (auto* entry = found->second; entry != nullptr; entry = entry->observer_next) {
+    for (auto* entry = *head; entry != nullptr; entry = entry->observer_next) {
         // Every order on the list still targets this unit. The walk raises
         // the event on each of them.
         assert(entry->attack.target == &unit);
@@ -166,7 +210,7 @@ void Match::apply_damage_event(
                 sim::unit_movement::cosine_scaled(heading, hit_script_scale),
                 sim::unit_movement::sine_scaled(heading, hit_script_scale)
             };
-            instance->script()->call("HitByWeapon", hit, false);
+            instance->script()->call(ScriptFunction::hit_by_weapon, hit, false);
             auto percent = 0;
             if (unit.type && unit.type->maximum_health) {
                 percent = static_cast<int32_t>(
@@ -179,7 +223,7 @@ void Match::apply_damage_event(
                     percent = 100;
             }
             const std::array<int32_t, 1> taken{percent};
-            instance->script()->call("TakeDamage", taken, false);
+            instance->script()->call(ScriptFunction::take_damage, taken, false);
         }
     }
 }
@@ -392,17 +436,17 @@ void Match::record_death_statistics(
 }
 
 void Match::release_target_observers(sim::simulation_state::Unit& target) {
-    const auto found = target_observers_.find(&target);
-    if (found == target_observers_.end())
+    auto** head = observer_head(target);
+    if (head == nullptr)
         return;
-    auto* entry = found->second;
+    auto* entry = *head;
     std::size_t steps = orders_.size();
     while (entry != nullptr && steps-- > 0) {
         auto* next = entry->observer_next;
         lose_target(*entry, target);
         entry = next;
     }
-    target_observers_.erase(found);
+    *head = nullptr;
 }
 
 void Match::lose_target(RuntimeOrder& entry, const sim::simulation_state::Unit& target) {
@@ -419,29 +463,32 @@ void Match::link_target_observer(RuntimeOrder& entry, sim::simulation_state::Uni
     // Drop the order from the unit it watches now, so that unit's list no
     // longer reaches it once the order points somewhere else.
     unlink_target_observer(entry);
-    if (target == nullptr || target->record.type_index == 0) {
+    auto** head =
+        target != nullptr && target->record.type_index != 0 ? observer_head(*target) : nullptr;
+    if (head == nullptr) {
         entry.attack.target = nullptr;
         entry.observer_next = nullptr;
         check_target_observer(entry);
         return;
     }
-    auto& head = target_observers_[target];
     entry.attack.target = target;
-    entry.observer_next = head;
-    head = &entry;
+    entry.observer_next = *head;
+    *head = &entry;
     check_target_observer(entry);
 }
 
 void Match::unlink_target_observer(RuntimeOrder& entry) {
     if (entry.attack.target != nullptr) {
-        auto** link = &target_observers_[entry.attack.target];
-        // Every order may watch one unit, so the list is never longer than
-        // the orders there are; the bound only stops a damaged list looping.
-        std::size_t steps = orders_.size();
-        while (*link != nullptr && *link != &entry && steps-- > 0)
-            link = &(*link)->observer_next;
-        if (*link == &entry)
-            *link = entry.observer_next;
+        if (auto** link = observer_head(*entry.attack.target)) {
+            // Every order may watch one unit, so the list is never longer
+            // than the orders there are; the bound only stops a damaged list
+            // looping.
+            std::size_t steps = orders_.size();
+            while (*link != nullptr && *link != &entry && steps-- > 0)
+                link = &(*link)->observer_next;
+            if (*link == &entry)
+                *link = entry.observer_next;
+        }
         entry.attack.target = nullptr;
         entry.observer_next = nullptr;
     }
@@ -451,8 +498,9 @@ void Match::unlink_target_observer(RuntimeOrder& entry) {
 void Match::check_target_observer(const RuntimeOrder& entry) const noexcept {
 #ifndef NDEBUG
     auto* target = entry.attack.target;
-    for (const auto& [unit, head] : target_observers_) {
-        auto* cursor = head;
+    for (std::size_t index = 0; index < units_.size(); ++index) {
+        const auto* unit = &units_[index];
+        auto* cursor = target_observers_[index];
         int seen = 0;
         std::size_t steps = overlay_order_budget;
         while (cursor != nullptr && steps-- > 0) {
@@ -468,7 +516,7 @@ void Match::check_target_observer(const RuntimeOrder& entry) const noexcept {
             assert(seen <= 1);
     }
     if (target != nullptr)
-        assert(target_observers_.find(target) != target_observers_.end());
+        assert(const_cast<Match*>(this)->observer_head(*target) != nullptr);
 #else
     (void)entry;
 #endif
@@ -539,7 +587,7 @@ void Match::teardown_dead_unit(
     if (settled_elsewhere && outcome.killed_percent > 0)
         if (auto* instance = this->instance(slot.unit_index); instance && instance->script()) {
             const std::array<int32_t, 1> percent{outcome.killed_percent};
-            (void)instance->script()->call("Killed", percent, true);
+            (void)instance->script()->call(ScriptFunction::killed, percent, true);
         }
     record_death_statistics(slot, death, killer);
     assign_squad(slot, 0xffffffffu);

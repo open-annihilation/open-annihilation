@@ -5,7 +5,8 @@ file(GLOB oa_present_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/
 add_library(oa-present ${oa_present_sources})
 add_library(oa::present ALIAS oa-present)
 target_include_directories(oa-present PUBLIC include)
-target_link_libraries(oa-present PUBLIC oa-core-types PRIVATE oa-options oa-base-game-math oa-base-bytes oa-base-text)
+target_link_libraries(oa-present PUBLIC oa-core-types PRIVATE oa-options oa-base-game-math oa-base-bytes oa-base-text
+  oa-base-threads)
 target_compile_features(oa-present PUBLIC cxx_std_20)
 
 if(BUILD_TESTING)

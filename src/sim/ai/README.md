@@ -48,6 +48,11 @@ pass to the next.
   a builder. An id that is 0 or not below the type count is skipped. The
   list keeps `build_list_kept` plus one entries.
 - Downloadable types are skipped when the campaign flag is set.
+- A pick whose unit name holds `MAKENUKE` or `MAKEANTI` is a round for the
+  builder's first weapon. The structures task queues it with `order_factory`,
+  and so does the construction task, which places no site for it: the match
+  stockpiles the round. In 3.1c the construction task places such a pick as a
+  unit of the round's type, which has no MaxDamage to read its health by.
 
 ## Tests
 

@@ -153,6 +153,17 @@ int letter_rows_above_baseline(const oa::present::TextLayers& layers) {
     return 0;
 }
 
+/// Gives how far a line must be lowered so that none of its letters rises
+/// above a row.
+///
+/// @param top_row the paint row no letter may rise above
+/// @param baseline the paint row of the line's baseline
+/// @param layers the line
+/// @return paint rows; 0 or less for a line that keeps its place
+int rows_below(int top_row, int baseline, const oa::present::TextLayers& layers) {
+    return top_row - (baseline - letter_rows_above_baseline(layers));
+}
+
 } // namespace
 
 int Runtime::builder_gui_page_count() const {
@@ -228,7 +239,9 @@ void Runtime::open_match_build_page(int page) {
     if (state.unit_id == unit->id) {
         hud::order_panel_store(game, state);
         status_ = "Build page " + std::to_string(page);
-        render_match_surface();
+        // The HUD layer takes the page at once; the frame draws the match,
+        // the page with it, once.
+        compose_match_hud();
     } else {
         match_build_page_ = previous_page;
         match_build_page_unit_ = previous_page_unit;
@@ -315,6 +328,8 @@ void Runtime::press_match_panel_page(oa::ui::hud::BuildPanelClick press, bool cy
 void Runtime::load_match_chrome() {
     match_chrome_ = {};
     match_hud_.reset();
+    // The side column's art is read again for each match, from its own files.
+    match_hud_art_.reset();
     try {
         const auto path = match_side_tile();
         match_chrome_ = oa::ui::decoded::require(oa::decode_pcx(assets_.read(path).bytes), path);
@@ -489,7 +504,21 @@ void Runtime::paint_text(
             laid[index] = oa::present::modern_text(
                 runs[index].text, face, scale, painted_text_size(runs[index]), allow_background
             );
-    const int drop = panel_text_drop(font, y, text, scale);
+    // Lowered as panel_text_drop gives, from the layers already built: the
+    // rows a line's letters rise above its baseline are the same with or
+    // without its background box.
+    int drop = 0;
+    if (text_place_ == TextPlace::panel && panel_top_row_)
+        for (std::size_t index = 0; index < runs.size(); ++index)
+            if (const auto& layers = laid[index])
+                drop = std::max(
+                    drop,
+                    rows_below(
+                        *panel_top_row_,
+                        y + painted_baseline(font_baseline, painted_text_size(runs[index])) * scale,
+                        *layers
+                    )
+                );
     int pen = x;
     for (std::size_t index = 0; index < runs.size(); ++index) {
         const auto& run = runs[index];
@@ -527,8 +556,9 @@ int Runtime::panel_text_drop(
         if (const auto layers = oa::present::modern_text(run.text, face, scale, size, false))
             drop = std::max(
                 drop,
-                *panel_top_row_ - (y + painted_baseline(font_baseline, size) * scale -
-                                   letter_rows_above_baseline(*layers))
+                rows_below(
+                    *panel_top_row_, y + painted_baseline(font_baseline, size) * scale, *layers
+                )
             );
     }
     return drop;
@@ -544,10 +574,10 @@ int Runtime::match_text_width(
     for (const auto& run :
          renderer::split_game_text(text, renderer::fnt_font_characters(font), true)) {
         if (run.modern)
-            if (const auto layers = oa::present::modern_text(
+            if (const auto advance = oa::present::modern_text_advance(
                     run.text, renderer::fnt_font_face(font), scale, painted_text_size(run)
                 )) {
-                width += layers->advance;
+                width += *advance;
                 continue;
             }
         const std::string bytes =
@@ -640,22 +670,32 @@ void Runtime::paint_font_text(
     // The text is measured before it is drawn; where the pen stops is not
     // needed.
     std::ignore = oa::formats::fnt::raster_text(target, font, text, 0, pen_row);
+    // The enlarged columns that land on the target; each covered glyph
+    // column paints its `scale` of them, as far as they reach.
+    const int first_column = std::max(0, -x);
+    const int end_column = std::min(text_w * scale, static_cast<int>(dest.width) - x);
+    if (first_column >= end_column)
+        return;
+    const int first_texel = first_column / scale;
     for (int row = 0; row < text_h * scale; ++row) {
         const int py = y + row - pen_row * scale;
         if (py < 0 || py >= static_cast<int>(dest.height))
             continue;
         auto* out = dest.rgb.data() + (static_cast<std::size_t>(py) * dest.width) * 3U;
         const auto* cover = coverage.data() + static_cast<std::size_t>(row / scale) * text_w;
-        for (int column = 0; column < text_w * scale; ++column) {
-            if (cover[column / scale] == 0)
+        int texel = first_texel;
+        for (int column = first_column; column < end_column; ++texel) {
+            const int texel_end = std::min(end_column, (texel + 1) * scale);
+            if (cover[texel] == 0) {
+                column = texel_end;
                 continue;
-            const int px = x + column;
-            if (px < 0 || px >= static_cast<int>(dest.width))
-                continue;
-            auto* pixel = out + static_cast<std::size_t>(px) * 3U;
-            pixel[0] = color[0];
-            pixel[1] = color[1];
-            pixel[2] = color[2];
+            }
+            auto* pixel = out + static_cast<std::size_t>(x + column) * 3U;
+            for (; column < texel_end; ++column, pixel += 3) {
+                pixel[0] = color[0];
+                pixel[1] = color[1];
+                pixel[2] = color[2];
+            }
         }
     }
 }

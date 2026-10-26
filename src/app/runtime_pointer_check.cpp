@@ -22,6 +22,7 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -55,6 +56,42 @@ constexpr int32_t kSiteFarthest = 40;
 
 [[noreturn]] void fail(std::string_view what) {
     throw std::runtime_error("pointer interface check: " + std::string(what));
+}
+
+/// The files of the side column's art, which every page is drawn with.
+constexpr std::array<std::string_view, 8> kSideColumnArt{
+    "commongui.gaf",
+    "guipal.pal",
+    "logos.gaf",
+    "hattfont11.gaf",
+    "hattfont12.gaf",
+    "guisidetile.pcx",
+    "palette.lht",
+    "palette.shd"
+};
+
+/// The files a stretch of the check reads: the side column's art and GUI files.
+struct PanelReads {
+    int art = 0;
+    int pages = 0;
+};
+
+/// Counts a file the asset store is asked for into PanelReads.
+///
+/// @param context the PanelReads
+/// @param path the file's path, as its reader wrote it
+void count_panel_read(void* context, std::string_view path) {
+    auto& reads = *static_cast<PanelReads*>(context);
+    std::string name(path);
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    if (std::any_of(kSideColumnArt.begin(), kSideColumnArt.end(), [&](std::string_view art) {
+            return name.ends_with(art);
+        }))
+        ++reads.art;
+    if (name.ends_with(".gui"))
+        ++reads.pages;
 }
 
 void require(bool ok, std::string_view what) {
@@ -347,6 +384,26 @@ void Runtime::check_pointer_interfaces() {
         !selected(peewee) && !has_local_selection() && moves_to(peewee, {a}),
         "left-click interface: a right press did not deselect without an order"
     );
+    // The left click that selects and the right presses that drop the
+    // selection, and find none to drop, open the unit's page and the side's
+    // idle page again; each reads only its GUI file, never the side column's
+    // art, read once a match (match_hud_art), which cost every right press a
+    // frame's time.
+    {
+        PanelReads reads;
+        assets_.observe_lookups({&reads, count_panel_read});
+        select_only(peewee);
+        std::tie(px, py) = screen_of(peewee);
+        click(SDL_BUTTON_RIGHT, px, py + kPointOffset);
+        click(SDL_BUTTON_RIGHT, px, py + kPointOffset);
+        assets_.observe_lookups({});
+        require(
+            reads.art == 0 && reads.pages >= 2 && !has_local_selection(),
+            "left-click interface: the pages a selection and the right presses opened read the "
+            "side column's art " +
+                std::to_string(reads.art) + " times"
+        );
+    }
 
     select_only(peewee);
     std::tie(px, py) = screen_of(peewee);
@@ -980,7 +1037,8 @@ void Runtime::check_pointer_interfaces() {
                  "the in-game menu, the settings and the save page and after something else "
                  "showed the system's; left-click interface clicks, shift cancels, Shift let "
                  "go ending build mode after a queued building, right "
-                 "press deselect/cancel/radar scroll/mouse look and build-site cancel; "
+                 "press deselect/cancel/radar scroll/mouse look and build-site cancel, the "
+                 "pages they opened reading only their GUI files; "
                  "right-click interface deselect, default orders, guard, cancels and radar; "
                  "right clicks beside the in-game menu: an order with it kept open, nothing on "
                  "its panel, the radar's view, and a deselect closing it and resuming, and "
@@ -1780,6 +1838,169 @@ void Runtime::check_pointer_picks() {
     require_pick(unit_info_panel_.has_value(), "F1 did not open the unit info panel again");
     key(SDLK_O, SDL_SCANCODE_O);
     require_pick(!unit_info_panel_, "O, OK's quick key, did not close the unit info panel");
+    // A right press on the panel is the panel's: on its face it does
+    // nothing, and on OK it closes the panel. Beside it the right button is
+    // the battlefield's: in the left-click interface a right click there
+    // drops the selection and closes the panel; in the right-click interface
+    // it gives the default order and the panel stays, and a left click on
+    // open ground drops the selection and closes it.
+    const auto info_open = [&] {
+        return unit_info_panel_.has_value() && (game.frame_flags & hud::kFrameUnitInfoOpen) != 0;
+    };
+    const auto open_info_with_commander = [&] {
+        adopt_selection(commander);
+        selected_match_unit_ = commander;
+        move_to(info_x, info_y);
+        key(SDLK_F1, SDL_SCANCODE_F1);
+        require_pick(info_open(), "F1 did not open the unit info panel again");
+    };
+    // Open ground left of the panel, halfway down it.
+    const auto beside_info_x = static_cast<float>((match_layout_.left + info_area->x) / 2);
+    const auto beside_info_y = static_cast<float>(info_area->y + info_area->height / 2);
+    move_to(beside_info_x, beside_info_y);
+    require_pick(
+        battlefield_contains(beside_info_x, beside_info_y) && hovered_match_unit_ == 0 &&
+            game.cursor_feature >= OA_PLOT_FEATURE_RESERVED,
+        "found no open ground beside the unit info panel"
+    );
+    open_info_with_commander();
+    click(
+        SDL_BUTTON_RIGHT, static_cast<float>(info_area->x + 2), static_cast<float>(info_area->y + 2)
+    );
+    require_pick(
+        info_open() && selected(commander),
+        "a right click on the unit info panel's face closed it or dropped the selection"
+    );
+    click(SDL_BUTTON_RIGHT, static_cast<float>(done_canvas.x), static_cast<float>(done_canvas.y));
+    require_pick(
+        !unit_info_panel_ && (game.frame_flags & hud::kFrameUnitInfoOpen) == 0 &&
+            selected(commander),
+        "a right click on OK did not close the unit info panel alone"
+    );
+    open_info_with_commander();
+    click(SDL_BUTTON_RIGHT, beside_info_x, beside_info_y);
+    require_pick(
+        !unit_info_panel_ && (game.frame_flags & hud::kFrameUnitInfoOpen) == 0 &&
+            !has_local_selection(),
+        "left-click interface: a right click beside the unit info panel did not drop the "
+        "selection and close the panel"
+    );
+    game.interface_type = input::interface_right_click;
+    match_->stop_orders(commander);
+    open_info_with_commander();
+    click(SDL_BUTTON_RIGHT, beside_info_x, beside_info_y);
+    require_pick(
+        info_open() && selected(commander) && !queue_kinds(commander).empty(),
+        "right-click interface: a right click beside the unit info panel did not give the "
+        "default order with the panel kept open"
+    );
+    match_->stop_orders(commander);
+    click(SDL_BUTTON_LEFT, beside_info_x, beside_info_y);
+    require_pick(
+        !unit_info_panel_ && (game.frame_flags & hud::kFrameUnitInfoOpen) == 0 &&
+            !has_local_selection(),
+        "right-click interface: a left click on open ground beside the unit info panel did not "
+        "drop the selection and close the panel"
+    );
+    game.interface_type = input::interface_left_click;
+    // While the panel is open it alone takes the pointer, in either
+    // interface, as in 3.1c: a left press on it starts no drag box and its
+    // release off the panel does nothing; the side column's buttons take
+    // neither a click nor their quick keys; the radar still moves the view;
+    // and a drag box on open ground that leaves nothing selected drops the
+    // selection and closes the panel.
+    const auto orders_button = [&](std::string_view name) {
+        if (match_hud_)
+            for (const auto& gadget : match_hud_->layout.gadgets)
+                if (const auto* fields =
+                        std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+                    fields != nullptr && match_hud_action(gadget.common.name) == name)
+                    return std::pair{&gadget, fields};
+        fail_pick("the orders page has no " + std::string(name));
+    };
+    const auto face_x = static_cast<float>(info_area->x + 2);
+    const auto face_y = static_cast<float>(info_area->y + 2);
+    // A drag down the open ground left of the panel, long enough to be a box.
+    const auto box_reach = static_cast<float>(3 * kPickReach);
+    for (const auto interface : {input::interface_left_click, input::interface_right_click}) {
+        game.interface_type = interface;
+        const std::string in = interface == input::interface_left_click ? "left-click interface: "
+                                                                        : "right-click interface: ";
+        clear_panels();
+        match_->stop_orders(commander);
+        open_info_with_commander();
+        send(SDL_EVENT_MOUSE_MOTION, 0, face_x, face_y, SDL_KMOD_NONE);
+        send(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, face_x, face_y, SDL_KMOD_NONE);
+        require_pick(!match_drag_, in + "a left press on the unit info panel started a drag box");
+        send(SDL_EVENT_MOUSE_MOTION, 0, beside_info_x, beside_info_y, SDL_KMOD_NONE);
+        send(
+            SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT, beside_info_x, beside_info_y, SDL_KMOD_NONE
+        );
+        require_pick(
+            info_open() && selected(commander) && queue_kinds(commander).empty(),
+            in + "a left drag from the unit info panel off it did something"
+        );
+        show_match_orders_page();
+        const auto [attack, attack_fields] = orders_button("ATTACK");
+        const auto attack_at = oa::ui::display_layout::source_to_canvas(
+            match_layout_,
+            attack->common.x + attack->common.width / 2,
+            attack->common.y + attack->common.height / 2
+        );
+        click(SDL_BUTTON_LEFT, static_cast<float>(attack_at.x), static_cast<float>(attack_at.y));
+        require_pick(
+            info_open() && match_command_ == MatchCommand::none,
+            in + "the side column's ATTACK took a click with the unit info panel open"
+        );
+        const auto quick = static_cast<SDL_Keycode>(
+            std::tolower(static_cast<unsigned char>(attack_fields->quick_key))
+        );
+        require_pick(quick >= SDLK_A && quick <= SDLK_Z, "ATTACK has no letter for its quick key");
+        key(quick, SDL_GetScancodeFromKey(quick, nullptr));
+        require_pick(
+            info_open() && match_command_ == MatchCommand::none,
+            in + "ATTACK's quick key armed it with the unit info panel open"
+        );
+        // The radar's far quarter from the commander.
+        const auto radar_x = static_cast<float>(
+            radar_picture_.x + radar_picture_.width * (map_x(commander) < map_width / 2 ? 3 : 1) / 4
+        );
+        const auto radar_y = static_cast<float>(
+            radar_picture_.y +
+            radar_picture_.height * (map_z(commander) < map_height / 2 ? 3 : 1) / 4
+        );
+        const auto view_before = std::pair{match_camera_x_, match_camera_z_};
+        click(SDL_BUTTON_RIGHT, radar_x, radar_y);
+        require_pick(
+            info_open() && std::pair{match_camera_x_, match_camera_z_} != view_before &&
+                selected(commander),
+            in + "a right click on the radar did not move the view with the unit info panel open"
+        );
+        centre_on(commander);
+        send(SDL_EVENT_MOUSE_MOTION, 0, beside_info_x, beside_info_y - box_reach, SDL_KMOD_NONE);
+        send(
+            SDL_EVENT_MOUSE_BUTTON_DOWN,
+            SDL_BUTTON_LEFT,
+            beside_info_x,
+            beside_info_y - box_reach,
+            SDL_KMOD_NONE
+        );
+        send(SDL_EVENT_MOUSE_MOTION, 0, beside_info_x, beside_info_y + box_reach, SDL_KMOD_NONE);
+        send(
+            SDL_EVENT_MOUSE_BUTTON_UP,
+            SDL_BUTTON_LEFT,
+            beside_info_x,
+            beside_info_y + box_reach,
+            SDL_KMOD_NONE
+        );
+        require_pick(
+            !unit_info_panel_ && (game.frame_flags & hud::kFrameUnitInfoOpen) == 0 &&
+                !has_local_selection(),
+            in + "a drag box over open ground did not drop the selection and close the unit "
+                 "info panel"
+        );
+    }
+    game.interface_type = input::interface_left_click;
 
     // 'n' centres on the next unvisited local unit and selects nothing; the
     // units then on screen are visited; with every unit visited the cycle
@@ -2043,7 +2264,8 @@ void Runtime::check_pointer_picks() {
     std::cout << "pointer pick check: on-screen list (sight, cloak, box at the edge), turned root "
                  "box, smaller unit and tie, still pointer, under-attack only off screen, unit "
                  "panel status, target, build button and unidentified blip, F1 panel and its "
-                 "picture, 'n', Ctrl+S, click visits, Escape, LOAD/UNLOAD, pad landing and "
+                 "picture, its right clicks on and beside it in both interfaces, 'n', Ctrl+S, "
+                 "click visits, Escape, LOAD/UNLOAD, pad landing and "
                  "Ctrl+Z over 40 Samsons and 40 Bulldogs in two far groups\n";
 }
 

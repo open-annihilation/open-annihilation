@@ -7885,7 +7885,7 @@ void smooth_motion_shows_and_changes() {
 }
 
 /// Leaving Full turns the four effects off, an effect turned on below Full
-/// stays on, and reaching Full turns all four on.
+/// stays on, and reaching Full turns all four on at their own defaults.
 void hardware_acceleration_moves_the_effects() {
     const std::array<uint32_t settings::EngineSettings::*, 4> effects{
         &settings::EngineSettings::weapon_lighting,
@@ -7904,7 +7904,7 @@ void hardware_acceleration_moves_the_effects() {
     CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::basic);
     for (const auto field : effects)
         CHECK(dialog.chosen.*field == 0);
-    CHECK(dialog.chosen.water_ripples == 100);
+    CHECK(dialog.chosen.water_ripples == settings::default_water_ripples);
 
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
     dialog.focused = wreck_glow_row;
@@ -7919,7 +7919,10 @@ void hardware_acceleration_moves_the_effects() {
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::full);
     for (const auto field : effects)
-        CHECK(dialog.chosen.*field == 100);
+        CHECK(
+            dialog.chosen.*field ==
+            settings::default_effect_intensity(field, settings::HardwareAcceleration::full)
+        );
 }
 
 /// Effect sliders have ten-percent stops, restore defaults and cancel edits.
@@ -7934,9 +7937,15 @@ void visual_effects_show_and_change() {
         &settings::EngineSettings::underwater_shimmer,
         &settings::EngineSettings::naval_reflections,
     };
+    // Each effect's own default with Full.
+    const auto full = [&](std::size_t effect) {
+        return settings::default_effect_intensity(
+            effects[effect], settings::HardwareAcceleration::full
+        );
+    };
     for (std::size_t index = 0; index < effects.size(); ++index) {
         auto dialog = graphics_page();
-        // Full, as the player's own file starts: the four effects at 100%.
+        // Full, as the player's own file starts: each effect at its default.
         dialog.chosen.hardware_acceleration = settings::HardwareAcceleration::full;
         dialog.defaults.hardware_acceleration = settings::HardwareAcceleration::full;
         settings::follow_acceleration_with_effects(
@@ -7948,14 +7957,14 @@ void visual_effects_show_and_change() {
         dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
         CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
-        CHECK(dialog.chosen.*effects[index] == 110);
+        CHECK(dialog.chosen.*effects[index] == full(index) + 10);
         for (std::size_t other = 0; other < effects.size(); ++other)
-            CHECK(dialog.chosen.*effects[other] == (other == index ? 110U : 100U));
+            CHECK(dialog.chosen.*effects[other] == full(other) + (other == index ? 10U : 0U));
         CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
-        CHECK(dialog.chosen.*effects[index] == 100);
+        CHECK(dialog.chosen.*effects[index] == full(index));
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
         CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
-        CHECK(dialog.chosen.*effects[index] == 90);
+        CHECK(dialog.chosen.*effects[index] == full(index) - 10);
         CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
         CHECK(dialog.chosen == dialog.opened);
     }

@@ -47,6 +47,8 @@ enum Type : uint16_t { vehicle = 1, collector, relay, silo, missile, type_count 
 // ids. The vehicle builds the collector and the relay; the silo's list offers the missile
 // its weapon stockpiles.
 constexpr uint16_t build_lists[] = {0, 2, collector, relay, 0, 0, 1, missile, 0};
+// The same types with the missile on the vehicle's list alone.
+constexpr uint16_t builder_round_lists[] = {0, 1, missile, 0, 0, 0, 0};
 
 // A leading line before any plan applies, as the plan flag starts set; it
 // weights the collector to a tenth. The medium plan halves the relay's weight.
@@ -104,6 +106,8 @@ struct Fixture {
     /// @param visibility the match's visibility flags. The default, 2, is
     ///     line of sight without mapping; a map test passes 3, and the
     ///     sight test passes mapping and line of sight.
+    /// @param armed_vehicle whether the vehicle carries the silo's weapon, as
+    ///     a mobile missile defence does
     explicit Fixture(
         uint32_t downloadable_type = 0,
         bool builder_income = true,
@@ -111,7 +115,8 @@ struct Fixture {
         uint32_t movement_class = 0,
         uint32_t random_seed = 1,
         const data::limits::Limits& limits = {},
-        uint16_t visibility = 2
+        uint16_t visibility = 2,
+        bool armed_vehicle = false
     ) {
         map.attribute_width = map.attribute_height = map_cells;
         map.attributes.resize(map_cells * map_cells);
@@ -195,6 +200,10 @@ struct Fixture {
             fields[collector].yard_mask = blocking_yard;
             fields[relay].yard_mask = blocking_yard;
             fields[silo].yard_mask = blocking_yard;
+        }
+        if (armed_vehicle) {
+            types[vehicle].simulation.flags |= OA_UNIT_DEF_FLAG_HAS_WEAPONS;
+            defs[vehicle].weapon1 = "NUKE";
         }
         defs[collector].energy_make = 20.0F;
         types[silo].simulation.flags |= OA_UNIT_DEF_FLAG_BUILDER | OA_UNIT_DEF_FLAG_HAS_WEAPONS;

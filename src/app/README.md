@@ -288,6 +288,21 @@ latched the closing key and drew a backdrop.
   under it asked. The saves notice, the mod warning and the found folder's
   notice are made by `UserFolderState::show_notice`, and the installs'
   prompts by `ModInstallState::show`.
+- **The work dialog.** `WorkScreen`, named `work`, holds a
+  `kit::WorkDialog`: a title and one line as given, no buttons, its
+  spinner turning with the time it has shown. It shows over one screen of
+  the game, laid out at the view's size class and centred at its scale,
+  modal over a backdrop, takes every input and does nothing with it, and
+  closes when its host's tick says so (`WorkScreen::Host`). Automation
+  lists it as `oa.work`, its one part the label `oa.progress.body` with
+  its line. The one the engine shows is a
+  Library switch's, over the main menu after the soft restart while the
+  Library waits to open again
+  ([the soft restart](#mod-profile-and-mod-folders)), for at most five
+  seconds. It stands for the Library the player asked for, so it is
+  pushed rather than queued, but only where that Library could open
+  (`Runtime::kept_library_may_show`), and it closes as soon as it could
+  not: a message box, a notice or a frame a package owns comes first.
 - **Registered pages, screens, notices and prompts.** Code outside the
   engine's own screens registers them for this runtime: a settings page in
   the layer's registry (`registered_settings`), a kit screen in the
@@ -513,7 +528,18 @@ latched the closing key and drew a backdrop.
   (`RenderState::use_window_pixels`); then the software cursor is
   presented above them, and the frame holds no cursor while a screen shows
   (`tick_and_draw_cursor`). The layer is uploaded again only when a
-  screen's drawing or place changes. Without a renderer, and while
+  screen's drawing or place changes. A screen whose revision covers
+  everything it draws (`revision_covers_drawing`: the Library, the
+  notices, the questions, the kit gallery and the extensions' kit
+  screens) is drawn again only when its revision, its place, its scale,
+  the screens darkening it, the fonts, the icon, the interface's language
+  or its words, which a pack read again replaces in place
+  (`interface_generation`), or the text settings change (`KeptDrawing`);
+  every other screen, Settings among them, is drawn each frame. A check
+  that reads what a frame draws drops the kept drawings before it
+  (`forget_kept_drawings`), as the text-fit check does, since the kit
+  records a text only while it is drawn; `kept_drawing` tells a check
+  whether a present drew a screen again. Without a renderer, and while
   `frame_without_cursor` draws the picture, the screens are drawn into the
   frame instead (`compose_front_end`), each picture pixel taking the
   screen's pixel at its centre in the window, which is what the player sees
@@ -668,7 +694,12 @@ runtime goes).
   Library (`library::switch_refused_note`); SWITCH OFF, on the mod played,
   asks the Switch Mod question of No Mod (`library::switch_off_question`),
   pushed over the Library at once, CANCEL marked, whose SWITCH plays no mod
-  through the same switch; ROLL BACK asks the Roll Back Mod question
+  through the same switch. Either switch notes what the Library shows
+  first (`keep_library_for_restart`, a `LibraryReturn`) and the line its
+  progress dialog says (`restart_line`), and the next run opens the
+  Library again as it showed
+  ([the soft restart](#mod-profile-and-mod-folders)); ROLL BACK asks the
+  Roll Back Mod question
   (`library::roll_back_question`, with the reload line for the mod being
   played), pushed and marked the same way, and its ROLL BACK rolls the
   folder back (`roll_back_mod_folder`), the feed looking again afterwards,
@@ -786,6 +817,14 @@ runtime goes).
   and PLAY NOW from the Library, and an update to the mod played held,
   named by `pending_change_target`. CANCEL on that line drops it, the
   update is taken again and held, and it is made as the mod is switched.
+  The second and third runs, which PLAY NOW began, check the Library
+  opened again: the work dialog waiting for a notice raised at the start,
+  then saying "Switching on Ridge…" until the fixture lists the installed
+  packages, the Library on Mods with the mod played selected, before the
+  fixture lists that mod and once it does, its scroll kept or its row
+  brought into view, and a Library the run before kept never kept for the
+  next run, dropped once the wait is over and not opened when the notice
+  holding it back closes.
   The third run also checks UNINSTALL: off for a map pack during a game, a
   notice for the language pack in use and for the mod being played, the
   question for a built-in registry's mod and for one of the player's own,
@@ -1540,9 +1579,9 @@ language and both sizes.
   transforms and the presented copies, the units' and features' cached
   images and silhouettes and those of the units they carry
   (`plan_unit_supersampled`), the texture animations, the projectiles'
-  models, the GAF frames decoded for the particles (each once a frame), the
-  selection boxes' lines and the frame's statistics. Before them the frame's
-  shadows are set from the zoom (`set_frame_shadows`, `shadow_fade.hpp` of
+  models, the GAF frames decoded for the particles (each once, kept from
+  frame to frame), the selection boxes' lines and the frame's statistics.
+  Before them the frame's shadows are set from the zoom (`set_frame_shadows`, `shadow_fade.hpp` of
   the model module): at zoom 1 and closer the game's own; zoomed out
   lighter, easing down to none at a quarter, the models' silhouettes and
   the projectiles' shadow sprite blended through a faded alpha table
@@ -1932,7 +1971,12 @@ language and both sizes.
   arithmetic of the path the processor draws the piece by (a cached piece
   as its image, a moving piece flat, a carried unit as its carrier
   composes it), the polygons of a unit with a depth plane sorted lowest
-  first, the palette's tables approximated as the design says: the shade
+  first and, where no order shows the plane's picture, as where two
+  polygons cross or the overlaps go round in a circle, each given holes
+  where the plane shows one drawn before it (`find_plane_cuts`), which its
+  triangles, a textured quad's strips among them, are cut round
+  (`cut_under_nearer`, `leave_out_holes`), the palette's tables
+  approximated as the design says: the shade
   rows as a per-vertex multiplier with a bright page of doubled texels for
   the rows above unlit, the alpha table as alpha 0.5 for cloaked units and
   shadows, the blue table as a halved colour with an additive lift, the
@@ -1990,7 +2034,18 @@ language and both sizes.
   dialogs, the cursor and the present follow as in Basic, and the readers
   that keep a picture, the capture and the checks among them, get the
   standard tier's draw (`ensure_screen_world`), since the world layer
-  holds no picture.
+  holds no picture. Between the frame and the overlay, the effects pass
+  (`full_effects::compose`) works within the lights' bounds. Light alone,
+  the weapons', the nanolathes' and the wrecks', is painted over opaque
+  black on the processor and added by the card (`full_effects::Pass::light`),
+  which reads nothing back, so the processor never waits for the card to
+  finish the world: a readback waits as long as the card takes to draw
+  it, which anti-aliasing lengthens. Heat distortion moves the world's
+  own pixels, so on a frame where it reaches the view
+  (`match_effects_distort`) they are read back, processed and drawn back
+  in place (`full_effects::Pass::world`). Light raises a channel by its
+  whole steps whatever the channel held (`renderer_effects::compose`), so
+  the two passes give the same pixels for light alone (`app-full-effects`).
   Full falls back to Basic, which falls back to the standard tier, each
   for the rest of the run (`drop_full`, `TierInputs::full_drop`, a kind
   for each cause): a call of the card's own that fails (`FullCardError`,
@@ -1998,8 +2053,9 @@ language and both sizes.
   forces, drops Full with the failing call struck against the driver as a
   `card` strike (`take_full_failure`), which the same failure in the next
   run on the driver records `full-unusable`; a failed effects pass (its
-  readback, conversion or upload, which the memory guard counts before
-  they are made, or the failure `--render-fault effects` forces) drops
+  readback and conversion or its light, or its upload, which the memory
+  guard counts before they are made, or the failure
+  `--render-fault effects` forces) drops
   nothing: that frame is drawn without the effects, the failure logged
   once (`full_effects::compose`, `FullPresentation::effects_skipped`); a frame the executor refuses
   before drawing anything of it, one the stages built wrong
@@ -2076,8 +2132,10 @@ language and both sizes.
   and battlefield; `app-full-sprites` and `app-full-sprites-data` the
   sprite stage against the bands' picture on SDL's software renderer
   (`full_sprites_test.cpp`); `app-full-models` and `app-full-models-data`
-  the model stage against the processor's raster
-  (`runtime_full_models_test.cpp`); `app-full-fog` the fog passes' quads,
+  the model stage against the processor's raster, the latter with every
+  installed model with a depth plane drawn in a colour a face, at rest and
+  with its pieces turned as moving pieces, its faces held to the
+  processor's (`runtime_full_models_test.cpp`); `app-full-fog` the fog passes' quads,
   alphas and placement and the painters' level quads
   (`full_fog_test.cpp`).
 - Native pixel density: a window's density is fixed when it opens.
@@ -2241,7 +2299,24 @@ language and both sizes.
   Escape is CANCEL, as in the save dialog: Escape leaves either dialog as
   its CANCEL does (`leave_load_dialog`), for the screen it was opened over,
   as in 3.1c: Single Player, the in-game menu or the end-of-mission panel,
-  with saves listed or none.
+  with saves listed or none. Every panel the match HUD loads, a unit's
+  page, the general or idle page, the in-game menu or a dialog, is laid out
+  over the side column's art (`load_match_hud_layout`, `match_hud_art`):
+  the side tile, the GUI palettes and tables, `commongui.gaf`'s icons and
+  the side's interface GAF in the shown language's captions, and the side's
+  font, read from the game's files as the match's first panel loads and
+  again only for another side's files, the next match, or a change of the
+  language shown or its packs. A panel reads only its own GUI file and GAF,
+  so that the right press of the left-click interface that drops the
+  selection, which loads the idle page again, takes no frame's time
+  reading the archives again; the pointer interface check
+  (`native-pointer-interfaces`) counts what the pages a selection and two
+  right presses open read. A unit's page or the order page that opens is
+  drawn into the HUD layer alone (`compose_match_hud`, the HUD part of
+  `draw_match_surface`): the bars widened to the window, the panel and what
+  goes over it, so that the pointer meets the page where the next frame
+  shows it (`match_hud_strips`), and that frame draws the whole match once,
+  as every frame does.
 - `runtime_scroll_bars.cpp`: the scroll bars of the frontend screen's panel
   and of the match HUD's panel (`renderer::LayoutScrolls`), bound as each
   panel's first draw binds them, drawn over it, driven by the pointer and
@@ -3395,7 +3470,10 @@ saves, recordings and network games are unaffected.
   (selection text, the tap's action, the rail, the lit and paused looks) and
   lays out the controls' frame with `oa::ui::touch_hud::lay_out`.
 - `runtime_touch_actions.cpp` holds what each control, sheet item and
-  wheel item does; `runtime_touch_camera.cpp` the camera a finger moves:
+  wheel item does. On the open megamap a battlefield finger's tap, wheel
+  order and drag go to the megamap as the mouse's clicks (a right press
+  where the right-click interface gives one), never to the battlefield
+  under it. `runtime_touch_camera.cpp` holds the camera a finger moves:
   `pan_match_camera_by` (the map follows the finger, past the map's edges
   as far as a scroll goes) and `zoom_match_about` (a pinch's zoom applied
   at once about the fingers, so the map stays under them, or about the
@@ -3788,7 +3866,39 @@ stored mod and resolves its profile, sets the data layout again, mounts the
 archives again and builds a new Runtime on the same window and renderer, with
 the full-screen state Alt+Enter left and the intro movies skipped
 (`Options::restarts`), which opens on the main menu playing the new mod. The
-player never exits the game. `--check-mod-switch` (`native-mod-switch`,
+player never exits the game.
+
+A switch made in the Library, PLAY NOW or the SWITCH of the question SWITCH
+OFF and UNLOAD MOD ask, also opens the Library again in the next run as it
+showed. Before switching, `Runtime::keep_library_for_restart` notes what it
+shows in a `Runtime::LibraryReturn`: the tab, each tab's filter, the tag,
+the search, the selected entry and its place in the list, the list's scroll
+and the details. `restart_line` is what the progress dialog says while the
+switch applies, "Switching on Ridge…" or "Switching off Ridge…" in the
+language shown (`switching_line`); a refused switch forgets both. `run_once`
+hands them to the next run: the line as `Options::restart_line`, which the
+reload's dialogs say in place of "Applying your changes" (the frame
+`show_work_frame` leaves on the window as the run ends, then the mount's and
+the new Runtime's `run_long_work`, which shows a line its catalogue does not
+hold as given), and the Library through `take_library_return`.
+`library_return` gives only what the run that ends noted, never what it was
+handed: a run whose reopen did not happen hands nothing on. The new run's
+`reopen_kept_library`, from `tick_library`, opens the Library once the main
+menu lets it open (`library_can_open`, as `open_library` is guarded) with no
+other screen of the OA layer showing (`kept_library_may_show`), and once its
+feed lists the installed packages (`LibraryFeed::installed_listed`, the
+worker's first search for the runtime's own feed), so that no entry moves
+as they arrive. Until then the switch's work dialog shows over the main menu
+where the Library could. The wait is `kept_library_wait_ms`, five seconds
+from the run's first frame on the main menu: then the Library opens with
+what is listed if it can, and is dropped if it cannot, whichever screen
+shows, so that it never opens later on a main menu that became free. It
+opens over the work dialog, which then closes under it, so a screen waiting
+in the layer's queue waits for the Library. The chosen entry is selected
+once its feed lists it, unless the player has chosen another
+(`LibraryHost::select_kept`), and the list keeps its scroll while that
+entry is where it was; otherwise its row is brought into view
+(`ScreenState::reveal_row`). `--check-mod-switch` (`native-mod-switch`,
 `runtime_mod_switch_check.cpp`) switches ten times between No Mod and two
 test profiles through that same path, on the dummy video driver's window,
 and requires what the host heap holds in live allocations as the last
@@ -4445,9 +4555,13 @@ makes and applies its batches (`take_whiteboard_batch`,
 `receive_whiteboard_batch`); `runtime_megamap.cpp` opens, draws and clicks
 the megamap and redraws the enhanced minimap, while the Mouse wheel zoom
 setting is off (`megamap_on`, `megamap_wheel_zoom_changed`), its clicks
-acting as the battlefield's do in the chosen interface type, which
-`native-megamap-clicks` checks (`check_megamap_clicks`) after what it draws
-(`check_megamap_picture`);
+acting as the battlefield's do in the chosen interface type, a drop of the
+selection closing the unit info panel, and a panel over it, such as the exit
+menu, taking its own; a press takes the icon last drawn under it
+(`MegamapState::unit_at`), so a finger's tap needs no frame between. The
+touch controls' taps, order wheel and drags on it are its clicks too. That
+is what `native-megamap-clicks` checks (`check_megamap_clicks`) after what
+it draws (`check_megamap_picture`);
 `runtime_selection_shortcuts.cpp` takes the double-click, Ctrl+S/B/F and
 the drag filters. What other machines report about their players' views
 (`shared_views_`) is left to network play to carry; a game played alone

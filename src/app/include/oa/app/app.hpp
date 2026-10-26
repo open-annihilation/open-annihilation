@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -861,6 +862,10 @@ struct Options {
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;
+    // What the progress dialog says while this run applies a switch of the
+    // mod made in the Library, in the language shown, such as "Switching on
+    // Ridge…"; empty says "Applying your changes".
+    std::string restart_line;
     // Forces each renderer failure the game handles while it runs, on the
     // renderer the start made, and checks that it goes on presenting: the
     // walk of the render drivers, a present error on a menu, match or

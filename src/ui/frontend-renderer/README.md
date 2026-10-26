@@ -19,7 +19,13 @@ the game's buttons, so keeps those buttons in its frames, and a mod's own
 
 `load_screen` accepts explicit layout, PCX, palette, and GAF resource names for
 the other frontend screens. The explicit names matter: the renderer does not
-infer that every screen follows the main-menu convention.
+infer that every screen follows the main-menu convention. `load_screen_art`
+loads the same names but the layout, and `load_screen_layout` lays a layout
+out over such art, reading only its GUI file: the two give what `load_screen`
+gives. The match's side column loads its art once a match and lays each of
+its pages out over it, so that a page a click opens reads one small file;
+`screen_art_test.cpp` (`frontend-screen-art`) checks the installed game's Arm
+pages and in-game menu so.
 
 `render_screen` draws a loaded screen into a new surface; `render_screen_into`
 draws it the same way into a surface the caller keeps, whose memory is used

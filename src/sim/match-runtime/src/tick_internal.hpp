@@ -219,9 +219,6 @@ inline std::array<uint32_t, 3> as_position(const sim::weapon_execution::Point& p
 inline constexpr std::array<const char*, 3> aim_script_names{
     "AimPrimary", "AimSecondary", "AimTertiary"
 };
-inline constexpr std::array<const char*, 3> fire_script_names{
-    "FirePrimary", "FireSecondary", "FireTertiary"
-};
 inline constexpr uint32_t live_unit_flag = OA_UNIT_FLAG_LIVE;
 inline constexpr uint32_t building_unit_flag = OA_UNIT_FLAG_BUILDING; // bm_code==0
 inline constexpr uint32_t attached_without_piece = OA_UNIT_FLAG_ATTACHED_WITHOUT_PIECE;
@@ -471,12 +468,12 @@ class TickHost final : public sim::simulation_state::Host,
         sim::unit_spawn::Slot& s, sim::simulation_state::Order& order, const sim::air::AirGoal* goal
     );
 
-    /// Starts a script by name on a unit with no arguments, stepping it at once;
-    /// nothing happens without a script.
+    /// Starts an engine function's script on a unit with no arguments,
+    /// stepping it at once; nothing happens without a script.
     ///
     /// @param s the unit
-    /// @param name script name; the lookup is case-sensitive
-    void script(sim::unit_spawn::Slot& s, std::string_view name);
+    /// @param function engine function whose exact COB name is started
+    void script(sim::unit_spawn::Slot& s, ScriptFunction function);
 
     /// UnitDef.abilities of the unit, zero when it has no type.
     uint32_t unit_abilities(const oa::Unit& unit) const;

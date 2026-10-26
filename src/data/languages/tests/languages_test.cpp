@@ -6,7 +6,7 @@
 // operating system's locales normalised and matched alone and in order, the
 // settings' choice, and the interface catalogue read from small built
 // files, malformed and oversized ones included, and merged by text and
-// language.
+// language, with a generation each installation of it moves.
 
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <string_view>
@@ -472,6 +473,28 @@ void installed_language_answers_interface_text() {
     languages::set_interface_language(nullptr, languages::english());
 }
 
+/// Every installation moves the interface's generation, the same catalogue
+/// and language installed again too, as a pack read again installs them
+/// after replacing the catalogue's texts in place; reading changes nothing.
+void every_installation_moves_the_interface_generation() {
+    clear_pack_languages();
+    languages::InterfaceText catalogue;
+    OA_CHECK(catalogue.add(kCatalogue));
+    const auto& french = *languages::find_by_tag("fr");
+    languages::set_interface_language(&catalogue, french);
+    const uint64_t first = languages::interface_generation();
+    OA_CHECK(languages::interface_text("Mouse wheel zoom") == "Zoom \xC3\xA0 la molette");
+    OA_CHECK(languages::interface_generation() == first);
+    OA_CHECK(catalogue.add("[Mouse wheel zoom]\n{\nfr=Molette;\n}\n"));
+    languages::set_interface_language(&catalogue, french);
+    OA_CHECK(languages::interface_text("Mouse wheel zoom") == "Molette");
+    const uint64_t again = languages::interface_generation();
+    OA_CHECK(again != first);
+    OA_CHECK(&languages::interface_language() == &french);
+    languages::set_interface_language(nullptr, languages::english());
+    OA_CHECK(languages::interface_generation() != again);
+}
+
 /// A named language is read from the installed catalogue. The language the
 /// interface shows is left as it was, and without a catalogue the word is English.
 void named_language_reads_one_text() {
@@ -888,6 +911,7 @@ int main() {
     refused_catalogues_leave_the_catalogue_as_it_was();
     catalogue_keeps_texts_in_place_through_later_adds();
     installed_language_answers_interface_text();
+    every_installation_moves_the_interface_generation();
     named_language_reads_one_text();
     data_words_follow_the_chain();
     unit_texts_fall_back_to_the_types_own();

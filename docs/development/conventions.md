@@ -180,7 +180,11 @@ type. It uses the game's fixed-point types (`oa_fixed`, 16.16) and integer
 arithmetic where 3.1c does, and `float` or `double` where 3.1c does, at the
 same precision. It draws random numbers only from the match's own random
 streams, and never reads the wall clock or the frame time, object addresses
-or the iteration order of hashed containers.
+or the iteration order of hashed containers. One exception is allowed: an
+object's address may be the key of a container that only finds that
+object's own record and is never walked in the key's order, so that the
+address changes how long a lookup takes and never what it finds
+(`Match::order_bucket` in `src/sim/match-runtime`).
 
 Floating point needs care of its own, because the same source can round
 differently from one compiler or processor to the next:

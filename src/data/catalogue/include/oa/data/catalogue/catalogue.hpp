@@ -46,12 +46,13 @@ enum class Kind : uint8_t {
     expansion, ///< an expansion package
     oamut,     ///< a mutator
     oabrain,   ///< a brain
+    oakeys,    ///< a key layout
 };
 
 /// The kind as the catalogue writes it.
 ///
 /// @param kind the kind
-/// @return `oalang`, `oamod`, `oamap`, `expansion`, `oamut` or `oabrain`; never null
+/// @return `oalang`, `oamod`, `oamap`, `expansion`, `oamut`, `oabrain` or `oakeys`; never null
 [[nodiscard]] inline const char* kind_name(Kind kind) noexcept {
     switch (kind) {
     case Kind::oalang:
@@ -66,6 +67,8 @@ enum class Kind : uint8_t {
         return "oamut";
     case Kind::oabrain:
         return "oabrain";
+    case Kind::oakeys:
+        return "oakeys";
     }
     return "";
 }
@@ -76,7 +79,7 @@ enum class Kind : uint8_t {
 /// Every other kind's file ends with the kind's own name.
 ///
 /// @param kind the kind
-/// @return `oalang`, `oamod`, `oamap`, `oaexp`, `oamut` or `oabrain`; never null
+/// @return `oalang`, `oamod`, `oamap`, `oaexp`, `oamut`, `oabrain` or `oakeys`; never null
 [[nodiscard]] inline const char* package_extension(Kind kind) noexcept {
     if (kind == Kind::expansion)
         return "oaexp";
@@ -145,8 +148,8 @@ struct Package {
     Kind kind = Kind::oamod;
     std::string id;   ///< the package key; unique in the catalogue, ignoring case
     std::string name; ///< the name a player sees, 1 to 64 bytes
-    /// 1 to 32 bytes; empty when this kind names none. A mutator's or a brain's is a
-    /// version of one to three parts.
+    /// 1 to 32 bytes; empty when this kind names none. A mutator's, a brain's or a
+    /// key layout's is a version of one to three parts.
     std::string version;
     int32_t revision{};            ///< a mod's revision, 1 to 65535; 0 when this package names none
     int64_t release{};             ///< the release number, 1 to 2^31-1
@@ -192,7 +195,8 @@ struct Package {
     std::vector<MutatorRequirement> requires_mutators;
     /// Mutators this one cannot run beside. Empty for every other kind.
     std::vector<MutatorRequirement> conflicts_with;
-    /// Conditions a mutator or a brain works with, as written. Empty for every other kind.
+    /// Conditions a mutator, a brain or a key layout works with, as written.
+    /// Empty for every other kind.
     std::vector<std::string> works_with;
     /// Layers this mutator uses, known names kept once. Empty for every other kind.
     std::vector<formats::oamut::Layer> layers;
@@ -207,6 +211,21 @@ struct Package {
     bool full_awareness{false};
     /// The bytes of a brain's networks taken together. Empty, false or 0 for every other kind.
     uint64_t network_bytes{};
+    /// The base a key layout changes, `oa-default` or `none`. Empty for every other kind.
+    std::string key_base;
+    /// `any`, `ansi`, `iso` or `jis`. An oakeys entry that omits it stores `any`.
+    /// Empty for every other kind.
+    std::string keyboard;
+    /// `right-click` or `left-click`. Empty or 0 for every other kind.
+    std::string pointer;
+    /// Helper names, in the order written, unknown names left out. Empty or 0 for every other kind.
+    std::vector<std::string> helpers;
+    /// How many actions a key layout binds. Empty or 0 for every other kind.
+    uint32_t changes{};
+    /// Triggers in the order of first use, unreadable ones left out. Empty or 0 for every other kind.
+    std::vector<std::string> triggers;
+    /// A picture reference ending `.png`. Empty or 0 for every other kind.
+    std::string preview;
 };
 
 /// One catalogue that was read. `problems` holds why entries were skipped.

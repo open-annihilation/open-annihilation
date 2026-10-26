@@ -161,7 +161,10 @@ bool Runtime::issue_pointer_unit_orders(float x, float y, int32_t clicks, bool q
         select_match_unit(x, y, clicks);
         return true;
     case input::ClickAction::clear_selection:
+        // The unit info panel over the order panel closes with it, as over
+        // open ground.
         clear_local_selection();
+        close_unit_info();
         apply_match_hud_for_selection();
         return true;
     case input::ClickAction::issue_command:
