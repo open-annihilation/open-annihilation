@@ -1685,7 +1685,11 @@ keys::Contexts Runtime::input_contexts() {
         contexts.active |= context_bit("match");
         const bool watcher = (current_extension_state() & extension_state::local_watcher) != 0;
         contexts.active |= watcher ? context_bit("watch") : context_bit("play");
-        if (chat_composing_ || whiteboard_input_.editing)
+        // The surrender question takes the keys ahead of a chat line or a
+        // marker's text, which keep what was typed for after it.
+        const bool typing =
+            (chat_composing_ || whiteboard_input_.editing) && !match_question_open();
+        if (typing)
             contexts.active |= context_bit("chat");
         if (match_paused_ && (pause_menu_shown() || team_panel_open()))
             contexts.active |= context_bit("panel");
@@ -1707,7 +1711,9 @@ keys::Contexts Runtime::input_contexts() {
     if (!modal_layer && oa_layer().shows(on_match))
         contexts.active |= context_bit("oa-screens");
 
-    contexts.text_entry = chat_composing_ || whiteboard_input_.editing || save_dialog_open();
+    contexts.text_entry =
+        ((chat_composing_ || whiteboard_input_.editing) && !match_question_open()) ||
+        save_dialog_open();
     if (multiplayer_session())
         contexts.conditions |= condition_bit("multiplayer");
     else if (match_ != nullptr)
