@@ -553,6 +553,8 @@ struct Options {
     bool check_kill_board = false;
     // Latches Shift and Space from a scratch layout, then sticky Ctrl and Alt.
     bool check_key_latches = false;
+    // Holds self-destruct and the surrender question's Yes for the long-press time.
+    bool check_hold_confirm = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.

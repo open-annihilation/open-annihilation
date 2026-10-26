@@ -5554,6 +5554,14 @@
 	it=Tieni i colori dei giocatori remoti;
 	}
 
+[Keep holding {chord}: the ring fills in {seconds} s. Let go to cancel.]
+	{
+	de=Halte {chord} weiter: der Ring füllt sich in {seconds} s. Lass los zum Abbrechen.;
+	fr=Maintiens {chord} : l'anneau se remplit en {seconds} s. Lâche pour annuler.;
+	es=Sigue pulsando {chord}: el anillo se llena en {seconds} s. Suelta para cancelar.;
+	it=Tieni premuto {chord}: l'anello si riempie in {seconds} s. Lascia per annullare.;
+	}
+
 [Key Remaps]
 	{
 	de=Tastenbelegungen;
@@ -13808,6 +13816,14 @@
 	fr=ce paquet est déjà en cours de téléchargement;
 	es=ese paquete ya se está descargando;
 	it=quel pacchetto è già in download;
+	}
+
+[the button]
+	{
+	de=die Schaltfläche;
+	fr=le bouton;
+	es=el botón;
+	it=il pulsante;
 	}
 
 [the catalogue has no such package]

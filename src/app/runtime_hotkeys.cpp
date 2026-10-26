@@ -241,7 +241,12 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     if (id == "order.self-destruct") {
         if (selected_match_unit_ == 0)
             return false;
-        match_->toggle_self_destruct(selected_local_ids());
+        // A countdown already running stops at once. Starting one holds when
+        // Hold to confirm is on.
+        if (start_self_destruct_hold(hold_key_scancode_, false, 0, 0))
+            return true;
+        const std::vector<uint16_t> ids = selected_local_ids();
+        match_->toggle_self_destruct(ids);
         status_ = "Self-destruct";
         return true;
     }
@@ -433,6 +438,10 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
 bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     if (screen_ != Screen::match || !match_)
         return false;
+    hold_key_scancode_ = static_cast<uint16_t>(key.scancode);
+    // Escape ends a hold and still does what it was going to do.
+    if (key.key == SDLK_ESCAPE && !key.repeat)
+        cancel_hold_confirm();
     // The event may arrive here without passing through dispatch_event, which
     // is where a key is fed. A check also leaves the down flag clear and names
     // the press by the event type, so that press is fed here. A down that

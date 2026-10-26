@@ -3391,6 +3391,11 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
             if (gui_action_id(shown, gadget.common.name) != fed.action)
                 continue;
             answered_key_ = static_cast<int32_t>(std::tolower(static_cast<int>(key.key)));
+            // Yes on the surrender question holds. Enter and No are answered
+            // before this loop, and stay immediate.
+            if (confirming && gadget.common.name == "CHOICE1" &&
+                start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, gadget_index))
+                return true;
             activate_match_hud(gadget_index);
             return true;
         }

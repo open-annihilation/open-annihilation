@@ -3,6 +3,7 @@
 
 // Match chrome, side HUD, resource readout, fog and minimap.
 #include "oa/app/runtime.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/languages/unit_texts.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/defs/layout.hpp"
@@ -24,6 +25,7 @@
 #include "oa/ui/hud/unit_panel.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/keys.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/layout.hpp"
@@ -1650,6 +1652,137 @@ void Runtime::draw_key_latch_chips() {
         kit::draw_chip(canvas, {origin, top, item.width, chip_height}, look);
         origin += item.width + gap;
     }
+}
+
+namespace {
+
+/// The long-press time as the card says it, in seconds, from integer tenths.
+///
+/// 500 ms is "0.5". A whole second drops the fraction.
+///
+/// @param long_press_ms the long-press time, in milliseconds
+/// @return the seconds
+std::string hold_seconds_text(uint32_t long_press_ms) {
+    const uint32_t tenths = (long_press_ms + 50U) / 100U;
+    const uint32_t whole = tenths / 10U;
+    const uint32_t fraction = tenths % 10U;
+    if (fraction == 0)
+        return std::to_string(whole);
+    return std::to_string(whole) + "." + std::to_string(fraction);
+}
+
+/// The card's line, with the chord and the seconds filled in.
+///
+/// @param chord the chord, or the button
+/// @param long_press_ms the long-press time, in milliseconds
+/// @return the line
+std::string hold_card_line(std::string_view chord, uint32_t long_press_ms) {
+    const std::string pattern{oa::data::languages::interface_text(
+        "Keep holding {chord}: the ring fills in {seconds} s. Let go to cancel."
+    )};
+    std::string line = pattern;
+    const std::string seconds = hold_seconds_text(long_press_ms);
+    const auto chord_at = line.find("{chord}");
+    if (chord_at != std::string::npos)
+        line.replace(chord_at, std::string_view("{chord}").size(), chord);
+    const auto seconds_at = line.find("{seconds}");
+    if (seconds_at != std::string::npos)
+        line.replace(seconds_at, std::string_view("{seconds}").size(), seconds);
+    return line;
+}
+
+} // namespace
+
+void Runtime::draw_hold_ring() {
+    hold_ring_drawn_ = false;
+    hold_ring_side_ = 0;
+    const HoldConfirmDraw shown = hold_confirm_draw();
+    if (!shown.show || screen_ != Screen::match || match_ == nullptr)
+        return;
+
+    constexpr int32_t ring_points = 24;
+    const int point_scale = std::max(1, hud_text_scale());
+    kit::HoldRingLook look;
+    look.done = shown.progress;
+    look.whole = 1000;
+    look.reduced_motion = hold_confirm_reduced_motion_;
+    hold_ring_done_ = look.done;
+    hold_ring_whole_ = look.whole;
+    hold_ring_reduced_ = look.reduced_motion;
+
+    if (shown.button && match_hud_ && shown.gadget < match_hud_->layout.gadgets.size() &&
+        !match_hud_cpu_.rgb.empty()) {
+        const auto& common = match_hud_->layout.gadgets[shown.gadget].common;
+        const int centre_x = static_cast<int>(common.x) + static_cast<int>(common.width) / 2;
+        const int centre_y = static_cast<int>(common.y) + static_cast<int>(common.height) / 2;
+        kit::Canvas hud_canvas;
+        hud_canvas.surface = &match_hud_cpu_;
+        hud_canvas.placement.scale = 1;
+        hud_canvas.fonts = engine_settings_fonts();
+        hud_canvas.placement.clip = {
+            0,
+            0,
+            static_cast<int32_t>(match_hud_cpu_.width),
+            static_cast<int32_t>(match_hud_cpu_.height)
+        };
+        const kit::Rect ring{
+            centre_x - ring_points / 2, centre_y - ring_points / 2, ring_points, ring_points
+        };
+        kit::draw_hold_ring(hud_canvas, ring, look);
+    }
+
+    const auto area = overlay_area();
+    const auto corner = canvas_paint(area.x, area.y);
+    const kit::Canvas canvas = overlay_kit_canvas(
+        paint_target(),
+        engine_settings_fonts(),
+        corner,
+        point_scale,
+        {corner.x, corner.y, area.width, area.height}
+    );
+    if (canvas.surface == nullptr)
+        return;
+
+    const int32_t anchor_x = shown.button ? shown.x + shown.width / 2 : shown.x;
+    const int32_t anchor_y = shown.button ? shown.y + shown.height / 2 : shown.y;
+    const int32_t point_x =
+        static_cast<int32_t>((static_cast<int64_t>(anchor_x) - area.x) / point_scale);
+    const int32_t point_y =
+        static_cast<int32_t>((static_cast<int64_t>(anchor_y) - area.y) / point_scale);
+    if (!shown.button) {
+        const kit::Rect ring{
+            point_x - ring_points / 2, point_y - ring_points / 2, ring_points, ring_points
+        };
+        kit::draw_hold_ring(canvas, ring, look);
+        hold_ring_drawn_ = true;
+        hold_ring_x_ = canvas.placement.x + ring.x * point_scale;
+        hold_ring_y_ = canvas.placement.y + ring.y * point_scale;
+        hold_ring_side_ = ring_points * point_scale;
+    }
+    if (canvas.fonts == nullptr)
+        return;
+
+    const std::string title_text{oa::data::languages::interface_text(shown.title)};
+    const std::string button_text{oa::data::languages::interface_text("the button")};
+    const std::string chord_text = shown.click || shown.chord.empty() ? button_text : shown.chord;
+    kit::HoverCardLook card;
+    card.title = title_text;
+    card.block.push_back(hold_card_line(chord_text, shown.long_press_ms));
+    const kit::Point size = kit::hover_card_size(*canvas.fonts, card);
+    if (size.x <= 0 || size.y <= 0)
+        return;
+    const kit::Rect clip = canvas.placement.clip;
+    int32_t card_x = point_x + ring_points / 2 + 8;
+    int32_t card_y = point_y - size.y / 2;
+    if (card_x < clip.x)
+        card_x = clip.x;
+    if (card_x + size.x > clip.x + clip.width)
+        card_x = std::max(clip.x, point_x - 8 - size.x);
+    if (card_y < clip.y)
+        card_y = clip.y;
+    if (card_y + size.y > clip.y + clip.height)
+        card_y = std::max(clip.y, clip.y + clip.height - size.y);
+    kit::draw_hover_card(canvas, {card_x, card_y, size.x, size.y}, card);
 }
 
 } // namespace oa::app
