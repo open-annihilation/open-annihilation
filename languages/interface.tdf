@@ -5778,6 +5778,14 @@
 	it=Tieni premuto {chord}: l'anello si riempie in {seconds} s. Lascia per annullare.;
 	}
 
+[Keep your 1 change on top of {layout}?]
+	{
+	de=Deine 1 Änderung über {layout} behalten?;
+	fr=Garder ton 1 changement par-dessus {layout} ?;
+	es=¿Conservas tu 1 cambio encima de {layout}?;
+	it=Tieni la tua 1 modifica sopra {layout}?;
+	}
+
 [Keep your {n} changes on top of {layout}?]
 	{
 	de=Deine {n} Änderungen über {layout} behalten?;
@@ -6088,6 +6096,14 @@
 	fr=Appris;
 	es=Aprendido;
 	it=Appreso;
+	}
+
+[Leave without saving 1 change?]
+	{
+	de=1 Änderung ohne Speichern verlassen?;
+	fr=Partir sans enregistrer 1 changement ?;
+	es=¿Sales sin guardar 1 cambio?;
+	it=Esci senza salvare 1 modifica?;
 	}
 
 [Leave without saving {n} changes?]
@@ -9922,6 +9938,14 @@
 	it=Le impostazioni non sono state salvate.;
 	}
 
+[Settle 1 clash to save]
+	{
+	de=Kläre 1 Konflikt, um zu speichern;
+	fr=Règle 1 conflit pour enregistrer;
+	es=Resuelve 1 conflicto para guardar;
+	it=Sistema 1 conflitto per salvare;
+	}
+
 [Settle {n} clashes to save]
 	{
 	de=Kläre {n} Konflikte, um zu speichern;
@@ -13698,6 +13722,14 @@
 	it=e;
 	}
 
+[and 1 change of your own]
+	{
+	de=und 1 eigene Änderung;
+	fr=et 1 changement à toi;
+	es=y 1 cambio tuyo;
+	it=e 1 modifica tua;
+	}
+
 [and {n} changes of your own]
 	{
 	de=und {n} eigene Änderungen;
@@ -15472,6 +15504,14 @@
 	fr={language} · intégré;
 	es={language} · integrado;
 	it={language} · integrato;
+	}
+
+[{layout} · 1 change]
+	{
+	de={layout} · 1 Änderung;
+	fr={layout} · 1 changement;
+	es={layout} · 1 cambio;
+	it={layout} · 1 modifica;
 	}
 
 [{layout} · {n} changes]

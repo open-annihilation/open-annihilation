@@ -939,6 +939,7 @@ Row row_of(const Listed& listed) {
     row.id = listed.id;
     row.name = listed.name;
     row.aside = listed.aside;
+    row.where = listed.where;
     row.mark = listed.mark;
     row.chords = listed.chords;
     row.read_only = listed.read_only;

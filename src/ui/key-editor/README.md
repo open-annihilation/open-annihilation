@@ -6,13 +6,13 @@ It reads no file, clock, preference or network. The host fills `EditorInputs` an
 
 ## The screen
 
-`window_size` is the size class's dialog (480×324, 720×486, 960×600 points), no larger than the frame. `editor_layout` lays a modal kit window out from the model. The header names the layout and its own changes, with LAYOUT ▾ and a search. Large keeps a 152-point category nav. Regular and Compact use a category drop-down, and Compact puts the filters in that menu. The filters are All, Changed, Clashes, Unbound and Latchable. Each row has a mark, the action's name with a quiet aside, and up to four chord chips (one chip and "+n" at Compact). The chosen action's details sit beside the list at Regular and Large, and on a page of their own at Compact: what it does, where it works, its kind and its base, each chord with an explanation and a ✕, Latch and Hold to confirm when the action allows them, and RESET TO <base>. Groups starts with Number keys select groups. The footer is RESTORE DEFAULTS, CANCEL and SAVE. Compact's footer is MORE ▾, CANCEL and SAVE. Large's footer aside names the number-keys switch.
+`window_size` is the size class's dialog (480×324, 720×486, 960×600 points), no larger than the frame. `editor_layout` lays a modal kit window out from the model. Large and Regular put LAYOUT ▾, the aside and the search on one row: Large holds the aside between the drop-down and a 280-point search, and packs the pills at the right of the next row; Regular puts All categories on the left of the pills. Compact's header names the layout and its changes, and the row under it is the category drop-down and the search. LAYOUT ▾ is under MORE. Large keeps a 152-point category nav whose first entry is All with its count, and a long title wraps onto another line. Regular and Compact use a category drop-down, and Compact puts the filters in that menu. The filters are All, Changed, Clashes, Unbound and Latchable. Each row leads with the mark, then the action's name with a quiet aside, and up to four chord chips (one chip and "+n" at Compact). The category's tint square is on the nav and on the details' title. The chosen action's details sit beside the list at Regular and Large, and on a page of their own at Compact: what it does, where it works, its kind and its base, each chord with an explanation and a ✕, Latch and Hold to confirm when the action allows them, and RESET TO <base>. Groups starts with Number keys select groups. The footer is RESTORE DEFAULTS, CANCEL and SAVE. Compact's footer is MORE ▾, CANCEL and SAVE. Large's footer aside names the number-keys switch.
 
 The controls a journey presses, as `oa.` and the name:
 
 | Name | What it is |
 |---|---|
-| `key-editor.layout` | LAYOUT ▾. Items `key-editor.layout.<id>`, `.duplicate` and `.rename` |
+| `key-editor.layout` | LAYOUT ▾ on Large and Regular. At Compact the same items are under MORE. Items `key-editor.layout.<id>`, `.duplicate` and `.rename` |
 | `key-editor.search` | The search field |
 | `key-editor.category` | Regular and Compact's category drop-down. Items `key-editor.category.<id>`, and at Compact the filters |
 | `key-editor.nav.<id>` | One Large nav entry |

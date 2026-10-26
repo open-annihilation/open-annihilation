@@ -5,7 +5,8 @@
 // 1280x720 (1x, Large) and 1920x1080 (2x, Regular). At each frame every
 // control lies inside the window, no two controls meet apart from the list
 // and what it holds, the names are sound and unique, and Tab reaches the
-// layout, the search, the list, Cancel, Save and close in that order. Every
+// layout (under MORE at Compact), the search, the list, Cancel, Save and close
+// in that order. Every
 // text fits, including a longer French lookup. Long German Save and Restore
 // grow and stay inside the window. Compact's details page has Back, Save
 // and Attack.
@@ -305,7 +306,8 @@ void check_frame(
     expect_none(repeated_names(list), where + " name");
 
     const std::vector<std::string> tabs = tab_names(list);
-    const std::string_view order[] = {
+    // Compact has no LAYOUT drop-down: it lives under MORE.
+    const std::string_view with_layout[] = {
         editor::name_layout,
         editor::name_search,
         editor::name_list,
@@ -313,8 +315,19 @@ void check_frame(
         editor::name_save,
         editor::name_close,
     };
+    const std::string_view compact_order[] = {
+        editor::name_search,
+        editor::name_list,
+        editor::name_cancel,
+        editor::name_save,
+        editor::name_close,
+    };
+    const bool compact_frame = size_class == kit::SizeClass::compact;
+    const std::string_view* order = compact_frame ? compact_order : with_layout;
+    const std::size_t order_count = compact_frame ? 5 : 6;
     int previous = -1;
-    for (const std::string_view name : order) {
+    for (std::size_t step = 0; step < order_count; ++step) {
+        const std::string_view name = order[step];
         const int index = tab_index(tabs, name);
         if (index <= previous)
             std::fprintf(stderr, "%s: tab misses %.*s after %d\n", where.c_str(), static_cast<int>(name.size()), name.data(), previous);
@@ -396,9 +409,12 @@ void check_french(const kit::Frame& frame, const std::string& where) {
     if (placeholder != want)
         std::fprintf(stderr, "%s: search shows \"%s\"\n", where.c_str(), placeholder.c_str());
     OA_CHECK(placeholder == want);
-    if (!shows(list, "DISPOSITION DES TOUCHES"))
-        std::fprintf(stderr, "%s: LAYOUT was not looked up\n", where.c_str());
-    OA_CHECK(shows(list, "DISPOSITION DES TOUCHES"));
+    // Compact keeps LAYOUT under MORE, so the closed screen does not draw it.
+    if (frame.size_class != kit::SizeClass::compact) {
+        if (!shows(list, "DISPOSITION DES TOUCHES"))
+            std::fprintf(stderr, "%s: LAYOUT was not looked up\n", where.c_str());
+        OA_CHECK(shows(list, "DISPOSITION DES TOUCHES"));
+    }
 }
 
 /// Save and Restore grow for the long German and stay inside the window.

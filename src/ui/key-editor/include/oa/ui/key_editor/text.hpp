@@ -52,6 +52,8 @@ inline constexpr std::string_view layout = "LAYOUT";
 inline constexpr std::string_view by_author = "by {author} · {version}";
 /// How many of the player's own changes sit on the layout. `{n}` is a number.
 inline constexpr std::string_view own_changes = "and {n} changes of your own";
+/// The same line when the player has made one change.
+inline constexpr std::string_view own_change_one = "and 1 change of your own";
 /// Large's search field, while it is empty.
 inline constexpr std::string_view search_actions = "Search actions, or press a key";
 /// Regular and Compact's search field, while it is empty.
@@ -88,6 +90,8 @@ inline constexpr std::string_view oa_default = "OA default";
 inline constexpr std::string_view game_paused = "game paused";
 /// Compact's header context. `{layout}` is the layout's name and `{n}` a number.
 inline constexpr std::string_view compact_context = "{layout} · {n} changes";
+/// Compact's header context when the player has made one change.
+inline constexpr std::string_view compact_context_one = "{layout} · 1 change";
 /// A category drop-down's row. `{name}` is the category and `{count}` how many it holds.
 inline constexpr std::string_view category_count = "{name} ({count})";
 /// Extra chords a Compact row does not draw. `{n}` is how many more.
@@ -211,16 +215,22 @@ inline constexpr std::string_view cancel = "CANCEL";
 inline constexpr std::string_view save = "SAVE";
 /// The footer while a clash is left. `{n}` is how many.
 inline constexpr std::string_view settle = "Settle {n} clashes to save";
+/// The footer while one clash is left.
+inline constexpr std::string_view settle_one = "Settle 1 clash to save";
 /// The layout menu.
 inline constexpr std::string_view duplicate = "DUPLICATE…";
 inline constexpr std::string_view rename = "RENAME…";
 
 /// Choosing another layout while the draft has changes.
 inline constexpr std::string_view keep_question = "Keep your {n} changes on top of {layout}?";
+/// The same question when the draft holds one change.
+inline constexpr std::string_view keep_question_one = "Keep your 1 change on top of {layout}?";
 inline constexpr std::string_view keep_them = "KEEP THEM";
 inline constexpr std::string_view set_aside = "SET THEM ASIDE";
 /// Leaving while the draft has changes.
 inline constexpr std::string_view leave_question = "Leave without saving {n} changes?";
+/// The same question when the draft holds one change.
+inline constexpr std::string_view leave_question_one = "Leave without saving 1 change?";
 inline constexpr std::string_view leave = "LEAVE";
 inline constexpr std::string_view keep_editing = "KEEP EDITING";
 /// Duplicate and rename ask this. The field is the layout's name.

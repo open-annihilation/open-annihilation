@@ -168,12 +168,19 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
     if (menu == Menu::category)
         return category_entries(editor, state, compact);
     if (menu == Menu::more) {
+        // Compact has no LAYOUT drop-down. The layout's choices sit in MORE,
+        // and Restore defaults follows them.
+        std::vector<MenuEntry> entries = layout_entries(editor);
+        MenuEntry rule;
+        rule.kind = MenuKind::divider;
+        entries.push_back(std::move(rule));
         MenuEntry entry;
         entry.kind = MenuKind::restore;
         entry.id = "restore";
         entry.caption = show(editor.text(), words::restore);
         entry.name = std::string(name_restore);
-        return {std::move(entry)};
+        entries.push_back(std::move(entry));
+        return entries;
     }
     return {};
 }
@@ -194,6 +201,14 @@ int32_t menu_chosen(
             if (entries[index].kind == MenuKind::category && entries[index].id == state.category)
                 return static_cast<int32_t>(index);
         }
+    }
+    if (menu == Menu::more) {
+        const std::string id = editor.layout_id();
+        for (std::size_t index = 0; index < entries.size(); ++index) {
+            if (entries[index].kind == MenuKind::layout_id && entries[index].id == id)
+                return static_cast<int32_t>(index);
+        }
+        return 0;
     }
     return -1;
 }

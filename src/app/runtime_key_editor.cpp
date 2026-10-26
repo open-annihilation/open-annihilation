@@ -157,12 +157,12 @@ kit::Question keep_question(const editor::Editor& model, std::string_view id) {
     const editor::TextHooks& hooks = model.text();
     const std::string count = std::to_string(model.unsaved());
     const std::string layout = target_layout_name(model, id);
+    const std::string_view pattern =
+        model.unsaved() == 1 ? editor::words::keep_question_one : editor::words::keep_question;
     kit::Question question;
     question.title = editor::show(hooks, editor::words::keys);
     kit::Paragraph body;
-    body.text = editor::fill(
-        editor::show(hooks, editor::words::keep_question), {{"n", count}, {"layout", layout}}
-    );
+    body.text = editor::fill(editor::show(hooks, pattern), {{"n", count}, {"layout", layout}});
     question.paragraphs.push_back(std::move(body));
     question.buttons.push_back(question_button(hooks, editor::words::keep_them, true, "keep-them"));
     question.buttons.push_back(question_button(hooks, editor::words::set_aside, false, "set-aside"));
@@ -180,10 +180,12 @@ kit::Question keep_question(const editor::Editor& model, std::string_view id) {
 kit::Question leave_question(const editor::Editor& model) {
     const editor::TextHooks& hooks = model.text();
     const std::string count = std::to_string(model.unsaved());
+    const std::string_view pattern =
+        model.unsaved() == 1 ? editor::words::leave_question_one : editor::words::leave_question;
     kit::Question question;
     question.title = editor::show(hooks, editor::words::keys);
     kit::Paragraph body;
-    body.text = editor::fill(editor::show(hooks, editor::words::leave_question), {{"n", count}});
+    body.text = editor::fill(editor::show(hooks, pattern), {{"n", count}});
     question.paragraphs.push_back(std::move(body));
     question.buttons.push_back(question_button(hooks, editor::words::leave, true, "leave"));
     question.buttons.push_back(

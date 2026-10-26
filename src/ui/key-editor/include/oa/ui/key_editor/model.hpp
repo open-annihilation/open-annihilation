@@ -76,6 +76,7 @@ struct Row {
     std::string id{};            ///< the action id
     std::string name{};          ///< the name, already looked up
     std::string aside{};         ///< the quiet aside, already looked up
+    std::string where{};         ///< the area and where it works, for a group heading
     kit::KeyMark mark{kit::KeyMark::none}; ///< clash, unbound, changed, fixed, or none
     std::vector<oa::ui::key_bindings::Chord> chords{}; ///< the chords in use, at most four
     bool read_only{false};       ///< an action this version does not know

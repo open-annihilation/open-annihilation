@@ -674,6 +674,24 @@ int32_t keycap_width(const Fonts& fonts, const KeycapLook& look) {
 void draw_keycap(const Canvas& canvas, const Rect& rect, const KeycapLook& look) {
     if (!can_draw(canvas) || rect.width <= 0 || rect.height <= 0)
         return;
+    if (look.mark_only) {
+        if (look.mark == KeyMark::none)
+            return;
+        const Canvas local = clipped(canvas, rect);
+        const int32_t side = std::min(rect.width, rect.height);
+        const Rect box{
+            rect.x + (rect.width - side) / 2, rect.y + (rect.height - side) / 2, side, side
+        };
+        if (look.mark == KeyMark::changed)
+            blend_mark(local, box, MarkShape::diamond, colour::accent);
+        else if (look.mark == KeyMark::clash)
+            blend_mark(local, box, MarkShape::triangle, colour::danger);
+        else if (look.mark == KeyMark::unbound)
+            blend_mark(local, box, MarkShape::ring, colour::quiet);
+        else if (look.mark == KeyMark::fixed)
+            blend_mark(local, box, MarkShape::square, colour::text);
+        return;
+    }
     const Canvas local = clipped(canvas, rect);
 
     Colour face = tint_face(look.tint);
