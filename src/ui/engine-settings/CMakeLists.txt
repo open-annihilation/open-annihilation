@@ -74,10 +74,11 @@ if(BUILD_TESTING)
   # The test places parts through the dialog's own geometry (src/geometry.hpp).
   target_include_directories(oa-ui-engine-settings-dialog-test PRIVATE src)
   add_test(NAME ui-engine-settings-dialog COMMAND oa-ui-engine-settings-dialog-test)
-  # Ten seconds here, 24 minutes as a Debug build under Wine: the regression
-  # suite multiplies a set TIMEOUT by its lane's scale (8 there, so 30 minutes),
-  # and ctest's default 1500 s, which an unset one gets, it cannot scale.
-  set_tests_properties(ui-engine-settings-dialog PROPERTIES TIMEOUT 225)
+  # Ten seconds here, about four minutes under the address and undefined-behaviour
+  # sanitizers, 24 minutes as a Debug build under Wine: the regression suite
+  # multiplies a set TIMEOUT by its lane's scale (8 there, so 40 minutes), and
+  # ctest's default 1500 s, which an unset one gets, it cannot scale.
+  set_tests_properties(ui-engine-settings-dialog PROPERTIES TIMEOUT 300)
 
   # Downloads: the section list, the check, install IDs and the downloaded files.
   add_executable(oa-ui-engine-settings-downloads-test tests/downloads_page_test.cpp)

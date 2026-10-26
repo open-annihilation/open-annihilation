@@ -12,6 +12,7 @@
 
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
+#include "timing.hpp"
 
 #include <array>
 #include <cstdio>
@@ -465,6 +466,7 @@ struct DispatcherState {
     Platform platform{};
     Timings timings{};
     Contexts contexts{};
+    KeyClocks clocks{};
     std::array<Slot, scancode_limit> keys{};
     std::array<Slot, 9> buttons{};
     std::vector<LiveRole> live{};
@@ -826,6 +828,156 @@ void emit_winners(
     }
 }
 
+/// Turns one key or button the bindings are allowed to see into action events.
+///
+/// @param state the bindings
+/// @param event the key or button
+/// @param fed the result
+void accept_control(DispatcherState& state, const InputEvent& event, Fed& fed) {
+    Slot& slot = slot_for(state, event);
+    if (event.repeat) {
+        // A repeat can be the first event for the key: a check holds it down
+        // by sending the repeat itself. Resolve that the way a press would,
+        // and report one repeat of each repeat action. A press action still
+        // waits for a down that was not a repeat.
+        if (!slot.down) {
+            const std::vector<Candidate> winners = choose(state, event, Gesture::press);
+            for (const Candidate& item : winners) {
+                if (item.action_index >= state.resolved.actions.size())
+                    continue;
+                const Bound& bound = state.resolved.actions[item.action_index];
+                const actions::Kind kind =
+                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+                if (kind != actions::Kind::repeat)
+                    continue;
+                push_event(fed, bound, Phase::repeated, item.chord, item.context);
+                remember(slot, item);
+            }
+            if (!slot.started.empty()) {
+                slot.down = true;
+                slot.saw_up = false;
+                slot.down_modifiers = event.modifiers;
+                slot.down_ms = event.time_ms;
+                slot.had_binding = true;
+            }
+            fed.bound = !fed.events.empty();
+            return;
+        }
+        if (slot.down) {
+            for (const Started& started : slot.started) {
+                if (started.action_index >= state.resolved.actions.size())
+                    continue;
+                const Bound& bound = state.resolved.actions[started.action_index];
+                const actions::Kind kind =
+                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+                if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                    continue;
+                push_event(
+                    fed,
+                    bound,
+                    Phase::repeated,
+                    bound.chords[started.chord_index].chord,
+                    started.context
+                );
+            }
+        }
+        fed.bound = slot.down && slot.had_binding;
+        return;
+    }
+
+    if (!event.down) {
+        if (!slot.down) {
+            fed.bound = !fed.events.empty();
+            return;
+        }
+        release_started(state, slot, fed);
+        const std::vector<Candidate> winners = choose(state, event, Gesture::release);
+        emit_winners(state, winners, Phase::pressed, event, fed);
+        fed.bound = !fed.events.empty();
+        return;
+    }
+
+    // A second down is a double press only after the key has come up. Two downs
+    // with no up between them are a missed release, not a double press.
+    const bool as_double =
+        event.kind == InputKind::button
+            ? event.clicks == 2
+            : !slot.down && second_press(slot, event, state.timings.double_press_ms);
+    if (slot.down)
+        release_started(state, slot, fed);
+    slot.down = true;
+    slot.saw_up = false;
+    slot.down_modifiers = event.modifiers;
+    slot.down_ms = event.time_ms;
+    slot.started.clear();
+    slot.holds.clear();
+
+    std::vector<Candidate> winners;
+    if (as_double)
+        winners = choose(state, event, Gesture::double_press);
+    if (winners.empty())
+        winners = choose(state, event, Gesture::press);
+    const std::vector<Candidate> holds = choose(state, event, Gesture::hold);
+    for (const Candidate& item : holds) {
+        HoldArm arm;
+        arm.action_index = item.action_index;
+        arm.chord_index = item.chord_index;
+        arm.context = item.context;
+        arm.due_ms = event.time_ms + state.timings.long_press_ms;
+        slot.holds.push_back(arm);
+    }
+    // A double that found no `:double` binding falls through to the plain chord.
+    const Phase down_phase =
+        !winners.empty() && winners.front().chord.gesture == Gesture::double_press
+            ? Phase::double_press
+            : Phase::pressed;
+    emit_winners(state, winners, down_phase, event, fed);
+    for (const Candidate& item : winners)
+        remember(slot, item);
+    slot.had_binding = !winners.empty() || !slot.holds.empty() || !fed.events.empty();
+    fed.bound = slot.had_binding;
+}
+
+/// Emits every `repeated` event the player's own rate has due, for repeat actions only.
+///
+/// @param state the bindings and the clocks
+/// @param fed the result
+/// @param now_ms the time, in milliseconds
+void emit_custom_repeats(DispatcherState& state, Fed& fed, uint64_t now_ms) {
+    if (!custom_repeat(state.timings))
+        return;
+    const uint32_t interval = repeat_interval_ms(state.timings);
+    if (interval == 0)
+        return;
+    for (uint16_t index = 0; index < scancode_limit; ++index) {
+        KeyClock& clock = state.clocks.keys[index];
+        Slot& slot = state.keys[index];
+        if (!clock.repeat_on || !slot.down)
+            continue;
+        int guard = 0;
+        while (clock.next_repeat_ms <= now_ms && guard < 64) {
+            for (const Started& started : slot.started) {
+                if (started.action_index >= state.resolved.actions.size())
+                    continue;
+                const Bound& bound = state.resolved.actions[started.action_index];
+                const actions::Kind kind =
+                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+                if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                    continue;
+                push_event(
+                    fed,
+                    bound,
+                    Phase::repeated,
+                    bound.chords[started.chord_index].chord,
+                    started.context
+                );
+            }
+            clock.next_repeat_ms += interval;
+            ++guard;
+        }
+    }
+}
+
 } // namespace
 
 Dispatcher::Dispatcher() : state_(std::make_unique<DispatcherState>()) {
@@ -843,6 +995,7 @@ void Dispatcher::set_bindings(const Resolved& bindings) {
     state_->buttons = {};
     state_->live.clear();
     state_->logged.clear();
+    clear_clocks(state_->clocks);
 }
 
 void Dispatcher::set_keyboard(const KeyboardMap& keyboard) {
@@ -854,7 +1007,7 @@ void Dispatcher::set_platform(Platform platform) {
 }
 
 void Dispatcher::set_timings(Timings timings) {
-    state_->timings = timings;
+    state_->timings = clamped(timings);
 }
 
 void Dispatcher::set_contexts(Contexts contexts) {
@@ -865,6 +1018,18 @@ Fed Dispatcher::feed(const InputEvent& event) {
     Fed fed;
     if (event.kind == InputKind::pad)
         return fed;
+    const KeyFate fate =
+        event.kind == InputKind::key
+            ? consider_key(state_->clocks, state_->timings, state_->contexts.text_entry, event)
+            : KeyFate::through;
+    if (fate == KeyFate::hold) {
+        fed.legacy = LegacyGate::hold;
+        return fed;
+    }
+    if (fate == KeyFate::drop) {
+        fed.legacy = LegacyGate::drop;
+        return fed;
+    }
     if (event.kind == InputKind::key)
         apply_modifiers(*state_, event, fed);
     if (event.kind == InputKind::wheel) {
@@ -875,112 +1040,26 @@ Fed Dispatcher::feed(const InputEvent& event) {
     }
     if (event.kind != InputKind::key && event.kind != InputKind::button)
         return fed;
-
-    Slot& slot = slot_for(*state_, event);
-    if (event.repeat) {
-        // A repeat can be the first event for the key: a check holds it down
-        // by sending the repeat itself. Resolve that the way a press would,
-        // and report one repeat of each repeat action. A press action still
-        // waits for a down that was not a repeat.
-        if (!slot.down) {
-            const std::vector<Candidate> winners = choose(*state_, event, Gesture::press);
-            for (const Candidate& item : winners) {
-                if (item.action_index >= state_->resolved.actions.size())
-                    continue;
-                const Bound& bound = state_->resolved.actions[item.action_index];
-                const actions::Kind kind =
-                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
-                if (kind != actions::Kind::repeat)
-                    continue;
-                push_event(fed, bound, Phase::repeated, item.chord, item.context);
-                remember(slot, item);
-            }
-            if (!slot.started.empty()) {
-                slot.down = true;
-                slot.saw_up = false;
-                slot.down_modifiers = event.modifiers;
-                slot.down_ms = event.time_ms;
-                slot.had_binding = true;
-            }
-            fed.bound = !fed.events.empty();
-            return fed;
-        }
-        for (const Started& started : slot.started) {
-            if (started.action_index >= state_->resolved.actions.size())
-                continue;
-            const Bound& bound = state_->resolved.actions[started.action_index];
-            const actions::Kind kind =
-                bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
-            if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
-                continue;
-            push_event(
-                fed,
-                bound,
-                Phase::repeated,
-                bound.chords[started.chord_index].chord,
-                started.context
-            );
-        }
-        fed.bound = slot.had_binding;
+    if (fate == KeyFate::ignore_repeat) {
+        const Slot& slot = slot_for(*state_, event);
+        fed.bound = slot.down && slot.had_binding;
         return fed;
     }
-
-    if (!event.down) {
-        if (!slot.down) {
-            fed.bound = !fed.events.empty();
-            return fed;
-        }
-        release_started(*state_, slot, fed);
-        const std::vector<Candidate> winners = choose(*state_, event, Gesture::release);
-        emit_winners(*state_, winners, Phase::pressed, event, fed);
-        fed.bound = !fed.events.empty();
-        return fed;
-    }
-
-    // A second down is a double press only after the key has come up. Two downs
-    // with no up between them are a missed release, not a double press.
-    const bool as_double =
-        event.kind == InputKind::button
-            ? event.clicks == 2
-            : !slot.down && second_press(slot, event, state_->timings.double_press_ms);
-    if (slot.down)
-        release_started(*state_, slot, fed);
-    slot.down = true;
-    slot.saw_up = false;
-    slot.down_modifiers = event.modifiers;
-    slot.down_ms = event.time_ms;
-    slot.started.clear();
-    slot.holds.clear();
-
-    std::vector<Candidate> winners;
-    if (as_double)
-        winners = choose(*state_, event, Gesture::double_press);
-    if (winners.empty())
-        winners = choose(*state_, event, Gesture::press);
-    const std::vector<Candidate> holds = choose(*state_, event, Gesture::hold);
-    for (const Candidate& item : holds) {
-        HoldArm arm;
-        arm.action_index = item.action_index;
-        arm.chord_index = item.chord_index;
-        arm.context = item.context;
-        arm.due_ms = event.time_ms + state_->timings.long_press_ms;
-        slot.holds.push_back(arm);
-    }
-    // A double that found no `:double` binding falls through to the plain chord.
-    const Phase down_phase =
-        !winners.empty() && winners.front().chord.gesture == Gesture::double_press
-            ? Phase::double_press
-            : Phase::pressed;
-    emit_winners(*state_, winners, down_phase, event, fed);
-    for (const Candidate& item : winners)
-        remember(slot, item);
-    slot.had_binding = !winners.empty() || !slot.holds.empty() || !fed.events.empty();
-    fed.bound = slot.had_binding;
+    accept_control(*state_, event, fed);
+    if (!state_->contexts.text_entry)
+        note_accepted_down(state_->clocks, state_->timings, event);
     return fed;
 }
 
 Fed Dispatcher::advance(uint64_t now_ms) {
     Fed fed;
+    const std::vector<InputEvent> due = take_admissions(state_->clocks, now_ms);
+    for (const InputEvent& event : due) {
+        apply_modifiers(*state_, event, fed);
+        accept_control(*state_, event, fed);
+        note_accepted_down(state_->clocks, state_->timings, event);
+        fed.admitted.push_back(event);
+    }
     const auto fire = [this, &fed, now_ms](Slot& slot) {
         if (!slot.down)
             return;
@@ -1014,11 +1093,13 @@ Fed Dispatcher::advance(uint64_t now_ms) {
         fire(slot);
     for (Slot& slot : state_->buttons)
         fire(slot);
+    emit_custom_repeats(*state_, fed, now_ms);
     return fed;
 }
 
 Fed Dispatcher::release_all(uint64_t now_ms) {
     (void)now_ms;
+    clear_clocks(state_->clocks);
     Fed fed;
     const auto drop = [this, &fed](Slot& slot) {
         if (slot.down)

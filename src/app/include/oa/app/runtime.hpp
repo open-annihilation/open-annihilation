@@ -1333,6 +1333,13 @@ class Runtime final : public menu::Host,
     /// @param[in,out] running loop flag; cleared when the event ends the loop
     void dispatch_event(SDL_Event& event, bool& running);
 
+    /// Dispatches one event after the action events have been fed: full screen, the settings
+    /// request, the view rules, then the screen. [runtime.cpp]
+    ///
+    /// @param event event to dispatch
+    /// @param[in,out] running loop flag; cleared when the event ends the loop
+    void dispatch_after_actions(SDL_Event& event, bool& running);
+
     /// Tracks the window's focus as the application-active flag.
     ///
     /// A focus gain or loss sets the flag. Any other event while inactive sets it
@@ -2459,14 +2466,38 @@ class Runtime final : public menu::Host,
     /// Called after the input method has taken the keys it is composing, and not for a touch or a
     /// pad event. A keymap change rebuilds the keyboard map and the bindings. Losing the window's
     /// focus releases every held action and role. A running match answers the events through
-    /// handle_match_action. [runtime_key_bindings.cpp]
+    /// handle_match_action. A key held back by slow keys, or dropped by bounce keys, does not
+    /// reach the rest of the game. [runtime_key_bindings.cpp]
     ///
     /// @param event the event dispatch_event is given
-    void feed_input_actions(const SDL_Event& event);
+    /// @return true when the rest of the game should not see this event
+    bool feed_input_actions(const SDL_Event& event);
 
-    /// Fires each hold whose time has passed, once a frame after that frame's events.
-    /// [runtime_key_bindings.cpp]
-    void advance_input_actions();
+    /// Admits keys whose slow-key time has passed, fires holds, and fires the player's repeats,
+    /// once a frame after that frame's events. A key admitted here then reaches the rest of the
+    /// game. [runtime_key_bindings.cpp]
+    ///
+    /// @param[in,out] running loop flag; cleared when an admitted key ends the loop
+    void advance_input_actions(bool& running);
+
+    /// Gives the dispatcher the key timings in effect, and sets the mouse's double-click time.
+    ///
+    /// A double-press time of zero gives the chords 500 ms and clears the mouse hint. Safe to call
+    /// before the dispatcher exists: the hint is still set. [runtime_key_bindings.cpp]
+    void apply_key_timings();
+
+    /// Forgets keys held back by slow keys, without replaying them. [runtime_key_bindings.cpp]
+    void forget_held_back_keys();
+
+    /// How many of the last fed action events name this action and phase.
+    ///
+    /// Zero when the dispatcher has not been made. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param phase the phase
+    /// @return the count
+    [[nodiscard]] int
+    recent_action_phase_count(std::string_view action, oa::ui::key_bindings::Phase phase) const;
 
     /// The action events the current event produced.
     ///
@@ -2503,10 +2534,20 @@ class Runtime final : public menu::Host,
     /// Loads the layout for this run and the player's own changes, and imports stored keys once.
     ///
     /// Called after the view settings are read, and again when the played mod changes. `--keys`
-    /// and `--keys-reset` choose the layout for this run and save nothing. A layout named by
-    /// `--keys` that cannot be read sets key_bindings_refusal_; any other problem is logged and
-    /// the built-in layout is used. [runtime_key_bindings.cpp]
+    /// and `--keys-reset` choose the layout for this run and save nothing. A `.oakeys` file is
+    /// read in memory and not installed. A layout named by `--keys` that cannot be read, or a
+    /// `.oakeys` file the installer refuses, sets key_bindings_refusal_; any other problem is
+    /// logged and the built-in layout is used. [runtime_key_bindings.cpp]
     void load_key_bindings();
+
+    /// Reads the layout in use again when `folder` is that layout.
+    ///
+    /// The runtime keeps no separate listing of layouts. The signature is cleared first, because
+    /// it does not include the folder's files. Installing never writes the preference.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param folder the folder a package change put in place
+    void reload_key_layout_if_in_use(const fs::path& folder);
 
     /// Prints one line for each action event when --trace-input is on.
     ///
@@ -6450,7 +6491,8 @@ class Runtime final : public menu::Host,
     [[nodiscard]] bool package_offers_play(const package_install::PackageKind& kind) const;
 
     /// Takes in what a change of this kind put in place. A mod change lists
-    /// the Mods folder again. A map pack change reads Maps again.
+    /// the Mods folder again. A map pack change reads Maps again. A key
+    /// layout change reads that layout again when it is the one in use.
     ///
     /// @param kind the package's kind
     /// @param folder the folder the change put in place
@@ -12631,6 +12673,10 @@ class Runtime final : public menu::Host,
     /// not match. Throws std::runtime_error on a failure.
     void check_key_table();
 
+    /// Checks slow keys, bounce keys, the double-press time, the player's repeat and the drag
+    /// threshold on one skirmish. Throws std::runtime_error on a failure. [runtime_key_timing_check.cpp]
+    void check_key_timing();
+
     /// Checks the screen's edges scrolling the camera through SDL input, on
     /// the skirmish check_pointer_interfaces() starts.
     ///
@@ -17170,6 +17216,11 @@ class Runtime final : public menu::Host,
 
     /// Tells whether the game data holds a campaign for a side.
     ///
+    /// Arm and Core are remembered together for the mounted folders, archives,
+    /// language and language packs, and read again when any of those change.
+    /// A mod switch is a new run, so it reads its own files. The campaign
+    /// screens are not built to answer this.
+    ///
     /// @param side 0 for Arm, 1 for Core
     /// @return true when a campaign file names the side
     [[nodiscard]] bool side_has_campaign(uint32_t side);
@@ -18419,6 +18470,8 @@ class Runtime final : public menu::Host,
     std::vector<std::string> spawn_type_names_;
     // Build page button captions by gadget index (the queued counts).
     std::vector<std::string> build_captions_;
+    // Five sides stay in the table itself. A mod that loads more keeps the
+    // rest beside them, sized to the sides that load read.
     oa::data::defs::SideTable side_table_{};
     /// SHA-256 of the gamedata/sidedata.tdf bytes the run read. All zero when the file was missing.
     oa::base::sha256::Digest side_data_digest_{};
@@ -18655,6 +18708,16 @@ class Runtime final : public menu::Host,
     // NEWGAME.GUI's gadget with the keyboard focus: the one its setup
     // focuses, then the control last pressed.
     std::string campaign_setup_focus_{};
+    /// The mounted folders, archives, language and language packs
+    /// side_has_campaign remembers its answers for.
+    [[nodiscard]] std::string side_campaign_mount_key() const;
+
+    // side_has_campaign's answers for side_campaign_key_. Dropped when the
+    // mounted folders, archives, language or language packs change.
+    std::string side_campaign_key_{};
+    bool side_campaign_known_ = false;
+    bool side_campaign_arm_ = false;
+    bool side_campaign_core_ = false;
     // The record of the frontend screen's panel holding the keyboard focus,
     // -1 for none (frontend_focus()).
     int32_t frontend_focus_ = -1;

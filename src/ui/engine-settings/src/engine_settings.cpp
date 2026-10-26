@@ -332,6 +332,34 @@ void store_word(
     );
 }
 
+/// Returns a stored access timing, or the default when the key cannot be read.
+///
+/// Zero stays zero when it means the system's own timing. Any other number
+/// is held to the range.
+///
+/// @param values the preferences
+/// @param key the key
+/// @param absent the value used when the key is absent or not a whole number
+/// @param least the lowest value of the range
+/// @param most the highest value of the range
+/// @param zero_is_system true when zero means the system's own timing
+/// @return the timing, in the units the key stores
+uint32_t access_number(
+    const Values& values,
+    std::string_view key,
+    uint32_t absent,
+    uint32_t least,
+    uint32_t most,
+    bool zero_is_system
+) {
+    const auto number = stored_number(values, key);
+    if (!number)
+        return absent;
+    if (zero_is_system && *number <= 0)
+        return 0;
+    return clamped(*number, least, most);
+}
+
 /// Returns a stored number held to a setting's range and put on its nearest stop.
 ///
 /// @param number the stored number
@@ -802,6 +830,13 @@ EngineSettings read_settings(
     settings.file_type_oamut = file_type_on(values, key::file_type_oamut);
     settings.file_type_oabrain = file_type_on(values, key::file_type_oabrain);
     settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
+    settings.slow_keys_ms = access_number(values, key::access_slow_keys, 0, 0, 1000, false);
+    settings.bounce_keys_ms = access_number(values, key::access_bounce_keys, 0, 0, 1000, false);
+    settings.double_press_ms = access_number(values, key::access_double_press, 0, 200, 1000, true);
+    settings.long_press_ms = access_number(values, key::access_long_press, 500, 200, 1000, false);
+    settings.repeat_delay_ms = access_number(values, key::access_repeat_delay, 0, 150, 1000, true);
+    settings.repeat_rate = access_number(values, key::access_repeat_rate, 0, 2, 30, true);
+    settings.drag_threshold = access_number(values, key::access_drag_threshold, 32, 32, 96, false);
     return settings;
 }
 
@@ -1177,6 +1212,52 @@ void write_settings(
         chosen.touch_hold_ms != opened.touch_hold_ms,
         chosen.touch_hold_ms == defaults.touch_hold_ms,
         restored
+    );
+    const auto store_access = [&](std::string_view access_key,
+                                  uint32_t chosen_value,
+                                  uint32_t opened_value,
+                                  uint32_t default_value) {
+        store(
+            values,
+            access_key,
+            std::to_string(chosen_value),
+            chosen_value != opened_value,
+            chosen_value == default_value,
+            restored
+        );
+    };
+    store_access(
+        key::access_slow_keys, chosen.slow_keys_ms, opened.slow_keys_ms, defaults.slow_keys_ms
+    );
+    store_access(
+        key::access_bounce_keys,
+        chosen.bounce_keys_ms,
+        opened.bounce_keys_ms,
+        defaults.bounce_keys_ms
+    );
+    store_access(
+        key::access_double_press,
+        chosen.double_press_ms,
+        opened.double_press_ms,
+        defaults.double_press_ms
+    );
+    store_access(
+        key::access_long_press, chosen.long_press_ms, opened.long_press_ms, defaults.long_press_ms
+    );
+    store_access(
+        key::access_repeat_delay,
+        chosen.repeat_delay_ms,
+        opened.repeat_delay_ms,
+        defaults.repeat_delay_ms
+    );
+    store_access(
+        key::access_repeat_rate, chosen.repeat_rate, opened.repeat_rate, defaults.repeat_rate
+    );
+    store_access(
+        key::access_drag_threshold,
+        chosen.drag_threshold,
+        opened.drag_threshold,
+        defaults.drag_threshold
     );
     store(
         values,

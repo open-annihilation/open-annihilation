@@ -1546,11 +1546,14 @@ std::array<oa::present::world_renderer::ScreenPoint, 2> Runtime::match_drag_corn
 }
 
 int32_t Runtime::drag_click_pixels() const {
-    return 0x20;
+    const uint32_t threshold = engine_settings_ != nullptr
+                                   ? engine_settings_->current.drag_threshold
+                                   : oa::ui::key_bindings::drag_threshold_least;
+    return static_cast<int32_t>(threshold);
 }
 
 uint32_t Runtime::drag_click_ticks() const {
-    return 0x19;
+    return oa::ui::key_bindings::drag_click_ticks(static_cast<uint32_t>(drag_click_pixels()));
 }
 
 bool Runtime::match_drag_is_click() const {
