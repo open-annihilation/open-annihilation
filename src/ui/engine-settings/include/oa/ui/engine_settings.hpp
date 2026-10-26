@@ -38,6 +38,8 @@ inline constexpr std::string_view sticky_modifiers = "open-annihilation.access.s
 inline constexpr std::string_view pointer_keys = "open-annihilation.access.pointer-keys";
 /// 1 or 0 (EngineSettings::hold_to_confirm). Absent means off.
 inline constexpr std::string_view hold_to_confirm = "open-annihilation.access.hold-to-confirm";
+/// 1 or 0 (EngineSettings::edge_scroll). Absent means on.
+inline constexpr std::string_view edge_scroll = "open-annihilation.access.edge-scroll";
 /// "off", "hold-right" or "hold-middle" (EngineSettings::order_wheel). Absent means off.
 inline constexpr std::string_view order_wheel = "open-annihilation.access.order-wheel";
 /// "automatic", "whole-map", or the share of normal size: "1/32", "1/16",
@@ -336,6 +338,8 @@ inline constexpr std::string_view access_repeat_rate = "open-annihilation.access
 inline constexpr std::string_view access_drag_threshold = "open-annihilation.access.drag-threshold";
 static_assert(hold_to_confirm.find('|') == std::string_view::npos);
 static_assert(hold_to_confirm.find('\\') == std::string_view::npos);
+static_assert(edge_scroll.find('|') == std::string_view::npos);
+static_assert(edge_scroll.find('\\') == std::string_view::npos);
 static_assert(order_wheel.find('|') == std::string_view::npos);
 static_assert(order_wheel.find('\\') == std::string_view::npos);
 static_assert(access_slow_keys.find('|') == std::string_view::npos);
@@ -1386,6 +1390,10 @@ struct EngineSettings {
     /// How far a drag may travel and still be a click, in pixels of the 640×480 game.
     /// The tick limit widens in proportion with it.
     uint32_t drag_threshold{32};
+    /// The view scrolls while the pointer rests at the window's edge. Off stops
+    /// that scroll only. Arrow keys, and the touch edge band while a drag is
+    /// held, keep scrolling. Absent in the preferences is on.
+    bool edge_scroll{true};
 
     friend bool operator==(const EngineSettings&, const EngineSettings&) = default;
 };

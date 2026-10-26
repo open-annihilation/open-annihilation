@@ -266,6 +266,8 @@ std::string_view page_slug(settings::Page page) {
         return "game-content";
     case settings::Page::updates:
         return "updates";
+    case settings::Page::accessibility:
+        return "accessibility";
     case settings::Page::mod_keys:
     case settings::Page::mod_patrol:
     case settings::Page::mod_guard:
@@ -279,12 +281,13 @@ std::string_view page_slug(settings::Page page) {
 }
 
 /// The dialog's sections, in the order its list shows them.
-constexpr std::array<settings::Page, 7> kPages{
+constexpr std::array<settings::Page, 8> kPages{
     settings::Page::controls,
     settings::Page::common_tweaks,
     settings::Page::language,
     settings::Page::graphics,
     settings::Page::user_interface,
+    settings::Page::accessibility,
     settings::Page::system,
     settings::Page::developer,
 };
@@ -2644,6 +2647,204 @@ void Runtime::check_engine_settings_window_sizes() {
             require(started, "CHECK NOW did not start a check" + on);
             std::cout << "engine settings check: Updates CHECK NOW started on the " << size
                       << " window\n";
+
+            // Accessibility, on the three windows the ticket names. Each row
+            // is changed through its named control and applies at once. OK
+            // writes the preferences, which are read back and then put back,
+            // with the settings, on every path. CHOOSE… opens the key editor
+            // on Latchable over the dialog, and Escape leaves the dialog open.
+            struct RestoreAccess {
+                Runtime& runtime;
+                oa::platform::preferences::Values values;
+                settings::EngineSettings settings;
+
+                ~RestoreAccess() {
+                    runtime.preference_values_ = values;
+                    runtime.preferences_dirty_ = true;
+                    try {
+                        runtime.flush_preferences();
+                    } catch (const std::exception& failure) {
+                        std::cerr << "engine settings check: Accessibility could not restore "
+                                     "preferences: "
+                                  << failure.what() << '\n';
+                    }
+                    runtime.apply_engine_settings(settings);
+                }
+            } restore_access{*this, preference_values_, engine_settings()};
+
+            const auto named_control = [&](std::string_view name) {
+                auto* open = engine_settings_dialog();
+                require(open != nullptr, std::string(name) + " was asked with no dialog" + on);
+                const oa::ui::kit::DisplayList list =
+                    settings::geometry::dialog_list(*open, nullptr);
+                const int32_t control = oa::ui::kit::control_named(list, name);
+                require(
+                    control != oa::ui::kit::no_control, std::string(name) + " is not shown" + on
+                );
+                return control;
+            };
+            const auto focus_access = [&](int32_t control, std::string_view what) {
+                const auto order =
+                    settings::page_settings(settings::Page::accessibility).size() +
+                    static_cast<std::size_t>(settings::ok_control - settings::restore_control + 1) +
+                    settings::page_count;
+                for (std::size_t presses = 0; presses <= order; ++presses) {
+                    if (engine_settings_dialog()->focused == control)
+                        return;
+                    tap(SDLK_TAB);
+                }
+                require(false, "Tab never reached " + std::string(what) + on);
+            };
+            const auto require_now = [&](bool ok, std::string_view what) {
+                require(
+                    ok && engine_settings_dialog() != nullptr &&
+                        same_settings(engine_settings(), engine_settings_dialog()->chosen),
+                    std::string(what) + " did not apply at once" + on
+                );
+            };
+
+            const int32_t access_nav = named_control("settings.nav.accessibility");
+            require(
+                access_nav == settings::page_control(settings::Page::accessibility),
+                "oa.settings.nav.accessibility is not Accessibility's entry" + on
+            );
+            click_updates(access_nav, {}, "oa.settings.nav.accessibility");
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::accessibility,
+                "oa.settings.nav.accessibility did not show Accessibility" + on
+            );
+            snapshot("settings-accessibility-" + size);
+            std::cout << "engine settings check: Accessibility (oa.settings.nav.accessibility) on "
+                         "the "
+                      << size << " window\n";
+
+            const int32_t sticky = named_control("settings.sticky-modifiers");
+            focus_access(sticky, "Sticky modifiers");
+            click_updates(sticky, "ON", "Sticky modifiers' On");
+            require_now(engine_settings_dialog()->chosen.sticky_modifiers, "Sticky modifiers On");
+            const int32_t hold = named_control("settings.hold-to-confirm");
+            focus_access(hold, "Hold to confirm");
+            click_updates(hold, "ON", "Hold to confirm's On");
+            require_now(engine_settings_dialog()->chosen.hold_to_confirm, "Hold to confirm On");
+            const int32_t long_press = named_control("settings.long-press");
+            focus_access(long_press, "Long press");
+            tap(SDLK_RIGHT);
+            require_now(engine_settings_dialog()->chosen.long_press_ms == 550, "Long press 550 ms");
+            const int32_t slow = named_control("settings.slow-keys");
+            focus_access(slow, "Slow keys");
+            tap(SDLK_RIGHT);
+            require_now(engine_settings_dialog()->chosen.slow_keys_ms == 50, "Slow keys 50 ms");
+            const int32_t bounce = named_control("settings.bounce-keys");
+            focus_access(bounce, "Bounce keys");
+            tap(SDLK_RIGHT);
+            require_now(engine_settings_dialog()->chosen.bounce_keys_ms == 50, "Bounce keys 50 ms");
+            const int32_t wheel = named_control("settings.order-wheel");
+            focus_access(wheel, "Order wheel");
+            click_updates(wheel, "Hold right", "Order wheel's Hold right");
+            require_now(
+                engine_settings_dialog()->chosen.order_wheel == settings::OrderWheel::hold_right,
+                "Order wheel Hold right"
+            );
+            const int32_t pointer = named_control("settings.pointer-keys");
+            focus_access(pointer, "Pointer keys");
+            click_updates(pointer, "ON", "Pointer keys' On");
+            require_now(engine_settings_dialog()->chosen.pointer_keys, "Pointer keys On");
+            const int32_t doublet = named_control("settings.double-press");
+            focus_access(doublet, "Double press");
+            tap(SDLK_RIGHT);
+            require_now(
+                engine_settings_dialog()->chosen.double_press_ms == 200, "Double press 200 ms"
+            );
+            const int32_t repeat_delay = named_control("settings.repeat-delay");
+            focus_access(repeat_delay, "Key repeat delay");
+            tap(SDLK_RIGHT);
+            require_now(
+                engine_settings_dialog()->chosen.repeat_delay_ms == 150, "Key repeat delay 150 ms"
+            );
+            const int32_t repeat_rate = named_control("settings.repeat-rate");
+            focus_access(repeat_rate, "Key repeat rate");
+            tap(SDLK_RIGHT);
+            require_now(engine_settings_dialog()->chosen.repeat_rate == 2, "Key repeat rate 2");
+            const int32_t drag = named_control("settings.drag-threshold");
+            focus_access(drag, "Drag threshold");
+            tap(SDLK_RIGHT);
+            require_now(
+                engine_settings_dialog()->chosen.drag_threshold == 40, "Drag threshold 40 px"
+            );
+            const int32_t edge = named_control("settings.edge-scroll");
+            focus_access(edge, "Edge scrolling");
+            click_updates(edge, "OFF", "Edge scrolling's Off");
+            require_now(!engine_settings_dialog()->chosen.edge_scroll, "Edge scrolling Off");
+            std::cout << "engine settings check: Accessibility changed each row on the " << size
+                      << " window\n";
+
+            click_updates(settings::ok_control, "OK", "OK");
+            require(engine_settings_dialog() == nullptr, "OK did not close Accessibility" + on);
+            const auto stored_as = [&](std::string_view key, std::string_view text) {
+                const auto found = preference_values_.find(std::string(key));
+                require(
+                    found != preference_values_.end() && found->second == text,
+                    "OK did not store " + std::string(key) + " as " + std::string(text) + on
+                );
+            };
+            stored_as(settings::key::sticky_modifiers, "1");
+            stored_as(settings::key::hold_to_confirm, "1");
+            stored_as(settings::key::access_long_press, "550");
+            stored_as(settings::key::access_slow_keys, "50");
+            stored_as(settings::key::access_bounce_keys, "50");
+            stored_as(settings::key::order_wheel, "hold-right");
+            stored_as(settings::key::pointer_keys, "1");
+            stored_as(settings::key::access_double_press, "200");
+            stored_as(settings::key::access_repeat_delay, "150");
+            stored_as(settings::key::access_repeat_rate, "2");
+            stored_as(settings::key::access_drag_threshold, "40");
+            stored_as(settings::key::edge_scroll, "0");
+            std::cout << "engine settings check: Accessibility stored each row on the " << size
+                      << " window\n";
+
+            preference_values_ = restore_access.values;
+            preferences_dirty_ = true;
+            flush_preferences();
+            apply_engine_settings(restore_access.settings);
+            tap(SDLK_COMMA, kShortcutModifier);
+            require(engine_settings_dialog() != nullptr, "Accessibility did not open again" + on);
+            click_updates(
+                settings::page_control(settings::Page::accessibility),
+                {},
+                "oa.settings.nav.accessibility"
+            );
+            require(
+                engine_settings_dialog() != nullptr &&
+                    engine_settings_dialog()->page == settings::Page::accessibility,
+                "Accessibility did not show again" + on
+            );
+            const int32_t choose = named_control("settings.latching.choose");
+            focus_access(choose, "CHOOSE…");
+            click_updates(choose, "CHOOSE\u2026", "oa.settings.latching.choose");
+            require(
+                oa_layer().find("key-editor") != nullptr,
+                "oa.settings.latching.choose did not open the key editor" + on
+            );
+            bool latchable_on = false;
+            {
+                std::vector<AutomationControl> controls;
+                oa_layer().automation_controls(controls);
+                for (const AutomationControl& control : controls) {
+                    if (control.name == "oa.key-editor.filter.latchable" && control.visible &&
+                        control.checked)
+                        latchable_on = true;
+                }
+            }
+            require(latchable_on, "the key editor did not open on its Latchable filter" + on);
+            std::cout << "engine settings check: Accessibility CHOOSE\u2026 opened the key editor "
+                         "on Latchable on the "
+                      << size << " window\n";
+            tap(SDLK_ESCAPE);
+            require(
+                oa_layer().find("key-editor") == nullptr && engine_settings_dialog() != nullptr,
+                "Escape did not leave Settings under the key editor" + on
+            );
         }
         tap(SDLK_ESCAPE);
         require(engine_settings_dialog() == nullptr, "Escape did not close the dialog" + on);

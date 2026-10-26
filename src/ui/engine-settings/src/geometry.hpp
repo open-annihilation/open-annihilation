@@ -147,6 +147,10 @@ inline constexpr int32_t touch_drag_level_width = 59;
 /// border: room for One action, its widest caption, with three clear
 /// columns each side.
 inline constexpr int32_t touch_latches_level_width = 64;
+/// Order wheel's level strip's segment width, inside the strip's 1-pixel
+/// border: room for Hold middle, its widest caption, with three clear
+/// columns each side.
+inline constexpr int32_t order_wheel_level_width = 76;
 /// Control size's level strip's segment width, inside the strip's 1-pixel
 /// border: room for Standard, its widest caption, with three clear columns
 /// each side.

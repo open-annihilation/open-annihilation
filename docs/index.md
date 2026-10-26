@@ -32,7 +32,8 @@ Every document in the repository, by what you want to do.
   picture of each section: opening them, OK, Cancel and Restore defaults,
   and what every setting in Mods, Controls, Engine Limits, Language & Text,
   Graphics, User Interface (Menu scaling, Window frame, HUD scaling,
-  Interface size and Escape opens the game menu), Touch, Controller, Game files,
+  Interface size and Escape opens the game menu), Accessibility (the input
+  helpers, Edge scrolling among them), Touch, Controller, Game files,
   Downloads and Developer does, its default, when it takes effect and when
   to change it; the command-line options that set them for one run, and
   where they are kept.

@@ -34,6 +34,7 @@ constexpr std::string_view kEngineSectionWords[] = {
     "developer",
     "game-files",
     "updates",
+    "accessibility",
     "mod-keys",
     "mod-patrol",
     "mod-guard",

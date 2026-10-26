@@ -203,6 +203,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.access.sticky-modifiers` | 0 or 1 | 0 |
 | `open-annihilation.access.pointer-keys` | 0 or 1 | 0 |
 | `open-annihilation.access.hold-to-confirm` | 0 or 1. Self-destruct, surrender and quitting need the long-press time, and a ring fills while the press is held | 0 |
+| `open-annihilation.access.edge-scroll` | 0 or 1. Off stops the view scrolling while the pointer rests at the window's edge. Arrow keys and the touch edge band while a drag is held keep moving the view | 1 |
 | `open-annihilation.access.order-wheel` | `off`, `hold-right` or `hold-middle`. Holding that mouse button on the battlefield opens the order wheel; a short click or a drag still does what the button does. Any other text reads as `off` | `off` |
 | `open-annihilation.middle-click-pan` | 0 or 1 | 1 |
 | `open-annihilation.max-zoom-out` | `automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`; any other text reads as `automatic` | `automatic` |

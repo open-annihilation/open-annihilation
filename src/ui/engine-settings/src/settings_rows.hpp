@@ -58,8 +58,12 @@ inline constexpr oa::ui::kit::ActionId show_gallery_action = 8;
 /// the next main menu, once OK is pressed. It follows SHOW.
 inline constexpr oa::ui::kit::ActionId show_welcome_action = 9;
 /// What EDIT KEYS…, Controls' Key layout, asks for: the key editor over
-/// Settings. It follows ROLL BACK (updates_page.hpp). CHECK NOW is 10.
+/// Settings, on every action. It follows ROLL BACK (updates_page.hpp).
+/// CHECK NOW is 10.
 inline constexpr oa::ui::kit::ActionId edit_keys_action = 15;
+/// What CHOOSE…, Accessibility's Hold keys that latch, asks for: the key
+/// editor over Settings, on the Latchable filter. It follows EDIT KEYS….
+inline constexpr oa::ui::kit::ActionId choose_latch_action = 16;
 
 /// Returns a setting's row spec.
 ///

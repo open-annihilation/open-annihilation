@@ -689,6 +689,8 @@ EngineSettings read_settings(
         settings.pointer_keys = *number > 0;
     if (const auto number = stored_number(values, key::hold_to_confirm))
         settings.hold_to_confirm = *number > 0;
+    if (const auto number = stored_number(values, key::edge_scroll))
+        settings.edge_scroll = *number > 0;
     read_word(values, key::order_wheel, order_wheel_words, settings.order_wheel);
     read_word(values, key::max_zoom_out, zoom_out_words, settings.max_zoom_out);
     read_word(values, key::max_zoom_in, zoom_in_words, settings.max_zoom_in);
@@ -935,6 +937,14 @@ void write_settings(
         switch_text(chosen.hold_to_confirm),
         chosen.hold_to_confirm != opened.hold_to_confirm,
         chosen.hold_to_confirm == defaults.hold_to_confirm,
+        restored
+    );
+    store(
+        values,
+        key::edge_scroll,
+        switch_text(chosen.edge_scroll),
+        chosen.edge_scroll != opened.edge_scroll,
+        chosen.edge_scroll == defaults.edge_scroll,
         restored
     );
     store_word(

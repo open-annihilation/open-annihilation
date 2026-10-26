@@ -897,46 +897,50 @@ void Runtime::pan_match_camera() {
         --dz;
     if (action_key_held("camera.pan-down"))
         ++dz;
-    // The pointer on the screen's outermost pixels scrolls toward that edge,
-    // and in a corner both ways, whatever panel lies under it, as in 3.1c: in
-    // full screen and in a window alike, while the pointer is in the window
-    // at a place SDL has reported on this screen. On macOS a full-screen
-    // window may lie below the camera housing of a MacBook's display, and a
-    // pointer in the strip beside the housing, outside the window past its
-    // top edge, touches that edge (full_screen_pointer).
-    const auto flags = sdl_.window != nullptr ? SDL_GetWindowFlags(sdl_.window) : 0u;
-    std::optional<SDL_FPoint> touched;
-    if (match_pointer_known_ && (flags & SDL_WINDOW_MOUSE_FOCUS) != 0)
-        touched = SDL_FPoint{match_pointer_x_, match_pointer_y_};
+    // Off stops this edge scroll only. Arrow keys above, and the touch HUD's
+    // edge band while a drag is held, keep moving the view.
+    if (engine_settings_state().current.edge_scroll) {
+        // The pointer on the screen's outermost pixels scrolls toward that edge,
+        // and in a corner both ways, whatever panel lies under it, as in 3.1c: in
+        // full screen and in a window alike, while the pointer is in the window
+        // at a place SDL has reported on this screen. On macOS a full-screen
+        // window may lie below the camera housing of a MacBook's display, and a
+        // pointer in the strip beside the housing, outside the window past its
+        // top edge, touches that edge (full_screen_pointer).
+        const auto flags = sdl_.window != nullptr ? SDL_GetWindowFlags(sdl_.window) : 0u;
+        std::optional<SDL_FPoint> touched;
+        if (match_pointer_known_ && (flags & SDL_WINDOW_MOUSE_FOCUS) != 0)
+            touched = SDL_FPoint{match_pointer_x_, match_pointer_y_};
 #ifdef SDL_PLATFORM_MACOS
-    else if ((flags & SDL_WINDOW_MOUSE_FOCUS) == 0)
-        touched = full_screen_edge_point(
-            sdl_.window, sdl_.renderer, match_layout_.width, match_layout_.height
-        );
+        else if ((flags & SDL_WINDOW_MOUSE_FOCUS) == 0)
+            touched = full_screen_edge_point(
+                sdl_.window, sdl_.renderer, match_layout_.width, match_layout_.height
+            );
 #endif
-    if (touched) {
-        // A window point covers several pixels on a high-density display, and
-        // the pointer rests on the outermost point, not the outermost pixel;
-        // on a window at native density the layout is in window points. A
-        // scaled frame's pixels to a window point are its width over the
-        // points it is presented across.
-        float per_point = SDL_GetWindowPixelDensity(sdl_.window);
-        SDL_FRect presented{};
-        const bool scaled = scaled_frame_width_ > 0 &&
-                            SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &presented) &&
-                            presented.w > 0.0F;
-        if (scaled)
-            per_point = per_point * static_cast<float>(match_layout_.width) / presented.w;
-        const auto edge = edge_scroll_depth(at_native_density(flags) && !scaled, per_point);
-        const auto way = oa::ui::hud::edge_scroll(
-            static_cast<int32_t>(std::floor(touched->x)),
-            static_cast<int32_t>(std::floor(touched->y)),
-            match_layout_.width,
-            match_layout_.height,
-            edge
-        );
-        dx += way.x;
-        dz += way.y;
+        if (touched) {
+            // A window point covers several pixels on a high-density display, and
+            // the pointer rests on the outermost point, not the outermost pixel;
+            // on a window at native density the layout is in window points. A
+            // scaled frame's pixels to a window point are its width over the
+            // points it is presented across.
+            float per_point = SDL_GetWindowPixelDensity(sdl_.window);
+            SDL_FRect presented{};
+            const bool scaled = scaled_frame_width_ > 0 &&
+                                SDL_GetRenderLogicalPresentationRect(sdl_.renderer, &presented) &&
+                                presented.w > 0.0F;
+            if (scaled)
+                per_point = per_point * static_cast<float>(match_layout_.width) / presented.w;
+            const auto edge = edge_scroll_depth(at_native_density(flags) && !scaled, per_point);
+            const auto way = oa::ui::hud::edge_scroll(
+                static_cast<int32_t>(std::floor(touched->x)),
+                static_cast<int32_t>(std::floor(touched->y)),
+                match_layout_.width,
+                match_layout_.height,
+                edge
+            );
+            dx += way.x;
+            dz += way.y;
+        }
     }
     if (dx == 0 && dz == 0)
         return;
