@@ -3141,7 +3141,8 @@ void Runtime::fill_key_editor(editor::EditorInputs& inputs) {
 }
 
 bool Runtime::save_key_editor(const editor::SaveResult& saved, std::string& error) {
-    const std::string base_id = saved.layout_id.empty() ? std::string("oa-default") : saved.layout_id;
+    const std::string base_id =
+        saved.layout_id.empty() ? std::string("oa-default") : saved.layout_id;
     if (!safe_layout_id(base_id)) {
         error = "the layout's id is refused";
         return false;
@@ -3193,6 +3194,8 @@ bool Runtime::save_key_editor(const editor::SaveResult& saved, std::string& erro
         }
     }
     reload_bindings();
+    if (oa::ui::engine_settings::Dialog* open = engine_settings_dialog())
+        refresh_settings_key_layout_summary(*open);
     error.clear();
     return true;
 }

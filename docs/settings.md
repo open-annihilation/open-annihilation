@@ -124,10 +124,23 @@ A setting that cannot change now is faded, with a padlock and the reason:
 
 ## Controls
 
-![The top of the Controls section: Mouse wheel zoom On, Maximum zoom out at Automatic, Maximum zoom in at 4x and the top of View past the map's edge at 50%.](images/settings/controls-1.png)
+![The top of the Controls section: Key layout at OA default with EDIT KEYS…, Show keys on buttons On, Mouse wheel zoom On, and Maximum zoom out at Automatic.](images/settings/controls-1.png)
 
 Each of these takes effect at once.
 
+- **Key layout** shows the layout in use, and how many keys you have changed
+  ("OA default · 4 changes of your own", or the name alone when you have
+  changed none). **EDIT KEYS…** opens the key editor over Settings, in the
+  menus and in a match, and a SAVE there updates this row. The hint names
+  Cmd+/ on a Mac and Ctrl+/ elsewhere: in a match that shows the keys.
+  The layout itself is chosen in the editor, or with USE in the Library.
+- **Key layout with <mod>** is shown only while a mod is played. Same as
+  the game uses Key layout. The other choices are the layouts you have
+  installed, those made for that mod first and marked made for it (for
+  Ridge, "Ridge keys · made for Ridge"). The choice is kept at once under
+  that mod, and Cancel puts the previous choice back.
+- **Show keys on buttons**, On by default. Order buttons and build cells
+  show their key in a corner.
 - **Mouse wheel zoom**, On by default. The mouse wheel, or a trackpad's
   scroll, zooms the battlefield in and out smoothly about the pointer: the
   ground under the pointer stays under it on every frame of the zoom, as
@@ -192,13 +205,9 @@ Each of these takes effect at once.
   same until you let go. It does not start while the allied whiteboard is
   in use, in the menus, or on a panel. Turn it off to keep the middle
   button as it was.
-- **Select groups without Alt**, Off by default, as 3.1c plays. Off, Alt
-  and a number select that group of units, and a number alone turns the
-  selected unit's menu to that page. On, a number alone selects its group,
-  and Alt and a number turn the page. Ctrl and a number make a group either
-  way. Turn it on if you are used to selecting groups with the number keys
-  alone, as most strategy games do. It is 3.1c's own SwitchAlt option, so
-  the console's `+switchalt` changes it too.
+- **Number keys select groups** is the key editor's switch, not a row
+  here. It is 3.1c's own SwitchAlt option, so the console's `+switchalt`
+  changes it too: on, a number key selects its group on its own.
 - **Window edge**, Capture, Sticky or Free, Capture by default. What a
   window does with the pointer while a match's battlefield shows and the
   window has the focus. Capture keeps the pointer in the window: no push or
@@ -220,7 +229,7 @@ Each of these takes effect at once.
   Only Sticky uses it: with Capture or Free it is greyed, says Needs
   Sticky, and keeps its value.
 
-![The end of the Controls section: Middle-click pans On, Select groups without Alt Off, Window edge at Capture, and Edge stickiness greyed at 1.0, Needs Sticky.](images/settings/controls-2.png)
+![The end of the Controls section: View past the map's edge at 50%, Middle-click pans On, Window edge at Capture, and Edge stickiness greyed at 1.0, Needs Sticky.](images/settings/controls-2.png)
 
 ## Engine Limits
 

@@ -54,9 +54,9 @@ and keys keep their classic use.
 ## Groups
 
 Ctrl and a digit from 1 to 9 stores the selection in that group. Alt and
-the digit selects the group. With **Select groups without Alt** on
-(`+switchalt`), the digit alone selects the group and Alt and the digit
-picks a build button.
+the digit selects the group. **Number keys select groups**, in the key
+editor, is 3.1c's SwitchAlt (`+switchalt`): with it on, the digit alone
+selects the group and Alt and the digit picks a build button.
 
 The first press selects the group, or adds it when Shift is held. A later
 press, at once or after a pause, centres the view on the group when that

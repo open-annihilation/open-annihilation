@@ -337,6 +337,15 @@ enum class Setting : uint8_t {
     /// Sides: how many sides the mod allows, and in a match how many of
     /// them the match loaded. It keeps no setting.
     sides,
+    /// Key layout: the layout in use, and how many of its actions the player
+    /// changed, with EDIT KEYS…. It keeps no setting. The layout itself is
+    /// chosen in the editor.
+    key_layout,
+    /// Key layout with the mod being played: Same as the game, or one
+    /// installed layout. Shown only while a mod is played.
+    key_layout_for_mod,
+    /// Show keys on buttons: order buttons and build cells show their key.
+    show_keys_on_buttons,
 };
 
 /// Returns the settings a section shows, top to bottom.
@@ -614,7 +623,28 @@ enum class DialogAction : uint8_t {
     /// ROLL BACK on Updates: ask, then put the kept version back. The dialog
     /// stays open until that question is answered.
     roll_back,
+    /// EDIT KEYS… on Key layout: the host opens the key editor over the
+    /// dialog, which stays open under it, in the menus and in a match.
+    edit_keys,
 };
+
+/// One installed layout Key layout with a mod offers.
+struct KeyLayoutChoice {
+    std::string id{};   ///< the layout's id, a word automation names it by
+    std::string name{}; ///< the name players see
+    /// The layout's works-with names the mod being played.
+    bool made_for{};
+};
+
+/// The text Key layout shows: the layout's name, or that name and how many
+/// actions the player's own layout names. None is the name alone. One is
+/// "1 change of your own". More is "{n} changes of your own". The count is
+/// the editor's Changed filter: each action the own layout names, once.
+///
+/// @param name the layout's name, as the player should read it
+/// @param changes how many actions the own layout names; negative counts as none
+/// @return the text
+[[nodiscard]] std::string key_layout_summary_text(std::string_view name, int32_t changes);
 
 /// One of the Library's tabs, as the dialog asks the host to open it
 /// (DialogAction::open_library). It mirrors the Library's own tabs, so that
@@ -1047,6 +1077,24 @@ struct Dialog {
     /// Weapon types and sides, as the mod fixes them and as a match loaded
     /// them. The host sets it as the dialog opens. The default is the base game.
     ModLimitsShown mod_limits{};
+    /// The mod being played, as players see its name. Empty while no mod is
+    /// played, and Controls then hides Key layout with that mod.
+    std::string played_mod;
+    /// That mod's id, which the choice is saved under. Empty while no mod
+    /// is played.
+    std::string played_mod_id;
+    /// What Key layout shows: the layout in use and how many keys the player
+    /// changed. The host sets it as the dialog opens and after the editor saves.
+    std::string key_layout_summary;
+    /// Installed layouts Key layout with the mod offers, after Same as the
+    /// game. The row lists those made for the mod first. The host sets it as
+    /// the dialog opens.
+    std::vector<KeyLayoutChoice> key_layouts;
+    /// The layout chosen for the mod being played: `same`, or one of
+    /// key_layouts' ids. EngineSettings::key_layout_for_mod holds the same
+    /// text, which the row reads and writes. The host sets both as the dialog
+    /// opens.
+    std::string key_layout_for_mod{"same"};
     /// Developer Mode's list of the standard hacks.
     DeveloperList developer{};
     /// The language the operating system's preferred locales choose, which

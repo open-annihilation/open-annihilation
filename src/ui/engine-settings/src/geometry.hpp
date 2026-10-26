@@ -1008,6 +1008,9 @@ struct RowContext {
     /// System lists the file-type switches (Dialog::file_type_switches).
     /// Off, it shows the text row. The default is this system's own.
     bool file_type_switches{file_types_switchable};
+    /// Controls lists Key layout with the mod being played
+    /// (Dialog::played_mod). Off, that row is left out.
+    bool played_mod{};
 };
 
 /// Returns what a dialog shows beyond each setting's own rows and lines.

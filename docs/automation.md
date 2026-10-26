@@ -200,6 +200,9 @@ centre would land on the line between Off and On.
 | A drop-down's item, while open | `oa.settings.<row>.<value>` | check box, checked on the choice |
 | A slider | `oa.settings.<row>` | slider; its text the value shown |
 | A row's own button (MANAGE…) | `oa.settings.<row>.<button>`, as `oa.settings.game-files-summary.manage` | button |
+| Key layout's EDIT KEYS… | `oa.settings.key-layout.edit` | button, its text "EDIT KEYS…". It opens the key editor over Settings |
+| Key layout with the mod being played | `oa.settings.key-layout-for-mod`, and while open `.same` and `.<id>` (a layout's id, as `.ridge-keys`) | drop-down, its text the choice shown; absent while no mod is played |
+| Show keys on buttons | `oa.settings.show-keys-on-buttons`, with `.off` and `.on` | as a switch |
 | Game Content's buttons | `oa.settings.content-check.check-again`, `oa.settings.content-copy.copy-again`, `oa.settings.content-open.open-folder` | button. The section's entry is `oa.settings.nav.game-content`. While a bundle is being copied, that bundle's row offers Cancel as `oa.settings.<id>.cancel-copy` |
 | Updates' buttons | `oa.settings.update-status.check-now`, `oa.settings.update-status.update` | button. CHECK NOW while the section can check, greyed while a check is running; UPDATE… while a release is offered, in that button's place. Absent while Check for updates is Never. The section's entry is `oa.settings.nav.updates`. The choice is `oa.settings.update-check` (`automatically`, `when-asked`, `never`) |
 | Your files' buttons, on System | `oa.settings.user-folder.saves`, `.screenshots`, `.mods` | button |

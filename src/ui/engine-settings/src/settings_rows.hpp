@@ -57,6 +57,9 @@ inline constexpr oa::ui::kit::ActionId show_gallery_action = 8;
 /// What SHOW AGAIN, System's Welcome setup, asks for: the welcome setup at
 /// the next main menu, once OK is pressed. It follows SHOW.
 inline constexpr oa::ui::kit::ActionId show_welcome_action = 9;
+/// What EDIT KEYS…, Controls' Key layout, asks for: the key editor over
+/// Settings. It follows ROLL BACK (updates_page.hpp). CHECK NOW is 10.
+inline constexpr oa::ui::kit::ActionId edit_keys_action = 15;
 
 /// Returns a setting's row spec.
 ///
