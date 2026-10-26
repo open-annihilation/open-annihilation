@@ -424,7 +424,7 @@ void Runtime::hand_off_update() {
     plan.release = update_->download_release;
     plan.package = update_->download_package;
     plan.file = absolute_utf8(shot.path);
-    plan.installer = false;
+    plan.installer = where.route == update::Route::windows_installer;
     plan.preferences = preference_path_.empty() ? plan.install : absolute_utf8(preference_path_);
     if (options_.preferences_file && !options_.preferences_file->empty())
         plan.preferences = absolute_utf8(*options_.preferences_file);
@@ -588,11 +588,12 @@ bool Runtime::start_update_download() {
     update_->download_release = release.release;
     update_->download_version = release.version_text;
     update_->download_package = package.id;
-    update_->download_installer = false;
+    const bool download_installer = where.route == update::Route::windows_installer;
+    update_->download_installer = download_installer;
     update_->from_version = running_build().version_text;
     update_->download_attempted = true;
     update_->download->set_match_running(match_ != nullptr || screen_ == Screen::match);
-    update_->download->start(release, package, false, *folder);
+    update_->download->start(release, package, download_installer, *folder);
     return true;
 #endif
 }

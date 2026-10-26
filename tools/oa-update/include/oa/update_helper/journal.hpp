@@ -41,6 +41,13 @@ struct Operation {
     std::vector<std::string> inverse_arguments{}; ///< that program's arguments
 };
 
+/// What a rename hook did with one file.
+enum class MoveOutcome : uint8_t {
+    moved,     ///< the hook renamed the file
+    postponed, ///< the file stays; the step is recorded and undone as nothing
+    failed,    ///< the hook could not rename the file
+};
+
 /// How far a journal run got.
 enum class JournalResult : uint8_t {
     finished, ///< every step finished; the journal is left for the caller
@@ -62,8 +69,24 @@ struct JournalHooks {
         const std::vector<std::string>& arguments,
         std::string* error
     ){};
+    /// Rename one file. Null uses the real rename.
+    ///
+    /// `moved` means the hook renamed it. `postponed` records the step and
+    /// moves nothing. `failed` stops the journal; set `error` when it is not null.
+    MoveOutcome (*move)(
+        void* context,
+        const std::filesystem::path& from,
+        const std::filesystem::path& to,
+        std::string* error
+    ){};
     /// One line for the log. Null writes nothing.
     void (*note)(void* context, std::string_view line){};
+};
+
+/// One rename a journal recorded as postponed.
+struct PostponedRenameRecord {
+    std::string from; ///< the source that stayed
+    std::string to;   ///< the destination that was not written
 };
 
 /// Carries out `operations`, recording each finished step under `updates`.
@@ -95,5 +118,15 @@ struct JournalHooks {
 /// @return true when there is nothing left to undo
 [[nodiscard]] bool
 undo_journal(const std::filesystem::path& updates, const JournalHooks& hooks, std::string* error);
+
+/// The postponed renames a journal still holds.
+///
+/// A missing journal, and a journal that cannot be read, are both empty.
+/// The caller still asks `undo_journal` when a read can fail.
+///
+/// @param updates the data folder's updates directory
+/// @return the postponed rows, source then destination
+[[nodiscard]] std::vector<PostponedRenameRecord>
+postponed_renames(const std::filesystem::path& updates);
 
 } // namespace oa::update_helper

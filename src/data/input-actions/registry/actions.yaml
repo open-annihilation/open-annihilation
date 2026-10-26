@@ -1720,6 +1720,7 @@ actions:
     default: ["Tab"]
     hacks:
       teams.alliance-menu-all-game-types:
+        default: ["Tab", "Shift+Tab"]
         when: []
     pad: team_menu
     words: {name: "Allies menu", description: "The allies menu"}
@@ -1738,9 +1739,9 @@ actions:
     order: 20
     context: [match]
     kind: press
-    by: place
+    by: letter
     source: [3.1c]
-    default: ["@Backslash"]
+    default: ["\\"]
     hacks:
       console.key-remaps:
         default: ["Insert"]
@@ -1802,7 +1803,7 @@ actions:
     area: developer
     order: 3
     context: [match]
-    when: [developer, debug-keys]
+    when: [debug-keys]
     kind: press
     by: letter
     source: [3.1c]
@@ -1812,7 +1813,7 @@ actions:
     area: developer
     order: 4
     context: [match]
-    when: [developer, debug-keys]
+    when: [debug-keys]
     kind: press
     by: letter
     source: [3.1c]
@@ -1822,7 +1823,7 @@ actions:
     area: developer
     order: 5
     context: [match]
-    when: [developer, debug-keys]
+    when: [debug-keys]
     kind: press
     by: letter
     source: [3.1c]
@@ -1832,7 +1833,7 @@ actions:
     area: developer
     order: 6
     context: [match]
-    when: [developer, debug-keys]
+    when: [debug-keys]
     kind: press
     by: letter
     source: [3.1c]
