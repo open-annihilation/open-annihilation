@@ -2330,6 +2330,34 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
     case settings::DialogAction::retry_update:
         retry_update_download();
         return false;
+    case settings::DialogAction::roll_back: {
+        // The question asks once. ROLL BACK quits, and main() starts the
+        // helper. CANCEL leaves Settings open. A match closes the question.
+        if (dialog == nullptr || dialog->updates.kept_version.empty())
+            return false;
+        const std::string kept = dialog->updates.kept_version;
+        const std::string current = oa::app::update::this_build({}).version_text;
+        kit::Question asked = settings::updates::roll_back_question(kept, current);
+        Runtime* runtime = this;
+        QuestionScreen::Host host;
+        host.answer = [runtime](int32_t button) {
+            if (button == 1) {
+                runtime->roll_back_requested_ = true;
+                runtime->quit_requested_ = true;
+                runtime->exit_status_ = 0;
+            }
+            return true;
+        };
+        host.tick = [runtime]() {
+            return runtime->engine_settings_dialog() == nullptr || runtime->match_ != nullptr ||
+                   runtime->screen_ == Screen::match;
+        };
+        OaLayer& layer = oa_layer();
+        layer.push(std::make_unique<QuestionScreen>(
+            layer, Screen::main_menu, std::move(asked), std::move(host)
+        ));
+        return false;
+    }
     case settings::DialogAction::download_language: {
         // The dialog stays open. The language applies when the pack arrives.
         std::string why;

@@ -217,6 +217,13 @@ std::size_t download_hint_lines(const RowModel&) noexcept {
     return 1;
 }
 
+/// "{version} kept", already in the language shown.
+std::string kept_value(const RowModel& model) {
+    if (model.dialog == nullptr)
+        return {};
+    return geometry::filled("{version} kept", {{"version", model.dialog->updates.kept_version}});
+}
+
 /// Returns how many ways the check offers.
 ///
 /// @return 3
@@ -312,6 +319,18 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
         spec.hint_text = status_hint;
         return spec;
     }
+    if (model.index == 3) {
+        kit::RowSpec<RowModel> spec = kit::value_and_button<RowModel>(
+            "update-previous",
+            "Previous version",
+            kept_value,
+            "ROLL BACK",
+            "roll-back",
+            roll_back_action
+        );
+        spec.control_width = geometry::manage_button_width;
+        return spec;
+    }
     kit::Stepper<RowModel> stepper;
     stepper.count = check_count;
     stepper.get = check_get;
@@ -367,7 +386,7 @@ void wrap_shown_hints(kit::RowView& shown, int32_t room, const geometry::TextWid
 
 geometry::Rows place(
     const Dialog& dialog,
-    const Locks& /*locks*/,
+    const Locks& locks,
     const geometry::TextWidth& width,
     kit::PlacedRows* placed,
     const geometry::Sizes* sizes,
@@ -382,14 +401,20 @@ geometry::Rows place(
                                          kit::estimated_character_width
                                    : sized.content_width;
     // The switch sits between the status and the check when the host shows
-    // a download. The check keeps logical index 1, so it stays the choice.
-    const bool gated = dialog.updates.show_download;
-    constexpr std::array<std::size_t, 3> gated_order{0, 2, 1};
-    const std::size_t count = gated ? std::size_t{3} : std::size_t{2};
+    // a download. Previous version follows the check, and only while a
+    // version is kept, so a page with nothing kept keeps the rows a picture
+    // was drawn with. The check keeps logical index 1, so it stays the choice.
+    std::vector<std::size_t> order;
+    order.push_back(0);
+    if (dialog.updates.show_download)
+        order.push_back(2);
+    order.push_back(1);
+    if (!dialog.updates.kept_version.empty())
+        order.push_back(3);
+    const bool previous_locked = locks.path_search != Lock::none;
     std::vector<kit::RowView> row_views;
-    row_views.reserve(count);
-    for (std::size_t place_index = 0; place_index < count; ++place_index) {
-        const std::size_t index = gated ? gated_order[place_index] : place_index;
+    row_views.reserve(order.size());
+    for (const std::size_t index : order) {
         const RowModel model{const_cast<Dialog*>(&dialog), index};
         const kit::RowSpec<RowModel> spec = spec_for(model);
         kit::RowView shown = kit::view_of(spec, model, &geometry::shown_text);
@@ -415,8 +440,9 @@ geometry::Rows place(
     for (std::size_t index = 0; index < kit_rows.rows.size(); ++index) {
         const kit::PlacedRow& placed_row = kit_rows.rows[index];
         geometry::Row& row = rows.rows.emplace_back();
-        const std::size_t logical = gated ? gated_order[index] : index;
+        const std::size_t logical = order[index];
         row.updates = static_cast<int16_t>(logical);
+        row.lock = logical == 3 && previous_locked ? Lock::in_game : Lock::none;
         row.control = placed_row.control;
         row.hint_is_status = placed_row.view.hint_is_status;
         row.top = placed_row.top;
@@ -579,6 +605,30 @@ std::string when_phrase(int64_t checked, int64_t now) {
         checked_tm.tm_yday == yesterday.tm_yday)
         return geometry::filled("yesterday at {time}", {{"time", clock_text}});
     return geometry::filled("on {date}", {{"date", date_text}});
+}
+
+oa::ui::kit::Question roll_back_question(std::string_view kept, std::string_view current) {
+    oa::ui::kit::Question asked;
+    asked.word = "update-previous";
+    asked.title = geometry::filled("Go back to {version}?", {{"version", kept}});
+    asked.paragraphs.push_back(
+        {geometry::filled(
+             "OA restarts on {version}, with the settings it had. {current} won't be offered "
+             "again until you choose it.",
+             {{"version", kept}, {"current", current}}
+         ),
+         false}
+    );
+    asked.buttons.push_back(
+        {std::string(oa::data::languages::interface_text("CANCEL")), false, "cancel"}
+    );
+    asked.buttons.push_back(
+        {std::string(oa::data::languages::interface_text("ROLL BACK")), true, "roll-back"}
+    );
+    asked.cancel_button = 0;
+    asked.primary_button = 1;
+    asked.marked = 1;
+    return asked;
 }
 
 } // namespace oa::ui::engine_settings::updates

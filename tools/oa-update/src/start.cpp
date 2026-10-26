@@ -71,7 +71,7 @@ SDL_Process* spawn(Argv& argv, bool background, std::string* reason) {
 
 } // namespace
 
-bool start_detached(
+SDL_Process* start_process(
     const std::filesystem::path& program,
     const std::vector<std::string>& arguments,
     bool add_updated_from,
@@ -80,11 +80,22 @@ bool start_detached(
 ) {
     if (program.empty()) {
         set_error(error, "the program is empty");
-        return false;
+        return nullptr;
     }
     Argv argv;
     fill_argv(argv, program, arguments, add_updated_from, from_version);
-    SDL_Process* process = spawn(argv, true, error);
+    return spawn(argv, true, error);
+}
+
+bool start_detached(
+    const std::filesystem::path& program,
+    const std::vector<std::string>& arguments,
+    bool add_updated_from,
+    std::string_view from_version,
+    std::string* error
+) {
+    SDL_Process* process =
+        start_process(program, arguments, add_updated_from, from_version, error);
     if (process == nullptr)
         return false;
     SDL_DestroyProcess(process);

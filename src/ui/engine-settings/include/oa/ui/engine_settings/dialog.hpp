@@ -19,6 +19,7 @@
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/rows.hpp"
@@ -609,6 +610,9 @@ enum class DialogAction : uint8_t {
     /// RETRY on Updates: start the download of the offered package again.
     /// The dialog stays open.
     retry_update,
+    /// ROLL BACK on Updates: ask, then put the kept version back. The dialog
+    /// stays open until that question is answered.
+    roll_back,
 };
 
 /// One of the Library's tabs, as the dialog asks the host to open it
@@ -812,7 +816,22 @@ struct UpdatesOffer {
     std::string download_done;                   ///< bytes so far, as the player reads a size
     std::string download_size;                   ///< the whole file, as the player reads a size
     std::string download_reason;                 ///< why it stopped; not looked up
+    /// The version kept beside this one. Empty hides Previous version, so the
+    /// page keeps the two rows a picture of it was drawn with.
+    std::string kept_version;
 };
+
+namespace updates {
+
+/// The question ROLL BACK asks. {version} is the kept one, {current} this build.
+///
+/// @param kept the version that would be put back
+/// @param current the version that is running
+/// @return the question, already in the language shown
+[[nodiscard]] oa::ui::kit::Question
+roll_back_question(std::string_view kept, std::string_view current);
+
+} // namespace updates
 
 /// Where a check for a release stands, as the host tells update_lines.
 enum class UpdateStand : uint8_t {

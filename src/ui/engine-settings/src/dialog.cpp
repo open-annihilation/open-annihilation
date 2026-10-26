@@ -1852,6 +1852,8 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         return DialogAction::restart_update;
     if (action == updates::retry_update_action)
         return DialogAction::retry_update;
+    if (action == updates::roll_back_action)
+        return DialogAction::roll_back;
     const kit::ActionId button = action - layout::first_folder_action;
     if (button < 0 || button >= static_cast<kit::ActionId>(folder_button_count))
         return DialogAction::none;

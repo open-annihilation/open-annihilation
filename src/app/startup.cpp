@@ -777,6 +777,8 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_engine_feed, "--check-engine-feed"},
             {options.check_update_offer, "--check-update-offer"},
             {options.check_update_download, "--check-update-download"},
+            {options.check_update_roll_back, "--check-update-roll-back"},
+            {!options.roll_back_case.empty(), "--roll-back-case"},
             {options.update_install_folder.has_value(), "--update-install-folder"},
             {options.update_and_quit, "--update-and-quit"},
             {!options.update_download_case.empty(), "--update-download-case"},
@@ -1034,6 +1036,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-engine-feed", &Options::check_engine_feed},
     {"--check-update-offer", &Options::check_update_offer},
     {"--check-update-download", &Options::check_update_download},
+    {"--check-update-roll-back", &Options::check_update_roll_back},
     {"--update-and-quit", &Options::update_and_quit},
     {"--check-icloud-wait", &Options::check_icloud_wait},
     {"--check-text-fit", &Options::check_text_fit},
@@ -1405,6 +1408,27 @@ take_check_option(std::string_view argument, ArgumentCursor& cursor, Options& op
         options.updated_from = text;
         return true;
     }
+    if (argument == "--rolled-back-from") {
+        const std::string text{option_value(cursor)};
+        if (!oa::formats::oamod::parse_engine_version(text).has_value())
+            throw std::runtime_error("--rolled-back-from must be a version such as 0.8.7");
+        options.rolled_back_from = text;
+        return true;
+    }
+    if (argument == "--roll-back-reason") {
+        const std::string text{option_value(cursor)};
+        if (text != "failed-starts" && text != "player")
+            throw std::runtime_error("--roll-back-reason must be failed-starts or player");
+        options.roll_back_reason = text;
+        return true;
+    }
+    if (argument == "--roll-back-case") {
+        const std::string text{option_value(cursor)};
+        if (text != "guard" && text != "confirm" && text != "prompt" && text != "settings")
+            throw std::runtime_error("--roll-back-case must be guard, confirm, prompt or settings");
+        options.roll_back_case = text;
+        return true;
+    }
     if (argument == "--update-install-folder") {
         const std::string_view text = option_value(cursor);
         if (text.empty())
@@ -1722,9 +1746,12 @@ void write_startup_line(std::string_view text) {
                      "[--check-language-notice] [--check-first-run] [--check-setup-window] "
                      "[--check-window-place] "
                      "[--check-progress] [--update-feed URL] [--update-key ID=ed25519:KEY] "
-                     "[--updated-from VERSION] [--update-install-folder DIR] [--update-and-quit] "
+                     "[--updated-from VERSION] [--rolled-back-from VERSION] "
+                     "[--roll-back-reason failed-starts|player] "
+                     "[--update-install-folder DIR] [--update-and-quit] "
                      "[--check-engine-feed] [--check-update-offer] [--check-update-download] "
-                     "[--update-download-case NAME] [--check-icloud-wait] "
+                     "[--update-download-case NAME] [--check-update-roll-back] "
+                     "[--roll-back-case guard|confirm|prompt|settings] [--check-icloud-wait] "
                      "[--check-text-fit [--check-language TAG]...] "
                      "[--check-folder-chooser] "
                      "[--check-patrol-reclaim] [--check-reclaim-cursor] [--check-wreck-pick] "
@@ -1868,6 +1895,12 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error("--update-and-quit needs --update-feed");
     if (!result.update_download_case.empty() && !result.check_update_download)
         throw std::runtime_error("--update-download-case needs --check-update-download");
+    if (result.rolled_back_from.has_value() != !result.roll_back_reason.empty())
+        throw std::runtime_error(
+            "--rolled-back-from and --roll-back-reason are used together"
+        );
+    if (!result.roll_back_case.empty() && !result.check_update_roll_back)
+        throw std::runtime_error("--roll-back-case needs --check-update-roll-back");
     if (!result.keys.empty() && result.keys_reset)
         throw std::runtime_error("--keys and --keys-reset cannot be used together");
     if (acceleration_differing) {
@@ -2000,6 +2033,10 @@ void write_startup_line(std::string_view text) {
         throw std::runtime_error(
             "--check-update-download draws in a window and cannot be used with --headless-check"
         );
+    if (result.check_update_roll_back && result.headless_check)
+        throw std::runtime_error(
+            "--check-update-roll-back draws in a window and cannot be used with --headless-check"
+        );
     if (result.check_icloud_wait && result.headless_check)
         throw std::runtime_error(
             "--check-icloud-wait draws in a window and cannot be used with --headless-check"
@@ -2045,6 +2082,7 @@ void write_startup_line(std::string_view text) {
         result.check_language_registry || result.check_language_notice || result.check_first_run ||
         result.check_setup_window || result.check_window_place || result.check_progress ||
         result.check_engine_feed || result.check_update_offer || result.check_update_download ||
+        result.check_update_roll_back ||
         result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
         result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
         result.check_pointer_interfaces || result.check_megamap_clicks ||

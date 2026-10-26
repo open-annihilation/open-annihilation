@@ -4,8 +4,10 @@
 #include "oa/update_helper/route_windows.hpp"
 
 #include "oa/update_helper/paths.hpp"
+#include "oa/update_helper/routes.hpp"
 #include "oa/update_helper/run.hpp"
 #include "oa/update_helper/start.hpp"
+#include "oa/update_helper/watch.hpp"
 
 #include <algorithm>
 #include <fstream>
@@ -697,6 +699,38 @@ bool folder_needs_elevation(bool writable, uint32_t version) noexcept {
     return !writable && windows_vista_or_later(version) && !windows_9x(version);
 }
 
+bool windows_roll_back_elevate(const fs::path& install) {
+#if !defined(_WIN32)
+    (void)install;
+    return false;
+#else
+    return folder_needs_elevation(!folder_accepts_file(install), current_windows_version());
+#endif
+}
+
+ElevatedRelaunch relaunch_elevated_plan(const fs::path& plan_file) {
+    ElevatedRelaunch result;
+#if !defined(_WIN32)
+    (void)plan_file;
+    result.error = "this route is not carried out";
+    return result;
+#else
+    const fs::path helper = this_program();
+    const std::wstring file = helper.wstring();
+    const std::vector<std::string> arguments{
+        "--elevated-swap", "--plan", utf8_of(plan_file)
+    };
+    const std::wstring parameters = wide_from_utf8(join_quoted(arguments));
+    const std::wstring verb = verb_wide("runas");
+    const ShellWait ran = file.empty() ? ShellWait{} : shell_w(verb, file, parameters);
+    result.ran = ran.started;
+    result.cancelled = ran.cancelled;
+    result.code = ran.started ? static_cast<int>(ran.exit_code) : 1;
+    result.error = ran.error;
+    return result;
+#endif
+}
+
 std::vector<std::string> setup_arguments(std::string_view install_folder) {
     // NSIS reads /D= as the remainder of the line, so the path is not quoted.
     return {"/S", std::string("/D=") + folder_text(install_folder)};
@@ -857,6 +891,130 @@ windows_folder_operations(const update::Plan& plan, const fs::path& staged, std:
     return operations;
 }
 
+std::vector<Operation> windows_folder_restore(
+    const update::State& state, const fs::path& install, std::string* why
+) {
+    if (why != nullptr)
+        why->clear();
+    const fs::path kept = path_from(state.kept_path);
+    std::error_code io;
+    if (!fs::is_directory(install, io) || io) {
+        set_error(why, "the install folder is missing");
+        return {};
+    }
+    if (!fs::is_directory(kept, io) || io) {
+        set_error(why, "the kept folder is missing");
+        return {};
+    }
+    std::vector<fs::path> kept_children;
+    if (!list_children(kept, kept_children, why))
+        return {};
+    std::vector<Operation> operations;
+    for (const fs::path& child : kept_children) {
+        if (same_name(child.filename(), preferences_name))
+            continue;
+        const fs::path destination = install / child.filename();
+        if (destination == kept)
+            continue;
+        // A file the kept copy does not name stays, including a player's notes.
+        if (fs::exists(fs::symlink_status(destination, io)) && !io) {
+            Operation remove;
+            remove.kind = Operation::Kind::remove_tree;
+            remove.path = destination;
+            operations.push_back(std::move(remove));
+        }
+        push_transfer(operations, Operation::Kind::rename, child, destination);
+    }
+    return operations;
+}
+
+std::vector<Operation> windows_installer_restore(
+    const update::State& state,
+    const fs::path& install,
+    std::string_view bad_version,
+    std::string* why
+) {
+    if (why != nullptr)
+        why->clear();
+    const fs::path kept = path_from(state.kept_path);
+    std::error_code io;
+    if (!fs::is_directory(install, io) || io) {
+        set_error(why, "the install folder is missing");
+        return {};
+    }
+    if (!fs::is_directory(kept, io) || io) {
+        set_error(why, "the kept folder is missing");
+        return {};
+    }
+    std::vector<fs::path> kept_children;
+    if (!list_children(kept, kept_children, why))
+        return {};
+    std::vector<Operation> operations;
+    for (const fs::path& child : kept_children) {
+        if (same_name(child.filename(), preferences_name))
+            continue;
+        const fs::path destination = install / child.filename();
+        if (fs::exists(fs::symlink_status(destination, io)) && !io) {
+            Operation remove;
+            remove.kind = Operation::Kind::remove_tree;
+            remove.path = destination;
+            operations.push_back(std::move(remove));
+        }
+        push_transfer(operations, Operation::Kind::copy_tree, child, destination);
+    }
+    Operation version;
+    version.kind = Operation::Kind::run_and_wait;
+    version.program = "oa-display-version";
+    version.arguments.emplace_back(state.kept_version);
+    version.inverse_program = "oa-display-version";
+    version.inverse_arguments.emplace_back(bad_version);
+    operations.push_back(std::move(version));
+    return operations;
+}
+
+bool apply_display_version(
+    const fs::path& program, const std::vector<std::string>& arguments, std::string* error
+) {
+    const bool named = utf8_of(program) == "oa-display-version" ||
+                       utf8_of(program.filename()) == "oa-display-version";
+    if (!named)
+        return false;
+    if (arguments.empty()) {
+        set_error(error, "the kept version is missing");
+        return true;
+    }
+#if defined(_WIN32)
+    HKEY key = nullptr;
+    const LSTATUS opened = RegCreateKeyExA(
+        HKEY_LOCAL_MACHINE,
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Open Annihilation",
+        0,
+        nullptr,
+        0,
+        KEY_SET_VALUE,
+        nullptr,
+        &key,
+        nullptr
+    );
+    if (opened == ERROR_SUCCESS && key != nullptr) {
+        const std::string& version = arguments.front();
+        const LSTATUS wrote = RegSetValueExA(
+            key,
+            "DisplayVersion",
+            0,
+            REG_SZ,
+            reinterpret_cast<const BYTE*>(version.c_str()),
+            static_cast<DWORD>(version.size() + 1)
+        );
+        RegCloseKey(key);
+        (void)wrote;
+    }
+#else
+    (void)arguments;
+#endif
+    return true;
+}
+
 FolderPlan plan_windows_folder(
     const update::Plan& plan,
     const fs::path& staged,
@@ -966,6 +1124,61 @@ bool undo_or_log(const fs::path& updates, const JournalHooks& hooks, Log& log) {
 }
 #endif
 
+#if defined(_WIN32)
+struct WatchAgain {
+    const update::Plan* plan{};
+};
+
+bool start_again(void* context, SDL_Process** process, int* pid, std::string* error) {
+    const auto* held = static_cast<const WatchAgain*>(context);
+    SDL_Process* started = start_process(
+        path_from(held->plan->program), held->plan->arguments, true, held->plan->from_version, error
+    );
+    if (started == nullptr)
+        return false;
+    *process = started;
+    *pid = 0;
+    return true;
+}
+
+/// Starts the new version and watches it. -1 means the first start failed.
+int watch_new_version(
+    const update::Plan& plan,
+    const fs::path& plan_path,
+    const fs::path& updates,
+    Log& log,
+    ProgressWindow& window,
+    JournalHooks& hooks,
+    std::string& error
+) {
+    SDL_Process* process =
+        start_process(path_from(plan.program), plan.arguments, true, plan.from_version, &error);
+    if (process == nullptr)
+        return -1;
+    log.line("started the new version");
+    window.close();
+    WatchAgain again{&plan};
+    std::string restart_error;
+    const WatchTwo watched =
+        watch_two_starts(process, 0, updates / "state.json", start_again, &again, &restart_error);
+    if (watched == WatchTwo::confirmed)
+        return exit_swapped;
+    if (!restart_error.empty())
+        log.line(restart_error);
+    return restore_kept(
+        plan,
+        updates,
+        &plan_path,
+        log,
+        window,
+        hooks,
+        update::RollBackReason::failed_starts,
+        true,
+        true
+    );
+}
+#endif
+
 } // namespace
 
 int finish_windows_route(
@@ -1061,16 +1274,19 @@ int finish_windows_route(
         }
 
         fs::remove(marker, io);
-        if (!elevated_swap &&
-            !start_detached(
-                path_from(plan.program), plan.arguments, true, plan.from_version, &error
-            )) {
-            log.line(error.empty() ? "the game could not be started" : error);
-            static_cast<void>(put_back());
-            return failed(could_not_check, exit_undone);
+        if (!elevated_swap) {
+            const int watched =
+                watch_new_version(plan, plan_path, updates, log, window, hooks, error);
+            if (watched < 0) {
+                log.line(error.empty() ? "the game could not be started" : error);
+                static_cast<void>(put_back());
+                return failed(could_not_check, exit_undone);
+            }
+            drop_journal_files(updates);
+            return watched;
         }
         drop_journal_files(updates);
-        log.line(elevated_swap ? "swapped the install" : "started the new version");
+        log.line("swapped the install");
         window.close();
         return exit_swapped;
     }
@@ -1107,9 +1323,8 @@ int finish_windows_route(
             return failed(could_not_check, exit_undone);
         }
         std::string error;
-        if (!start_detached(
-                path_from(plan.program), plan.arguments, true, plan.from_version, &error
-            )) {
+        const int watched = watch_new_version(plan, plan_path, updates, log, window, hooks, error);
+        if (watched < 0) {
             log.line(error.empty() ? "the game could not be started" : error);
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
@@ -1117,9 +1332,7 @@ int finish_windows_route(
         }
         drop_journal_files(updates);
         remove_stage(stage);
-        log.line("started the new version");
-        window.close();
-        return exit_swapped;
+        return watched;
     }
 
     fs::create_directories(install / previous_name, io);
@@ -1168,20 +1381,19 @@ int finish_windows_route(
         window.close();
         return exit_swapped;
     }
-    if (!elevated_swap &&
-        !start_detached(path_from(plan.program), plan.arguments, true, plan.from_version, &error)) {
-        log.line(error.empty() ? "the game could not be started" : error);
-        undo_or_log(updates, hooks, log);
-        remove_stage(stage);
-        return failed(could_not_check, exit_undone);
-    }
     if (!elevated_swap) {
+        const int watched = watch_new_version(plan, plan_path, updates, log, window, hooks, error);
+        if (watched < 0) {
+            log.line(error.empty() ? "the game could not be started" : error);
+            undo_or_log(updates, hooks, log);
+            remove_stage(stage);
+            return failed(could_not_check, exit_undone);
+        }
         drop_journal_files(updates);
         remove_stage(stage);
-        log.line("started the new version");
-    } else {
-        log.line("swapped the install");
+        return watched;
     }
+    log.line("swapped the install");
     window.close();
     return exit_swapped;
 #endif

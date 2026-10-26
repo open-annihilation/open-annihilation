@@ -2235,7 +2235,10 @@ int run_once(
     if (!runtime->soft_restart_requested()) {
         if (status == 0 && runtime->hand_off_requested())
             runtime->hand_off_update();
-        const int reported = runtime->report_update_handoff() ? status : 1;
+        else if (status == 0 && runtime->roll_back_requested())
+            runtime->hand_off_roll_back();
+        const int reported =
+            runtime->report_update_handoff() && runtime->report_roll_back_handoff() ? status : 1;
         if (checked_options)
             return game_files_status(*checked_options, reported);
         return check_mod_switch && reported == 0 ? switch_memory.verdict() : reported;
@@ -2605,6 +2608,11 @@ int main(int argc, char** argv) {
         // named (cat host.oalaunch | open-annihilation).
         allow_piped_launch();
         Options parsed = parse_options(argc, argv, extension);
+        // macOS and Windows count an unconfirmed start before a mod, the
+        // game's files or SDL's video are touched. A helper that was started
+        // puts the kept version back, and this process leaves.
+        if (guard_unconfirmed_start(argc, argv, parsed) == 0)
+            return 0;
         // The Game files screen's check installs its scripted platform
         // before anything reads the hooks.
         if constexpr (self_checks_built)

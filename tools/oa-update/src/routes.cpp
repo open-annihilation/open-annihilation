@@ -7,6 +7,7 @@
 #include "oa/update_helper/route_windows.hpp"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
 namespace oa::update_helper {
@@ -92,6 +93,77 @@ folder_operations(const oa::app::update::Plan& plan, const fs::path& staged, std
         operation.to = install / child.filename();
         operations.push_back(std::move(operation));
     }
+    return operations;
+}
+
+bool preferences_name(const fs::path& path) {
+    return utf8_of(path.filename()) == "preferences.conf";
+}
+
+Operation rename_op(const fs::path& from, const fs::path& to) {
+    Operation operation;
+    operation.kind = Operation::Kind::rename;
+    operation.from = from;
+    operation.to = to;
+    return operation;
+}
+
+Operation remove_op(const fs::path& path) {
+    Operation operation;
+    operation.kind = Operation::Kind::remove_tree;
+    operation.path = path;
+    return operation;
+}
+
+bool entry_there(const fs::path& path) {
+    std::error_code io;
+    return fs::exists(fs::symlink_status(path, io)) && !io;
+}
+
+std::vector<Operation>
+folder_restore(const oa::app::update::State& state, const fs::path& install, std::string* why) {
+    const fs::path kept = path_from(state.kept_path);
+    std::error_code io;
+    if (!fs::is_directory(install, io) || io) {
+        set_why(why, "the install folder is missing");
+        return {};
+    }
+    if (!fs::is_directory(kept, io) || io) {
+        set_why(why, "the kept folder is missing");
+        return {};
+    }
+    std::vector<fs::path> kept_children;
+    if (!list_children(kept, kept_children, why))
+        return {};
+    std::vector<Operation> operations;
+    for (const fs::path& child : kept_children) {
+        if (preferences_name(child))
+            continue;
+        const fs::path destination = install / child.filename();
+        if (destination == kept)
+            continue;
+        // A file the new version added, and that the kept copy does not
+        // name, stays. Saves and the player's own files are not in this folder.
+        if (entry_there(destination))
+            operations.push_back(remove_op(destination));
+        operations.push_back(rename_op(child, destination));
+    }
+    return operations;
+}
+
+std::vector<Operation>
+macos_restore(const oa::app::update::State& state, const fs::path& install, std::string* why) {
+    const fs::path kept_path = path_from(state.kept_path);
+    const fs::path kept = ends_with_app(kept_path) ? kept_path : kept_path / install.filename();
+    std::error_code io;
+    if (!fs::is_directory(kept, io) || io || fs::is_symlink(fs::symlink_status(kept))) {
+        set_why(why, "the kept bundle is missing");
+        return {};
+    }
+    std::vector<Operation> operations;
+    if (entry_there(install))
+        operations.push_back(remove_op(install));
+    operations.push_back(rename_op(kept, install));
     return operations;
 }
 
@@ -252,6 +324,34 @@ plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::
         return linux_operations(plan, staged, why);
     if (plan.route == oa::app::update::Route::check_folder)
         return folder_operations(plan, staged, why);
+    set_why(why, "this route is not carried out");
+    return {};
+}
+
+std::vector<Operation> restore_operations(
+    const oa::app::update::State& state,
+    const fs::path& install,
+    std::string_view bad_version,
+    std::string* why
+) {
+    if (why != nullptr)
+        why->clear();
+    if (state.kept_version.empty()) {
+        set_why(why, "nothing is kept");
+        return {};
+    }
+    switch (state.kept_route) {
+    case oa::app::update::Route::check_folder:
+        return folder_restore(state, install, why);
+    case oa::app::update::Route::macos_bundle:
+        return macos_restore(state, install, why);
+    case oa::app::update::Route::windows_installer:
+        return windows_installer_restore(state, install, bad_version, why);
+    case oa::app::update::Route::windows_folder:
+        return windows_folder_restore(state, install, why);
+    case oa::app::update::Route::linux_versions:
+        return linux_restore_operations(state, install, why);
+    }
     set_why(why, "this route is not carried out");
     return {};
 }

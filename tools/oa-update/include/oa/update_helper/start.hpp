@@ -9,7 +9,29 @@
 #include <string_view>
 #include <vector>
 
+struct SDL_Process;
+
 namespace oa::update_helper {
+
+/// Starts a program and keeps the handle, so a watch can see it end.
+///
+/// The arguments are the ones given and, when `add_updated_from` is set,
+/// `--updated-from` and `from_version`. The caller destroys the handle with
+/// SDL_DestroyProcess. Destroying it does not kill the program.
+///
+/// @param program the program
+/// @param arguments its arguments
+/// @param add_updated_from true to add the flag
+/// @param from_version the version the flag names
+/// @param[out] error why it did not start; may be null
+/// @return the process, or null when it did not start
+[[nodiscard]] SDL_Process* start_process(
+    const std::filesystem::path& program,
+    const std::vector<std::string>& arguments,
+    bool add_updated_from,
+    std::string_view from_version,
+    std::string* error
+);
 
 /// Starts a program and does not wait for it.
 ///

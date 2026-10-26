@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <limits>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -87,7 +88,8 @@ update::State sample_state(const Scratch& scratch) {
 }
 
 bool same_plan(const update::Plan& left, const update::Plan& right) {
-    return left.plan == right.plan && left.action == right.action && left.route == right.route &&
+    return left.plan == right.plan && left.action == right.action &&
+           left.roll_back_reason == right.roll_back_reason && left.route == right.route &&
            left.wait_for == right.wait_for && left.install == right.install &&
            left.program == right.program && left.arguments == right.arguments &&
            left.from_version == right.from_version && left.feed == right.feed &&
@@ -103,6 +105,17 @@ void names() {
     OA_CHECK(update::parse_action("install") == update::Action::install);
     OA_CHECK(update::parse_action("roll-back") == update::Action::roll_back);
     OA_CHECK(!update::parse_action("undo"));
+    OA_CHECK(
+        std::string_view(update::roll_back_reason_name(update::RollBackReason::failed_starts)) ==
+        "failed-starts"
+    );
+    OA_CHECK(
+        std::string_view(update::roll_back_reason_name(update::RollBackReason::player)) == "player"
+    );
+    OA_CHECK(std::string_view(update::roll_back_reason_name(update::RollBackReason::none)).empty());
+    OA_CHECK(update::parse_roll_back_reason("failed-starts") == update::RollBackReason::failed_starts);
+    OA_CHECK(update::parse_roll_back_reason("player") == update::RollBackReason::player);
+    OA_CHECK(!update::parse_roll_back_reason("install"));
     OA_CHECK(std::string_view(update::route_name(update::Route::check_folder)) == "check-folder");
     OA_CHECK(std::string_view(update::route_name(update::Route::macos_bundle)) == "macos-bundle");
     OA_CHECK(
@@ -141,6 +154,7 @@ void round_trip() {
 
     update::Plan back = plan;
     back.action = update::Action::roll_back;
+    back.roll_back_reason = update::RollBackReason::failed_starts;
     back.route = update::Route::macos_bundle;
     back.installer = true;
     back.wait_for = 44;
@@ -149,6 +163,36 @@ void round_trip() {
     OA_CHECK(loaded_back.has_value());
     if (loaded_back)
         OA_CHECK(same_plan(*loaded_back, back));
+    OA_CHECK(back_text.find("\"roll_back_reason\":\"failed-starts\"") != std::string::npos);
+    OA_CHECK(back_text.find("\"action\"") < back_text.find("\"roll_back_reason\""));
+    OA_CHECK(text.find("roll_back_reason") == std::string::npos);
+
+    update::State cleared = sample_state(scratch);
+    update::confirm_state(cleared);
+    OA_CHECK(cleared.confirmed);
+    OA_CHECK(cleared.failed_starts == 0);
+    OA_CHECK(update::count_failed_start(cleared) == 1);
+    OA_CHECK(update::count_failed_start(cleared) == 2);
+    cleared.failed_starts = std::numeric_limits<int32_t>::max();
+    OA_CHECK(update::count_failed_start(cleared) == std::numeric_limits<int32_t>::max());
+    OA_CHECK(update::failed_starts_that_roll_back == 3);
+
+    update::State kept_none = sample_state(scratch);
+    kept_none.kept_version.clear();
+    kept_none.kept_path.clear();
+    kept_none.preferences_copy.clear();
+    kept_none.confirmed = true;
+    const std::string none_text = update::state_text(kept_none);
+    const std::optional<update::State> loaded_none =
+        update::read_state(bytes_of(none_text), &error);
+    OA_CHECK(loaded_none.has_value());
+    if (loaded_none) {
+        OA_CHECK(loaded_none->kept_version.empty());
+        OA_CHECK(loaded_none->kept_path.empty());
+        OA_CHECK(loaded_none->preferences_copy.empty());
+        OA_CHECK(loaded_none->confirmed);
+        OA_CHECK(loaded_none->installed_version == "0.0.2");
+    }
 }
 
 void ignores_an_unknown_member() {

@@ -855,6 +855,11 @@ install a release, the section also downloads it.
   CHECK NOW. Never makes no request, and CHECK NOW is not offered. It
   takes effect when you press OK. Cancel puts back the choice the dialog
   opened with.
+- **Previous version**, shown only while a version is kept, with
+  "{version} kept" and **ROLL BACK**. ROLL BACK asks once. OA restarts on
+  the kept version with the settings it had, and the version you leave is
+  not offered again until you choose it. The row is locked during a game,
+  as RESET is.
 
 The hint says OA looks for a newer Open Annihilation once a day when it
 starts, and never installs one until you say so.

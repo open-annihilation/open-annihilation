@@ -4,6 +4,7 @@
 // The macOS swap, decided from signatures a test fills in, and the
 // operations that follow. Nothing here signs a bundle or starts one.
 
+#include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/routes.hpp"
 
 #include "oa/app/update/plan.hpp"
@@ -223,6 +224,49 @@ void two_applications_are_refused() {
     OA_CHECK(why == "the staged package is not one application");
 }
 
+void restoring_moves_the_kept_bundle_back() {
+    const Scratch scratch("restore-bundle");
+    const fs::path install = scratch.path / "Open Annihilation.app";
+    const fs::path kept = scratch.path / "previous" / "Open Annihilation.app";
+    fs::create_directories(install / "Contents");
+    fs::create_directories(kept / "Contents");
+    std::ofstream(install / "Contents" / "Info.plist") << "new";
+    std::ofstream(kept / "Contents" / "Info.plist") << "old";
+    std::ofstream(scratch.path / "notes.txt") << "player";
+    update::State state;
+    state.installed_version = "0.8.7";
+    state.kept_version = "0.8.6";
+    state.kept_path = helper::utf8_of(scratch.path / "previous");
+    state.kept_route = update::Route::macos_bundle;
+    std::string why;
+    const std::vector<helper::Operation> operations =
+        helper::restore_operations(state, install, "0.8.7", &why);
+    OA_CHECK(why.empty());
+    const fs::path updates = scratch.path / "updates";
+    fs::create_directories(updates);
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(updates, operations, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    std::ifstream restored(install / "Contents" / "Info.plist");
+    std::string body;
+    std::getline(restored, body);
+    OA_CHECK(body == "old");
+    OA_CHECK(!fs::exists(kept));
+    std::ifstream notes(scratch.path / "notes.txt");
+    std::string note;
+    std::getline(notes, note);
+    OA_CHECK(note == "player");
+    OA_CHECK(helper::undo_journal(updates, helper::JournalHooks{}, &error));
+    std::ifstream put_back(install / "Contents" / "Info.plist");
+    std::getline(put_back, body);
+    OA_CHECK(body == "new");
+    std::ifstream kept_back(kept / "Contents" / "Info.plist");
+    std::getline(kept_back, body);
+    OA_CHECK(body == "old");
+}
+
 void a_missing_bundle_is_refused() {
     const Scratch scratch("missing");
     LaidOut laid = lay_out(scratch);
@@ -252,4 +296,5 @@ void test_macos_route() {
     a_missing_installer_is_refused();
     two_applications_are_refused();
     a_missing_bundle_is_refused();
+    restoring_moves_the_kept_bundle_back();
 }

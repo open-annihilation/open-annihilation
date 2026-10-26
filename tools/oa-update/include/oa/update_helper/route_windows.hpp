@@ -203,6 +203,72 @@ struct FolderPlan {
     const oa::app::update::Plan& plan, const std::filesystem::path& staged, std::string* why
 );
 
+/// Moves `<install>/previous` back over the install, leaving preferences.conf.
+///
+/// @param state the record; its kept path is the previous folder
+/// @param install the install folder
+/// @param[out] why why no operations were produced; may be null
+/// @return the operations
+[[nodiscard]] std::vector<Operation> windows_folder_restore(
+    const oa::app::update::State& state, const std::filesystem::path& install, std::string* why
+);
+
+/// Copies the kept installer files back and records the kept DisplayVersion.
+///
+/// The version step's program is `oa-display-version`. A test runs that step
+/// itself. The helper's own runner writes the uninstall key on Windows and
+/// succeeds without writing it elsewhere.
+///
+/// @param state the record; its kept path is `<updates>/previous`
+/// @param install the install folder
+/// @param bad_version the version the step's undo records
+/// @param[out] why why no operations were produced; may be null
+/// @return the operations
+[[nodiscard]] std::vector<Operation> windows_installer_restore(
+    const oa::app::update::State& state,
+    const std::filesystem::path& install,
+    std::string_view bad_version,
+    std::string* why
+);
+
+/// True when a Windows roll back has to run as the elevated copy.
+///
+/// Off Windows this is false. A folder that already accepts a file does not
+/// elevate, and neither does Windows 9x.
+///
+/// @param install the install folder
+/// @return true when the caller should relaunch with `--elevated-swap`
+[[nodiscard]] bool windows_roll_back_elevate(const std::filesystem::path& install);
+
+/// What relaunching the helper elevated did.
+struct ElevatedRelaunch {
+    bool ran{false};       ///< the elevated copy started
+    bool cancelled{false}; ///< the player refused the prompt
+    int code{1};           ///< its exit status when `ran` is set
+    std::string error;     ///< why it did not start; empty on success
+};
+
+/// Starts this helper again with `--elevated-swap` and the same plan.
+///
+/// The elevated copy restores and does not start the game. Off Windows the
+/// relaunch does not run.
+///
+/// @param plan_file the plan file
+/// @return how the relaunch ended
+[[nodiscard]] ElevatedRelaunch relaunch_elevated_plan(const std::filesystem::path& plan_file);
+
+/// Writes DisplayVersion when `program` is `oa-display-version`.
+///
+/// @param program the journal step's program
+/// @param arguments its arguments; the first is the version
+/// @param[out] error why it failed; may be null
+/// @return true when this was that program and the step can continue
+[[nodiscard]] bool apply_display_version(
+    const std::filesystem::path& program,
+    const std::vector<std::string>& arguments,
+    std::string* error
+);
+
 /// Puts kept program files back onto an install. `preferences.conf` is left.
 ///
 /// A file is copied over the one in the install. A directory is copied over

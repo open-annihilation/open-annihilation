@@ -3,9 +3,11 @@
 
 #include "oa/update_helper/run.hpp"
 
+#include "oa/app/update/offer.hpp"
 #include "oa/app/update/plan.hpp"
 #include "oa/app/update/route.hpp"
 #include "oa/platform/machine.hpp"
+#include "oa/platform/preferences.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/lock.hpp"
@@ -16,10 +18,17 @@
 #include "oa/update_helper/start.hpp"
 #include "oa/update_helper/unpack.hpp"
 #include "oa/update_helper/wait.hpp"
+#include "oa/update_helper/watch.hpp"
 #include "oa/update_helper/window.hpp"
 
+#include <SDL3/SDL.h>
+
+#include <exception>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -112,6 +121,295 @@ bool deck_session() {
            oa::platform::running_in_steam_game_mode();
 }
 
+bool carry_run(
+    void*,
+    const fs::path& program,
+    const std::vector<std::string>& arguments,
+    std::string* error
+) {
+    const std::string name = utf8_of(program.filename());
+    const std::string whole = utf8_of(program);
+    if (name == "oa-display-version" || whole == "oa-display-version") {
+        if (arguments.empty()) {
+            if (error != nullptr)
+                *error = "the kept version is missing";
+            return false;
+        }
+        return apply_display_version(program, arguments, error);
+    }
+    return run_and_wait(program, arguments, error);
+}
+
+bool file_there(const fs::path& path) {
+    std::error_code io;
+    return fs::exists(fs::symlink_status(path, io)) && !io;
+}
+
+void write_update_starts(const fs::path& install) {
+    std::ofstream out(install / "update-starts", std::ios::binary | std::ios::trunc);
+    if (out)
+        out << "0\n";
+}
+
+void remove_update_starts(const fs::path& install) {
+    std::error_code io;
+    fs::remove(install / "update-starts", io);
+}
+
+std::string read_bytes(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return {};
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+}
+
+/// The preferences bytes a roll back writes: the copy, plus the bad release
+/// skipped, when the copy is a preferences file. A copy that cannot be read
+/// is put back unchanged.
+std::string preferences_after_roll_back(
+    const fs::path& copy, int64_t bad_release, Log& log
+) {
+    const std::string raw = read_bytes(copy);
+    try {
+        oa::platform::preferences::Values values = oa::platform::preferences::load(copy);
+        update::write_skipped(values, bad_release);
+        const fs::path temporary = copy.parent_path() / "preferences-skipped.tmp";
+        oa::platform::preferences::save(temporary, values, oa::platform::preferences::SyncFolder::no);
+        const std::string skipped = read_bytes(temporary);
+        std::error_code io;
+        fs::remove(temporary, io);
+        if (skipped.empty()) {
+            log.line("the preferences copy could not be read");
+            return raw;
+        }
+        return skipped;
+    } catch (const std::exception& failure) {
+        log.line(std::string("the preferences copy could not be read: ") + failure.what());
+        return raw;
+    }
+}
+
+std::string going_back_title(std::string_view version) {
+    std::string title = "Going back to ";
+    title.append(version);
+    if (title.size() > update::max_window_line_bytes)
+        title.resize(update::max_window_line_bytes);
+    return title;
+}
+
+std::optional<update::State> load_state(const fs::path& updates, std::string& error) {
+    std::vector<uint8_t> bytes;
+    if (!read_capped(updates / "state.json", update::max_plan_bytes, bytes, error))
+        return std::nullopt;
+    return update::read_state(bytes, &error);
+}
+
+struct Started {
+    SDL_Process* process{};
+    int pid{};
+    bool ok{false};
+};
+
+Started start_version(
+    const update::Plan& plan,
+    const std::vector<std::string>& arguments,
+    bool add_updated_from,
+    std::string_view from_version,
+    std::string& error
+) {
+    Started started;
+    const bool bundle = plan.route == update::Route::macos_bundle;
+    const bool linux = plan.route == update::Route::linux_versions;
+    if (bundle) {
+#if defined(__APPLE__)
+        started.ok = start_macos_bundle(
+            path_from(plan.install), arguments, add_updated_from ? from_version : std::string_view{},
+            &error, &started.pid
+        );
+#else
+        error = "this route is not carried out";
+#endif
+        return started;
+    }
+    const fs::path program =
+        linux ? path_from(plan.install) / "open-annihilation" : path_from(plan.program);
+    started.process = start_process(program, arguments, add_updated_from && !linux, from_version, &error);
+    started.ok = started.process != nullptr;
+    return started;
+}
+
+void forget_started(Started& started) {
+    if (started.process != nullptr) {
+        SDL_DestroyProcess(started.process);
+        started.process = nullptr;
+    }
+    started.pid = 0;
+}
+
+} // namespace
+
+int restore_kept(
+    const update::Plan& plan,
+    const fs::path& updates,
+    const fs::path* plan_path,
+    Log& log,
+    ProgressWindow& window,
+    JournalHooks& hooks,
+    update::RollBackReason reason,
+    bool may_elevate,
+    bool start_game
+) {
+    std::string error;
+    const std::optional<update::State> state = load_state(updates, error);
+    if (!state) {
+        log.line(error.empty() ? "the kept version could not be read" : error);
+        start_old(plan, log, window, start_game);
+        return exit_refused;
+    }
+    const std::string bad_version = state->installed_version;
+    const int64_t bad_release = state->installed_release;
+    const std::string title = plan.action == update::Action::roll_back && !plan.title.empty()
+                                  ? plan.title
+                                  : going_back_title(state->kept_version);
+    const std::string line = plan.action == update::Action::roll_back ? plan.line : std::string{};
+    if (start_game)
+        window.show(title, line, 0, false);
+
+    const bool windows_route = state->kept_route == update::Route::windows_installer ||
+                               state->kept_route == update::Route::windows_folder;
+    if (may_elevate && windows_route && windows_roll_back_elevate(path_from(plan.install))) {
+        if (plan_path == nullptr) {
+            log.line("the install folder could not be written");
+            start_old(plan, log, window, start_game);
+            return exit_refused;
+        }
+        update::Plan again = plan;
+        again.action = update::Action::roll_back;
+        again.roll_back_reason = reason;
+        if (again.title.empty())
+            again.title = title;
+        const fs::path written = updates / "roll-back.json";
+        {
+            std::ofstream out(written, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                log.line("the roll-back plan could not be written");
+                start_old(plan, log, window, start_game);
+                return exit_refused;
+            }
+            out << update::plan_text(again);
+        }
+        const ElevatedRelaunch child = relaunch_elevated_plan(written);
+        std::error_code io;
+        fs::remove(written, io);
+        if (child.cancelled) {
+            log.line("the roll back was cancelled");
+            start_old(plan, log, window, start_game);
+            return exit_refused;
+        }
+        if (!child.ran || child.code != exit_swapped) {
+            log.line(child.error.empty() ? "the elevated roll back did not finish" : child.error);
+            start_old(plan, log, window, start_game);
+            return exit_undone;
+        }
+        if (!start_game) {
+            window.close();
+            return exit_swapped;
+        }
+        const char* const reason_name = update::roll_back_reason_name(reason);
+        std::vector<std::string> arguments = plan.arguments;
+        arguments.emplace_back("--rolled-back-from");
+        arguments.emplace_back(bad_version);
+        arguments.emplace_back("--roll-back-reason");
+        arguments.emplace_back(reason_name == nullptr ? "" : reason_name);
+        Started started = start_version(plan, arguments, false, {}, error);
+        forget_started(started);
+        if (!started.ok) {
+            log.line(error.empty() ? "the kept version could not be started" : error);
+            window.close();
+            return exit_refused;
+        }
+        log.line("started the kept version");
+        window.close();
+        return exit_swapped;
+    }
+
+    std::string why;
+    std::vector<Operation> operations =
+        restore_operations(*state, path_from(plan.install), bad_version, &why);
+    if (!why.empty()) {
+        log.line(why);
+        start_old(plan, log, window, start_game);
+        return exit_refused;
+    }
+
+    const fs::path preferences = path_from(plan.preferences);
+    const fs::path copy = path_from(state->preferences_copy);
+    if (file_there(copy)) {
+        const std::string bytes = preferences_after_roll_back(copy, bad_release, log);
+        if (file_there(preferences)) {
+            Operation remove;
+            remove.kind = Operation::Kind::remove_tree;
+            remove.path = preferences;
+            operations.push_back(std::move(remove));
+        }
+        Operation write;
+        write.kind = Operation::Kind::write_file;
+        write.path = preferences;
+        write.bytes = bytes;
+        operations.push_back(std::move(write));
+    } else {
+        log.line("the preferences copy is missing");
+    }
+
+    update::State restored;
+    restored.installed_version = state->kept_version;
+    restored.installed_release = 0;
+    restored.kept_route = state->kept_route;
+    restored.confirmed = true;
+    restored.failed_starts = 0;
+    Operation record;
+    record.kind = Operation::Kind::write_file;
+    record.path = updates / "state.json";
+    record.bytes = update::state_text(restored);
+    operations.push_back(std::move(record));
+
+    const JournalResult applied = apply_journal(updates, operations, hooks, &error);
+    if (applied != JournalResult::finished) {
+        log.line(error.empty() ? "a step failed" : error);
+        window.show(title, could_not_check, 0, true);
+        start_old(plan, log, window, start_game);
+        return exit_undone;
+    }
+    drop_journal(updates);
+    if (plan.route == update::Route::linux_versions)
+        remove_update_starts(path_from(plan.install));
+
+    if (!start_game) {
+        log.line("put the kept version back");
+        window.close();
+        return exit_swapped;
+    }
+
+    const char* const reason_name = update::roll_back_reason_name(reason);
+    std::vector<std::string> arguments = plan.arguments;
+    arguments.emplace_back("--rolled-back-from");
+    arguments.emplace_back(bad_version);
+    arguments.emplace_back("--roll-back-reason");
+    arguments.emplace_back(reason_name == nullptr ? "" : reason_name);
+    Started started = start_version(plan, arguments, false, {}, error);
+    forget_started(started);
+    if (!started.ok) {
+        log.line(error.empty() ? "the kept version could not be started" : error);
+        window.close();
+        return exit_refused;
+    }
+    log.line("started the kept version");
+    window.close();
+    return exit_swapped;
+}
+
+namespace {
+
 int carry_out(
     const update::Plan& plan,
     const fs::path& plan_path,
@@ -153,6 +451,7 @@ int carry_out(
     JournalHooks hooks;
     hooks.context = &note;
     hooks.note = note_line;
+    hooks.run = carry_run;
 
     const UpdatesGateResult pending = take_pending(updates);
     if (pending.gate == UpdatesGate::restart) {
@@ -182,10 +481,25 @@ int carry_out(
         return exit_undone;
     }
 
-    if (plan.action != update::Action::install) {
-        log.line("roll-back is not carried out");
-        start_old(plan, log, window, !elevated_swap);
-        return exit_refused;
+    if (plan.action == update::Action::roll_back) {
+        const bool windows_route = plan.route == update::Route::windows_installer ||
+                                   plan.route == update::Route::windows_folder;
+        if (elevated_swap && !windows_route) {
+            log.line("this route is not carried out");
+            window.close();
+            return exit_usage;
+        }
+        return restore_kept(
+            plan,
+            updates,
+            &plan_path,
+            log,
+            window,
+            hooks,
+            plan.roll_back_reason,
+            !elevated_swap,
+            !elevated_swap
+        );
     }
 #if !OA_SELF_CHECKS_BUILT
     if (plan.route == update::Route::check_folder || !keys.empty()) {
@@ -342,18 +656,27 @@ int carry_out(
     }
     window.show(plan.title, plan.line, oa::ui::kit::question_progress_whole, false);
 
-    if (bundle) {
-#if defined(__APPLE__)
-        const bool started =
-            start_macos_bundle(path_from(plan.install), plan.arguments, plan.from_version, &error);
-#else
-        error = "this route is not carried out";
-        const bool started = false;
-#endif
-        // The swap has already happened. A start that fails is logged and
-        // the kept bundle is left where it is: undoing it would put the old
-        // app back after the new one is already in its place.
-        if (!started) {
+    // The launcher counts an unconfirmed start. The file is written before the
+    // start, including a Deck or a staged update that this process does not run.
+    if (linux)
+        write_update_starts(path_from(plan.install));
+    if (linux && (stage_only || deck_session())) {
+        const std::string line = next_start_line(verified.version);
+        log.line(line);
+        window.show(plan.title, line, oa::ui::kit::question_progress_whole, true);
+        drop_journal(updates);
+        remove_stage(stage);
+        window.close();
+        return exit_swapped;
+    }
+
+    Started started = start_version(plan, plan.arguments, true, plan.from_version, error);
+    if (!started.ok) {
+        if (linux)
+            remove_update_starts(path_from(plan.install));
+        if (bundle) {
+            // The swap has already happened. Undoing it would put the old
+            // app back after the new one is already in its place.
             log.line("the new version could not be started; the kept bundle was left in place");
             if (!error.empty())
                 log.line(error);
@@ -362,37 +685,45 @@ int carry_out(
             window.close();
             return exit_refused;
         }
-    } else {
-        // The launcher adds --updated-from itself. On a Deck, and with
-        // --stage-only, the new version waits until the next start.
-        if (linux && (stage_only || deck_session())) {
-            const std::string line = next_start_line(verified.version);
-            log.line(line);
-            window.show(plan.title, line, oa::ui::kit::question_progress_whole, true);
-            drop_journal(updates);
-            remove_stage(stage);
-            window.close();
-            return exit_swapped;
-        }
-        const fs::path program =
-            linux ? path_from(plan.install) / "open-annihilation" : path_from(plan.program);
-        if (!start_detached(program, plan.arguments, !linux, plan.from_version, &error)) {
-            log.line(error.empty() ? "the game could not be started" : error);
-            std::string undo_error;
-            if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
-                log.line(undo_error);
-            remove_stage(stage);
-            window.show(plan.title, could_not_check, 0, true);
-            start_old(plan, log, window, !elevated_swap);
-            return exit_undone;
-        }
+        log.line(error.empty() ? "the game could not be started" : error);
+        std::string undo_error;
+        if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
+            log.line(undo_error);
+        remove_stage(stage);
+        window.show(plan.title, could_not_check, 0, true);
+        start_old(plan, log, window, !elevated_swap);
+        return exit_undone;
     }
 
     drop_journal(updates);
     remove_stage(stage);
     log.line("started the new version");
     window.close();
-    return exit_swapped;
+
+    struct Again {
+        const update::Plan* plan{};
+        std::string* error{};
+    };
+    Again again{&plan, &error};
+    const auto restart = [](void* context, SDL_Process** process, int* pid, std::string* failure) {
+        auto* held = static_cast<Again*>(context);
+        Started next =
+            start_version(*held->plan, held->plan->arguments, true, held->plan->from_version, *failure);
+        if (!next.ok)
+            return false;
+        *process = next.process;
+        *pid = next.pid;
+        return true;
+    };
+    const WatchTwo watched =
+        watch_two_starts(started.process, started.pid, updates / "state.json", restart, &again, &error);
+    if (watched == WatchTwo::confirmed)
+        return exit_swapped;
+    if (watched == WatchTwo::restart_failed && !error.empty())
+        log.line(error);
+    return restore_kept(
+        plan, updates, &plan_path, log, window, hooks, update::RollBackReason::failed_starts, true, true
+    );
 }
 
 } // namespace
@@ -448,6 +779,7 @@ int recover_updates(const fs::path& updates) {
     JournalHooks hooks;
     hooks.context = &note;
     hooks.note = note_line;
+    hooks.run = carry_run;
     if (!undo_journal(updates, hooks, &error)) {
         log.line(error.empty() ? "a previous update could not be undone" : error);
         return exit_undone;

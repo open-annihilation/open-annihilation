@@ -192,6 +192,7 @@ struct StartResult {
     std::mutex mutex;
     bool finished{false};
     bool started{false};
+    int pid{0};
     std::string failure;
 };
 
@@ -238,7 +239,8 @@ bool start_macos_bundle(
     const fs::path& bundle,
     const std::vector<std::string>& arguments,
     std::string_view from_version,
-    std::string* error
+    std::string* error,
+    int* pid
 ) {
     @autoreleasepool {
         if (bundle.empty()) {
@@ -259,15 +261,17 @@ bool start_macos_bundle(
             }
             [words addObject:word];
         }
-        const std::string from(from_version);
-        NSString* const flag = [NSString stringWithUTF8String:"--updated-from"];
-        NSString* const version = [NSString stringWithUTF8String:from.c_str()];
-        if (flag == nullptr || version == nullptr) {
-            set_why(error, "the new version could not be started");
-            return false;
+        if (!from_version.empty()) {
+            const std::string from(from_version);
+            NSString* const flag = [NSString stringWithUTF8String:"--updated-from"];
+            NSString* const version = [NSString stringWithUTF8String:from.c_str()];
+            if (flag == nullptr || version == nullptr) {
+                set_why(error, "the new version could not be started");
+                return false;
+            }
+            [words addObject:flag];
+            [words addObject:version];
         }
-        [words addObject:flag];
-        [words addObject:version];
 
         NSWorkspaceOpenConfiguration* const configuration =
             [NSWorkspaceOpenConfiguration configuration];
@@ -283,6 +287,8 @@ bool start_macos_bundle(
                    std::lock_guard<std::mutex> guard(result->mutex);
                    result->started =
                        application != nil && open_error == nil && application.processIdentifier > 0;
+                   if (result->started)
+                       result->pid = static_cast<int>(application.processIdentifier);
                    if (!result->started && open_error != nil &&
                        open_error.localizedDescription != nil)
                        result->failure = open_error.localizedDescription.UTF8String;
@@ -313,6 +319,8 @@ bool start_macos_bundle(
             );
             return false;
         }
+        if (pid != nullptr)
+            *pid = result->pid;
         return true;
     }
 }

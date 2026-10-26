@@ -1025,6 +1025,11 @@ int Runtime::run() {
             flush_preferences();
             return download_status;
         }
+        if (options_.check_update_roll_back) {
+            const int roll_back_status = check_update_roll_back();
+            flush_preferences();
+            return roll_back_status;
+        }
         if (options_.check_text_fit) {
             check_text_fit();
             flush_preferences();

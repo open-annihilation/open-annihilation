@@ -1395,6 +1395,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_update_check.cpp
   src/app/runtime_update_offer_check.cpp
   src/app/runtime_update_install_check.cpp
+  src/app/runtime_update_roll_back_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -2246,6 +2247,20 @@ if(OA_BUILD_PLATFORM)
           --work-dir "${oa_update_download_dir}")
         set_tests_properties(native-update-download PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
           WORKING_DIRECTORY "${oa_update_download_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      endif()
+      # Confirming a version, the roll-back prompt, ROLL BACK and the guard
+      # leaving a check's start uncounted. Each part has its own state file.
+      set(oa_update_roll_back_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-roll-back")
+      file(MAKE_DIRECTORY "${oa_update_roll_back_dir}")
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-update-roll-back COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_update_roll_back.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --work-dir "${oa_update_roll_back_dir}")
+        set_tests_properties(native-update-roll-back PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_update_roll_back_dir}"
           ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       endif()
       # One evicted archive's read is held. The window keeps drawing the iCloud
