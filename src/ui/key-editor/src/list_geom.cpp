@@ -32,9 +32,8 @@ std::string plain_where(std::string where, std::string_view held) {
 /// @param rows the category's rows
 /// @param title the category's title, when no row names a place
 /// @return the heading
-std::string group_heading(
-    const Editor& editor, const std::vector<const Row*>& rows, std::string_view title
-) {
+std::string
+group_heading(const Editor& editor, const std::vector<const Row*>& rows, std::string_view title) {
     const std::string held = show(editor.text(), words::aside_held);
     std::vector<std::string> lines;
     lines.reserve(rows.size());

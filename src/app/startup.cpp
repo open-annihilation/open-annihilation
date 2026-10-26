@@ -1786,7 +1786,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-registered-kit] [--check-kit-gallery] "
                      "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
                      "[--check-map-pack-lists] [--check-mod-map-settings] "
-                     "[--check-map-browser] [--check-key-editor] [--check-mutator-button] [--check-mutator-picker] "
+                     "[--check-map-browser] [--check-key-editor] [--check-mutator-button] "
+                     "[--check-mutator-picker] "
                      "[--check-brain-picker] "
                      "[--check-brain-seat-buttons] "
                      "[--check-brain-campaign] "
@@ -2106,9 +2107,8 @@ void write_startup_line(std::string_view text) {
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_key_editor ||
-        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
-        result.check_mutator_picker || result.check_brain_picker ||
+        result.check_key_editor || result.check_mutator_button || result.check_mutator_room ||
+        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
         result.check_brain_seat_buttons || result.check_brain_campaign ||
         result.check_mutator_prompts || result.check_map_pack_lists ||
         result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||

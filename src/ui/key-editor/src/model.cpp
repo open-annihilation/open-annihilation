@@ -413,7 +413,8 @@ std::string category_id(const keys::Bound& bound, const EditorInputs& inputs) {
         return "mod.categories";
     if (id.starts_with("gui."))
         return "mod.menus";
-    const std::string area = bound.entry != nullptr ? std::string(bound.entry->area) : std::string{};
+    const std::string area =
+        bound.entry != nullptr ? std::string(bound.entry->area) : std::string{};
     if (area == "developer")
         return inputs.developer_mode ? "developer" : std::string{};
     if (area == "megamap")
@@ -438,9 +439,8 @@ std::string category_id(const keys::Bound& bound, const EditorInputs& inputs) {
 /// @param held true when the action is held
 /// @param area_title the area's title, already looked up
 /// @return the line
-std::string where_text(
-    const TextHooks& hooks, uint32_t bits, bool held, const std::string& area_title
-) {
+std::string
+where_text(const TextHooks& hooks, uint32_t bits, bool held, const std::string& area_title) {
     std::string context;
     if ((bits & (1U << 4)) != 0)
         context = show(hooks, words::while_playing);
@@ -538,22 +538,16 @@ std::string explain_chord(
 ) {
     std::string text;
     if (chord.kind == keys::TriggerKind::character) {
-        text = fill(
-            show(hooks, words::letter_key), {{"key", utf8_of(chord.character)}}
-        );
+        text = fill(show(hooks, words::letter_key), {{"key", utf8_of(chord.character)}});
     } else if (chord.kind == keys::TriggerKind::place) {
         text = fill(
-            show(hooks, words::place_key),
-            {{"key", keys::display_text(chord, keyboard, platform)}}
+            show(hooks, words::place_key), {{"key", keys::display_text(chord, keyboard, platform)}}
         );
     } else if (chord.kind == keys::TriggerKind::mouse) {
-        text = fill(
-            show(hooks, words::mouse_button), {{"button", std::to_string(chord.button)}}
-        );
+        text = fill(show(hooks, words::mouse_button), {{"button", std::to_string(chord.button)}});
     } else {
         text = fill(
-            show(hooks, words::named_key),
-            {{"key", keys::display_text(chord, keyboard, platform)}}
+            show(hooks, words::named_key), {{"key", keys::display_text(chord, keyboard, platform)}}
         );
     }
     if (step == keys::Step::own) {
@@ -730,7 +724,9 @@ Listed list_bound(
     if (listed.category.empty())
         return listed;
     const TextHooks& hooks = inputs.text;
-    category_look(hooks, listed.category, inputs, listed.category_title, listed.tint, listed.letter);
+    category_look(
+        hooks, listed.category, inputs, listed.category_title, listed.tint, listed.letter
+    );
     listed.entry = bound.entry;
     const keys::GuiKey* made = gui_key(inputs.mod, bound.id);
     if (bound.entry != nullptr) {
@@ -743,7 +739,10 @@ Listed list_bound(
         listed.name = made->gadget.empty() ? bound.id : made->gadget;
         listed.description = made->help;
         listed.gadget = made->gadget;
-    } else if (bound.id.starts_with("select.category-") && bound.id.size() > std::string("select.category-").size()) {
+    } else if (
+        bound.id.starts_with("select.category-") &&
+        bound.id.size() > std::string("select.category-").size()
+    ) {
         listed.name = utf8_of(static_cast<char32_t>(bound.id.back() - 'a' + 'A'));
     } else {
         listed.name = bound.id;
@@ -824,7 +823,8 @@ Listed list_unknown(
         listed.chords.push_back(chord);
         listed.steps.push_back(keys::Step::own);
     }
-    listed.mark = row_mark(in_clash(clashes, binding.action), listed.chords.empty(), listed.changed, false);
+    listed.mark =
+        row_mark(in_clash(clashes, binding.action), listed.chords.empty(), listed.changed, false);
     listed.where = listed.category_title;
     return listed;
 }
@@ -858,7 +858,8 @@ std::vector<Listed> build_list(
     input.keyboard = &inputs.keyboard;
     const keys::Resolved resolved = keys::resolve(input);
     const std::vector<keys::Clash> clashes = keys::find_clashes(resolved, input);
-    oa::formats::oakeys::Helpers effective = has_chosen ? chosen.helpers : oa::formats::oakeys::Helpers{};
+    oa::formats::oakeys::Helpers effective =
+        has_chosen ? chosen.helpers : oa::formats::oakeys::Helpers{};
     if (helpers.toggle)
         effective.toggle = helpers.toggle;
     if (helpers.hold_to_confirm)
@@ -880,7 +881,9 @@ std::vector<Listed> build_list(
 /// @param listed the row
 /// @return the haystack
 std::string haystack_of(const Listed& listed) {
-    return folded(listed.name + " " + listed.description + " " + listed.id + " " + listed.category_title);
+    return folded(
+        listed.name + " " + listed.description + " " + listed.id + " " + listed.category_title
+    );
 }
 
 /// True when every word of the query occurs in the haystack.
@@ -894,9 +897,7 @@ bool matches(const Listed& listed, std::string_view query) {
     const std::string haystack = haystack_of(listed);
     std::string word;
     const std::string folded_query = folded(query);
-    const auto take = [&]() {
-        return word.empty() || haystack.find(word) != std::string::npos;
-    };
+    const auto take = [&]() { return word.empty() || haystack.find(word) != std::string::npos; };
     for (const char byte : folded_query) {
         if (byte == ' ') {
             if (!take())
@@ -1008,7 +1009,8 @@ bool erase_binding(keys::Layout& own, std::string_view id) {
 /// @param layout_id the layout the changes sit on
 /// @param helpers the draft's helpers
 /// @return the manifest, with no bindings yet
-oa::formats::oakeys::Manifest own_rest(std::string_view layout_id, const oa::formats::oakeys::Helpers& helpers) {
+oa::formats::oakeys::Manifest
+own_rest(std::string_view layout_id, const oa::formats::oakeys::Helpers& helpers) {
     oa::formats::oakeys::Manifest manifest;
     manifest.format = oa::formats::oakeys::format_version;
     manifest.id = std::string("own-") + std::string(layout_id);
@@ -1175,7 +1177,9 @@ void keep_unknowns(
 /// @param chord the chord
 /// @param keyboard the keyboard
 /// @return true when it cannot be removed
-bool fixed_escape(const Listed& listed, const keys::Chord& chord, const keys::KeyboardMap& keyboard) {
+bool fixed_escape(
+    const Listed& listed, const keys::Chord& chord, const keys::KeyboardMap& keyboard
+) {
     return listed.entry != nullptr && listed.entry->fixed &&
            keys::same_key(chord, escape_chord(), &keyboard);
 }
@@ -1295,7 +1299,8 @@ std::vector<CategoryEntry> Editor::categories() const {
     return out;
 }
 
-std::vector<Row> Editor::rows(std::string_view category, Filter filter, std::string_view query) const {
+std::vector<Row>
+Editor::rows(std::string_view category, Filter filter, std::string_view query) const {
     if (category.starts_with("heading."))
         return {};
     const std::vector<Listed> listed =
@@ -1359,8 +1364,9 @@ Details Editor::details(std::string_view id) const {
         chord.step = index < row->steps.size() ? row->steps[index] : keys::Step::base;
         chord.fixed = fixed_escape(*row, chord.chord, inputs_.keyboard);
         chord.removable = !row->read_only && !chord.fixed;
-        chord.explanation =
-            explain_chord(inputs_.text, chord.chord, inputs_.keyboard, inputs_.platform, chord.step);
+        chord.explanation = explain_chord(
+            inputs_.text, chord.chord, inputs_.keyboard, inputs_.platform, chord.step
+        );
         shown.chords.push_back(std::move(chord));
     }
     return shown;

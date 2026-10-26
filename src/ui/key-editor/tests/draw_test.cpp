@@ -63,13 +63,13 @@ constexpr kit::Colour untouched{0x12, 0x34, 0x56};
 
 /// One picture.
 struct Scene {
-    const char* name{};       ///< the file's name after "key-editor-"
-    int32_t width{};          ///< the canvas width, in pixels
-    int32_t height{};         ///< the canvas height, in pixels
-    int32_t scale_percent{};  ///< the scale, as a percentage
-    kit::Point window{};      ///< the dialog, in points
-    bool details{false};      ///< Compact's details page
-    bool in_match{false};     ///< the header says the game is paused
+    const char* name{};      ///< the file's name after "key-editor-"
+    int32_t width{};         ///< the canvas width, in pixels
+    int32_t height{};        ///< the canvas height, in pixels
+    int32_t scale_percent{}; ///< the scale, as a percentage
+    kit::Point window{};     ///< the dialog, in points
+    bool details{false};     ///< Compact's details page
+    bool in_match{false};    ///< the header says the game is paused
 };
 
 /// A drawing of a scene.
@@ -237,10 +237,10 @@ bool write_canvas(const Drawing& drawing, const std::filesystem::path& path) {
 
 /// One stored line of the frames table.
 struct TableLine {
-    std::string text{};  ///< the line, without its newline
-    bool scene{false};   ///< a group/scene hash
-    std::string name{};  ///< group/scene, when scene
-    std::string hex{};   ///< the hash, when scene
+    std::string text{}; ///< the line, without its newline
+    bool scene{false};  ///< a group/scene hash
+    std::string name{}; ///< group/scene, when scene
+    std::string hex{};  ///< the hash, when scene
 };
 
 /// Reads the frames table. A missing file is an empty table and a failed check.
@@ -268,14 +268,18 @@ std::vector<TableLine> read_table(const std::filesystem::path& path) {
             continue;
         }
         const std::size_t space = text.find(' ');
-        const bool one_space = space != std::string::npos && text.find(' ', space + 1) == std::string::npos;
+        const bool one_space =
+            space != std::string::npos && text.find(' ', space + 1) == std::string::npos;
         if (one_space) {
             line.name = text.substr(0, space);
             line.hex = text.substr(space + 1);
-            line.scene = !line.name.empty() && line.name.find('/') != std::string::npos && hex_digits(line.hex);
+            line.scene = !line.name.empty() && line.name.find('/') != std::string::npos &&
+                         hex_digits(line.hex);
         }
         if (!line.scene) {
-            std::fprintf(stderr, "draw: %s:%zu is not a scene line\n", path.string().c_str(), number);
+            std::fprintf(
+                stderr, "draw: %s:%zu is not a scene line\n", path.string().c_str(), number
+            );
             OA_CHECK(false);
         }
         lines.push_back(std::move(line));
@@ -377,7 +381,8 @@ int main(int argc, char** argv) {
         check_dialog(scene, first);
         digests.emplace_back(scene.name, digest_of(first.surface));
         if (frames) {
-            const std::filesystem::path path = *frames / (std::string("key-editor-") + scene.name + ".png");
+            const std::filesystem::path path =
+                *frames / (std::string("key-editor-") + scene.name + ".png");
             const bool written = write_canvas(first, path);
             if (!written)
                 std::fprintf(stderr, "draw: cannot write %s\n", path.string().c_str());
@@ -397,7 +402,9 @@ int main(int argc, char** argv) {
         }
         if (found == nullptr) {
             if (!record) {
-                std::fprintf(stderr, "draw: %s is missing from %s\n", name.c_str(), table.string().c_str());
+                std::fprintf(
+                    stderr, "draw: %s is missing from %s\n", name.c_str(), table.string().c_str()
+                );
                 OA_CHECK(false);
             }
             continue;

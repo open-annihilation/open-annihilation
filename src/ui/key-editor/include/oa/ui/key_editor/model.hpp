@@ -23,23 +23,24 @@ namespace kit = oa::ui::kit;
 
 /// One installed layout the editor can switch to, beside OA default.
 struct LayoutSummary {
-    std::string id{};                              ///< the layout's id
-    std::string name{};                            ///< the name players see
-    std::string author{};                          ///< who wrote it
-    std::string version{};                         ///< the version, as shown
-    oa::ui::key_bindings::Layout layout{};         ///< its bindings
-    oa::formats::oakeys::Helpers helpers{};        ///< the helpers it sets
+    std::string id{};                       ///< the layout's id
+    std::string name{};                     ///< the name players see
+    std::string author{};                   ///< who wrote it
+    std::string version{};                  ///< the version, as shown
+    oa::ui::key_bindings::Layout layout{};  ///< its bindings
+    oa::formats::oakeys::Helpers helpers{}; ///< the helpers it sets
 };
 
 /// Everything the editor is allowed to read. The draft starts as `own`.
 struct EditorInputs {
     oa::ui::key_bindings::Base base{oa::ui::key_bindings::Base::oa_default}; ///< the base
-    bool has_chosen{false};                   ///< a layout other than OA default is in use
-    LayoutSummary chosen{};                   ///< that layout, when has_chosen
-    oa::ui::key_bindings::ModData mod{};      ///< the played mod's letters
-    std::vector<std::string> hacks_on{};      ///< the hacks that are on
+    bool has_chosen{false};              ///< a layout other than OA default is in use
+    LayoutSummary chosen{};              ///< that layout, when has_chosen
+    oa::ui::key_bindings::ModData mod{}; ///< the played mod's letters
+    std::vector<std::string> hacks_on{}; ///< the hacks that are on
     oa::ui::key_bindings::PointerScheme scheme{
-        oa::ui::key_bindings::PointerScheme::right_click}; ///< the pointer scheme
+        oa::ui::key_bindings::PointerScheme::right_click
+    }; ///< the pointer scheme
     oa::ui::key_bindings::KeyboardMap keyboard{oa::ui::key_bindings::KeyboardMap::us()}; ///< keys
     oa::ui::key_bindings::Platform platform{}; ///< which key Primary means
     oa::ui::key_bindings::Layout own{};        ///< the player's own changes, the draft's start
@@ -63,24 +64,24 @@ enum class Filter : uint8_t {
 
 /// One category in the nav or the drop-down.
 struct CategoryEntry {
-    std::string id{};            ///< the category; a heading's starts with "heading."
-    std::string title{};         ///< the words, already looked up
+    std::string id{};                      ///< the category; a heading's starts with "heading."
+    std::string title{};                   ///< the words, already looked up
     kit::KeyTint tint{kit::KeyTint::none}; ///< the tint square; none where the kit has none
-    std::string letter{};        ///< the letter on the square; empty where this list has none
-    std::size_t count{0};        ///< the actions it holds, before a filter or a search
-    bool read_only{false};       ///< a heading, or actions this version does not know
+    std::string letter{};  ///< the letter on the square; empty where this list has none
+    std::size_t count{0};  ///< the actions it holds, before a filter or a search
+    bool read_only{false}; ///< a heading, or actions this version does not know
 };
 
 /// One action in the list.
 struct Row {
-    std::string id{};            ///< the action id
-    std::string name{};          ///< the name, already looked up
-    std::string aside{};         ///< the quiet aside, already looked up
-    std::string where{};         ///< the area and where it works, for a group heading
+    std::string id{};                      ///< the action id
+    std::string name{};                    ///< the name, already looked up
+    std::string aside{};                   ///< the quiet aside, already looked up
+    std::string where{};                   ///< the area and where it works, for a group heading
     kit::KeyMark mark{kit::KeyMark::none}; ///< clash, unbound, changed, fixed, or none
     std::vector<oa::ui::key_bindings::Chord> chords{}; ///< the chords in use, at most four
-    bool read_only{false};       ///< an action this version does not know
-    std::string category{};      ///< the category id the row belongs to
+    bool read_only{false};                             ///< an action this version does not know
+    std::string category{};                            ///< the category id the row belongs to
 };
 
 /// One chord in the details, and why it is bound.
@@ -88,29 +89,29 @@ struct ChordDetail {
     oa::ui::key_bindings::Chord chord{}; ///< the chord
     std::string explanation{};           ///< what it is, already looked up
     oa::ui::key_bindings::Step step{oa::ui::key_bindings::Step::base}; ///< which step bound it
-    bool fixed{false};                   ///< Escape's fixed chord: no remove
-    bool removable{true};                ///< a press on ✕ takes it off
+    bool fixed{false};    ///< Escape's fixed chord: no remove
+    bool removable{true}; ///< a press on ✕ takes it off
 };
 
 /// The chosen action's details.
 struct Details {
-    std::string id{};            ///< the action id; empty when none is chosen
-    std::string name{};          ///< the name, already looked up
-    std::string where{};         ///< the area and where it works
-    std::string kind{};          ///< how it fires
-    std::string base{};          ///< the base chords and where they come from
-    std::string description{};   ///< what it does
-    std::string works_with{};    ///< the conditions; empty when it names none
-    std::vector<ChordDetail> chords{}; ///< the chords in use
-    bool latch_offered{false};   ///< the action can latch
-    bool latch_on{false};        ///< Latch is on
-    bool confirm_offered{false}; ///< the action can require a hold
-    bool confirm_on{false};      ///< Hold to confirm is on
-    bool confirm_setting_off{false}; ///< Accessibility's hold is off: the line shows
-    std::string reset{};         ///< RESET TO <layout>, already looked up
-    bool read_only{false};       ///< nothing here can be changed
+    std::string id{};                      ///< the action id; empty when none is chosen
+    std::string name{};                    ///< the name, already looked up
+    std::string where{};                   ///< the area and where it works
+    std::string kind{};                    ///< how it fires
+    std::string base{};                    ///< the base chords and where they come from
+    std::string description{};             ///< what it does
+    std::string works_with{};              ///< the conditions; empty when it names none
+    std::vector<ChordDetail> chords{};     ///< the chords in use
+    bool latch_offered{false};             ///< the action can latch
+    bool latch_on{false};                  ///< Latch is on
+    bool confirm_offered{false};           ///< the action can require a hold
+    bool confirm_on{false};                ///< Hold to confirm is on
+    bool confirm_setting_off{false};       ///< Accessibility's hold is off: the line shows
+    std::string reset{};                   ///< RESET TO <layout>, already looked up
+    bool read_only{false};                 ///< nothing here can be changed
     kit::KeyTint tint{kit::KeyTint::none}; ///< the category tint
-    std::string letter{};        ///< the category letter
+    std::string letter{};                  ///< the category letter
 };
 
 /// How many actions each filter keeps, across every category.
@@ -165,7 +166,8 @@ class Editor {
     /// @param filter which rows to keep
     /// @param query the search; empty keeps every row the filter keeps
     /// @return the rows, in list order
-    [[nodiscard]] std::vector<Row> rows(std::string_view category, Filter filter, std::string_view query) const;
+    [[nodiscard]] std::vector<Row>
+    rows(std::string_view category, Filter filter, std::string_view query) const;
 
     /// The details of one action. Empty id and name when the list has no such action.
     ///
@@ -356,8 +358,19 @@ class Editor {
     std::vector<std::string> written_{}; ///< ids created or renamed, for result()
     Snapshot opened_{};
 
+    /// Resolves the base, the chosen layout, the mod's data and the draft.
+    ///
+    /// @return the bindings SAVE would put in use
     [[nodiscard]] oa::ui::key_bindings::Resolved resolved() const;
+
+    /// The resolution's inputs, pointing into this editor.
+    ///
+    /// @return the input; it lives no longer than the editor
     [[nodiscard]] oa::ui::key_bindings::ResolveInput resolve_input() const;
+
+    /// The chosen layout's helpers with the draft's latch and confirm lists over them.
+    ///
+    /// @return the helpers in use
     [[nodiscard]] oa::formats::oakeys::Helpers effective_helpers() const;
 };
 

@@ -189,7 +189,8 @@ const kit::ScrollBarLook* bar_look(const kit::DisplayList& list, const kit::Rect
 /// @param state the scroll
 /// @param list the display list
 /// @return the area; none while the details do not scroll
-std::optional<kit::ScrollArea> details_area(const ScreenState& state, const kit::DisplayList& list) {
+std::optional<kit::ScrollArea>
+details_area(const ScreenState& state, const kit::DisplayList& list) {
     const kit::Control* bar = kit::control_of(list, controls::details_bar);
     if (bar == nullptr || bar->rect.height <= 0)
         return std::nullopt;
@@ -245,7 +246,11 @@ void scroll_to(ScreenState& state, bool details, int32_t offset) {
 /// @param at the pointer
 /// @return true when the bar is held
 bool take_bar(
-    ScreenState& state, const Editor& editor, const kit::DisplayList& list, bool details, kit::Point at
+    ScreenState& state,
+    const Editor& editor,
+    const kit::DisplayList& list,
+    bool details,
+    kit::Point at
 ) {
     const std::optional<kit::ScrollArea> area =
         details ? details_area(state, list) : list_area(editor, state, list);
@@ -271,7 +276,9 @@ bool take_bar(
 /// @param list the display list
 /// @param at the pointer
 /// @return true when the offset moved
-bool move_bar(ScreenState& state, const Editor& editor, const kit::DisplayList& list, kit::Point at) {
+bool move_bar(
+    ScreenState& state, const Editor& editor, const kit::DisplayList& list, kit::Point at
+) {
     const bool details = state.bar == ScreenState::Bar::details;
     const std::optional<kit::ScrollArea> area =
         details ? details_area(state, list) : list_area(editor, state, list);
@@ -330,7 +337,9 @@ void focus_on(ScreenState& state, kit::ControlId id) {
 /// @param editor the slots
 /// @param list the display list
 /// @param slot the slot's place, from 0
-void reveal_slot(ScreenState& state, const Editor& editor, const kit::DisplayList& list, int32_t slot) {
+void reveal_slot(
+    ScreenState& state, const Editor& editor, const kit::DisplayList& list, int32_t slot
+) {
     const std::optional<kit::ScrollArea> area = list_area(editor, state, list);
     if (!area)
         return;
@@ -498,8 +507,11 @@ EditorResult choose_entry(Editor& editor, ScreenState& state, const MenuEntry& e
 /// @param list the display list
 /// @param id the item's control
 /// @return what the host is to do
-EditorResult choose_menu_id(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::ControlId id) {
-    const std::vector<MenuEntry> entries = menu_entries(editor, state.menu, state, compact_list(list));
+EditorResult choose_menu_id(
+    Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::ControlId id
+) {
+    const std::vector<MenuEntry> entries =
+        menu_entries(editor, state.menu, state, compact_list(list));
     const auto index = static_cast<std::size_t>(id - controls::menu_first);
     if (index >= entries.size())
         return {};
@@ -512,7 +524,9 @@ EditorResult choose_menu_id(Editor& editor, ScreenState& state, const kit::Displ
 /// @param editor which item is chosen
 /// @param list the display list
 /// @param menu which menu
-void toggle_menu(ScreenState& state, const Editor& editor, const kit::DisplayList& list, Menu menu) {
+void toggle_menu(
+    ScreenState& state, const Editor& editor, const kit::DisplayList& list, Menu menu
+) {
     if (state.menu == menu) {
         close_menu(state);
         return;
@@ -550,7 +564,8 @@ bool menu_opener(Menu menu, kit::ControlId id) {
 /// @param list the display list
 /// @param id the control
 /// @return what the host is to do
-EditorResult activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::ControlId id) {
+EditorResult
+activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::ControlId id) {
     if (menu_item(id))
         return choose_menu_id(editor, state, list, id);
     if (id == controls::layout_choice) {
@@ -565,8 +580,9 @@ EditorResult activate(Editor& editor, ScreenState& state, const kit::DisplayList
         toggle_menu(state, editor, list, Menu::more);
         return redrawn();
     }
-    if (id == controls::filter_all || id == controls::filter_changed || id == controls::filter_clashes ||
-        id == controls::filter_unbound || id == controls::filter_latchable) {
+    if (id == controls::filter_all || id == controls::filter_changed ||
+        id == controls::filter_clashes || id == controls::filter_unbound ||
+        id == controls::filter_latchable) {
         if (id == controls::filter_all)
             state.filter = Filter::all;
         else if (id == controls::filter_changed)
@@ -675,12 +691,14 @@ EditorResult open_details(ScreenState& state, const kit::DisplayList& list) {
 /// @param list the display list
 /// @param pressed the key
 /// @return what the host is to do
-EditorResult menu_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
+EditorResult
+menu_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
     if (pressed == kit::Key::escape) {
         close_menu(state);
         return redrawn();
     }
-    const std::vector<MenuEntry> entries = menu_entries(editor, state.menu, state, compact_list(list));
+    const std::vector<MenuEntry> entries =
+        menu_entries(editor, state.menu, state, compact_list(list));
     const std::vector<int32_t> places = choice_places(entries);
     if (places.empty())
         return {};
@@ -696,7 +714,11 @@ EditorResult menu_key(Editor& editor, ScreenState& state, const kit::DisplayList
     if (pressed == kit::Key::enter || pressed == kit::Key::space) {
         if (!found)
             return {};
-        return choose_entry(editor, state, entries[static_cast<std::size_t>(places[static_cast<std::size_t>(current)])]);
+        return choose_entry(
+            editor,
+            state,
+            entries[static_cast<std::size_t>(places[static_cast<std::size_t>(current)])]
+        );
     }
     int32_t next = found ? current : 0;
     if (pressed == kit::Key::home)
@@ -760,7 +782,11 @@ bool details_focused(const ScreenState& state) {
 /// @param notches the turn
 /// @return what the host is to do
 EditorResult turn_pane(
-    ScreenState& state, const Editor& editor, const kit::DisplayList& list, bool details, float notches
+    ScreenState& state,
+    const Editor& editor,
+    const kit::DisplayList& list,
+    bool details,
+    float notches
 ) {
     if (!std::isfinite(notches))
         return {};
@@ -817,13 +843,13 @@ EditorResult finger_pointer(
         return {};
     if (kind == PointerKind::move) {
         state.finger_at = at;
-        if (apart(at.x, state.finger_origin.x) > reach || apart(at.y, state.finger_origin.y) > reach)
+        if (apart(at.x, state.finger_origin.x) > reach ||
+            apart(at.y, state.finger_origin.y) > reach)
             state.finger_moved = true;
         if (!state.finger_moved)
             return {};
-        const std::optional<kit::ScrollArea> area = state.finger_in_details
-                                                         ? details_area(state, list)
-                                                         : list_area(editor, state, list);
+        const std::optional<kit::ScrollArea> area =
+            state.finger_in_details ? details_area(state, list) : list_area(editor, state, list);
         if (!area)
             return {};
         const int32_t next = std::clamp(
@@ -931,16 +957,17 @@ EditorResult editor_pointer(
     return activate(editor, state, list, released.control);
 }
 
-EditorResult editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
+EditorResult
+editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Key pressed) {
     if (state.menu != Menu::none)
         return menu_key(editor, state, list, pressed);
     if (pressed == kit::Key::escape)
         return escape_key(editor, state);
 
     const bool on_search = state.interaction.focused == controls::search;
-    if (on_search &&
-        (pressed == kit::Key::left || pressed == kit::Key::right || pressed == kit::Key::home ||
-         pressed == kit::Key::end || pressed == kit::Key::backspace || pressed == kit::Key::delete_forward)) {
+    if (on_search && (pressed == kit::Key::left || pressed == kit::Key::right ||
+                      pressed == kit::Key::home || pressed == kit::Key::end ||
+                      pressed == kit::Key::backspace || pressed == kit::Key::delete_forward)) {
         if (kit::edit_text(state.search, pressed)) {
             state.list_scroll = 0;
             return redrawn();
@@ -949,7 +976,8 @@ EditorResult editor_key(Editor& editor, ScreenState& state, const kit::DisplayLi
     }
     if (pressed == kit::Key::delete_forward && chord_remove(state.interaction.focused)) {
         editor.remove_chord(
-            state.selected, static_cast<std::size_t>(state.interaction.focused - controls::chord_first)
+            state.selected,
+            static_cast<std::size_t>(state.interaction.focused - controls::chord_first)
         );
         return redrawn();
     }
@@ -998,7 +1026,8 @@ EditorResult editor_key(Editor& editor, ScreenState& state, const kit::DisplayLi
     if (outcome.result == kit::KeyResult::scroll) {
         const bool details = details_focused(state);
         const int32_t page = rows_shown(editor, state, list);
-        const int32_t step = pressed == kit::Key::page_up || pressed == kit::Key::home ? -page : page;
+        const int32_t step =
+            pressed == kit::Key::page_up || pressed == kit::Key::home ? -page : page;
         if (pressed == kit::Key::home || pressed == kit::Key::end) {
             if (details) {
                 const std::optional<kit::ScrollArea> area = details_area(state, list);
@@ -1010,7 +1039,11 @@ EditorResult editor_key(Editor& editor, ScreenState& state, const kit::DisplayLi
             return redrawn();
         }
         return turn_pane(
-            state, editor, list, details, pressed == kit::Key::page_up ? static_cast<float>(-step) : static_cast<float>(step)
+            state,
+            editor,
+            list,
+            details,
+            pressed == kit::Key::page_up ? static_cast<float>(-step) : static_cast<float>(step)
         );
     }
     if (outcome.result == kit::KeyResult::cancel)
@@ -1018,8 +1051,9 @@ EditorResult editor_key(Editor& editor, ScreenState& state, const kit::DisplayLi
     return {};
 }
 
-EditorResult
-editor_text(Editor& editor, ScreenState& state, const kit::DisplayList& list, std::string_view utf8) {
+EditorResult editor_text(
+    Editor& editor, ScreenState& state, const kit::DisplayList& list, std::string_view utf8
+) {
     static_cast<void>(editor);
     static_cast<void>(list);
     if (state.interaction.focused != controls::search)
@@ -1043,8 +1077,9 @@ EditorResult editor_wheel(
     return turn_pane(state, editor, list, on_details && !on_list, notches);
 }
 
-EditorResult
-editor_command(Editor& editor, ScreenState& state, const kit::DisplayList& list, EditorCommand command) {
+EditorResult editor_command(
+    Editor& editor, ScreenState& state, const kit::DisplayList& list, EditorCommand command
+) {
     static_cast<void>(list);
     if (command == EditorCommand::find) {
         focus_on(state, controls::search);
@@ -1065,7 +1100,8 @@ editor_command(Editor& editor, ScreenState& state, const kit::DisplayList& list,
     return {};
 }
 
-EditorResult editor_stick(Editor& editor, ScreenState& state, const kit::DisplayList& list, float notches) {
+EditorResult
+editor_stick(Editor& editor, ScreenState& state, const kit::DisplayList& list, float notches) {
     return turn_pane(state, editor, list, details_focused(state), notches);
 }
 

@@ -70,9 +70,8 @@ std::vector<std::string> category_ids(const std::vector<editor::CategoryEntry>& 
 /// @param categories the categories
 /// @param id the category id
 /// @return the entry
-const editor::CategoryEntry* category_named(
-    const std::vector<editor::CategoryEntry>& categories, std::string_view id
-) {
+const editor::CategoryEntry*
+category_named(const std::vector<editor::CategoryEntry>& categories, std::string_view id) {
     for (const editor::CategoryEntry& entry : categories) {
         if (entry.id == id)
             return &entry;
@@ -98,7 +97,9 @@ const editor::Row* row_named(const std::vector<editor::Row>& rows, std::string_v
 /// @param chords the chords
 /// @param needles the chords that must be there
 /// @return true when each needle matches one chord
-bool contains_chords(const std::vector<keys::Chord>& chords, const std::vector<keys::Chord>& needles) {
+bool contains_chords(
+    const std::vector<keys::Chord>& chords, const std::vector<keys::Chord>& needles
+) {
     for (const keys::Chord& needle : needles) {
         bool found = false;
         for (const keys::Chord& chord : chords) {
@@ -183,9 +184,12 @@ void categories_and_letters() {
     };
     expect(ids == expected, "categories: " + joined_ids(ids));
     expect(
-        category_named(categories, "developer") == nullptr, "developer is listed while the mode is off"
+        category_named(categories, "developer") == nullptr,
+        "developer is listed while the mode is off"
     );
-    expect(category_named(categories, "unknown") == nullptr, "unknown is listed on a fresh fixture");
+    expect(
+        category_named(categories, "unknown") == nullptr, "unknown is listed on a fresh fixture"
+    );
 
     const editor::CategoryEntry* menus = category_named(categories, "menus");
     const editor::CategoryEntry* watching = category_named(categories, "watching");
@@ -254,7 +258,10 @@ void filters_and_search() {
         if (attack_chords.empty())
             attack_chords = "none";
     }
-    expect(attack != nullptr && !attack->chords.empty(), "Attack starts unbound (" + attack_chords + ")");
+    expect(
+        attack != nullptr && !attack->chords.empty(),
+        "Attack starts unbound (" + attack_chords + ")"
+    );
 
     expect(has_row(latchable, "order.queue-modifier"), "latchable omits order.queue-modifier");
     expect(model.counts().latchable == latchable.size(), "counts().latchable disagrees");
@@ -317,9 +324,12 @@ void fixed_escape_and_removed_chords() {
     const editor::Details screen = model.details("ui.screen-cancel");
     const std::size_t screen_escape = chord_index(screen, "Escape");
     expect(screen_escape < screen.chords.size(), "ui.screen-cancel has no Escape");
-    expect(!model.remove_chord("ui.screen-cancel", screen_escape), "ui.screen-cancel's Escape came off");
     expect(
-        has_chord(model.details("ui.screen-cancel").chords, "Escape"), "ui.screen-cancel lost Escape"
+        !model.remove_chord("ui.screen-cancel", screen_escape), "ui.screen-cancel's Escape came off"
+    );
+    expect(
+        has_chord(model.details("ui.screen-cancel").chords, "Escape"),
+        "ui.screen-cancel lost Escape"
     );
 
     const editor::Details settings = model.details("ui.settings");
@@ -332,7 +342,10 @@ void fixed_escape_and_removed_chords() {
         !has_chord(model.details("ui.settings").chords, "Primary+,"), "ui.settings kept Primary+,"
     );
     expect(model.reset_action("ui.settings"), "reset did not restore ui.settings");
-    expect(has_chord(model.details("ui.settings").chords, "Primary+,"), "ui.settings's chord did not return");
+    expect(
+        has_chord(model.details("ui.settings").chords, "Primary+,"),
+        "ui.settings's chord did not return"
+    );
 
     const editor::Details next = model.details("ui.screen-focus-next");
     const std::size_t tab = chord_index(next, "Tab");
@@ -411,7 +424,9 @@ void number_keys_swap() {
         page_after.push_back(chord.chord);
     expect(group_after != group_chords, "group.select-1 did not change");
     expect(page_after != page_chords, "build.page-1 did not change");
-    expect(contains_chords(group_after, page_chords), "group.select-1 did not gain the page chords");
+    expect(
+        contains_chords(group_after, page_chords), "group.select-1 did not gain the page chords"
+    );
     expect(contains_chords(page_after, group_chords), "build.page-1 did not gain the group chords");
     expect(model.number_keys(), "number keys stayed off");
     expect(model.changes() == changes, "number keys counted as an own change");
@@ -421,7 +436,10 @@ void number_keys_swap() {
 /// Choosing a layout keeps or clears the draft, and an unknown id does nothing.
 void choose_layouts() {
     editor::Editor unknown(editor_fixture());
-    expect(!unknown.choose_layout("not-a-layout", editor::KeepChanges::keep), "an unknown layout was chosen");
+    expect(
+        !unknown.choose_layout("not-a-layout", editor::KeepChanges::keep),
+        "an unknown layout was chosen"
+    );
     expect(unknown.layout_id() == "ridge-grid", "an unknown id changed the layout");
     expect(
         !unknown.choose_layout("ridge-grid", editor::KeepChanges::keep),
@@ -429,7 +447,9 @@ void choose_layouts() {
     );
 
     editor::Editor kept(editor_fixture());
-    expect(kept.choose_layout("oa-default", editor::KeepChanges::keep), "oa-default was not chosen");
+    expect(
+        kept.choose_layout("oa-default", editor::KeepChanges::keep), "oa-default was not chosen"
+    );
     expect(kept.layout_id() == "oa-default", "layout is not oa-default");
     expect(
         has_row(kept.rows("all", editor::Filter::changed, ""), "select.all"),
@@ -447,7 +467,9 @@ void choose_layouts() {
     plain.layout.base = keys::Base::oa_default;
     inputs.installed.push_back(std::move(plain));
     editor::Editor aside(std::move(inputs));
-    expect(aside.choose_layout("ridge-plain", editor::KeepChanges::aside), "ridge-plain was not chosen");
+    expect(
+        aside.choose_layout("ridge-plain", editor::KeepChanges::aside), "ridge-plain was not chosen"
+    );
     expect(aside.layout_id() == "ridge-plain", "aside did not choose ridge-plain");
     expect(
         !has_row(aside.rows("all", editor::Filter::changed, ""), "select.all"),
@@ -472,7 +494,8 @@ void duplicate_and_rename() {
     const editor::SaveResult saved = model.result();
     bool found = false;
     for (const auto& manifest : saved.layouts) {
-        if (manifest.id == "ridge-copy" && manifest.name == "Ridge copy" && manifest.author.name == "You")
+        if (manifest.id == "ridge-copy" && manifest.name == "Ridge copy" &&
+            manifest.author.name == "You")
             found = true;
     }
     expect(found, "result().layouts has no Ridge copy");
@@ -517,9 +540,14 @@ void chosen_home_clash() {
     expect(move_home < move.chords.size(), "order.move has no Home");
     expect(centre_home < centre.chords.size(), "camera.centre has no Home");
     if (move_home < move.chords.size())
-        expect(move.chords[move_home].step == keys::Step::layout, "order.move's Home is not the layout");
+        expect(
+            move.chords[move_home].step == keys::Step::layout, "order.move's Home is not the layout"
+        );
     if (centre_home < centre.chords.size())
-        expect(centre.chords[centre_home].step == keys::Step::base, "camera.centre's Home is not the base");
+        expect(
+            centre.chords[centre_home].step == keys::Step::base,
+            "camera.centre's Home is not the base"
+        );
     expect(model.result().manifest.bindings.empty(), "own stole a Home binding");
 
     const std::vector<editor::Row> clashing = model.rows("all", editor::Filter::clashes, "");
@@ -540,7 +568,10 @@ void chosen_home_clash() {
     }
     expect(model.clashes() == 1, "Home is not one clashing pair");
     expect(model.counts().clashes == 2, "the clash does not count both actions");
-    expect(has_row(clashing, "order.move") && has_row(clashing, "camera.centre"), "the clash rows differ");
+    expect(
+        has_row(clashing, "order.move") && has_row(clashing, "camera.centre"),
+        "the clash rows differ"
+    );
     expect(model.draft_clashes() == 0, "the draft takes part in the Home clash");
     expect(model.can_save(), "a chosen layout's clash blocks SAVE");
 }
@@ -640,8 +671,12 @@ void unknown_binding() {
 /// Developer keys appear only while developer mode is on.
 void developer_category() {
     const editor::Editor off(editor_fixture());
-    expect(off.rows("developer", editor::Filter::all, "").empty(), "developer rows exist while off");
-    expect(category_named(off.categories(), "developer") == nullptr, "developer is listed while off");
+    expect(
+        off.rows("developer", editor::Filter::all, "").empty(), "developer rows exist while off"
+    );
+    expect(
+        category_named(off.categories(), "developer") == nullptr, "developer is listed while off"
+    );
 
     editor::EditorInputs inputs = editor_fixture();
     inputs.developer_mode = true;
@@ -650,7 +685,8 @@ void developer_category() {
     const editor::CategoryEntry* developer = category_named(on_categories, "developer");
     expect(developer != nullptr, "developer is missing while on");
     expect(
-        developer != nullptr && developer->count == on.rows("developer", editor::Filter::all, "").size(),
+        developer != nullptr &&
+            developer->count == on.rows("developer", editor::Filter::all, "").size(),
         "developer count disagrees with its rows"
     );
 }
