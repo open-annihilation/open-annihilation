@@ -1891,32 +1891,23 @@ bool letter_choice(const Editor& editor, const keys::Chord& chord) {
     return keys::on_keyboard(trial, editor.keyboard());
 }
 
-/// The chords an action would show after one chord is dropped.
+/// The chords an action would keep after one chord is dropped. A character's
+/// position and Primary's physical key are ignored, as a clash ignores them.
 ///
 /// @param editor the keyboard
 /// @param id the action
 /// @param drop the chord
-/// @return the remaining chords, or "nothing: unbound"
-std::string chords_without(const Editor& editor, std::string_view id, const keys::Chord& drop) {
+/// @return the chords that would remain
+std::vector<keys::Chord>
+chords_kept(const Editor& editor, std::string_view id, const keys::Chord& drop) {
+    std::vector<keys::Chord> kept;
     const Details shown = editor.details(id);
-    const keys::KeyboardMap& board = editor.keyboard();
-    std::string left_with;
     for (const ChordDetail& one : shown.chords) {
-        bool same = keys::same_key(one.chord, drop, &board);
-        if (!same) {
-            const std::optional<keys::Chord> paired = paired_chord(drop, editor.platform());
-            if (paired)
-                same = keys::same_key(one.chord, *paired, &board);
-        }
-        if (same)
+        if (chords_match(one.chord, drop, editor.keyboard(), editor.platform()))
             continue;
-        if (!left_with.empty())
-            left_with += " · ";
-        left_with += keys::display_text(one.chord, board, editor.platform());
+        kept.push_back(one.chord);
     }
-    if (left_with.empty())
-        return show(editor.text(), words::nothing_unbound);
-    return left_with;
+    return kept;
 }
 
 /// One button of a prompt.
@@ -1928,7 +1919,10 @@ struct PromptButton {
     bool enabled{true};                 ///< a press reaches it
 };
 
-/// The capture prompt or the clash question. The list is not laid out.
+/// The capture prompt or the clash question, the size of its parts.
+///
+/// The box is centred over the editor. The caller lays the editor under it
+/// and dims that editor; this list is only the prompt.
 ///
 /// @param editor the editor
 /// @param state the prompt
@@ -1941,14 +1935,20 @@ kit::DisplayList prompt_layout(
     kit::DisplayList list;
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
     const Window window = window_of(frame);
-    add_item(list, kit::Role::fill, {0, 0, window.width, window.height}).colour =
-        kit::colour::panel;
-
-    const int32_t column_w =
-        std::min(int32_t{520}, std::max(window.width - metrics.padding * 2, int32_t{0}));
-    const int32_t column_x = std::max((window.width - column_w) / 2, int32_t{0});
-    const int32_t stop = window.footer_rule - metrics.paragraph_gap;
-    int32_t y = metrics.padding;
+    // Wide enough for the question at Large, and inset from the window at
+    // every class so the dimmed editor stays visible around it.
+    constexpr int32_t kPromptWide = 780;
+    constexpr int32_t kSectionGap = 12;
+    constexpr int32_t kWellHigh = 64;
+    constexpr int32_t kCapHigh = 42;
+    constexpr int32_t kLabelPrefer = 120;
+    const int32_t pad = metrics.padding;
+    const int32_t box_w = std::min(kPromptWide, std::max(window.width - pad * 2, int32_t{1}));
+    const int32_t column_x = pad;
+    const int32_t column_w = std::max(box_w - pad * 2, int32_t{1});
+    const int32_t content_stop =
+        std::max(window.height - pad - metrics.button_height - pad - kSectionGap, pad);
+    int32_t y = pad;
 
     auto text_at = [&](kit::Rect rect,
                        std::string words,
@@ -1958,6 +1958,8 @@ kit::DisplayList prompt_layout(
         if (rect.width <= 0 || rect.height <= 0 || words.empty())
             return;
         words = kit::cut_to_width(fonts, font, std::move(words), rect.width);
+        if (words.empty())
+            return;
         kit::Item item;
         item.role = kit::Role::text;
         item.rect = rect;
@@ -1967,28 +1969,27 @@ kit::DisplayList prompt_layout(
         item.align = align;
         list.items.push_back(std::move(item));
     };
-    auto wrapped = [&](int32_t at, std::string words, kit::FontRole font, kit::Colour ink) {
+    auto wrapped = [&](int32_t x,
+                       int32_t at,
+                       int32_t width,
+                       std::string words,
+                       kit::FontRole font,
+                       kit::Colour ink) -> int32_t {
         const int32_t line_h =
             font == kit::FontRole::regular ? metrics.regular_line : metrics.small_line;
-        if (column_w <= 0 || words.empty() || at >= stop)
+        if (width <= 0 || words.empty() || at >= content_stop)
             return 0;
         const auto measure = [&](std::string_view words_measured) {
             return kit::text_width(fonts, font, words_measured);
         };
         std::vector<std::string> lines =
-            kit::wrap(std::move(words), std::max(column_w, int32_t{1}), measure);
+            kit::wrap(std::move(words), std::max(width, int32_t{1}), measure);
         int32_t used = 0;
         for (std::string& line : lines) {
-            if (at + used + line_h > stop)
+            if (at + used + line_h > content_stop)
                 break;
-            text_at(
-                {column_x, at + used, column_w, line_h},
-                std::move(line),
-                font,
-                ink,
-                kit::Align::left
-            );
-            used += line_h + 2;
+            text_at({x, at + used, width, line_h}, std::move(line), font, ink, kit::Align::left);
+            used += line_h;
         }
         return used;
     };
@@ -2005,9 +2006,14 @@ kit::DisplayList prompt_layout(
         control.text = std::move(words);
         list.controls.push_back(std::move(control));
     };
-    auto row_of = [&](int32_t at, const std::vector<PromptButton>& buttons) {
-        if (buttons.empty() || column_w <= 0 || at + metrics.button_height > stop)
-            return;
+    // Returns the column where the first button was placed.
+    auto place_buttons = [&](int32_t x,
+                             int32_t row,
+                             int32_t room,
+                             const std::vector<PromptButton>& buttons,
+                             bool align_right) -> int32_t {
+        if (buttons.empty() || room <= 0)
+            return x + std::max(room, int32_t{0});
         const int32_t gap = metrics.button_gap;
         std::vector<int32_t> widths;
         widths.reserve(buttons.size());
@@ -2019,19 +2025,33 @@ kit::DisplayList prompt_layout(
         }
         if (buttons.size() > 1)
             total += gap * (static_cast<int32_t>(buttons.size()) - 1);
-        if (total > column_w) {
-            const int32_t gaps = gap * (static_cast<int32_t>(buttons.size()) - 1);
-            const int32_t each =
-                std::max((column_w - gaps) / static_cast<int32_t>(buttons.size()), int32_t{1});
-            for (int32_t& width : widths)
-                width = each;
+        int32_t shrinks = 0;
+        while (total > room && shrinks < 10000) {
+            ++shrinks;
+            std::size_t widest = 0;
+            for (std::size_t index = 1; index < widths.size(); ++index) {
+                if (widths[index] > widths[widest])
+                    widest = index;
+            }
+            if (widths[widest] <= 8)
+                break;
+            const int32_t cut = std::min(widths[widest] - 8, total - room);
+            widths[widest] -= cut;
+            total -= cut;
         }
-        int32_t cursor = column_x;
+        int32_t cursor = x;
+        if (align_right)
+            cursor = x + std::max(room - total, int32_t{0});
+        const int32_t first = cursor;
         for (std::size_t button_at = 0; button_at < buttons.size(); ++button_at) {
             const PromptButton& button = buttons[button_at];
-            const int32_t width =
-                std::min(widths[button_at], std::max(column_x + column_w - cursor, int32_t{0}));
-            const kit::Rect rect{cursor, at, width, metrics.button_height};
+            int32_t width = widths[button_at];
+            const int32_t room_left = x + room - cursor;
+            if (room_left <= 0)
+                break;
+            if (width > room_left)
+                width = room_left;
+            const kit::Rect rect{cursor, row, width, metrics.button_height};
             if (rect.width <= 0)
                 continue;
             kit::ButtonLook look;
@@ -2048,53 +2068,11 @@ kit::DisplayList prompt_layout(
                 list.tab_order.push_back(button.id);
             cursor += width + gap;
         }
+        return first;
     };
-    auto footer = [&](const std::vector<PromptButton>& buttons) {
-        if (buttons.empty())
-            return;
-        const int32_t gap = metrics.button_gap;
-        std::vector<int32_t> widths;
-        int32_t total = 0;
-        for (const PromptButton& button : buttons) {
-            widths.push_back(button_width(fonts, metrics, button.caption));
-            total += widths.back();
-        }
-        if (buttons.size() > 1)
-            total += gap * (static_cast<int32_t>(buttons.size()) - 1);
-        if (total > column_w && !buttons.empty()) {
-            const int32_t gaps =
-                gap * std::max(static_cast<int32_t>(buttons.size()) - 1, int32_t{0});
-            const int32_t each =
-                std::max((column_w - gaps) / static_cast<int32_t>(buttons.size()), int32_t{1});
-            for (int32_t& width : widths)
-                width = each;
-            total = each * static_cast<int32_t>(buttons.size()) + gaps;
-        }
-        int32_t cursor = column_x + column_w - std::min(total, column_w);
-        if (cursor < column_x)
-            cursor = column_x;
-        for (std::size_t button_at = 0; button_at < buttons.size(); ++button_at) {
-            const PromptButton& button = buttons[button_at];
-            int32_t width = widths[button_at];
-            if (cursor + width > column_x + column_w)
-                width = std::max(column_x + column_w - cursor, int32_t{0});
-            const kit::Rect rect{cursor, window.button_top, width, metrics.button_height};
-            if (rect.width <= 0 || rect.y + rect.height > window.height)
-                continue;
-            kit::ButtonLook look;
-            look.caption =
-                kit::cut_to_width(fonts, kit::FontRole::small, button.caption, rect.width);
-            look.style = button.accent ? kit::ButtonStyle::accent : kit::ButtonStyle::plain;
-            look.enabled = button.enabled;
-            look.hovered = hot(state, button.id);
-            look.held = held(state, button.id);
-            kit::add_button(list, rect, look, button.id, button.name);
-            if (!list.controls.empty() && !button.enabled)
-                list.controls.back().focusable = false;
-            else if (button.enabled)
-                list.tab_order.push_back(button.id);
-            cursor += width + gap;
-        }
+    auto gap_after = [&]() {
+        if (y + kSectionGap <= content_stop)
+            y += kSectionGap;
     };
 
     const Details bound = editor.details(state.capture.action);
@@ -2114,10 +2092,13 @@ kit::DisplayList prompt_layout(
         const Details other = editor.details(other_id);
         const std::string other_name = other.name.empty() ? other_id : other.name;
         std::string old_words;
-        if (state.capture.replacing && *state.capture.replacing < bound.chords.size())
-            old_words = keys::display_text(
-                bound.chords[*state.capture.replacing].chord, editor.keyboard(), editor.platform()
-            );
+        keys::Chord old_chord;
+        bool have_old = false;
+        if (state.capture.replacing && *state.capture.replacing < bound.chords.size()) {
+            old_chord = bound.chords[*state.capture.replacing].chord;
+            have_old = true;
+            old_words = keys::display_text(old_chord, editor.keyboard(), editor.platform());
+        }
         const std::string giving =
             state.capture.replacing
                 ? fill(
@@ -2133,6 +2114,12 @@ kit::DisplayList prompt_layout(
             show(editor.text(), words::already_does),
             {{"where", where}, {"chord", chord_words}, {"other", other_name}}
         );
+        std::string body = giving;
+        if (!already.empty()) {
+            if (!body.empty())
+                body += ' ';
+            body += already;
+        }
         const std::string afterwards =
             fill(show(editor.text(), words::after_replace), {{"action", other_name}});
         std::string spoken = taken;
@@ -2142,51 +2129,517 @@ kit::DisplayList prompt_layout(
             spoken += ' ';
             spoken += status.line;
         }
-        const int32_t title_y = y;
-        y += wrapped(y, taken, kit::FontRole::regular, kit::colour::text);
+
+        constexpr int32_t kMark = 14;
+        const int32_t mark_side = std::min(kMark, metrics.regular_line);
+        const int32_t mark_y = y + std::max((metrics.regular_line - mark_side) / 2, int32_t{0});
+        kit::KeycapLook danger;
+        danger.mark_only = true;
+        danger.mark = kit::KeyMark::clash;
+        kit::add_keycap(
+            list, {column_x, mark_y, mark_side, mark_side}, danger, kit::no_control, {}
+        );
+        const int32_t title_x = column_x + mark_side + metrics.button_gap;
+        const int32_t title_w = std::max(column_x + column_w - title_x, int32_t{1});
+        const int32_t title_top = y;
+        y += wrapped(title_x, y, title_w, taken, kit::FontRole::regular, kit::colour::text);
+        if (y < title_top + metrics.regular_line)
+            y = title_top + metrics.regular_line;
         area(
-            {column_x, title_y, column_w, std::max(y - title_y, metrics.regular_line)},
+            {column_x, title_top, column_w, y - title_top},
             controls::clash_title,
             name_clash,
-            spoken
+            std::move(spoken)
         );
-        y += metrics.paragraph_gap / 2;
-        y += wrapped(y, giving, kit::FontRole::small, kit::colour::text);
-        y += wrapped(y, already, kit::FontRole::small, kit::colour::text);
-        y += metrics.paragraph_gap / 2;
-        const int32_t half = std::max((column_w - metrics.button_gap) / 2, int32_t{1});
-        auto cells = [&](std::string left_cell, std::string right_cell) {
-            if (y + metrics.small_line > stop)
-                return;
-            text_at(
-                {column_x, y, half, metrics.small_line},
-                std::move(left_cell),
-                kit::FontRole::small,
-                kit::colour::text,
-                kit::Align::left
+        gap_after();
+        if (y < content_stop)
+            y += wrapped(
+                column_x, y, column_w, std::move(body), kit::FontRole::small, kit::colour::text
             );
-            text_at(
-                {column_x + half + metrics.button_gap, y, half, metrics.small_line},
-                std::move(right_cell),
-                kit::FontRole::small,
-                kit::colour::text,
-                kit::Align::left
+        gap_after();
+
+        const bool swapping = state.capture.replacing.has_value();
+        const int32_t rows = swapping ? 3 : 2;
+        const int32_t row_h = std::max(metrics.button_height, kit::keycap_height + 8);
+        const int32_t grid_gap = 1;
+        const int32_t table_h = grid_gap * (rows + 1) + row_h * rows;
+        if (y + table_h <= content_stop && column_w > grid_gap * 4) {
+            const kit::Rect table{column_x, y, column_w, table_h};
+            add_item(list, kit::Role::fill, table).colour = kit::colour::rule;
+            const int32_t borders = grid_gap * 4;
+            const int32_t col_w = std::max((column_w - borders) / 3, int32_t{1});
+            const keys::Chord taken_chord =
+                state.capture.chord ? *state.capture.chord : keys::Chord{};
+            const std::vector<keys::Chord> kept = chords_kept(editor, other_id, taken_chord);
+            auto cell_at = [&](int32_t row_at, int32_t column_at) -> kit::Rect {
+                int32_t cell_x = column_x + grid_gap;
+                const int32_t limit = column_x + column_w - grid_gap;
+                for (int32_t column = 0; column < column_at; ++column)
+                    cell_x += col_w + grid_gap;
+                int32_t cell_w = column_at + 1 == 3 ? limit - cell_x : col_w;
+                if (cell_w < 1)
+                    cell_w = 1;
+                if (cell_x + cell_w > limit)
+                    cell_w = std::max(limit - cell_x, int32_t{1});
+                const int32_t cell_y = y + grid_gap + row_at * (row_h + grid_gap);
+                return {cell_x, cell_y, cell_w, row_h};
+            };
+            auto fill_cell = [&](const kit::Rect& cell, kit::Colour ink) {
+                add_item(list, kit::Role::fill, cell).colour = ink;
+            };
+            auto words_in =
+                [&](const kit::Rect& cell, std::string words, kit::FontRole font, kit::Colour ink) {
+                    constexpr int32_t kInset = 8;
+                    const int32_t line_h =
+                        font == kit::FontRole::regular ? metrics.regular_line : metrics.small_line;
+                    const int32_t text_h = std::min(line_h, cell.height);
+                    const int32_t text_y =
+                        cell.y + std::max((cell.height - text_h) / 2, int32_t{0});
+                    const int32_t text_w = std::max(cell.width - kInset * 2, int32_t{1});
+                    text_at(
+                        {cell.x + kInset, text_y, text_w, text_h},
+                        std::move(words),
+                        font,
+                        ink,
+                        kit::Align::left
+                    );
+                };
+            auto chips_in = [&](const kit::Rect& cell, const std::vector<keys::Chord>& chords) {
+                constexpr int32_t kInset = 8;
+                int32_t chip_x = cell.x + kInset;
+                const int32_t limit = cell.x + cell.width - kInset;
+                const int32_t chip_h = kit::keycap_height;
+                const int32_t chip_y = cell.y + std::max((cell.height - chip_h) / 2, int32_t{0});
+                bool any = false;
+                for (const keys::Chord& chord : chords) {
+                    const kit::ChordChipLook chip = chip_of(editor, chord, kit::KeyMark::none);
+                    const int32_t natural =
+                        std::max(kit::chord_chip_width(fonts, chip), int32_t{1});
+                    if (any)
+                        chip_x += 4;
+                    if (chip_x >= limit)
+                        break;
+                    if (chip_x + natural > limit)
+                        break;
+                    kit::add_chord_chip(
+                        list, {chip_x, chip_y, natural, chip_h}, chip, kit::no_control, {}
+                    );
+                    chip_x += natural;
+                    any = true;
+                }
+            };
+
+            fill_cell(cell_at(0, 0), kit::colour::band);
+            fill_cell(cell_at(0, 1), kit::colour::band);
+            fill_cell(cell_at(0, 2), kit::colour::band);
+            words_in(cell_at(0, 1), action_name, kit::FontRole::small, kit::colour::hint);
+            words_in(cell_at(0, 2), other_name, kit::FontRole::small, kit::colour::hint);
+
+            fill_cell(cell_at(1, 0), kit::colour::list);
+            fill_cell(cell_at(1, 1), kit::colour::list);
+            fill_cell(cell_at(1, 2), kit::colour::list);
+            words_in(
+                cell_at(1, 0),
+                show(editor.text(), words::replace),
+                kit::FontRole::regular,
+                kit::colour::text
             );
-            y += metrics.small_line + 2;
-        };
-        cells(action_name, other_name);
-        const std::string remains = chords_without(
-            editor, other_id, state.capture.chord ? *state.capture.chord : keys::Chord{}
-        );
-        cells(show(editor.text(), words::replace), {});
-        cells(chord_words, remains);
-        if (state.capture.replacing) {
-            cells(show(editor.text(), words::swap), {});
-            cells(chord_words, old_words);
+            if (state.capture.chord)
+                chips_in(cell_at(1, 1), {*state.capture.chord});
+            if (kept.empty())
+                words_in(
+                    cell_at(1, 2),
+                    show(editor.text(), words::nothing_unbound),
+                    kit::FontRole::small,
+                    kit::colour::hint
+                );
+            else
+                chips_in(cell_at(1, 2), kept);
+
+            if (swapping) {
+                fill_cell(cell_at(2, 0), kit::colour::list);
+                fill_cell(cell_at(2, 1), kit::colour::list);
+                fill_cell(cell_at(2, 2), kit::colour::list);
+                words_in(
+                    cell_at(2, 0),
+                    show(editor.text(), words::swap),
+                    kit::FontRole::regular,
+                    kit::colour::text
+                );
+                if (state.capture.chord)
+                    chips_in(cell_at(2, 1), {*state.capture.chord});
+                if (have_old)
+                    chips_in(cell_at(2, 2), {old_chord});
+            }
+            y += table_h;
         }
-        y += metrics.paragraph_gap / 2;
-        y += wrapped(y, afterwards, kit::FontRole::small, kit::colour::hint);
+        gap_after();
+        if (y < content_stop)
+            y +=
+                wrapped(column_x, y, column_w, afterwards, kit::FontRole::small, kit::colour::hint);
+        gap_after();
+    } else {
+        const std::string title =
+            fill(show(editor.text(), words::press_keys), {{"action", action_name}});
+        std::string spoken = title;
+        if (!chord_words.empty()) {
+            spoken += ' ';
+            spoken += chord_words;
+        }
+        if (!status.line.empty()) {
+            spoken += ' ';
+            spoken += status.line;
+        }
+        const int32_t title_top = y;
+        y += wrapped(column_x, y, column_w, title, kit::FontRole::regular, kit::colour::text);
+        if (y < title_top + metrics.regular_line)
+            y = title_top + metrics.regular_line;
+        area(
+            {column_x, title_top, column_w, y - title_top},
+            controls::capture_title,
+            name_capture,
+            std::move(spoken)
+        );
+        gap_after();
+
+        int32_t well_h = kWellHigh;
+        if (y + well_h > content_stop)
+            well_h = std::max(content_stop - y, int32_t{0});
+        const kit::Rect well{column_x, y, column_w, well_h};
+        if (roomy(well)) {
+            kit::Colour edge = kit::colour::hint;
+            if (state.capture.state == CaptureState::complete)
+                edge = kit::colour::accent;
+            else if (state.capture.state == CaptureState::clash)
+                edge = kit::colour::danger;
+            else if (state.capture.state == CaptureState::refused)
+                edge = kit::colour::lock;
+            add_item(list, kit::Role::fill, well).colour = kit::colour::well;
+            kit::Control control;
+            control.id = controls::capture_well;
+            control.rect = well;
+            control.enabled = true;
+            control.focusable = false;
+            control.name = std::string(name_capture_well);
+            control.kind = kit::ControlKind::area;
+            control.text =
+                chord_words.empty() ? show(editor.text(), words::press_a_key) : chord_words;
+            list.controls.push_back(std::move(control));
+
+            keys::Chord shown;
+            bool have = false;
+            kit::KeyMark mark = kit::KeyMark::none;
+            if (state.capture.chord) {
+                shown = *state.capture.chord;
+                have = true;
+                if (state.capture.state == CaptureState::clash)
+                    mark = kit::KeyMark::clash;
+                else if (state.capture.state == CaptureState::refused)
+                    mark = kit::KeyMark::fixed;
+            } else if (state.capture.held_modifiers != 0) {
+                shown.kind = keys::TriggerKind::modifier_alone;
+                shown.modifiers = state.capture.held_modifiers;
+                have = true;
+            }
+            if (!have) {
+                const std::string waiting = show(editor.text(), words::press_a_key);
+                int32_t text_w = kit::text_width(fonts, kit::FontRole::small, waiting);
+                const int32_t room = std::max(well.width - 8, int32_t{1});
+                if (text_w > room)
+                    text_w = room;
+                const int32_t text_x = well.x + std::max((well.width - text_w) / 2, int32_t{0});
+                const int32_t text_y =
+                    well.y + std::max((well.height - metrics.small_line) / 2, int32_t{0});
+                text_at(
+                    {text_x, text_y, std::max(text_w, int32_t{1}), metrics.small_line},
+                    waiting,
+                    kit::FontRole::small,
+                    kit::colour::hint,
+                    kit::Align::centre
+                );
+            } else {
+                std::vector<std::string> caps;
+                std::string gesture;
+                if (shown.kind == keys::TriggerKind::mouse) {
+                    caps.push_back(mouse_cap(shown.button));
+                } else {
+                    const kit::ChordChipLook chip = chip_of(editor, shown, mark);
+                    caps = chip.keys;
+                    gesture = chip.gesture;
+                }
+                if (caps.empty() && gesture.empty() && !chord_words.empty())
+                    caps.push_back(chord_words);
+                int32_t cap_h = kCapHigh;
+                if (cap_h > well.height - 8)
+                    cap_h = well.height - 8;
+                if (cap_h < kit::keycap_height)
+                    cap_h = std::min(kit::keycap_height, well.height);
+                if (cap_h > 0 && !caps.empty()) {
+                    struct WellCap {
+                        std::string label;
+                        int32_t width{0};
+                        int32_t least{0};
+                        bool word{false};
+                        kit::KeyMark stamp{kit::KeyMark::none};
+                    };
+
+                    std::vector<WellCap> drawn;
+                    drawn.reserve(caps.size());
+                    for (std::size_t cap_at = 0; cap_at < caps.size(); ++cap_at) {
+                        WellCap one;
+                        one.label = caps[cap_at];
+                        one.word = one.label.size() > 1;
+                        one.stamp = cap_at + 1 == caps.size() ? mark : kit::KeyMark::none;
+                        kit::KeycapLook measure;
+                        measure.label = one.label;
+                        measure.modifier = one.word;
+                        one.least = std::max(kit::keycap_width(fonts, measure), int32_t{1});
+                        one.width = one.least;
+                        if (!one.word)
+                            one.width = std::max(one.width, cap_h);
+                        else
+                            one.width = std::max(one.width, cap_h * 66 / 42);
+                        drawn.push_back(std::move(one));
+                    }
+                    const int32_t plus_w =
+                        std::max(kit::text_width(fonts, kit::FontRole::regular, "+"), int32_t{1});
+                    const int32_t between = plus_w + 8;
+                    const int32_t gesture_w =
+                        gesture.empty() ? 0 : kit::text_width(fonts, kit::FontRole::small, gesture);
+                    auto group_width = [&]() {
+                        int32_t total = 0;
+                        for (const WellCap& one : drawn)
+                            total += one.width;
+                        if (drawn.size() > 1)
+                            total += between * (static_cast<int32_t>(drawn.size()) - 1);
+                        if (gesture_w > 0)
+                            total += 8 + gesture_w;
+                        return total;
+                    };
+                    const int32_t room = std::max(well.width - 8, int32_t{1});
+                    int32_t shrinks = 0;
+                    while (group_width() > room && shrinks < 10000) {
+                        ++shrinks;
+                        std::size_t widest = 0;
+                        for (std::size_t index = 1; index < drawn.size(); ++index) {
+                            if (drawn[index].width - drawn[index].least >
+                                drawn[widest].width - drawn[widest].least)
+                                widest = index;
+                        }
+                        if (drawn[widest].width <= drawn[widest].least)
+                            break;
+                        --drawn[widest].width;
+                    }
+                    int32_t total = group_width();
+                    if (total > room)
+                        total = room;
+                    int32_t cursor = well.x + std::max((well.width - total) / 2, int32_t{0});
+                    const int32_t cap_y = well.y + std::max((well.height - cap_h) / 2, int32_t{0});
+                    const int32_t limit = well.x + well.width - 4;
+                    for (std::size_t cap_at = 0; cap_at < drawn.size(); ++cap_at) {
+                        const WellCap& one = drawn[cap_at];
+                        if (cap_at > 0) {
+                            if (cursor + between > limit)
+                                break;
+                            const int32_t plus_x = cursor + (between - plus_w) / 2;
+                            text_at(
+                                {plus_x, cap_y, plus_w, cap_h},
+                                "+",
+                                kit::FontRole::regular,
+                                kit::colour::quiet,
+                                kit::Align::centre
+                            );
+                            cursor += between;
+                        }
+                        if (cursor >= limit)
+                            break;
+                        int32_t width = one.width;
+                        if (cursor + width > limit)
+                            width = limit - cursor;
+                        if (width < one.least)
+                            break;
+                        kit::KeycapLook cap;
+                        cap.label = one.label;
+                        cap.modifier = one.word;
+                        cap.mark = one.stamp;
+                        kit::add_keycap(
+                            list, {cursor, cap_y, width, cap_h}, cap, kit::no_control, {}
+                        );
+                        cursor += width;
+                    }
+                    if (gesture_w > 0 && cursor + 8 < limit) {
+                        cursor += 8;
+                        int32_t room_left = limit - cursor;
+                        if (room_left > 0) {
+                            text_at(
+                                {cursor, cap_y, room_left, cap_h},
+                                gesture,
+                                kit::FontRole::small,
+                                kit::colour::hint,
+                                kit::Align::left
+                            );
+                        }
+                    }
+                }
+            }
+            add_item(list, kit::Role::outline, well).colour = edge;
+            y += well.height;
+        }
+        gap_after();
+        if (y < content_stop) {
+            y += wrapped(
+                column_x,
+                y,
+                column_w,
+                show(editor.text(), words::hold_modifiers),
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+        }
+        gap_after();
+
+        const bool device =
+            state.capture.chord && (state.capture.chord->kind == keys::TriggerKind::mouse ||
+                                    state.capture.chord->kind == keys::TriggerKind::wheel ||
+                                    state.capture.chord->kind == keys::TriggerKind::modifier_alone);
+        const bool show_letter =
+            !state.capture.chord || letter_choice(editor, *state.capture.chord);
+        const bool show_starts = !state.capture.chord ||
+                                 (state.capture.chord->kind != keys::TriggerKind::wheel &&
+                                  state.capture.chord->kind != keys::TriggerKind::modifier_alone);
+        std::string key_word = "…";
+        if (state.capture.chord) {
+            char32_t character = state.capture.chord->character;
+            if (character == 0 && state.capture.chord->scancode != 0)
+                character = editor.keyboard().printed(state.capture.chord->scancode);
+            if (character >= U'a' && character <= U'z')
+                character = static_cast<char32_t>(character - U'a' + U'A');
+            if (character >= 32 && character < 127)
+                key_word = std::string(1, static_cast<char>(character));
+        }
+        const std::string means_label = show(editor.text(), words::means);
+        const std::string starts_label = show(editor.text(), words::starts_on);
+        int32_t label_column = std::max(
+            kit::text_width(fonts, kit::FontRole::small, means_label),
+            kit::text_width(fonts, kit::FontRole::small, starts_label)
+        );
+        if (kLabelPrefer >= label_column &&
+            kLabelPrefer + kSectionGap + metrics.button_width * 2 < column_w)
+            label_column = kLabelPrefer;
+        if (label_column + kSectionGap >= column_w)
+            label_column = std::max(column_w / 4, int32_t{1});
+        auto labelled = [&](const std::string& label, const std::vector<PromptButton>& buttons) {
+            if (buttons.empty() || y + metrics.button_height > content_stop)
+                return;
+            const int32_t strip_x = column_x + label_column + kSectionGap;
+            const int32_t strip_w = std::max(column_x + column_w - strip_x, int32_t{1});
+            text_at(
+                {column_x, y, label_column, metrics.button_height},
+                label,
+                kit::FontRole::small,
+                kit::colour::hint,
+                kit::Align::left
+            );
+            const kit::Rect strip{strip_x, y, strip_w, metrics.button_height};
+            add_item(list, kit::Role::fill, strip).colour = kit::colour::well;
+            place_buttons(strip.x, y, strip.width, buttons, false);
+            add_item(list, kit::Role::outline, strip).colour = kit::colour::control_border;
+            y += metrics.button_height;
+        };
+        if (!device && y + metrics.button_height <= content_stop) {
+            std::vector<PromptButton> means;
+            if (show_letter) {
+                PromptButton letter;
+                letter.id = controls::capture_letter;
+                letter.name = std::string(name_capture_letter);
+                letter.caption =
+                    fill(show(editor.text(), words::means_letter), {{"key", key_word}});
+                letter.accent = state.capture.means == oa::data::input_actions::By::letter;
+                means.push_back(std::move(letter));
+            }
+            PromptButton located;
+            located.id = controls::capture_place;
+            located.name = std::string(name_capture_place);
+            located.caption = fill(show(editor.text(), words::place_key), {{"key", key_word}});
+            located.accent =
+                state.capture.means != oa::data::input_actions::By::letter || !show_letter;
+            means.push_back(std::move(located));
+            labelled(means_label, means);
+            gap_after();
+        }
+        if (!show_letter && state.capture.chord && !device &&
+            y + metrics.small_line <= content_stop) {
+            text_at(
+                {column_x, y, column_w, metrics.small_line},
+                show(editor.text(), words::not_on_keyboard),
+                kit::FontRole::small,
+                kit::colour::lock,
+                kit::Align::left
+            );
+            y += metrics.small_line;
+            gap_after();
+        }
+        if (show_starts && y + metrics.button_height <= content_stop) {
+            auto gesture_button = [&](kit::ControlId id,
+                                      std::string_view name,
+                                      std::string_view word,
+                                      keys::Gesture which) {
+                PromptButton button;
+                button.id = id;
+                button.name = std::string(name);
+                button.caption = show(editor.text(), word);
+                button.accent = state.capture.starts == which;
+                return button;
+            };
+            labelled(
+                starts_label,
+                {gesture_button(
+                     controls::capture_press,
+                     name_capture_press,
+                     words::a_press,
+                     keys::Gesture::press
+                 ),
+                 gesture_button(
+                     controls::capture_double,
+                     name_capture_double,
+                     words::a_double_press,
+                     keys::Gesture::double_press
+                 ),
+                 gesture_button(
+                     controls::capture_hold, name_capture_hold, words::a_hold, keys::Gesture::hold
+                 )}
+            );
+            gap_after();
+        }
+        if (!status.line.empty() && y < content_stop) {
+            kit::Colour ink = kit::colour::accent;
+            if (state.capture.state == CaptureState::clash)
+                ink = kit::colour::danger;
+            else if (state.capture.state == CaptureState::refused)
+                ink = kit::colour::lock;
+            const int32_t status_top = y;
+            y += wrapped(column_x, y, column_w, status.line, kit::FontRole::small, ink);
+            area(
+                {column_x, status_top, column_w, std::max(y - status_top, metrics.small_line)},
+                controls::capture_status,
+                name_capture_status,
+                status.line
+            );
+        }
+        gap_after();
+    }
+
+    int32_t footer_y = y;
+    if (footer_y + metrics.button_height + pad > window.height)
+        footer_y = std::max(window.height - pad - metrics.button_height, int32_t{0});
+
+    if (state.prompt == Prompt::clash) {
         std::vector<PromptButton> buttons;
+        PromptButton cancel;
+        cancel.id = controls::clash_cancel;
+        cancel.name = std::string(name_clash_cancel);
+        cancel.caption = show(editor.text(), words::cancel);
+        buttons.push_back(std::move(cancel));
         PromptButton replace;
         replace.id = controls::clash_replace;
         replace.name = std::string(name_clash_replace);
@@ -2201,248 +2654,61 @@ kit::DisplayList prompt_layout(
             swap.accent = true;
             buttons.push_back(std::move(swap));
         }
+        place_buttons(column_x, footer_y, column_w, buttons, true);
+    } else {
+        const bool ok_on = status.ok_enabled;
+        std::vector<PromptButton> buttons;
         PromptButton cancel;
-        cancel.id = controls::clash_cancel;
-        cancel.name = std::string(name_clash_cancel);
+        cancel.id = controls::capture_cancel;
+        cancel.name = std::string(name_capture_cancel);
         cancel.caption = show(editor.text(), words::cancel);
         buttons.push_back(std::move(cancel));
-        footer(buttons);
-        return list;
-    }
-
-    const std::string title =
-        fill(show(editor.text(), words::press_keys), {{"action", action_name}});
-    std::string spoken = title;
-    if (!chord_words.empty()) {
-        spoken += ' ';
-        spoken += chord_words;
-    }
-    if (!status.line.empty()) {
-        spoken += ' ';
-        spoken += status.line;
-    }
-    const int32_t title_y = y;
-    y += wrapped(y, title, kit::FontRole::regular, kit::colour::text);
-    area(
-        {column_x, title_y, column_w, std::max(y - title_y, metrics.regular_line)},
-        controls::capture_title,
-        name_capture,
-        std::move(spoken)
-    );
-    y += metrics.paragraph_gap;
-
-    constexpr int32_t kWell = 64;
-    int32_t well_side = std::min(kWell, column_w);
-    if (y + well_side > stop)
-        well_side = std::max(stop - y, int32_t{0});
-    const kit::Rect well{
-        column_x + std::max((column_w - well_side) / 2, int32_t{0}), y, well_side, well_side
-    };
-    if (roomy(well)) {
-        kit::Colour edge = kit::colour::hint;
-        if (state.capture.state == CaptureState::complete)
-            edge = kit::colour::accent;
-        else if (state.capture.state == CaptureState::clash)
-            edge = kit::colour::danger;
-        else if (state.capture.state == CaptureState::refused)
-            edge = kit::colour::lock;
-        add_item(list, kit::Role::fill, well).colour = kit::colour::well;
-        add_item(list, kit::Role::outline, well).colour = edge;
-        kit::Control control;
-        control.id = controls::capture_well;
-        control.rect = well;
-        control.enabled = true;
-        control.focusable = false;
-        control.name = std::string(name_capture_well);
-        control.kind = kit::ControlKind::area;
-        control.text = chord_words.empty() ? show(editor.text(), words::press_a_key) : chord_words;
-        list.controls.push_back(std::move(control));
-
-        keys::Chord shown;
-        bool have = false;
-        kit::KeyMark mark = kit::KeyMark::none;
-        if (state.capture.chord) {
-            shown = *state.capture.chord;
-            have = true;
-            if (state.capture.state == CaptureState::clash)
-                mark = kit::KeyMark::clash;
-            else if (state.capture.state == CaptureState::refused)
-                mark = kit::KeyMark::fixed;
-        } else if (state.capture.held_modifiers != 0) {
-            shown.kind = keys::TriggerKind::modifier_alone;
-            shown.modifiers = state.capture.held_modifiers;
-            have = true;
-        }
-        if (!have) {
-            const std::string waiting = show(editor.text(), words::press_a_key);
-            const int32_t text_w =
-                std::min(kit::text_width(fonts, kit::FontRole::small, waiting), column_w);
-            const int32_t text_x = column_x + std::max((column_w - text_w) / 2, int32_t{0});
-            const int32_t text_y =
-                well.y + std::max((well.height - metrics.small_line) / 2, int32_t{0});
+        PromptButton ok;
+        ok.id = controls::capture_ok;
+        ok.name = std::string(name_capture_ok);
+        ok.caption = show(editor.text(), words::ok);
+        ok.accent = ok_on;
+        ok.enabled = ok_on;
+        buttons.push_back(std::move(ok));
+        const int32_t buttons_x = place_buttons(column_x, footer_y, column_w, buttons, true);
+        const int32_t hint_w = buttons_x - metrics.button_gap - column_x;
+        if (hint_w > 8) {
             text_at(
-                {text_x, text_y, std::max(text_w, int32_t{1}), metrics.small_line},
-                waiting,
+                {column_x, footer_y, hint_w, metrics.button_height},
+                show(editor.text(), words::escape_hint),
                 kit::FontRole::small,
                 kit::colour::hint,
-                kit::Align::centre
+                kit::Align::left
             );
-        } else {
-            kit::ChordChipLook chip;
-            if (shown.kind == keys::TriggerKind::mouse)
-                chip.keys.push_back(mouse_cap(shown.button));
-            else
-                chip = chip_of(editor, shown, mark);
-            chip.mark = mark;
-            int32_t chip_w = std::min(kit::chord_chip_width(fonts, chip), column_w);
-            if (chip_w < 1)
-                chip_w = 1;
-            const int32_t chip_h =
-                std::min(std::max(metrics.button_height, int32_t{16}), well.height);
-            int32_t chip_x = well.x + (well.width - chip_w) / 2;
-            if (chip_x < column_x)
-                chip_x = column_x;
-            if (chip_x + chip_w > column_x + column_w)
-                chip_x = std::max(column_x + column_w - chip_w, column_x);
-            const kit::Rect chip_rect{
-                chip_x, well.y + std::max((well.height - chip_h) / 2, int32_t{0}), chip_w, chip_h
-            };
-            kit::add_chord_chip(list, chip_rect, chip, kit::no_control, {});
         }
-        y += well.height + metrics.paragraph_gap;
     }
+    y = footer_y + metrics.button_height;
 
-    if (y < stop)
-        y += wrapped(
-            y, show(editor.text(), words::hold_modifiers), kit::FontRole::small, kit::colour::hint
-        );
-
-    const bool device =
-        state.capture.chord && (state.capture.chord->kind == keys::TriggerKind::mouse ||
-                                state.capture.chord->kind == keys::TriggerKind::wheel ||
-                                state.capture.chord->kind == keys::TriggerKind::modifier_alone);
-    const bool show_letter = !state.capture.chord || letter_choice(editor, *state.capture.chord);
-    const bool show_starts =
-        !state.capture.chord || (state.capture.chord->kind != keys::TriggerKind::wheel &&
-                                 state.capture.chord->kind != keys::TriggerKind::modifier_alone);
-    std::string key_word = "…";
-    if (state.capture.chord) {
-        char32_t character = state.capture.chord->character;
-        if (character == 0 && state.capture.chord->scancode != 0)
-            character = editor.keyboard().printed(state.capture.chord->scancode);
-        if (character >= U'a' && character <= U'z')
-            character = static_cast<char32_t>(character - U'a' + U'A');
-        if (character >= 32 && character < 127)
-            key_word = std::string(1, static_cast<char>(character));
+    int32_t box_h = y + pad;
+    if (box_h > window.height)
+        box_h = window.height;
+    if (box_h < 1)
+        box_h = 1;
+    kit::Item edge;
+    edge.role = kit::Role::bevel;
+    edge.rect = {0, 0, box_w, box_h};
+    edge.colour = kit::colour::edge_light;
+    kit::Item face;
+    face.role = kit::Role::fill;
+    face.rect = {0, 0, box_w, box_h};
+    face.colour = kit::colour::panel;
+    list.items.insert(list.items.begin(), std::move(edge));
+    list.items.insert(list.items.begin(), std::move(face));
+    const int32_t origin_x = std::max((window.width - box_w) / 2, int32_t{0});
+    const int32_t origin_y = std::max((window.height - box_h) / 2, int32_t{0});
+    for (kit::Item& item : list.items) {
+        item.rect.x += origin_x;
+        item.rect.y += origin_y;
     }
-    if (!device && y + metrics.small_line + metrics.button_height <= stop) {
-        text_at(
-            {column_x, y, column_w, metrics.small_line},
-            show(editor.text(), words::means),
-            kit::FontRole::small,
-            kit::colour::quiet,
-            kit::Align::left
-        );
-        y += metrics.small_line + 2;
-        std::vector<PromptButton> means;
-        if (show_letter) {
-            PromptButton letter;
-            letter.id = controls::capture_letter;
-            letter.name = std::string(name_capture_letter);
-            letter.caption = fill(show(editor.text(), words::means_letter), {{"key", key_word}});
-            letter.accent = state.capture.means == oa::data::input_actions::By::letter;
-            means.push_back(std::move(letter));
-        }
-        PromptButton place;
-        place.id = controls::capture_place;
-        place.name = std::string(name_capture_place);
-        place.caption = fill(show(editor.text(), words::place_key), {{"key", key_word}});
-        place.accent = state.capture.means != oa::data::input_actions::By::letter || !show_letter;
-        means.push_back(std::move(place));
-        row_of(y, means);
-        y += metrics.button_height + metrics.paragraph_gap / 2;
+    for (kit::Control& control : list.controls) {
+        control.rect.x += origin_x;
+        control.rect.y += origin_y;
     }
-    if (!show_letter && state.capture.chord && !device && y + metrics.small_line <= stop) {
-        text_at(
-            {column_x, y, column_w, metrics.small_line},
-            show(editor.text(), words::not_on_keyboard),
-            kit::FontRole::small,
-            kit::colour::lock,
-            kit::Align::left
-        );
-        y += metrics.small_line + 2;
-    }
-    if (show_starts && y + metrics.small_line + metrics.button_height <= stop) {
-        text_at(
-            {column_x, y, column_w, metrics.small_line},
-            show(editor.text(), words::starts_on),
-            kit::FontRole::small,
-            kit::colour::quiet,
-            kit::Align::left
-        );
-        y += metrics.small_line + 2;
-        auto gesture = [&](kit::ControlId id,
-                           std::string_view name,
-                           std::string_view word,
-                           keys::Gesture which) {
-            PromptButton button;
-            button.id = id;
-            button.name = std::string(name);
-            button.caption = show(editor.text(), word);
-            button.accent = state.capture.starts == which;
-            return button;
-        };
-        row_of(
-            y,
-            {gesture(
-                 controls::capture_press, name_capture_press, words::a_press, keys::Gesture::press
-             ),
-             gesture(
-                 controls::capture_double,
-                 name_capture_double,
-                 words::a_double_press,
-                 keys::Gesture::double_press
-             ),
-             gesture(controls::capture_hold, name_capture_hold, words::a_hold, keys::Gesture::hold)}
-        );
-        y += metrics.button_height + metrics.paragraph_gap;
-    }
-    if (!status.line.empty() && y < stop) {
-        kit::Colour ink = kit::colour::accent;
-        if (state.capture.state == CaptureState::clash)
-            ink = kit::colour::danger;
-        else if (state.capture.state == CaptureState::refused)
-            ink = kit::colour::lock;
-        const int32_t status_y = y;
-        y += wrapped(y, status.line, kit::FontRole::small, ink);
-        area(
-            {column_x, status_y, column_w, std::max(y - status_y, metrics.small_line)},
-            controls::capture_status,
-            name_capture_status,
-            status.line
-        );
-    }
-    if (y + metrics.small_line <= stop) {
-        text_at(
-            {column_x, y, column_w, metrics.small_line},
-            show(editor.text(), words::escape_hint),
-            kit::FontRole::small,
-            kit::colour::hint,
-            kit::Align::left
-        );
-    }
-    const bool ok_on = status.ok_enabled;
-    PromptButton cancel;
-    cancel.id = controls::capture_cancel;
-    cancel.name = std::string(name_capture_cancel);
-    cancel.caption = show(editor.text(), words::cancel);
-    PromptButton ok;
-    ok.id = controls::capture_ok;
-    ok.name = std::string(name_capture_ok);
-    ok.caption = show(editor.text(), words::ok);
-    ok.accent = ok_on;
-    ok.enabled = ok_on;
-    footer({std::move(cancel), std::move(ok)});
     return list;
 }
 
@@ -2475,8 +2741,26 @@ lay(const Editor& editor,
     const kit::Frame& frame,
     const kit::Fonts& fonts,
     bool page) {
-    if (state.prompt != Prompt::none)
-        return prompt_layout(editor, state, frame, fonts);
+    if (state.prompt != Prompt::none) {
+        // The editor stays under the prompt, dimmed, as a question sits over
+        // the screen that opened it. Its controls are not live: a press on
+        // the dim reaches the prompt only.
+        ScreenState behind = state;
+        behind.prompt = Prompt::none;
+        behind.interaction.focus_shown = false;
+        kit::DisplayList shown = lay(editor, behind, frame, fonts, page);
+        shown.controls.clear();
+        shown.tab_order.clear();
+        const Window window = window_of(frame);
+        kit::Item& veil = add_item(shown, kit::Role::blend, {0, 0, window.width, window.height});
+        veil.colour = kit::colour::backdrop;
+        veil.opacity = kit::menu_backdrop_opacity;
+        const kit::DisplayList prompt = prompt_layout(editor, state, frame, fonts);
+        shown.items.insert(shown.items.end(), prompt.items.begin(), prompt.items.end());
+        shown.controls = prompt.controls;
+        shown.tab_order = prompt.tab_order;
+        return shown;
+    }
     Built built;
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
     const bool compact = frame.size_class == kit::SizeClass::compact;
