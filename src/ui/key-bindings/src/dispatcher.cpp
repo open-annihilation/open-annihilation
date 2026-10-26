@@ -998,6 +998,10 @@ void Dispatcher::set_bindings(const Resolved& bindings) {
     clear_clocks(state_->clocks);
 }
 
+void Dispatcher::retarget(const Resolved& bindings) {
+    state_->resolved = bindings;
+}
+
 void Dispatcher::set_keyboard(const KeyboardMap& keyboard) {
     state_->keyboard = keyboard;
 }

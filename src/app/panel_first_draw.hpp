@@ -9,6 +9,8 @@
 
 #include "oa/formats/gaf.hpp"
 #include "oa/formats/hpi.hpp"
+#include "oa/ui/frontend/options.hpp"
+#include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/gui_layout.hpp"
 
 #include <cstddef>
@@ -48,5 +50,26 @@ void draw_back_tile(
 /// @param[in,out] gadgets the panel's records, root first
 /// @param index the button's record; a record that is no button is left as it is
 void assign_button_quick_key(std::vector<oa::ui::gui_layout::Gadget>& gadgets, std::size_t index);
+
+/// Copies a panel button's letter back onto the loaded gadget.
+///
+/// The panel model holds the letter the caption gave the button. The gadget
+/// record is what the first draw underlines.
+///
+/// @param button the loaded button
+/// @param control the panel record the letter was copied from
+void copy_button_letter(
+    oa::ui::gui_layout::ButtonFields& button, const oa::ui::frontend::Control& control
+);
+
+/// The unit info panel's buttons as the first draw underlines them.
+///
+/// Each button takes the letter its caption gives it, then the presentation
+/// carries that letter.
+///
+/// @param gadgets the panel's records, root first
+/// @return one presentation for each button
+[[nodiscard]] std::vector<oa::ui::frontend_renderer::ButtonPresentation>
+unit_info_button_presentations(std::vector<oa::ui::gui_layout::Gadget>& gadgets);
 
 } // namespace oa::app
