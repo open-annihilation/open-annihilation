@@ -3718,6 +3718,7 @@ class Runtime final : public menu::Host,
     /// The art every page of the match's side column is drawn with, read
     /// once a match (match_hud_art).
     struct MatchHudArt {
+        std::size_t side{};     ///< the viewed side it was read for
         std::string tile;       ///< the side tile it was read for
         std::string panel;      ///< the side's interface GAF it was read for
         std::string font;       ///< the side's SIDEDATA font it was read for
@@ -13468,7 +13469,8 @@ class Runtime final : public menu::Host,
     /// An order or a tab finds the button whose name holds that registry word.
     /// A gui action finds the button of the file on screen, and leaves a button
     /// whose name holds a registry word to that action. A button the panel does
-    /// not show does nothing. [runtime_hotkeys.cpp]
+    /// not show does nothing, and nothing is pressed while the unit info panel
+    /// is open, as in 3.1c. [runtime_hotkeys.cpp]
     ///
     /// @param id the action id
     /// @param phase the phase

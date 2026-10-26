@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The install route. Every platform is still without one, except the
-// self-check folder. Nothing is installed.
+// The install route. Linux uses a versions folder. The self-check folder
+// still wins when it is named. Nothing is installed.
 
 #include "oa/app/update/route.hpp"
 
@@ -37,15 +37,12 @@ update::RouteFacts facts_for(std::string_view platform) {
     return facts;
 }
 
-void every_platform_has_no_route() {
+void every_other_platform_has_no_route() {
     const std::string_view platforms[] = {
         "macos-universal",
         "windows-x64",
         "windows-arm64",
         "windows-x86",
-        "linux-x86_64",
-        "linux-arm64",
-        "linux-armhf",
         "ios",
         "android",
         "unknown",
@@ -61,6 +58,79 @@ void every_platform_has_no_route() {
         OA_CHECK(!unwritable.route.has_value());
         OA_CHECK(unwritable.why == "no route for this platform yet");
     }
+}
+
+void linux_uses_a_versions_folder() {
+    const std::string_view platforms[] = {"linux-x86_64", "linux-arm64", "linux-armhf"};
+    const update::ThisBuild build = release_build();
+    for (const std::string_view platform : platforms) {
+        update::RouteFacts facts = facts_for(platform);
+        facts.folder_writable = false;
+        const update::Where where = update::find_route(build, facts);
+        OA_CHECK(where.route.has_value());
+        OA_CHECK(*where.route == update::Route::linux_versions);
+        OA_CHECK(where.install == facts.program_folder);
+        OA_CHECK(where.program == facts.executable);
+        OA_CHECK(where.why.empty());
+    }
+
+    update::RouteFacts laid_out = facts_for("linux-x86_64");
+    laid_out.program_folder = fs::path("/home/player/oa/versions/0.8.6");
+    laid_out.executable = laid_out.program_folder / "open-annihilation";
+    laid_out.launcher_present = true;
+    const update::Where above = update::find_route(build, laid_out);
+    OA_CHECK(above.route.has_value());
+    OA_CHECK(*above.route == update::Route::linux_versions);
+    OA_CHECK(above.install == fs::path("/home/player/oa"));
+    OA_CHECK(above.program == laid_out.executable);
+
+    laid_out.launcher_present = false;
+    const update::Where flat = update::find_route(build, laid_out);
+    OA_CHECK(flat.install == laid_out.program_folder);
+}
+
+void a_system_copy_is_not_replaced() {
+    const update::ThisBuild build = release_build();
+    const fs::path blocked[] = {
+        fs::path("/opt"),
+        fs::path("/opt/open-annihilation"),
+        fs::path("/usr"),
+        fs::path("/usr/local/oa"),
+        fs::path("/snap/oa"),
+        fs::path("/var/lib/flatpak"),
+        fs::path("/var/lib/flatpak/app/oa"),
+    };
+    for (const fs::path& folder : blocked) {
+        update::RouteFacts facts = facts_for("linux-x86_64");
+        facts.program_folder = folder;
+        const update::Where where = update::find_route(build, facts);
+        OA_CHECK(!where.route.has_value());
+        OA_CHECK(where.why == update::whole_system_copy);
+    }
+    const fs::path allowed[] = {
+        fs::path("/optima/oa"),
+        fs::path("/usr-local/oa"),
+        fs::path("/var/lib/flatpak-extra/oa"),
+        fs::path("/home/player/oa"),
+    };
+    for (const fs::path& folder : allowed) {
+        update::RouteFacts facts = facts_for("linux-x86_64");
+        facts.program_folder = folder;
+        const update::Where where = update::find_route(build, facts);
+        OA_CHECK(where.route.has_value());
+        OA_CHECK(*where.route == update::Route::linux_versions);
+    }
+
+    update::RouteFacts owned = facts_for("linux-x86_64");
+    owned.program_folder = fs::path("/home/player/oa");
+    owned.owned_by_player = false;
+    OA_CHECK(update::find_route(build, owned).why == update::whole_system_copy);
+    owned.owned_by_player = true;
+    owned.appimage = true;
+    OA_CHECK(update::find_route(build, owned).why == update::whole_system_copy);
+    owned.appimage = false;
+    owned.flatpak = true;
+    OA_CHECK(update::find_route(build, owned).why == update::whole_system_copy);
 }
 
 void check_folder_uses_the_option() {
@@ -89,6 +159,11 @@ void a_development_build_has_no_route_without_a_test_feed() {
     OA_CHECK(*allowed.route == update::Route::check_folder);
 
     facts.install_folder.reset();
+    const update::Where linux = update::find_route(build, facts);
+    OA_CHECK(linux.route.has_value());
+    OA_CHECK(*linux.route == update::Route::linux_versions);
+
+    facts.platform = "windows-x64";
     const update::Where no_platform = update::find_route(build, facts);
     OA_CHECK(!no_platform.route.has_value());
     OA_CHECK(no_platform.why == "no route for this platform yet");
@@ -115,13 +190,17 @@ void this_machine_names_the_executable() {
     OA_CHECK(!facts.install_folder.has_value());
     OA_CHECK(!facts.test_feed);
     OA_CHECK(facts.way == feed::Way::none);
+    OA_CHECK(!facts.launcher_present);
+    OA_CHECK(facts.owned_by_player);
     fs::remove_all(folder, error);
 }
 
 } // namespace
 
 int main() {
-    every_platform_has_no_route();
+    every_other_platform_has_no_route();
+    linux_uses_a_versions_folder();
+    a_system_copy_is_not_replaced();
     check_folder_uses_the_option();
     a_development_build_has_no_route_without_a_test_feed();
     a_page_is_never_a_route();

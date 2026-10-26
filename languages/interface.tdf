@@ -11050,6 +11050,14 @@
 	it=Questa copia non può sostituirsi da sola. Prendi la nuova versione dalla sua pagina.;
 	}
 
+[This copy is installed for the whole system, so it cannot replace itself. Install the new release the way this copy was installed.]
+	{
+	de=Diese Kopie ist für das ganze System installiert, deshalb kann sie sich nicht selbst ersetzen. Installier die neue Version so, wie diese Kopie installiert wurde.;
+	fr=Cette copie est installée pour tout le système, elle ne peut donc pas se remplacer elle-même. Installe la nouvelle version comme cette copie a été installée.;
+	es=Esta copia está instalada para todo el sistema, así que no puede reemplazarse a sí misma. Instala la nueva versión igual que se instaló esta copia.;
+	it=Questa copia è installata per tutto il sistema, quindi non può sostituirsi da sola. Installa la nuova versione come è stata installata questa copia.;
+	}
+
 [This file]
 	{
 	de=Diese Datei;
@@ -15736,6 +15744,14 @@
 	fr={used} · {free} libres sur ce {device};
 	es={used} · {free} libres en este {device};
 	it={used} · {free} liberi su questo {device};
+	}
+
+[{version} installs the next time you start Open Annihilation.]
+	{
+	de={version} wird beim nächsten Start von Open Annihilation installiert.;
+	fr={version} s'installe la prochaine fois que tu lances Open Annihilation.;
+	es={version} se instala la próxima vez que inicies Open Annihilation.;
+	it={version} si installa la prossima volta che avvii Open Annihilation.;
 	}
 
 [{version} is out]

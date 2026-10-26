@@ -46,8 +46,10 @@ unzip open-annihilation-<version>-linux-x86_64.zip
 ```
 
 This makes the folder `open-annihilation-<version>-linux-x86_64`, which
-holds the game, `open-annihilation`. If `unzip` is missing, install it, for
-example with `sudo apt install unzip`.
+holds the game, `open-annihilation`. Rename that folder to a plain name
+such as `open-annihilation` and keep it in your home folder: the game
+updates itself there, and a copy under `/opt` or `/usr` cannot. If `unzip`
+is missing, install it, for example with `sudo apt install unzip`.
 
 ## 4. Get the game data
 
@@ -251,8 +253,15 @@ command, still takes the screenshots and films.
 
 ## Updating and removing
 
-- **To update:** unzip the newer package and start the game from its
-  folder. Your settings are kept.
+- **To update:** from 0.8.7 on, the game downloads a release and installs
+  it in this folder. The first update moves the program into `versions/`,
+  adds a `current` link, and puts a small launcher where
+  `open-annihilation` was, so a shortcut that names that file keeps
+  working. `oa-tool` is then `current/oa-tool`. A copy under `/opt`,
+  `/usr`, `/snap` or Flatpak, or one you do not own, only tells you to
+  install the new release the way this copy was installed. An install from
+  0.8.6 or older is replaced once by unzipping 0.8.7 into a folder of your
+  own; after that the game updates itself. Your settings are kept.
 - **To remove:** delete the game's folder. To remove your settings and logs
   too, delete the two folders above; your saved games, screenshots, films,
   recordings and mods are in the Open Annihilation folder in Documents. To make your

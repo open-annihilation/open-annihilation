@@ -28,7 +28,8 @@ void print_help() {
                  "oa-update --version\n"
                  "oa-update --help\n";
 #if OA_SELF_CHECKS_BUILT
-    std::cout << "oa-update --plan FILE --feed-key ID=ed25519:BASE64\n";
+    std::cout << "oa-update --plan FILE --feed-key ID=ed25519:BASE64\n"
+                 "oa-update --plan FILE --stage-only\n";
 #endif
 }
 
@@ -42,6 +43,7 @@ int main(int argc, char** argv) {
     try {
         bool help = false;
         bool recover = false;
+        bool stage_only = false;
         std::string plan;
         std::string updates;
         std::vector<oa::update_helper::FeedKey> keys;
@@ -84,6 +86,13 @@ int main(int argc, char** argv) {
                 std::cerr << "oa-update: --feed-key is not in this build\n";
                 return oa::update_helper::exit_usage;
 #endif
+            } else if (argument == "--stage-only") {
+#if OA_SELF_CHECKS_BUILT
+                stage_only = true;
+#else
+                std::cerr << "oa-update: --stage-only is not in this build\n";
+                return oa::update_helper::exit_usage;
+#endif
             } else {
                 std::cerr << "oa-update: unknown argument\n";
                 return oa::update_helper::exit_usage;
@@ -108,7 +117,7 @@ int main(int argc, char** argv) {
             std::cerr << "oa-update: pass --plan, or --recover with --updates\n";
             return oa::update_helper::exit_usage;
         }
-        return oa::update_helper::run_plan(oa::update_helper::path_from(plan), keys);
+        return oa::update_helper::run_plan(oa::update_helper::path_from(plan), keys, stage_only);
     } catch (const std::exception& raised) {
         std::cerr << "oa-update: " << raised.what() << '\n';
         return oa::update_helper::exit_usage;

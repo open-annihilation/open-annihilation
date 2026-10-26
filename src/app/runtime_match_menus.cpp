@@ -1566,13 +1566,17 @@ Runtime::side_panel_art_name(const std::string& side_gaf, const std::string& pag
 
 const Runtime::MatchHudArt* Runtime::match_hud_art(const std::string& layout) {
     auto panel = match_side_panel_gaf();
-    const auto tile = match_side_tile();
+    const auto side = match_view_side();
     const auto font = match_side_font();
-    if (match_hud_art_ && match_hud_art_->tile == tile && match_hud_art_->panel == panel &&
+    // The side tile is looked up in the archives (match_side_tile), so it is
+    // found only when the art is read: the viewed side picks it.
+    if (match_hud_art_ && match_hud_art_->side == side && match_hud_art_->panel == panel &&
         match_hud_art_->font == font)
         return &*match_hud_art_;
     match_hud_art_.reset();
+    const auto tile = match_side_tile();
     MatchHudArt art;
+    art.side = side;
     art.tile = tile;
     art.panel = panel;
     art.font = font;
