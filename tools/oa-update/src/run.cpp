@@ -194,6 +194,8 @@ int carry_out(
         return exit_usage;
     }
 #endif
+    const bool bundle = plan.route == update::Route::macos_bundle;
+    const bool linux = plan.route == update::Route::linux_versions;
     const bool windows_route = plan.route == update::Route::windows_installer ||
                                plan.route == update::Route::windows_folder;
     if (elevated_swap && plan.route != update::Route::windows_folder) {
@@ -201,8 +203,8 @@ int carry_out(
         window.close();
         return exit_usage;
     }
-    const bool carried = windows_route || plan.route == update::Route::check_folder ||
-                         plan.route == update::Route::linux_versions;
+    const bool carried =
+        windows_route || bundle || linux || plan.route == update::Route::check_folder;
     if (!carried) {
         log.line("this route is not carried out");
         start_old(plan, log, window, !elevated_swap);
@@ -228,6 +230,31 @@ int carry_out(
     }
     log.line("checked the package");
     window.show(plan.title, plan.line, 350, false);
+
+    // A folder the player cannot write is opened in Installer. The bundle
+    // stays where it is, and Installer relaunches nothing.
+    if (bundle && plan.installer) {
+        std::string why;
+        const std::vector<Operation> operations =
+            macos_checked_operations(plan, {}, !keys.empty(), &why);
+        if (!why.empty()) {
+            log.line(why);
+            window.show(plan.title, could_not_check, 0, true);
+            start_old(plan, log, window, !elevated_swap);
+            return exit_refused;
+        }
+        const JournalResult opened = apply_journal(updates, operations, hooks, &error);
+        if (opened != JournalResult::finished) {
+            log.line(error.empty() ? "a step failed" : error);
+            window.show(plan.title, could_not_check, 0, true);
+            start_old(plan, log, window, !elevated_swap);
+            return exit_undone;
+        }
+        drop_journal(updates);
+        log.line("opened the installer");
+        window.close();
+        return exit_swapped;
+    }
 
     if (windows_route) {
         fs::path stage;
@@ -260,7 +287,9 @@ int carry_out(
     window.show(plan.title, plan.line, 700, false);
 
     std::string why;
-    std::vector<Operation> operations = plan_operations(plan, stage, &why);
+    std::vector<Operation> operations =
+        bundle ? macos_checked_operations(plan, stage, !keys.empty(), &why)
+               : plan_operations(plan, stage, &why);
     if (!why.empty()) {
         log.line(why);
         remove_stage(stage);
@@ -313,29 +342,50 @@ int carry_out(
     }
     window.show(plan.title, plan.line, oa::ui::kit::question_progress_whole, false);
 
-    const bool linux = plan.route == update::Route::linux_versions;
-    // The launcher adds --updated-from itself. On a Deck, and with
-    // --stage-only, the new version waits until the next start.
-    if (linux && (stage_only || deck_session())) {
-        const std::string line = next_start_line(verified.version);
-        log.line(line);
-        window.show(plan.title, line, oa::ui::kit::question_progress_whole, true);
-        drop_journal(updates);
-        remove_stage(stage);
-        window.close();
-        return exit_swapped;
-    }
-    const fs::path program =
-        linux ? path_from(plan.install) / "open-annihilation" : path_from(plan.program);
-    if (!start_detached(program, plan.arguments, !linux, plan.from_version, &error)) {
-        log.line(error.empty() ? "the game could not be started" : error);
-        std::string undo_error;
-        if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
-            log.line(undo_error);
-        remove_stage(stage);
-        window.show(plan.title, could_not_check, 0, true);
-        start_old(plan, log, window, !elevated_swap);
-        return exit_undone;
+    if (bundle) {
+#if defined(__APPLE__)
+        const bool started =
+            start_macos_bundle(path_from(plan.install), plan.arguments, plan.from_version, &error);
+#else
+        error = "this route is not carried out";
+        const bool started = false;
+#endif
+        // The swap has already happened. A start that fails is logged and
+        // the kept bundle is left where it is: undoing it would put the old
+        // app back after the new one is already in its place.
+        if (!started) {
+            log.line("the new version could not be started; the kept bundle was left in place");
+            if (!error.empty())
+                log.line(error);
+            drop_journal(updates);
+            remove_stage(stage);
+            window.close();
+            return exit_refused;
+        }
+    } else {
+        // The launcher adds --updated-from itself. On a Deck, and with
+        // --stage-only, the new version waits until the next start.
+        if (linux && (stage_only || deck_session())) {
+            const std::string line = next_start_line(verified.version);
+            log.line(line);
+            window.show(plan.title, line, oa::ui::kit::question_progress_whole, true);
+            drop_journal(updates);
+            remove_stage(stage);
+            window.close();
+            return exit_swapped;
+        }
+        const fs::path program =
+            linux ? path_from(plan.install) / "open-annihilation" : path_from(plan.program);
+        if (!start_detached(program, plan.arguments, !linux, plan.from_version, &error)) {
+            log.line(error.empty() ? "the game could not be started" : error);
+            std::string undo_error;
+            if (!undo_journal(updates, hooks, &undo_error) && !undo_error.empty())
+                log.line(undo_error);
+            remove_stage(stage);
+            window.show(plan.title, could_not_check, 0, true);
+            start_old(plan, log, window, !elevated_swap);
+            return exit_undone;
+        }
     }
 
     drop_journal(updates);

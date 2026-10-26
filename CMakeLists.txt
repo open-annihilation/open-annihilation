@@ -4670,6 +4670,17 @@ if(OA_BUILD_PLATFORM AND OA_PROCESS_SPAWNING AND OA_SELF_UPDATE)
     set_property(SOURCE "${CMAKE_CURRENT_BINARY_DIR}/generated/oa-update.rc" APPEND PROPERTY
       OBJECT_DEPENDS "${oa_update_manifest}")
   endif()
+  # The helper is copied after both targets exist. oa_game_bundle runs earlier,
+  # while this target does not. The bundle is signed after the notices, fonts
+  # and catalogue are copied in, further down this file.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET oa-game)
+    add_dependencies(oa-game oa-update)
+    set_property(TARGET oa-game APPEND PROPERTY LINK_DEPENDS "$<TARGET_FILE:oa-update>")
+    add_custom_command(TARGET oa-game POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:oa-update>"
+        "$<TARGET_BUNDLE_CONTENT_DIR:oa-game>/MacOS/oa-update"
+      VERBATIM)
+  endif()
 endif()
 # The Steam Deck's artwork and files for the Steam Deck package.
 include("${CMAKE_CURRENT_LIST_DIR}/cmake/OaSteamDeck.cmake")
@@ -5103,6 +5114,14 @@ foreach(target IN LISTS oa_shipped_programs)
       -P "${CMAKE_CURRENT_SOURCE_DIR}/tools/copy_notices.cmake"
     VERBATIM)
 endforeach()
+# Ad hoc, after every file the build copies into the bundle. The helper is
+# signed first, then the application, so codesign --verify --strict accepts it.
+if(CMAKE_SYSTEM_NAME STREQUAL "Darwin" AND TARGET oa-game AND TARGET oa-update)
+  add_custom_command(TARGET oa-game POST_BUILD
+    COMMAND codesign --force --sign - "$<TARGET_BUNDLE_CONTENT_DIR:oa-game>/MacOS/oa-update"
+    COMMAND codesign --force --sign - "$<TARGET_BUNDLE_DIR:oa-game>"
+    VERBATIM)
+endif()
 # oa-doc-check compiles the public headers with Clang's documentation
 # warnings as errors, and the test doc-check builds it
 # (cmake/OaDocumentationCheck.cmake).
