@@ -119,7 +119,9 @@ constexpr int16_t kUnitInfoLabelHeight = 12;
 } // namespace
 
 bool Runtime::press_shown_panel_action(std::string_view id, keys::Phase phase) {
-    if (phase != keys::Phase::pressed || !match_hud_)
+    // While the unit info panel is open the side column's buttons take no
+    // key, as they take no press.
+    if (phase != keys::Phase::pressed || !match_hud_ || unit_info_panel_)
         return false;
     const auto& gadgets = match_hud_->layout.gadgets;
     const bool registry = id.starts_with("order.") || id.starts_with("panel.");

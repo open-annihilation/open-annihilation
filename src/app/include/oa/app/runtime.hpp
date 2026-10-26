@@ -13469,7 +13469,8 @@ class Runtime final : public menu::Host,
     /// An order or a tab finds the button whose name holds that registry word.
     /// A gui action finds the button of the file on screen, and leaves a button
     /// whose name holds a registry word to that action. A button the panel does
-    /// not show does nothing. [runtime_hotkeys.cpp]
+    /// not show does nothing, and nothing is pressed while the unit info panel
+    /// is open, as in 3.1c. [runtime_hotkeys.cpp]
     ///
     /// @param id the action id
     /// @param phase the phase
