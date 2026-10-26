@@ -65,7 +65,7 @@ std::optional<uint16_t> chord_scancode(const Chord& chord) {
 /// Whether one chord is a key a pointer-key default takes.
 ///
 /// A named key and the place of that same key are one key: Faster's
-/// NumpadAdd is the hold's @NumpadAdd. Ctrl or Alt on either chord keeps
+/// NumpadAdd is the hold's NumpadAdd. Ctrl or Alt on either chord keeps
 /// them apart, so a group chord stays.
 ///
 /// @param bound the chord in use

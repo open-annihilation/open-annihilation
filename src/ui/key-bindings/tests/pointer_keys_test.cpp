@@ -236,7 +236,7 @@ void set_aside_while_on_keeps_equals_and_own_changes() {
 
     const Resolved on = keys::pointer_keys_bindings(resolved, true);
     OA_CHECK(chords_are(find_bound(on, "game.speed-up"), {"@Equal"}));
-    OA_CHECK(chords_are(find_bound(on, "pointer.hold-left"), {"@NumpadAdd"}));
+    OA_CHECK(chords_are(find_bound(on, "pointer.hold-left"), {"NumpadAdd"}));
     OA_CHECK(chords_are(find_bound(on, "build.page-5"), {"@Digit5"}));
     OA_CHECK(chords_are(find_bound(on, "group.assign-1"), {"Ctrl+@Digit1", "Ctrl+Numpad1"}));
 

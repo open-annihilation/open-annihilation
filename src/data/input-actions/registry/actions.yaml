@@ -568,7 +568,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad8"]
+    default: ["Numpad8"]
     words: {name: "Pointer up", description: "Moves the pointer up, faster the longer the key is held"}
   pointer.move-down:
     area: mouse
@@ -578,7 +578,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad2"]
+    default: ["Numpad2"]
     words: {name: "Pointer down", description: "Moves the pointer down, faster the longer the key is held"}
   pointer.move-left:
     area: mouse
@@ -588,7 +588,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad4"]
+    default: ["Numpad4"]
     words: {name: "Pointer left", description: "Moves the pointer left, faster the longer the key is held"}
   pointer.move-right:
     area: mouse
@@ -598,7 +598,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad6"]
+    default: ["Numpad6"]
     words: {name: "Pointer right", description: "Moves the pointer right, faster the longer the key is held"}
   pointer.move-up-left:
     area: mouse
@@ -608,7 +608,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad7"]
+    default: ["Numpad7"]
     words: {name: "Pointer up left", description: "Moves the pointer up and left, faster the longer the key is held"}
   pointer.move-up-right:
     area: mouse
@@ -618,7 +618,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad9"]
+    default: ["Numpad9"]
     words: {name: "Pointer up right", description: "Moves the pointer up and right, faster the longer the key is held"}
   pointer.move-down-left:
     area: mouse
@@ -628,7 +628,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad1"]
+    default: ["Numpad1"]
     words: {name: "Pointer down left", description: "Moves the pointer down and left, faster the longer the key is held"}
   pointer.move-down-right:
     area: mouse
@@ -638,7 +638,7 @@ actions:
     kind: hold
     by: place
     source: [OA]
-    default: ["@Numpad3"]
+    default: ["Numpad3"]
     words: {name: "Pointer down right", description: "Moves the pointer down and right, faster the longer the key is held"}
   pointer.click-left:
     area: mouse
@@ -648,7 +648,7 @@ actions:
     kind: press
     by: place
     source: [OA]
-    default: ["@Numpad5"]
+    default: ["Numpad5"]
     words: {name: "Pointer click left", description: "Clicks the left button. Twice quickly, a double click"}
   pointer.click-right:
     area: mouse
@@ -658,7 +658,7 @@ actions:
     kind: press
     by: place
     source: [OA]
-    default: ["@Numpad0"]
+    default: ["Numpad0"]
     words: {name: "Pointer click right", description: "Clicks the right button"}
   pointer.hold-left:
     area: mouse
@@ -668,7 +668,7 @@ actions:
     kind: press
     by: place
     source: [OA]
-    default: ["@NumpadAdd"]
+    default: ["NumpadAdd"]
     words: {name: "Pointer hold left", description: "Holds the left button down until pressed again"}
   pointer.let-go:
     area: mouse
@@ -678,7 +678,7 @@ actions:
     kind: press
     by: place
     source: [OA]
-    default: ["@NumpadDecimal"]
+    default: ["NumpadDecimal"]
     words: {name: "Pointer let go", description: "Lets a held mouse button go"}
   select.all:
     area: selection
