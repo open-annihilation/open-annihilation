@@ -596,6 +596,28 @@ struct ModOptions {
     friend bool operator==(const ModOptions&, const ModOptions&) = default;
 };
 
+/// Writes the three key sliders: snap override, then line build, then rotate.
+///
+/// @param[in,out] options the dialog's settings
+/// @param snap_code the snap override slider's key code
+/// @param line_code the line build slider's key code
+/// @param rotate_code the rotate slider's key code
+inline void set_mod_option_keys(
+    ModOptions& options, uint32_t snap_code, uint32_t line_code, uint32_t rotate_code
+) noexcept {
+    options.snap_override_key = snap_code;
+    options.autoclick_key = line_code;
+    options.rotate_build_key = rotate_code;
+}
+
+/// Returns the three key sliders, in the order set_mod_option_keys writes them.
+///
+/// @param options the dialog's settings
+/// @return snap override, line build and rotate
+[[nodiscard]] inline std::array<uint32_t, 3> mod_option_keys(const ModOptions& options) noexcept {
+    return {options.snap_override_key, options.autoclick_key, options.rotate_build_key};
+}
+
 /// Hardware acceleration: how much of each frame the graphics card takes
 /// on. The processor still draws every pixel the game decides at Off and
 /// Basic.

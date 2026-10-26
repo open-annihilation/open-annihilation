@@ -18,7 +18,9 @@ Markdown in step with it:
       allowed values, list length, 3.1c baseline, default, who may adjust it,
       scope and the data key that overrides it, the presets, the constraints,
       the data keys that need the hack on, and a YAML block with every
-      parameter at its default.
+      parameter at its default. A hack that lists `actions` also gets a keys
+      block: each action, the chords it has while that hack is on, and what
+      it does, from the action registry's words.
   docs/mods/script-extensions/<extension id>.md
       one page per script extension, headed by its title. A missing page is
       created as a skeleton: the title, the facts block, the headings
@@ -74,6 +76,7 @@ import oamod_yaml  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 REGISTRY = ROOT / "src/data/mod-profile/registry/hack-registry.yaml"
+ACTIONS = ROOT / "src/data/input-actions/registry/actions.yaml"
 DOCS = ROOT / "docs/mods"
 PAGES = "standard-hacks"
 EXT_PAGES = "script-extensions"
@@ -771,7 +774,60 @@ def extension_problems(reg, texts):
     return problems
 
 
-def expected(reg, docs, sentences, texts):
+def load_actions():
+    """The action registry's actions, keyed by id."""
+    loaded = oamod_yaml.load_file(ACTIONS)
+    return loaded["actions"]
+
+
+def chord_list(hack_id, action, catalogue, seen):
+    """The chords an action has while `hack_id` is on.
+
+    A hack change of this hack wins, then the action's own defaults, then the
+    chords of the action it replaces.
+    """
+    change = (action.get("hacks") or {}).get(hack_id) or {}
+    if change.get("default"):
+        return list(change["default"])
+    if action.get("default"):
+        return list(action["default"])
+    replaced = action.get("replaces")
+    if replaced and replaced not in seen and replaced in catalogue:
+        return chord_list(hack_id, catalogue[replaced], catalogue, seen | {replaced})
+    return []
+
+
+def keys_body(hack_id, action_ids, catalogue):
+    """The keys table: action, default chords, and what it does."""
+    rows = ["| Action | Default chords | What it does |", "| --- | --- | --- |"]
+    for action_id in action_ids:
+        action = catalogue.get(action_id)
+        if action is None:
+            raise DocsError(f"{hack_id}: action {action_id} is not in the action registry")
+        chords = chord_list(hack_id, action, catalogue, {action_id})
+        shown = ", ".join(chords) if chords else "—"
+        description = (action.get("words") or {}).get("description", "")
+        if not isinstance(description, str) or not description:
+            raise DocsError(f"{hack_id}: action {action_id} has no description")
+        rows.append(f"| {code(action_id)} | {code(shown)} | {description.replace('|', '\\|')} |")
+    return "\n".join(rows)
+
+
+def with_keys(text, hack_id, entry, catalogue, where):
+    """The page with its keys block written, or inserted when the hack lists actions."""
+    action_ids = entry.get("actions") or []
+    if not action_ids:
+        return text
+    body = keys_body(hack_id, action_ids, catalogue or {})
+    if begin("keys") in text:
+        return replace_block(text, "keys", body, where)
+    addition = "\n## Keys\n\n" + block("keys", body) + "\n"
+    if not text.endswith("\n"):
+        text += "\n"
+    return text + addition
+
+
+def expected(reg, docs, sentences, texts, actions=None):
     """Every generated file's path and expected text, from its current text; raises DocsError."""
     entries = reg["entries"]
     problems = []
@@ -792,6 +848,7 @@ def expected(reg, docs, sentences, texts):
         text = titled(text, e["title"], path)
         text = replace_block(text, "facts", facts(eid, e, reg), path)
         text = replace_block(text, "schema", schema(eid, e, entries), path)
+        text = with_keys(text, eid, e, actions, path)
         files[path] = text
     for eid, e in extensions(reg).items():
         title = texts[eid]["title"]
@@ -821,10 +878,10 @@ def stale_pages(reg, docs):
     return sorted(stale)
 
 
-def sync(reg, docs, sentences, texts, check, root):
+def sync(reg, docs, sentences, texts, check, root, actions=None):
     """Writes (or with check, compares) every generated file; returns the exit status."""
     try:
-        files = expected(reg, docs, sentences, texts)
+        files = expected(reg, docs, sentences, texts, actions)
     except DocsError as e:
         print(f"gen_mod_docs: {e}", file=sys.stderr)
         return 2
@@ -927,8 +984,8 @@ def self_test():
         saved = sys.stdout, sys.stderr
         sys.stdout = sys.stderr = quiet
 
-        def run(check, sentences_used=sentences, texts_used=texts, reg_used=reg):
-            return sync(reg_used, docs, sentences_used, texts_used, check, Path(tmp))
+        def run(check, sentences_used=sentences, texts_used=texts, reg_used=reg, actions_used=None):
+            return sync(reg_used, docs, sentences_used, texts_used, check, Path(tmp), actions_used)
 
         def with_extension(eid, **fields):
             entries = dict(reg["entries"], **{eid: dict(reg["entries"][eid], **fields)})
@@ -1037,6 +1094,42 @@ def self_test():
         if "| [`unit.owner`](script-extensions/unit.owner.md) | 41 | unit id | The owner. |" not in standard:
             failures.append("the standard's table lacks unit.owner's row")
 
+        catalogue = {"demo.tap": {
+            "default": ["F1"],
+            "words": {"name": "Tap", "description": "Taps the example."},
+        }, "demo.base": {"default": ["Ctrl+B"], "words": {"description": "The base."}}}
+        replaced = {"replaces": "demo.base", "words": {"description": "Stands in."}}
+        changed = {"default": ["Tab"], "hacks": {"ui.plain": {"default": ["Tab", "Shift+Tab"]}},
+                   "words": {"description": "Opens."}}
+        if chord_list("ui.plain", changed, catalogue, set()) != ["Tab", "Shift+Tab"]:
+            failures.append("a hack's own chords are not the ones its page shows")
+        if chord_list("ui.plain", replaced, {"demo.held": replaced, "demo.base": catalogue["demo.base"]},
+                      set()) != ["Ctrl+B"]:
+            failures.append("a replacing action does not show the chords it takes")
+        keyed_entries = dict(reg["entries"])
+        keyed_entries["ui.plain"] = dict(reg["entries"]["ui.plain"], actions=["demo.tap"])
+        keyed = dict(reg, entries=keyed_entries)
+        wrote_keys = run(False, reg_used=keyed, actions_used=catalogue)
+        keys_page = (docs / PAGES / "ui.plain.md").read_text(encoding="utf-8")
+        keys_check = run(True, reg_used=keyed, actions_used=catalogue)
+        (docs / PAGES / "ui.plain.md").write_text(keys_page.replace("`F1`", "`F2`"), encoding="utf-8")
+        keys_edited = run(True, reg_used=keyed, actions_used=catalogue)
+        run(False, reg_used=keyed, actions_used=catalogue)
+        keys_restored = (docs / PAGES / "ui.plain.md").read_text(encoding="utf-8") == keys_page
+        if wrote_keys != 0:
+            failures.append(f"writing a keys block returned {wrote_keys}")
+        if keys_check != 0:
+            failures.append(f"a check after writing keys returned {keys_check}")
+        if keys_edited != 1:
+            failures.append(f"a check after a keys block changed returned {keys_edited}")
+        if not keys_restored:
+            failures.append("writing did not restore a keys block")
+        for needle in ("## Keys", begin("keys"), "`demo.tap`", "`F1`", "Taps the example."):
+            if needle not in keys_page:
+                failures.append(f"a keys block lacks {needle!r}")
+        if keys_page.count(begin("keys")) != 1:
+            failures.append("a keys block was written more than once")
+
     for f in failures:
         print("FAIL", f)
     print(f"gen_mod_docs self-test: {len(failures)} failures")
@@ -1055,7 +1148,12 @@ def main(argv=None):
     except oamod_yaml.OamodYamlError as e:
         print(f"gen_mod_docs: {e}", file=sys.stderr)
         return 2
-    return sync(reg, DOCS, SENTENCES, SCRIPT_EXTENSIONS, args.check, ROOT)
+    try:
+        actions = load_actions()
+    except oamod_yaml.OamodYamlError as e:
+        print(f"gen_mod_docs: {e}", file=sys.stderr)
+        return 2
+    return sync(reg, DOCS, SENTENCES, SCRIPT_EXTENSIONS, args.check, ROOT, actions)
 
 
 if __name__ == "__main__":

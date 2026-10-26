@@ -7,9 +7,11 @@
 #include "oa/test/check.hpp"
 
 #include <array>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -243,8 +245,6 @@ void view_settings_round_trip() {
     OrdersConPatrolGuardOptions builders{};
     const auto fresh = vr::read_view_settings(ui, builders, {});
     OA_CHECK(fresh.mex_snap_radius == 3 && fresh.wreck_snap_radius == 1);
-    OA_CHECK(fresh.snap_override_key == 0x400000e2U && fresh.autoclick_key == 'x');
-    OA_CHECK(fresh.rotate_build_key == '/' && fresh.whiteboard_key == '\\');
     OA_CHECK(fresh.chat_macro == vr::default_chat_macro && fresh.chat_backdrop);
     OA_CHECK(fresh.optimize_dt_rows && fresh.full_rings && !fresh.vsync);
     OA_CHECK(fresh.panel_background == vr::PanelBackground::text);
@@ -276,6 +276,11 @@ void view_settings_round_trip() {
         return found == texts.end() ? std::nullopt : std::optional<std::string>(found->second);
     };
     const auto read = vr::read_view_settings(ui, builders, store);
+    OA_CHECK(numbers.count("ClickSnapOverrideKey") == 0);
+    OA_CHECK(numbers.count("KeyCode") == 0);
+    OA_CHECK(numbers.count("WhiteboardKey") == 0);
+    OA_CHECK(numbers.count("MegamapKey") == 0);
+    OA_CHECK(numbers.count("RotateBuildKey") == 0);
     OA_CHECK(read.mex_snap_radius == 2 && read.chat_macro == "+shootall" && !read.full_rings);
     OA_CHECK(read.patrol[0] == vr::PatrolOption::assist_only);
     OA_CHECK(read.guard[1] == vr::GuardOption::scatter);
@@ -599,6 +604,57 @@ void share_sliders() {
     OA_CHECK(vr::share_threshold_value(0, 100, 1000.0F) == 0);
 }
 
+/// A key slider shows the binding's first chord when that chord is one of the
+/// option keys, and Alt otherwise. A move maps the way a stored key is
+/// imported; a lone modifier a repeat or a hold cannot take maps to nothing.
+void key_sliders_follow_the_binding() {
+    namespace vr = oa::app::view_rules;
+    namespace es = oa::ui::engine_settings;
+    const uint32_t alt = es::option_keys[0].code;
+    const uint32_t slash = static_cast<uint32_t>('/');
+    const uint32_t ex = static_cast<uint32_t>('x');
+    const uint32_t cue = static_cast<uint32_t>('q');
+    const std::array<std::string_view, 2> rotate_defaults{"@Slash", "Shift+@Slash"};
+    OA_CHECK(vr::slider_value("build.rotate", rotate_defaults) == slash);
+    const std::array<std::string_view, 1> shifted{"Shift+@Slash"};
+    OA_CHECK(vr::slider_value("build.rotate", shifted) == alt);
+    OA_CHECK(vr::slider_value("build.rotate", std::span<const std::string_view>{}) == alt);
+    const std::array<std::string_view, 1> line_default{"@KeyX"};
+    OA_CHECK(vr::slider_value("build.line", line_default) == ex);
+    const std::array<std::string_view, 1> snap_default{"Alt"};
+    OA_CHECK(vr::slider_value("build.snap-override", snap_default) == alt);
+
+    const std::vector<std::string> turned = vr::slider_chords("build.rotate", cue);
+    OA_CHECK(turned.size() == 2);
+    if (turned.size() == 2) {
+        OA_CHECK(turned[0] == "@KeyQ");
+        OA_CHECK(turned[1] == "Shift+@KeyQ");
+    }
+    OA_CHECK(vr::slider_chords("build.rotate", alt).empty());
+    OA_CHECK(vr::slider_chords("build.line", alt).empty());
+    const std::vector<std::string> lined = vr::slider_chords("build.line", ex);
+    OA_CHECK(lined.size() == 1 && lined[0] == "@KeyX");
+    const std::vector<std::string> snapped = vr::slider_chords("build.snap-override", alt);
+    OA_CHECK(snapped.size() == 1 && snapped[0] == "Alt");
+    const std::vector<std::string> letter = vr::slider_chords("build.snap-override", ex);
+    OA_CHECK(letter.size() == 1 && letter[0] == "X");
+    OA_CHECK(vr::slider_chords("build.rotate", 0).empty());
+
+    const std::function<std::optional<uint32_t>(std::string_view)> unread;
+    const auto missing = vr::imported_key("build.rotate", unread);
+    OA_CHECK(missing && missing->setting == "RotateBuildKey" && missing->code == slash);
+    std::map<std::string, uint32_t> numbers{{"KeyCode", static_cast<uint32_t>('b')}};
+    const auto stored =
+        vr::imported_key("build.line", [&](std::string_view name) -> std::optional<uint32_t> {
+            const auto found = numbers.find(std::string(name));
+            return found == numbers.end() ? std::nullopt : std::optional<uint32_t>(found->second);
+        });
+    OA_CHECK(stored && stored->setting == "KeyCode" && stored->code == static_cast<uint32_t>('b'));
+    OA_CHECK(!vr::imported_key("whiteboard.draw", unread));
+    const auto snapped_key = vr::imported_key("build.snap-override", unread);
+    OA_CHECK(snapped_key && snapped_key->code == alt);
+}
+
 } // namespace
 
 void options_dialog_round_trip() {
@@ -609,14 +665,12 @@ void options_dialog_round_trip() {
     ui.click_snap.mex_max = 5;
     ui.click_snap.wreck_max = 0;
     vr::ViewSettings settings{};
-    settings.snap_override_key = es::option_keys[2].code;
     settings.patrol[2] = vr::PatrolOption::assist_only;
     settings.guard[0] = vr::GuardOption::scatter;
     settings.mex_snap_radius = 4;
     settings.panel_background = vr::PanelBackground::solid;
     settings.full_rings = false;
     const auto options = vr::dialog_options(settings, ui);
-    OA_CHECK(options.snap_override_key == es::option_keys[2].code);
     OA_CHECK(options.patrol[2] == 2 && options.guard[0] == 2);
     OA_CHECK(options.mex_snap_most == 5 && options.wreck_snap_most == 0);
     OA_CHECK(options.mex_snap_radius == 4 && options.panel_background == 2);
@@ -689,6 +743,7 @@ int main() {
     build_preview_helpers();
     chat_helpers();
     share_sliders();
+    key_sliders_follow_the_binding();
     options_dialog_round_trip();
     profile_texts_follow_the_profile();
     std::cout << "view rules checked\n";

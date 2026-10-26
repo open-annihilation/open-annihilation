@@ -488,15 +488,13 @@ enum class PanelBackground : uint8_t {
     solid,
 };
 
+/// The preferences section the player's display-rule settings are kept in.
+inline constexpr std::string_view view_settings_section = "Eye";
+
 /// The settings the profile's display rules let the player change, in the
-/// options dialog (ui.options-dialog) and with the keys that use them. They
-/// are this machine's own; keys are SDL key codes.
+/// options dialog (ui.options-dialog). They are this machine's own. The
+/// three key sliders read and write the bound actions, not this record.
 struct ViewSettings {
-    uint32_t snap_override_key{}; ///< held, a click is not snapped (Alt)
-    uint32_t autoclick_key{};     ///< held, a build drag lays a line or ring (X)
-    uint32_t whiteboard_key{};    ///< the allied whiteboard (\)
-    uint32_t megamap_key{};       ///< the full-screen map (Tab)
-    uint32_t rotate_build_key{};  ///< turns the building being placed (/)
     bool rotate_key_discovered{}; ///< the rotate key's hint is no longer shown
     bool build_menu_rotation{};   ///< the build menu shows the facing chosen
     /// Patrolling builders under Hold position, Maneuver and Roam.
@@ -557,6 +555,7 @@ void apply_builder_options(
 /// it, as the options dialog does (dialog_option_locks): one the profile
 /// gives no room is not the player's choice, so the value stored before
 /// stays, and with none the profile's default plays once it has room.
+/// The stored key names are left as they are, for the one-time import.
 ///
 /// @param settings the settings
 /// @param ui the profile's display rules, which say which snap radii the
@@ -571,9 +570,9 @@ void write_view_settings(
 );
 
 /// Returns the settings the options dialog shows (ui.options-dialog): the
-/// keys, the builders' options, the snap radii with the profile's maxima,
-/// the build tools' switches, the chat backdrop and the resource bar's
-/// background.
+/// builders' options, the snap radii with the profile's maxima, the build
+/// tools' switches, the chat backdrop and the resource bar's background.
+/// The three key sliders are filled from the bound actions, not from here.
 ///
 /// @param settings the player's settings
 /// @param ui the profile's display rules, which give the snap radii's maxima
@@ -601,6 +600,47 @@ void apply_dialog_options(
 /// @return the locks; Locks::mex_snap and wreck_snap alone are set
 [[nodiscard]] oa::ui::engine_settings::Locks
 dialog_option_locks(const data::mod_profile::UiRules& ui) noexcept;
+
+/// The option-key code a key slider shows for an action's first chord.
+///
+/// The code is one of the dialog's option keys when that key is the chord,
+/// compared the way a stored key becomes a chord. Any other chord, or none,
+/// shows as Alt.
+///
+/// @param action_id the action
+/// @param chords the action's chords, as a layout writes them; the first is shown
+/// @return the slider's key code
+[[nodiscard]] uint32_t
+slider_value(std::string_view action_id, std::span<const std::string_view> chords);
+
+/// The chords a key slider writes for an action.
+///
+/// The key is mapped the way a stored key is imported. A lone modifier the
+/// action does not take as a modifier maps to nothing, and the binding stays.
+///
+/// @param action_id the action
+/// @param code the slider's key code
+/// @return the chord texts, or none when the key cannot be mapped
+[[nodiscard]] std::vector<std::string> slider_chords(std::string_view action_id, uint32_t code);
+
+/// One key the options dialog used to store, and the code stored for it.
+struct ImportedKey {
+    std::string_view setting{}; ///< the stored name
+    uint32_t code{};            ///< the stored code, or the code used when none is stored
+};
+
+/// Reads the stored code of one key the options dialog used to keep.
+///
+/// The three keys are the snap override, the line key and the rotate key.
+/// Absent gives Alt, X or slash. Any other action is not read.
+///
+/// @param action_id the action
+/// @param number reads a stored number by name; empty when nothing is stored
+/// @return the key, or nothing for an action that has no stored key
+[[nodiscard]] std::optional<ImportedKey> imported_key(
+    std::string_view action_id,
+    const std::function<std::optional<uint32_t>(std::string_view name)>& number
+);
 
 /// The texts a profile's strings show in place of the engine's own. Each is
 /// null where the profile leaves 3.1c's text, or without a profile: the

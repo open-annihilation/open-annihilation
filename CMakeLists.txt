@@ -425,7 +425,7 @@ add_library(oa-app-view-rules src/app/view_rules.cpp)
 add_library(oa::app::view_rules ALIAS oa-app-view-rules)
 target_link_libraries(oa-app-view-rules PUBLIC oa-app-headers oa-data-mod-profile oa-sim-match-runtime
   oa-ui-frontend-state oa-present-world-renderer oa-ui-engine-settings
-  PRIVATE oa-ui-frontend-multiplayer oa-options)
+  PRIVATE oa-ui-frontend-multiplayer oa-ui-key-bindings oa-options)
 if(BUILD_TESTING)
   add_executable(oa-app-view-rules-test src/app/view_rules_test.cpp)
   target_link_libraries(oa-app-view-rules-test PRIVATE oa-app-view-rules oa-test-support oa-options)

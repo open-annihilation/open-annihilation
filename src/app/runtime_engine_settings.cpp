@@ -1734,6 +1734,7 @@ settings::Dialog& Runtime::open_engine_settings_dialog(settings::DialogKind kind
             profile != nullptr ? profile->rules.orders.con_patrol_guard_options : base_builders;
         defaults.mod_options =
             view_rules::dialog_options(view_rules::read_view_settings(ui, builders, {}), ui);
+        fill_mod_option_keys(current.mod_options, defaults.mod_options);
         auto& dialog = state.dialog.emplace();
         settings::open_mod_options_dialog(
             dialog, current, defaults, view_rules::dialog_option_locks(ui), kVersionText
@@ -2107,6 +2108,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             view_rules::apply_dialog_options(
                 dialog->chosen.mod_options, ui_rules(), view_settings_
             );
+            take_mod_option_keys(dialog->chosen.mod_options);
             return false;
         }
         take_renderer_retry(*dialog);
@@ -2135,6 +2137,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             view_rules::apply_dialog_options(
                 dialog->chosen.mod_options, ui_rules(), view_settings_
             );
+            take_mod_option_keys(dialog->chosen.mod_options);
+            close_mod_option_keys();
             save_view_settings();
             state.dialog.reset();
             return true;
@@ -2219,6 +2223,7 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             view_rules::apply_dialog_options(
                 dialog->opened.mod_options, ui_rules(), view_settings_
             );
+            restore_mod_option_keys();
             state.dialog.reset();
             return true;
         }

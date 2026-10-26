@@ -124,3 +124,12 @@ hacks:
   units.build-rotation: true
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `build.rotate` | `@Slash, Shift+@Slash` | Next facing |
+| `build.rotate-wheel` | `Alt+WheelUp, Alt+WheelDown` | Turns the facing |
+<!-- END GENERATED: keys -->

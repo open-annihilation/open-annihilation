@@ -158,8 +158,7 @@ void Runtime::draw_build_facing(
     draw_match_label(middle.x, middle.y, letter, ui_colors_[kUiColorText]);
     if (!view_settings_.rotate_key_discovered) {
         const auto hint = view_rules::rotate_hint(
-            SDL_GetKeyName(static_cast<SDL_Keycode>(view_settings_.rotate_build_key)),
-            SDL_GetKeyName(static_cast<SDL_Keycode>(view_settings_.snap_override_key))
+            bound_chord_text("build.rotate"), bound_chord_text("build.snap-override")
         );
         draw_match_label(middle.x, middle.y + kRotateHintRise, hint, ui_colors_[kUiColorText]);
     }

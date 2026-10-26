@@ -295,3 +295,14 @@ hacks:
     icon-categories: 9
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `megamap.toggle` | `Tab` | The megamap on or off |
+| `megamap.open-wheel` | `WheelDown` | Opens the megamap |
+| `megamap.close-wheel` | `WheelUp` | Closes the megamap and centres on the pointer |
+| `megamap.jump` | `—` | Jumps the view to a point of the megamap |
+<!-- END GENERATED: keys -->

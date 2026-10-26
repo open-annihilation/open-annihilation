@@ -245,11 +245,24 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         return;
     if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::match) {
         // ui.megamap takes the wheel, which acts only with the Mouse wheel
-        // zoom setting off (megamap_on).
+        // zoom setting off (megamap_on). The open and close actions name the
+        // direction. The wheel is still taken when neither fired, so it does
+        // not zoom the battlefield.
         if (megamap_on()) {
             if (sdl_.renderer != nullptr && !convert_event_to_frame(sdl_.renderer, event))
                 return;
-            std::ignore = megamap_wheel(event.wheel.y, event.wheel.mouse_x, event.wheel.mouse_y);
+            // One notch is one press. The wheel event opens or closes once.
+            const auto wheeled = [&](std::string_view id) {
+                for (const oa::ui::key_bindings::ActionEvent& fed : match_action_events()) {
+                    if (fed.action == id && fed.phase == oa::ui::key_bindings::Phase::pressed)
+                        return true;
+                }
+                return false;
+            };
+            if (wheeled("megamap.open-wheel"))
+                std::ignore = megamap_wheel(-1.0F, event.wheel.mouse_x, event.wheel.mouse_y);
+            else if (wheeled("megamap.close-wheel"))
+                std::ignore = megamap_wheel(1.0F, event.wheel.mouse_x, event.wheel.mouse_y);
             return;
         }
         // With the Mouse wheel zoom setting off the wheel does nothing here.

@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// ui.megamap in a running match: Tab and the wheel open and close it; open,
+// ui.megamap in a running match: its toggle and the wheel open and close it; open,
 // it draws the whole map over the battlefield with small pictures of its
 // indestructible features, the sight shading, the category icons of the
 // units the minimap shows and the selection's sensor rings; its clicks act
@@ -344,8 +344,8 @@ void Runtime::set_megamap_open(bool open) {
     play_match_interface_sound(open ? kOpenSound : kCloseSound);
 }
 
-bool Runtime::megamap_key(const SDL_KeyboardEvent& key) {
-    if (!megamap_on() || key.key != SDLK_TAB)
+bool Runtime::take_megamap_toggle(const SDL_KeyboardEvent& key) {
+    if (!megamap_on() || key.repeat || !action_key_matches("megamap.toggle", key))
         return false;
     set_megamap_open(!megamap_open_);
     return true;
@@ -609,9 +609,11 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
                          x < static_cast<float>(area.x + area.width) &&
                          y < static_cast<float>(area.y + area.height) && !placed_hud_covers(x, y) &&
                          !hovered_;
+    const uint8_t select_button = match_select_button();
+    const uint8_t command_button = match_command_button();
     const bool held_by_panel =
         event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && match_paused_ &&
-        !(event.button.button == SDL_BUTTON_RIGHT && right_press_beside_menu(x, y));
+        !(event.button.button == command_button && right_press_beside_menu(x, y));
     if ((!in_area || held_by_panel) && !(state.pressed && event.type == SDL_EVENT_MOUSE_BUTTON_UP))
         return false;
     auto& world = match_->state();
@@ -625,12 +627,12 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
     // battlefield's.
     record_pointer_event(event);
     const auto ground = [&] { return megamap_ground(x, y); };
-    if (event.button.button == SDL_BUTTON_RIGHT) {
+    if (event.button.button == command_button && command_button != select_button) {
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
             megamap_right_press(state.hovered, ground());
         return true;
     }
-    if (event.button.button != SDL_BUTTON_LEFT)
+    if (event.button.button != select_button)
         return true;
     const bool shift = (input_modifiers(ModifierUse::selection) & SDL_KMOD_SHIFT) != 0;
     if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN) {

@@ -311,8 +311,7 @@ void Runtime::check_click_snap() {
         fail(
             "a RECLAIM click with Alt held one cell beside " + wreck_text + " gave order kind " +
             std::to_string(queue.front().kind) + " at " +
-            cell_text(queue.front().destination[0] >> 20, queue.front().destination[2] >> 20) +
-            " (snap override key " + std::to_string(view_settings_.snap_override_key) + ")"
+            cell_text(queue.front().destination[0] >> 20, queue.front().destination[2] >> 20)
         );
     // Beyond the radius nothing snaps.
     match_->stop_orders(commander);

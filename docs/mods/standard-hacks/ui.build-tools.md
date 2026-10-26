@@ -237,3 +237,14 @@ hacks:
   ui.build-tools: true
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `build.line` | `@KeyX` | Held while placing: drag lays a line, a click rings a unit |
+| `build.spacing-up` | `PageUp, WheelUp` | Raises the spacing of a build line |
+| `build.spacing-down` | `PageDown, WheelDown` | Lowers the spacing of a build line |
+| `build.snap-override` | `Alt` | Held: no mex or wreck snap, and drag queued orders |
+<!-- END GENERATED: keys -->

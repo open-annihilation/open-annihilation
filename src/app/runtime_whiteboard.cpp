@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // ui.whiteboard in a running match: drawing, moving, writing and erasing
-// marks while the whiteboard key is held, Ctrl and the key to the newest
+// marks while the draw action is held, the jump action to the newest
 // received marker, drawing the marks, and the batches network play carries.
 
 #include "oa/app/runtime.hpp"
-#include "device_state.hpp"
 #include "oa/formats/fnt.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/present/typed_text.hpp"
@@ -27,9 +26,8 @@ namespace oa::app {
 namespace {
 
 namespace hud = oa::ui::hud;
+namespace keys = oa::ui::key_bindings;
 
-/// The key held to draw: the backslash key.
-constexpr SDL_Scancode kWhiteboardScancode = SDL_SCANCODE_BACKSLASH;
 /// Map pixels past the view's edges that lines are still drawn within.
 constexpr int32_t kLineMargin = 75;
 /// Bytes a marker's game text holds.
@@ -37,10 +35,6 @@ constexpr std::size_t kMarkerTextLimit = 64;
 /// The rows a marker's text line takes where the game's label font has not
 /// loaded.
 constexpr int32_t kMarkerTextFallbackRows = 12;
-
-bool whiteboard_key_held() {
-    return device_state::key_held(kWhiteboardScancode);
-}
 
 } // namespace
 
@@ -76,7 +70,7 @@ std::array<int32_t, 2> Runtime::battlefield_map_point(float x, float y) const {
 bool Runtime::whiteboard_pointer(const SDL_Event& event, float x, float y) {
     auto& input = whiteboard_input_;
     const bool busy = input.drawing || input.erasing || input.moving >= 0;
-    if (!whiteboard_on() || (!busy && !whiteboard_key_held()))
+    if (!whiteboard_on() || (!busy && !action_held("whiteboard.draw")))
         return false;
     // A stroke starts in the overlays' area (the battlefield, or with the
     // touch controls on, the part of it they leave clear), not on a touch
@@ -100,71 +94,80 @@ bool Runtime::whiteboard_pointer(const SDL_Event& event, float x, float y) {
         } else if (input.erasing) {
             hud::whiteboard_area_erase(whiteboard_, point[0], point[1]);
         }
-        return busy || whiteboard_key_held();
-    case SDL_EVENT_MOUSE_BUTTON_DOWN:
-        if (event.button.button == SDL_BUTTON_LEFT) {
-            if (event.button.clicks >= 2 && event.button.clicks % 2 == 0) {
-                // A double-click writes on the marker under it, or places one.
-                input.drawing = false;
-                const auto at = hud::whiteboard_marker_at(whiteboard_, point[0], point[1]);
-                input.editing = true;
-                input.editing_marker = at >= 0;
-                input.edit_x =
-                    at >= 0 ? whiteboard_.markers[static_cast<std::size_t>(at)].x : point[0];
-                input.edit_y =
-                    at >= 0 ? whiteboard_.markers[static_cast<std::size_t>(at)].y : point[1];
-                // The marker's game text is edited as the characters it holds.
-                input.edit_text = at >= 0
-                                      ? oa::present::decode_game_text(
+        return busy || action_held("whiteboard.draw");
+    case SDL_EVENT_MOUSE_BUTTON_DOWN: {
+        const uint8_t button = event.button.button;
+        const bool doubled = event.button.clicks >= 2 && event.button.clicks % 2 == 0;
+        if (doubled &&
+            action_button_matches("whiteboard.text", button, keys::Gesture::double_press)) {
+            // A double-click writes on the marker under it, or places one.
+            input.drawing = false;
+            const auto at = hud::whiteboard_marker_at(whiteboard_, point[0], point[1]);
+            input.editing = true;
+            input.editing_marker = at >= 0;
+            input.edit_x = at >= 0 ? whiteboard_.markers[static_cast<std::size_t>(at)].x : point[0];
+            input.edit_y = at >= 0 ? whiteboard_.markers[static_cast<std::size_t>(at)].y : point[1];
+            // The marker's game text is edited as the characters it holds.
+            input.edit_text = at >= 0 ? oa::present::decode_game_text(
                                             whiteboard_.markers[static_cast<std::size_t>(at)].text,
                                             game_text_utf8()
                                         )
                                       : "";
-                // The marker's text box: from the dot's corner, a line of
-                // the label font tall with the dot, across the rest of the
-                // overlays' area.
-                const oa::formats::fnt::Font* font = match_label_font();
-                const int32_t text_rows =
-                    font != nullptr ? static_cast<int32_t>(oa::formats::fnt::line_height(*font))
-                                    : kMarkerTextFallbackRows;
-                const int32_t half = hud::kWhiteboardDotSide / 2;
-                const auto box_left = static_cast<int32_t>(x) - half;
-                const auto box_top = static_cast<int32_t>(y) - half;
-                start_text_input(
-                    oa::ui::display_layout::Rect{
-                        box_left,
-                        box_top,
-                        std::max(area.x + area.width - box_left, hud::kWhiteboardDotSide),
-                        text_rows + hud::kWhiteboardDotSide,
-                    }
-                );
-                return true;
-            }
+            // The marker's text box: from the dot's corner, a line of
+            // the label font tall with the dot, across the rest of the
+            // overlays' area.
+            const oa::formats::fnt::Font* font = match_label_font();
+            const int32_t text_rows =
+                font != nullptr ? static_cast<int32_t>(oa::formats::fnt::line_height(*font))
+                                : kMarkerTextFallbackRows;
+            const int32_t half = hud::kWhiteboardDotSide / 2;
+            const auto box_left = static_cast<int32_t>(x) - half;
+            const auto box_top = static_cast<int32_t>(y) - half;
+            start_text_input(
+                oa::ui::display_layout::Rect{
+                    box_left,
+                    box_top,
+                    std::max(area.x + area.width - box_left, hud::kWhiteboardDotSide),
+                    text_rows + hud::kWhiteboardDotSide,
+                }
+            );
+            return true;
+        }
+        if (doubled &&
+            action_button_matches("whiteboard.erase", button, keys::Gesture::double_press)) {
+            input.erasing = false;
+            hud::whiteboard_spot_erase(whiteboard_, point[0], point[1]);
+            return true;
+        }
+        if (action_button_matches("whiteboard.move", button, keys::Gesture::press) ||
+            action_button_matches("whiteboard.line", button, keys::Gesture::press)) {
             const auto at = hud::whiteboard_marker_at(whiteboard_, point[0], point[1]);
-            if (at >= 0) {
+            if (at >= 0 && action_button_matches("whiteboard.move", button, keys::Gesture::press)) {
                 input.moving = at;
                 input.from_x = whiteboard_.markers[static_cast<std::size_t>(at)].x;
                 input.from_y = whiteboard_.markers[static_cast<std::size_t>(at)].y;
-            } else {
+            } else if (action_button_matches("whiteboard.line", button, keys::Gesture::press)) {
                 input.drawing = true;
                 input.last_x = point[0];
                 input.last_y = point[1];
+            } else {
+                return false;
             }
             return true;
         }
-        if (event.button.button == SDL_BUTTON_RIGHT) {
-            if (event.button.clicks >= 2 && event.button.clicks % 2 == 0) {
-                input.erasing = false;
-                hud::whiteboard_spot_erase(whiteboard_, point[0], point[1]);
-                return true;
-            }
+        if (action_button_matches("whiteboard.wipe", button, keys::Gesture::press)) {
             input.erasing = true;
             hud::whiteboard_area_erase(whiteboard_, point[0], point[1]);
             return true;
         }
-        return event.button.button == SDL_BUTTON_MIDDLE;
-    case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (event.button.button == SDL_BUTTON_LEFT) {
+        // The dot's press is taken so the battlefield does not see it. The
+        // dot itself is placed when the button comes up.
+        return action_button_matches("whiteboard.dot", button, keys::Gesture::press);
+    }
+    case SDL_EVENT_MOUSE_BUTTON_UP: {
+        const uint8_t button = event.button.button;
+        if (action_button_matches("whiteboard.line", button, keys::Gesture::press) ||
+            action_button_matches("whiteboard.move", button, keys::Gesture::press)) {
             if (input.moving >= 0)
                 std::ignore = hud::whiteboard_move_marker(
                     whiteboard_, input.from_x, input.from_y, point[0], point[1]
@@ -173,22 +176,23 @@ bool Runtime::whiteboard_pointer(const SDL_Event& event, float x, float y) {
             input.drawing = false;
             return true;
         }
-        if (event.button.button == SDL_BUTTON_RIGHT) {
+        if (action_button_matches("whiteboard.wipe", button, keys::Gesture::press)) {
             input.erasing = false;
             return true;
         }
-        if (event.button.button == SDL_BUTTON_MIDDLE) {
-            // The middle button's release places a dot.
+        if (action_button_matches("whiteboard.dot", button, keys::Gesture::press)) {
+            // The dot action's chord is a press. The mark is placed on release.
             hud::whiteboard_place_marker(whiteboard_, point[0], point[1], color, "");
             return true;
         }
         return false;
+    }
     default:
         return false;
     }
 }
 
-bool Runtime::whiteboard_key(const SDL_KeyboardEvent& key) {
+bool Runtime::take_whiteboard_chord(const SDL_KeyboardEvent& key) {
     if (!match_ || !ui_rules().whiteboard.enabled)
         return false;
     auto& input = whiteboard_input_;
@@ -210,17 +214,19 @@ bool Runtime::whiteboard_key(const SDL_KeyboardEvent& key) {
             input.edit_text.erase(oa::present::last_character_start(input.edit_text));
         return true;
     }
-    if (key.scancode != kWhiteboardScancode || !whiteboard_on())
+    if (!whiteboard_on() || key.repeat)
         return false;
-    // Ctrl and the key go to the newest marker another player placed.
-    if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0 &&
-        whiteboard_.received_marker)
-        set_camera_position(
-            whiteboard_.received_x - visible_map_width() / 2,
-            whiteboard_.received_y - visible_map_height() / 2,
-            0
-        );
-    return true;
+    // The jump chord goes to the newest marker another player placed.
+    if (action_key_matches("whiteboard.jump", key)) {
+        if (whiteboard_.received_marker)
+            set_camera_position(
+                whiteboard_.received_x - visible_map_width() / 2,
+                whiteboard_.received_y - visible_map_height() / 2,
+                0
+            );
+        return true;
+    }
+    return action_key_matches("whiteboard.draw", key);
 }
 
 bool Runtime::whiteboard_text(const SDL_Event& event) {

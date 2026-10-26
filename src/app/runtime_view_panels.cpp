@@ -378,27 +378,39 @@ bool Runtime::resource_panel_pointer(const SDL_Event& event, float x, float y) {
         panel.drag_y = point.y;
         return true;
     }
-    if (event.button.button != SDL_BUTTON_LEFT)
-        return false;
     if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-        if (!panel.dragging)
+        if (event.button.button != match_select_button() || !panel.dragging)
             return false;
         panel.dragging = false;
         return true;
     }
+    if (event.type != SDL_EVENT_MOUSE_BUTTON_DOWN)
+        return false;
     const auto& world = match_->state();
     const bool watching = local_player_watches();
     const auto rows = hud::resource_panel_rows(world, watching, shared_views_);
     const auto hit = hud::resource_panel_hit(panel, rows, point.x, point.y);
     if (!hit.inside)
         return false;
-    if (event.button.clicks >= 2 && event.button.clicks % 2 == 0) {
+    // A double-click on a row is the watch actions. The button is whichever
+    // chord those actions name. A switch the panel declines falls through to
+    // a drag on the select button.
+    bool watch_row = false;
+    for (const oa::ui::key_bindings::ActionEvent& fed : match_action_events()) {
+        if (fed.phase != oa::ui::key_bindings::Phase::double_press)
+            continue;
+        if (fed.action == "watch.player-view" || fed.action == "watch.lock-view")
+            watch_row = true;
+    }
+    if (watch_row) {
         const auto change = hud::resource_panel_view_switch(panel, rows, hit, watching);
         if (change != hud::ViewSwitch::none) {
             switch_watched_view(change);
             return true;
         }
     }
+    if (event.button.button != match_select_button())
+        return false;
     panel.dragging = true;
     panel.drag_x = point.x;
     panel.drag_y = point.y;

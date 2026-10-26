@@ -5,7 +5,6 @@
 // double-click, Ctrl+S, Ctrl+B, Ctrl+F and the W, B and Y drag-box filters.
 
 #include "oa/app/runtime.hpp"
-#include "device_state.hpp"
 #include "oa/sim/selection/shortcuts.hpp"
 
 #include <array>
@@ -18,15 +17,6 @@ namespace {
 
 namespace selection = oa::sim::selection;
 
-/// The key that stops a double-click selecting while it is held: the line
-/// build tool's (ui.build-tools), X unless the player chose another.
-constexpr SDL_Scancode kLineBuildScancode = SDL_SCANCODE_X;
-
-/// Tells whether a scancode is held now.
-bool scancode_held(SDL_Scancode code) {
-    return device_state::key_held(code);
-}
-
 } // namespace
 
 bool Runtime::selection_shortcuts_on() const {
@@ -38,7 +28,7 @@ bool Runtime::selection_shortcut_double_click(float x, float y, int32_t clicks) 
     if (!selection_shortcuts_on() || clicks < 2 || clicks % 2 != 0 || match_paused_ ||
         megamap_open_)
         return false;
-    if (scancode_held(kLineBuildScancode) || !battlefield_contains(x, y))
+    if (action_held("build.line") || !battlefield_contains(x, y))
         return false;
     update_pointer(x, y);
     auto& world = match_->state();
@@ -60,10 +50,8 @@ bool Runtime::selection_shortcut_double_click(float x, float y, int32_t clicks) 
     return true;
 }
 
-bool Runtime::selection_shortcut_key(SDL_Keycode sym, bool shift) {
+bool Runtime::selection_shortcut_key(SelectionShortcut which, bool shift) {
     if (!selection_shortcuts_on() || shift)
-        return false;
-    if (sym != SDLK_S && sym != SDLK_B && sym != SDLK_F)
         return false;
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;
@@ -76,7 +64,7 @@ bool Runtime::selection_shortcut_key(SDL_Keycode sym, bool shift) {
     );
     const auto hooks = selection_hooks();
     selected_match_unit_ = 0;
-    if (sym == SDLK_S) {
+    if (which == SelectionShortcut::on_screen) {
         std::ignore =
             selection::select_mobile_combat_on_screen(world, on_screen_lists(), *sets, hooks);
     } else {
@@ -89,7 +77,7 @@ bool Runtime::selection_shortcut_key(SDL_Keycode sym, bool shift) {
                 return -1;
             return head[0].kind;
         };
-        if (sym == SDLK_B)
+        if (which == SelectionShortcut::idle_builders)
             std::ignore =
                 selection::cycle_idle_constructor(world, *sets, idle_cycle_, hooks, shortcuts);
         else
@@ -104,7 +92,9 @@ void Runtime::selection_shortcut_drag_filter() {
     if (!selection_shortcuts_on())
         return;
     const auto filter = selection::drag_filter(
-        scancode_held(SDL_SCANCODE_W), scancode_held(SDL_SCANCODE_B), scancode_held(SDL_SCANCODE_Y)
+        action_held("select.box-combat"),
+        action_held("select.box-builders"),
+        action_held("select.box-factories")
     );
     if (filter == selection::DragFilter::none)
         return;

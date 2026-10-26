@@ -779,10 +779,10 @@ void Runtime::check_visual_rule_overlays(
         const auto middle_y =
             static_cast<float>(match_layout_.top + match_layout_.battlefield_height() / 2);
         set_wheel_zoom(true);
-        if (megamap_key(tab) || megamap_wheel(-1.0F, middle_x, middle_y) || megamap_open_)
+        if (take_megamap_toggle(tab) || megamap_wheel(-1.0F, middle_x, middle_y) || megamap_open_)
             fail("the megamap opened with the Mouse wheel zoom setting on");
         set_wheel_zoom(false);
-        if (!megamap_key(tab) || !megamap_shown())
+        if (!take_megamap_toggle(tab) || !megamap_shown())
             fail("Tab did not open the megamap with the Mouse wheel zoom setting off");
         auto chosen = engine_settings();
         chosen.wheel_zoom = true;

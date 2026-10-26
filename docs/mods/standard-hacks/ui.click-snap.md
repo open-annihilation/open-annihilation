@@ -191,3 +191,11 @@ hacks:
     wreck-max: 1
 ```
 <!-- END GENERATED: schema -->
+
+## Keys
+
+<!-- BEGIN GENERATED: keys -->
+| Action | Default chords | What it does |
+| --- | --- | --- |
+| `build.snap-override` | `Alt` | Held: no mex or wreck snap, and drag queued orders |
+<!-- END GENERATED: keys -->
