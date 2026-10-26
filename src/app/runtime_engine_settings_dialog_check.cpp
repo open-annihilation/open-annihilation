@@ -469,6 +469,32 @@ std::string_view label_of(settings::Setting setting) {
         return "Key layout with Ridge";
     case settings::Setting::show_keys_on_buttons:
         return "Show keys on buttons";
+    case settings::Setting::latching:
+        return "Hold keys that latch";
+    case settings::Setting::sticky_modifiers:
+        return "Sticky modifiers";
+    case settings::Setting::hold_to_confirm:
+        return "Hold to confirm";
+    case settings::Setting::long_press:
+        return "Long press";
+    case settings::Setting::slow_keys:
+        return "Slow keys";
+    case settings::Setting::bounce_keys:
+        return "Bounce keys";
+    case settings::Setting::order_wheel:
+        return "Order wheel";
+    case settings::Setting::pointer_keys:
+        return "Pointer keys";
+    case settings::Setting::double_press:
+        return "Double press";
+    case settings::Setting::repeat_delay:
+        return "Key repeat delay";
+    case settings::Setting::repeat_rate:
+        return "Key repeat rate";
+    case settings::Setting::drag_threshold:
+        return "Drag threshold";
+    case settings::Setting::edge_scroll:
+        return "Edge scrolling";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:
