@@ -18436,6 +18436,8 @@ class Runtime final : public menu::Host,
     std::vector<std::string> spawn_type_names_;
     // Build page button captions by gadget index (the queued counts).
     std::vector<std::string> build_captions_;
+    // Five sides stay in the table itself. A mod that loads more keeps the
+    // rest beside them, sized to the sides that load read.
     oa::data::defs::SideTable side_table_{};
     /// SHA-256 of the gamedata/sidedata.tdf bytes the run read. All zero when the file was missing.
     oa::base::sha256::Digest side_data_digest_{};

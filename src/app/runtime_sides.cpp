@@ -76,7 +76,7 @@ const oa::Unit* live_side_commander(oa::World& world, uint8_t index) {
 std::string side_file_report(
     const oa::data::defs::SideTable& table, const oa::data::defs::SideMissingFile& missing
 ) {
-    const auto& name = table.sides[missing.side].name;
+    const auto& name = oa::data::defs::side_at(table, missing.side)->name;
     return std::string(missing.path) + ", which GAMEDATA/SIDEDATA.TDF names for the " +
            std::string(name, strnlen(name, sizeof name)) + " side, is missing";
 }
@@ -137,7 +137,7 @@ void log_match_sides(const oa::data::defs::SideTable& table) {
     for (uint32_t side = 0; side < table.count; ++side) {
         if (side != 0)
             std::cerr << ", ";
-        const auto& name = table.sides[side].commander;
+        const auto& name = oa::data::defs::side_at(table, side)->commander;
         std::cerr << std::string_view(name, strnlen(name, sizeof name));
     }
     std::cerr << '\n';
@@ -185,10 +185,8 @@ void Runtime::load_side_table() {
     std::vector<std::string> side_names;
     side_names.reserve(side_table_.count);
     for (uint32_t index = 0; index < side_table_.count; ++index) {
-        const char* side_name = side_table_.sides[index].name;
-        side_names.emplace_back(
-            side_name, ::strnlen(side_name, sizeof side_table_.sides[index].name)
-        );
+        const oa::Side* record = oa::data::defs::side_at(side_table_, index);
+        side_names.emplace_back(record->name, ::strnlen(record->name, sizeof record->name));
     }
     oa::ui::frontend_multiplayer::multiplayer_bind_side_names(side_names);
 }
@@ -302,7 +300,9 @@ std::vector<std::string> Runtime::saved_game_side_names() const {
     char names[oa::data::defs::side_table_capacity][campaign::kSideNameBytes] = {};
     const auto count = std::min<uint32_t>(side_table_.count, oa::data::defs::side_table_capacity);
     for (uint32_t side = 0; side < count; ++side)
-        std::memcpy(names[side], side_table_.sides[side].name, campaign::kSideNameBytes);
+        std::memcpy(
+            names[side], oa::data::defs::side_at(side_table_, side)->name, campaign::kSideNameBytes
+        );
     // The dialogs' side list: the names one after another, each ended by a
     // NUL, and one more NUL after the last.
     // The list is read to its closing NUL, so its length is not needed.
@@ -315,7 +315,8 @@ std::vector<std::string> Runtime::saved_game_side_names() const {
 }
 
 void Runtime::bind_player_records(oa::World& world) {
-    match_->bind_sides(side_table_.sides, side_table_.count);
+    const std::vector<oa::Side> records = oa::data::defs::side_records(side_table_);
+    match_->bind_sides(records, side_table_.count);
     for (uint32_t slot = 0; slot < OA_PLAYER_RECORD_COUNT; ++slot) {
         oa::PlayerSetupInfo& info = world.player_info[slot];
         info = {};
@@ -479,7 +480,8 @@ void Runtime::check_player_records(std::string_view context) {
     for (uint32_t side = 0; side < oa::world_side_count(&world); ++side) {
         const oa::Side* record = oa::world_side(&world, side);
         if (record == nullptr ||
-            std::strcmp(record->commander, side_table_.sides[side].commander) != 0)
+            std::strcmp(record->commander, oa::data::defs::side_at(side_table_, side)->commander) !=
+                0)
             throw std::runtime_error(
                 label + " player check: Game.sides " + std::to_string(side) +
                 " does not name its SIDEDATA commander"
