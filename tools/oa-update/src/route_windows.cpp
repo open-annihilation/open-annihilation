@@ -717,9 +717,7 @@ ElevatedRelaunch relaunch_elevated_plan(const fs::path& plan_file) {
 #else
     const fs::path helper = this_program();
     const std::wstring file = helper.wstring();
-    const std::vector<std::string> arguments{
-        "--elevated-swap", "--plan", utf8_of(plan_file)
-    };
+    const std::vector<std::string> arguments{"--elevated-swap", "--plan", utf8_of(plan_file)};
     const std::wstring parameters = wide_from_utf8(join_quoted(arguments));
     const std::wstring verb = verb_wide("runas");
     const ShellWait ran = file.empty() ? ShellWait{} : shell_w(verb, file, parameters);
@@ -891,9 +889,8 @@ windows_folder_operations(const update::Plan& plan, const fs::path& staged, std:
     return operations;
 }
 
-std::vector<Operation> windows_folder_restore(
-    const update::State& state, const fs::path& install, std::string* why
-) {
+std::vector<Operation>
+windows_folder_restore(const update::State& state, const fs::path& install, std::string* why) {
     if (why != nullptr)
         why->clear();
     const fs::path kept = path_from(state.kept_path);

@@ -1280,8 +1280,7 @@ void update_feed_options() {
             "--roll-back-reason must be failed-starts or player",
         "--roll-back-reason refuses an unknown reason"
     );
-    const auto back =
-        parse({"--rolled-back-from", "0.8.4", "--roll-back-reason", "failed-starts"});
+    const auto back = parse({"--rolled-back-from", "0.8.4", "--roll-back-reason", "failed-starts"});
     expect(
         back.rolled_back_from && *back.rolled_back_from == "0.8.4" &&
             back.roll_back_reason == "failed-starts",

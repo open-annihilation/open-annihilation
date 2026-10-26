@@ -122,10 +122,7 @@ bool deck_session() {
 }
 
 bool carry_run(
-    void*,
-    const fs::path& program,
-    const std::vector<std::string>& arguments,
-    std::string* error
+    void*, const fs::path& program, const std::vector<std::string>& arguments, std::string* error
 ) {
     const std::string name = utf8_of(program.filename());
     const std::string whole = utf8_of(program);
@@ -166,15 +163,15 @@ std::string read_bytes(const fs::path& path) {
 /// The preferences bytes a roll back writes: the copy, plus the bad release
 /// skipped, when the copy is a preferences file. A copy that cannot be read
 /// is put back unchanged.
-std::string preferences_after_roll_back(
-    const fs::path& copy, int64_t bad_release, Log& log
-) {
+std::string preferences_after_roll_back(const fs::path& copy, int64_t bad_release, Log& log) {
     const std::string raw = read_bytes(copy);
     try {
         oa::platform::preferences::Values values = oa::platform::preferences::load(copy);
         update::write_skipped(values, bad_release);
         const fs::path temporary = copy.parent_path() / "preferences-skipped.tmp";
-        oa::platform::preferences::save(temporary, values, oa::platform::preferences::SyncFolder::no);
+        oa::platform::preferences::save(
+            temporary, values, oa::platform::preferences::SyncFolder::no
+        );
         const std::string skipped = read_bytes(temporary);
         std::error_code io;
         fs::remove(temporary, io);
@@ -223,8 +220,11 @@ Started start_version(
     if (bundle) {
 #if defined(__APPLE__)
         started.ok = start_macos_bundle(
-            path_from(plan.install), arguments, add_updated_from ? from_version : std::string_view{},
-            &error, &started.pid
+            path_from(plan.install),
+            arguments,
+            add_updated_from ? from_version : std::string_view{},
+            &error,
+            &started.pid
         );
 #else
         error = "this route is not carried out";
@@ -233,7 +233,8 @@ Started start_version(
     }
     const fs::path program =
         linux ? path_from(plan.install) / "open-annihilation" : path_from(plan.program);
-    started.process = start_process(program, arguments, add_updated_from && !linux, from_version, &error);
+    started.process =
+        start_process(program, arguments, add_updated_from && !linux, from_version, &error);
     started.ok = started.process != nullptr;
     return started;
 }
@@ -704,25 +705,36 @@ int carry_out(
         const update::Plan* plan{};
         std::string* error{};
     };
+
     Again again{&plan, &error};
     const auto restart = [](void* context, SDL_Process** process, int* pid, std::string* failure) {
         auto* held = static_cast<Again*>(context);
-        Started next =
-            start_version(*held->plan, held->plan->arguments, true, held->plan->from_version, *failure);
+        Started next = start_version(
+            *held->plan, held->plan->arguments, true, held->plan->from_version, *failure
+        );
         if (!next.ok)
             return false;
         *process = next.process;
         *pid = next.pid;
         return true;
     };
-    const WatchTwo watched =
-        watch_two_starts(started.process, started.pid, updates / "state.json", restart, &again, &error);
+    const WatchTwo watched = watch_two_starts(
+        started.process, started.pid, updates / "state.json", restart, &again, &error
+    );
     if (watched == WatchTwo::confirmed)
         return exit_swapped;
     if (watched == WatchTwo::restart_failed && !error.empty())
         log.line(error);
     return restore_kept(
-        plan, updates, &plan_path, log, window, hooks, update::RollBackReason::failed_starts, true, true
+        plan,
+        updates,
+        &plan_path,
+        log,
+        window,
+        hooks,
+        update::RollBackReason::failed_starts,
+        true,
+        true
     );
 }
 

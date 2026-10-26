@@ -54,8 +54,8 @@ enum class Route : uint8_t {
 
 /// The plan the game writes and the helper reads.
 struct Plan {
-    int64_t plan{plan_format};          ///< the format, 1
-    Action action{Action::install};     ///< install, or roll back
+    int64_t plan{plan_format};      ///< the format, 1
+    Action action{Action::install}; ///< install, or roll back
     /// Why this is a roll back. Written only when it is not `none`, so an
     /// install plan keeps the bytes it had before roll back existed.
     RollBackReason roll_back_reason{RollBackReason::none};

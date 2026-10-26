@@ -29,9 +29,8 @@ enum class WatchEnd : uint8_t {
 /// @param pid a process id to poll; 0 polls nothing
 /// @param state_path the state file
 /// @return why the watch ended
-[[nodiscard]] WatchEnd watch_until_settled(
-    SDL_Process* process, int pid, const std::filesystem::path& state_path
-);
+[[nodiscard]] WatchEnd
+watch_until_settled(SDL_Process* process, int pid, const std::filesystem::path& state_path);
 
 /// How two watched starts ended.
 enum class WatchTwo : uint8_t {

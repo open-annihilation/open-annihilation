@@ -113,7 +113,9 @@ void names() {
         std::string_view(update::roll_back_reason_name(update::RollBackReason::player)) == "player"
     );
     OA_CHECK(std::string_view(update::roll_back_reason_name(update::RollBackReason::none)).empty());
-    OA_CHECK(update::parse_roll_back_reason("failed-starts") == update::RollBackReason::failed_starts);
+    OA_CHECK(
+        update::parse_roll_back_reason("failed-starts") == update::RollBackReason::failed_starts
+    );
     OA_CHECK(update::parse_roll_back_reason("player") == update::RollBackReason::player);
     OA_CHECK(!update::parse_roll_back_reason("install"));
     OA_CHECK(std::string_view(update::route_name(update::Route::check_folder)) == "check-folder");

@@ -2358,9 +2358,11 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
                    runtime->screen_ == Screen::match;
         };
         OaLayer& layer = oa_layer();
-        layer.push(std::make_unique<QuestionScreen>(
-            layer, Screen::main_menu, std::move(asked), std::move(host)
-        ));
+        layer.push(
+            std::make_unique<QuestionScreen>(
+                layer, Screen::main_menu, std::move(asked), std::move(host)
+            )
+        );
         return false;
     }
     case settings::DialogAction::download_language: {
