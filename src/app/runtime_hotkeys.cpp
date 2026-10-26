@@ -4,7 +4,9 @@
 // Match hotkeys, selection commands and overlays.
 #include "oa/app/runtime.hpp"
 #include "console_actions.hpp"
+#include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/app/view_rules.hpp"
 #include "oa/data/languages/translation.hpp"
 #include "oa/present/game_text.hpp"
@@ -24,7 +26,6 @@
 #include <SDL3/SDL.h>
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -130,37 +131,47 @@ constexpr const char* kUnitInfoArt = "anims/commongui.gaf";
 // font.
 constexpr int16_t kUnitInfoLabelHeight = 12;
 
-// Quick keys are ASCII characters below this one.
-constexpr SDL_Keycode kQuickKeyEnd = 0x7F;
-
-/// Returns whether a key types the quick key of a panel's named button.
-///
-/// Keys with Ctrl, Alt or the system key down type no character; a letter
-/// matches in either case.
-///
-/// @param gadgets the panel's records
-/// @param name the button's name
-/// @param key the key pressed
-/// @return true when the button holds a quick key and the key types it
-bool types_quick_key(
-    const std::vector<oa::ui::gui_layout::Gadget>& gadgets,
-    std::string_view name,
-    const SDL_KeyboardEvent& key
-) {
-    if ((key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0 || key.key == 0 ||
-        key.key >= kQuickKeyEnd)
-        return false;
-    const auto typed = std::tolower(static_cast<int>(key.key));
-    return std::any_of(
-        gadgets.begin(), gadgets.end(), [&](const oa::ui::gui_layout::Gadget& gadget) {
-            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
-            return button != nullptr && gadget.common.name == name && button->quick_key != 0 &&
-                   std::tolower(static_cast<unsigned char>(button->quick_key)) == typed;
-        }
-    );
-}
-
 } // namespace
+
+bool Runtime::press_shown_panel_action(std::string_view id, keys::Phase phase) {
+    if (phase != keys::Phase::pressed || !match_hud_)
+        return false;
+    const auto& gadgets = match_hud_->layout.gadgets;
+    const bool registry = id.starts_with("order.") || id.starts_with("panel.");
+    if (registry) {
+        const oa::data::input_actions::Action* entry = oa::data::input_actions::find(id);
+        if (entry == nullptr || entry->gadget.empty())
+            return false;
+        for (std::size_t gadget_index = 0; gadget_index < gadgets.size(); ++gadget_index) {
+            if (!std::holds_alternative<oa::ui::gui_layout::ButtonFields>(
+                    gadgets[gadget_index].fields
+                ))
+                continue;
+            if (order_action_id(gadgets[gadget_index].common.name) != id)
+                continue;
+            activate_match_hud(gadget_index);
+            return true;
+        }
+        return false;
+    }
+    if (!id.starts_with("gui."))
+        return false;
+    const std::string shown = shown_hud_stem();
+    if (shown.empty())
+        return false;
+    for (std::size_t gadget_index = 0; gadget_index < gadgets.size(); ++gadget_index) {
+        if (!std::holds_alternative<oa::ui::gui_layout::ButtonFields>(gadgets[gadget_index].fields))
+            continue;
+        const std::string_view name = gadgets[gadget_index].common.name;
+        if (!order_action_id(name).empty())
+            continue;
+        if (gui_action_id(shown, name) != id)
+            continue;
+        activate_match_hud(gadget_index);
+        return true;
+    }
+    return false;
+}
 
 bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     // Action ids are strings, so this is a chain of comparisons.
@@ -430,7 +441,7 @@ bool Runtime::handle_match_action(const keys::ActionEvent& action) {
     }
     if (id == "camera.classic-view" || id == "camera.unlocked")
         return answer_live_view_key(id);
-    return false;
+    return press_shown_panel_action(id, action.phase);
 }
 
 bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
@@ -503,13 +514,18 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
     if (match_paused_ && key.key == SDLK_RETURN && enter_match_menu())
         return true;
     // The unit info panel's Enter and Escape defaults are both DONE, and so
-    // is its quick key, OK's O.
-    if (unit_info_panel_ &&
-        (key.key == SDLK_RETURN || key.key == SDLK_ESCAPE ||
-         (unit_info_panel_->screen &&
-          types_quick_key(unit_info_panel_->screen->layout.gadgets, kUnitInfoDone, key)))) {
-        press_unit_info_done();
-        return true;
+    // is that button's gui action.
+    if (unit_info_panel_) {
+        const std::string done_action = gui_action_id("UNITINFOx", kUnitInfoDone);
+        bool done_pressed = false;
+        for (const keys::ActionEvent& fed : events) {
+            if (fed.phase == keys::Phase::pressed && fed.action == done_action)
+                done_pressed = true;
+        }
+        if (key.key == SDLK_RETURN || key.key == SDLK_ESCAPE || done_pressed) {
+            press_unit_info_done();
+            return true;
+        }
     }
     // The in-game menu's and the tab menu's panels, and the preferences a
     // match opens, take the keys they answer while they hold the keyboard.
@@ -538,28 +554,6 @@ bool Runtime::handle_match_hotkey(const SDL_KeyboardEvent& key) {
             continue;
         if (handle_match_action(fed))
             return true;
-    }
-    // A Ctrl chord the actions do not name is not a quick key.
-    if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0)
-        return false;
-    // A button whose quick key is the typed letter in either case
-    // is clicked (ATTACK 'a', BLAST 'd', STOP 's', ...); while the unit info
-    // panel is open the side column's buttons take no key, as they take no
-    // press.
-    const auto sym = key.key;
-    if (match_hud_ && sym < 0x80 && !unit_info_panel_) {
-        const auto typed = std::tolower(static_cast<int>(sym));
-        for (std::size_t i = 0; i < match_hud_->layout.gadgets.size(); ++i) {
-            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(
-                &match_hud_->layout.gadgets[i].fields
-            );
-            if (button == nullptr || button->quick_key == 0)
-                continue;
-            if (std::tolower(static_cast<unsigned char>(button->quick_key)) == typed) {
-                activate_match_hud(i);
-                return true;
-            }
-        }
     }
     return false;
 }
@@ -1041,21 +1035,10 @@ bool Runtime::open_unit_info() {
         return false;
     }
     // The panel is drawn once, its picture copied at HOTR at its own size.
-    // Each button shows the quick key its caption gives it on the panel's
-    // first draw, underlined: OK's O.
+    // Each button shows the letter its caption gives it on the panel's
+    // first draw, underlined.
     auto& panel = *unit_info_panel_;
-    std::vector<renderer::ButtonPresentation> buttons;
-    auto& gadgets = panel.screen->layout.gadgets;
-    for (std::size_t index = 0; index < gadgets.size(); ++index) {
-        assign_button_quick_key(gadgets, index);
-        if (const auto* button =
-                std::get_if<oa::ui::gui_layout::ButtonFields>(&gadgets[index].fields)) {
-            renderer::ButtonPresentation shown;
-            shown.name = gadgets[index].common.name;
-            shown.quick_key = static_cast<char>(button->quick_key);
-            buttons.push_back(std::move(shown));
-        }
-    }
+    auto buttons = unit_info_button_presentations(panel.screen->layout.gadgets);
     try {
         panel.frame = renderer::render_screen(*panel.screen, buttons);
     } catch (const std::exception& error) {

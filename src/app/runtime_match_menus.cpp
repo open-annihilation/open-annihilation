@@ -29,6 +29,7 @@
 #include "oa/ui/console/hotkeys.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/app/runtime.hpp"
+#include "gui_actions.hpp"
 #include "panel_first_draw.hpp"
 #include "oa/base/text/line_break.hpp"
 #include "oa/ui/hud/resource_bar.hpp"
@@ -431,7 +432,7 @@ void panel_to_widgets(
         if (auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields)) {
             button->status = control.group_value;
             button->grayed_out = control.grayed != 0;
-            button->quick_key = control.quick_key;
+            copy_button_letter(*button, control);
             if (!text.empty() || button->stages <= 1)
                 button->text = text;
             const auto name = std::string(ui::control_name(control));
@@ -3327,8 +3328,8 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         match_menu_session().ingame_panel == IngamePanel::exit_confirm && !team_panel_open();
     // The in-game menu and the tab menu give the panels the keyboard. The
     // surrender confirmation a close request opens over the running match
-    // has no keyboard focus, but takes its quick keys, Y and N in English,
-    // as the confirmation asked from the menu does.
+    // has no keyboard focus, but takes the keys its buttons show, as the
+    // confirmation asked from the menu does.
     const bool keyboard =
         match_panels_keyboard_ || match_hud_panel_ == oa::data::defs::gui_path(kPreferencesLayout);
     if (!keyboard && !confirming)
@@ -3365,25 +3366,30 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         if (left == 0)
             return true;
     }
-    // A key the dispatch leaves presses the first active button whose quick
-    // key it is in either case; a grayed-out button takes no key and passes
-    // it on.
-    const auto character = enter    ? gui_input::key_code::enter
-                           : escape ? gui_input::key_code::escape
-                                    : static_cast<int32_t>(key.key);
-    if (character <= 0 || character >= 0x7F)
+    // A key the dispatch leaves presses the first active, ungreyed button
+    // whose gui action this key started. A grayed button takes no key and
+    // passes it on. The typed character is kept so it reaches no chat line
+    // and no marker.
+    if (key.key <= 0 || key.key >= 0x7F)
         return false;
-    const auto typed = std::tolower(character);
-    for (std::size_t index = 1; index < gadgets.size(); ++index) {
-        const auto& gadget = gadgets[index];
-        const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
-        if (gadget.common.active == 0 || button == nullptr || button->grayed_out ||
-            button->quick_key == 0 ||
-            std::tolower(static_cast<unsigned char>(button->quick_key)) != typed)
+    const std::string shown = shown_hud_stem();
+    if (shown.empty())
+        return false;
+    const auto panel_events = match_action_events();
+    for (const oa::ui::key_bindings::ActionEvent& fed : panel_events) {
+        if (fed.phase != oa::ui::key_bindings::Phase::pressed || !fed.action.starts_with("gui."))
             continue;
-        answered_key_ = typed;
-        activate_match_hud(index);
-        return true;
+        for (std::size_t gadget_index = 1; gadget_index < gadgets.size(); ++gadget_index) {
+            const auto& gadget = gadgets[gadget_index];
+            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+            if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
+                continue;
+            if (gui_action_id(shown, gadget.common.name) != fed.action)
+                continue;
+            answered_key_ = static_cast<int32_t>(std::tolower(static_cast<int>(key.key)));
+            activate_match_hud(gadget_index);
+            return true;
+        }
     }
     return false;
 }
