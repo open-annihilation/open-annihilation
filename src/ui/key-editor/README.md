@@ -51,11 +51,11 @@ On the list, Up and Down move the chosen row, Page Up and Page Down move by the 
 - `set_latch` and `set_confirm` write the draft's helpers. Turning one latch on while the helper was unset writes a list of just that action. Turning one confirm off while it was unset writes every confirmable action except that one.
 - `set_number_keys` is SwitchAlt. It is saved with the layout and is not one of the own changes the summary counts.
 - `choose_layout` chooses a base. Setting the changes aside clears the draft and leaves the previous own folder for the host to leave untouched. `duplicate` makes a new layout from the current one. An empty name does nothing. `rename` renames the chosen layout. OA default is not renamed.
-- `changes` counts the draft's bindings and helpers. `unsaved` counts those and a layout that was chosen, duplicated or renamed, and the number-keys switch. `clashes` is how many clashing pairs the bindings in use have. `can_save` is false while any remain. `result` is the manifest to write, SwitchAlt, and any layout just made or renamed.
+- `changes` counts the draft's bindings and helpers. `unsaved` counts those and a layout that was chosen, duplicated or renamed, and the number-keys switch. `clashes` is how many clashing pairs the bindings in use have, including a clash that lives only in the mod's data. `draft_clashes` counts the pairs that name an action the draft binds. `can_save` is false while `draft_clashes` is not zero. `result` is the manifest to write, SwitchAlt, and any layout just made or renamed.
 
 ## Tests
 
-`ui-key-editor-model` checks the categories, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing, duplicating and renaming a layout, a clash that blocks SAVE, an unknown action written back, Developer Mode, and Escape's fixed chord.
+`ui-key-editor-model` checks the categories, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing, duplicating and renaming a layout, a clash in the mod's data that stays listed while SAVE stays allowed, a draft chord that blocks SAVE, an unknown action written back, Developer Mode, and Escape's fixed chord.
 
 `ui-key-editor-layout` lays the screen out at Compact, Regular and Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits.
 
@@ -73,7 +73,7 @@ On the list, Up and Down move the chosen row, Page Up and Page Down move by the 
 
 - A row shows the chords resolution gives for that action, from the base, the chosen layout, the mod's data and the draft.
 - Changed means the draft names the action. Unbound means it has no chord. Clashes means `find_clashes` reports a pair. Latchable means the registry's flag.
-- `can_save` stays false while any clash remains. The module writes no file; the host writes `result()` when the player saves.
+- `can_save` stays false while a clash names an action the draft binds. A clash in the mod's data alone stays in the Clashes filter and leaves SAVE allowed. The module writes no file; the host writes `result()` when the player saves.
 - Escape's fixed chord on `chat.cancel` and `ui.screen-cancel` stays. An action this version does not know is listed, refuses every change, and is written back.
 - Developer rows are listed while Developer Mode is on.
 - Number keys select groups is SwitchAlt. The summary's count of the player's own changes leaves it out.

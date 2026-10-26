@@ -848,6 +848,51 @@ void fifth_chord_is_too_many() {
     OA_CHECK(dropped);
 }
 
+/// Two buttons of one GUI file share a letter and clash. The same letter on
+/// two files does not, unless one file is the order panel and the other is
+/// the build menu on screen.
+void gui_files_clash_only_when_shown_together() {
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    keys::ModData mod;
+    const auto add = [&](const char* action, char32_t letter) {
+        keys::GuiKey key;
+        key.action = action;
+        key.letter = letter;
+        mod.keys.push_back(std::move(key));
+    };
+    add("gui.ridge.defend", U'K');
+    add("gui.ridge.blast", U'K');
+    add("gui.other.ok", U'K');
+    keys::ResolveInput input = fresh(us);
+    input.mod = &mod;
+    Resolved resolved = keys::resolve(input);
+    OA_CHECK(chords_are(find_bound(resolved, "gui.ridge.defend"), {"K"}));
+    OA_CHECK(chords_are(find_bound(resolved, "gui.ridge.blast"), {"K"}));
+    OA_CHECK(chords_are(find_bound(resolved, "gui.other.ok"), {"K"}));
+    const std::vector<Clash> apart = keys::find_clashes(resolved, input);
+    OA_CHECK(clash_of(apart, "gui.ridge.defend", "gui.ridge.blast"));
+    OA_CHECK(!clash_of(apart, "gui.ridge.defend", "gui.other.ok"));
+    OA_CHECK(!clash_of(apart, "gui.ridge.blast", "gui.other.ok"));
+
+    const uint32_t play = context_bit("play");
+    const uint32_t panel = context_bit("panel");
+    OA_CHECK(play != 0 && panel != 0);
+    for (Bound& bound : resolved.actions) {
+        if (bound.id == "gui.ridge.defend")
+            bound.contexts = play;
+        if (bound.id == "gui.other.ok")
+            bound.contexts = play | panel;
+    }
+    OA_CHECK(clash_of(keys::find_clashes(resolved, input), "gui.ridge.defend", "gui.other.ok"));
+
+    // Two order files are both play, and neither is the menu on screen.
+    for (Bound& bound : resolved.actions) {
+        if (bound.id == "gui.ridge.defend" || bound.id == "gui.other.ok")
+            bound.contexts = play;
+    }
+    OA_CHECK(!clash_of(keys::find_clashes(resolved, input), "gui.ridge.defend", "gui.other.ok"));
+}
+
 /// Both resource-row double-clicks stay bound. Precedence does not delete a chord.
 void resource_rows_keep_both_chords() {
     const keys::KeyboardMap us = keys::KeyboardMap::us();
@@ -881,6 +926,7 @@ int main() {
     where_layers_meet();
     hacks_on_order_does_not_matter();
     fifth_chord_is_too_many();
+    gui_files_clash_only_when_shown_together();
     resource_rows_keep_both_chords();
     return oa::test::check_exit_status();
 }

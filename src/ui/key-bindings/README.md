@@ -45,7 +45,10 @@ dispatcher times a double press and a hold from that time.
   `shadows` lists those pairs for the editor. Two modifier roles on one
   modifier, select and command on the left button, and the resource panel's
   view and lock on one double-click are not clashes either: the screen
-  decides which, and both chords stay. `clashes_with` answers what one more
+  decides which, and both chords stay. Two `gui.` actions from different
+  files clash only when one is the order panel (play, without the panel
+  bit) and the other is the build menu on screen (the panel bit is set).
+  Two buttons of one file still clash. `clashes_with` answers what one more
   chord on an action would clash with.
 - `layers_meet`, `conditions_meet` and `same_key` are that rule in pieces.
   `same_key` treats a letter and a place as one key when the keyboard map
@@ -192,7 +195,9 @@ layout, a mod letter, a player's own change, a hack's default and its
 replacement, the left-click scheme, the swap, fixed Escape, and the pairs
 that share a key without clashing: modifiers, the left button, a stricter
 condition, chat's Enter, a hack's Tab, and a pointer aimed at a different
-place.
+place. Two buttons of one GUI file that share a letter clash. The same
+letter on two files does not, until one file is the order panel and the
+other is the build menu on screen.
 
 `ui-key-bindings-dispatcher` (`tests/dispatcher_test.cpp`) resolves
 `oa-default` and walks synthetic timelines: Attack on A, including with

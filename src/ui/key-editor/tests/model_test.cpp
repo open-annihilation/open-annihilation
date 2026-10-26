@@ -541,7 +541,55 @@ void chosen_home_clash() {
     expect(model.clashes() == 1, "Home is not one clashing pair");
     expect(model.counts().clashes == 2, "the clash does not count both actions");
     expect(has_row(clashing, "order.move") && has_row(clashing, "camera.centre"), "the clash rows differ");
-    expect(!model.can_save(), "a Home clash can save");
+    expect(model.draft_clashes() == 0, "the draft takes part in the Home clash");
+    expect(model.can_save(), "a chosen layout's clash blocks SAVE");
+}
+
+/// Two buttons of one GUI file share a letter. The draft names neither of
+/// them, so the clash stays in the filter and SAVE stays allowed.
+void mod_data_clash_can_save() {
+    editor::EditorInputs inputs = editor_fixture();
+    keys::GuiKey defend;
+    defend.action = "gui.ridge.defend";
+    defend.letter = U'K';
+    defend.help = "Defend";
+    keys::GuiKey blast;
+    blast.action = "gui.ridge.blast";
+    blast.letter = U'K';
+    blast.help = "Blast";
+    inputs.mod.keys.push_back(std::move(defend));
+    inputs.mod.keys.push_back(std::move(blast));
+    const editor::Editor model(std::move(inputs));
+
+    const std::vector<editor::Row> clashing = model.rows("all", editor::Filter::clashes, "");
+    expect(
+        has_row(clashing, "gui.ridge.defend") && has_row(clashing, "gui.ridge.blast"),
+        "the mod clash is not in the Clashes filter"
+    );
+    expect(model.clashes() >= 1, "the mod clash is not a pair");
+    expect(model.draft_clashes() == 0, "the draft takes part in the mod clash");
+    expect(model.can_save(), "a mod clash blocks SAVE");
+}
+
+/// With number keys on, the build page keeps Alt+Shift+1 as well as the
+/// draft, which bound that chord to Move. The pair names the draft, so SAVE waits.
+void draft_chord_blocks_save() {
+    editor::EditorInputs inputs = editor_fixture();
+    inputs.number_keys_select_groups = true;
+    inputs.own.bindings.push_back(binding_of("order.move", "Alt+Shift+@Digit1"));
+    const editor::Editor model(std::move(inputs));
+
+    const std::vector<editor::Row> clashing = model.rows("all", editor::Filter::clashes, "");
+    if (model.draft_clashes() == 0 || !has_row(clashing, "order.move")) {
+        std::fprintf(
+            stderr, "draft clashes %zu, pairs %zu\n", model.draft_clashes(), model.clashes()
+        );
+        for (const editor::Row& row : clashing)
+            std::fprintf(stderr, "  clash row %s\n", row.id.c_str());
+    }
+    expect(has_row(clashing, "order.move"), "Move is not in the Clashes filter");
+    expect(model.draft_clashes() >= 1, "the draft's chord made no clash");
+    expect(!model.can_save(), "a draft clash can save");
 }
 
 /// A name this version does not know is read only, written back, and kept by restore.
@@ -621,6 +669,8 @@ int main() {
     choose_layouts();
     duplicate_and_rename();
     chosen_home_clash();
+    mod_data_clash_can_save();
+    draft_chord_blocks_save();
     unknown_binding();
     developer_category();
     return oa::test::failed_checks() == 0 ? 0 : 1;

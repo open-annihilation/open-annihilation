@@ -1215,9 +1215,9 @@ void add_footer(
     const int32_t note_right = std::max(x - metrics.button_gap, window.left);
     const int32_t note_w = note_right - window.left;
     std::string note;
-    if (editor.clashes() > 0) {
+    if (editor.draft_clashes() > 0) {
         note = fill(
-            show(editor.text(), words::settle), {{"n", std::to_string(editor.clashes())}}
+            show(editor.text(), words::settle), {{"n", std::to_string(editor.draft_clashes())}}
         );
     } else if (large && !page) {
         note = fill(

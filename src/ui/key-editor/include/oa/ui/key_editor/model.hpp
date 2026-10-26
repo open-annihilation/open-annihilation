@@ -258,10 +258,23 @@ class Editor {
 
     /// How many clashing pairs the bindings in use have.
     ///
+    /// A clash that lives only in the mod's data is included. SAVE does not
+    /// wait on that pair: the layout SAVE writes does not name it.
+    ///
     /// @return the count
     [[nodiscard]] std::size_t clashes() const;
 
-    /// True when the bindings in use have no clash, so SAVE may write them.
+    /// How many clashing pairs name an action the draft binds.
+    ///
+    /// SAVE waits while this is not zero. A clash in the mod's data, or in
+    /// the chosen layout, is still listed and does not count here.
+    ///
+    /// @return the count the footer names
+    [[nodiscard]] std::size_t draft_clashes() const;
+
+    /// True when the draft takes part in no clash, so SAVE may write it.
+    ///
+    /// A clash in the mod's data alone leaves this true.
     ///
     /// @return true when a save is allowed
     [[nodiscard]] bool can_save() const;

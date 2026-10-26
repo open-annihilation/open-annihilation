@@ -1615,8 +1615,19 @@ std::size_t Editor::clashes() const {
     return keys::find_clashes(bound, input).size();
 }
 
+std::size_t Editor::draft_clashes() const {
+    const keys::ResolveInput input = resolve_input();
+    const keys::Resolved bound = keys::resolve(input);
+    std::size_t count = 0;
+    for (const keys::Clash& clash : keys::find_clashes(bound, input)) {
+        if (draft_names(own_, clash.a) || draft_names(own_, clash.b))
+            ++count;
+    }
+    return count;
+}
+
 bool Editor::can_save() const {
-    return clashes() == 0;
+    return draft_clashes() == 0;
 }
 
 SaveResult Editor::result() const {
