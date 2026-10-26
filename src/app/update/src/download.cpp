@@ -27,6 +27,14 @@
 #include <vector>
 
 #if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+
 #include <io.h>
 #else
 #include <unistd.h>
@@ -258,6 +266,29 @@ void remove_download(const fs::path& part, const fs::path& final_path) {
     fs::remove(final_path, error);
 }
 
+/// Moves a closed part onto the package.
+///
+/// The part's handle must already be closed. Windows will not rename a file
+/// that is open, and it will not replace one that is already there unless the
+/// replace is asked for.
+///
+/// @param part the part
+/// @param final_path the package
+/// @return false when the package could not take the part's place
+bool store_part(const fs::path& part, const fs::path& final_path) {
+#if defined(_WIN32)
+    return MoveFileExW(
+               part.c_str(), final_path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+           ) != 0;
+#else
+    std::error_code error;
+    fs::remove(final_path, error);
+    error.clear();
+    fs::rename(part, final_path, error);
+    return !error;
+#endif
+}
+
 /// Writes one response into the part, one step at a time.
 class PartSink final : public http::BodySink {
   public:
@@ -283,6 +314,11 @@ class PartSink final : public http::BodySink {
 
     /// Closes the part.
     ~PartSink() override { close(); }
+
+    /// Closes the part so it can be renamed or removed.
+    ///
+    /// Windows refuses both while this handle is open.
+    void release() noexcept { close(); }
 
     PartSink(const PartSink&) = delete;
     PartSink& operator=(const PartSink&) = delete;
@@ -632,11 +668,7 @@ void PackageDownload::run_job(const Job& job) {
             fail_ready(std::string(wrong_file_failure), true);
             return false;
         }
-        std::error_code rename_error;
-        fs::remove(job.final_path, rename_error);
-        rename_error.clear();
-        fs::rename(job.part, job.final_path, rename_error);
-        if (rename_error) {
+        if (!store_part(job.part, job.final_path)) {
             fail_ready("the download could not be stored", false);
             return false;
         }
@@ -747,6 +779,7 @@ void PackageDownload::run_job(const Job& job) {
             }
             if (response.failure == http::Failure::none && sink.halt_ == Halt::none &&
                 sink.done_ == job.file.size) {
+                sink.release();
                 std::FILE* flushed = oa::platform::open_file(job.part, "r+b");
                 if (flushed != nullptr) {
                     if (!sync_file(flushed)) {
