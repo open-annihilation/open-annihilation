@@ -48,19 +48,32 @@ class SharedRandom {
     uint32_t state_;
 };
 
+/// Code and engine-function indices shared by every unit of one script.
+///
+/// Built once for a COB program. Every unit of that program holds this, so
+/// the interpreter's code and the name lookup exist once per unit type.
+struct SharedScriptProgram {
+    /// Prepared interpreter program. Its code is never written.
+    std::shared_ptr<const sim::script_vm::Program> vm_program;
+    /// COB index of each engine function's exact name, or -1 when the program
+    /// has none. A loaded program's names never change.
+    std::array<int32_t, sim::unit_script::script_function_count> function_index{};
+};
+
 // COB scheduler ownership and the named-call wrappers. Host is a real
 // model/world adapter, never an internal successful no-op implementation.
 // An interpreter error, other than a start that finds no free context, is
 // noted in the instance's fault record and fails the call it stopped. Each
 // call by name has a form taking a ScriptFunction instead, which starts the
-// script that function's exact name would, found when the instance is built.
+// script that function's exact name would, found once for the program.
 class ScriptInstance {
   public:
 
     /// Builds the COB interpreter for a program against a model/world host.
     ///
     /// A null program, or one the interpreter refuses, leaves an instance that
-    /// starts no script; the refusal is noted.
+    /// starts no script; the refusal is noted. Units built from one COB
+    /// program share its code and the engine-function indices.
     ///
     /// @param program Loaded COB program.
     /// @param host Model and world adapter the interpreter calls for piece
@@ -295,10 +308,13 @@ class ScriptInstance {
     bool run_query(int32_t index, std::array<int32_t, 4>& arguments);
 
     std::shared_ptr<const formats::cob::CobProgram> program_;
+    /// Keeps the shared code alive for this unit, and holds the function
+    /// indices resolved for that code.
+    std::shared_ptr<const SharedScriptProgram> shared_;
     sim::script_vm::Vm vm_;
     MatchFault* fault_{};
     /// The COB index of each engine function's exact name, or -1 when the
-    /// program has none; a loaded program's names never change.
+    /// program has none. Copied from the program's shared indices.
     std::array<int32_t, sim::unit_script::script_function_count> function_index_{};
 };
 

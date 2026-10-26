@@ -120,6 +120,20 @@ int main() {
     CHECK(!query_script.query("queryprimary", query_args) && query_args[0] == 17);
     query_script.tick(0);
     CHECK(query_script.vm().static_value(0) == 99);
+    // A second unit of this type shares the code and keeps its own statics,
+    // stack and running script.
+    ScriptInstance other_query(queries, vmhost, 30);
+    CHECK(query_script.vm().program().code.data() == other_query.vm().program().code.data());
+    CHECK(!query_script.vm().program().code.empty());
+    CHECK(other_query.vm().static_value(0) == 0 && other_query.vm().active_count() == 0);
+    CHECK(
+        other_query.find(ScriptFunction::query_primary) ==
+        query_script.find(ScriptFunction::query_primary)
+    );
+    const std::array<int32_t, 1> only{4};
+    CHECK(other_query.call("Deferred", only, false));
+    CHECK(other_query.vm().active_count() == 1 && other_query.vm().context(0).slots[0] == 4);
+    CHECK(query_script.vm().static_value(0) == 99 && query_script.vm().active_count() == 0);
     auto parameter_cob = std::make_shared<oa::formats::cob::CobProgram>();
     parameter_cob->code = {opcode::push_local, 3, opcode::pop_static, 0, opcode::return_};
     parameter_cob->entry_points = {0};

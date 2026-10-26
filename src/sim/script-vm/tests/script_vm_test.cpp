@@ -1431,6 +1431,49 @@ void instruction_budget_stops_infinite_loop() {
 // the VM sizes every context's stack for its program's deepest script. The
 // saved state keeps the first 32 slots of a context, and a context's stack
 // stops at limit::stack_slots.
+void shared_program_keeps_separate_machines() {
+    const auto shared = vm::prepare_program(
+        {{
+             vm::opcode::push_constant,
+             5,
+             vm::opcode::pop_static,
+             0,
+             vm::opcode::push_constant,
+             2000,
+             vm::opcode::sleep,
+             vm::opcode::return_,
+         },
+         {0},
+         1}
+    );
+    vm::Vm first(shared, 10);
+    vm::Vm second(shared, 10);
+    require(
+        first.program().code.data() == second.program().code.data() &&
+            !first.program().code.empty(),
+        "two VMs built from one program do not share its code"
+    );
+    require(first.start(0).ok() && first.tick(0).ok(), "first shared VM did not sleep");
+    require(
+        first.static_value(0) == 5 && first.active_count() == 1 &&
+            first.context(0).state == vm::ContextState::sleeping &&
+            first.context(0).stack_pointer == -1,
+        "first shared VM did not keep its own static and context"
+    );
+    require(
+        second.static_value(0) == 0 && second.active_count() == 0 &&
+            second.context(0).state == vm::ContextState::stopped,
+        "the second VM saw the first VM's statics or thread"
+    );
+    const std::array<int32_t, 1> argument{11};
+    require(second.start(0, argument).ok(), "second shared VM did not start");
+    require(
+        second.context(0).stack_pointer == 0 && second.context(0).slots[0] == 11 &&
+            first.context(0).stack_pointer == -1 && first.context(0).slots[0] == 2000,
+        "the two VMs did not keep separate stacks"
+    );
+}
+
 void deep_expression_fits_the_stack() {
     constexpr uint32_t terms = 78;
     std::vector<uint32_t> code;
@@ -1493,6 +1536,7 @@ void deep_expression_fits_the_stack() {
 
 int main() {
     try {
+        shared_program_keeps_separate_machines();
         deep_expression_fits_the_stack();
         arithmetic_locals_and_statics();
         signed_branching_and_logic();

@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <mutex>
+#include <vector>
 
 namespace oa::sim::match_runtime {
 uint32_t SharedRandom::bounded(uint32_t bound) noexcept {
@@ -19,20 +21,56 @@ uint32_t SharedRandom::bounded(uint32_t bound) noexcept {
 }
 
 namespace {
-sim::script_vm::Program make_program(const formats::cob::CobProgram& program) {
-    return {
-        program.code,
-        program.entry_points,
-        program.header.static_variable_count,
-        program.piece_names.size()
-    };
+int32_t named_script(const formats::cob::CobProgram& program, std::string_view name) noexcept {
+    for (std::size_t i = 0; i < program.scripts.size(); ++i)
+        if (program.scripts[i].name == name)
+            return static_cast<int32_t>(i);
+    return -1;
 }
 
 // The program a script instance made without one runs: no code, which the VM
-// refuses, so no script starts.
+// refuses, so no script starts. One empty program is shared, rather than a
+// fresh copy for every unit that has no script.
 std::shared_ptr<const formats::cob::CobProgram>
 held_program(std::shared_ptr<const formats::cob::CobProgram> program) {
-    return program ? std::move(program) : std::make_shared<const formats::cob::CobProgram>();
+    if (program)
+        return program;
+    static const auto empty = std::make_shared<const formats::cob::CobProgram>();
+    return empty;
+}
+
+// The first unit of a COB program prepares its code and resolves the engine
+// function names. Later units of that same program take the result. The cache
+// keeps only a weak pointer, so the shared code dies with the last unit that
+// runs it, and a later program that reuses the address does not see it.
+std::shared_ptr<const SharedScriptProgram>
+shared_script(const std::shared_ptr<const formats::cob::CobProgram>& cob) {
+    struct Entry {
+        const formats::cob::CobProgram* cob = nullptr;
+        std::weak_ptr<const SharedScriptProgram> shared;
+    };
+
+    static std::mutex mutex;
+    static std::vector<Entry> cache;
+    std::lock_guard<std::mutex> lock(mutex);
+    std::erase_if(cache, [](const Entry& entry) { return entry.shared.expired(); });
+    for (const auto& entry : cache) {
+        if (entry.cob != cob.get())
+            continue;
+        if (auto live = entry.shared.lock())
+            return live;
+    }
+    auto made = std::make_shared<SharedScriptProgram>();
+    made->vm_program = sim::script_vm::prepare_program(
+        {cob->code, cob->entry_points, cob->header.static_variable_count, cob->piece_names.size()}
+    );
+    for (std::size_t i = 0; i < made->function_index.size(); ++i) {
+        made->function_index[i] = named_script(
+            *cob, sim::unit_script::script_function_name(static_cast<ScriptFunction>(i))
+        );
+    }
+    cache.push_back({cob.get(), made});
+    return made;
 }
 } // namespace
 
@@ -42,13 +80,11 @@ ScriptInstance::ScriptInstance(
     int32_t scale,
     MatchFault* fault
 )
-    : program_(held_program(std::move(program))), vm_(make_program(*program_), host, scale),
-      fault_(fault) {
+    : program_(held_program(std::move(program))), shared_(shared_script(program_)),
+      vm_(shared_->vm_program, host, scale), fault_(fault) {
     if (const auto& refused = vm_.program_error())
         note("script program refused", refused->message);
-    for (std::size_t i = 0; i < function_index_.size(); ++i)
-        function_index_[i] =
-            find(sim::unit_script::script_function_name(static_cast<ScriptFunction>(i)));
+    function_index_ = shared_->function_index;
 }
 
 void ScriptInstance::note(std::string_view what, std::string_view detail) noexcept {
@@ -210,10 +246,7 @@ bool ScriptInstance::call_with_locals(
 }
 
 int32_t ScriptInstance::find(std::string_view name) const noexcept {
-    for (std::size_t i = 0; i < program_->scripts.size(); ++i)
-        if (program_->scripts[i].name == name)
-            return static_cast<int32_t>(i);
-    return -1;
+    return named_script(*program_, name);
 }
 
 int32_t ScriptInstance::find(ScriptFunction function) const noexcept {

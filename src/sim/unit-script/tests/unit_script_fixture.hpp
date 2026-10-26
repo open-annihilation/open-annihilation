@@ -202,12 +202,17 @@ struct WorldFixture {
     World* world;
 };
 
-/// Returns the interpreter program of a parsed COB file.
+/// Returns the shared interpreter program of a parsed COB file.
+///
+/// Two VMs built from the pointer this returns run one copy of the code.
 ///
 /// @param cob the parsed file
-/// @return its code, entry points, static count and piece count
-inline sim::script_vm::Program vm_program(const formats::cob::CobProgram& cob) {
-    return {cob.code, cob.entry_points, cob.header.static_variable_count, cob.piece_names.size()};
+/// @return its prepared code, entry points, static count and piece count
+inline std::shared_ptr<const sim::script_vm::Program>
+vm_program(const formats::cob::CobProgram& cob) {
+    return sim::script_vm::prepare_program(
+        {cob.code, cob.entry_points, cob.header.static_variable_count, cob.piece_names.size()}
+    );
 }
 
 } // namespace oa::sim::unit_script::test
