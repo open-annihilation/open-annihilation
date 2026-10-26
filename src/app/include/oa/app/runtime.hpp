@@ -2596,12 +2596,38 @@ class Runtime final : public menu::Host,
     /// @return the contexts the dispatcher searches
     [[nodiscard]] oa::ui::key_bindings::Contexts input_contexts();
 
+    /// One gadget quick key gathered from a GUI file. [runtime_gui_actions.cpp]
+    struct GuiQuickKey {
+        std::string file_stem{}; ///< the file stem, folded as a gui id piece
+        std::string gadget{};    ///< the gadget name
+        std::string action{};    ///< the made `gui.` action id
+        char32_t letter{};       ///< the quick key
+        std::string help{};      ///< the help the file gives, unused by resolution
+    };
+
+    /// One order or tab key read from an order file. [runtime_gui_actions.cpp]
+    struct OrderFileKey {
+        std::string action{}; ///< the registry action
+        std::string file{};   ///< the GUI file's name
+        std::string gadget{}; ///< the gadget name
+        char32_t letter{};    ///< the quick key
+    };
+
     /// Resolves the layout in use again when the keyboard, the hacks, the pointer scheme,
-    /// SwitchAlt or the loaded layout changed, making the dispatcher on first use.
-    /// [runtime_key_bindings.cpp]
+    /// SwitchAlt, the loaded layout, the side's order file or the panel on screen changed,
+    /// making the dispatcher on first use. A change of only the panel on screen keeps a key
+    /// that is already held. [runtime_key_bindings.cpp]
     ///
     /// @param keymap_changed the keymap changed, so the keyboard map is read again
     void ensure_key_bindings(bool keymap_changed);
+
+    /// The scancode of `order.attack`'s unmodified press.
+    ///
+    /// A place chord uses its position. A capital letter uses that letter's key.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the scancode, or SDL_SCANCODE_UNKNOWN when that press is absent
+    [[nodiscard]] SDL_Scancode order_attack_press_scancode();
 
     /// Loads the layout for this run and the player's own changes, and imports stored keys once.
     ///
@@ -2611,6 +2637,51 @@ class Runtime final : public menu::Host,
     /// `.oakeys` file the installer refuses, sets key_bindings_refusal_; any other problem is
     /// logged and the built-in layout is used. [runtime_key_bindings.cpp]
     void load_key_bindings();
+
+    /// Reads every GUI file's quick keys for the mod in use.
+    ///
+    /// A later mod load reads them again. [runtime_gui_actions.cpp]
+    void gather_gui_quick_keys();
+
+    /// The mod data resolution reads: one gui key per gathered button.
+    ///
+    /// The gadget word is set only for `order_stem`, so only that side's order
+    /// file moves a registry action. [runtime_gui_actions.cpp]
+    ///
+    /// @param order_stem the order file's stem
+    /// @return the keys, in file order
+    [[nodiscard]] oa::ui::key_bindings::ModData gui_mod_data(std::string_view order_stem) const;
+
+    /// Gives the shown file's gui actions the play and panel contexts, and a
+    /// unit info file's actions the unit-info context only.
+    ///
+    /// [runtime_gui_actions.cpp]
+    ///
+    /// @param[in,out] resolved the bindings just resolved
+    /// @param shown the stem of the panel on screen, or empty
+    void
+    apply_shown_gui_file(oa::ui::key_bindings::Resolved& resolved, std::string_view shown) const;
+
+    /// The order file stem of the side being played, or of the first side outside a match.
+    ///
+    /// [runtime_gui_actions.cpp]
+    ///
+    /// @return the stem, or empty when no side is loaded
+    [[nodiscard]] std::string order_side_stem() const;
+
+    /// The stem of the panel on screen.
+    ///
+    /// [runtime_gui_actions.cpp]
+    ///
+    /// @return the stem, or empty when no match panel is loaded
+    [[nodiscard]] std::string shown_hud_stem() const;
+
+    /// The order and tab keys of the two stock order files.
+    ///
+    /// Gathers the GUI keys first when they have not been read. [runtime_gui_actions.cpp]
+    ///
+    /// @return one row per gadget whose name holds a registry word
+    [[nodiscard]] std::vector<OrderFileKey> order_file_quick_keys();
 
     /// Reads the layout in use again when `folder` is that layout.
     ///
@@ -13392,6 +13463,18 @@ class Runtime final : public menu::Host,
     /// @param pred tests each local unit slot
     void select_units_matching(const std::function<bool(const oa::sim::unit_spawn::Slot&)>& pred);
 
+    /// Presses the shown panel's button for an order, a tab or a gui action.
+    ///
+    /// An order or a tab finds the button whose name holds that registry word.
+    /// A gui action finds the button of the file on screen, and leaves a button
+    /// whose name holds a registry word to that action. A button the panel does
+    /// not show does nothing. [runtime_hotkeys.cpp]
+    ///
+    /// @param id the action id
+    /// @param phase the phase
+    /// @return true when a button was pressed
+    bool press_shown_panel_action(std::string_view id, oa::ui::key_bindings::Phase phase);
+
     /// Answers one match action.
     ///
     /// The effect is the one the key had. False leaves the key to the rest of
@@ -13402,15 +13485,16 @@ class Runtime final : public menu::Host,
     /// @return true when the action was taken
     bool handle_match_action(const oa::ui::key_bindings::ActionEvent& action);
 
-    /// Handles a key in a match: the function keys, speed, squads, quick keys, pages and the other
-    /// match shortcuts.
+    /// Handles a key in a match: the function keys, speed, squads, order buttons, pages and the
+    /// other match shortcuts.
     ///
     /// Pause toggles the pause of a match that is not finished and opens no
     /// menu; F2 opens and closes the in-game options menu. Escape takes back
     /// an armed command, else drops the selection, and never opens the menu;
     /// with the menu open it is left to the event handler, which closes it.
-    /// F1 opens the unit info panel, whose Enter and Escape press its DONE;
-    /// Shift+F1 pins the cursor unit. Ctrl+S selects the local units on
+    /// F1 opens the unit info panel, whose Enter and Escape press its DONE,
+    /// as does that button's gui action; Shift+F1 pins the cursor unit.
+    /// Ctrl+S selects the local units on
     /// screen and 'n' centres on the next unvisited local unit. Outside a
     /// multiplayer game 'h' does nothing. '+' and '-', and the keypad's,
     /// raise and lower the game speed a step, as each repeat of a held one
@@ -19969,6 +20053,10 @@ class Runtime final : public menu::Host,
     // The key bindings' dispatcher; null until the first event or frame that feeds it.
     mutable std::unique_ptr<KeyBindingsState, void (*)(KeyBindingsState*) noexcept>
         key_bindings_state_{nullptr, destroy_key_bindings_state};
+    /// GUI quick keys of the mod in use. Empty until the first resolution.
+    std::vector<GuiQuickKey> gui_quick_keys_{};
+    /// Set once the mod's GUI files have been read. Cleared when the mod changes.
+    bool gui_quick_keys_gathered_{};
     /// Sticky modifiers as they were when this event began, so a tap does not
     /// apply to the key that armed it and a chord still sees them after consume.
     bool sticky_event_{};
