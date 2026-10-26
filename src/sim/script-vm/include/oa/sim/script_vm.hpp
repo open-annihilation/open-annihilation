@@ -128,27 +128,10 @@ struct Program {
     /// True once prepare_program has validated this program and recorded
     /// stack_slots. A prepared program is not changed again.
     bool prepared = false;
-    /// Why prepare_program refused this program; empty when it was accepted.
+    /// Why prepare_program refused this program. Null when it was accepted.
     /// A refused program is cleared, so a VM that shares it starts no script.
-    std::string refusal;
-
-    /// An empty program, not yet prepared.
-    Program() = default;
-
-    /// Code, entry points and the static and piece counts, not yet prepared.
-    ///
-    /// @param code_words instruction words
-    /// @param entries script entry points, as word indexes into code_words
-    /// @param statics static variable count
-    /// @param pieces piece count
-    Program(
-        std::vector<uint32_t> code_words,
-        std::vector<uint32_t> entries,
-        std::size_t statics = 0,
-        std::size_t pieces = 0
-    )
-        : code(std::move(code_words)), entry_points(std::move(entries)), static_count(statics),
-          piece_count(pieces) {}
+    /// The text is a static message, the same ones the VM's other refusals use.
+    const char* refusal = nullptr;
 };
 
 /// Validates a program, records the stack its deepest script needs, and

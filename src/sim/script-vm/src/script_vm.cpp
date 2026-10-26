@@ -207,7 +207,7 @@ std::shared_ptr<const Program> prepare_program(Program program) {
 
 Vm::Vm(std::shared_ptr<const Program> program, int32_t time_scale)
     : program_(adopt_program(std::move(program))), time_scale_(time_scale) {
-    if (!program_->refusal.empty()) {
+    if (program_->refusal != nullptr) {
         program_error_ =
             make_error(ErrorCode::invalid_program, context_count, 0, 0, program_->refusal);
     }
