@@ -139,11 +139,17 @@ the line are already in your language, for example "Installing 0.8.7" and
 "0.8.6 is kept, in case you want it back. The game starts again by
 itself." A swap that finishes quickly shows no window.
 
-The version you had is kept under the data folder, in `updates/previous`,
-and a copy of the preferences file sits beside it. `updates/state.json`
-records what is installed and what was kept. The game then starts again.
-If a step fails, the helper puts back what it had changed and starts the
-version you had. The helper makes no request of its own.
+The version you had is kept, and a copy of the preferences file sits in
+`updates/previous`. `updates/state.json` records what is installed and what
+was kept. On Windows, an installed copy keeps the program files in
+`updates/previous` and then runs the new setup. If you decline the
+permission prompt, nothing changes and the game says "The update was
+cancelled." A zip copy keeps the program files in `previous` beside the
+game. On Windows 95, 98 and Me the window says "Restart Windows to finish
+installing {version}." and the game waits for that restart. On the other
+systems the game starts again. If a step fails, the helper puts back what
+it had changed and starts the version you had. The helper makes no request
+of its own.
 
 On a Mac, the helper checks that the new app is signed by the same team,
 that the signature is valid, and that Apple has notarized it. It then moves

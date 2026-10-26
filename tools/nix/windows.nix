@@ -19,11 +19,13 @@
 # fullPackage is the Windows 95 release package. The other Windows packages
 # are laid out by the suite; this output is what the suite copies for Windows
 # 95, from $out/bin, so the files there are the package root. It adds the
-# notices (not the Linux-only SDL notice), the interface catalogue and the
-# intro player to the executables, fonts and registries every Windows build
-# here installs, and it strips those programs. The unstripped copies are
-# $out/symbols, which the suite's symbols zip is made from. oa-intro is the
-# player the game already links, built with the same toolchain.
+# notices (not the Linux-only SDL notice), the interface catalogue, the
+# intro player and the update helper to the executables, fonts and
+# registries every Windows build here installs, and it strips those
+# programs. The unstripped copies are $out/symbols, which the suite's
+# symbols zip is made from. oa-intro is the player the game already links,
+# and oa-update is the helper that puts a package in place, both built with
+# the same toolchain.
 #
 # @param toolchain the file in cmake/toolchains that names the target
 # @param definitions the -D flags that pick the platform and the float mode
@@ -77,6 +79,7 @@
       "oa-tool"
     ] ++ lib.optionals fullPackage [
       "oa-intro"
+      "oa-update"
     ];
 
     # There is no CMake install configured for this target either.
@@ -90,7 +93,7 @@
       # other Windows packages do. The cross strip is the one that understands
       # a Windows program; the build machine's strip does not.
       mkdir -p $out/symbols
-      for program in open-annihilation.exe oa-tool.exe oa-intro.exe; do
+      for program in open-annihilation.exe oa-tool.exe oa-intro.exe oa-update.exe; do
         cp -a "$program" "$out/symbols/$program"
         ${stdenv.cc.bintools.targetPrefix}strip --strip-all "$program"
       done
@@ -104,6 +107,7 @@
       install -Dm644 -t $out/bin/registries ${src}/registries/*.yaml
     '' + lib.optionalString fullPackage ''
       install -Dm755 oa-intro.exe $out/bin/oa-intro.exe
+      install -Dm755 oa-update.exe $out/bin/oa-update.exe
       install -Dm644 -t $out/bin ${src}/LICENSE ${src}/ATTRIBUTIONS.md
       # The same notices the other Windows packages take from licenses/, apart
       # from the Linux-only SDL notice, which those packages do not carry.

@@ -48,7 +48,7 @@ Keys act on the local machine only. The hack is part of the profile hash, so eve
 
 ### Implementation notes
 
-- The app maps keys in `Runtime::handle_console_hotkey` (`src/app/runtime_console.cpp`). The console dispatcher turns Insert into the repeat key, F10 into F11 and backslash into no key in `key_acted_on` (`src/ui/console/src/debug_hotkeys.cpp`).
+- The app answers `game.repeat-command` and `debug.keys`. While this hack is on, the registry gives the first Insert and adds F10 to the second. The console still turns Insert into the repeat key, F10 into F11 and backslash into no key in `key_acted_on` (`src/ui/console/src/debug_hotkeys.cpp`).
 - `console_apply_rules` (`src/ui/console/src/commands.cpp`) copies the rules record field `rules.console.key_remaps.enabled` into `Console::key_remaps`.
 - Tests: `ui-console` (`src/ui/console/tests/console_test.cpp`, `test_key_remaps`: F10 needs the passphrase, Insert repeats a cheat only while cheats are allowed, backslash does nothing; without the hack Insert and F10 do nothing).
 

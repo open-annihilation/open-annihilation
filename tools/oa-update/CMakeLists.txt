@@ -34,6 +34,7 @@ add_library(oa-update-core STATIC
   src/journal.cpp
   src/lock.cpp
   src/log.cpp
+  src/route_windows.cpp
   src/route_linux.cpp
   src/routes.cpp
   src/run.cpp
@@ -65,7 +66,7 @@ endif()
 
 if(BUILD_TESTING)
   add_executable(oa-update-test
-    tests/update_test.cpp tests/route_linux_test.cpp tests/route_macos_test.cpp)
+    tests/route_windows_test.cpp tests/update_test.cpp tests/route_linux_test.cpp tests/route_macos_test.cpp)
   target_link_libraries(oa-update-test
     PRIVATE oa-update-core oa-app-update oa-data-engine-feed oa-data-catalogue oa-base-signing
       oa-base-sha256 oa-formats-zip oa-formats-url oa-ui-kit oa-test-support oa-options)

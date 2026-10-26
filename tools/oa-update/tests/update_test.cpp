@@ -698,6 +698,7 @@ void window() {
 
 } // namespace
 
+void test_windows_routes();
 void test_linux_versions_route();
 void test_macos_route();
 
@@ -708,6 +709,7 @@ int main() {
     journal();
     waiting();
     window();
+    test_windows_routes();
     test_linux_versions_route();
     test_macos_route();
     return oa::test::check_exit_status();

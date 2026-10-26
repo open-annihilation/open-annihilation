@@ -67,6 +67,7 @@ lay_out() {
     printf 'MZ' > "$dir/fonts/DejaVuSans.ttf"
     printf 'MZ' > "$dir/open-annihilation.exe"
     printf 'MZ' > "$dir/oa-tool.exe"
+    printf 'MZ' > "$dir/oa-update.exe"
     if [[ "$with_intro" == yes ]]; then
         printf 'MZ' > "$dir/oa-intro.exe"
     fi
@@ -129,6 +130,8 @@ grep -q 'File: "interface.tdf"' "$x64_log" || fail "windows-x64: interface.tdf w
 grep -q 'SetOutPath: "\$INSTDIR\\brains"' "$x64_log" \
     || fail "windows-x64: brains folder was not set"
 grep -q 'File: "classic.oabrain"' "$x64_log" || fail "windows-x64: classic.oabrain was not stored"
+grep -q 'File: "oa-update.exe"' "$x64_log" || fail "windows-x64: oa-update.exe was not stored"
+echo "G82: windows-x64 lists oa-update.exe"
 
 build_one() {
     local package=$1
@@ -136,16 +139,33 @@ build_one() {
     local dir=$out/open-annihilation-$version-$package
     local log=$out/$package.log
     lay_out "$dir" yes
-    if ! compile_log "$package" "$dir" "$log"; then
+    if ! compile_log "$package" "$dir" "$log" -V4; then
         cat "$log" >&2
         fail "makensis failed for $package"
     fi
     expect_installer "$package" "$dir" "$target" "$log"
+    grep -q 'File: "oa-update.exe"' "$log" || fail "$package: oa-update.exe was not stored"
+    echo "G82: $package lists oa-update.exe"
 }
 
 build_one windows-x86 x86-unicode
 build_one windows-arm64 x86-unicode
 build_one windows-95 x86-ansi
+
+# oa-update.exe is packed only when the package folder has it. Suite packages
+# gain it later, so a folder without the file must still build.
+plain=$out/open-annihilation-$version-windows-x64-no-helper
+lay_out "$plain" yes
+rm -f "$plain/oa-update.exe"
+plain_log=$out/no-helper.log
+if ! compile_log windows-x64 "$plain" "$plain_log" -V4; then
+    cat "$plain_log" >&2
+    fail "makensis failed for a package without oa-update.exe"
+fi
+if grep -q 'File: "oa-update.exe"' "$plain_log"; then
+    fail "a package without oa-update.exe still packed it"
+fi
+echo "G82: an installer without oa-update.exe still builds"
 
 # A package that is not one of the four is refused before it reads files.
 bad_log=$out/bad-package.log

@@ -786,65 +786,18 @@ void Runtime::list_save_files(
     }
 }
 
-bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
-    console::Console* con = match_console();
-    if (con == nullptr)
-        return false;
-    const oa::Game& game = con->world->game;
-    const bool developer = (console::console_flags(game) & console::console_flag::developer) != 0;
-    const bool debug_keys = (game.outcome_flags & console::outcome_flag::debug_keys) != 0;
-    // A multiplayer game's team menu (Tab) and share panel ('h'); a mod's
-    // rules may open the team menu in every game type.
-    const bool multiplayer = multiplayer_session();
-    // A mod's key remaps leave '\' to other uses, re-run the last line on
-    // Insert and toggle the debug keys on F10 as well.
-    const bool remaps = con->key_remaps;
-    const bool f10 = key.key == SDLK_F10 || key.scancode == SDL_SCANCODE_F10;
-    uint32_t code = 0;
-    if (key.key == SDLK_F4 || key.scancode == SDL_SCANCODE_F4)
-        code = console::hotkey::f1 + 3;
-    else if (key.key == SDLK_PAUSE || key.scancode == SDL_SCANCODE_PAUSE)
-        code = console::hotkey::pause;
-    else if ((multiplayer || con->team_menu_every_game) && key.key == SDLK_TAB)
-        code = console::hotkey::tab;
-    else if (multiplayer && key.key == SDLK_H)
-        code = 'h';
-    // The key below Escape is '`' on every layout, so that a layout with no
-    // '`' key, such as the Italian one, where it types '\', has the key too.
-    else if (key.key == SDLK_GRAVE || key.scancode == SDL_SCANCODE_GRAVE)
-        code = '`';
-    else if (!remaps && key.key == SDLK_BACKSLASH)
-        code = console::hotkey::repeat_command;
-    else if (remaps && key.key == SDLK_INSERT)
-        code = console::hotkey::insert;
-    else if (developer && key.key == SDLK_F11)
-        code = console::hotkey::f11;
-    else if ((input_modifiers(ModifierUse::keyboard) & SDL_KMOD_CTRL) != 0 && f10)
-        code = console::hotkey::control_f10;
-    else if (developer && remaps && f10)
-        code = console::hotkey::f10;
-    else if (debug_keys && key.key == SDLK_EQUALS)
-        code = '=';
-    else if (debug_keys && key.key == SDLK_RIGHTBRACKET)
-        code = ']';
-    else if (debug_keys && key.key == SDLK_I)
-        code = 'i';
-    else if (debug_keys && key.key == SDLK_M)
-        code = 'm';
-    if (code == 0)
-        return false;
-    run_console_hotkey(code);
-    return true;
-}
-
 void Runtime::run_console_hotkey(uint32_t code) {
     console::Console* con = match_console();
     if (con == nullptr)
         return;
     const oa::Game& game = con->world->game;
-    // Only the keys the test above names reach the dispatcher; the rest are
-    // the runtime's own hotkeys. Callbacks the runtime does not provide stay
-    // unbound.
+    // While a mod's remaps are on, the console ignores backslash and runs
+    // Insert as the last line. The repeat action arrives as backslash; hand
+    // it over as Insert so that line still runs. The chord is the registry's.
+    uint32_t presented = code;
+    if (con->key_remaps && code == console::hotkey::repeat_command)
+        presented = console::hotkey::insert;
+    // Callbacks the runtime does not provide stay unbound.
     console::HotkeyHost host{};
     host.context = this;
     host.shift_down = [](void* context) {
@@ -887,10 +840,10 @@ void Runtime::run_console_hotkey(uint32_t code) {
     host.begin_movie_capture = [](void* context, const char* path) {
         runtime_of(context)->begin_film_capture(path);
     };
-    console::hotkey_dispatch(con, &host, code);
+    console::hotkey_dispatch(con, &host, presented);
     sync_effects_toggle(match_.get(), *con);
     keep_console_carry();
-    if (code == console::hotkey::f11)
+    if (presented == console::hotkey::f11 || code == console::hotkey::f11)
         status_ = (game.outcome_flags & console::outcome_flag::debug_keys) != 0 ? "Debug keys on"
                                                                                 : "Debug keys off";
 }

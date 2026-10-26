@@ -11,6 +11,7 @@
 #include "oa/update_helper/lock.hpp"
 #include "oa/update_helper/log.hpp"
 #include "oa/update_helper/paths.hpp"
+#include "oa/update_helper/route_windows.hpp"
 #include "oa/update_helper/routes.hpp"
 #include "oa/update_helper/start.hpp"
 #include "oa/update_helper/unpack.hpp"
@@ -19,6 +20,8 @@
 
 #include <fstream>
 #include <iostream>
+#include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -65,10 +68,12 @@ bool read_capped(
     return true;
 }
 
-int start_old(const update::Plan& plan, Log& log, ProgressWindow& window) {
-    std::string error;
-    if (!start_detached(path_from(plan.program), plan.arguments, false, {}, &error))
-        log.line(std::string("could not start the game: ") + error);
+int start_old(const update::Plan& plan, Log& log, ProgressWindow& window, bool start) {
+    if (start) {
+        std::string error;
+        if (!start_detached(path_from(plan.program), plan.arguments, false, {}, &error))
+            log.line(std::string("could not start the game: ") + error);
+    }
     window.close();
     return 0;
 }
@@ -107,24 +112,36 @@ bool deck_session() {
            oa::platform::running_in_steam_game_mode();
 }
 
-int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool stage_only) {
+int carry_out(
+    const update::Plan& plan,
+    const fs::path& plan_path,
+    const std::vector<FeedKey>& keys,
+    bool elevated_swap,
+    bool stage_only
+) {
     const fs::path updates = path_from(plan.updates);
     std::error_code io;
     fs::create_directories(updates, io);
     if (io) {
         std::cerr << "oa-update: the updates folder could not be made\n";
-        std::string error;
-        static_cast<void>(
-            start_detached(path_from(plan.program), plan.arguments, false, {}, &error)
-        );
+        if (!elevated_swap) {
+            std::string error;
+            static_cast<void>(
+                start_detached(path_from(plan.program), plan.arguments, false, {}, &error)
+            );
+        }
         return exit_usage;
     }
 
     UpdateLock held;
     std::string error;
     if (!held.try_lock(updates, &error)) {
-        std::cerr << "oa-update: " << error << '\n';
-        return exit_usage;
+        // The parent still holds the lock. The elevated copy continues, and
+        // any other failure still stops.
+        if (!(elevated_swap && error == "another update is running")) {
+            std::cerr << "oa-update: " << error << '\n';
+            return exit_usage;
+        }
     }
 
     Log log;
@@ -137,6 +154,20 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
     hooks.context = &note;
     hooks.note = note_line;
 
+    const UpdatesGateResult pending = take_pending(updates);
+    if (pending.gate == UpdatesGate::restart) {
+        const std::string version = pending.version.empty() ? plan.from_version : pending.version;
+        if (!elevated_swap)
+            window.show(plan.title, restart_line(version), 0, true);
+        window.close();
+        return exit_swapped;
+    }
+    if (pending.gate == UpdatesGate::restore_failed) {
+        log.line(pending.detail.empty() ? "the kept copy could not be put back" : pending.detail);
+        start_old(plan, log, window, !elevated_swap);
+        return exit_undone;
+    }
+
     const bool undone = undo_journal(updates, hooks, &error);
     const WaitOutcome waited = wait_for_process(plan.wait_for, nullptr, &error);
     if (waited == WaitOutcome::still_running) {
@@ -147,28 +178,36 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
     }
     if (!undone) {
         log.line(error.empty() ? "a previous update could not be undone" : error);
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
 
     if (plan.action != update::Action::install) {
         log.line("roll-back is not carried out");
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_refused;
     }
 #if !OA_SELF_CHECKS_BUILT
     if (plan.route == update::Route::check_folder || !keys.empty()) {
         log.line("this build does not carry out that route");
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_usage;
     }
 #endif
-    const bool folder = plan.route == update::Route::check_folder;
     const bool bundle = plan.route == update::Route::macos_bundle;
     const bool linux = plan.route == update::Route::linux_versions;
-    if (!folder && !bundle && !linux) {
+    const bool windows_route = plan.route == update::Route::windows_installer ||
+                               plan.route == update::Route::windows_folder;
+    if (elevated_swap && plan.route != update::Route::windows_folder) {
         log.line("this route is not carried out");
-        start_old(plan, log, window);
+        window.close();
+        return exit_usage;
+    }
+    const bool carried =
+        windows_route || bundle || linux || plan.route == update::Route::check_folder;
+    if (!carried) {
+        log.line("this route is not carried out");
+        start_old(plan, log, window, !elevated_swap);
         return exit_usage;
     }
 
@@ -186,7 +225,7 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
     if (!verify_package(request, verified, &error)) {
         log.line(error);
         window.show(plan.title, could_not_check, 0, true);
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_refused;
     }
     log.line("checked the package");
@@ -201,14 +240,14 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
         if (!why.empty()) {
             log.line(why);
             window.show(plan.title, could_not_check, 0, true);
-            start_old(plan, log, window);
+            start_old(plan, log, window, !elevated_swap);
             return exit_refused;
         }
         const JournalResult opened = apply_journal(updates, operations, hooks, &error);
         if (opened != JournalResult::finished) {
             log.line(error.empty() ? "a step failed" : error);
             window.show(plan.title, could_not_check, 0, true);
-            start_old(plan, log, window);
+            start_old(plan, log, window, !elevated_swap);
             return exit_undone;
         }
         drop_journal(updates);
@@ -217,12 +256,31 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
         return exit_swapped;
     }
 
+    if (windows_route) {
+        fs::path stage;
+        if (plan.route == update::Route::windows_folder) {
+            const std::string top = top_folder_name(verified.version, verified.package);
+            stage = updates / std::to_string(verified.release) / "stage";
+            if (!unpack_package(request.file, stage, top, &error)) {
+                log.line(error);
+                window.show(plan.title, could_not_check, 0, true);
+                start_old(plan, log, window, !elevated_swap);
+                return exit_refused;
+            }
+            log.line("unpacked the package");
+            window.show(plan.title, plan.line, 700, false);
+        }
+        return finish_windows_route(
+            plan, verified, plan_path, stage, elevated_swap, log, window, hooks
+        );
+    }
+
     const std::string top = top_folder_name(verified.version, verified.package);
     const fs::path stage = updates / std::to_string(verified.release) / "stage";
     if (!unpack_package(request.file, stage, top, &error)) {
         log.line(error);
         window.show(plan.title, could_not_check, 0, true);
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_refused;
     }
     log.line("unpacked the package");
@@ -236,7 +294,7 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
         log.line(why);
         remove_stage(stage);
         window.show(plan.title, could_not_check, 0, true);
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_refused;
     }
 
@@ -245,7 +303,7 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
         log.line("the kept folder could not be made");
         remove_stage(stage);
         window.show(plan.title, could_not_check, 0, true);
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_refused;
     }
 
@@ -279,7 +337,7 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
         log.line(error.empty() ? "a step failed" : error);
         remove_stage(stage);
         window.show(plan.title, could_not_check, 0, true);
-        start_old(plan, log, window);
+        start_old(plan, log, window, !elevated_swap);
         return exit_undone;
     }
     window.show(plan.title, plan.line, oa::ui::kit::question_progress_whole, false);
@@ -325,7 +383,7 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
                 log.line(undo_error);
             remove_stage(stage);
             window.show(plan.title, could_not_check, 0, true);
-            start_old(plan, log, window);
+            start_old(plan, log, window, !elevated_swap);
             return exit_undone;
         }
     }
@@ -339,7 +397,9 @@ int carry_out(const update::Plan& plan, const std::vector<FeedKey>& keys, bool s
 
 } // namespace
 
-int run_plan(const fs::path& plan_path, const std::vector<FeedKey>& keys, bool stage_only) {
+int run_plan(
+    const fs::path& plan_path, const std::vector<FeedKey>& keys, bool elevated_swap, bool stage_only
+) {
 #if !OA_SELF_CHECKS_BUILT
     if (!keys.empty()) {
         std::cerr << "oa-update: --feed-key is not in this build\n";
@@ -364,9 +424,9 @@ int run_plan(const fs::path& plan_path, const std::vector<FeedKey>& keys, bool s
         return exit_usage;
     }
 #if OA_SELF_CHECKS_BUILT
-    return carry_out(*plan, keys, stage_only);
+    return carry_out(*plan, plan_path, keys, elevated_swap, stage_only);
 #else
-    return carry_out(*plan, {}, false);
+    return carry_out(*plan, plan_path, {}, elevated_swap, false);
 #endif
 }
 

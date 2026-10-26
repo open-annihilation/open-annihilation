@@ -8730,6 +8730,14 @@
 	it=Sfondo della barra delle risorse;
 	}
 
+[Restart Windows to finish installing {version}.]
+	{
+	de=Starte Windows neu, um die Installation von {version} abzuschließen.;
+	fr=Redémarre Windows pour finir d'installer {version}.;
+	es=Reinicia Windows para terminar de instalar {version}.;
+	it=Riavvia Windows per finire di installare {version}.;
+	}
+
 [Resurrectors Reclaim Wrecks]
 	{
 	de=Wiederbeleber recyceln Wracks;
@@ -10936,6 +10944,14 @@
 	fr=Le sélecteur de fichiers du système n'a pas pu être ouvert : {error}.;
 	es=No se pudo abrir el selector de archivos del sistema: {error}.;
 	it=Il selettore di file del sistema non si è potuto aprire: {error}.;
+	}
+
+[The update was cancelled.]
+	{
+	de=Das Update wurde abgebrochen.;
+	fr=La mise à jour a été annulée.;
+	es=La actualización se canceló.;
+	it=L'aggiornamento è stato annullato.;
 	}
 
 [The version installed is kept, and ROLL BACK in the Library brings it back.]
