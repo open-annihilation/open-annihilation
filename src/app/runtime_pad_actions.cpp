@@ -7,7 +7,7 @@
 // a function the mouse, the keyboard, the touch controls or, for the
 // Library's own buttons, the Library already call. The top screen of the OA
 // layer sees an action, and the right stick's motion, before either becomes
-// a key or a turn of the wheel.
+// an action or a turn of the wheel.
 #include "oa/app/runtime.hpp"
 #include "oa_layer.hpp"
 #include "pad_state.hpp"
@@ -252,11 +252,11 @@ void PadAccess::act_press(
         open_build_ring(runtime, button, now);
         return;
     case pc::Action::centre:
-        match_key(runtime, SDLK_HOME);
+        runtime.press_match_action("camera.centre");
         return;
     case pc::Action::follow:
-        // With R4 held the next unit of the selection is followed.
-        match_key(runtime, SDLK_T, queue_held ? SDL_KMOD_LSHIFT : SDL_KMOD_NONE);
+        // With R4 held the previous unit of the selection is followed.
+        runtime.press_match_action(queue_held ? "camera.follow-previous" : "camera.follow");
         if (queue_held)
             use_latch(runtime, hud::ActionClass::order);
         return;
@@ -268,7 +268,7 @@ void PadAccess::act_press(
             runtime.clear_or_cancel_match_command();
         return;
     case pc::Action::stop:
-        match_key(runtime, SDLK_S);
+        runtime.press_match_action("order.stop");
         return;
     case pc::Action::select_type: {
         if (!in_match(runtime))
@@ -284,31 +284,27 @@ void PadAccess::act_press(
             runtime.select_match_unit(state.pointer_x, state.pointer_y, 2);
             use_latch(runtime, hud::ActionClass::selection);
         } else {
-            match_key(runtime, SDLK_Z, SDL_KMOD_LCTRL);
+            runtime.press_match_action("select.same-type");
         }
         return;
     }
     case pc::Action::commander: {
         if (!runtime.touch_) {
-            match_key(runtime, SDLK_C, SDL_KMOD_LCTRL);
+            runtime.press_match_action("select.commander");
             return;
         }
         // With ADD the commander joins the selection.
         const bool add = runtime.touch_->hud.latches.active(hud::Latch::add);
-        match_key(
-            runtime,
-            SDLK_C,
-            add ? static_cast<SDL_Keymod>(SDL_KMOD_LCTRL | SDL_KMOD_LSHIFT) : SDL_KMOD_LCTRL
-        );
+        runtime.press_match_action(add ? "select.commander-add" : "select.commander");
         if (add)
             use_latch(runtime, hud::ActionClass::selection);
         return;
     }
     case pc::Action::next_unit:
-        match_key(runtime, SDLK_N);
+        runtime.press_match_action("camera.next-unit");
         return;
     case pc::Action::next_report:
-        match_key(runtime, SDLK_F3);
+        runtime.press_match_action("camera.next-report");
         return;
     case pc::Action::select_menu: {
         if (!in_match(runtime))
@@ -327,70 +323,78 @@ void PadAccess::act_press(
     case pc::Action::unit_info:
         // The unit under the pointer; with R4 held it is pinned.
         sync_pointer(runtime);
-        match_key(runtime, SDLK_F1, queue_held ? SDL_KMOD_LSHIFT : SDL_KMOD_NONE);
+        runtime.press_match_action(queue_held ? "game.pin-unit" : "game.unit-info");
         if (queue_held)
             use_latch(runtime, hud::ActionClass::order);
         return;
     case pc::Action::game_menu:
-        match_key(runtime, SDLK_F2);
+        runtime.press_match_action("game.menu");
         return;
     case pc::Action::previous_page:
-        match_key(runtime, SDLK_COMMA);
+        runtime.press_match_action("build.page-previous");
         return;
     case pc::Action::next_page:
-        match_key(runtime, SDLK_PERIOD);
+        runtime.press_match_action("build.page-next");
         return;
     case pc::Action::chat:
         if (in_match(runtime))
             runtime.open_chat_line();
         return;
     case pc::Action::kill_board:
-        match_key(runtime, SDLK_F4);
+        runtime.press_match_action("game.kill-board");
         return;
     case pc::Action::pause:
-        match_key(runtime, SDLK_PAUSE);
+        runtime.press_match_action("game.pause");
         return;
     case pc::Action::health_bars:
-        match_key(runtime, SDLK_GRAVE);
+        runtime.press_match_action("game.health-bars");
         return;
     case pc::Action::faster:
-        match_key(runtime, SDLK_PLUS);
+        runtime.press_match_action("game.speed-up");
         return;
     case pc::Action::slower:
-        match_key(runtime, SDLK_MINUS);
+        runtime.press_match_action("game.speed-down");
         return;
     case pc::Action::clear_messages:
-        match_key(runtime, SDLK_F12);
+        runtime.press_match_action("game.clear-messages");
         return;
-    case pc::Action::team_menu:
-        match_key(runtime, SDLK_TAB);
+    case pc::Action::team_menu: {
+        // Tab is the allies menu in a shared game and while the team-menu hack is on; alone it
+        // is the next primary unit.
+        const bool allies = runtime.keeps_running_inactive() ||
+                            runtime.key_binding_hack("teams.alliance-menu-all-game-types");
+        runtime.press_match_action(allies ? "game.team-menu" : "select.next-primary");
         return;
+    }
     case pc::Action::share_panel:
-        // A shared game's share panel; alone, the previous primary unit.
+        // A shared game's share panel. Alone, Shift+Tab is the previous primary unit, unless
+        // the team-menu hack has taken that chord for the allies menu.
         if (runtime.keeps_running_inactive())
-            match_key(runtime, SDLK_H);
+            runtime.press_match_action("game.share-panel");
+        else if (runtime.key_binding_hack("teams.alliance-menu-all-game-types"))
+            runtime.press_match_action("game.team-menu");
         else
-            match_key(runtime, SDLK_TAB, SDL_KMOD_LSHIFT);
+            runtime.press_match_action("select.previous-primary");
         return;
     case pc::Action::screenshot:
-        match_key(runtime, SDLK_F9, SDL_KMOD_LCTRL);
+        runtime.press_match_action("game.screenshot");
         return;
     case pc::Action::fire_orders:
-        match_key(runtime, SDLK_F);
+        runtime.press_match_action("order.fire-state");
         return;
     case pc::Action::move_orders:
-        match_key(runtime, SDLK_V);
+        runtime.press_match_action("order.move-state");
         return;
     case pc::Action::cloak:
-        match_key(runtime, SDLK_K);
+        runtime.press_match_action("order.cloak");
         return;
     case pc::Action::on_off:
-        match_key(runtime, SDLK_X);
+        runtime.press_match_action("order.on-off");
         return;
     case pc::Action::self_destruct:
         // Its hold ran out: the countdown starts, or stops.
         runtime.play_haptic(Haptic::hold_started);
-        match_key(runtime, SDLK_D, SDL_KMOD_LCTRL);
+        runtime.press_match_action("order.self-destruct");
         return;
     case pc::Action::ring_arm:
         give_ring(runtime, true, false);
@@ -593,12 +597,6 @@ bool PadAccess::queue_grip_held(const Runtime& runtime) {
         if (state->down[index] && state->pressed[index].action == pc::Action::queue)
             return true;
     return false;
-}
-
-void PadAccess::match_key(Runtime& runtime, SDL_Keycode key, SDL_Keymod mods) {
-    if (runtime.screen_ != Screen::match || !runtime.match_)
-        return;
-    runtime.press_match_key(key, mods);
 }
 
 void PadAccess::send_key(Runtime& runtime, SDL_Keycode key, SDL_Keymod mods) {
@@ -892,7 +890,7 @@ void PadAccess::aim_ring(Runtime& runtime, uint64_t now) {
     state.ring.self_destruct_fired = true;
     runtime.play_haptic(Haptic::hold_started);
     close_ring(runtime);
-    match_key(runtime, SDLK_D, SDL_KMOD_LCTRL);
+    runtime.press_match_action("order.self-destruct");
 }
 
 void PadAccess::release_ring(Runtime& runtime, pc::PadButton button, uint64_t now) {
@@ -1009,7 +1007,9 @@ void PadAccess::give_ring(Runtime& runtime, bool arm, bool from_release) {
     case hud::BuildWedgeKind::prev:
     case hud::BuildWedgeKind::next:
         // The page turns and the ring stays open.
-        match_key(runtime, wedge.kind == hud::BuildWedgeKind::next ? SDLK_PERIOD : SDLK_COMMA);
+        runtime.press_match_action(
+            wedge.kind == hud::BuildWedgeKind::next ? "build.page-next" : "build.page-previous"
+        );
         if (from_release)
             runtime.pad_state().ring.tapped = true;
         refresh_rings(runtime);

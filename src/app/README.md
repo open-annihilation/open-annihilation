@@ -3491,8 +3491,9 @@ saves, recordings and network games are unaffected.
   state it is exactly the modifier keys held. Every read of the keys,
   pointer buttons and modifier keys held goes through `device_state.hpp`,
   defined here, which adds what the automation endpoint holds down to
-  what SDL's devices hold. `press_match_key` runs a key with
-  modifiers held for the call (SELECT ▾'s items), `refresh_pointer_modifiers`
+  what SDL's devices hold. `press_match_action` presses an action id with
+  no modifier pulse, answered as a key's action would be (SELECT ▾'s items),
+  `refresh_pointer_modifiers`
   brings the pointer's key word up to a changed latch, and `play_haptic`
   reaches the platform's haptics. `remap_keypad_enter` turns the keypad's
   Enter into Return as `dispatch_event` takes each key, so it opens and
