@@ -1829,6 +1829,11 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error on a failure. [runtime_key_latches_check.cpp]
     void check_key_latches();
 
+    /// Checks Hold to confirm on a skirmish: self-destruct, the order button
+    /// and the surrender question. Throws std::runtime_error on a failure.
+    /// [runtime_hold_confirm_check.cpp]
+    void check_hold_confirm();
+
     /// Checks MULTI on the main menu.
     ///
     /// The extensions' check_multiplayer_menu hooks check the multiplayer
@@ -18609,6 +18614,121 @@ class Runtime final : public menu::Host,
     /// [runtime_hud.cpp]
     void draw_key_latch_chips();
 
+    /// What the hold ring and its card draw from the press that is running.
+    struct HoldConfirmDraw {
+        bool show{false};            ///< a hold is running
+        bool button{false};          ///< the ring sits on a button
+        bool click{false};           ///< the card names the button rather than a chord
+        int32_t x{0};                ///< the point, or the button's left, in match canvas pixels
+        int32_t y{0};                ///< the point, or the button's top
+        int32_t width{0};            ///< the button's width; 0 for the pointer
+        int32_t height{0};           ///< the button's height; 0 for the pointer
+        int32_t progress{0};         ///< how far the ring has filled, in thousandths
+        uint32_t long_press_ms{500}; ///< the long-press time the card names
+        std::size_t gadget{0};       ///< the button, when the ring sits on one
+        std::string title{};         ///< the card's title, in English
+        std::string chord{};         ///< the chord, as a screen shows it
+    };
+
+    /// The hold that is running, or an empty draw when none is.
+    /// [runtime_key_bindings.cpp]
+    [[nodiscard]] HoldConfirmDraw hold_confirm_draw() const;
+
+    /// Draws the hold ring and its card. A pointer's ring is on the battlefield.
+    /// A button's ring is on that button. The card stays on the battlefield,
+    /// clear of the side column. [runtime_hud.cpp]
+    void draw_hold_ring();
+
+    /// Starts a hold for self-destruct, or reports that the press should act now.
+    ///
+    /// A countdown that is already running is not held: the caller toggles it off.
+    ///
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is the order button
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the button's gadget
+    /// @return true when the press is held and must not act yet
+    bool start_self_destruct_hold(
+        uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget
+    );
+
+    /// Starts a hold for Yes on the surrender question.
+    ///
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is a click
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the Yes button
+    /// @return true when the press is held and must not act yet
+    bool
+    start_yes_hold(uint16_t scancode, bool from_button, uint8_t mouse_button, std::size_t gadget);
+
+    /// Ends the hold without firing. [runtime_key_bindings.cpp]
+    void cancel_hold_confirm();
+
+    /// The key went up. A hold that key started ends without firing.
+    ///
+    /// @param scancode the key
+    void release_hold_confirm_key(uint16_t scancode);
+
+    /// The mouse button went up. A hold that button started ends without firing,
+    /// and its release is remembered so the button does not activate.
+    ///
+    /// @param button the mouse button
+    void release_hold_confirm_button(uint8_t button);
+
+    /// Reports, once, that the button release just seen must not activate.
+    ///
+    /// @return true when a hold swallowed that release
+    [[nodiscard]] bool take_hold_confirm_release();
+
+    /// Runs the held action when the long-press time has passed and the press
+    /// is still held. A release, Escape, a lost focus or the question closing
+    /// ends it with nothing done. [runtime_key_bindings.cpp]
+    void tick_hold_confirm();
+
+    /// Places the running hold as though it began this long ago.
+    ///
+    /// The hold-to-confirm check uses it to draw one fill twice.
+    ///
+    /// @param elapsed_ms how far the hold has come, in milliseconds
+    void replay_hold_confirm(uint32_t elapsed_ms);
+
+    /// Reports whether a selected unit's self-destruct countdown is running.
+    ///
+    /// @return true when one selected unit still has time left
+    [[nodiscard]] bool selection_counting_down() const;
+
+    /// Reports whether Hold to confirm asks this action for a hold.
+    ///
+    /// @param id the action id
+    /// @return true when the setting is on and the layout's rule names it
+    bool confirm_action_needs_hold(std::string_view id);
+
+    /// Which held press fires.
+    enum class ConfirmHoldKind : uint8_t {
+        none,          ///< no hold
+        self_destruct, ///< order.self-destruct
+        yes,           ///< the surrender question's Yes
+    };
+
+    /// Starts the hold `start_self_destruct_hold` and `start_yes_hold` share.
+    ///
+    /// @param id the action id
+    /// @param kind which action fires
+    /// @param scancode the key, when the press is a chord
+    /// @param from_button the press is a click
+    /// @param mouse_button the button, when the press is a click
+    /// @param gadget the button's gadget
+    /// @return true when the press is held and must not act yet
+    bool begin_confirm_hold(
+        std::string_view id,
+        ConfirmHoldKind kind,
+        uint16_t scancode,
+        bool from_button,
+        uint8_t mouse_button,
+        std::size_t gadget
+    );
+
     /// Whether a keyboard latch other than QUEUE, ADD or x5 is on.
     ///
     /// @param id the action id
@@ -20069,6 +20189,20 @@ class Runtime final : public menu::Host,
     uint64_t key_latch_seen_next_{1};
     /// The chip texts last drawn, including an overflow chip. Empty when none show.
     std::vector<std::string> key_latch_chips_drawn_{};
+    /// The key of the press being handled, so a hold can tell which key lets it go.
+    uint16_t hold_key_scancode_{0};
+    /// The button release just seen started a hold, so that release activates nothing.
+    bool hold_confirm_ate_release_{false};
+    /// The hold ring snaps to quarters. No setting turns this on. The check sets it.
+    bool hold_confirm_reduced_motion_{false};
+    /// The pointer ring was drawn this frame.
+    bool hold_ring_drawn_{false};
+    int32_t hold_ring_done_{0};     ///< the ring's done, in the same units as hold_ring_whole_
+    int32_t hold_ring_whole_{1};    ///< the ring's whole
+    bool hold_ring_reduced_{false}; ///< the ring was drawn with reduced motion
+    int32_t hold_ring_x_{0};        ///< the pointer ring's left, in battlefield surface pixels
+    int32_t hold_ring_y_{0};        ///< the pointer ring's top
+    int32_t hold_ring_side_{0};     ///< the pointer ring's side, in surface pixels
     /// The pointer roles copied from those bindings. Empty until the first resolution.
     PointerRoleTable pointer_roles_{};
     /// Set once the view settings have been read, so a later mod change loads again.

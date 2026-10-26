@@ -2461,6 +2461,7 @@ bool Runtime::draw_match_surface() {
     draw_clock_line(PaintLayer::battlefield);
     draw_chat_overlay();
     draw_key_latch_chips();
+    draw_hold_ring();
     draw_extension_overlay();
     draw_risen_chat_line();
     draw_unit_info_panel();
