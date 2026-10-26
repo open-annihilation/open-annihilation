@@ -487,9 +487,6 @@ int Runtime::check_update_download() {
         const auto deadline = deadline_from(std::chrono::seconds{40});
         bool queued = false;
         while (true) {
-            require(
-                std::chrono::steady_clock::now() < deadline, "the package did not become ready"
-            );
             idle_tick();
             settings::Dialog* dialog = engine_settings_dialog();
             require(dialog != nullptr, "settings closed before the package was ready");
@@ -497,15 +494,23 @@ int Runtime::check_update_download() {
             const update::DownloadSnapshot now = shot();
             if (now.state == update::DownloadState::failed)
                 throw std::runtime_error("update-download: " + now.failure);
+            // The worker can finish after this frame already offered, so the
+            // prompt is queued on the next tick. Settings being open does
+            // not hold it: the offer queues whether or not that dialog shows.
             if (!queued && (ready_visible() ||
                             (update_ != nullptr && update_->ready_prompt_release.has_value()))) {
                 say("ready prompt queued");
                 queued = true;
             }
-            if (now.state == update::DownloadState::ready &&
-                dialog->updates.download == settings::DownloadShown::ready &&
-                dialog->header_note.find("ready") != std::string::npos)
+            const bool file_ready = now.state == update::DownloadState::ready &&
+                                    dialog->updates.download == settings::DownloadShown::ready &&
+                                    dialog->header_note.find("ready") != std::string::npos;
+            if (file_ready && queued)
                 break;
+            require(
+                std::chrono::steady_clock::now() < deadline,
+                file_ready ? "the ready prompt did not queue" : "the package did not become ready"
+            );
         }
         say("status ready");
         say("header note ready");
