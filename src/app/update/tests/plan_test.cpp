@@ -328,8 +328,13 @@ void state_round_trip() {
     std::string error_write;
     const fs::path file = scratch.path / "state.json";
     OA_CHECK(update::write_state(file, state, &error_write));
-    std::ifstream in(file, std::ios::binary);
-    const std::string stored((std::istreambuf_iterator<char>(in)), {});
+    // The reader is closed before the file is replaced. Windows will not
+    // replace a file that is still open.
+    std::string stored;
+    {
+        std::ifstream in(file, std::ios::binary);
+        stored.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+    }
     OA_CHECK(stored == text);
     const std::optional<update::State> from_file = update::read_state(bytes_of(stored), &error);
     OA_CHECK(from_file.has_value());

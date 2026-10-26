@@ -15,6 +15,16 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 namespace oa::app::update {
 namespace {
 
@@ -224,6 +234,7 @@ bool replace_file(const fs::path& path, std::string_view bytes, std::string* rea
             return false;
         }
         out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        out.close();
         if (!out) {
             set_error(reason, "the state file could not be written");
             std::error_code ignored;
@@ -231,22 +242,27 @@ bool replace_file(const fs::path& path, std::string_view bytes, std::string* rea
             return false;
         }
     }
+#if defined(_WIN32)
+    // Rename leaves an existing file where it is and fails. One replace keeps
+    // the previous state when the new file cannot take its place.
+    if (MoveFileExW(
+            beside.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+        ) == 0) {
+        set_error(reason, "the state file could not be replaced");
+        std::error_code ignored;
+        fs::remove(beside, ignored);
+        return false;
+    }
+#else
     std::error_code io;
     fs::rename(beside, path, io);
-#if defined(_WIN32)
-    if (io) {
-        std::error_code removed;
-        fs::remove(path, removed);
-        io.clear();
-        fs::rename(beside, path, io);
-    }
-#endif
     if (io) {
         set_error(reason, "the state file could not be replaced");
         std::error_code ignored;
         fs::remove(beside, ignored);
         return false;
     }
+#endif
     return true;
 }
 
