@@ -302,6 +302,16 @@ class Dispatcher {
     [[nodiscard]] bool
     role_active(std::string_view action, uint8_t modifiers_now, const HeldKeys& keys_held) const;
 
+    /// Reports whether a key of the action's chords is down.
+    ///
+    /// A modifier never stops it. A chord that is only a modifier is skipped.
+    /// This is not decided from the key events `feed` saw.
+    ///
+    /// @param action the action id
+    /// @param keys_held which key positions are held
+    /// @return true while one of that action's keys is held
+    [[nodiscard]] bool chord_key_held(std::string_view action, const HeldKeys& keys_held) const;
+
   private:
 
     std::unique_ptr<DispatcherState> state_;

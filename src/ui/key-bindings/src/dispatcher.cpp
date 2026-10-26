@@ -836,6 +836,33 @@ void emit_winners(
 void accept_control(DispatcherState& state, const InputEvent& event, Fed& fed) {
     Slot& slot = slot_for(state, event);
     if (event.repeat) {
+        // A repeat can be the first event for the key: a check holds it down
+        // by sending the repeat itself. Resolve that the way a press would,
+        // and report one repeat of each repeat action. A press action still
+        // waits for a down that was not a repeat.
+        if (!slot.down) {
+            const std::vector<Candidate> winners = choose(state, event, Gesture::press);
+            for (const Candidate& item : winners) {
+                if (item.action_index >= state.resolved.actions.size())
+                    continue;
+                const Bound& bound = state.resolved.actions[item.action_index];
+                const actions::Kind kind =
+                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+                if (kind != actions::Kind::repeat)
+                    continue;
+                push_event(fed, bound, Phase::repeated, item.chord, item.context);
+                remember(slot, item);
+            }
+            if (!slot.started.empty()) {
+                slot.down = true;
+                slot.saw_up = false;
+                slot.down_modifiers = event.modifiers;
+                slot.down_ms = event.time_ms;
+                slot.had_binding = true;
+            }
+            fed.bound = !fed.events.empty();
+            return;
+        }
         if (slot.down) {
             for (const Started& started : slot.started) {
                 if (started.action_index >= state.resolved.actions.size())
@@ -1135,6 +1162,25 @@ bool Dispatcher::role_active(
             }
         }
         if (match(chord, probe, state_->keyboard, state_->platform) != Match::none)
+            return true;
+    }
+    return false;
+}
+
+bool Dispatcher::chord_key_held(std::string_view action, const HeldKeys& keys_held) const {
+    const Bound* found = nullptr;
+    for (const Bound& bound : state_->resolved.actions) {
+        if (bound.id == action) {
+            found = &bound;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return false;
+    for (const BoundChord& item : found->chords) {
+        if (item.chord.kind == TriggerKind::modifier_alone)
+            continue;
+        if (trigger_held(item.chord, keys_held, state_->keyboard))
             return true;
     }
     return false;

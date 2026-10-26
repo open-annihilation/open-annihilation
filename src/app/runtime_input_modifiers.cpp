@@ -178,20 +178,22 @@ void Runtime::refresh_pointer_modifiers() {
 }
 
 void Runtime::press_match_key(SDL_Keycode key, SDL_Keymod mods) {
-    SDL_KeyboardEvent event{};
+    SDL_Event event{};
     event.type = SDL_EVENT_KEY_DOWN;
-    event.timestamp = SDL_GetTicksNS();
-    event.key = key;
-    event.scancode = SDL_GetScancodeFromKey(key, nullptr);
-    event.mod = mods;
-    event.down = true;
-    event.repeat = false;
-    // The pulse holds for the call alone, whatever the key does.
+    event.key.timestamp = SDL_GetTicksNS();
+    event.key.key = key;
+    event.key.scancode = SDL_GetScancodeFromKey(key, nullptr);
+    event.key.mod = mods;
+    event.key.down = true;
+    event.key.repeat = false;
+    // The pulse holds for the call alone, whatever the key does. The feed
+    // sees the same modifiers, so the action the key stands for is answered.
     auto& dispatch = touch_state().dispatch;
     const SDL_Keymod before = dispatch.pulse;
     dispatch.pulse = mods;
     try {
-        std::ignore = handle_match_hotkey(event);
+        feed_input_actions(event);
+        std::ignore = handle_match_hotkey(event.key);
     } catch (...) {
         dispatch.pulse = before;
         throw;

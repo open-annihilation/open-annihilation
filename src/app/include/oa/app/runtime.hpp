@@ -2465,9 +2465,9 @@ class Runtime final : public menu::Host,
     ///
     /// Called after the input method has taken the keys it is composing, and not for a touch or a
     /// pad event. A keymap change rebuilds the keyboard map and the bindings. Losing the window's
-    /// focus releases every held action and role. Nothing acts on the events. A key held back by
-    /// slow keys, or dropped by bounce keys, does not reach the rest of the game.
-    /// [runtime_key_bindings.cpp]
+    /// focus releases every held action and role. A running match answers the events through
+    /// handle_match_action. A key held back by slow keys, or dropped by bounce keys, does not
+    /// reach the rest of the game. [runtime_key_bindings.cpp]
     ///
     /// @param event the event dispatch_event is given
     /// @return true when the rest of the game should not see this event
@@ -2498,6 +2498,23 @@ class Runtime final : public menu::Host,
     /// @return the count
     [[nodiscard]] int
     recent_action_phase_count(std::string_view action, oa::ui::key_bindings::Phase phase) const;
+
+    /// The action events the current event produced.
+    ///
+    /// Valid until the next feed, advance or binding rebuild. Empty before the
+    /// bindings exist. [runtime_key_bindings.cpp]
+    ///
+    /// @return the events kept for the event just fed
+    [[nodiscard]] std::span<const oa::ui::key_bindings::ActionEvent> match_action_events() const;
+
+    /// Whether a key of the action's chords is down.
+    ///
+    /// A modifier never stops it: any chord whose key is held counts. Resolves
+    /// the bindings on first use. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @return true while one of that action's keys is down
+    [[nodiscard]] bool action_key_held(std::string_view action);
 
     /// The contexts, the conditions and text entry for the event about to be fed.
     ///
@@ -7315,6 +7332,12 @@ class Runtime final : public menu::Host,
     /// @param event the SDL event in window coordinates
     /// @return whether the 3D view consumed the event
     bool live_renderer_take_event(SDL_Event& event);
+    /// Puts the classic view back, or switches Unlocked Camera, when the Full
+    /// 3D view is taking keys. [runtime_live_renderer.cpp]
+    ///
+    /// @param action `camera.classic-view` or `camera.unlocked`
+    /// @return true when that view took the key
+    bool answer_live_view_key(std::string_view action);
     /// Replaces the battlefield with the current match's 3D frame.
     /// @return false when the card could not draw the rotated frame, whose
     ///         battlefield the classic raster left out; the view is then
@@ -13160,11 +13183,15 @@ class Runtime final : public menu::Host,
     /// @param pred tests each local unit slot
     void select_units_matching(const std::function<bool(const oa::sim::unit_spawn::Slot&)>& pred);
 
-    /// Returns the squad a digit key names.
+    /// Answers one match action.
     ///
-    /// @param key keyboard event
-    /// @return 1 through 9, or 0 for another key
-    int squad_from_key(const SDL_KeyboardEvent& key) const;
+    /// The effect is the one the key had. False leaves the key to the rest of
+    /// the chain. Action ids are text, so the dispatch compares them in turn.
+    /// [runtime_hotkeys.cpp]
+    ///
+    /// @param action the event
+    /// @return true when the action was taken
+    bool handle_match_action(const oa::ui::key_bindings::ActionEvent& action);
 
     /// Handles a key in a match: the function keys, speed, squads, quick keys, pages and the other
     /// match shortcuts.
@@ -15571,6 +15598,13 @@ class Runtime final : public menu::Host,
     /// @param key keyboard event
     /// @return false when the key is not a console hotkey or there is no match
     bool handle_console_hotkey(const SDL_KeyboardEvent& key);
+
+    /// Runs one console hotkey code: the host and the dispatch.
+    ///
+    /// No match console does nothing. [runtime_console.cpp]
+    ///
+    /// @param code the console hotkey code
+    void run_console_hotkey(uint32_t code);
 
     /// Gives resources from one player to another, as "Give" does.
     ///

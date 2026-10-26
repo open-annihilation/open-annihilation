@@ -3,8 +3,8 @@
 
 // The key bindings' dispatcher. Each key, button and wheel is turned into
 // action events after the input method has taken the keys it is composing.
-// The events are kept. Nothing acts on them yet. Touch and the pad keep
-// their own paths.
+// The events are kept. A running match answers them through
+// handle_match_action. Touch and the pad keep their own paths.
 
 #include "oa/app/runtime.hpp"
 
@@ -1216,6 +1216,19 @@ void Runtime::advance_input_actions(bool& running) {
         slot = {};
         dispatch_after_actions(replay, running);
     }
+}
+
+std::span<const keys::ActionEvent> Runtime::match_action_events() const {
+    if (key_bindings_state_ == nullptr)
+        return {};
+    return key_bindings_state_->events;
+}
+
+bool Runtime::action_key_held(std::string_view action) {
+    ensure_key_bindings(false);
+    keys::HeldKeys keys_held;
+    keys_held.down = key_is_down;
+    return key_bindings_state_->dispatcher.chord_key_held(action, keys_held);
 }
 
 void Runtime::apply_binding_roles(uint32_t& modifiers, ModifierUse use) const {

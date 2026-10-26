@@ -458,6 +458,34 @@ void repeats(const Resolved& resolved, const KeyboardMap& map) {
         show(again);
     }
     OA_CHECK(again.events.empty());
+
+    // The first event can already be the repeat. It is one step of the
+    // repeat action, and a press action still produces nothing.
+    Dispatcher speed = open_dispatcher(resolved, map);
+    use_contexts(speed, match, 0);
+    InputEvent equals;
+    equals.kind = InputKind::key;
+    equals.down = true;
+    equals.repeat = true;
+    equals.scancode = keys::scancode_of("Equal").value_or(0);
+    equals.time_ms = 1;
+    expect_only(
+        "a repeated Equals with no earlier down is game.speed-up",
+        speed.feed(equals),
+        "game.speed-up",
+        Phase::repeated
+    );
+    Dispatcher plain = open_dispatcher(resolved, map);
+    use_contexts(plain, play, 0);
+    InputEvent attack_repeat =
+        letter_event(place_of("KeyA"), static_cast<uint32_t>('a'), true, 0, 1);
+    attack_repeat.repeat = true;
+    const Fed lone = plain.feed(attack_repeat);
+    if (!lone.events.empty()) {
+        std::fprintf(stderr, "a repeated A with no earlier down does nothing\n");
+        show(lone);
+    }
+    OA_CHECK(lone.events.empty());
 }
 
 /// Space down, Shift down, Space up gives pressed then released for

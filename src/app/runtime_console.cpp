@@ -827,8 +827,18 @@ bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
         code = 'm';
     if (code == 0)
         return false;
-    // Only the keys above reach the dispatcher; the rest are the runtime's own
-    // hotkeys. Callbacks the runtime does not provide stay unbound.
+    run_console_hotkey(code);
+    return true;
+}
+
+void Runtime::run_console_hotkey(uint32_t code) {
+    console::Console* con = match_console();
+    if (con == nullptr)
+        return;
+    const oa::Game& game = con->world->game;
+    // Only the keys the test above names reach the dispatcher; the rest are
+    // the runtime's own hotkeys. Callbacks the runtime does not provide stay
+    // unbound.
     console::HotkeyHost host{};
     host.context = this;
     host.shift_down = [](void* context) {
@@ -877,7 +887,6 @@ bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
     if (code == console::hotkey::f11)
         status_ = (game.outcome_flags & console::outcome_flag::debug_keys) != 0 ? "Debug keys on"
                                                                                 : "Debug keys off";
-    return true;
 }
 
 const oa::formats::fnt::Font* Runtime::console_clock_font() {

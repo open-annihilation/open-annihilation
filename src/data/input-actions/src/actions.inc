@@ -71,23 +71,23 @@ constexpr std::string_view build_line_defaults[]{"@KeyX"};
 constexpr std::string_view build_move_queued_site_source[]{"OA"};
 constexpr std::string_view build_move_queued_site_defaults[]{"Shift+MouseLeft"};
 constexpr std::string_view build_page_1_source[]{"3.1c"};
-constexpr std::string_view build_page_1_defaults[]{"@Digit1"};
+constexpr std::string_view build_page_1_defaults[]{"@Digit1", "Numpad1"};
 constexpr std::string_view build_page_2_source[]{"3.1c"};
-constexpr std::string_view build_page_2_defaults[]{"@Digit2"};
+constexpr std::string_view build_page_2_defaults[]{"@Digit2", "Numpad2"};
 constexpr std::string_view build_page_3_source[]{"3.1c"};
-constexpr std::string_view build_page_3_defaults[]{"@Digit3"};
+constexpr std::string_view build_page_3_defaults[]{"@Digit3", "Numpad3"};
 constexpr std::string_view build_page_4_source[]{"3.1c"};
-constexpr std::string_view build_page_4_defaults[]{"@Digit4"};
+constexpr std::string_view build_page_4_defaults[]{"@Digit4", "Numpad4"};
 constexpr std::string_view build_page_5_source[]{"3.1c"};
-constexpr std::string_view build_page_5_defaults[]{"@Digit5"};
+constexpr std::string_view build_page_5_defaults[]{"@Digit5", "Numpad5"};
 constexpr std::string_view build_page_6_source[]{"3.1c"};
-constexpr std::string_view build_page_6_defaults[]{"@Digit6"};
+constexpr std::string_view build_page_6_defaults[]{"@Digit6", "Numpad6"};
 constexpr std::string_view build_page_7_source[]{"3.1c"};
-constexpr std::string_view build_page_7_defaults[]{"@Digit7"};
+constexpr std::string_view build_page_7_defaults[]{"@Digit7", "Numpad7"};
 constexpr std::string_view build_page_8_source[]{"3.1c"};
-constexpr std::string_view build_page_8_defaults[]{"@Digit8"};
+constexpr std::string_view build_page_8_defaults[]{"@Digit8", "Numpad8"};
 constexpr std::string_view build_page_9_source[]{"3.1c"};
-constexpr std::string_view build_page_9_defaults[]{"@Digit9"};
+constexpr std::string_view build_page_9_defaults[]{"@Digit9", "Numpad9"};
 constexpr std::string_view build_page_next_source[]{"3.1c"};
 constexpr std::string_view build_page_next_defaults[]{"."};
 constexpr std::string_view build_page_previous_source[]{"3.1c"};
@@ -132,7 +132,7 @@ constexpr std::string_view camera_follow_defaults[]{"T"};
 constexpr std::string_view camera_follow_previous_source[]{"OA"};
 constexpr std::string_view camera_follow_previous_defaults[]{"Shift+T"};
 constexpr std::string_view camera_next_report_source[]{"3.1c"};
-constexpr std::string_view camera_next_report_defaults[]{"F3"};
+constexpr std::string_view camera_next_report_defaults[]{"F3", "Ctrl+F3"};
 constexpr std::string_view camera_next_unit_source[]{"OA"};
 constexpr std::string_view camera_next_unit_defaults[]{"N"};
 constexpr std::string_view camera_pan_down_source[]{"3.1c"};
@@ -158,7 +158,7 @@ constexpr std::string_view chat_open_source[]{"3.1c"};
 constexpr std::string_view chat_open_defaults[]{"Enter"};
 constexpr std::string_view chat_open_allies_source[]{"OA"};
 constexpr std::string_view chat_send_source[]{"3.1c"};
-constexpr std::string_view chat_send_defaults[]{"Enter"};
+constexpr std::string_view chat_send_defaults[]{"Enter", "Ctrl+Enter"};
 constexpr std::string_view debug_i_source[]{"3.1c"};
 constexpr std::string_view debug_i_defaults[]{"I"};
 constexpr std::string_view debug_keys_source[]{"3.1c"};
@@ -176,11 +176,11 @@ constexpr std::string_view debug_overlay_defaults[]{"M"};
 constexpr std::string_view debug_refill_source[]{"3.1c"};
 constexpr std::string_view debug_refill_defaults[]{"="};
 constexpr std::string_view game_back_source[]{"3.1c", "OA"};
-constexpr std::string_view game_back_defaults[]{"Escape"};
+constexpr std::string_view game_back_defaults[]{"Escape", "Ctrl+Escape"};
 constexpr std::string_view game_chat_macro_source[]{"ui.options-dialog"};
 constexpr std::string_view game_chat_macro_defaults[]{"F11"};
 constexpr std::string_view game_clear_messages_source[]{"3.1c"};
-constexpr std::string_view game_clear_messages_defaults[]{"F12"};
+constexpr std::string_view game_clear_messages_defaults[]{"F12", "Ctrl+F12"};
 constexpr std::string_view game_health_bars_source[]{"3.1c"};
 constexpr std::string_view game_health_bars_defaults[]{"@Backquote"};
 constexpr std::string_view game_health_bars_mode_1_source[]{"3.1c"};
@@ -192,15 +192,15 @@ constexpr std::string_view game_health_bars_mode_3_defaults[]{"Shift+@Digit8"};
 constexpr std::string_view game_health_bars_mode_4_source[]{"3.1c"};
 constexpr std::string_view game_health_bars_mode_4_defaults[]{"Shift+@Backquote"};
 constexpr std::string_view game_kill_board_source[]{"3.1c"};
-constexpr std::string_view game_kill_board_defaults[]{"F4"};
+constexpr std::string_view game_kill_board_defaults[]{"F4", "Ctrl+F4"};
 constexpr std::string_view game_menu_source[]{"3.1c"};
-constexpr std::string_view game_menu_defaults[]{"F2"};
+constexpr std::string_view game_menu_defaults[]{"F2", "Ctrl+F2"};
 constexpr std::string_view game_options_dialog_source[]{"ui.options-dialog"};
 constexpr std::string_view game_options_dialog_defaults[]{"Ctrl+F2"};
 constexpr std::string_view game_pause_source[]{"3.1c"};
-constexpr std::string_view game_pause_defaults[]{"Pause"};
+constexpr std::string_view game_pause_defaults[]{"Pause", "Ctrl+Pause"};
 constexpr std::string_view game_pin_unit_source[]{"3.1c"};
-constexpr std::string_view game_pin_unit_defaults[]{"Shift+F1"};
+constexpr std::string_view game_pin_unit_defaults[]{"Shift+F1", "Ctrl+Shift+F1"};
 constexpr std::string_view game_repeat_command_source[]{"3.1c"};
 constexpr std::string_view game_repeat_command_defaults[]{"@Backslash"};
 constexpr std::string_view game_repeat_command_hack_0_defaults[]{"Insert"};
@@ -228,25 +228,25 @@ constexpr HackChange game_team_menu_hacks[]{
     {"teams.alliance-menu-all-game-types", false, std::span<const std::string_view>{}, true, uint32_t{0}},
 };
 constexpr std::string_view game_unit_info_source[]{"3.1c"};
-constexpr std::string_view game_unit_info_defaults[]{"F1"};
+constexpr std::string_view game_unit_info_defaults[]{"F1", "Ctrl+F1"};
 constexpr std::string_view group_add_1_source[]{"3.1c"};
-constexpr std::string_view group_add_1_defaults[]{"Alt+Shift+@Digit1"};
+constexpr std::string_view group_add_1_defaults[]{"Alt+Shift+@Digit1", "Alt+Shift+Numpad1"};
 constexpr std::string_view group_add_2_source[]{"3.1c"};
-constexpr std::string_view group_add_2_defaults[]{"Alt+Shift+@Digit2"};
+constexpr std::string_view group_add_2_defaults[]{"Alt+Shift+@Digit2", "Alt+Shift+Numpad2"};
 constexpr std::string_view group_add_3_source[]{"3.1c"};
-constexpr std::string_view group_add_3_defaults[]{"Alt+Shift+@Digit3"};
+constexpr std::string_view group_add_3_defaults[]{"Alt+Shift+@Digit3", "Alt+Shift+Numpad3"};
 constexpr std::string_view group_add_4_source[]{"3.1c"};
-constexpr std::string_view group_add_4_defaults[]{"Alt+Shift+@Digit4"};
+constexpr std::string_view group_add_4_defaults[]{"Alt+Shift+@Digit4", "Alt+Shift+Numpad4"};
 constexpr std::string_view group_add_5_source[]{"3.1c"};
-constexpr std::string_view group_add_5_defaults[]{"Alt+Shift+@Digit5"};
+constexpr std::string_view group_add_5_defaults[]{"Alt+Shift+@Digit5", "Alt+Shift+Numpad5"};
 constexpr std::string_view group_add_6_source[]{"3.1c"};
-constexpr std::string_view group_add_6_defaults[]{"Alt+Shift+@Digit6"};
+constexpr std::string_view group_add_6_defaults[]{"Alt+Shift+@Digit6", "Alt+Shift+Numpad6"};
 constexpr std::string_view group_add_7_source[]{"3.1c"};
-constexpr std::string_view group_add_7_defaults[]{"Alt+Shift+@Digit7"};
+constexpr std::string_view group_add_7_defaults[]{"Alt+Shift+@Digit7", "Alt+Shift+Numpad7"};
 constexpr std::string_view group_add_8_source[]{"3.1c"};
-constexpr std::string_view group_add_8_defaults[]{"Alt+Shift+@Digit8"};
+constexpr std::string_view group_add_8_defaults[]{"Alt+Shift+@Digit8", "Alt+Shift+Numpad8"};
 constexpr std::string_view group_add_9_source[]{"3.1c"};
-constexpr std::string_view group_add_9_defaults[]{"Alt+Shift+@Digit9"};
+constexpr std::string_view group_add_9_defaults[]{"Alt+Shift+@Digit9", "Alt+Shift+Numpad9"};
 constexpr std::string_view group_assign_1_source[]{"3.1c"};
 constexpr std::string_view group_assign_1_defaults[]{"Ctrl+@Digit1", "Ctrl+Numpad1"};
 constexpr std::string_view group_assign_2_source[]{"3.1c"};
@@ -494,11 +494,11 @@ constexpr Action k_actions[]{
     {"game.menu", "game", uint16_t{2}, uint32_t{72}, uint32_t{0}, Kind::press, By::none, std::span<const std::string_view>(game_menu_source), std::span<const std::string_view>(game_menu_defaults), Words{"Game menu", "The in-game menu, or resumes"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, "game_menu", std::string_view{}},
     {"game.options-dialog", "game", uint16_t{21}, uint32_t{8}, uint32_t{0}, Kind::press, By::none, std::span<const std::string_view>(game_options_dialog_source), std::span<const std::string_view>(game_options_dialog_defaults), Words{"Options", "The mod's options dialog"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, std::string_view{}, std::string_view{}},
     {"game.pause", "game", uint16_t{3}, uint32_t{104}, uint32_t{0}, Kind::press, By::none, std::span<const std::string_view>(game_pause_source), std::span<const std::string_view>(game_pause_defaults), Words{"Pause", "Pause on or off"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, "pause", std::string_view{}},
-    {"game.pin-unit", "game", uint16_t{7}, uint32_t{8}, uint32_t{0}, Kind::press, By::none, std::span<const std::string_view>(game_pin_unit_source), std::span<const std::string_view>(game_pin_unit_defaults), Words{"Pin unit", "Pins the unit under the pointer"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, std::string_view{}, std::string_view{}},
+    {"game.pin-unit", "game", uint16_t{7}, uint32_t{72}, uint32_t{0}, Kind::press, By::none, std::span<const std::string_view>(game_pin_unit_source), std::span<const std::string_view>(game_pin_unit_defaults), Words{"Pin unit", "Pins the unit under the pointer"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, std::string_view{}, std::string_view{}},
     {"game.repeat-command", "game", uint16_t{20}, uint32_t{8}, uint32_t{0}, Kind::press, By::place, std::span<const std::string_view>(game_repeat_command_source), std::span<const std::string_view>(game_repeat_command_defaults), Words{"Repeat command", "Runs the last chat command again"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>(game_repeat_command_hacks), std::string_view{}, Target::none, std::string_view{}, std::string_view{}, std::string_view{}},
     {"game.resource-panel", "game", uint16_t{9}, uint32_t{72}, uint32_t{0}, Kind::press, By::none, std::span<const std::string_view>(game_resource_panel_source), std::span<const std::string_view>{}, Words{"Resource panel", "The resource panel on or off"}, std::span<const std::string_view>{}, "game.kill-board", false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, std::string_view{}, std::string_view{}},
     {"game.screenshot", "game", uint16_t{17}, uint32_t{72}, uint32_t{0}, Kind::press, By::none, std::span<const std::string_view>(game_screenshot_source), std::span<const std::string_view>(game_screenshot_defaults), Words{"Screenshot", "Saves a screenshot"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>(game_screenshot_hacks), std::string_view{}, Target::none, std::string_view{}, "screenshot", std::string_view{}},
-    {"game.share-panel", "game", uint16_t{19}, uint32_t{8}, uint32_t{2}, Kind::press, By::letter, std::span<const std::string_view>(game_share_panel_source), std::span<const std::string_view>(game_share_panel_defaults), Words{"Share panel", "The share panel"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, "share_panel", std::string_view{}},
+    {"game.share-panel", "game", uint16_t{19}, uint32_t{8}, uint32_t{0}, Kind::press, By::letter, std::span<const std::string_view>(game_share_panel_source), std::span<const std::string_view>(game_share_panel_defaults), Words{"Share panel", "The share panel"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, "share_panel", std::string_view{}},
     {"game.speed-down", "game", uint16_t{5}, uint32_t{40}, uint32_t{0}, Kind::repeat, By::place, std::span<const std::string_view>(game_speed_down_source), std::span<const std::string_view>(game_speed_down_defaults), Words{"Speed down", "One speed step slower"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, true, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, "slower", std::string_view{}},
     {"game.speed-up", "game", uint16_t{4}, uint32_t{40}, uint32_t{0}, Kind::repeat, By::place, std::span<const std::string_view>(game_speed_up_source), std::span<const std::string_view>(game_speed_up_defaults), Words{"Speed up", "One speed step faster"}, std::span<const std::string_view>{}, std::string_view{}, false, false, false, true, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, "faster", std::string_view{}},
     {"game.status-strip", "game", uint16_t{10}, uint32_t{8}, uint32_t{0}, Kind::hold, By::none, std::span<const std::string_view>(game_status_strip_source), std::span<const std::string_view>(game_status_strip_defaults), Words{"Status strip", "Held: the status strip and kills board"}, std::span<const std::string_view>{}, std::string_view{}, false, true, false, false, std::span<const HackChange>{}, std::string_view{}, Target::none, std::string_view{}, std::string_view{}, std::string_view{}},

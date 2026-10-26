@@ -5,6 +5,7 @@
 // player's own changes combine in order, and the pairs that share a key
 // without clashing stay listed as shadows.
 #include "oa/test/check.hpp"
+#include "oa/ui/key_bindings/dispatcher.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
 
 #include "oa/data/input_actions/actions.hpp"
@@ -479,8 +480,10 @@ void scheme_and_swap() {
     const Resolved after = keys::resolve(swapped);
     const Bound* select = find_bound(after, "group.select-3");
     const Bound* page = find_bound(after, "build.page-3");
-    OA_CHECK(chords_are(select, {"@Digit3"}));
-    OA_CHECK(chords_are(page, {"Alt+@Digit3", "Alt+Numpad3"}));
+    OA_CHECK(chords_are(select, {"@Digit3", "Numpad3"}));
+    OA_CHECK(
+        chords_are(page, {"Alt+@Digit3", "Alt+Numpad3", "Alt+Shift+@Digit3", "Alt+Shift+Numpad3"})
+    );
     OA_CHECK(select != nullptr && select->chords[0].step == keys::Step::base);
     OA_CHECK(page != nullptr && page->chords[0].step == keys::Step::base);
 
@@ -491,7 +494,94 @@ void scheme_and_swap() {
     const Resolved written = keys::resolve(swapped);
     OA_CHECK(layout.bindings[0].chords[0] == before);
     OA_CHECK(chords_are(find_bound(written, "build.page-3"), {"F5"}));
-    OA_CHECK(chords_are(find_bound(written, "group.select-3"), {"@Digit3"}));
+    OA_CHECK(chords_are(find_bound(written, "group.select-3"), {"@Digit3", "Numpad3"}));
+}
+
+/// The action one key down produces, or empty when it produces none.
+///
+/// @param resolved the bindings
+/// @param map the keyboard
+/// @param scancode the key's position
+/// @param key_code the key code the event carries
+/// @param modifiers the physical modifiers
+/// @return the action id
+std::string played(
+    const Resolved& resolved,
+    const keys::KeyboardMap& map,
+    uint16_t scancode,
+    uint32_t key_code,
+    uint8_t modifiers
+) {
+    keys::Dispatcher dispatcher;
+    dispatcher.set_bindings(resolved);
+    dispatcher.set_keyboard(map);
+    keys::Contexts contexts;
+    const std::span<const acts::Context> table = acts::contexts();
+    for (std::size_t index = 0; index < table.size() && index < 32; ++index) {
+        if (table[index].name == "global" || table[index].name == "match" ||
+            table[index].name == "play") {
+            contexts.active |= uint32_t{1} << static_cast<uint32_t>(index);
+        }
+    }
+    dispatcher.set_contexts(contexts);
+    keys::InputEvent event;
+    event.kind = keys::InputKind::key;
+    event.down = true;
+    event.scancode = scancode;
+    event.key_code = key_code;
+    event.modifiers = modifiers;
+    const keys::Fed fed = dispatcher.feed(event);
+    if (fed.events.size() != 1)
+        return {};
+    return std::string{fed.events[0].action};
+}
+
+/// With the swap on, Alt+Shift+1 is a page and Shift+1 adds the group.
+///
+/// oa-default clashes neither way: oa_default_has_no_clash covers that. The
+/// keypad follows the digit row. The damage-bar chords on those digits yield.
+void number_swap_moves_add_and_pages() {
+    const keys::KeyboardMap us = keys::KeyboardMap::us();
+    keys::ResolveInput swapped = fresh(us);
+    swapped.number_keys_select_groups = true;
+    const Resolved after = keys::resolve(swapped);
+    OA_CHECK(chords_are(find_bound(after, "group.add-1"), {"Shift+@Digit1", "Shift+Numpad1"}));
+    OA_CHECK(chords_are(
+        find_bound(after, "build.page-1"),
+        {"Alt+@Digit1", "Alt+Numpad1", "Alt+Shift+@Digit1", "Alt+Shift+Numpad1"}
+    ));
+    OA_CHECK(chords_are(find_bound(after, "group.select-1"), {"@Digit1", "Numpad1"}));
+    OA_CHECK(lost_to(after, "game.health-bars-mode-1", LostReason::number_swap, "group.add-1"));
+    OA_CHECK(lost_to(after, "game.health-bars-mode-2", LostReason::number_swap, "group.add-3"));
+    OA_CHECK(lost_to(after, "game.health-bars-mode-3", LostReason::number_swap, "group.add-8"));
+    OA_CHECK(chords_are(find_bound(after, "game.health-bars-mode-1"), {}));
+    OA_CHECK(chords_are(find_bound(after, "game.health-bars-mode-4"), {"Shift+@Backquote"}));
+
+    keys::ResolveInput plain = fresh(us);
+    const Resolved before = keys::resolve(plain);
+    OA_CHECK(
+        chords_are(find_bound(before, "group.add-1"), {"Alt+Shift+@Digit1", "Alt+Shift+Numpad1"})
+    );
+    OA_CHECK(chords_are(find_bound(before, "build.page-1"), {"@Digit1", "Numpad1"}));
+    OA_CHECK(chords_are(find_bound(before, "game.health-bars-mode-1"), {"Shift+@Digit1"}));
+
+    const std::optional<uint16_t> digit = keys::scancode_of("Digit1");
+    OA_CHECK(digit.has_value());
+    const keys::NamedKeySpec* pad = nullptr;
+    for (const keys::NamedKeySpec& key : keys::named_keys()) {
+        if (key.name == "Numpad1")
+            pad = &key;
+    }
+    OA_CHECK(pad != nullptr);
+    const uint8_t alt_shift = static_cast<uint8_t>(keys::alt | keys::shift);
+    const uint8_t shift_only = static_cast<uint8_t>(keys::shift);
+    const uint16_t digit_place = digit.value_or(0);
+    const uint16_t pad_place = pad != nullptr ? pad->scancode : 0;
+    const uint32_t pad_code = pad != nullptr ? pad->key_code : 0;
+    OA_CHECK(played(after, us, digit_place, 0, alt_shift) == "build.page-1");
+    OA_CHECK(played(after, us, digit_place, 0, shift_only) == "group.add-1");
+    OA_CHECK(played(after, us, pad_place, pad_code, alt_shift) == "build.page-1");
+    OA_CHECK(played(after, us, pad_place, pad_code, shift_only) == "group.add-1");
 }
 
 /// Escape stays on chat.cancel. Nothing else is held back.
@@ -711,6 +801,7 @@ int main() {
     replaces_follows_the_player();
     hack_defaults();
     scheme_and_swap();
+    number_swap_moves_add_and_pages();
     fixed_escape();
     shared_without_a_clash();
     where_layers_meet();

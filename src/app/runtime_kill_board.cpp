@@ -487,7 +487,7 @@ void Runtime::draw_match_kill_board() {
                 const_cast<Logo*>(&logo)
             );
         };
-    const bool held = control_key_down(oa::ui::gui_input::ControlKey::space);
+    const bool held = action_key_held("game.status-strip") || space_held_by_check_;
     const auto now = oa::base::game_loop::scaled_clock(clock_milliseconds(), match_clock_scale());
     hud::draw_kill_board(
         world,

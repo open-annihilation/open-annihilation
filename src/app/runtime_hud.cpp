@@ -1406,7 +1406,8 @@ void Runtime::draw_status_panel() {
     namespace hud = oa::ui::hud;
     if (!match_)
         return;
-    const bool held = control_key_down(oa::ui::gui_input::ControlKey::space) && !chat_composing_;
+    const bool held =
+        (action_key_held("game.status-strip") || space_held_by_check_) && !chat_composing_;
     auto& game = match_->state().game;
     // The strip sounds "Panel" as it leaves an end and "Options" as it
     // reaches one, as the kills board does.
