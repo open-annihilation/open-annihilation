@@ -3718,6 +3718,7 @@ class Runtime final : public menu::Host,
     /// The art every page of the match's side column is drawn with, read
     /// once a match (match_hud_art).
     struct MatchHudArt {
+        std::size_t side{};     ///< the viewed side it was read for
         std::string tile;       ///< the side tile it was read for
         std::string panel;      ///< the side's interface GAF it was read for
         std::string font;       ///< the side's SIDEDATA font it was read for
