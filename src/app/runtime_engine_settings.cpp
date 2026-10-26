@@ -1357,6 +1357,10 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // Turning Hold to confirm off drops a hold that has not finished.
     if (before.hold_to_confirm && !chosen.hold_to_confirm)
         cancel_hold_confirm();
+    // Turning the order wheel off, or choosing the other button, drops a
+    // press that is waiting and closes a wheel the mouse opened.
+    if (before.order_wheel != chosen.order_wheel)
+        cancel_order_wheel();
     // SwitchAlt, where the keys read it: the match's options and the
     // frontend's preferences, which the match's options go back into.
     const auto with_switch_alt = [&](uint16_t flags) {

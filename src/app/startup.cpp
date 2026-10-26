@@ -345,6 +345,7 @@ void check_game_files_options(Options& options) {
         {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_key_latches, "--check-key-latches"},
         {options.check_hold_confirm, "--check-hold-confirm"},
+        {options.check_order_wheel, "--check-order-wheel"},
         {options.check_key_timing, "--check-key-timing"},
         {options.check_pointer_keys, "--check-pointer-keys"},
         {options.check_kill_board, "--check-kill-board"},
@@ -649,6 +650,7 @@ void check_director_options(Options& options) {
         {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_key_latches, "--check-key-latches"},
         {options.check_hold_confirm, "--check-hold-confirm"},
+        {options.check_order_wheel, "--check-order-wheel"},
         {options.check_key_timing, "--check-key-timing"},
         {options.check_pointer_keys, "--check-pointer-keys"},
         {options.check_kill_board, "--check-kill-board"},
@@ -763,6 +765,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {!options.check_key_table.empty(), "--check-key-table"},
             {options.check_key_latches, "--check-key-latches"},
             {options.check_hold_confirm, "--check-hold-confirm"},
+            {options.check_order_wheel, "--check-order-wheel"},
             {options.check_key_timing, "--check-key-timing"},
             {options.check_pointer_keys, "--check-pointer-keys"},
             {options.check_kill_board, "--check-kill-board"},
@@ -1028,6 +1031,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-match-bars", &Options::check_match_bars},
     {"--check-key-latches", &Options::check_key_latches},
     {"--check-hold-confirm", &Options::check_hold_confirm},
+    {"--check-order-wheel", &Options::check_order_wheel},
     {"--check-kill-board", &Options::check_kill_board},
     {"--check-paused-save", &Options::check_paused_save},
     {"--check-saved-brains", &Options::check_saved_brains},
@@ -1767,7 +1771,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
-                     "[--check-key-latches] [--check-hold-confirm] "
+                     "[--check-key-latches] [--check-hold-confirm] [--check-order-wheel] "
                      "[--check-key-table FILE] [--check-key-timing] [--check-pointer-keys] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
@@ -2083,11 +2087,12 @@ void write_startup_line(std::string_view text) {
         result.check_download_builds || result.check_stockpile_builds ||
         result.check_unit_page_memory || result.check_side_column || result.check_match_bars ||
         !result.check_unit_pages.empty() || !result.check_key_table.empty() ||
-        result.check_key_latches || result.check_hold_confirm || result.check_kill_board ||
-        !result.check_unit_language.empty() || result.check_language_switch ||
-        result.check_language_registry || result.check_language_notice || result.check_first_run ||
-        result.check_setup_window || result.check_window_place || result.check_progress ||
-        result.check_engine_feed || result.check_update_offer || result.check_update_download ||
+        result.check_key_latches || result.check_hold_confirm || result.check_order_wheel ||
+        result.check_kill_board || !result.check_unit_language.empty() ||
+        result.check_language_switch || result.check_language_registry ||
+        result.check_language_notice || result.check_first_run || result.check_setup_window ||
+        result.check_window_place || result.check_progress || result.check_engine_feed ||
+        result.check_update_offer || result.check_update_download ||
         result.check_update_roll_back || result.check_text_fit || result.check_folder_chooser ||
         result.check_patrol_reclaim || result.check_reclaim_cursor || result.check_wreck_pick ||
         result.check_build_preview || result.check_pointer_interfaces ||

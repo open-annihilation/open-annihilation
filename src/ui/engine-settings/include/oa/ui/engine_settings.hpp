@@ -38,6 +38,8 @@ inline constexpr std::string_view sticky_modifiers = "open-annihilation.access.s
 inline constexpr std::string_view pointer_keys = "open-annihilation.access.pointer-keys";
 /// 1 or 0 (EngineSettings::hold_to_confirm). Absent means off.
 inline constexpr std::string_view hold_to_confirm = "open-annihilation.access.hold-to-confirm";
+/// "off", "hold-right" or "hold-middle" (EngineSettings::order_wheel). Absent means off.
+inline constexpr std::string_view order_wheel = "open-annihilation.access.order-wheel";
 /// "automatic", "whole-map", or the share of normal size: "1/32", "1/16",
 /// "1/8", "1/4" or "1/2" (EngineSettings::max_zoom_out).
 inline constexpr std::string_view max_zoom_out = "open-annihilation.max-zoom-out";
@@ -334,6 +336,8 @@ inline constexpr std::string_view access_repeat_rate = "open-annihilation.access
 inline constexpr std::string_view access_drag_threshold = "open-annihilation.access.drag-threshold";
 static_assert(hold_to_confirm.find('|') == std::string_view::npos);
 static_assert(hold_to_confirm.find('\\') == std::string_view::npos);
+static_assert(order_wheel.find('|') == std::string_view::npos);
+static_assert(order_wheel.find('\\') == std::string_view::npos);
 static_assert(access_slow_keys.find('|') == std::string_view::npos);
 static_assert(access_bounce_keys.find('|') == std::string_view::npos);
 static_assert(access_double_press.find('|') == std::string_view::npos);
@@ -1125,6 +1129,13 @@ inline constexpr uint32_t default_underwater_shimmer = 100;
 /// Naval reflections' percent where the preferences store none.
 inline constexpr uint32_t default_naval_reflections = 100;
 
+/// Which mouse button, held, opens the order wheel. Off leaves the buttons as they are.
+enum class OrderWheel : uint8_t {
+    off,         ///< a click and a drag do what they do today
+    hold_right,  ///< holding the right button opens the wheel
+    hold_middle, ///< holding the middle button opens the wheel
+};
+
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
     /// Path nodes the path search may visit in a game tick, all players
@@ -1137,6 +1148,8 @@ struct EngineSettings {
     bool pointer_keys{false};
     /// Self-destruct, surrender and quitting need the long-press time.
     bool hold_to_confirm{false};
+    /// Holding the right or middle button opens the order wheel at the pointer.
+    OrderWheel order_wheel{OrderWheel::off};
     /// How far out the battlefield's view zooms, by the wheel, a pinch, the
     /// touch controls or a controller.
     ZoomOutLimit max_zoom_out{ZoomOutLimit::automatic};
@@ -1447,7 +1460,7 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// Automatic and Left-handed Off (oa/ui/pad_controls.hpp). Slow keys and
 /// bounce keys are off, a double press and key repeat use the system's, a
 /// long press waits 500 ms and a drag of 32 pixels of the 640×480 game is
-/// still a click.
+/// still a click. The order wheel is off.
 ///
 /// @param inputs the platform, the preferences file and the installation
 /// @return the defaults

@@ -1374,6 +1374,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
   src/app/runtime_key_latches_check.cpp
   src/app/runtime_hold_confirm_check.cpp
+  src/app/runtime_order_wheel_check.cpp
   src/app/runtime_key_timing_check.cpp
   src/app/runtime_pointer_keys_check.cpp
   src/app/runtime_dgun_check.cpp
@@ -3906,6 +3907,17 @@ endforeach()
         --preferences-file "${oa_hold_confirm_dir}/hold-confirm.conf")
       set_tests_properties(native-hold-confirm PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_hold_confirm_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The order wheel a held mouse button opens, on a skirmish. Touch controls
+      # and the pad HUD stay off. The setting starts off.
+      set(oa_order_wheel_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/order-wheel")
+      file(MAKE_DIRECTORY "${oa_order_wheel_dir}")
+      add_test(NAME native-order-wheel COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-order-wheel
+        --snapshot "${oa_order_wheel_dir}/order-wheel.ppm"
+        --preferences-file "${oa_order_wheel_dir}/order-wheel.conf")
+      set_tests_properties(native-order-wheel PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_order_wheel_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # With the request held, the frame hook keeps being called while the
       # window is inactive; released, the loop waits for an event.

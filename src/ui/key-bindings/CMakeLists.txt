@@ -15,6 +15,7 @@ add_library(oa-ui-key-bindings
   src/latches.cpp
   src/pointer_keys.cpp
   src/confirm.cpp
+  src/order_wheel.cpp
   src/timing.cpp
   src/layout_file.cpp
   src/legacy_keys.cpp)
@@ -62,6 +63,13 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME ui-key-bindings-confirm COMMAND oa-ui-key-bindings-confirm-exe)
   set_tests_properties(ui-key-bindings-confirm PROPERTIES TIMEOUT 30)
+
+  # A held mouse button: a click, a drag, a long press and a cancel.
+  add_executable(oa-ui-key-bindings-order-wheel-exe tests/order_wheel_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-order-wheel-exe PRIVATE oa-ui-key-bindings
+    oa-test-support oa-options)
+  add_test(NAME ui-key-bindings-order-wheel COMMAND oa-ui-key-bindings-order-wheel-exe)
+  set_tests_properties(ui-key-bindings-order-wheel PROPERTIES TIMEOUT 30)
 
   # Slow keys, bounce keys, the player's times and the drag's tick limit.
   add_executable(oa-ui-key-bindings-timing-exe tests/timing_test.cpp)
