@@ -52,7 +52,7 @@ struct ClearingGeometry final : SpawnGeometryHost {
 };
 
 struct TargetFixture final : TargetSearchHost {
-    std::vector<TargetUnit> nearby;
+    std::vector<TargetUnit> nearby, gathered;
     std::vector<uint32_t> random_values;
     size_t random_index{};
     bool reachable{true}, override_flag{};
@@ -62,9 +62,10 @@ struct TargetFixture final : TargetSearchHost {
         return radius;
     }
 
-    std::span<const TargetUnit>
-    gather_nearby(uint8_t, const std::array<uint32_t, 3>&, int32_t) override {
-        return nearby;
+    std::span<TargetUnit> gather_nearby(uint8_t, const std::array<uint32_t, 3>&, int32_t) override {
+        // A copy, since the search reorders what it is given.
+        gathered = nearby;
+        return gathered;
     }
 
     uint32_t random_bounded(uint32_t limit) override {

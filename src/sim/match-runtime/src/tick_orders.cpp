@@ -92,10 +92,8 @@ bool stockpile_round(const oa::World& world, uint16_t type) noexcept {
 } // namespace
 
 sim::ground_orders::OrderState* Match::owned_extra(sim::simulation_state::Order* order) noexcept {
-    for (auto& candidate : orders_)
-        if (&candidate->order == order)
-            return &candidate->extra;
-    return nullptr;
+    auto* record = runtime_order(order);
+    return record ? &record->extra : nullptr;
 }
 
 sim::simulation_state::Order& Match::refused_order() noexcept {
@@ -144,13 +142,9 @@ sim::simulation_state::Order& Match::insert_ground_order(
     }
     auto& head = (entry->order.flags & 4) ? u.secondary : u.primary;
     entry->order.next = head;
-    if (head) {
-        for (const auto& old : orders_)
-            if (&old->order == head)
-                entry->extra.command_flags |= old->extra.command_flags & command_overlay;
-    }
-    auto* result = &entry->order;
-    orders_.push_back(std::move(entry));
+    if (const auto* old = runtime_order(head))
+        entry->extra.command_flags |= old->extra.command_flags & command_overlay;
+    auto* result = &adopt_order(std::move(entry)).order;
     head = result;
     return *result;
 }
@@ -177,8 +171,7 @@ Match::issue_ground_move(uint16_t index, const sim::ground_orders::Point& destin
     entry->order.preserve_flags = 2;
     entry->extra.command_flags = 4;
     entry->extra.destination = destination;
-    auto* record = entry.get();
-    orders_.push_back(std::move(entry));
+    auto* record = &adopt_order(std::move(entry));
     TickHost host(*this);
     const auto extra = [&](sim::simulation_state::Order* order) { return owned_extra(order); };
     if (!queue)
@@ -218,8 +211,7 @@ sim::simulation_state::Order& Match::issue_queued_command(
     entry->extra.command_flags = static_cast<uint8_t>(flags >> 8);
     entry->order.flags = static_cast<uint8_t>(flags >> 16);
     entry->extra.destination = destination;
-    auto* record = entry.get();
-    orders_.push_back(std::move(entry));
+    auto* record = &adopt_order(std::move(entry));
     TickHost host(*this);
     const auto extra = [&](sim::simulation_state::Order* order) { return owned_extra(order); };
     if (!queue)
@@ -257,8 +249,7 @@ Match::issue_state_order(uint16_t index, uint8_t kind, int32_t value) {
     entry->order.preserve_flags = static_cast<uint8_t>(flags);
     entry->extra.command_flags = static_cast<uint8_t>(flags >> 8);
     entry->order.flags = static_cast<uint8_t>(flags >> 16);
-    auto* record = entry.get();
-    orders_.push_back(std::move(entry));
+    auto* record = &adopt_order(std::move(entry));
     TickHost host(*this);
     const auto extra = [&](sim::simulation_state::Order* order) { return owned_extra(order); };
     // The descriptor's preserve flags bit 0x40 keeps the queue, and bit 0x20
@@ -278,12 +269,7 @@ void Match::visit_primary_queue(
         return;
     const auto& unit = units_[index];
     for_each_primary_uncycled(unit.primary, [&](sim::simulation_state::Order* order) {
-        const RuntimeOrder* record = nullptr;
-        for (const auto& candidate : orders_)
-            if (&candidate->order == order) {
-                record = candidate.get();
-                break;
-            }
+        const auto* record = runtime_order(order);
         if (!record || (record->extra.command_flags & command_overlay) != 0)
             return;
         QueuedCommandView view;
@@ -363,8 +349,7 @@ sim::simulation_state::Order& Match::issue_order(
         entry->construction.target = aimed;
         link_target_observer(*entry, aimed);
     }
-    auto* record = entry.get();
-    orders_.push_back(std::move(entry));
+    auto* record = &adopt_order(std::move(entry));
     TickHost host(*this);
     const auto extra = [&](sim::simulation_state::Order* order) { return owned_extra(order); };
     if (!queue && (record->order.preserve_flags & descriptor_keeps_queue) == 0)
@@ -420,10 +405,7 @@ bool Match::cancel_queued_order(
     for_each_primary_uncycled(unit.primary, [&](sim::simulation_state::Order* order) {
         if (found != nullptr || order->kind != kind)
             return;
-        const RuntimeOrder* record = nullptr;
-        for (const auto& candidate : orders_)
-            if (&candidate->order == order)
-                record = candidate.get();
+        const auto* record = runtime_order(order);
         if (record == nullptr)
             return;
         const auto* order_target =
@@ -467,9 +449,7 @@ std::size_t Match::queue_records(
     for_each_primary_uncycled(head, [&](sim::simulation_state::Order* order) {
         if (written == capacity)
             return;
-        for (const auto& candidate : orders_) {
-            if (&candidate->order != order)
-                continue;
+        if (const auto* candidate = runtime_order(order)) {
             auto& view = out[written++];
             view.kind = order->kind;
             view.preserve_flags = order->preserve_flags;
@@ -487,7 +467,6 @@ std::size_t Match::queue_records(
             view.phase = order->phase;
             view.facing = candidate->construction.facing;
             view.build_started = candidate->construction.target != nullptr;
-            break;
         }
     });
     return written;
@@ -515,11 +494,10 @@ sim::simulation_state::Order& Match::issue_mobile_build(
 ) {
     const auto kind = aircraft_builder(state(), index) ? vtol_mobile_build_kind : mobile_build_kind;
     auto& order = issue_queued_command(index, kind, destination, queue, mobile_build_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.type_index = type;
-            candidate->construction.facing = static_cast<uint8_t>(facing & 3U);
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.type_index = type;
+        candidate->construction.facing = static_cast<uint8_t>(facing & 3U);
+    }
     return order;
 }
 
@@ -558,12 +536,11 @@ sim::simulation_state::Order&
 Match::issue_build_weapon(uint16_t index, int32_t weapon_slot, int32_t count) {
     constexpr uint8_t build_weapon_kind = 13;
     auto& order = insert_ground_order(index, build_weapon_kind);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->attack.weapon_slot = weapon_slot;
-            candidate->construction.type_index = weapon_slot;
-            candidate->construction.remaining = count;
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->attack.weapon_slot = weapon_slot;
+        candidate->construction.type_index = weapon_slot;
+        candidate->construction.remaining = count;
+    }
     return order;
 }
 
@@ -572,9 +549,7 @@ sim::simulation_state::Order& Match::issue_attack_special(
 ) {
     // Command 4: AttackSpecial. Handler morphs to Chase/Suppress with slot 2.
     auto& order = issue_queued_command(index, attack_special_kind, destination, queue, 0x680u);
-    for (auto& candidate : orders_) {
-        if (&candidate->order != &order)
-            continue;
+    if (auto* candidate = runtime_order(&order)) {
         candidate->attack.destination = {
             std::bit_cast<uint32_t>(destination[0]),
             std::bit_cast<uint32_t>(destination[1]),
@@ -595,11 +570,10 @@ Match::issue_building_build(uint16_t index, uint16_t type, int32_t count, bool q
     };
     auto& order =
         issue_queued_command(index, building_build_kind, here, queue, building_build_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.type_index = type;
-            candidate->construction.remaining = count < 1 ? 1 : count;
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.type_index = type;
+        candidate->construction.remaining = count < 1 ? 1 : count;
+    }
     return order;
 }
 
@@ -607,11 +581,10 @@ int32_t Match::queued_build_count(uint16_t index, int32_t type) const {
     int32_t total = 0;
     const auto& unit = units_.at(index);
     const auto count = [&](sim::simulation_state::Order* order) {
-        for (const auto& candidate : orders_)
-            if (&candidate->order == order &&
-                (candidate->extra.command_flags & command_counts_builds) != 0 &&
-                candidate->construction.type_index == type)
-                total += candidate->construction.remaining;
+        const auto* candidate = runtime_order(order);
+        if (candidate && (candidate->extra.command_flags & command_counts_builds) != 0 &&
+            candidate->construction.type_index == type)
+            total += candidate->construction.remaining;
     };
     for_each_primary_uncycled(unit.primary, count);
     for_each_primary_uncycled(unit.secondary, count);
@@ -627,10 +600,7 @@ void Match::change_queued_count(uint16_t index, uint8_t kind, uint16_t type, int
     }
     const bool secondary = ((*descriptor >> 16) & flags_secondary) != 0;
     const auto owned = [&](sim::simulation_state::Order* order) -> RuntimeOrder* {
-        for (auto& candidate : orders_)
-            if (&candidate->order == order)
-                return candidate.get();
-        return nullptr;
+        return runtime_order(order);
     };
     const auto matches = [&](sim::simulation_state::Order* order, RuntimeOrder* record) {
         return record != nullptr && order->kind == kind &&
@@ -693,12 +663,11 @@ sim::simulation_state::Order& Match::issue_help_build(uint16_t index, uint16_t t
     };
     const auto kind = aircraft_builder(state(), index) ? vtol_help_build_kind : help_build_kind;
     auto& order = issue_queued_command(index, kind, here, queue, help_build_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.target = &assisted;
-            candidate->construction.type_index = static_cast<int32_t>(assisted.record.type_index);
-            link_target_observer(*candidate, &assisted);
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.target = &assisted;
+        candidate->construction.type_index = static_cast<int32_t>(assisted.record.type_index);
+        link_target_observer(*candidate, &assisted);
+    }
     return order;
 }
 
@@ -712,12 +681,11 @@ sim::simulation_state::Order& Match::issue_repair(uint16_t index, uint16_t targe
     };
     const auto kind = aircraft_builder(state(), index) ? vtol_repair_unit_kind : repair_unit_kind;
     auto& order = issue_queued_command(index, kind, here, queue, repair_unit_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.target = &repaired;
-            candidate->construction.type_index = static_cast<int32_t>(repaired.record.type_index);
-            link_target_observer(*candidate, &repaired);
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.target = &repaired;
+        candidate->construction.type_index = static_cast<int32_t>(repaired.record.type_index);
+        link_target_observer(*candidate, &repaired);
+    }
     (void)unit;
     return order;
 }
@@ -731,11 +699,10 @@ sim::simulation_state::Order& Match::issue_reclaim(uint16_t index, uint16_t targ
     };
     const auto kind = aircraft_builder(state(), index) ? vtol_reclaim_unit_kind : reclaim_unit_kind;
     auto& order = issue_queued_command(index, kind, here, queue, reclaim_unit_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.target = &reclaimed;
-            link_target_observer(*candidate, &reclaimed);
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.target = &reclaimed;
+        link_target_observer(*candidate, &reclaimed);
+    }
     return order;
 }
 
@@ -747,11 +714,10 @@ sim::simulation_state::Order& Match::issue_capture(uint16_t index, uint16_t targ
         signed_word(captured.position[2])
     };
     auto& order = issue_queued_command(index, capture_kind, here, queue, capture_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.target = &captured;
-            link_target_observer(*candidate, &captured);
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.target = &captured;
+        link_target_observer(*candidate, &captured);
+    }
     return order;
 }
 
@@ -768,11 +734,10 @@ sim::simulation_state::Order& Match::issue_load(uint16_t index, uint16_t cargo, 
             ? vtol_pickup_kind
             : ground_pickup_kind;
     auto& order = issue_queued_command(index, kind, here, queue, ground_pickup_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.target = &carried;
-            link_target_observer(*candidate, &carried);
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.target = &carried;
+        link_target_observer(*candidate, &carried);
+    }
     return order;
 }
 
@@ -800,11 +765,10 @@ sim::simulation_state::Order& Match::issue_guard(uint16_t index, uint16_t target
             ? vtol_follow_kind
             : follow_ground_kind;
     auto& order = issue_queued_command(index, kind, here, queue, follow_ground_flags);
-    for (auto& candidate : orders_)
-        if (&candidate->order == &order) {
-            candidate->construction.target = &guarded;
-            link_target_observer(*candidate, &guarded);
-        }
+    if (auto* candidate = runtime_order(&order)) {
+        candidate->construction.target = &guarded;
+        link_target_observer(*candidate, &guarded);
+    }
     return order;
 }
 
@@ -850,15 +814,11 @@ bool Match::commit_attack_orders(
         entry->attack.origin = {request.source_x, request.source_z};
         entry->extra.anchor_x = request.source_x;
         entry->extra.anchor_z = request.source_z;
-        auto* record = entry.get();
-        orders_.push_back(std::move(entry));
+        auto* record = &adopt_order(std::move(entry));
         auto& head = (record->order.flags & 4) ? unit.secondary : unit.primary;
         record->order.next = head;
-        if (head) {
-            for (auto& prior : orders_)
-                if (&prior->order == head)
-                    record->extra.command_flags |= prior->extra.command_flags & command_overlay;
-        }
+        if (const auto* prior = runtime_order(head))
+            record->extra.command_flags |= prior->extra.command_flags & command_overlay;
         head = &record->order;
     }
     return true;
@@ -902,10 +862,7 @@ bool TickHost::relocate_queued_build(
         return false;
     if (aircraft && order->phase > 2)
         return false;
-    Match::RuntimeOrder* record = nullptr;
-    for (auto& candidate : match.orders_)
-        if (&candidate->order == order)
-            record = candidate.get();
+    auto* record = match.runtime_order(order);
     if (record == nullptr || record->construction.target != nullptr)
         return false;
     const auto type = static_cast<uint16_t>(record->construction.type_index);

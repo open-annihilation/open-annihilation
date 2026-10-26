@@ -10,7 +10,8 @@ names itself. A preferences file that names a layout that is not installed,
 with --keys-reset, plays and writes no own layout. A profile that turns on
 ui.build-tools, with Eye KeyCode 113, leaves own-oa-default holding
 build.line on @KeyQ and lists the mod in open-annihilation.keys.imported; a
-second run changes neither file.
+second run changes neither file. A .oakeys file with the same binding plays
+and leaves its Keys folder empty.
 """
 
 import argparse
@@ -20,6 +21,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import zipfile
 
 # A command that starts the executable under test; empty runs it directly.
 RUNNER = shlex.split(os.environ.get("OA_TEST_RUNNER", ""))
@@ -105,8 +107,26 @@ def preferences(lines):
     return body
 
 
+def write_oakeys(path, text):
+    """Writes a .oakeys whose manifest is deflated, as the packer stores it."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        info = zipfile.ZipInfo("oakeys.yaml")
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.date_time = (1980, 1, 1, 0, 0, 0)
+        archive.writestr(info, text)
+
+
+def keys_unused(folder):
+    """True when Keys is absent or holds nothing."""
+    keys = folder / "Keys"
+    if not keys.exists():
+        return True
+    return not any(keys.iterdir())
+
+
 def main():
-    """Runs the four checks."""
+    """Runs the five checks."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", required=True)
     parser.add_argument("--game-dir", required=True)
@@ -227,6 +247,39 @@ def main():
     ):
         show("import again", output)
         raise ScriptFailure(f"a second run exited {status} or changed a file")
+
+    # A .oakeys is read in memory. Nothing is installed, and the layout
+    # preference is not written. The user folder is not the import case's.
+    pack = work / "ridge-attack.oakeys"
+    write_oakeys(pack, LAYOUT_TEXT)
+    pack_user = work / "pack-user"
+    pack_prefs = work / "pack.conf"
+    status, output = run(
+        parsed.native,
+        parsed.game_dir,
+        work,
+        [
+            "--keys",
+            str(pack),
+            "--check-key-table",
+            parsed.key_table,
+            "--trace-input",
+            "--preferences-file",
+            str(pack_prefs),
+            "--user-folder",
+            str(pack_user),
+        ],
+    )
+    prefs_text = pack_prefs.read_text(encoding="utf-8") if pack_prefs.is_file() else ""
+    if (
+        status != 0
+        or ATTACK_LINE not in output
+        or KEY_TABLE_LINE not in output
+        or not keys_unused(pack_user)
+        or "open-annihilation.keys.layout" in prefs_text
+    ):
+        show("oakeys", output)
+        raise ScriptFailure(f"--keys .oakeys exited {status}")
     return 0
 
 

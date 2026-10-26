@@ -197,11 +197,13 @@ void compose(
                     );
                     energy += strength(source.glow) * glow_energy * core * core * visibility;
                 }
+                // The light's whole steps, whatever the channel held: its
+                // sum with the channel could otherwise round up a step.
                 for (int channel = 0; channel < 3; ++channel) {
                     const auto address = offset + size_t(channel);
                     const float base = float(surface.pixels[address]);
                     surface.pixels[address] =
-                        uint8_t(std::min(255.0f, base + energy * colour[channel]));
+                        uint8_t(std::min(255.0f, base + std::floor(energy * colour[channel])));
                 }
             }
         }

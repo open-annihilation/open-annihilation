@@ -2621,6 +2621,91 @@ struct TouchCheckAccess {
         runtime.match_->stop_orders(run.commander);
     }
 
+    /// 9b. The unit info panel takes a finger as it takes the mouse: a tap on the side column's
+    /// ATTACK under it does nothing, a drag from the panel draws no box, even with ATTACK armed,
+    /// and a box on open ground that leaves nothing selected drops the selection and closes the
+    /// panel; a tap on OK closes it.
+    static void case_unit_info(Runtime& runtime, TouchRun& run) {
+        const auto unit = run.peewees[0];
+        const auto open_info = [&] {
+            select_only(runtime, unit);
+            look_at_units(runtime, {unit});
+            steps(runtime, run, kFrameMs, kFrameMs);
+            tap_control(runtime, run, hud::Control::info, -1, "INFO");
+            const auto area = runtime.unit_info_area();
+            require(
+                runtime.unit_info_panel_.has_value() && area.has_value(),
+                Lane::dispatch,
+                "a tap on INFO did not show the unit info panel"
+            );
+            return *area;
+        };
+        const auto area = open_info();
+        const auto attack = gadget_holding(runtime, "ATTACK");
+        require(attack.has_value(), Lane::check, "the Peewee's orders page has no ATTACK");
+        tap(runtime, run, gadget_centre(runtime, *attack));
+        require(
+            runtime.unit_info_panel_ && runtime.match_command_ == MatchCommand::none,
+            Lane::dispatch,
+            "a tap on the side column's ATTACK armed it with the unit info panel open"
+        );
+        require(
+            runtime.arm_match_command("ATTACK", false) &&
+                runtime.match_command_ == MatchCommand::attack,
+            Lane::check,
+            "ATTACK could not be armed for the Peewee"
+        );
+        const CanvasPoint face{
+            static_cast<float>(area.x + area.width / 4), static_cast<float>(area.y + 8)
+        };
+        const auto beside = open_ground_near(
+            runtime,
+            run,
+            {static_cast<float>(runtime.match_layout_.left + area.x) / 2.0F,
+             static_cast<float>(area.y + area.height / 2)}
+        );
+        const auto finger = drag(runtime, run, face, beside, false, false);
+        require(
+            !runtime.match_drag_,
+            Lane::dispatch,
+            "a finger dragged from the unit info panel with ATTACK armed drew a box"
+        );
+        lift(runtime, run, finger);
+        step(runtime, run, kAfterTapMs);
+        require(
+            runtime.unit_info_panel_ && queue_of(runtime, unit).empty(),
+            Lane::dispatch,
+            "a drag from the unit info panel closed it or gave an order"
+        );
+        runtime.reset_match_command();
+        const CanvasPoint below{beside.x, beside.y + kScrollTravelPoints * run.px_per_point};
+        drag(runtime, run, beside, below, false);
+        require(
+            !runtime.unit_info_panel_ && !runtime.has_local_selection(),
+            Lane::dispatch,
+            "a box on open ground did not drop the selection and close the unit info panel"
+        );
+        std::ignore = open_info();
+        const auto& panel = *runtime.unit_info_panel_;
+        for (const auto& gadget : panel.screen->layout.gadgets) {
+            if (gadget.common.name != "DONE")
+                continue;
+            const auto& root = panel.root;
+            tap(runtime,
+                run,
+                {static_cast<float>(
+                     area.x +
+                     (gadget.common.x + gadget.common.width / 2 - root.x) * area.width / root.width
+                 ),
+                 static_cast<float>(
+                     area.y + (gadget.common.y + gadget.common.height / 2 - root.y) * area.height /
+                                  root.height
+                 )});
+            break;
+        }
+        require(!runtime.unit_info_panel_, Lane::dispatch, "a tap on OK did not close the panel");
+    }
+
     /// 10. Placement from the commander's build page: check_placement's gestures.
     static void case_placement(Runtime& runtime, TouchRun& run) {
         const auto solar = type_of(runtime, "ARMSOLAR");
@@ -3817,6 +3902,7 @@ void Runtime::check_touch_controls() {
         run_case("7 two-finger tap", Access::case_two_finger_clear);
         run_case("8 pinch and pan", Access::case_pinch_and_pan);
         run_case("9 radial", Access::case_radial);
+        run_case("9b unit info panel", Access::case_unit_info);
         run_case("10 placement", Access::case_placement);
         run_case("11 minimap", Access::case_minimap);
         run_case("12 edges", Access::case_edges);

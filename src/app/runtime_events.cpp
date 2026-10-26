@@ -333,6 +333,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         // nothing to do; any other left press clears that mark.
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && event.button.button == select_button)
             radar_left_press_held_ = false;
+        // An open unit info panel takes a press on it, and the release that
+        // ends it, before anything under it; the side column takes none.
+        if (unit_info_pointer(event, x, y))
+            return;
         // The commander placement (setup.commander-warp) takes the pointer
         // first; ui.resource-panel's panel floats over the battlefield and
         // takes it next; ui.build-tools' drag with the snap override key
@@ -432,6 +436,12 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
                 return;
             }
             if (match_drag_ && !match_drag_is_click()) {
+                const bool area_order = match_command_ == MatchCommand::attack ||
+                                        match_command_ == MatchCommand::dgun ||
+                                        match_command_ == MatchCommand::reclaim ||
+                                        match_command_ == MatchCommand::repair;
+                note_shared_latch_used(area_order ? 1 : 0);
+                consume_sticky_modifiers();
                 const bool add = (input_modifiers(ModifierUse::selection) & SDL_KMOD_SHIFT) != 0;
                 const auto [from, to] =
                     match_drag_corners(live_viewport(match_camera_x_, match_camera_z_));

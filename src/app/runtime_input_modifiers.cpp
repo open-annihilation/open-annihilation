@@ -15,6 +15,7 @@
 #include "touch_state.hpp"
 #include "oa/app/platform_hooks.hpp"
 #include "oa/sim/gameplay_input/input.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/pad_controls.hpp"
 #include "oa/ui/touch_hud.hpp"
 #include <SDL3/SDL.h>
@@ -140,6 +141,18 @@ SDL_Keymod Runtime::input_modifiers(ModifierUse use) const {
     // FORCE is the pad's Ctrl for clicks, never for the keys the pad presses.
     if ((use == ModifierUse::order || use == ModifierUse::selection) && pad_force_held())
         modifiers |= SDL_KMOD_LCTRL;
+    // Sticky modifiers apply to every use, including the keyboard. During an
+    // event they stay as they were when the event began.
+    const uint8_t sticky = sticky_modifier_bits();
+    namespace keys = oa::ui::key_bindings;
+    if ((sticky & keys::ctrl) != 0)
+        modifiers |= SDL_KMOD_LCTRL;
+    if ((sticky & keys::shift) != 0)
+        modifiers |= SDL_KMOD_LSHIFT;
+    if ((sticky & keys::alt) != 0)
+        modifiers |= SDL_KMOD_LALT;
+    if ((sticky & keys::meta) != 0)
+        modifiers |= SDL_KMOD_LGUI;
     return static_cast<SDL_Keymod>(modifiers);
 }
 
@@ -178,20 +191,22 @@ void Runtime::refresh_pointer_modifiers() {
 }
 
 void Runtime::press_match_key(SDL_Keycode key, SDL_Keymod mods) {
-    SDL_KeyboardEvent event{};
+    SDL_Event event{};
     event.type = SDL_EVENT_KEY_DOWN;
-    event.timestamp = SDL_GetTicksNS();
-    event.key = key;
-    event.scancode = SDL_GetScancodeFromKey(key, nullptr);
-    event.mod = mods;
-    event.down = true;
-    event.repeat = false;
-    // The pulse holds for the call alone, whatever the key does.
+    event.key.timestamp = SDL_GetTicksNS();
+    event.key.key = key;
+    event.key.scancode = SDL_GetScancodeFromKey(key, nullptr);
+    event.key.mod = mods;
+    event.key.down = true;
+    event.key.repeat = false;
+    // The pulse holds for the call alone, whatever the key does. The feed
+    // sees the same modifiers, so the action the key stands for is answered.
     auto& dispatch = touch_state().dispatch;
     const SDL_Keymod before = dispatch.pulse;
     dispatch.pulse = mods;
     try {
-        std::ignore = handle_match_hotkey(event);
+        feed_input_actions(event);
+        std::ignore = handle_match_hotkey(event.key);
     } catch (...) {
         dispatch.pulse = before;
         throw;

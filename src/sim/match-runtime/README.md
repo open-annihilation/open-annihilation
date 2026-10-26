@@ -9,7 +9,11 @@ none of them has a default that reports success.
 
 ## Unit scripts
 
-`ScriptInstance` looks script names up case-sensitively. A named call with
+`ScriptInstance` looks script names up case-sensitively, and the first script
+with the name is the one started. Every call also takes a `ScriptFunction`,
+one of the functions the engine calls by a fixed name: the instance finds
+each fixed name once when it is built, and such a call starts the script the
+call by name would. A named call with
 `immediate` set runs a whole scheduler step with elapsed zero right after the
 start. `query` allocates one context with four arguments, runs just that
 context and copies local slots 0..3 back; a RETURN operand is not the query
@@ -83,6 +87,14 @@ can be reclaimed for the feature's metal, and it can be destroyed, but it
 cannot be selected, ordered or counted. The builder's order still ends with
 "Building complete". A wall created already finished is marked the same way
 as it is placed.
+
+A building created finished, among a mission's units or by the unit-name
+cheat, is placed as 3.1c places it (`Match::snap_to_build_grid`): its point
+snaps to its footprint's grid and it stands at the height its yard takes
+there (`footprint_height`), the height a builder's frame takes on that site.
+A yard with no level cell, such as a shipyard's or a floating torpedo
+launcher's, floats its waterline below the sea. Any other type keeps its
+point, and its creation fits its height to the ground or the water.
 
 ## Rules
 

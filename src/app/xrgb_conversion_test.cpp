@@ -11,7 +11,9 @@
 // opaque, so they fill ARGB8888 textures; and an overlay of what was
 // painted over a picture is transparent where nothing changed and the
 // painted colour through the gamma table, opaque, where something did, its
-// bands noted, the same on every pool.
+// bands noted, the same on every pool. A picture fills with one colour, and
+// a gamma table that keeps every level converts as no table does; the bands
+// two frames differ in are found.
 #include "xrgb_conversion.hpp"
 
 #include <SDL3/SDL.h>
@@ -647,6 +649,130 @@ void keyed_overlay_holds_what_was_painted() {
     CHECK(short_bands == std::vector<uint8_t>(bands - 1, 7));
 }
 
+/// Fills pictures of many sizes with one colour, each pixel that colour and
+/// nothing past the picture written.
+void fill_writes_every_pixel() {
+    constexpr std::array<uint8_t, 3> colour{0, 1, 0};
+    for (const std::size_t pixels : {0U, 1U, 2U, 5U, 640U, 16384U, 16385U, 70001U}) {
+        std::vector<uint8_t> rgb(pixels * 3U + row_slack, untouched);
+        oa::app::fill_rgb24(rgb.data(), pixels, colour);
+        bool all = true;
+        for (std::size_t pixel = 0; pixel < pixels; ++pixel)
+            all = all && std::memcmp(&rgb[pixel * 3U], colour.data(), 3) == 0;
+        for (std::size_t spare = pixels * 3U; spare < rgb.size(); ++spare)
+            all = all && rgb[spare] == untouched;
+        CHECK(all);
+    }
+}
+
+/// The bands two frames differ in are found: none for equal frames, the
+/// band of a changed pixel, the last band a part one, and nothing written
+/// with too few entries.
+void changed_bands_are_found() {
+    constexpr uint32_t width = 13;
+    constexpr uint32_t height = 70; // three bands, the last a part one
+    const uint32_t bands = job_pool::bands_of_rows(height, oa::app::xrgb_band_rows);
+    std::mt19937 random(test_seed + 8);
+    std::vector<uint8_t> previous(static_cast<std::size_t>(width) * height * 3U);
+    for (auto& byte : previous)
+        byte = static_cast<uint8_t>(random());
+    auto rgb = previous;
+    std::vector<uint8_t> changed(bands, 7);
+    oa::app::find_changed_rgb24_bands(rgb.data(), previous.data(), width, height, changed);
+    CHECK((changed == std::vector<uint8_t>{0, 0, 0}));
+    // The last byte of band 0 and the first of the last band.
+    rgb[static_cast<std::size_t>(width) * 32U * 3U - 1U] ^= 1U;
+    rgb[static_cast<std::size_t>(width) * 64U * 3U] ^= 0x80U;
+    oa::app::find_changed_rgb24_bands(rgb.data(), previous.data(), width, height, changed);
+    CHECK((changed == std::vector<uint8_t>{1, 0, 1}));
+    std::vector<uint8_t> short_bands(bands - 1, 7);
+    oa::app::find_changed_rgb24_bands(rgb.data(), previous.data(), width, height, short_bands);
+    CHECK(short_bands == std::vector<uint8_t>(bands - 1, 7));
+}
+
+/// The overlays and the frame through a gamma table that maps every level
+/// to itself are the overlays and the frame with no table: rows wholly
+/// unpainted, rows painted at either end alone and rows painted throughout.
+void identity_gamma_is_no_gamma() {
+    std::mt19937 random(test_seed + 7);
+    std::array<uint8_t, 256> identity{};
+    for (std::size_t level = 0; level < identity.size(); ++level)
+        identity[level] = static_cast<uint8_t>(level);
+    constexpr uint32_t width = 97;
+    constexpr uint32_t height = 70; // three bands, the last a part one
+    constexpr std::array<uint8_t, 3> key{0, 0, 1};
+    const uint32_t bands = job_pool::bands_of_rows(height, oa::app::xrgb_band_rows);
+    std::vector<uint8_t> canvas(static_cast<std::size_t>(width) * height * 3U);
+    oa::app::fill_rgb24(canvas.data(), static_cast<std::size_t>(width) * height, key);
+    const auto paint = [&](uint32_t x, uint32_t y) {
+        auto* pixel = &canvas[(static_cast<std::size_t>(y) * width + x) * 3U];
+        for (int channel = 0; channel < 3; ++channel)
+            pixel[channel] = static_cast<uint8_t>(random());
+    };
+    paint(0, 3);
+    paint(width - 1, 4);
+    for (uint32_t x = 0; x < width; ++x)
+        paint(x, 40);
+    std::vector<uint8_t> base(canvas.size());
+    oa::app::fill_rgb24(base.data(), static_cast<std::size_t>(width) * height, key);
+    const std::size_t pitch = static_cast<std::size_t>(width) * 4U + row_slack;
+    job_pool::Pool pool(3);
+    for (job_pool::Pool* threads : {static_cast<job_pool::Pool*>(nullptr), &pool}) {
+        std::vector<uint8_t> plain(pitch * height, untouched);
+        std::vector<uint8_t> mapped(pitch * height, untouched);
+        std::vector<uint8_t> plain_bands(bands, 7);
+        std::vector<uint8_t> mapped_bands(bands, 7);
+        oa::app::convert_rgb24_keyed_overlay_argb(
+            canvas.data(), key, width, height, plain.data(), pitch, nullptr, plain_bands, threads
+        );
+        oa::app::convert_rgb24_keyed_overlay_argb(
+            canvas.data(),
+            key,
+            width,
+            height,
+            mapped.data(),
+            pitch,
+            &identity,
+            mapped_bands,
+            threads
+        );
+        CHECK(plain == mapped);
+        CHECK(plain_bands == mapped_bands);
+        CHECK((plain_bands == std::vector<uint8_t>{1, 1, 0}));
+        std::fill(plain.begin(), plain.end(), untouched);
+        std::fill(mapped.begin(), mapped.end(), untouched);
+        oa::app::convert_rgb24_overlay_argb(
+            canvas.data(),
+            base.data(),
+            width,
+            height,
+            plain.data(),
+            pitch,
+            nullptr,
+            plain_bands,
+            threads
+        );
+        oa::app::convert_rgb24_overlay_argb(
+            canvas.data(),
+            base.data(),
+            width,
+            height,
+            mapped.data(),
+            pitch,
+            &identity,
+            mapped_bands,
+            threads
+        );
+        CHECK(plain == mapped);
+        CHECK(plain_bands == mapped_bands);
+        CHECK((plain_bands == std::vector<uint8_t>{1, 1, 0}));
+        CHECK(
+            convert(canvas, width, height, nullptr, threads) ==
+            convert(canvas, width, height, &identity, threads)
+        );
+    }
+}
+
 } // namespace
 
 int main() {
@@ -659,6 +785,9 @@ int main() {
     overlay_holds_what_was_painted();
     key_colour_is_the_first_outside_the_palette();
     keyed_overlay_holds_what_was_painted();
+    fill_writes_every_pixel();
+    identity_gamma_is_no_gamma();
+    changed_bands_are_found();
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
         return EXIT_FAILURE;
@@ -666,7 +795,9 @@ int main() {
     std::puts(
         "xrgb conversion: every pixel packed alike on every pool, RGB565 as SDL packs it, "
         "rectangles as the whole frame's, the front end as opaque ARGB8888, "
-        "overlays of what was painted, over a base and over a key colour"
+        "overlays of what was painted, over a base and over a key colour, "
+        "pictures filled with one colour, a gamma of 1 as no gamma, "
+        "and the bands two frames differ in"
     );
     return EXIT_SUCCESS;
 }

@@ -198,6 +198,12 @@ console::Console* Runtime::match_console() {
         host.kill_units_of_type = [](void* context, uint16_t type) {
             runtime_of(context)->console_kill_units_of_type(type);
         };
+        // The spawn command places a building as a mission's units are
+        // placed: on its footprint's grid, at the height its yard takes
+        // there. Any other unit keeps the pointer's point.
+        host.snap_build_position = [](void* context, uint16_t type, FixedVec3* position) {
+            runtime_of(context)->match_->snap_to_build_grid(type, *position);
+        };
         // Unit creation as the spawn command calls it: finished, on the ground.
         host.create_unit =
             [](void* context, uint8_t player, uint16_t type, const FixedVec3* position) {
@@ -827,8 +833,18 @@ bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
         code = 'm';
     if (code == 0)
         return false;
-    // Only the keys above reach the dispatcher; the rest are the runtime's own
-    // hotkeys. Callbacks the runtime does not provide stay unbound.
+    run_console_hotkey(code);
+    return true;
+}
+
+void Runtime::run_console_hotkey(uint32_t code) {
+    console::Console* con = match_console();
+    if (con == nullptr)
+        return;
+    const oa::Game& game = con->world->game;
+    // Only the keys the test above names reach the dispatcher; the rest are
+    // the runtime's own hotkeys. Callbacks the runtime does not provide stay
+    // unbound.
     console::HotkeyHost host{};
     host.context = this;
     host.shift_down = [](void* context) {
@@ -877,7 +893,6 @@ bool Runtime::handle_console_hotkey(const SDL_KeyboardEvent& key) {
     if (code == console::hotkey::f11)
         status_ = (game.outcome_flags & console::outcome_flag::debug_keys) != 0 ? "Debug keys on"
                                                                                 : "Debug keys off";
-    return true;
 }
 
 const oa::formats::fnt::Font* Runtime::console_clock_font() {

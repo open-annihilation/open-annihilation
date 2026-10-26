@@ -1350,6 +1350,8 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // ui.megamap acts only while the wheel zoom is off.
     if (before.wheel_zoom != chosen.wheel_zoom && match_)
         megamap_wheel_zoom_changed();
+    if (before.sticky_modifiers != chosen.sticky_modifiers)
+        apply_sticky_modifiers(chosen.sticky_modifiers);
     // SwitchAlt, where the keys read it: the match's options and the
     // frontend's preferences, which the match's options go back into.
     const auto with_switch_alt = [&](uint16_t flags) {
@@ -1402,6 +1404,7 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // So does Include in device backups, on the game files themselves.
     if (chosen.game_files_backed_up != before.game_files_backed_up)
         EngineSettingsState::apply_game_files_backups(*this, chosen.game_files_backed_up);
+    apply_key_timings();
 }
 
 const oa::data::mod_profile::ModProfile* Runtime::mod_profile() const noexcept {

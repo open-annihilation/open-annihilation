@@ -6,6 +6,7 @@
 #include "oa/app/far_view.hpp"
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -18,6 +19,8 @@ namespace {
 
 constexpr float kFilteredZoomLimit = 1.0F - 1.0e-4F;
 constexpr uint32_t kFixedOne = 65536u;
+/// Destination rows each band of box_filter_terrain averages.
+constexpr uint32_t kFilterBandRows = 32;
 
 /// Lists the map coordinate under each destination column (or row) plus one past the end.
 ///
@@ -50,7 +53,8 @@ void footprint_bounds(
 ///
 /// Ground beyond the terrain, and before it, counts as black, as the
 /// nearest sampler paints it. Each visible map pixel is read once, so the
-/// cost is the source area in view.
+/// cost is the source area in view. The rows are averaged in bands of
+/// kFilterBandRows, each band's pixels the same on whichever thread runs it.
 ///
 /// @param map terrain
 /// @param palette palette the tiles' indices are shown in
@@ -65,6 +69,7 @@ void footprint_bounds(
 /// @param phase_x how far into map column source_x the first destination
 ///        column starts, 16.16 parts of the zoom's step, below it
 /// @param phase_y the same for map row source_y and the first destination row
+/// @param pool threads to average the bands on; null averages them on the calling thread
 /// @return false when the terrain's tile tables are malformed or name a missing tile
 bool box_filter_terrain(
     const oa::formats::tnt::Map& map,
@@ -78,7 +83,8 @@ bool box_filter_terrain(
     float zoom,
     uint8_t* dest_rgb,
     uint32_t phase_x,
-    uint32_t phase_y
+    uint32_t phase_y,
+    oa::platform::job_pool::Pool* pool
 ) {
     constexpr auto tile_edge = static_cast<uint32_t>(oa::formats::tnt::layout::tile_edge_pixels);
     constexpr auto tile_bytes = oa::formats::tnt::layout::tile_bytes;
@@ -104,21 +110,23 @@ bool box_filter_terrain(
     std::vector<int64_t> rows;
     footprint_bounds(columns, source_x, dest_w, scale_fp, phase_x);
     footprint_bounds(rows, source_y, dest_h, scale_fp, phase_y);
-    std::vector<uint32_t> sums(static_cast<std::size_t>(dest_w) * 3U);
     const uint16_t* const grid = map.tile_indices.data();
     const uint8_t* const tiles = map.tile_palette_indices.data();
     const int64_t column_end = std::min(columns[static_cast<std::size_t>(dest_w)], terrain_w);
-    for (int dy = 0; dy < dest_h; ++dy) {
+    const auto sums_per_row = static_cast<std::size_t>(dest_w) * 3U;
+    // Averages one destination row, summed in `totals`, into its pixels;
+    // false at a tile the grid names that the map does not hold.
+    const auto filter_row = [&](int dy, uint32_t* totals) {
         const int64_t row_begin = rows[static_cast<std::size_t>(dy)];
         const int64_t row_end = rows[static_cast<std::size_t>(dy) + 1U];
-        std::fill(sums.begin(), sums.end(), 0u);
+        std::fill(totals, totals + sums_per_row, 0u);
         // Rows and columns before the map sum nothing, as those past it.
         for (int64_t sy = std::max<int64_t>(row_begin, 0); sy < row_end && sy < terrain_h; ++sy) {
             const auto row_tiles = static_cast<std::size_t>(sy / tile_edge) * map.tile_width;
             const auto within_y = static_cast<std::size_t>(sy % tile_edge) * tile_edge;
             std::size_t column = 0;
             int64_t next_column = columns[1];
-            uint32_t* sum = sums.data();
+            uint32_t* sum = totals;
             int64_t sx = std::max<int64_t>(columns[0], 0);
             while (sx < column_end) {
                 const auto tile_index = grid[row_tiles + static_cast<std::size_t>(sx / tile_edge)];
@@ -144,7 +152,7 @@ bool box_filter_terrain(
         const auto row_count = static_cast<uint32_t>(row_end - row_begin);
         uint8_t* out =
             dest_rgb + static_cast<std::size_t>(dy) * static_cast<std::size_t>(dest_w) * 3U;
-        const uint32_t* sum = sums.data();
+        const uint32_t* sum = totals;
         for (int dx = 0; dx < dest_w; ++dx, out += 3, sum += 3) {
             const auto index = static_cast<std::size_t>(dx);
             const uint32_t count =
@@ -153,8 +161,27 @@ bool box_filter_terrain(
             out[1] = static_cast<uint8_t>((sum[1] + count / 2U) / count);
             out[2] = static_cast<uint8_t>((sum[2] + count / 2U) / count);
         }
-    }
-    return true;
+        return true;
+    };
+    const uint32_t bands =
+        oa::platform::job_pool::bands_of_rows(static_cast<uint32_t>(dest_h), kFilterBandRows);
+    // Each band's sums, so that the bands share nothing they write.
+    std::vector<uint32_t> sums(static_cast<std::size_t>(bands) * sums_per_row);
+    std::atomic<bool> malformed{false};
+    oa::platform::job_pool::run_bands(pool, bands, [&](uint32_t band) {
+        uint32_t* band_sums = sums.data() + static_cast<std::size_t>(band) * sums_per_row;
+        const auto first_row = static_cast<int>(band * kFilterBandRows);
+        const int end_row = std::min(dest_h, first_row + static_cast<int>(kFilterBandRows));
+        for (int dy = first_row; dy < end_row; ++dy) {
+            if (malformed.load(std::memory_order_relaxed))
+                return;
+            if (!filter_row(dy, band_sums)) {
+                malformed.store(true, std::memory_order_relaxed);
+                return;
+            }
+        }
+    });
+    return !malformed.load(std::memory_order_relaxed);
 }
 
 } // namespace
@@ -241,7 +268,8 @@ void Runtime::refresh_filtered_terrain() {
             draw_scale,
             cache.rgb.data(),
             phase[0],
-            phase[1]
+            phase[1],
+            draw_pool_.get()
         );
     }
     terrain_box_filter_ns_ +=

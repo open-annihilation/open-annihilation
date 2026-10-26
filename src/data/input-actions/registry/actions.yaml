@@ -888,7 +888,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit1"]
+    default: ["Alt+Shift+@Digit1", "Alt+Shift+Numpad1"]
     words: {name: "Add group 1", description: "Adds group 1"}
   group.add-2:
     area: groups
@@ -897,7 +897,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit2"]
+    default: ["Alt+Shift+@Digit2", "Alt+Shift+Numpad2"]
     words: {name: "Add group 2", description: "Adds group 2"}
   group.add-3:
     area: groups
@@ -906,7 +906,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit3"]
+    default: ["Alt+Shift+@Digit3", "Alt+Shift+Numpad3"]
     words: {name: "Add group 3", description: "Adds group 3"}
   group.add-4:
     area: groups
@@ -915,7 +915,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit4"]
+    default: ["Alt+Shift+@Digit4", "Alt+Shift+Numpad4"]
     words: {name: "Add group 4", description: "Adds group 4"}
   group.add-5:
     area: groups
@@ -924,7 +924,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit5"]
+    default: ["Alt+Shift+@Digit5", "Alt+Shift+Numpad5"]
     words: {name: "Add group 5", description: "Adds group 5"}
   group.add-6:
     area: groups
@@ -933,7 +933,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit6"]
+    default: ["Alt+Shift+@Digit6", "Alt+Shift+Numpad6"]
     words: {name: "Add group 6", description: "Adds group 6"}
   group.add-7:
     area: groups
@@ -942,7 +942,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit7"]
+    default: ["Alt+Shift+@Digit7", "Alt+Shift+Numpad7"]
     words: {name: "Add group 7", description: "Adds group 7"}
   group.add-8:
     area: groups
@@ -951,7 +951,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit8"]
+    default: ["Alt+Shift+@Digit8", "Alt+Shift+Numpad8"]
     words: {name: "Add group 8", description: "Adds group 8"}
   group.add-9:
     area: groups
@@ -960,7 +960,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["Alt+Shift+@Digit9"]
+    default: ["Alt+Shift+@Digit9", "Alt+Shift+Numpad9"]
     words: {name: "Add group 9", description: "Adds group 9"}
   build.page-1:
     area: groups
@@ -969,7 +969,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit1"]
+    default: ["@Digit1", "Numpad1"]
     words: {name: "Menu page 1", description: "Shows page 0 of the menu (1 is orders)"}
   build.page-2:
     area: groups
@@ -978,7 +978,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit2"]
+    default: ["@Digit2", "Numpad2"]
     words: {name: "Menu page 2", description: "Shows page 1 of the menu (1 is orders)"}
   build.page-3:
     area: groups
@@ -987,7 +987,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit3"]
+    default: ["@Digit3", "Numpad3"]
     words: {name: "Menu page 3", description: "Shows page 2 of the menu (1 is orders)"}
   build.page-4:
     area: groups
@@ -996,7 +996,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit4"]
+    default: ["@Digit4", "Numpad4"]
     words: {name: "Menu page 4", description: "Shows page 3 of the menu (1 is orders)"}
   build.page-5:
     area: groups
@@ -1005,7 +1005,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit5"]
+    default: ["@Digit5", "Numpad5"]
     words: {name: "Menu page 5", description: "Shows page 4 of the menu (1 is orders)"}
   build.page-6:
     area: groups
@@ -1014,7 +1014,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit6"]
+    default: ["@Digit6", "Numpad6"]
     words: {name: "Menu page 6", description: "Shows page 5 of the menu (1 is orders)"}
   build.page-7:
     area: groups
@@ -1023,7 +1023,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit7"]
+    default: ["@Digit7", "Numpad7"]
     words: {name: "Menu page 7", description: "Shows page 6 of the menu (1 is orders)"}
   build.page-8:
     area: groups
@@ -1032,7 +1032,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit8"]
+    default: ["@Digit8", "Numpad8"]
     words: {name: "Menu page 8", description: "Shows page 7 of the menu (1 is orders)"}
   build.page-9:
     area: groups
@@ -1041,7 +1041,7 @@ actions:
     kind: press
     by: place
     source: [3.1c]
-    default: ["@Digit9"]
+    default: ["@Digit9", "Numpad9"]
     words: {name: "Menu page 9", description: "Shows page 8 of the menu (1 is orders)"}
   camera.pan-up:
     area: camera
@@ -1130,7 +1130,7 @@ actions:
     context: [match, chat]
     kind: press
     source: [3.1c]
-    default: ["F3"]
+    default: ["F3", "Ctrl+F3"]
     pad: next_report
     touch: select.next_report
     words: {name: "Next report", description: "The next unit the message log reported"}
@@ -1437,7 +1437,7 @@ actions:
     context: [match]
     kind: press
     source: [3.1c, OA]
-    default: ["Escape"]
+    default: ["Escape", "Ctrl+Escape"]
     words: {name: "Back", description: "The Escape chain: armed order, selection, then the game menu"}
   game.menu:
     area: game
@@ -1445,7 +1445,7 @@ actions:
     context: [match, chat]
     kind: press
     source: [3.1c]
-    default: ["F2"]
+    default: ["F2", "Ctrl+F2"]
     pad: game_menu
     words: {name: "Game menu", description: "The in-game menu, or resumes"}
   game.pause:
@@ -1454,7 +1454,7 @@ actions:
     context: [match, watch, chat]
     kind: press
     source: [3.1c]
-    default: ["Pause"]
+    default: ["Pause", "Ctrl+Pause"]
     pad: pause
     words: {name: "Pause", description: "Pause on or off"}
   game.speed-up:
@@ -1485,17 +1485,17 @@ actions:
     context: [match, chat]
     kind: press
     source: [3.1c]
-    default: ["F1"]
+    default: ["F1", "Ctrl+F1"]
     pad: unit_info
     touch: radial.info
     words: {name: "Unit info", description: "The unit info panel"}
   game.pin-unit:
     area: game
     order: 7
-    context: [match]
+    context: [match, chat]
     kind: press
     source: [3.1c]
-    default: ["Shift+F1"]
+    default: ["Shift+F1", "Ctrl+Shift+F1"]
     words: {name: "Pin unit", description: "Pins the unit under the pointer"}
   game.kill-board:
     area: game
@@ -1503,7 +1503,7 @@ actions:
     context: [match, chat]
     kind: press
     source: [3.1c]
-    default: ["F4"]
+    default: ["F4", "Ctrl+F4"]
     pad: kill_board
     words: {name: "Kills board", description: "Pins the kills board"}
   game.resource-panel:
@@ -1575,7 +1575,7 @@ actions:
     context: [match, chat]
     kind: press
     source: [3.1c]
-    default: ["F12"]
+    default: ["F12", "Ctrl+F12"]
     pad: clear_messages
     words: {name: "Clear messages", description: "Clears the message log"}
   game.screenshot:
@@ -1607,7 +1607,6 @@ actions:
     area: game
     order: 19
     context: [match]
-    when: [multiplayer]
     kind: press
     by: letter
     source: [3.1c]
@@ -1836,7 +1835,7 @@ actions:
     context: [chat]
     kind: press
     source: [3.1c]
-    default: ["Enter"]
+    default: ["Enter", "Ctrl+Enter"]
     words: {name: "Send chat", description: "Sends the line"}
   chat.cancel:
     area: chat

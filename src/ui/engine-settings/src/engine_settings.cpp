@@ -332,6 +332,34 @@ void store_word(
     );
 }
 
+/// Returns a stored access timing, or the default when the key cannot be read.
+///
+/// Zero stays zero when it means the system's own timing. Any other number
+/// is held to the range.
+///
+/// @param values the preferences
+/// @param key the key
+/// @param absent the value used when the key is absent or not a whole number
+/// @param least the lowest value of the range
+/// @param most the highest value of the range
+/// @param zero_is_system true when zero means the system's own timing
+/// @return the timing, in the units the key stores
+uint32_t access_number(
+    const Values& values,
+    std::string_view key,
+    uint32_t absent,
+    uint32_t least,
+    uint32_t most,
+    bool zero_is_system
+) {
+    const auto number = stored_number(values, key);
+    if (!number)
+        return absent;
+    if (zero_is_system && *number <= 0)
+        return 0;
+    return clamped(*number, least, most);
+}
+
 /// Returns a stored number held to a setting's range and put on its nearest stop.
 ///
 /// @param number the stored number
@@ -390,11 +418,9 @@ EngineSettings default_settings(const Inputs& inputs) {
     // card is used is decided apart, so the default never moves with it.
     settings.hardware_acceleration =
         inputs.players_own_profile ? HardwareAcceleration::full : HardwareAcceleration::off;
-    const uint32_t effects = default_effect_intensity(settings.hardware_acceleration);
-    settings.weapon_lighting = effects;
-    settings.nanolathe_lighting = effects;
-    settings.wreck_glow = effects;
-    settings.heat_distortion = effects;
+    for (const EffectSlider& slider : effect_sliders)
+        settings.*slider.percent =
+            default_effect_intensity(slider.percent, settings.hardware_acceleration);
     // A named file draws game text in the game's own fonts.
     settings.modern_fonts = inputs.players_own_profile;
     // A named file plays in English, as the game does without a language on
@@ -620,22 +646,20 @@ void follow_acceleration_with_effects(
     const bool is_full = settings.hardware_acceleration == HardwareAcceleration::full;
     if (was_full == is_full)
         return;
-    const uint32_t effects = default_effect_intensity(settings.hardware_acceleration);
-    settings.weapon_lighting = effects;
-    settings.nanolathe_lighting = effects;
-    settings.wreck_glow = effects;
-    settings.heat_distortion = effects;
+    for (const EffectSlider& slider : effect_sliders)
+        if (slider.follows_acceleration)
+            settings.*slider.percent =
+                default_effect_intensity(slider.percent, settings.hardware_acceleration);
 }
 
 void follow_acceleration_with_unset_effects(
     EngineSettings& settings, const Values& values, HardwareAcceleration acceleration
 ) {
-    const uint32_t unset_effect = default_effect_intensity(acceleration);
     const auto follow = [&](uint32_t EngineSettings::* percent,
                             std::string_view intensity_key,
                             std::string_view switch_key) {
         if (!stored_intensity(values, intensity_key, switch_key))
-            settings.*percent = unset_effect;
+            settings.*percent = default_effect_intensity(percent, acceleration);
     };
     follow(&EngineSettings::weapon_lighting, key::weapon_lighting_intensity, key::weapon_lighting);
     follow(
@@ -657,6 +681,8 @@ EngineSettings read_settings(
             clamped(*number, base_path_search_nodes, highest_path_search_nodes);
     if (const auto number = stored_number(values, key::wheel_zoom))
         settings.wheel_zoom = *number > 0;
+    if (const auto number = stored_number(values, key::sticky_modifiers))
+        settings.sticky_modifiers = *number > 0;
     read_word(values, key::max_zoom_out, zoom_out_words, settings.max_zoom_out);
     read_word(values, key::max_zoom_in, zoom_in_words, settings.max_zoom_in);
     read_word(
@@ -697,15 +723,17 @@ EngineSettings read_settings(
     if (const auto number = stored_number(values, key::smooth_motion))
         settings.smooth_motion = *number > 0;
     // An effect with no stored percent follows the stored acceleration.
-    const uint32_t unset_effect = default_effect_intensity(settings.hardware_acceleration);
+    const auto unset_effect = [&](uint32_t EngineSettings::* percent) {
+        return default_effect_intensity(percent, settings.hardware_acceleration);
+    };
     settings.weapon_lighting =
         stored_intensity(values, key::weapon_lighting_intensity, key::weapon_lighting)
-            .value_or(unset_effect);
+            .value_or(unset_effect(&EngineSettings::weapon_lighting));
     settings.nanolathe_lighting =
         stored_intensity(values, key::nanolathe_lighting_intensity, key::nanolathe_lighting)
-            .value_or(unset_effect);
-    settings.wreck_glow =
-        stored_intensity(values, key::wreck_glow_intensity, key::wreck_glow).value_or(unset_effect);
+            .value_or(unset_effect(&EngineSettings::nanolathe_lighting));
+    settings.wreck_glow = stored_intensity(values, key::wreck_glow_intensity, key::wreck_glow)
+                              .value_or(unset_effect(&EngineSettings::wreck_glow));
     settings.water_ripples =
         stored_intensity(values, key::water_ripples_intensity).value_or(settings.water_ripples);
     settings.coastal_waves =
@@ -716,7 +744,7 @@ EngineSettings read_settings(
                                      .value_or(settings.naval_reflections);
     settings.heat_distortion =
         stored_intensity(values, key::heat_distortion_intensity, key::heat_distortion)
-            .value_or(unset_effect);
+            .value_or(unset_effect(&EngineSettings::heat_distortion));
 
     if (const auto found = values.find(std::string{key::menu_scaling}); found != values.end())
         settings.menu_scaling =
@@ -802,6 +830,13 @@ EngineSettings read_settings(
     settings.file_type_oamut = file_type_on(values, key::file_type_oamut);
     settings.file_type_oabrain = file_type_on(values, key::file_type_oabrain);
     settings.file_type_oalaunch = file_type_on(values, key::file_type_oalaunch);
+    settings.slow_keys_ms = access_number(values, key::access_slow_keys, 0, 0, 1000, false);
+    settings.bounce_keys_ms = access_number(values, key::access_bounce_keys, 0, 0, 1000, false);
+    settings.double_press_ms = access_number(values, key::access_double_press, 0, 200, 1000, true);
+    settings.long_press_ms = access_number(values, key::access_long_press, 500, 200, 1000, false);
+    settings.repeat_delay_ms = access_number(values, key::access_repeat_delay, 0, 150, 1000, true);
+    settings.repeat_rate = access_number(values, key::access_repeat_rate, 0, 2, 30, true);
+    settings.drag_threshold = access_number(values, key::access_drag_threshold, 32, 32, 96, false);
     return settings;
 }
 
@@ -843,6 +878,14 @@ void write_settings(
         switch_text(chosen.wheel_zoom),
         chosen.wheel_zoom != opened.wheel_zoom,
         chosen.wheel_zoom == defaults.wheel_zoom,
+        restored
+    );
+    store(
+        values,
+        key::sticky_modifiers,
+        switch_text(chosen.sticky_modifiers),
+        chosen.sticky_modifiers != opened.sticky_modifiers,
+        chosen.sticky_modifiers == defaults.sticky_modifiers,
         restored
     );
     store_word(
@@ -969,20 +1012,19 @@ void write_settings(
         restored
     );
     // Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
-    // distortion: a percent the chosen acceleration gives an unset effect
-    // (default_effect_intensity) is stored as no key, any other as its key,
-    // and a change of acceleration counts as a change of all four, so the
-    // file reads back as chosen. An effect's earlier On and Off key goes when
+    // distortion: the percent the chosen acceleration gives the effect when
+    // unset (default_effect_intensity, each effect's own) is stored as no
+    // key, any other as its key, and a change of acceleration counts as a
+    // change of all four, so the file reads back as chosen. An effect's earlier On and Off key goes when
     // its percent key is written or erased, never alone, so that a Restore
     // defaults followed by the value read from it keeps that value.
     const bool acceleration_moved = chosen.hardware_acceleration != opened.hardware_acceleration;
-    const uint32_t unset_effect = default_effect_intensity(chosen.hardware_acceleration);
     const auto store_effect = [&](std::string_view switch_key,
                                   std::string_view intensity_key,
                                   uint32_t EngineSettings::* field) {
         const uint32_t percent = chosen.*field;
         const bool changed = percent != opened.*field || acceleration_moved;
-        const bool unset = percent == unset_effect;
+        const bool unset = percent == default_effect_intensity(field, chosen.hardware_acceleration);
         if (!changed && !(restored && unset))
             return;
         values.erase(std::string{switch_key});
@@ -1177,6 +1219,52 @@ void write_settings(
         chosen.touch_hold_ms != opened.touch_hold_ms,
         chosen.touch_hold_ms == defaults.touch_hold_ms,
         restored
+    );
+    const auto store_access = [&](std::string_view access_key,
+                                  uint32_t chosen_value,
+                                  uint32_t opened_value,
+                                  uint32_t default_value) {
+        store(
+            values,
+            access_key,
+            std::to_string(chosen_value),
+            chosen_value != opened_value,
+            chosen_value == default_value,
+            restored
+        );
+    };
+    store_access(
+        key::access_slow_keys, chosen.slow_keys_ms, opened.slow_keys_ms, defaults.slow_keys_ms
+    );
+    store_access(
+        key::access_bounce_keys,
+        chosen.bounce_keys_ms,
+        opened.bounce_keys_ms,
+        defaults.bounce_keys_ms
+    );
+    store_access(
+        key::access_double_press,
+        chosen.double_press_ms,
+        opened.double_press_ms,
+        defaults.double_press_ms
+    );
+    store_access(
+        key::access_long_press, chosen.long_press_ms, opened.long_press_ms, defaults.long_press_ms
+    );
+    store_access(
+        key::access_repeat_delay,
+        chosen.repeat_delay_ms,
+        opened.repeat_delay_ms,
+        defaults.repeat_delay_ms
+    );
+    store_access(
+        key::access_repeat_rate, chosen.repeat_rate, opened.repeat_rate, defaults.repeat_rate
+    );
+    store_access(
+        key::access_drag_threshold,
+        chosen.drag_threshold,
+        opened.drag_threshold,
+        defaults.drag_threshold
     );
     store(
         values,

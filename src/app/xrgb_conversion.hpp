@@ -130,6 +130,33 @@ inline constexpr std::size_t palette_entry_bytes = 4;
 /// @return the key colour, red, green and blue
 [[nodiscard]] std::array<uint8_t, 3> overlay_key_colour(std::span<const uint8_t> palette) noexcept;
 
+/// Tells, for each band of xrgb_band_rows rows, whether two RGB24 frames of
+/// one size differ in it, so that only the bands that changed are uploaded
+/// again. Nothing is written when `changed` has too few entries.
+///
+/// @param rgb the frame, `width` * 3 bytes a row, rows one after another
+/// @param previous the frame it is compared with, the same size
+/// @param width pixels in a row
+/// @param height rows
+/// @param[out] changed one entry for each band, at least
+///        ceil(height / xrgb_band_rows) of them: 1 where the frames differ
+///        in the band, else 0
+void find_changed_rgb24_bands(
+    const uint8_t* rgb,
+    const uint8_t* previous,
+    uint32_t width,
+    uint32_t height,
+    std::span<uint8_t> changed
+) noexcept;
+
+/// Fills an RGB24 picture with one colour, as overlay canvases are cleared
+/// to their key colour (overlay_key_colour).
+///
+/// @param[out] rgb the picture, 3 bytes a pixel
+/// @param pixels pixels in the picture
+/// @param colour the colour, red, green and blue
+void fill_rgb24(uint8_t* rgb, std::size_t pixels, std::array<uint8_t, 3> colour) noexcept;
+
 /// Converts a canvas cleared to a key colour and painted over into an
 /// ARGB8888 overlay, in bands of xrgb_band_rows rows: 0, transparent, where
 /// the canvas still holds the key, and the canvas's colour through the

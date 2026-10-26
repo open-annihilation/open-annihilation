@@ -9,13 +9,17 @@
 
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
+#include "oa/formats/zip/writer.hpp"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstring>
 #include <exception>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -50,6 +54,26 @@ constexpr std::string_view origin_file_name = ".oa-origin.yaml";
 std::string utf8_of(const fs::path& path) {
     const std::u8string text = path.generic_u8string();
     return std::string(text.begin(), text.end());
+}
+
+/// Tells whether two texts are equal with ASCII case ignored.
+///
+/// @param left one text
+/// @param right the other
+/// @return true when they match
+bool same_ascii_ci(std::string_view left, std::string_view right) noexcept {
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const unsigned char one = static_cast<unsigned char>(left[index]);
+        const unsigned char other = static_cast<unsigned char>(right[index]);
+        const auto lower = [](unsigned char byte) noexcept {
+            return byte >= 'A' && byte <= 'Z' ? static_cast<unsigned char>(byte - 'A' + 'a') : byte;
+        };
+        if (lower(one) != lower(other))
+            return false;
+    }
+    return true;
 }
 
 /// Returns a text with its ASCII letters lowered.
@@ -131,47 +155,72 @@ bool known_origin_key(std::string_view key) noexcept {
            key == "release" || key == "sha256" || key == "installed";
 }
 
-/// Reads an origin from a record that is strict YAML of the known keys.
+/// Reads an origin and its catalogue facts from a record of the known keys.
 ///
 /// A key of the wrong type, a key the record does not use, or an origin other
-/// than file, catalogue or own leaves the origin as file. Missing keys stay
-/// unread. A record that does not read leaves the origin as file.
+/// than file, catalogue or own leaves the origin as file and every fact
+/// empty. A catalogue origin keeps the SHA-256, the registry, the catalogue
+/// id and the release. A file origin keeps the SHA-256 only. An own layout,
+/// and a record that does not read, keep nothing.
 ///
 /// @param bytes the record, already within origin_most_bytes
-/// @return the origin the record names, or file when it does not read
-Origin read_origin(const std::vector<uint8_t>& bytes) {
+/// @param[in,out] installed receives the origin and the facts
+void apply_origin(const std::vector<uint8_t>& bytes, Installed& installed) {
+    installed.origin = Origin::file;
+    installed.package_sha256.clear();
+    installed.registry.clear();
+    installed.catalogue_id.clear();
+    installed.release = 0;
     oamod::Node root;
     oamod::ReadError read_error{};
     if (!oamod::read_document(bytes, root, read_error) || root.kind != oamod::NodeKind::mapping)
-        return Origin::file;
+        return;
     std::string origin_kind;
+    std::string sha;
+    std::string registry;
+    std::string catalogue_id;
+    int64_t release = 0;
     for (const oamod::Node& entry : root.children) {
         if (entry.key.kind != oamod::KeyKind::string || !known_origin_key(entry.key.text))
-            return Origin::file;
+            return;
         const std::string_view key = entry.key.text;
         if (key == "oa-origin") {
             int64_t version = 0;
             if (entry.kind != oamod::NodeKind::number ||
                 !oamod::integer_value(entry.number, version))
-                return Origin::file;
+                return;
         } else if (key == "origin") {
             if (entry.kind != oamod::NodeKind::string)
-                return Origin::file;
+                return;
             origin_kind = entry.text;
         } else if (key == "release") {
-            int64_t release = 0;
             if (entry.kind != oamod::NodeKind::number ||
                 !oamod::integer_value(entry.number, release))
-                return Origin::file;
+                return;
         } else if (entry.kind != oamod::NodeKind::string) {
-            return Origin::file;
+            return;
+        } else if (key == "sha256") {
+            sha = entry.text;
+        } else if (key == "registry") {
+            registry = entry.text;
+        } else if (key == "catalogue-id") {
+            catalogue_id = entry.text;
         }
     }
-    if (origin_kind == "catalogue")
-        return Origin::catalogue;
-    if (origin_kind == "own")
-        return Origin::own;
-    return Origin::file;
+    if (origin_kind == "catalogue") {
+        installed.origin = Origin::catalogue;
+        installed.package_sha256 = std::move(sha);
+        installed.registry = std::move(registry);
+        installed.catalogue_id = std::move(catalogue_id);
+        installed.release = release;
+        return;
+    }
+    if (origin_kind == "own") {
+        installed.origin = Origin::own;
+        return;
+    }
+    if (origin_kind == "file")
+        installed.package_sha256 = std::move(sha);
 }
 
 /// Reads one layout's manifest and origin record.
@@ -215,7 +264,7 @@ read_layout(const fs::path& folder, const std::string& name, std::vector<std::st
     std::vector<uint8_t> origin_bytes;
     if (read_bounded(*origin_path, origin_most_bytes, origin_bytes) != Bound::read)
         return installed;
-    installed.origin = read_origin(origin_bytes);
+    apply_origin(origin_bytes, installed);
     return installed;
 }
 
@@ -320,6 +369,74 @@ bool replace_file(const fs::path& from, const fs::path& to, std::string& error) 
 void remove_temporary(const fs::path& file) {
     std::error_code ignored;
     fs::remove(file, ignored);
+}
+
+/// Writes a problem and returns nothing.
+///
+/// @param problem where the sentence goes; null writes nothing
+/// @param text the sentence
+/// @return nothing
+template <typename T>
+std::optional<T> refused(std::string* problem, std::string text) {
+    if (problem != nullptr)
+        *problem = std::move(text);
+    return std::nullopt;
+}
+
+/// Reads a regular file's bytes.
+///
+/// @param file the file
+/// @param[out] bytes the file
+/// @return true when the file was read
+bool read_whole(const fs::path& file, std::vector<uint8_t>& bytes) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in)
+        return false;
+    bytes.clear();
+    for (std::istreambuf_iterator<char> at{in}, end; at != end; ++at)
+        bytes.push_back(static_cast<uint8_t>(*at));
+    return static_cast<bool>(in) || in.eof();
+}
+
+/// Where a streamed archive's bytes collect.
+struct MemorySink {
+    std::vector<uint8_t> bytes{};
+};
+
+/// Writes archive bytes into a memory sink, growing it to cover the write.
+///
+/// @param context a MemorySink
+/// @param offset where the bytes start
+/// @param data the bytes
+/// @return true when they were written
+bool write_memory(void* context, uint64_t offset, std::span<const uint8_t> data) {
+    auto* sink = static_cast<MemorySink*>(context);
+    if (data.empty())
+        return true;
+    constexpr uint64_t most = static_cast<uint64_t>(std::numeric_limits<std::size_t>::max());
+    if (offset > most)
+        return false;
+    const uint64_t end = offset + static_cast<uint64_t>(data.size());
+    if (end < offset || end > most)
+        return false;
+    const std::size_t at = static_cast<std::size_t>(offset);
+    const std::size_t last = static_cast<std::size_t>(end);
+    if (last > sink->bytes.size())
+        sink->bytes.resize(last);
+    std::memcpy(sink->bytes.data() + at, data.data(), data.size());
+    return true;
+}
+
+/// Tells how a package file is stored. `.png`, exactly, is stored.
+///
+/// @param name the file's name
+/// @return stored or deflated
+oa::formats::zip::Method method_of(std::string_view name) noexcept {
+    constexpr std::string_view stored = ".png";
+    if (name.size() >= stored.size() &&
+        name.compare(name.size() - stored.size(), stored.size(), stored) == 0)
+        return oa::formats::zip::Method::stored;
+    return oa::formats::zip::Method::deflated;
 }
 
 } // namespace
@@ -427,6 +544,209 @@ bool write_own(
     }
     if (!replace_file(origin_temp, origin_file, error)) {
         remove_temporary(origin_temp);
+        return false;
+    }
+    return true;
+}
+
+FileRole file_role(std::string_view name, std::string_view icon) noexcept {
+    if (same_ascii_ci(name, keys::manifest_file))
+        return FileRole::manifest;
+    if (!icon.empty() && name == icon)
+        return FileRole::icon;
+    if (name.find('/') != std::string_view::npos || name.find('\\') != std::string_view::npos)
+        return FileRole::outside;
+    constexpr std::string_view markdown = ".md";
+    constexpr std::string_view text = ".txt";
+    const bool note =
+        (name.size() >= markdown.size() &&
+         name.compare(name.size() - markdown.size(), markdown.size(), markdown) == 0) ||
+        (name.size() >= text.size() &&
+         name.compare(name.size() - text.size(), text.size(), text) == 0);
+    if (note)
+        return FileRole::note;
+    return FileRole::outside;
+}
+
+std::optional<std::vector<PackageFile>> read_folder(const fs::path& folder, std::string* problem) {
+    std::error_code exists_error;
+    if (!fs::is_directory(folder, exists_error) || exists_error)
+        return refused<std::vector<PackageFile>>(problem, "it cannot be listed");
+    std::vector<fs::directory_entry> entries;
+    try {
+        for (const fs::directory_entry& entry : fs::directory_iterator(folder))
+            entries.push_back(entry);
+    } catch (const std::exception&) {
+        return refused<std::vector<PackageFile>>(
+            problem, utf8_of(folder.filename()) + ": it cannot be listed"
+        );
+    }
+    std::sort(
+        entries.begin(),
+        entries.end(),
+        [](const fs::directory_entry& one, const fs::directory_entry& other) {
+            return utf8_of(one.path().filename()) < utf8_of(other.path().filename());
+        }
+    );
+
+    const fs::directory_entry* manifest_entry = nullptr;
+    for (const fs::directory_entry& entry : entries) {
+        const std::string name = utf8_of(entry.path().filename());
+        if (name.empty() || name.front() == '.')
+            continue;
+        if (!same_ascii_ci(name, keys::manifest_file))
+            continue;
+        std::error_code status_error;
+        const fs::file_status status = fs::symlink_status(entry.path(), status_error);
+        if (status_error || fs::is_symlink(status) || !fs::is_regular_file(status))
+            continue;
+        manifest_entry = &entry;
+        break;
+    }
+    if (manifest_entry == nullptr)
+        return refused<std::vector<PackageFile>>(problem, "oakeys.yaml: it cannot be read");
+
+    std::vector<uint8_t> manifest_bytes;
+    if (!read_whole(manifest_entry->path(), manifest_bytes))
+        return refused<std::vector<PackageFile>>(problem, "oakeys.yaml: it cannot be read");
+    keys::Manifest manifest;
+    std::vector<keys::Problem> manifest_problems;
+    if (!keys::read_manifest(manifest_bytes, manifest, manifest_problems)) {
+        if (manifest_problems.empty())
+            return refused<std::vector<PackageFile>>(problem, "oakeys.yaml: it cannot be read");
+        return refused<std::vector<PackageFile>>(
+            problem, keys::describe(manifest_problems.front())
+        );
+    }
+
+    std::vector<PackageFile> files;
+    bool saw_icon = manifest.icon.empty();
+    for (const fs::directory_entry& entry : entries) {
+        const std::string name = utf8_of(entry.path().filename());
+        if (name.empty() || name.front() == '.')
+            continue;
+        std::error_code status_error;
+        const fs::file_status status = fs::symlink_status(entry.path(), status_error);
+        if (status_error || fs::is_symlink(status) || !fs::is_regular_file(status))
+            return refused<std::vector<PackageFile>>(
+                problem, name + ": outside the files a key layout may hold"
+            );
+        if (file_role(name, manifest.icon) == FileRole::outside)
+            return refused<std::vector<PackageFile>>(
+                problem, name + ": outside the files a key layout may hold"
+            );
+        PackageFile packed;
+        packed.name = name;
+        if (!read_whole(entry.path(), packed.bytes))
+            return refused<std::vector<PackageFile>>(problem, name + ": it cannot be read");
+        if (name == manifest.icon)
+            saw_icon = true;
+        files.push_back(std::move(packed));
+    }
+    if (!saw_icon)
+        return refused<std::vector<PackageFile>>(problem, manifest.icon + ": it is missing");
+    return files;
+}
+
+std::optional<std::vector<uint8_t>>
+package_bytes(std::span<const PackageFile> files, std::string* problem) {
+    const PackageFile* manifest_file = nullptr;
+    for (const PackageFile& file : files) {
+        if (file_role(file.name, {}) != FileRole::manifest)
+            continue;
+        if (manifest_file != nullptr)
+            return refused<std::vector<uint8_t>>(
+                problem, file.name + ": it is named more than once"
+            );
+        manifest_file = &file;
+    }
+    if (manifest_file == nullptr)
+        return refused<std::vector<uint8_t>>(problem, "oakeys.yaml: it cannot be read");
+    keys::Manifest manifest;
+    std::vector<keys::Problem> manifest_problems;
+    if (!keys::read_manifest(manifest_file->bytes, manifest, manifest_problems)) {
+        if (manifest_problems.empty())
+            return refused<std::vector<uint8_t>>(problem, "oakeys.yaml: it cannot be read");
+        return refused<std::vector<uint8_t>>(problem, keys::describe(manifest_problems.front()));
+    }
+    for (const PackageFile& file : files) {
+        if (file_role(file.name, manifest.icon) == FileRole::outside)
+            return refused<std::vector<uint8_t>>(
+                problem, file.name + ": outside the files a key layout may hold"
+            );
+    }
+
+    std::vector<const PackageFile*> rest;
+    rest.reserve(files.size());
+    for (const PackageFile& file : files) {
+        if (&file == manifest_file)
+            continue;
+        rest.push_back(&file);
+    }
+    std::sort(rest.begin(), rest.end(), [](const PackageFile* one, const PackageFile* other) {
+        return one->name < other->name;
+    });
+
+    MemorySink sink;
+    oa::formats::zip::OutputHooks output{};
+    output.context = &sink;
+    output.write_at = &write_memory;
+    oa::formats::zip::StreamWriter writer(output);
+    const auto write_one = [&](const PackageFile& file) {
+        oa::formats::zip::ZipError error{};
+        if (!writer.begin_entry(
+                file.name, static_cast<uint64_t>(file.bytes.size()), method_of(file.name), error
+            ) ||
+            !writer.write(file.bytes, error) || !writer.end_entry(error)) {
+            if (problem != nullptr)
+                *problem = std::string(oa::formats::zip::zip_status_message(error.status));
+            return false;
+        }
+        return true;
+    };
+    if (!write_one(*manifest_file))
+        return std::nullopt;
+    for (const PackageFile* file : rest) {
+        if (!write_one(*file))
+            return std::nullopt;
+    }
+    oa::formats::zip::ZipError finish_error{};
+    if (!writer.finish(finish_error)) {
+        if (problem != nullptr)
+            *problem = std::string(oa::formats::zip::zip_status_message(finish_error.status));
+        return std::nullopt;
+    }
+    return std::move(sink.bytes);
+}
+
+bool write_package(const fs::path& out, std::span<const uint8_t> bytes, std::string* problem) {
+    fs::path part = out;
+    part += ".part";
+    {
+        std::ofstream file(part, std::ios::binary | std::ios::trunc);
+        if (!file) {
+            if (problem != nullptr)
+                *problem = utf8_of(part.filename()) + ": it cannot be written";
+            return false;
+        }
+        if (!bytes.empty())
+            file.write(
+                reinterpret_cast<const char*>(bytes.data()),
+                static_cast<std::streamsize>(bytes.size())
+            );
+        file.close();
+        if (!file) {
+            remove_temporary(part);
+            if (problem != nullptr)
+                *problem = utf8_of(part.filename()) + ": it cannot be written";
+            return false;
+        }
+    }
+    std::string error;
+    if (!replace_file(part, out, error)) {
+        remove_temporary(part);
+        if (problem != nullptr)
+            *problem = std::move(error);
         return false;
     }
     return true;

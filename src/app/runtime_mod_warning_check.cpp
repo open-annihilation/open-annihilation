@@ -240,14 +240,11 @@ void Runtime::check_mod_warning() {
     const std::string sideart = kept_path(mods / std::string(kSideArtFolder));
     // The first side and its commander, which every profile here takes from
     // the game's own SIDEDATA.
+    const oa::Side* first = oa::data::defs::side_at(side_table_, 0);
     const std::string commander(
-        side_table_.sides[0].commander,
-        ::strnlen(side_table_.sides[0].commander, sizeof side_table_.sides[0].commander)
+        first->commander, ::strnlen(first->commander, sizeof first->commander)
     );
-    const std::string side(
-        side_table_.sides[0].name,
-        ::strnlen(side_table_.sides[0].name, sizeof side_table_.sides[0].name)
-    );
+    const std::string side(first->name, ::strnlen(first->name, sizeof first->name));
     const auto commander_line = [&side, &commander] {
         return "The " + side + " commander (" + commander + ") isn't in this mod's units.";
     };
@@ -370,9 +367,9 @@ void Runtime::check_mod_warning() {
 
     // The second side's name and the files the side art folders' second side
     // names.
+    const oa::Side* second_side = oa::data::defs::side_at(side_table_, 1);
     const std::string second(
-        side_table_.sides[1].name,
-        ::strnlen(side_table_.sides[1].name, sizeof side_table_.sides[1].name)
+        second_side->name, ::strnlen(second_side->name, sizeof second_side->name)
     );
     const std::string panels = "anims/" + std::string(kMissingPanels) + ".GAF";
     const std::string font = "fonts/" + std::string(kMissingFont) + ".FNT";

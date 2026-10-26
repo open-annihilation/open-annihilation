@@ -198,10 +198,10 @@ class TickHost::VtolMissions {
 
     void clear_goal() { host.set_aircraft_goal(s, order, nullptr, 0); }
 
-    void run_script(std::string_view name, bool immediate) {
+    void run_script(ScriptFunction function, bool immediate) {
         auto* instance = match().instance(s.unit_index);
         if (instance && instance->script())
-            instance->script()->call_no_arguments(name, immediate);
+            instance->script()->call_no_arguments(function, immediate);
     }
 
     /// Queues a new order at the head of its queue, built as order creation and
@@ -362,7 +362,7 @@ class TickHost::VtolMissions {
         };
         auto& pad_slot = host.slot(pad);
         if (auto* instance = match().instance(pad_slot.unit_index); instance && instance->script())
-            (void)instance->script()->query("QueryLandingPad", pieces);
+            (void)instance->script()->query(ScriptFunction::query_landing_pad, pieces);
         for (const auto piece : pieces)
             if (piece != vtol::no_piece && pad_piece_free(pad.record, piece))
                 return piece;
@@ -414,7 +414,7 @@ class TickHost::VtolMissions {
         const auto here = vtol::position_of(s.record);
         const auto& projected = match().project_spatial(s);
         if (can_land_at(projected, here[0], here[2])) {
-            run_script("EndTransport", true);
+            run_script(ScriptFunction::end_transport, true);
             const int32_t sea = match().state().game.sea_level;
             const auto terrain = match().sample_terrain_height(
                 static_cast<uint32_t>(here[0]), static_cast<uint32_t>(here[2])
@@ -829,7 +829,7 @@ class TickHost::VtolMissions {
             record.extra.tolerance = vtol::no_piece;
             if (auto* instance = match().instance(s.unit_index); instance && instance->script()) {
                 std::array<int32_t, 4> query{vtol::no_piece, 0, 0, 0};
-                if (instance->script()->query("QueryTransport", query))
+                if (instance->script()->query(ScriptFunction::query_transport, query))
                     record.extra.tolerance = query[0];
             }
             order.wait_events = vtol::pickup_wait;
@@ -837,7 +837,9 @@ class TickHost::VtolMissions {
         case 3: {
             const auto height = def_of(cargo->record).model_height;
             if (auto* instance = match().instance(s.unit_index); instance && instance->script())
-                instance->script()->call("BeginTransport", std::span(&height, 1), true);
+                instance->script()->call(
+                    ScriptFunction::begin_transport, std::span(&height, 1), true
+                );
             match().share_named_script_start(
                 s.unit_index, "BeginTransport", 1, {static_cast<uint32_t>(height), 0, 0, 0}
             );
@@ -853,7 +855,7 @@ class TickHost::VtolMissions {
         }
         case 4:
             if (events & (vtol::order_destroyed_event | vtol::path_failed_event)) {
-                run_script("EndTransport", false);
+                run_script(ScriptFunction::end_transport, false);
                 return 8;
             }
             match().set_carry_link(
@@ -987,7 +989,7 @@ class TickHost::VtolMissions {
                 speak(vtol::speech_failed, "Unable to unload unit");
                 return 9;
             }
-            run_script("EndTransport", false);
+            run_script(ScriptFunction::end_transport, false);
             match().set_carry_link(carried, 0, vtol::no_piece, vtol::ground_mode);
             install_with_altitude(
                 sim::air::air_goal_at_point(&order.raised_events, &s.record, s.record.position),
@@ -1074,7 +1076,7 @@ class TickHost::VtolMissions {
                     ? static_cast<int16_t>(def_of(match_unit(match(), carried)).model_height >> 16)
                     : int16_t{0};
             sim::air::air_goal_set_altitude(&goal, host.air_host(), altitude);
-            run_script("EndTransport", true);
+            run_script(ScriptFunction::end_transport, true);
             host.install_air_goal(s, order, &goal);
             wait_ticks(vtol::pad_settle_wait);
             order.wait_events |= vtol::goal_events | vtol::target_lost_event;
@@ -1091,7 +1093,7 @@ class TickHost::VtolMissions {
             const auto pad_slot = host.slot(*pad).unit_index;
             const auto seat = static_cast<int8_t>(piece);
             if (const auto carried = link_first_child(s.record)) {
-                run_script("EndTransport", false);
+                run_script(ScriptFunction::end_transport, false);
                 match().set_carry_link(carried, pad_slot, seat, 0);
                 return 5;
             }

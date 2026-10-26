@@ -237,7 +237,8 @@ bool Runtime::order_command_available(std::string_view name) {
 std::string Runtime::match_side_name_prefix() const {
     const auto side = match_view_side();
     if (side < side_table_.count) {
-        const auto& prefix = side_table_.sides[side].name_prefix;
+        const auto& prefix =
+            oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side))->name_prefix;
         return std::string(prefix, strnlen(prefix, sizeof prefix));
     }
     auto prefix = match_side_prefix();
@@ -290,7 +291,8 @@ int Runtime::side_column_page_rows() {
         }
     }
     for (std::size_t side = 0; side < side_table_.count; ++side) {
-        const auto& field = side_table_.sides[side].name_prefix;
+        const auto& field =
+            oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side))->name_prefix;
         const std::string prefix(field, strnlen(field, sizeof field));
         hud::format_general_page_name(name, sizeof name, prefix.c_str());
         measure(name);
@@ -415,6 +417,8 @@ oa::ui::hud::BuildPanelHost Runtime::build_panel_host() {
             self.match_->change_queued_count(
                 builder.id, oa::data::mission_types::index_for_name(change.tag), change.type, count
             );
+            self.note_shared_latch_used(2);
+            self.consume_sticky_modifiers();
             self.status_ = std::string("Build ") + name + " x" +
                            std::to_string(self.match_->queued_build_count(builder.id, change.type));
         } catch (const std::exception& error) {

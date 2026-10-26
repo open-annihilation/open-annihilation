@@ -1156,4 +1156,73 @@ campaign_load_names(const CampaignFiles* files, const char* side, char* out, std
     return kept;
 }
 
+void campaign_sides_present(const CampaignFiles* files, bool* arm, bool* core) {
+    if (arm != nullptr)
+        *arm = false;
+    if (core != nullptr)
+        *core = false;
+    if (files == nullptr || (arm == nullptr && core == nullptr))
+        return;
+    char pattern[kCampaignPathBytes];
+    build_variant_path(files, pattern, sizeof(pattern), kCampsDirectory, "*", "TDF");
+    const int32_t count = files->count != nullptr ? files->count(files->context, pattern) : 0;
+    if (count <= 0)
+        return;
+    const std::size_t names_bytes = static_cast<std::size_t>(count) * kCampaignPathBytes;
+    auto* names = static_cast<char*>(std::calloc(1, names_bytes));
+    if (names == nullptr)
+        return;
+    const DirectoryFind find{files->context, files->find, nullptr};
+    (void)list_directory_entries(
+        find, pattern, names, names_bytes, nullptr, 0, false, true, ListSort::by_name
+    );
+    const char* name = names;
+    oa::formats::tdf::Document document;
+    oa::formats::tdf::document_init(&document);
+    bool arm_found = false;
+    bool core_found = false;
+    for (int32_t left = count; left > 0; --left) {
+        if (campaign_name_already_tried(names, name)) {
+            name += std::strlen(name) + 1;
+            continue;
+        }
+        char path[kCampaignPathBytes];
+        const CampaignFiles rules = rule_files(files);
+        build_variant_path(&rules, path, sizeof(path), kCampsDirectory, name, "tdf");
+        oa::formats::tdf::ParseError error{};
+        if (!load_tdf(files, &document, path, &error)) {
+            report_unlisted_campaign(files, path, error);
+            name += std::strlen(name) + 1;
+            continue;
+        }
+        oa::formats::tdf::reset_cursor(&document);
+        if (oa::formats::tdf::select_section(&document, "HEADER")) {
+            char campaign_side[0x40];
+            (void)oa::formats::tdf::get_string(
+                oa::formats::tdf::cursor(&document),
+                "campaignside",
+                campaign_side,
+                sizeof(campaign_side),
+                ""
+            );
+            const bool all_sides = std::strcmp(kAllSides, campaign_side) == 0;
+            if (all_sides || std::strcmp("ARM", campaign_side) == 0)
+                arm_found = true;
+            if (all_sides || std::strcmp("CORE", campaign_side) == 0)
+                core_found = true;
+        }
+        name += std::strlen(name) + 1;
+        const bool arm_done = arm == nullptr || arm_found;
+        const bool core_done = core == nullptr || core_found;
+        if (arm_done && core_done)
+            break;
+    }
+    oa::formats::tdf::document_free(&document);
+    std::free(names);
+    if (arm != nullptr)
+        *arm = arm_found;
+    if (core != nullptr)
+        *core = core_found;
+}
+
 } // namespace oa::data::campaign

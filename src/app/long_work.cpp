@@ -254,6 +254,26 @@ void paint_progress_frame(
     paint_progress_dialog(canvas, room, title, line, progress, turn);
 }
 
+void show_work_frame(
+    SDL_Window* window,
+    SDL_Renderer* renderer,
+    RendererHost* host,
+    std::string_view title,
+    std::string_view line
+) {
+    if (window == nullptr || renderer == nullptr)
+        return;
+    WindowFrame window_frame(renderer, "the progress dialog");
+    paint::Canvas pixels;
+    const kit::Frame dialog_frame = progress_room(window, renderer, pixels);
+    if (dialog_frame.area.width <= 0 || pixels.width <= 0)
+        return;
+    fill_progress_behind(pixels, nullptr);
+    paint_progress_dialog(pixels, dialog_frame, title, line, -1, 0);
+    const RenderState kept(renderer);
+    std::ignore = window_frame.show(pixels, kept, host);
+}
+
 LongWorkResult run_long_work(
     SDL_Window* window,
     SDL_Renderer* renderer,

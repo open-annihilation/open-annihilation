@@ -104,7 +104,11 @@ the line arrives elsewhere.
 `+unitname` creates that unit for player 0 at the pointer. `+unitname
 <player>` creates it for that player. `?` matches one character and `*`
 matches any run, so `+arm*` creates every unit whose name starts with
-`arm`. Each one is placed in a row from the pointer.
+`arm`. Each one is placed in a row from the pointer. A building stands
+where a builder would put it there: on its build grid, at the height its
+footprint takes, so a shipyard on the water floats with its lower part
+under the surface. Any other unit settles on the ground or the water as a
+unit a factory makes does.
 
 A player number that is not a slot is announced, "No such player", and no
 unit is created. A slot nobody is using still gets the unit on this

@@ -342,6 +342,8 @@ void check_game_files_options(Options& options) {
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {!options.check_key_table.empty(), "--check-key-table"},
+        {options.check_key_latches, "--check-key-latches"},
+        {options.check_key_timing, "--check-key-timing"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -642,6 +644,8 @@ void check_director_options(Options& options) {
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {!options.check_key_table.empty(), "--check-key-table"},
+        {options.check_key_latches, "--check-key-latches"},
+        {options.check_key_timing, "--check-key-timing"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -752,6 +756,8 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_match_bars, "--check-match-bars"},
             {!options.check_unit_pages.empty(), "--check-unit-pages"},
             {!options.check_key_table.empty(), "--check-key-table"},
+            {options.check_key_latches, "--check-key-latches"},
+            {options.check_key_timing, "--check-key-timing"},
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
             {options.check_saved_brains, "--check-saved-brains"},
@@ -1007,6 +1013,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-unit-page-memory", &Options::check_unit_page_memory},
     {"--check-side-column", &Options::check_side_column},
     {"--check-match-bars", &Options::check_match_bars},
+    {"--check-key-latches", &Options::check_key_latches},
     {"--check-kill-board", &Options::check_kill_board},
     {"--check-paused-save", &Options::check_paused_save},
     {"--check-saved-brains", &Options::check_saved_brains},
@@ -1030,6 +1037,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-click-snap", &Options::check_click_snap},
     {"--check-build-preview", &Options::check_build_preview},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
+    {"--check-key-timing", &Options::check_key_timing},
     {"--check-megamap-clicks", &Options::check_megamap_clicks},
     {"--check-single-player-offers", &Options::check_single_player_offers},
     {"--check-radar-orders", &Options::check_radar_orders},
@@ -1694,7 +1702,8 @@ void write_startup_line(std::string_view text) {
                      "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
-                     "[--check-key-table FILE] "
+                     "[--check-key-latches] "
+                     "[--check-key-table FILE] [--check-key-timing] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
                      "[--check-installer FILE] "
@@ -1991,13 +2000,13 @@ void write_startup_line(std::string_view text) {
         result.check_download_builds || result.check_stockpile_builds ||
         result.check_unit_page_memory || result.check_side_column || result.check_match_bars ||
         !result.check_unit_pages.empty() || !result.check_key_table.empty() ||
-        result.check_kill_board || !result.check_unit_language.empty() ||
-        result.check_language_switch || result.check_language_registry ||
-        result.check_language_notice || result.check_first_run || result.check_setup_window ||
-        result.check_window_place || result.check_progress || result.check_engine_feed ||
-        result.check_update_offer || result.check_text_fit || result.check_folder_chooser ||
-        result.check_patrol_reclaim || result.check_reclaim_cursor || result.check_wreck_pick ||
-        result.check_build_preview || result.check_pointer_interfaces ||
+        result.check_key_latches || result.check_kill_board ||
+        !result.check_unit_language.empty() || result.check_language_switch ||
+        result.check_language_registry || result.check_language_notice || result.check_first_run ||
+        result.check_setup_window || result.check_window_place || result.check_progress ||
+        result.check_engine_feed || result.check_update_offer || result.check_text_fit ||
+        result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
+        result.check_wreck_pick || result.check_build_preview || result.check_pointer_interfaces ||
         result.check_megamap_clicks || result.check_single_player_offers ||
         result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
@@ -2014,7 +2023,8 @@ void write_startup_line(std::string_view text) {
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||
                            result.check_zoom_memory || result.check_multiplayer_menu ||
-                           result.check_briefing_narration || result.benchmark_frames;
+                           result.check_briefing_narration || result.check_key_timing ||
+                           result.benchmark_frames;
 #if OA_PROCESS_SPAWNING == 0
     // The capture and the director's encoder run the ffmpeg program, which a
     // build without OA_PROCESS_SPAWNING cannot start. A render with encoding
@@ -2045,8 +2055,8 @@ void write_startup_line(std::string_view text) {
         result.seed = kFixedRandomSeed;
     result.unattended = result.fixed_clock || result.check_navigation ||
                         result.check_multiplayer_menu || result.check_briefing_narration ||
-                        result.benchmark_frames || result.frame_limit || !result.snapshot.empty() ||
-                        result.showcase != Showcase::none;
+                        result.check_key_timing || result.benchmark_frames || result.frame_limit ||
+                        !result.snapshot.empty() || result.showcase != Showcase::none;
     if ((extension_effects & option_effect::unattended) != 0)
         result.unattended = true;
     if (result.check_game_files)

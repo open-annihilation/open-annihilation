@@ -54,6 +54,9 @@ std::array<float, 2> detail_strength(float radius_pixels, float zoom) noexcept;
 /// Source visibility must be checked before projection. Visibility prevents both
 /// sampling and writing hidden pixels; depth limits light reach and rejects shimmer
 /// across silhouettes. Disabled effects and invalid surfaces leave pixels unchanged.
+/// Each source's light raises a channel by its whole steps, clamped at 255,
+/// whatever the channel held: light composed over black and then added to a
+/// battlefield gives that battlefield's own composition where nothing distorts.
 /// @param surface mutable battlefield and optional tightly packed masks
 /// @param sources visible projected sources, finite values and effect strengths in [0,2]
 /// @param settings independent light, wreck glow and distortion switches

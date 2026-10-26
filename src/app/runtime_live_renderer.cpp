@@ -10,6 +10,7 @@
 #include "renderer_live_camera.hpp"
 #include "renderer_live_gpu.hpp"
 #include "renderer_live_scene.hpp"
+#include "renderer_water_surface.hpp"
 #include "oa/sim/unit_movement/terrain.hpp"
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <string_view>
 #include <unordered_map>
 
 namespace oa::app {
@@ -130,6 +132,37 @@ void Runtime::reset_live_renderer() {
     }
 }
 
+bool Runtime::answer_live_view_key(std::string_view action) {
+    if (action != "camera.classic-view" && action != "camera.unlocked")
+        return false;
+    // Where no rotated view can be drawn, Alt and its keys stay the game's.
+    if ((live_renderer_ && live_renderer_->gpu.device_unavailable) ||
+        !engine_settings().allow_full_3d || screen_ != Screen::match || !match_ || !selected_tnt_)
+        return false;
+    if (!full_presentation() && !options_.headless_check)
+        return false;
+    // A marker's text takes the letters, and a panel or the question owns the
+    // keys.
+    if (match_question_open() || chat_composing_ || whiteboard_input_.editing || match_paused_)
+        return false;
+    if (!live_renderer_)
+        live_renderer_.reset(new LiveRenderer{});
+    if (action == "camera.classic-view") {
+        reset_live_renderer();
+        return true;
+    }
+    auto& live = *live_renderer_;
+    live.failed = false;
+    live.unavailable = false;
+    const auto before = engine_settings();
+    auto chosen = before;
+    chosen.unlocked_camera = !chosen.unlocked_camera;
+    apply_engine_settings(chosen);
+    if (const auto error = save_engine_settings(before, chosen, false))
+        status_ = *error;
+    return true;
+}
+
 bool Runtime::live_renderer_take_event(SDL_Event& event) {
     // Where no rotated view can be drawn, Alt and its clicks and keys stay
     // the game's: below Full hardware acceleration, which never draws it,
@@ -161,23 +194,15 @@ bool Runtime::live_renderer_take_event(SDL_Event& event) {
         live.drag_button = 0;
         return false;
     }
-    const bool option_key = event.type == SDL_EVENT_KEY_DOWN && (event.key.mod & SDL_KMOD_ALT) != 0;
-    if (option_key && (event.key.key == SDLK_R || event.key.scancode == SDL_SCANCODE_R)) {
-        reset_live_renderer();
-        return true;
-    }
-    if (option_key && (event.key.key == SDLK_U || event.key.scancode == SDL_SCANCODE_U)) {
-        if (!event.key.repeat) {
-            live.failed = false;
-            live.unavailable = false;
-            const auto before = engine_settings();
-            auto chosen = before;
-            chosen.unlocked_camera = !chosen.unlocked_camera;
-            apply_engine_settings(chosen);
-            if (const auto error = save_engine_settings(before, chosen, false))
-                status_ = *error;
+    if (event.type == SDL_EVENT_KEY_DOWN) {
+        const auto actions = match_action_events();
+        for (const oa::ui::key_bindings::ActionEvent& action : actions) {
+            if (action.phase != oa::ui::key_bindings::Phase::pressed)
+                continue;
+            if (action.action != "camera.classic-view" && action.action != "camera.unlocked")
+                continue;
+            return handle_match_action(action);
         }
-        return true;
     }
     SDL_Event converted = event;
     const bool pointer =
@@ -356,8 +381,7 @@ bool Runtime::render_live_match_surface() {
             std::clamp((zoom - 0.25F) / 0.25F, 0.0F, 1.0F)
         };
         inputs.water.wind = water_wind();
-        const float fine = std::clamp((zoom - 0.5F) / 0.75F, 0.0F, 1.0F);
-        inputs.water.fine_detail = fine * fine * (3.0F - 2.0F * fine);
+        inputs.water.fine_detail = renderer_water_surface::fine_detail(zoom);
         inputs.water_surface = water_surface();
         inputs.water_disturbances = water_disturbances();
         inputs.nanolathe_lighting = engine_settings().nanolathe_lighting > 0;

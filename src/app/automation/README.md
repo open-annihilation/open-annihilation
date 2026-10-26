@@ -462,3 +462,14 @@ system's sockets elsewhere.
   match. A saved game cannot be played this way yet, since `--fark` refuses
   the headless saved-game run and the main loop loads a saved game only
   through the menus.
+- `native-mcp-server` (`tools/check_native_mcp_server.py`) starts the MCP
+  server ([tools/mcp](../../../tools/mcp/README.md)) as an MCP client does,
+  with `--executable` naming the built game, and through its tools starts
+  the game on the dummy drivers with a new preferences file in the
+  server's scratch folder: `game_launch` answers the endpoint's hello,
+  `controls` lists SINGLE, `screenshot` answers a PNG picture, a click on
+  SINGLE opens Single Player and Escape goes back to the main menu,
+  `read_events` gives both screen events in order, and `game_quit` ends the
+  game with status 0. `mcp-server-selftest` checks the server's tools and
+  refusals against a stand-in endpoint, with no installation
+  ([tools/mcp](../../../tools/mcp/README.md#checks)).

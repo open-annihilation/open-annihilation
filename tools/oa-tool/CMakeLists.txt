@@ -4,7 +4,8 @@
 # oa-tool's commands. The executable stays in the root CMakeLists.txt, where
 # the Windows DLL copy and the packaged notices attach to it.
 add_library(oa-tool-commands STATIC commands.cpp arguments.cpp files.cpp archive_commands.cpp
-  pack.cpp pack_map.cpp check.cpp check_map.cpp check_brain.cpp check_mutator.cpp brain.cpp
+  pack.cpp pack_map.cpp check.cpp check_map.cpp check_brain.cpp check_mutator.cpp check_keys.cpp
+  keys.cpp brain.cpp
   brain_net.cpp onnx.cpp
   mutator.cpp mutator_diff.cpp
   mutator_report.cpp catalogue.cpp engine_feed.cpp passphrase.cpp registry.cpp expansion.cpp
@@ -36,7 +37,8 @@ target_link_libraries(oa-tool-commands
     oa-data-content-bundles oa-data-languages
     oa-data-map-pack oa-data-map-fit oa-data-script-host oa-data-mutator-import
     oa-data-mutators oa-data-defs oa-data-defs-assets oa-formats-tdf
-    oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-formats-oann
+    oa-formats-oamod oa-formats-oamut oa-formats-oabrain oa-formats-oakeys oa-formats-oann
+    oa-data-key-library oa-ui-key-bindings oa-ui-kit
     oa-data-neural
     oa-formats-soft-mutator oa-formats-json oa-formats-ota oa-formats-tnt
     oa-formats-zip oa-base-sha256 oa-base-text oa-platform-shims oa-base-signing oa-data-catalogue
@@ -146,6 +148,17 @@ if(BUILD_TESTING)
     oa-platform-shims ZLIB::ZLIB oa-test-support oa-options)
   add_test(NAME tools-oa-tool-brain COMMAND oa-tool-brain-test)
   set_tests_properties(tools-oa-tool-brain PROPERTIES TIMEOUT 60)
+
+  # keys: a made-up layout packs to a .oakeys, check reports its facts,
+  # and a broken chord, an outside file, an icon or a second manifest is refused.
+  add_executable(oa-tool-keys-test tests/keys_test.cpp)
+  target_link_libraries(oa-tool-keys-test PRIVATE oa-tool-commands oa-app-package-install
+    oa-formats-zip oa-formats-json oa-formats-png oa-formats-oakeys oa-base-sha256
+    oa-platform-shims ZLIB::ZLIB oa-test-support oa-options)
+  add_test(NAME tools-oa-tool-keys COMMAND oa-tool-keys-test)
+  set_tests_properties(tools-oa-tool-keys PROPERTIES TIMEOUT 60)
+  # keys picture draws with the text fonts that sit beside the test.
+  oa_copy_text_fonts(oa-tool-keys-test "$<TARGET_FILE_DIR:oa-tool-keys-test>")
 
   # brain net: models this test writes, quantised and checked against the
   # integer network, and the refusals of a bad file or a bad invocation.

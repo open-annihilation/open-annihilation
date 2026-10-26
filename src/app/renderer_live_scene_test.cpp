@@ -3,6 +3,7 @@
 
 // Live terrain preserves painted coordinates, visibility and bounded atlas reuse.
 #include "renderer_live_scene.hpp"
+#include "renderer_water_surface.hpp"
 #include "renderer_aircraft_shadow.hpp"
 #include "renderer_water_appearance.hpp"
 #include "oa/test/check.hpp"
@@ -1118,6 +1119,73 @@ void terrain_decals() {
         OA_CHECK(fixture.scene.vertices[i].z == z);
 }
 
+/// What lies on the sea bed moves with the swells the vertex stage moves
+/// the ground by, and a feature's top standing out of the water stays.
+void sea_bed_follows_swells() {
+    Fixture fixture;
+    fixture.inputs.sea_level = 32;
+    fixture.inputs.water.wind.strength = 1;
+    oa::formats::gaf::RenderedFrame frame{};
+    frame.width = frame.height = 24;
+    frame.pixels.assign(frame.width * frame.height, ground_index);
+    frame.coverage.assign(frame.width * frame.height, 1);
+    fixture.draws.sprites.push_back({&frame, {4, 4}, false, true, true});
+    fixture.draws.sprites.back().world_position = oa::FixedVec3{16 * 65536, 0, 16 * 65536};
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto still = fixture.scene.vertices;
+    fixture.inputs.water.ripples = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == still.size());
+    bool moved = false;
+    for (std::size_t i = 0; i < std::min(still.size(), fixture.scene.vertices.size()); ++i) {
+        const auto& before = still[i];
+        const auto& after = fixture.scene.vertices[i];
+        if (i < fixture.scene.terrain_vertex_count) {
+            // The ground itself moves in the vertex stage.
+            OA_CHECK(after.x == before.x && after.z == before.z);
+            continue;
+        }
+        const float depth = 32 - before.height;
+        const auto offset = oa::app::renderer_water_surface::art_offset(
+            before.x, before.z + depth * 0.5F, fixture.inputs.water.wind, 0
+        );
+        OA_CHECK(std::abs(after.x - before.x - offset[0]) < tolerance);
+        OA_CHECK(std::abs(after.z - before.z - offset[1]) < tolerance);
+        moved = moved || after.x != before.x;
+    }
+    OA_CHECK(moved);
+    // An upright feature at the sea bed keeps the top it shows above water.
+    frame.origin_y = frame.height;
+    fixture.draws.sprites.back().terrain_decal = false;
+    fixture.draws.sprites.back().world_position = oa::FixedVec3{16 * 65536, 20 * 65536, 16 * 65536};
+    fixture.inputs.water.ripples = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto upright = fixture.scene.vertices;
+    fixture.inputs.water.ripples = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    bool foot_moved = false, top_stayed = false;
+    for (std::size_t i = fixture.scene.terrain_vertex_count;
+         i < std::min(upright.size(), fixture.scene.vertices.size());
+         ++i) {
+        if (upright[i].height >= 32) {
+            OA_CHECK(fixture.scene.vertices[i].x == upright[i].x);
+            top_stayed = true;
+        } else {
+            foot_moved = foot_moved || fixture.scene.vertices[i].x != upright[i].x;
+        }
+    }
+    OA_CHECK(foot_moved && top_stayed);
+    // Dry ground's features stay.
+    fixture.inputs.sea_level = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    const auto dry = fixture.scene.vertices;
+    fixture.inputs.water.ripples = 0;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == dry.size());
+    for (std::size_t i = 0; i < std::min(dry.size(), fixture.scene.vertices.size()); ++i)
+        OA_CHECK(fixture.scene.vertices[i].x == dry[i].x);
+}
+
 /// Repeated frame references share materials only for the current build.
 void sprite_material_lifetime() {
     Fixture fixture;
@@ -1600,24 +1668,31 @@ void cached_unit_shadows() {
     OA_CHECK(fixture.scene.shadow_count == 0);
 }
 
-/// Aircraft shadows broaden and fade with altitude, retain silhouette alpha and receive on water.
+/// Aircraft shadows keep their silhouette at full alpha at every altitude,
+/// soften only their edge, a pixel more high up, and receive on water at
+/// the vehicles' own shadow opacity.
 void aircraft_shadow_altitude() {
     namespace shadow = oa::app::renderer_aircraft_shadow;
-    auto previous = shadow::style(0);
-    for (const float height : {16.0F, 48.0F, 96.0F, 192.0F, 512.0F}) {
-        const auto current = shadow::style(height);
-        OA_CHECK(current.spread >= previous.spread && current.spread <= 1.45F);
-        OA_CHECK(current.opacity <= previous.opacity && current.opacity >= 0.29F);
-        OA_CHECK(current.radius >= previous.radius && current.radius <= 8);
-        previous = current;
-    }
+    for (const float height : {0.0F, 16.0F, 48.0F, 95.0F})
+        OA_CHECK(shadow::edge_radius(height) == shadow::narrow_edge_radius);
+    for (const float height : {96.0F, 110.0F, 220.0F, 4096.0F})
+        OA_CHECK(shadow::edge_radius(height) == shadow::wide_edge_radius);
+    OA_CHECK(shadow::edge_radius(std::nanf("")) == shadow::narrow_edge_radius);
     const std::array<uint8_t, 9> mask{0, 1, 0, 1, 1, 1, 0, 1, 0};
     const auto soft = shadow::soften(mask, 3, 3, 2);
     OA_CHECK(soft.size() == 11 * 11);
-    OA_CHECK(std::any_of(soft.begin(), soft.end(), [](uint8_t alpha) {
-        return alpha > 0 && alpha < 255;
-    }));
+    // Every pixel of the cross, its one-pixel arms too, stays opaque; the
+    // pixel above its top arm and the one between two arms take part of
+    // the edge.
+    for (std::size_t i = 0; i < mask.size(); ++i)
+        if (mask[i] != 0)
+            OA_CHECK(soft[(i / 3 + 4) * 11 + i % 3 + 4] == 255);
+    const uint8_t beside = soft[3 * 11 + 5];
+    const uint8_t corner = soft[4 * 11 + 4];
+    OA_CHECK(beside > 0 && beside < 255);
+    OA_CHECK(corner > 0 && corner < 255);
     OA_CHECK(soft.front() == 0 && soft.back() == 0);
+    OA_CHECK(shadow::soften(mask, 3, 3, 1).size() == 7 * 7);
     Fixture fixture;
     oa::present::model::ModelState state{};
     state.image = oa::present::create_sprite(8, 8);
@@ -1645,7 +1720,7 @@ void aircraft_shadow_altitude() {
          ++i) {
         const auto& vertex = fixture.scene.vertices[i];
         OA_CHECK(std::abs(vertex.height - 8.05F) < tolerance);
-        OA_CHECK(vertex.opacity < 0.5F && vertex.opacity > 0.1F);
+        OA_CHECK(std::abs(vertex.opacity - 0.5F) < tolerance);
         OA_CHECK(vertex.terrain_size == -1);
     }
     const auto revision = fixture.scene.texture_revision;
@@ -1710,6 +1785,19 @@ void water_surface_bounds() {
     }
     OA_CHECK(water_vertices > 0);
     OA_CHECK(coast);
+    // Deep water takes no sheet: the coastal foam lies on the shallows
+    // alone, so however far out the view, the sheet's budget holds the
+    // whole shore.
+    fixture.inputs.sea_level = 64;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(
+        std::none_of(
+            fixture.scene.vertices.begin(), fixture.scene.vertices.end(), [](const auto& vertex) {
+                return vertex.terrain_size == -2;
+            }
+        )
+    );
+    fixture.inputs.sea_level = 8;
     fixture.inputs.water.detail = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
@@ -1717,7 +1805,12 @@ void water_surface_bounds() {
     fixture.inputs.water.ripples = fixture.inputs.water.coastal_waves = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    // Water ripples lay no sheet over the water: the vertex stage moves the
+    // ground's own art.
     fixture.inputs.water.ripples = 1;
+    OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
+    OA_CHECK(fixture.scene.vertices.size() == fixture.scene.terrain_vertex_count);
+    fixture.inputs.water.coastal_waves = 1;
     fixture.mapped[0] = fixture.coverage[0] = 0;
     OA_CHECK(live::build(fixture.inputs, fixture.scene, fixture.error));
     for (const auto& vertex : fixture.scene.vertices)
@@ -2075,6 +2168,7 @@ void underwater_effect_altitude() {
 
 int main() {
     water_surface_bounds();
+    sea_bed_follows_swells();
     water_disturbance_visibility();
     naval_reflection_visibility();
     model_shade_parity();

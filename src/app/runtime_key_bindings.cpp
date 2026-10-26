@@ -3,19 +3,26 @@
 
 // The key bindings' dispatcher. Each key, button and wheel is turned into
 // action events after the input method has taken the keys it is composing.
-// The events are kept. Nothing acts on them yet. Touch and the pad keep
-// their own paths.
+// The events are kept. A running match answers them through
+// handle_match_action. Touch and the pad keep their own paths.
 
 #include "oa/app/runtime.hpp"
 
 #include "device_state.hpp"
+#include "oa/app/input_hints.hpp"
 #include "engine_settings_state.hpp"
+#include "touch_state.hpp"
 #include "oa/app/game_directory.hpp"
 #include "oa/app/match_console.hpp"
+#include "oa/app/package_install.hpp"
+#include "oa/app/package_install/oakeys.hpp"
 #include "oa_layer.hpp"
+
+#include "oa/formats/zip/stream.hpp"
 
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/data/key_library/library.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/data/mod_profile.hpp"
 #include "oa/formats/oamod.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
@@ -25,15 +32,18 @@
 #include "oa/ui/key_bindings/key_codes.hpp"
 #include "oa/ui/key_bindings/layout_file.hpp"
 #include "oa/ui/key_bindings/legacy.hpp"
+#include "oa/ui/touch_hud.hpp"
 
 #include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -49,6 +59,8 @@ namespace oa::app {
 namespace keys = oa::ui::key_bindings;
 namespace actions = oa::data::input_actions;
 namespace console = oa::ui::console;
+namespace install = oa::app::package_install;
+namespace zip = oa::formats::zip;
 
 namespace {
 
@@ -242,10 +254,22 @@ preference_text(const std::map<std::string, std::string>& values, std::string_vi
     return found->second;
 }
 
+/// Tells whether a name ends in `.oakeys`, in any case.
+///
+/// @param value the option's value
+/// @return true when the folded name ends in `.oakeys`
+bool ends_oakeys(const std::string& value) {
+    const std::string name = folded(value);
+    constexpr std::string_view extension = ".oakeys";
+    return name.size() >= extension.size() &&
+           name.compare(name.size() - extension.size(), extension.size(), extension) == 0;
+}
+
 /// Tells whether `--keys` names a path rather than an installed id.
 ///
 /// A separator, an absolute path, a name that is already there, or a name
-/// that ends in oakeys.yaml is a path.
+/// that ends in oakeys.yaml or `.oakeys` is a path. A missing `.oakeys`
+/// file is still a path, so it fails as unreadable rather than as an id.
 ///
 /// @param value the option's value
 /// @return true when it is a path
@@ -260,8 +284,79 @@ bool names_a_path(const std::string& value) {
     if (name.size() >= manifest.size() &&
         name.compare(name.size() - manifest.size(), manifest.size(), manifest) == 0)
         return true;
+    if (ends_oakeys(value))
+        return true;
     std::error_code exists_error;
     return fs::exists(path, exists_error) && !exists_error;
+}
+
+/// Reads bytes of a package for the streamed zip reader.
+///
+/// @param context the open file (`std::ifstream`)
+/// @param offset where the read starts
+/// @param bytes where the bytes go
+/// @return true when every byte was read
+bool read_package_at(void* context, uint64_t offset, std::span<uint8_t> bytes) {
+    auto* input = static_cast<std::ifstream*>(context);
+    if (input == nullptr)
+        return false;
+    if (offset > static_cast<uint64_t>(std::numeric_limits<std::streamoff>::max()))
+        return false;
+    input->clear();
+    input->seekg(static_cast<std::streamoff>(offset));
+    if (!*input)
+        return false;
+    input->read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return input->gcount() == static_cast<std::streamsize>(bytes.size());
+}
+
+/// Reads a package's manifest entry into a manifest.
+///
+/// The kind's check already ran in open_package. This reads the same entry
+/// again, in memory, so `--keys` can use the layout without installing it.
+///
+/// @param package the opened package
+/// @param[out] manifest the manifest
+/// @param[out] lines why it could not be read
+/// @return true when the manifest was read
+bool read_opened_manifest(
+    const install::Package& package, oakeys::Manifest& manifest, std::vector<std::string>& lines
+) {
+    if (package.manifest_entry >= package.directory.entries.size()) {
+        lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        return false;
+    }
+    std::ifstream input(package.file, std::ios::binary);
+    if (!input) {
+        lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        return false;
+    }
+    zip::SourceHooks source;
+    source.context = &input;
+    source.read_at = &read_package_at;
+    std::vector<uint8_t> bytes;
+    zip::ZipError error{};
+    const bool read = zip::read_stream_entry(
+        source,
+        package.archive_bytes,
+        package.directory.entries[package.manifest_entry],
+        oa::formats::oamod::max_input_bytes,
+        bytes,
+        error
+    );
+    if (!read) {
+        lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        return false;
+    }
+    std::vector<oakeys::Problem> problems;
+    if (!oakeys::read_manifest(bytes, manifest, problems)) {
+        if (problems.empty())
+            lines.push_back(utf8_of(package.file) + ": it cannot be read");
+        for (const oakeys::Problem& problem : problems)
+            lines.push_back(oakeys::describe(problem));
+        return false;
+    }
+    return true;
 }
 
 /// Reads a file up to one byte past a bound.
@@ -508,6 +603,148 @@ const char* phase_word(keys::Phase phase) noexcept {
     return "pressed";
 }
 
+/// The modifier bit a key's own position holds, or 0.
+///
+/// @param scancode the position
+/// @return the bit
+uint8_t modifier_bit_of(uint16_t scancode) {
+    struct Key {
+        const char* code;
+        uint8_t bit;
+    };
+
+    static constexpr Key keys[] = {
+        {"ShiftLeft", keys::shift},
+        {"ShiftRight", keys::shift},
+        {"ControlLeft", keys::ctrl},
+        {"ControlRight", keys::ctrl},
+        {"AltLeft", keys::alt},
+        {"AltRight", keys::alt},
+        {"MetaLeft", keys::meta},
+        {"MetaRight", keys::meta},
+    };
+    for (const Key& key : keys) {
+        const std::optional<uint16_t> place = keys::scancode_of(key.code);
+        if (place && *place == scancode)
+            return key.bit;
+    }
+    return 0;
+}
+
+/// QUEUE, ADD or x5, when this id is one of those shared roles.
+struct SharedRole {
+    const char* id{};
+    oa::ui::touch_hud::Latch latch{};
+    oa::ui::touch_hud::ActionClass action{};
+};
+
+/// The shared role of an action id, or null.
+///
+/// @param id the action id
+/// @return the role
+const SharedRole* shared_role_of(std::string_view id) {
+    static constexpr SharedRole roles[] = {
+        {"order.queue-modifier",
+         oa::ui::touch_hud::Latch::queue,
+         oa::ui::touch_hud::ActionClass::order},
+        {"select.add-modifier",
+         oa::ui::touch_hud::Latch::add,
+         oa::ui::touch_hud::ActionClass::selection},
+        {"build.queue-modifier",
+         oa::ui::touch_hud::Latch::times_five,
+         oa::ui::touch_hud::ActionClass::build_button},
+    };
+    for (const SharedRole& role : roles) {
+        if (id == role.id)
+            return &role;
+    }
+    return nullptr;
+}
+
+/// ASCII letters in capitals. Anything else is copied.
+///
+/// @param text the action's name
+/// @return the chip's name
+std::string capitals(std::string_view text) {
+    std::string out;
+    out.reserve(text.size());
+    for (const unsigned char byte : text) {
+        const unsigned char upper =
+            byte >= 'a' && byte <= 'z' ? static_cast<unsigned char>(byte - 'a' + 'A') : byte;
+        out.push_back(static_cast<char>(upper));
+    }
+    return out;
+}
+
+/// An interface sentence with one token replaced. The lookup is copied first.
+///
+/// @param english the catalogue sentence
+/// @param token the placeholder, including braces
+/// @param value the replacement
+/// @return the sentence
+std::string
+chip_sentence(std::string_view english, std::string_view token, std::string_view value) {
+    std::string text{oa::data::languages::interface_text(english)};
+    const auto at = text.find(token);
+    if (at != std::string::npos)
+        text.replace(at, token.size(), value);
+    return text;
+}
+
+/// Whether the binding's conditions hold and one of its contexts is open.
+///
+/// @param bound the binding
+/// @param contexts the open contexts
+/// @return true when this event may latch it
+bool binding_open(const keys::Bound& bound, const keys::Contexts& contexts) {
+    return (bound.when & ~contexts.conditions) == 0 && (bound.contexts & contexts.active) != 0;
+}
+
+/// Whether this key event is one of the binding's chords.
+///
+/// A modifier alone matches the key's own bit. Any other chord matches the event.
+///
+/// @param bound the binding
+/// @param input the event
+/// @param bit the modifier bit of the key, or 0
+/// @param map the keyboard
+/// @param platform which key Primary means
+/// @return true when the key is this binding
+bool binding_key(
+    const keys::Bound& bound,
+    const keys::InputEvent& input,
+    uint8_t bit,
+    const keys::KeyboardMap& map,
+    keys::Platform platform
+) {
+    for (const keys::BoundChord& item : bound.chords) {
+        if (item.chord.kind == keys::TriggerKind::modifier_alone) {
+            if (bit != 0 && keys::held(item.chord, bit, platform))
+                return true;
+            continue;
+        }
+        if (keys::match(item.chord, input, map, platform) != keys::Match::none)
+            return true;
+    }
+    return false;
+}
+
+/// The English name of a modifier bit, or empty.
+///
+/// @param bit one modifier bit
+/// @return SHIFT, CTRL, ALT or META
+const char* modifier_label(uint8_t bit) {
+    if (bit == keys::shift)
+        return "SHIFT";
+    if (bit == keys::ctrl)
+        return "CTRL";
+    if (bit == keys::alt)
+        return "ALT";
+    if (bit == keys::meta)
+        return "META";
+    return nullptr;
+}
+
 } // namespace
 
 struct Runtime::KeyBindingsState {
@@ -516,6 +753,14 @@ struct Runtime::KeyBindingsState {
     keys::KeyboardMap keyboard{};
     keys::Platform platform{};
     std::vector<keys::ActionEvent> events{};
+
+    /// A key down slow keys have not admitted yet, kept so its press can reach the game once.
+    struct HeldBack {
+        bool held{};       ///< a down is waiting
+        SDL_Event event{}; ///< the down, replayed when it is admitted
+    };
+
+    std::array<HeldBack, keys::scancode_limit> held_back{};
     std::vector<std::string> hacks{};
     keys::PointerScheme scheme{keys::PointerScheme::right_click};
     bool number_keys{};
@@ -528,6 +773,16 @@ struct Runtime::KeyBindingsState {
     bool has_own{};
     /// What the last load read. A later call with the same text does no work.
     std::string signature{};
+    /// The resolved layout's helpers.toggle, chosen then the player's own.
+    std::vector<std::string> toggle{};
+
+    /// A shared latch this key is holding, so its release toggles that latch.
+    struct SharedPress {
+        uint16_t scancode{};
+        oa::ui::touch_hud::Latch latch{};
+    };
+
+    std::vector<SharedPress> shared_presses{};
 
     /// Whether the resolved bindings name this action.
     ///
@@ -630,11 +885,13 @@ void Runtime::load_key_bindings() {
     keys::Layout chosen;
     bool has_chosen = false;
     std::string base_id = "oa-default";
+    std::optional<std::vector<std::string>> chosen_toggle;
 
     const auto use_builtin = [&] {
         base = keys::Base::oa_default;
         has_chosen = false;
         base_id = "oa-default";
+        chosen_toggle.reset();
     };
     const auto use_manifest = [&](const oakeys::Manifest& manifest, bool refuse_errors) {
         keys::Layout layout;
@@ -655,6 +912,7 @@ void Runtime::load_key_bindings() {
         base_id = layout.id.empty() ? std::string("oa-default") : layout.id;
         chosen = std::move(layout);
         has_chosen = true;
+        chosen_toggle = manifest.helpers.toggle;
     };
 
     if (options_.keys_reset) {
@@ -670,6 +928,28 @@ void Runtime::load_key_bindings() {
                     log_keys(key_bindings_refusal_);
                 } else {
                     use_manifest(installed->manifest, true);
+                }
+            }
+        } else if (ends_oakeys(options_.keys)) {
+            const install::PackageResult opened =
+                install::open_package(path_from_utf8(options_.keys));
+            if (!opened.package) {
+                for (const std::string& line : opened.problem.lines)
+                    log_keys(line);
+                key_bindings_refusal_ = "--keys: " + options_.keys + ": " +
+                                        install::oakeys::refusal_text(opened.problem);
+                log_keys(key_bindings_refusal_);
+            } else {
+                oakeys::Manifest manifest;
+                std::vector<std::string> lines;
+                if (!read_opened_manifest(*opened.package, manifest, lines)) {
+                    for (const std::string& line : lines)
+                        log_keys(line);
+                    key_bindings_refusal_ =
+                        "--keys: " + options_.keys + ": the layout cannot be read";
+                    log_keys(key_bindings_refusal_);
+                } else {
+                    use_manifest(manifest, true);
                 }
             }
         } else {
@@ -857,8 +1137,28 @@ void Runtime::load_key_bindings() {
     state.has_own = has_own;
     if (has_own)
         state.own = std::move(own_layout);
+    std::vector<std::string> merged;
+    if (chosen_toggle)
+        merged = *chosen_toggle;
+    if (apply_own && have_own_manifest && !own_broken && own_manifest.helpers.toggle)
+        merged = *own_manifest.helpers.toggle;
+    state.toggle = std::move(merged);
     state.signature = signature_now();
     state.ready = false;
+}
+
+void Runtime::reload_key_layout_if_in_use(const fs::path& folder) {
+    // The runtime keeps no separate listing of layouts. The layout in use is
+    // the one this load chose. The signature does not include the folder's
+    // files, so a match would skip the reread. Clearing it makes the next
+    // load read the folder again. An update of the layout in use then plays
+    // at once. Installing never writes the preference.
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->has_chosen)
+        return;
+    if (utf8_of(folder.filename()) != key_bindings_state_->chosen.id)
+        return;
+    key_bindings_state_->signature.clear();
+    load_key_bindings();
 }
 
 void Runtime::ensure_key_bindings(bool keymap_changed) {
@@ -899,6 +1199,12 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     // The release events would point into the bindings set_bindings replaces.
     (void)state.dispatcher.release_all(SDL_GetTicks());
     state.events.clear();
+    if (touch_state_if_made() != nullptr) {
+        auto& hud_latches = touch_state().hud.latches;
+        for (const KeyBindingsState::SharedPress& press : state.shared_presses)
+            hud_latches.cancel(press.latch);
+    }
+    state.shared_presses.clear();
     keys::ResolveInput input;
     input.base = state.base;
     input.chosen = state.has_chosen ? &state.chosen : nullptr;
@@ -912,6 +1218,15 @@ void Runtime::ensure_key_bindings(bool keymap_changed) {
     state.dispatcher.set_keyboard(state.keyboard);
     state.dispatcher.set_platform(state.platform);
     state.dispatcher.set_bindings(resolved);
+    std::vector<std::string> dispatcher_toggle;
+    for (const std::string& id : state.toggle) {
+        if (shared_role_of(id) == nullptr)
+            dispatcher_toggle.push_back(id);
+    }
+    state.dispatcher.set_toggle(std::move(dispatcher_toggle));
+    state.dispatcher.set_sticky_modifiers(engine_settings().sticky_modifiers);
+    forget_held_back_keys();
+    apply_key_timings();
     state.resolved = std::move(resolved);
     state.hacks = std::move(hacks);
     state.scheme = scheme;
@@ -986,26 +1301,95 @@ void Runtime::trace_fed_actions(const std::vector<keys::ActionEvent>& events) co
     }
 }
 
-void Runtime::feed_input_actions(const SDL_Event& event) {
+/// The slot a key's held-back down is kept in.
+///
+/// @param scancode the position
+/// @return the slot; a position past the map shares the unused slot
+uint16_t held_back_slot(uint16_t scancode) noexcept {
+    return scancode < keys::scancode_limit ? scancode : uint16_t{0};
+}
+
+void Runtime::forget_held_back_keys() {
+    if (key_bindings_state_ == nullptr)
+        return;
+    for (KeyBindingsState::HeldBack& slot : key_bindings_state_->held_back)
+        slot = {};
+}
+
+int Runtime::recent_action_phase_count(std::string_view action, keys::Phase phase) const {
+    if (key_bindings_state_ == nullptr)
+        return 0;
+    int count = 0;
+    for (const keys::ActionEvent& action_event : key_bindings_state_->events)
+        if (action_event.action == action && action_event.phase == phase)
+            ++count;
+    return count;
+}
+
+void Runtime::apply_key_timings() {
+    namespace settings = oa::ui::engine_settings;
+    const settings::EngineSettings current =
+        engine_settings_ != nullptr ? engine_settings_->current : settings::EngineSettings{};
+    set_mouse_double_click_time(current.double_press_ms);
+    if (key_bindings_state_ == nullptr)
+        return;
+    keys::Timings timings;
+    timings.slow_keys_ms = current.slow_keys_ms;
+    timings.bounce_keys_ms = current.bounce_keys_ms;
+    timings.double_press_ms = current.double_press_ms == 0 ? 500U : current.double_press_ms;
+    timings.long_press_ms = current.long_press_ms;
+    timings.repeat_delay_ms = current.repeat_delay_ms;
+    timings.repeat_rate = current.repeat_rate;
+    key_bindings_state_->dispatcher.set_timings(timings);
+}
+
+bool Runtime::feed_input_actions(const SDL_Event& event) {
     const bool keymap_changed = event.type == SDL_EVENT_KEYMAP_CHANGED;
     ensure_key_bindings(keymap_changed);
     KeyBindingsState& state = *key_bindings_state_;
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
         state.events = state.dispatcher.release_all(SDL_GetTicks()).events;
+        if (touch_state_if_made() != nullptr)
+            touch_state().hud.latches.clear();
+        state.shared_presses.clear();
+        sticky_event_ = false;
+        sticky_event_mods_ = 0;
+        key_latch_seen_.clear();
+        key_latch_chips_drawn_.clear();
+        refresh_pointer_modifiers();
         trace_fed_actions(state.events);
-        return;
+        forget_held_back_keys();
+        return false;
     }
     const std::optional<keys::InputEvent> input = input_from_sdl(event, SDL_GetTicks());
     if (!input)
-        return;
-    state.dispatcher.set_contexts(input_contexts());
-    state.events = state.dispatcher.feed(*input).events;
+        return false;
+    const keys::Contexts contexts = input_contexts();
+    state.dispatcher.set_contexts(contexts);
+    const keys::Fed fed = state.dispatcher.feed(*input);
+    state.events = fed.events;
     trace_fed_actions(state.events);
+    if (fed.legacy == keys::LegacyGate::hold && event.type == SDL_EVENT_KEY_DOWN) {
+        KeyBindingsState::HeldBack& slot = state.held_back[held_back_slot(input->scancode)];
+        slot.held = true;
+        slot.event = event;
+        return true;
+    }
+    if (fed.legacy == keys::LegacyGate::drop) {
+        if (!input->down)
+            state.held_back[held_back_slot(input->scancode)] = {};
+        return true;
+    }
+    // The bindings accepted this event. A key held back or dropped returned above.
+    apply_shared_key_latches(*input, contexts);
+    return false;
 }
 
-void Runtime::advance_input_actions() {
+void Runtime::advance_input_actions(bool& running) {
     ensure_key_bindings(false);
     KeyBindingsState& state = *key_bindings_state_;
+    const keys::Contexts contexts = input_contexts();
+    state.dispatcher.set_contexts(contexts);
     const keys::Fed fed = state.dispatcher.advance(SDL_GetTicks());
     // An empty frame leaves the last event's action events in place, and is
     // not printed again.
@@ -1013,6 +1397,29 @@ void Runtime::advance_input_actions() {
         state.events = fed.events;
         trace_fed_actions(state.events);
     }
+    for (const keys::InputEvent& admitted : fed.admitted) {
+        // The down was held back, so the shared latches did not see it then.
+        apply_shared_key_latches(admitted, contexts);
+        KeyBindingsState::HeldBack& slot = state.held_back[held_back_slot(admitted.scancode)];
+        if (!slot.held)
+            continue;
+        SDL_Event replay = slot.event;
+        slot = {};
+        dispatch_after_actions(replay, running);
+    }
+}
+
+std::span<const keys::ActionEvent> Runtime::match_action_events() const {
+    if (key_bindings_state_ == nullptr)
+        return {};
+    return key_bindings_state_->events;
+}
+
+bool Runtime::action_key_held(std::string_view action) {
+    ensure_key_bindings(false);
+    keys::HeldKeys keys_held;
+    keys_held.down = key_is_down;
+    return key_bindings_state_->dispatcher.chord_key_held(action, keys_held);
 }
 
 void Runtime::apply_binding_roles(uint32_t& modifiers, ModifierUse use) const {
@@ -1062,6 +1469,265 @@ bool Runtime::modifier_role_active(std::string_view action) const {
         action == "build.queue-modifier" || action == "build.move-queued-site")
         return (mods & keys::shift) != 0;
     return false;
+}
+
+void Runtime::apply_shared_key_latches(
+    const keys::InputEvent& input, const keys::Contexts& contexts
+) {
+    if (key_bindings_state_ == nullptr)
+        return;
+    KeyBindingsState& state = *key_bindings_state_;
+    bool listed = false;
+    for (const std::string& id : state.toggle) {
+        if (shared_role_of(id) != nullptr)
+            listed = true;
+    }
+    if (!listed)
+        return;
+    if (input.repeat)
+        return;
+
+    namespace hud = oa::ui::touch_hud;
+    const auto release_scancode = [&](uint16_t scancode) {
+        if (touch_state_if_made() == nullptr) {
+            std::vector<KeyBindingsState::SharedPress> kept;
+            for (const KeyBindingsState::SharedPress& press : state.shared_presses) {
+                if (press.scancode != scancode)
+                    kept.push_back(press);
+            }
+            state.shared_presses = std::move(kept);
+            return;
+        }
+        auto& hud_latches = touch_state().hud.latches;
+        const uint32_t hold_ms = state.dispatcher.timings().long_press_ms;
+        std::vector<KeyBindingsState::SharedPress> kept;
+        for (const KeyBindingsState::SharedPress& press : state.shared_presses) {
+            if (press.scancode != scancode) {
+                kept.push_back(press);
+                continue;
+            }
+            hud_latches.release(press.latch, input.time_ms, hold_ms);
+        }
+        state.shared_presses = std::move(kept);
+    };
+
+    if (input.kind == keys::InputKind::button && input.down) {
+        if (touch_state_if_made() == nullptr || state.shared_presses.empty())
+            return;
+        auto& hud_latches = touch_state().hud.latches;
+        for (const KeyBindingsState::SharedPress& press : state.shared_presses) {
+            if (!hud_latches.held(press.latch))
+                continue;
+            const hud::ActionClass action =
+                press.latch == hud::Latch::add          ? hud::ActionClass::selection
+                : press.latch == hud::Latch::times_five ? hud::ActionClass::build_button
+                                                        : hud::ActionClass::order;
+            hud_latches.used(action, hud::LatchMode::stay_on);
+        }
+        return;
+    }
+    if (input.kind != keys::InputKind::key)
+        return;
+    if (!input.down) {
+        release_scancode(input.scancode);
+        return;
+    }
+
+    const uint8_t bit = modifier_bit_of(input.scancode);
+    for (const std::string& id : state.toggle) {
+        const SharedRole* role = shared_role_of(id);
+        if (role == nullptr)
+            continue;
+        const keys::Bound* bound = nullptr;
+        for (const keys::Bound& item : state.resolved.actions) {
+            if (item.id == id) {
+                bound = &item;
+                break;
+            }
+        }
+        if (bound == nullptr || !binding_open(*bound, contexts))
+            continue;
+        bool already = false;
+        for (const KeyBindingsState::SharedPress& press : state.shared_presses) {
+            if (press.latch == role->latch)
+                already = true;
+        }
+        if (already)
+            continue;
+        if (touch_state_if_made() != nullptr && touch_state().hud.latches.held(role->latch))
+            continue;
+        if (!binding_key(*bound, input, bit, state.keyboard, state.platform))
+            continue;
+        touch_state().hud.latches.press(role->latch, input.time_ms);
+        state.shared_presses.push_back(KeyBindingsState::SharedPress{input.scancode, role->latch});
+    }
+}
+
+void Runtime::apply_sticky_modifiers(bool on) {
+    if (key_bindings_state_ == nullptr)
+        return;
+    key_bindings_state_->dispatcher.set_sticky_modifiers(on);
+}
+
+uint8_t Runtime::sticky_modifier_bits() const {
+    if (sticky_event_)
+        return sticky_event_mods_;
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return 0;
+    return key_bindings_state_->dispatcher.sticky().mods();
+}
+
+void Runtime::begin_sticky_event() {
+    sticky_event_mods_ = 0;
+    sticky_event_ = false;
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return;
+    sticky_event_mods_ = key_bindings_state_->dispatcher.sticky().mods();
+    sticky_event_ = true;
+}
+
+void Runtime::end_sticky_event() {
+    sticky_event_ = false;
+    sticky_event_mods_ = 0;
+    refresh_pointer_modifiers();
+}
+
+void Runtime::consume_sticky_modifiers() {
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return;
+    key_bindings_state_->dispatcher.consume_sticky();
+}
+
+void Runtime::note_shared_latch_used(int which) {
+    const char* id = nullptr;
+    oa::ui::touch_hud::ActionClass action = oa::ui::touch_hud::ActionClass::order;
+    if (which == 0) {
+        id = "select.add-modifier";
+        action = oa::ui::touch_hud::ActionClass::selection;
+    } else if (which == 1) {
+        id = "order.queue-modifier";
+        action = oa::ui::touch_hud::ActionClass::order;
+    } else if (which == 2) {
+        id = "build.queue-modifier";
+        action = oa::ui::touch_hud::ActionClass::build_button;
+    } else {
+        return;
+    }
+    if (key_bindings_state_ == nullptr)
+        return;
+    bool listed = false;
+    for (const std::string& toggle_id : key_bindings_state_->toggle) {
+        if (toggle_id == id)
+            listed = true;
+    }
+    if (!listed || touch_state_if_made() == nullptr)
+        return;
+    auto& look = touch_state().hud;
+    look.latches.used(action, look.latch_mode);
+}
+
+bool Runtime::action_latched(std::string_view id) const {
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return false;
+    return key_bindings_state_->dispatcher.latches().latched(id);
+}
+
+void Runtime::gather_key_latch_chips(std::vector<KeyLatchChip>& chips) {
+    chips.clear();
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return;
+    const KeyBindingsState& state = *key_bindings_state_;
+
+    struct Item {
+        std::string key;
+        std::string text;
+        bool filled;
+    };
+
+    std::vector<Item> items;
+
+    const auto latched_line = [&](std::string_view id) {
+        const actions::Action* action = actions::find(id);
+        const std::string_view name = action != nullptr ? action->words.name : id;
+        return chip_sentence("{name} · latched", "{name}", capitals(name));
+    };
+
+    for (const std::string& id : state.dispatcher.latches().shown())
+        items.push_back(Item{"d:" + id, latched_line(id), true});
+
+    const uint8_t locked = state.dispatcher.sticky().locked();
+    for (const uint8_t bit : state.dispatcher.sticky().shown()) {
+        const char* label = modifier_label(bit);
+        if (label == nullptr)
+            continue;
+        const bool stays = (locked & bit) != 0;
+        const char* sentence = stays ? "{modifier} · locked" : "{modifier} · next key or click";
+        items.push_back(
+            Item{"s:" + std::to_string(bit), chip_sentence(sentence, "{modifier}", label), stays}
+        );
+    }
+
+    bool touch_on = touch_controls_active();
+    bool pad_on = false;
+    bool build_page = false;
+    bool over_build = false;
+    const TouchState* touch = touch_state_if_made();
+    if (touch != nullptr) {
+        pad_on = touch->hud.pad.hud;
+        build_page = touch->hud.build_page_loaded;
+        over_build = touch->hud.pad.over_build_button;
+    }
+    const bool hide_queue_add = touch_on || pad_on;
+    const bool hide_times_five = (touch_on && build_page) || (pad_on && over_build);
+    if (touch != nullptr) {
+        const auto consider = [&](const char* id, oa::ui::touch_hud::Latch latch, bool hidden) {
+            if (hidden || !touch->hud.latches.latched(latch))
+                return;
+            bool wanted = false;
+            for (const std::string& toggle_id : state.toggle) {
+                if (toggle_id == id)
+                    wanted = true;
+            }
+            if (!wanted)
+                return;
+            items.push_back(Item{std::string("h:") + id, latched_line(id), true});
+        };
+        consider("order.queue-modifier", oa::ui::touch_hud::Latch::queue, hide_queue_add);
+        consider("select.add-modifier", oa::ui::touch_hud::Latch::add, hide_queue_add);
+        consider("build.queue-modifier", oa::ui::touch_hud::Latch::times_five, hide_times_five);
+    }
+
+    std::vector<KeyLatchSeen> kept;
+    for (const KeyLatchSeen& seen : key_latch_seen_) {
+        for (const Item& item : items) {
+            if (item.key == seen.key) {
+                kept.push_back(seen);
+                break;
+            }
+        }
+    }
+    for (const Item& item : items) {
+        bool found = false;
+        for (const KeyLatchSeen& seen : kept) {
+            if (seen.key == item.key)
+                found = true;
+        }
+        if (!found)
+            kept.push_back(KeyLatchSeen{item.key, key_latch_seen_next_++});
+    }
+    key_latch_seen_ = std::move(kept);
+
+    for (const KeyLatchSeen& seen : key_latch_seen_) {
+        for (const Item& item : items) {
+            if (item.key != seen.key)
+                continue;
+            KeyLatchChip chip;
+            chip.text = item.text;
+            chip.filled = item.filled;
+            chips.push_back(std::move(chip));
+            break;
+        }
+    }
 }
 
 } // namespace oa::app

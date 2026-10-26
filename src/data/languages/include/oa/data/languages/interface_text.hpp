@@ -109,6 +109,15 @@ void set_interface_language(const InterfaceText* catalogue, const Language& lang
 /// @return the installed language; English before any is installed
 [[nodiscard]] const Language& interface_language() noexcept;
 
+/// Returns a number that changes with every set_interface_language, the
+/// same catalogue and language installed again among them: a pack read
+/// again replaces that catalogue's texts in place, and its language may
+/// stay the same entry, so what was drawn in the interface's words tells
+/// by this number that they may have changed.
+///
+/// @return the generation; 0 before any installation
+[[nodiscard]] uint64_t interface_generation() noexcept;
+
 /// Returns one of the interface's own words in a named language, from the
 /// catalogue set_interface_language installed. The language the interface
 /// shows is left as it was. Nothing is loaded to answer it.

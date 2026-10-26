@@ -23,6 +23,7 @@
 #include <functional>
 #include <iostream>
 #include <ostream>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -98,13 +99,10 @@ void prepare(
     bool campaign,
     const data::match_rules::MatchRules& rules,
     const PackageBytes* package,
-    StopNote* note
+    StopNote* note,
+    std::span<const uint16_t> lists = build_lists
 ) {
-    CHECK(
-        sim::ai::configure_match_computer_players(
-            *fixture.match, profile_text, build_lists, campaign
-        )
-    );
+    CHECK(sim::ai::configure_match_computer_players(*fixture.match, profile_text, lists, campaign));
     brains::set_match_game_facts(*fixture.match, facts_of(rules, profile_text));
     if (package == nullptr)
         return;
@@ -328,6 +326,25 @@ void test_silo(const PackageBytes& package, Spend& spend) {
     CHECK(with_brain.match->fault() == nullptr);
 }
 
+void test_builder_rounds(const PackageBytes& package, Spend& spend) {
+    Fixture plain(0, true, {}, 0, 1, {}, 2, true);
+    Fixture with_brain(0, true, {}, 0, 1, {}, 2, true);
+    StopNote note;
+    plain.spawn(computer, vehicle, 40, 40);
+    auto& defence = with_brain.spawn(computer, vehicle, 40, 40);
+    prepare(plain, "", false, {}, nullptr, nullptr, builder_round_lists);
+    prepare(with_brain, "", false, {}, &package, &note, builder_round_lists);
+    bool missile_built = false;
+    const bool stockpiled = play(plain, with_brain, note, spend, run_ticks, "builder rounds", [&] {
+        missile_built = missile_built || with_brain.count(computer, missile) != 0 ||
+                        with_brain.match->queued_build_count(defence.unit_index, missile) != 0;
+        return defence.record.weapons[0].stockpile != 0;
+    });
+    CHECK(!missile_built);
+    CHECK(stockpiled);
+    CHECK(with_brain.match->fault() == nullptr);
+}
+
 data::match_rules::MatchRules baseline_rules() {
     data::match_rules::MatchRules rules{};
     rules.ai.difficulty_names.enabled = true;
@@ -505,6 +522,7 @@ int main(int argc, char** argv) {
         test_no_income(package, spend);
         test_campaign(package, spend);
         test_silo(package, spend);
+        test_builder_rounds(package, spend);
         test_rule_sets(package, spend);
         test_hacks_alone(package, spend);
         CHECK(spend.saw_tick);

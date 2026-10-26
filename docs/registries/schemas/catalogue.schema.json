@@ -150,7 +150,7 @@
       "additionalProperties": false,
       "required": ["kind", "id", "name", "release", "size", "sha256", "file"],
       "properties": {
-        "kind": { "enum": ["oalang", "oamod", "oamap", "expansion", "oamut", "oabrain"] },
+        "kind": { "enum": ["oalang", "oamod", "oamap", "expansion", "oamut", "oabrain", "oakeys"] },
         "id": { "type": "string", "minLength": 1, "maxLength": 64 },
         "name": { "type": "string", "minLength": 1, "maxLength": 64 },
         "version": { "type": "string", "minLength": 1, "maxLength": 32 },
@@ -209,7 +209,14 @@
         },
         "layers": { "type": "array", "maxItems": 16, "items": { "type": "string" } },
         "clashes": { "enum": ["add", "replace"] },
-        "options": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/option" } }
+        "options": { "type": "array", "maxItems": 16, "items": { "$ref": "#/$defs/option" } },
+        "base": { "enum": ["oa-default", "none"] },
+        "keyboard": { "enum": ["any", "ansi", "iso", "jis"] },
+        "pointer": { "enum": ["right-click", "left-click"] },
+        "helpers": { "type": "array", "maxItems": 6, "items": { "type": "string" } },
+        "changes": { "type": "integer", "minimum": 0, "maximum": 2048 },
+        "triggers": { "type": "array", "maxItems": 128, "items": { "type": "string" } },
+        "preview": { "type": "string" }
       }
     }
   }

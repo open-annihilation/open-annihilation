@@ -6,7 +6,6 @@
 #include "oa/app/far_view.hpp"
 #include "oa/app/frame_coordinates.hpp"
 #include "oa/app/full_screen.hpp"
-#include "device_state.hpp"
 #include "oa/core/map_plot.h"
 #include "engine_settings_state.hpp"
 #include "oa/sim/feature_runtime.hpp"
@@ -865,15 +864,16 @@ void Runtime::pan_match_camera() {
     // A --frame-rate run's held scroll is an arrow key.
     if (frame_run_clock_ns_)
         dx += frame_run_scroll_;
-    // Only the arrow keys scroll, as in 3.1c: the letter keys stay the
-    // game's own commands (A attack, S stop and so on).
-    if (device_state::key_held(SDL_SCANCODE_LEFT))
+    // Only the pan actions scroll, as in 3.1c: the letter keys stay the
+    // game's own commands (A attack, S stop and so on). A modifier never
+    // stops an arrow that is held.
+    if (action_key_held("camera.pan-left"))
         --dx;
-    if (device_state::key_held(SDL_SCANCODE_RIGHT))
+    if (action_key_held("camera.pan-right"))
         ++dx;
-    if (device_state::key_held(SDL_SCANCODE_UP))
+    if (action_key_held("camera.pan-up"))
         --dz;
-    if (device_state::key_held(SDL_SCANCODE_DOWN))
+    if (action_key_held("camera.pan-down"))
         ++dz;
     // The pointer on the screen's outermost pixels scrolls toward that edge,
     // and in a corner both ways, whatever panel lies under it, as in 3.1c: in

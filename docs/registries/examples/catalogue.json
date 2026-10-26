@@ -193,6 +193,49 @@
           "default": true
         }
       ]
+    },
+    {
+      "kind": "oakeys",
+      "id": "grid-left-hand",
+      "name": "Grid, left hand",
+      "version": "1.0",
+      "release": 1,
+      "size": 2400,
+      "sha256": "1212121212121212121212121212121212121212121212121212121212121212",
+      "file": "/v1/p/1212121212121212121212121212121212121212121212121212121212121212.oakeys",
+      "author": "OA team",
+      "summary": "Orders on the left hand.",
+      "tags": [
+        "grid",
+        "left-hand"
+      ],
+      "badge": "/v1/i/1313131313131313131313131313131313131313131313131313131313131313.png",
+      "works_with": [
+        "ta-3.1c",
+        "ridge >= 28"
+      ],
+      "base": "oa-default",
+      "keyboard": "any",
+      "pointer": "right-click",
+      "helpers": [
+        "toggle",
+        "sticky-modifiers"
+      ],
+      "changes": 11,
+      "triggers": [
+        "@KeyQ",
+        "@KeyW",
+        "@KeyE",
+        "@KeyR",
+        "@KeyS",
+        "@KeyG",
+        "@KeyZ",
+        "@KeyX",
+        "@KeyC",
+        "@KeyV",
+        "@KeyB"
+      ],
+      "preview": "/v1/i/1414141414141414141414141414141414141414141414141414141414141414.png"
     }
   ]
 }

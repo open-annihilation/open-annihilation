@@ -305,6 +305,7 @@ void Runtime::teardown_match() {
     unit_info_panel_.reset();
     stop_match_tracking();
     match_hud_.reset();
+    match_hud_art_.reset();
     // A GAF this match could not read is tried again in the next match.
     missing_gaf_paths_.clear();
     match_tick_blocked_ = false;

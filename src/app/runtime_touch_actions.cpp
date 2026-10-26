@@ -38,9 +38,6 @@ namespace input = oa::sim::gameplay_input;
 constexpr uint64_t kNanosecondsPerMillisecond = 1'000'000;
 /// How long a tip bubble shows, milliseconds.
 constexpr uint64_t kTipMilliseconds = 2500;
-/// The clock units a press must be older than for its release to read as a box rather than a
-/// click (the engine's own box test, match_drag_is_click).
-constexpr uint32_t kDragClickWindow = 0x19;
 /// The rings of the battlefield tap's nearest-unit probe, as fractions of unit_pick_points
 /// (4, 8 and 12 points).
 constexpr float kUnitProbeRings[] = {1.0F / 3.0F, 2.0F / 3.0F, 1.0F};
@@ -173,8 +170,12 @@ void TouchDispatchAccess::battlefield_gestures(
             break;
         case gestures::GestureKind::hold_started:
             // While placing, a hold places the building: at the ghost
-            // when the finger is on it, else where the finger is.
-            if (dispatch.placement_touch) {
+            // when the finger is on it, else where the finger is; on the
+            // open megamap where the finger is, as a tap there does.
+            if (runtime.megamap_shown() && runtime.match_command_ == MatchCommand::build) {
+                dispatch.hold_placed = true;
+                send_click(runtime, gesture.x, gesture.y, 1);
+            } else if (dispatch.placement_touch) {
                 dispatch.hold_placed = true;
                 place_at(runtime, gesture.x, gesture.y);
             } else {
@@ -278,20 +279,33 @@ void TouchDispatchAccess::battlefield_tap(Runtime& runtime, float x, float y, ui
     auto& state = runtime.touch_state();
     if (runtime.screen_ != Screen::match || !runtime.match_)
         return;
-    // While placing, a tap moves the ghost and gives no order; a double
-    // tap places the building where it was tapped.
-    if (state.dispatch.placement_touch) {
+    // On the open megamap a tap is the mouse's click there, at the finger,
+    // which the megamap takes as it takes the mouse's (megamap_pointer), and
+    // nothing reaches the battlefield under it. A building armed is placed
+    // where it is tapped, as a click there places it; the second tap of that
+    // double tap gives nothing more.
+    const bool megamap = runtime.megamap_shown();
+    if (megamap) {
+        const bool placed = std::exchange(state.dispatch.megamap_placed, false);
+        if (taps >= 2 && placed)
+            return;
+        state.dispatch.megamap_placed = runtime.match_command_ == MatchCommand::build;
+    } else if (state.dispatch.placement_touch) {
+        // While placing, a tap moves the ghost and gives no order; a double
+        // tap places the building where it was tapped.
         if (taps >= 2)
             place_at(runtime, x, y);
         else
             move_ghost(runtime, x, y);
         return;
     }
-    const auto point = fat_finger_point(runtime, x, y);
+    const auto point = megamap ? std::array<float, 2>{x, y} : fat_finger_point(runtime, x, y);
     runtime.refresh_pointer_modifiers();
     // What the tap does decides which latch it used: a select cursor is a
     // selection, anything else an order.
-    const auto cursor = static_cast<input::OrderCursor>(runtime.pick_match_cursor());
+    const auto cursor = static_cast<input::OrderCursor>(
+        megamap ? runtime.megamap_cursor_at(x, y) : runtime.pick_match_cursor()
+    );
     const auto action_class =
         cursor == input::OrderCursor::select && runtime.match_command_ == MatchCommand::none
             ? hud::ActionClass::selection
@@ -300,10 +314,17 @@ void TouchDispatchAccess::battlefield_tap(Runtime& runtime, float x, float y, ui
     // press; its left click only selects or gives an armed order.
     const bool right_click_interface = runtime.match_->state().game.interface_type != 0;
     if (right_click_interface && runtime.match_command_ == MatchCommand::none &&
-        cursor != input::OrderCursor::select)
-        runtime.handle_match_right_press(point[0], point[1]);
-    else
+        cursor != input::OrderCursor::select) {
+        if (megamap) {
+            send_mouse(runtime, SDL_EVENT_MOUSE_MOTION, x, y, 0);
+            send_mouse(runtime, SDL_EVENT_MOUSE_BUTTON_DOWN, x, y, 1, SDL_BUTTON_RIGHT);
+            send_mouse(runtime, SDL_EVENT_MOUSE_BUTTON_UP, x, y, 1, SDL_BUTTON_RIGHT);
+        } else {
+            runtime.handle_match_right_press(point[0], point[1]);
+        }
+    } else {
         send_click(runtime, point[0], point[1], taps == 0 ? 1 : taps);
+    }
     auto& look = runtime.touch_state().hud;
     look.latches.used(action_class, look.latch_mode);
     runtime.refresh_pointer_modifiers();
@@ -313,6 +334,15 @@ void TouchDispatchAccess::drag_began(Runtime& runtime, const gestures::Gesture& 
     auto& dispatch = runtime.touch_state().dispatch;
     if (runtime.screen_ != Screen::match || !runtime.match_)
         return;
+    // On the open megamap a drag is its box, as the mouse's left drag there:
+    // the battlefield under it neither scrolls nor takes a box.
+    if (runtime.megamap_shown()) {
+        dispatch.megamap_drag = true;
+        send_mouse(runtime, SDL_EVENT_MOUSE_MOTION, gesture.start_x, gesture.start_y, 0);
+        send_mouse(runtime, SDL_EVENT_MOUSE_BUTTON_DOWN, gesture.start_x, gesture.start_y, 1);
+        send_mouse(runtime, SDL_EVENT_MOUSE_MOTION, gesture.x, gesture.y, 0);
+        return;
+    }
     if (dispatch.placement_touch) {
         dispatch.ghost_drag = true;
         move_ghost(runtime, gesture.x, gesture.y);
@@ -338,12 +368,14 @@ void TouchDispatchAccess::drag_began(Runtime& runtime, const gestures::Gesture& 
         return;
     // The recogniser already saw a drag, so the release reads as a box
     // however short or quick; an order that takes an area (the engine
-    // starts no box with one armed) gets its box here.
+    // starts no box with one armed) gets its box here, unless the press was
+    // the unit info panel's.
     const uint32_t tick = runtime.frontend_tick();
-    const uint32_t pressed = tick >= kDragClickWindow ? tick - kDragClickWindow : 0;
+    const uint32_t window = runtime.drag_click_ticks();
+    const uint32_t pressed = tick >= window ? tick - window : 0;
     if (runtime.match_drag_)
         runtime.match_drag_->pressed_tick = pressed;
-    else if (area_command(runtime.match_command_))
+    else if (area_command(runtime.match_command_) && runtime.unit_info_pressed_button_ == 0)
         if (const auto ground = runtime.match_pointer_ground(gesture.start_x, gesture.start_y))
             runtime.match_drag_ = Runtime::MatchDragBox{*ground, *ground, pressed};
     send_mouse(runtime, SDL_EVENT_MOUSE_MOTION, gesture.x, gesture.y, 0);
@@ -351,7 +383,9 @@ void TouchDispatchAccess::drag_began(Runtime& runtime, const gestures::Gesture& 
 
 void TouchDispatchAccess::drag_moved(Runtime& runtime, const gestures::Gesture& gesture) {
     auto& dispatch = runtime.touch_state().dispatch;
-    if (dispatch.ghost_drag) {
+    if (dispatch.megamap_drag) {
+        send_mouse(runtime, SDL_EVENT_MOUSE_MOTION, gesture.x, gesture.y, 0);
+    } else if (dispatch.ghost_drag) {
         move_ghost(runtime, gesture.x, gesture.y);
     } else if (dispatch.scroll_active) {
         scroll_to(runtime, gesture.x, gesture.y);
@@ -364,7 +398,14 @@ void TouchDispatchAccess::drag_moved(Runtime& runtime, const gestures::Gesture& 
 
 void TouchDispatchAccess::drag_ended(Runtime& runtime, const gestures::Gesture& gesture) {
     auto& dispatch = runtime.touch_state().dispatch;
-    if (dispatch.ghost_drag) {
+    if (dispatch.megamap_drag) {
+        dispatch.megamap_drag = false;
+        send_mouse(runtime, SDL_EVENT_MOUSE_MOTION, gesture.x, gesture.y, 0);
+        send_mouse(runtime, SDL_EVENT_MOUSE_BUTTON_UP, gesture.x, gesture.y, 1);
+        auto& look = runtime.touch_state().hud;
+        look.latches.used(hud::ActionClass::selection, look.latch_mode);
+        runtime.refresh_pointer_modifiers();
+    } else if (dispatch.ghost_drag) {
         move_ghost(runtime, gesture.x, gesture.y);
         dispatch.ghost_drag = false;
     } else if (dispatch.scroll_active) {
@@ -386,15 +427,17 @@ void TouchDispatchAccess::drag_ended(Runtime& runtime, const gestures::Gesture& 
 
 void TouchDispatchAccess::cancel_drags(Runtime& runtime) {
     auto& dispatch = runtime.touch_state().dispatch;
-    if (dispatch.box_active) {
+    if (dispatch.box_active || dispatch.megamap_drag) {
         // The box is dropped with no release: nothing is selected or
         // ordered, and the left button is up again.
         runtime.match_drag_.reset();
+        runtime.megamap_.pressed = false;
         if (runtime.match_)
             runtime.match_->state().game.pointer_state[2] &= ~input::pointer_key_left;
         runtime.selected_ = -1;
     }
     dispatch.box_active = false;
+    dispatch.megamap_drag = false;
     dispatch.scroll_active = false;
     dispatch.ghost_drag = false;
     dispatch.auto_scrolling = false;
@@ -543,6 +586,12 @@ void TouchDispatchAccess::hold_force(Runtime& runtime, bool held) {
 void TouchDispatchAccess::open_radial(Runtime& runtime, float x, float y) {
     if (runtime.screen_ != Screen::match || !runtime.match_)
         return;
+    // On the open megamap the wheel is for the icon and the ground under the
+    // finger. While a panel holds the match the megamap takes no left press,
+    // and no wheel opens over it.
+    const bool megamap = runtime.megamap_shown();
+    if (megamap && runtime.match_paused_)
+        return;
     auto& state = runtime.touch_state();
     runtime.update_pointer(x, y);
     hud::RadialAvailability availability{};
@@ -551,7 +600,7 @@ void TouchDispatchAccess::open_radial(Runtime& runtime, float x, float y) {
         availability.orders[index] =
             selected &&
             runtime.order_command_available(hud::order_name(static_cast<hud::Order>(index)));
-    const uint16_t unit = runtime.hovered_match_unit_;
+    const uint16_t unit = megamap ? runtime.megamap_unit_at(x, y) : runtime.hovered_match_unit_;
     const auto& slots = runtime.match_->world().slots;
     const bool own = unit != 0 && unit < slots.size() && slots[unit].unit != nullptr &&
                      slots[unit].owner_index == runtime.match_local_player_;
@@ -559,7 +608,10 @@ void TouchDispatchAccess::open_radial(Runtime& runtime, float x, float y) {
     availability.type = own;
     availability.blast_slot_shows_blast = selected && runtime.order_command_available("BLAST");
     availability.default_item = radial_default(
-        runtime.match_command_, static_cast<input::OrderCursor>(runtime.pick_match_cursor())
+        runtime.match_command_,
+        static_cast<input::OrderCursor>(
+            megamap ? runtime.megamap_cursor_at(x, y) : runtime.pick_match_cursor()
+        )
     );
     auto radial = hud::make_radial(
         {static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y))},
@@ -604,7 +656,11 @@ void TouchDispatchAccess::radial_pick(Runtime& runtime, hud::RadialItem item) {
             dispatch.pulse = static_cast<SDL_Keymod>(dispatch.pulse | SDL_KMOD_LSHIFT);
         runtime.refresh_pointer_modifiers();
         try {
-            runtime.handle_match_left_click(x, y, 1);
+            // On the open megamap the order is the megamap's click there.
+            if (runtime.megamap_shown())
+                runtime.megamap_click(runtime.megamap_unit_at(x, y), runtime.megamap_ground(x, y));
+            else
+                runtime.handle_match_left_click(x, y, 1);
         } catch (...) {
             runtime.touch_state().dispatch.pulse = before;
             throw;
@@ -616,6 +672,19 @@ void TouchDispatchAccess::radial_pick(Runtime& runtime, hud::RadialItem item) {
         return;
     }
     if (item == hud::RadialItem::info) {
+        // On the open megamap the unit is the one whose icon was under the
+        // finger, named to the panel as a unit off the screen is.
+        if (runtime.megamap_shown()) {
+            if (radial.target_unit == 0) {
+                show_unit_info(runtime);
+                return;
+            }
+            runtime.hovered_.reset();
+            runtime.hovered_match_unit_ = radial.target_unit;
+            runtime.match_->state().game.cursor_unit_id = radial.target_unit;
+            std::ignore = runtime.open_unit_info();
+            return;
+        }
         runtime.update_pointer(x, y);
         if (runtime.hovered_match_unit_ == 0)
             show_unit_info(runtime);
@@ -628,7 +697,19 @@ void TouchDispatchAccess::radial_pick(Runtime& runtime, hud::RadialItem item) {
         const auto latches = runtime.touch_state().hud.latches;
         runtime.touch_state().hud.latches.clear();
         runtime.refresh_pointer_modifiers();
-        runtime.select_match_unit(x, y, 2);
+        // On the open megamap, every unit of the type of the one whose icon
+        // was under the finger, as the megamap's double click selects them.
+        if (runtime.megamap_shown()) {
+            const auto& slots = runtime.match_->world().slots;
+            if (radial.target_unit < slots.size() && slots[radial.target_unit].unit != nullptr) {
+                const auto type = slots[radial.target_unit].unit->type_index;
+                runtime.select_units_matching([type](const oa::sim::unit_spawn::Slot& slot) {
+                    return slot.unit && slot.unit->type_index == type;
+                });
+            }
+        } else {
+            runtime.select_match_unit(x, y, 2);
+        }
         runtime.touch_state().hud.latches = latches;
         runtime.refresh_pointer_modifiers();
     }

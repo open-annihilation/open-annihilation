@@ -220,7 +220,7 @@ void Runtime::check_side_data_per_match() {
         fail("the run lists fewer than two sides");
 
     const auto commander_of = [](const oa::data::defs::SideTable& table, uint32_t side_index) {
-        const auto& name = table.sides[side_index].commander;
+        const auto& name = oa::data::defs::side_at(table, side_index)->commander;
         return field_text(name, sizeof name);
     };
     std::vector<std::string> run_commanders;

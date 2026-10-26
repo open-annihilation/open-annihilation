@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -545,8 +546,13 @@ struct Options {
     // Drives every key, click and wheel the match answers and compares what
     // each did with the named table; empty for no check.
     std::string check_key_table;
+    // Checks slow keys, bounce keys, the double-press time, the player's
+    // repeat and the drag threshold on one skirmish.
+    bool check_key_timing = false;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
+    // Latches Shift and Space from a scratch layout, then sticky Ctrl and Alt.
+    bool check_key_latches = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.
@@ -856,6 +862,10 @@ struct Options {
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;
+    // What the progress dialog says while this run applies a switch of the
+    // mod made in the Library, in the language shown, such as "Switching on
+    // Ridge…"; empty says "Applying your changes".
+    std::string restart_line;
     // Forces each renderer failure the game handles while it runs, on the
     // renderer the start made, and checks that it goes on presenting: the
     // walk of the render drivers, a present error on a menu, match or

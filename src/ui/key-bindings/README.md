@@ -83,15 +83,34 @@ dispatcher times a double press and a hold from that time.
   role gives `active` and `inactive` as its own key goes down and up.
   `release_all` releases every held action and role. `role_active` reads
   the modifiers and the keys the caller reports now, not the events `feed`
-  saw. The caller passes the time.
+  saw. The caller passes the time. `set_timings` holds each time to its
+  range. Slow keys hold a key down back until `advance` has seen it held
+  for `slow_keys_ms`; it fires once then, at most a frame after it was due,
+  and a release before that drops it. Bounce keys drop a second press of
+  the same key within `bounce_keys_ms` of its last accepted release, and
+  that press's release. Mouse buttons, the wheel and keys typed into a
+  field are never held back. With a repeat delay and a rate both set, the
+  platform's repeats are ignored and a `repeat` action fires from `advance`.
+  A latch or a sticky modifier applies only to an event the bindings accept,
+  including a key `advance` admits late.
+- `Latches` keeps a latchable action named in `set_toggle`. A tap turns it
+  on and a second tap turns it off. A press held for `long_press_ms`, or
+  used while it is held, is a plain hold and leaves the latch as it was.
+  `StickyModifiers`, on while `set_sticky_modifiers` is set, takes a
+  modifier tapped with no other key or button between: the first tap arms
+  it for the next chord or click, a second tap within `double_press_ms`
+  locks it, and a tap while it is locked lets it go. `consume_sticky` lets
+  an armed modifier go and keeps a locked one. `release_all` clears the
+  latches and the sticky modifiers, which is what losing the window does.
+  `shown` is the order they were turned on. A repeat does not toggle a latch.
 
 ## State
 
 A chord, a map and an event are values the caller keeps. The position
 table and the named keys are fixed. A `Dispatcher` keeps the bindings, the
 keyboard map, the open contexts, the keys and buttons that are down, the
-actions each down started, the hold timers and the modifier roles that are
-active.
+actions each down started, the hold timers, the modifier roles that are
+active, the latches and the sticky modifiers.
 
 ## Invariants
 
@@ -108,8 +127,12 @@ active.
   keycaps and the gesture after a space.
 - Resolution reads its input and the registry, and does not read a clock.
   The number-key swap is applied to the result only: the layout and the
-  player's own changes are left as they were given. An action keeps at most
-  four chords. Escape stays on `chat.cancel` whatever a step said. Every
+  player's own changes are left as they were given. It exchanges
+  `group.select-n` with `build.page-n` and flips Alt on `group.add-n`. A
+  chord that flip lands on is dropped, lost to the swap. A page that kept an
+  Alt chord also keeps it with Shift, so Alt+Shift+1 stays that page. An
+  action keeps at
+  most four chords. Escape stays on `chat.cancel` whatever a step said. Every
   other action, `ui.settings` included, takes the chords the steps give it.
 - `layout_from_manifest` reports a bad chord at the chord, not at the list.
   It keeps an unknown action and its chords. It does not change the layout
@@ -157,6 +180,28 @@ not repeat; the status strip's press and release around a Shift; a
 double-click selecting the type; a hold that fires once after 500 ms; a
 key-up never seen down; `release_all`; and the queue role following Shift
 whether or not a Shift event was fed.
+
+`ui-key-bindings-latches` (`tests/latches_test.cpp`) walks the same kind of
+timeline for the hold helpers: a tap latches and a second tap lets go; a
+hold past the long-press time stays off; a hold used by a click does not
+latch; an action left out of `toggle`, and one that is not latchable, never
+latches; a sticky tap arms the next chord and then lets go; two taps within
+the double-press time lock until a third; a tap with another key between,
+and a modifier held during a click, stay plain; `release_all` empties both;
+and `shown` keeps the order turned on.
+
+`ui-key-bindings-timing` (`tests/timing_test.cpp`) walks synthetic
+timelines: a slow-key tap of 100 ms fires nothing and a hold fires once at
+300 ms; a bounce at 200 ms is dropped and one at 400 ms is kept, including
+when the dropped press's release sat in between, while another key is kept;
+two presses 550 ms apart match `:double` at 600 ms and two 650 ms apart do
+not; a `:hold` fires at 800 ms and not at 700; a repeating key held 1,000 ms
+at a 200 ms delay and 10 a second fires nine `repeated` events and the
+platform's repeats do not add one; a press action never repeats; with the
+system's repeat the platform's repeats pass through; a mouse button and the
+wheel are not held back; typed text is not held back; `drag_click_ticks(32)`
+is 0x19 and `drag_click_ticks(96)` is 75; `clamped` holds every limit and
+keeps a zero that means the system's own time.
 
 `ui-key-bindings-sdl` (`tests/sdl_numbers_test.cpp`) links SDL and checks the
 numbers the library holds: every scancode SDL names is in the position table

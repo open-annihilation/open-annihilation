@@ -135,9 +135,14 @@ class WeaponTickHost final : public sim::weapon_execution::Host {
         weapon_slot.aim_ready = 0;
         const std::array<int32_t, 2> args{heading, pitch};
         if (auto* cob = script())
-            cob->call(aim_script_names[index], args, false, [&weapon_slot](int32_t result) {
-                sim::weapon_execution::record_aim_result(weapon_slot, result);
-            });
+            cob->call(
+                sim::unit_script::weapon_aim_function(index),
+                args,
+                false,
+                [&weapon_slot](int32_t result) {
+                    sim::weapon_execution::record_aim_result(weapon_slot, result);
+                }
+            );
         match.share_named_script_start(
             source.unit_index,
             aim_script_names[index],
@@ -383,11 +388,11 @@ void Match::run_fire_scripts(
 ) {
     auto* unit = instance(source.unit_index);
     if (auto* cob = unit != nullptr ? unit->script() : nullptr) {
-        cob->call_no_arguments(fire_script_names[slot], false);
+        cob->call_no_arguments(sim::unit_script::weapon_fire_function(slot), false);
         const auto rock = sim::weapon_execution::rock_unit_arguments(
             source.record, std::bit_cast<uint16_t>(heading)
         );
-        cob->call("RockUnit", rock, false);
+        cob->call(ScriptFunction::rock_unit, rock, false);
     }
     const auto* definition = weapons_[source.unit_index].definitions[slot];
     if (definition != nullptr &&

@@ -191,7 +191,7 @@ void Runtime::check_skirmish_sides() {
             side >= 0 && static_cast<uint32_t>(side) < side_table_.count,
             "side " + std::to_string(side) + " is past SIDEDATA"
         );
-        return side_name_of(side_table_.sides[side]);
+        return side_name_of(*oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side)));
     };
     const auto check_face = [&](int32_t side, bool tally) {
         const std::string key("Side0");

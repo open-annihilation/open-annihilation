@@ -2,12 +2,16 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Installed key layouts, read from each folder's manifest. Settings, the
-// editor and the Library share this list. It never opens a package zip.
+// editor and the Library share this list. Listing never opens a package
+// zip. The packer writes one, the same bytes for the same files.
 #pragma once
 
 #include "oa/formats/oakeys/manifest.hpp"
 
+#include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -27,11 +31,44 @@ enum class Origin {
 /// One installed layout, as its folder's manifest and origin record state it.
 ///
 /// A missing or unreadable origin record is not a problem: the folder may
-/// have been made by hand, and `origin` is then `file`.
+/// have been made by hand, and `origin` is then `file`. The catalogue facts
+/// are empty, or 0, for a file, an own layout or a record that does not
+/// read. A file origin keeps the package's SHA-256 only.
 struct Installed {
     oa::formats::oakeys::Manifest manifest{}; ///< its oakeys.yaml
     std::filesystem::path folder{};           ///< the folder
     Origin origin{Origin::file};              ///< where it came from
+    std::string package_sha256{};             ///< the package file's SHA-256, or empty
+    std::string registry{};                   ///< a catalogue origin's registry; empty otherwise
+    std::string catalogue_id{};               ///< a catalogue origin's package key; empty otherwise
+    int64_t release{};                        ///< a catalogue origin's release; 0 otherwise
+};
+
+/// What one name in a key-layout package is.
+enum class FileRole {
+    manifest, ///< oakeys.yaml, matched without ASCII case
+    icon,     ///< the PNG the manifest names, matched exactly
+    note,     ///< a top-level name ending in .md or .txt, as written
+    outside,  ///< any other file, including one in a folder
+};
+
+/// Tells what a name in a key-layout package is.
+///
+/// `oakeys.yaml` is the manifest, without ASCII case. The icon is the name
+/// `icon` states, matched exactly, and only when `icon` is not empty. A
+/// top-level name ending in `.md` or `.txt`, as written, is a note. A name
+/// that holds a slash, and any other name, is outside. A directory is the
+/// caller's to skip: a name ending in '/' is outside.
+///
+/// @param name the name as written, '/' between folders
+/// @param icon the manifest's icon; empty when it names none
+/// @return the role
+[[nodiscard]] FileRole file_role(std::string_view name, std::string_view icon) noexcept;
+
+/// One file a key-layout package holds.
+struct PackageFile {
+    std::string name{};           ///< its name as written, '/' between folders
+    std::vector<uint8_t> bytes{}; ///< its bytes
 };
 
 /// What a Keys folder holds, and the folders that could not be listed.
@@ -86,6 +123,48 @@ struct Listing {
     std::string_view base_id,
     const oa::formats::oakeys::Manifest& manifest,
     std::string& error
+);
+
+/// Reads the files a key-layout package may hold from one folder.
+///
+/// The folder's `oakeys.yaml` is read with the manifest reader. A manifest
+/// that does not read is a problem. The result holds that manifest, the PNG
+/// it names and the top-level notes. A name that starts with '.' is the
+/// install record, or a file the system leaves, and is skipped. Any other
+/// file, and any subdirectory, is a problem. A symbolic link is not followed.
+/// A named icon that is not in the folder is a problem.
+///
+/// @param folder the folder
+/// @param[out] problem why the folder cannot be packed; unchanged on success
+/// @return the files; nothing when the folder cannot be packed
+[[nodiscard]] std::optional<std::vector<PackageFile>>
+read_folder(const std::filesystem::path& folder, std::string* problem);
+
+/// Writes a key-layout package's bytes.
+///
+/// `oakeys.yaml` is parsed to learn the icon. A name `file_role` refuses is
+/// a problem, and so is a manifest that does not read. `oakeys.yaml` is
+/// written first and the rest follow in byte order of name. A name ending
+/// in `.png`, exactly, is stored. Every other file is deflated. The same
+/// files give the same bytes: the writer records no clock time.
+///
+/// @param files the files
+/// @param[out] problem why the package was not written; unchanged on success
+/// @return the archive; nothing when a name or the manifest is refused
+[[nodiscard]] std::optional<std::vector<uint8_t>>
+package_bytes(std::span<const PackageFile> files, std::string* problem);
+
+/// Writes a key-layout package, whole or not at all.
+///
+/// The bytes go to `<out>.part`, which is then renamed over `out`. A crash
+/// mid-write leaves the previous file whole.
+///
+/// @param out the package file
+/// @param bytes the archive
+/// @param[out] problem why the write failed; unchanged on success
+/// @return true when `out` holds the bytes
+[[nodiscard]] bool write_package(
+    const std::filesystem::path& out, std::span<const uint8_t> bytes, std::string* problem
 );
 
 } // namespace oa::data::key_library
