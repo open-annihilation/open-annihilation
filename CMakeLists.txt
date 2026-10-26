@@ -4755,6 +4755,13 @@ if(BUILD_TESTING)
     PASS_REGULAR_EXPRESSION
       "^Open Annihilation [0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)? \\([a-z0-9._-]+ [A-Za-z0-9_]+, ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)\\)\n?$"
     TIMEOUT 60)
+  # A command's own --version (engine-feed write, mutator import) reaches the
+  # command: only a first --version prints the version line.
+  add_test(NAME tools-oa-tool-command-version COMMAND oa-tool engine-feed write --version 0.8.7)
+  set_tests_properties(tools-oa-tool-command-version PROPERTIES
+    PASS_REGULAR_EXPRESSION "engine-feed write: option '--date' needs a value"
+    FAIL_REGULAR_EXPRESSION "Open Annihilation [0-9]"
+    TIMEOUT 60)
 endif()
 # The update helper. Its library and tests are built with the platform.
 # The program itself is built only where this build may start another program
