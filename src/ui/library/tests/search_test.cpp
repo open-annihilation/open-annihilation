@@ -314,6 +314,64 @@ void test_brain_search() {
     OA_CHECK(found(library, "").front() == "@built-in@");
 }
 
+/// A key-layout listing with one tag.
+///
+/// @param key the key
+/// @param name the name
+/// @param tag the tag id
+/// @param author the author
+/// @return the listing
+lib::Listing layout_listing(
+    std::string_view key, std::string_view name, std::string_view tag, std::string_view author
+) {
+    lib::Listing made = mod(core, key, name);
+    made.kind = Kind::key_layout;
+    made.author = std::string(author);
+    lib::KeyLayoutFacts facts;
+    if (!tag.empty())
+        facts.tags = {std::string(tag)};
+    made.keys = std::move(facts);
+    return made;
+}
+
+/// A lookup that translates Built in.
+///
+/// @param english the English pattern
+/// @return the translation, or the pattern
+std::string_view keys_words_in_german(void*, std::string_view english) {
+    if (english == lib::words::registry_built_in)
+        return "Integriert";
+    return english;
+}
+
+/// Keys holds only layouts. A name, an author and a tag find one, and
+/// "default" and "built in" find OA default, including under a translation.
+void test_key_search() {
+    lib::Library library;
+    lib::refresh(
+        library,
+        inputs_with({
+            layout_listing("grid-test", "Grid Test", "grid", "Ada"),
+            layout_listing("lefty-test", "Lefty Test", "left-hand", "Bo"),
+        })
+    );
+    lib::set_tab(library, lib::Tab::keys);
+    OA_CHECK(found(library, "").size() == 3);
+    for (const std::size_t index : library.visible)
+        OA_CHECK(library.entries[index].id.kind == Kind::key_layout);
+    OA_CHECK(found(library, "default") == Keys({"@oa-default@"}));
+    OA_CHECK(found(library, "built in") == Keys({"@oa-default@"}));
+    OA_CHECK(found(library, "built") == Keys({"@oa-default@"}));
+    OA_CHECK(found(library, "in") == Keys({"@oa-default@"}));
+    OA_CHECK(found(library, "grid") == Keys({"grid-test@fixture-core"}));
+    OA_CHECK(found(library, "ada") == Keys({"grid-test@fixture-core"}));
+    OA_CHECK(found(library, "lefty") == Keys({"lefty-test@fixture-core"}));
+    OA_CHECK(lib::key_tag_label("grid") == "Grid");
+    library.text.shown = keys_words_in_german;
+    OA_CHECK(found(library, "integriert") == Keys({"@oa-default@"}));
+    OA_CHECK(found(library, "").front() == "@oa-default@");
+}
+
 void test_installed_names() {
     lib::Inputs inputs = inputs_with({});
     lib::Installed own;
@@ -335,6 +393,7 @@ int main() {
     test_tag_prefix();
     test_translated_tag();
     test_brain_search();
+    test_key_search();
     test_query_cap();
     test_ties();
     test_installed_names();

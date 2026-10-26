@@ -31,6 +31,7 @@
 #include "oa/ui/library/mod_questions.hpp"
 #include "oa/ui/library/screen.hpp"
 #include "oa/ui/library/text.hpp"
+#include "oa/ui/library/use_question.hpp"
 #include "screen_fixture.hpp"
 
 #include <algorithm>
@@ -479,6 +480,10 @@ std::string_view word_of(lib::Action action) {
         return "use-by-default";
     case lib::Action::get_with:
         return "get-with";
+    case lib::Action::use_layout:
+        return "use";
+    case lib::Action::edit_keys:
+        return "edit-keys";
     default:
         return "other";
     }
@@ -4236,7 +4241,7 @@ void tabs_scroll_and_the_queue_shows_its_bar() {
     library = with_ridge();
     lib::ScreenState commands;
     kit::DisplayList shown = laid_out(library, commands, narrow);
-    for (int32_t step = 0; library.tab != lib::Tab::registries && step < 8; ++step)
+    for (int32_t step = 0; library.tab != lib::Tab::registries && step < 9; ++step)
         lib::library_command(library, commands, shown, lib::ScreenCommand::next_tab);
     shown = laid_out(library, commands, narrow);
     OA_CHECK(library.tab == lib::Tab::registries);
@@ -5520,10 +5525,143 @@ void brains_tab_holds_its_invariants() {
     OA_EXPECT_NONE(fixture::texts_not_fitting(narrow_list, fonts()), "narrow brains");
 }
 
+/// A Library of two made-up layouts. Grid is in use and changes Q and W.
+/// Lefty is installed and asks for sticky modifiers. Ridge is being played.
+///
+/// @return the Library, on Keys, with Grid selected and its details open
+lib::Library keys_library() {
+    lib::Inputs inputs;
+    lib::Registry registry;
+    registry.id = std::string(fixture::core);
+    registry.name = "Fixture Core";
+    registry.built_in = true;
+    inputs.registries.push_back(std::move(registry));
+    inputs.engine = {0, 8, 0};
+    inputs.version_text = "v0.8.0";
+    inputs.played = {"ridge", "28", "Ridge"};
+    inputs.keys_layout = "grid";
+
+    lib::KeyLayoutFacts grid_facts;
+    grid_facts.tags = {"grid"};
+    grid_facts.keyboard = "ansi";
+    grid_facts.pointer = "right-click";
+    grid_facts.changes = 2;
+    grid_facts.own_changes = 2;
+    grid_facts.triggers = {"Q", "@KeyW", "MouseLeft", "Nope", "Ctrl"};
+    grid_facts.works_with.push_back({"ridge", {}, "Ridge"});
+    lib::Listing grid = fixture::listing(
+        fixture::core, lib::Kind::key_layout, "grid", "Grid", "1.0", 1024, "A grid.", {"grid"}
+    );
+    grid.keys = grid_facts;
+    lib::Installed grid_held = fixture::installed(grid, "1.0", 1);
+    grid_held.keys = grid_facts;
+    inputs.listings.push_back(std::move(grid));
+    inputs.installed.push_back(std::move(grid_held));
+
+    lib::KeyLayoutFacts lefty_facts;
+    lefty_facts.tags = {"left-hand"};
+    lefty_facts.helpers = {"sticky-modifiers"};
+    lib::Listing lefty = fixture::listing(
+        fixture::core,
+        lib::Kind::key_layout,
+        "lefty",
+        "Lefty",
+        "1.0",
+        1024,
+        "A left hand.",
+        {"left-hand"}
+    );
+    lefty.keys = lefty_facts;
+    lib::Installed lefty_held = fixture::installed(lefty, "1.0", 1);
+    lefty_held.keys = lefty_facts;
+    inputs.listings.push_back(std::move(lefty));
+    inputs.installed.push_back(std::move(lefty_held));
+
+    lib::Library library;
+    lib::refresh(library, std::move(inputs));
+    lib::set_tab(library, lib::Tab::keys);
+    lib::select(library, {std::string(fixture::core), lib::Kind::key_layout, "grid"});
+    lib::open_details(library);
+    return library;
+}
+
+/// The Keys tab names its rows, its actions, the keyboard picture and the
+/// use question. Compact shows the picture on the details page. Regular and
+/// Large show it in the details. The Active tile names the layout in use.
+void keys_tab_names_its_controls() {
+    lib::Library library = keys_library();
+    const lib::Entry* grid = lib::selected_entry(library);
+    OA_CHECK(grid != nullptr);
+    if (grid == nullptr)
+        return;
+    const std::vector<lib::ActionButton> actions = lib::entry_actions(library, *grid);
+    OA_CHECK(!actions.empty() && actions.front().action == lib::Action::edit_keys);
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const bool compact = named.frame.size_class == kit::SizeClass::compact;
+        lib::ScreenState state;
+        state.details_page = compact;
+        const kit::DisplayList list = laid_out(library, state, named.frame);
+        const kit::Point window = lib::window_size(named.frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " keys");
+        OA_EXPECT_NONE(meeting_controls(list), named.name + " keys");
+        OA_EXPECT_NONE(name_problems(list), named.name + " keys");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " keys");
+        OA_CHECK(fixture::named(list, "library.row.oa-default") != nullptr);
+        OA_CHECK(fixture::named(list, "library.row.fixture-core.grid") != nullptr);
+        OA_CHECK(fixture::named(list, "library.action.edit-keys") != nullptr);
+        const kit::Control* picture = fixture::named(list, "library.keys.picture");
+        OA_CHECK(picture != nullptr && picture->text == "KeyQ KeyW");
+        const kit::Control* tab = fixture::named(list, "library.tab.keys");
+        OA_CHECK(tab != nullptr && tab->text.starts_with("Keys ("));
+    }
+
+    const lib::Entry* lefty = nullptr;
+    for (const lib::Entry& entry : library.entries) {
+        if (entry.id.key == "lefty")
+            lefty = &entry;
+    }
+    OA_CHECK(lefty != nullptr);
+    if (lefty != nullptr)
+        lib::open_key_use(library, *lefty);
+    OA_CHECK(library.key_use.show_own && library.key_use.show_scope);
+    OA_CHECK(!library.key_use.helpers.empty());
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        lib::ScreenState state;
+        state.details_page = named.frame.size_class == kit::SizeClass::compact;
+        const kit::DisplayList list = laid_out(library, state, named.frame);
+        const kit::Point window = lib::window_size(named.frame);
+        OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " keys use");
+        OA_EXPECT_NONE(name_problems(list), named.name + " keys use");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " keys use");
+        OA_CHECK(fixture::named(list, "library.use.keep") != nullptr);
+        OA_CHECK(fixture::named(list, "library.use.aside") != nullptr);
+        OA_CHECK(fixture::named(list, "library.use.helper.sticky-modifiers") != nullptr);
+        OA_CHECK(fixture::named(list, "library.use.for.game") != nullptr);
+        OA_CHECK(fixture::named(list, "library.use.for.mod") != nullptr);
+        OA_CHECK(fixture::named(list, "prompt.use") != nullptr);
+        OA_CHECK(fixture::named(list, "prompt.cancel") != nullptr);
+    }
+    lib::close_key_use(library);
+
+    lib::set_tab(library, lib::Tab::active);
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        const kit::DisplayList list = laid_out(library, {}, named.frame);
+        const kit::Control* tile = fixture::named(list, "library.active.keys");
+        const kit::Control* change = fixture::named(list, "library.active.keys.change");
+        OA_CHECK(tile != nullptr && tile->text.find("Grid") != std::string::npos);
+        OA_CHECK(
+            tile != nullptr && tile->text.find("· 2 changes of your own") != std::string::npos
+        );
+        OA_CHECK(change != nullptr && change->text == "CHANGE…");
+        OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " active keys");
+    }
+}
+
 int main() {
     every_frame_holds_its_invariants();
     mutators_tab_holds_its_invariants();
     brains_tab_holds_its_invariants();
+    keys_tab_names_its_controls();
     mutator_rows_show_badges_chips_and_icons();
     mutator_actions_rules_and_danger();
     brain_actions_and_full_awareness();
