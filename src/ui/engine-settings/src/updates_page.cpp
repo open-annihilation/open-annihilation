@@ -55,11 +55,14 @@ constexpr std::array<std::string_view, 3> kCaptions{
 };
 /// The check's ids, in the same order.
 constexpr std::array<std::string_view, 3> kChoiceIds{"automatically", "when-asked", "never"};
+/// The background switch's hint.
+constexpr std::string_view kDownloadHint =
+    "Gets it ready while you're in the menus, and stops during a match.";
 
 /// One placed row: the dialog and the row's place.
 struct RowModel {
     Dialog* dialog{};    ///< the dialog
-    std::size_t index{}; ///< 0 the status, 1 the check
+    std::size_t index{}; ///< 0 the status, 1 the check, 2 the background switch
 };
 
 /// Tells whether the status row shows a button.
@@ -70,6 +73,9 @@ struct RowModel {
 /// @param offer what the host filled
 /// @return true when the button is drawn
 bool button_shown(const UpdatesOffer& offer) noexcept {
+    if (offer.show_download &&
+        (offer.download == DownloadShown::ready || offer.download == DownloadShown::stopped))
+        return true;
     if (offer.mode == static_cast<int32_t>(UpdateCheck::never))
         return false;
     if (offer.offered || offer.can_check)
@@ -85,6 +91,9 @@ bool button_enabled(const RowModel& model) noexcept {
     if (model.dialog == nullptr)
         return false;
     const UpdatesOffer& offer = model.dialog->updates;
+    if (offer.show_download &&
+        (offer.download == DownloadShown::ready || offer.download == DownloadShown::stopped))
+        return true;
     if (offer.offered)
         return true;
     return offer.can_check;
@@ -109,6 +118,30 @@ std::string status_hint(const RowModel& model, std::size_t line) {
     if (line != 0 || model.dialog == nullptr)
         return {};
     const UpdatesOffer& offer = model.dialog->updates;
+    if (offer.show_download) {
+        switch (offer.download) {
+        case DownloadShown::downloading:
+            return geometry::filled(
+                "Downloading {version} \u00b7 {done} of {size}",
+                {{"version", offer.download_version},
+                 {"done", offer.download_done},
+                 {"size", offer.download_size}}
+            );
+        case DownloadShown::paused:
+            return geometry::filled("Paused during the game", {});
+        case DownloadShown::ready:
+            return geometry::filled(
+                "{version} is ready \u00b7 {size} downloaded",
+                {{"version", offer.download_version}, {"size", offer.download_size}}
+            );
+        case DownloadShown::stopped:
+            return geometry::filled(
+                "The download stopped: {reason}", {{"reason", offer.download_reason}}
+            );
+        case DownloadShown::none:
+            break;
+        }
+    }
     // Never names itself, whatever a check found. A packager's name is
     // already filled, so it is joined after the status is looked up: the
     // whole line is then not a word, and a second lookup keeps it.
@@ -146,6 +179,41 @@ std::string mode_hint(const RowModel&, std::size_t line) {
 ///
 /// @return 1
 std::size_t mode_hint_lines(const RowModel&) noexcept {
+    return 1;
+}
+
+/// Returns the background switch. It takes effect at OK.
+///
+/// @param model the row
+/// @return true when the switch is on
+bool download_get(const RowModel& model) noexcept {
+    return model.dialog != nullptr && model.dialog->chosen.update_download;
+}
+
+/// Sets the background switch. The stored preference waits for OK.
+///
+/// @param[in,out] model the row
+/// @param on true for On
+void download_set(RowModel& model, bool on) {
+    if (model.dialog == nullptr)
+        return;
+    model.dialog->chosen.update_download = on;
+}
+
+/// Returns the switch's hint, before it wraps.
+///
+/// @param line the line, from 0
+/// @return the hint
+std::string download_hint(const RowModel&, std::size_t line) {
+    if (line != 0)
+        return {};
+    return std::string(kDownloadHint);
+}
+
+/// Returns how many hint lines the switch shows before they wrap.
+///
+/// @return 1
+std::size_t download_hint_lines(const RowModel&) noexcept {
     return 1;
 }
 
@@ -197,9 +265,19 @@ std::string check_choice_id(const RowModel&, int32_t index) {
 /// @param model the row
 /// @return the spec
 kit::RowSpec<RowModel> spec_for(const RowModel& model) {
+    if (model.index == 2) {
+        kit::RowSpec<RowModel> spec = kit::toggle<RowModel>(
+            "update-download", "Download in the background", download_get, download_set
+        );
+        spec.hint_lines = download_hint_lines;
+        spec.hint_text = download_hint;
+        return spec;
+    }
     if (model.index == 0) {
         const UpdatesOffer& offer = model.dialog->updates;
-        const bool offered = offer.offered && button_shown(offer);
+        const bool restart = offer.show_download && offer.download == DownloadShown::ready;
+        const bool retry = offer.show_download && offer.download == DownloadShown::stopped;
+        const bool offered = offer.offered && button_shown(offer) && !restart && !retry;
         if (!button_shown(offer)) {
             kit::RowSpec<RowModel> spec = kit::text<RowModel>("update-status", "", nullptr);
             spec.label_text = version_label;
@@ -207,16 +285,28 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
             spec.hint_text = status_hint;
             return spec;
         }
-        kit::RowSpec<RowModel> spec = kit::value_and_button<RowModel>(
-            "update-status",
-            "",
-            nullptr,
-            offered ? "UPDATE\u2026" : "CHECK NOW",
-            offered ? "update" : "check-now",
-            offered ? open_release_action : check_updates_action
-        );
+        const char* caption = "CHECK NOW";
+        const char* ident = "check-now";
+        int32_t action = check_updates_action;
+        int32_t width = geometry::manage_button_width;
+        if (restart) {
+            caption = "RESTART TO UPDATE";
+            ident = "restart";
+            action = restart_update_action;
+            width = geometry::lock_width;
+        } else if (retry) {
+            caption = "RETRY";
+            ident = "retry";
+            action = retry_update_action;
+        } else if (offered) {
+            caption = "UPDATE\u2026";
+            ident = "update";
+            action = open_release_action;
+        }
+        kit::RowSpec<RowModel> spec =
+            kit::value_and_button<RowModel>("update-status", "", nullptr, caption, ident, action);
         spec.label_text = version_label;
-        spec.control_width = geometry::manage_button_width;
+        spec.control_width = width;
         spec.enabled = button_enabled;
         spec.hint_lines = status_hint_lines;
         spec.hint_text = status_hint;
@@ -291,10 +381,15 @@ geometry::Rows place(
     const int32_t room = estimated ? static_cast<int32_t>(sized.hint_line_characters) *
                                          kit::estimated_character_width
                                    : sized.content_width;
-    constexpr std::size_t count = 2;
+    // The switch sits between the status and the check when the host shows
+    // a download. The check keeps logical index 1, so it stays the choice.
+    const bool gated = dialog.updates.show_download;
+    constexpr std::array<std::size_t, 3> gated_order{0, 2, 1};
+    const std::size_t count = gated ? std::size_t{3} : std::size_t{2};
     std::vector<kit::RowView> row_views;
     row_views.reserve(count);
-    for (std::size_t index = 0; index < count; ++index) {
+    for (std::size_t place_index = 0; place_index < count; ++place_index) {
+        const std::size_t index = gated ? gated_order[place_index] : place_index;
         const RowModel model{const_cast<Dialog*>(&dialog), index};
         const kit::RowSpec<RowModel> spec = spec_for(model);
         kit::RowView shown = kit::view_of(spec, model, &geometry::shown_text);
@@ -320,7 +415,8 @@ geometry::Rows place(
     for (std::size_t index = 0; index < kit_rows.rows.size(); ++index) {
         const kit::PlacedRow& placed_row = kit_rows.rows[index];
         geometry::Row& row = rows.rows.emplace_back();
-        row.updates = static_cast<int16_t>(index);
+        const std::size_t logical = gated ? gated_order[index] : index;
+        row.updates = static_cast<int16_t>(logical);
         row.control = placed_row.control;
         row.hint_is_status = placed_row.view.hint_is_status;
         row.top = placed_row.top;

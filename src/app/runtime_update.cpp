@@ -192,12 +192,10 @@ void Runtime::tick_update_check() {
     // keeps the question waiting. A match took the branch above and cancels
     // there; the question is not offered over it.
     offer_update();
-    // The menu on its own, with no dialog and no settings window over it.
-    const bool settled = screen_ == Screen::main_menu && !frame_owned_by_package() &&
-                         state_.state == frontend::state_id::main_menu &&
-                         state_.pending_signal != frontend::signal_id::multiplayer &&
-                         oa::ui::frontend_dialogs::dialog_count() == 0 &&
-                         engine_settings_dialog() == nullptr;
+    // The download, the ready prompt and the Updated notice run while Settings
+    // is open. The two-frame wait below is only the automatic check.
+    tick_update_install();
+    const bool settled = update_menu_settled();
     if (!settled) {
         update_->menu_frames = 0;
         return;

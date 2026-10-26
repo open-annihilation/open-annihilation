@@ -91,7 +91,27 @@ release asks again. The number is `open-annihilation.update-skipped`. LATER
 writes nothing and asks again at the next start. The question is asked once
 a start, whether the check ran on its own or you asked.
 
-Nothing is downloaded.
+Where this copy can install a release, UPDATE downloads the package into
+`updates/<release>/` under the data folder. A download that stops continues
+from the bytes already stored, and the game tries each mirror in the feed
+in order. It pauses while a match is being played and continues when you
+leave. The file is ready only when its size and SHA-256 match the feed.
+
+Download in the background is off unless you turn it on in Settings ›
+Updates. While it is on, a release that can be installed here starts
+downloading by itself at the settled main menu, and the ready prompt is
+the first question. While a package is being fetched, Settings and the
+Library show "{version} downloading" beside the version. When it is ready
+they show "{version} ready".
+
+The prompt says "Open Annihilation {version} is ready". WHEN I QUIT leaves
+the file where it is. The next time you quit normally, or when you press
+RESTART NOW, the game writes the plan and starts `oa-update`. Where this
+copy has no route, UPDATE opens the release page as before.
+
+The first settled main menu of a start that names `--updated-from` with an
+older version shows "Updated to {version}" once, with the notes from the
+saved feed when it has them.
 
 ## Turning it off
 
@@ -103,8 +123,8 @@ the [preferences](../src/platform/preferences/README.md).
 
 ## What happens when you update
 
-When you agree to install a release, the game writes a plan and starts
-`oa-update`, then quits. The helper waits until the game has left. It
+When a verified package is ready and you quit, or you press RESTART NOW,
+the game writes a plan and starts `oa-update`, then quits. The helper waits until the game has left. It
 checks the saved feed's signature against the keys this build pins, and
 the downloaded package's name, size and SHA-256 against that feed. A
 package that does not match is not unpacked. The window says "The update

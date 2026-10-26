@@ -8556,6 +8556,85 @@ void updates_lists_its_rows_and_the_compact_list_of_thirteen_scrolls() {
     }
 }
 
+void download_rows_sit_between_the_status_and_the_check() {
+    // The switch is off unless the host asks, so the two rows stay put.
+    settings::UpdatesOffer plain;
+    plain.version_line = "Open Annihilation 0.8.6";
+    plain.status = "Up to date · Stable · checked today at 09:00";
+    plain.can_check = true;
+    settings::Dialog closed = updates_dialog(plain);
+    const auto closed_parts = settings::dialog_layout(closed);
+    CHECK(find_part(closed_parts, "Download in the background", settings::no_control) == nullptr);
+
+    settings::UpdatesOffer offer;
+    offer.show_download = true;
+    offer.version_line = "Open Annihilation 0.8.6";
+    offer.status = "0.8.7 is out · Stable · checked today at 09:00";
+    offer.offered = true;
+    offer.can_check = true;
+    settings::Dialog downloading = updates_dialog(offer);
+    const auto order = settings::dialog_layout(downloading);
+    const settings::LayoutPart* status =
+        find_part(order, "Open Annihilation 0.8.6", settings::no_control);
+    const settings::LayoutPart* background =
+        find_part(order, "Download in the background", settings::no_control);
+    const settings::LayoutPart* check_now =
+        find_part(order, "Check for updates", settings::no_control);
+    CHECK(status != nullptr && background != nullptr && check_now != nullptr);
+    if (status != nullptr && background != nullptr && check_now != nullptr) {
+        CHECK(status->rect.y < background->rect.y);
+        CHECK(background->rect.y < check_now->rect.y);
+    }
+
+    offer.download = settings::DownloadShown::ready;
+    offer.download_version = "0.8.7";
+    offer.download_size = "4.0 MB";
+    settings::Dialog ready = updates_dialog(offer);
+    const auto ready_parts = settings::dialog_layout(ready);
+    const settings::LayoutPart* restart =
+        find_part(ready_parts, "RESTART TO UPDATE", settings::no_control);
+    CHECK(restart != nullptr);
+    if (restart != nullptr)
+        CHECK(click(ready, centre(restart->rect)) == DialogAction::restart_update);
+
+    offer.download = settings::DownloadShown::stopped;
+    offer.download_reason = "the download was not the file the feed promised";
+    settings::Dialog stopped = updates_dialog(offer);
+    const auto stopped_parts = settings::dialog_layout(stopped);
+    const settings::LayoutPart* retry = find_part(stopped_parts, "RETRY", settings::no_control);
+    CHECK(retry != nullptr);
+    if (retry != nullptr)
+        CHECK(click(stopped, centre(retry->rect)) == DialogAction::retry_update);
+
+    // The switch moves at once on the dialog and is kept at OK. Cancel puts
+    // back the switch the dialog opened with. Nothing is stored before OK.
+    settings::Dialog switching = updates_dialog(offer);
+    switching.opened.update_download = false;
+    switching.chosen.update_download = false;
+    const auto on_parts = settings::dialog_layout(switching);
+    const settings::LayoutPart* on = find_part(on_parts, "ON", settings::no_control);
+    CHECK(on != nullptr);
+    if (on != nullptr)
+        CHECK(click(switching, centre(on->rect)) == DialogAction::changed);
+    CHECK(switching.chosen.update_download);
+    CHECK(!switching.opened.update_download);
+    CHECK(click(switching, centre(geometry::ok_button)) == DialogAction::accepted);
+    CHECK(switching.chosen.update_download);
+
+    settings::Dialog cancelled = updates_dialog(offer);
+    cancelled.opened.update_download = false;
+    cancelled.chosen.update_download = false;
+    const auto cancel_parts = settings::dialog_layout(cancelled);
+    const settings::LayoutPart* cancel_on = find_part(cancel_parts, "ON", settings::no_control);
+    CHECK(cancel_on != nullptr);
+    if (cancel_on != nullptr)
+        CHECK(click(cancelled, centre(cancel_on->rect)) == DialogAction::changed);
+    CHECK(cancelled.chosen.update_download);
+    CHECK(settings::dialog_key(cancelled, DialogKey::escape) == DialogAction::cancelled);
+    CHECK(!cancelled.chosen.update_download);
+    CHECK(!cancelled.opened.update_download);
+}
+
 void controller_is_listed_only_once_a_gamepad_sent_input() {
     // Without a gamepad the engine's settings list as they always have;
     // with one, Controller comes after User Interface and Touch, before Game
@@ -10740,6 +10819,7 @@ int main(int argc, char** argv) {
         touch_shows_its_rows_and_their_values();
         touch_changes_only_its_entry_and_the_sections_under_it();
         updates_lists_its_rows_and_the_compact_list_of_thirteen_scrolls();
+        download_rows_sit_between_the_status_and_the_check();
         controller_is_listed_only_once_a_gamepad_sent_input();
         controller_shows_its_rows_and_their_values();
         the_steam_input_notice_shows_while_it_applies();

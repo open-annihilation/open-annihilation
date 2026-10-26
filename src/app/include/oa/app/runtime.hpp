@@ -617,6 +617,27 @@ class Runtime final : public menu::Host,
     /// @return true once SWITCH ended the run
     [[nodiscard]] bool soft_restart_requested() const noexcept { return soft_restart_requested_; }
 
+    /// Tells whether a verified package is waiting to be installed.
+    ///
+    /// A soft restart and a run that ended in failure do not ask. main()
+    /// calls this after run() returns.
+    ///
+    /// @return true when the next normal exit should start the helper
+    [[nodiscard]] bool hand_off_requested() const;
+
+    /// Writes the install plan and starts oa-update, or records that start.
+    ///
+    /// A helper that cannot start leaves the package ready and says why.
+    void hand_off_update();
+
+    /// Reads the plan a check's hand-off wrote, and says whether it holds.
+    ///
+    /// A run that is not the download check, and a hand-off that wrote
+    /// nothing, leave the process status as it is.
+    ///
+    /// @return false when the plan was written and does not read back
+    [[nodiscard]] bool report_update_handoff();
+
     /// Returns the full-screen state Alt+Enter left, which a runtime built
     /// after a soft restart takes over.
     ///
@@ -6351,6 +6372,56 @@ class Runtime final : public menu::Host,
     /// a message box keeps it waiting. A match that starts while it is open
     /// closes it, and the next settled menu of this run asks again.
     void offer_update();
+
+    /// The main menu on its own, with no dialog and no settings window.
+    ///
+    /// @return true when a prompt may be shown there
+    [[nodiscard]] bool update_menu_settled();
+
+    /// Downloads the offered package where this install has a route.
+    ///
+    /// A match, a page-only offer and an install with no route do not start
+    /// one. One already fetching or ready for this release is left as it is.
+    ///
+    /// @return true when a download is running or the package is ready
+    bool start_update_download();
+
+    /// Starts the offered download again after it stopped.
+    void retry_update_download();
+
+    /// Tells whether Download in the background covers the offer now held.
+    ///
+    /// @return true when the question should stay closed
+    [[nodiscard]] bool background_download_covers_offer() const;
+
+    /// Queues the ready prompt when a verified package is waiting.
+    void offer_ready();
+
+    /// Queues "Updated to {version}" once, when this start was newer than
+    /// --updated-from and the main menu has settled.
+    void offer_updated_notice();
+
+    /// The header note beside the version, or empty when nothing is fetching
+    /// or ready.
+    ///
+    /// @return "{version} ready" or "{version} downloading"
+    [[nodiscard]] std::string update_header_note() const;
+
+    /// Copies the download onto Settings: the switch's rows and the header note.
+    ///
+    /// @param[in,out] dialog the open dialog
+    /// @return true when a shown field changed
+    bool apply_update_download(oa::ui::engine_settings::Dialog& dialog);
+
+    /// Starts a background download, offers the ready prompt and the Updated
+    /// notice, and quits a --update-and-quit run when the file is ready.
+    void tick_update_install();
+
+    /// Starts the download on its own when Download in the background is on.
+    void consider_background_download();
+
+    /// Downloads without a prompt and quits, for --update-and-quit.
+    void consider_update_and_quit();
 
     /// Opens the page of the release the question offered. A machine with no
     /// browser names the page instead of opening it.
@@ -14863,6 +14934,12 @@ class Runtime final : public menu::Host,
     /// it waits out a match, a message and Settings, and what its three
     /// buttons do. Throws std::runtime_error naming what differed.
     void check_update_offer();
+
+    /// Serves a package and checks the download, the ready prompt and the
+    /// hand-off. Returns the status the process should report.
+    ///
+    /// @return 0 when the case finished, 1 when it had no offer or could not
+    int check_update_download();
 
     /// Opens every Open Annihilation screen in English, German, French,
     /// Spanish, Italian and Simplified Chinese, or in the languages

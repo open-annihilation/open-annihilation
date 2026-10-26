@@ -232,6 +232,9 @@ inline constexpr std::string_view update_checked = "open-annihilation.update-che
 /// is not a whole number, means none. That release and every older one stay
 /// quiet; a newer one asks again.
 inline constexpr std::string_view update_skipped = "open-annihilation.update-skipped";
+/// 1 or 0 (EngineSettings::update_download). Absent reads as 0: a found
+/// release is not downloaded until the player asks.
+inline constexpr std::string_view update_download = "open-annihilation.update-download";
 /// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
 /// other than off, the game opens mod packages.
 inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";
@@ -296,6 +299,8 @@ static_assert(update_check.find('|') == std::string_view::npos);
 static_assert(update_check.find('\\') == std::string_view::npos);
 static_assert(update_checked.find('|') == std::string_view::npos);
 static_assert(update_checked.find('\\') == std::string_view::npos);
+static_assert(update_download.find('|') == std::string_view::npos);
+static_assert(update_download.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
@@ -1276,6 +1281,10 @@ struct EngineSettings {
     /// effect when OK is pressed, as the check for content does. CHECK NOW
     /// looks at once and does not store this.
     UpdateCheck update_check{UpdateCheck::automatically};
+    /// Downloads a found release while the player is in the menus, and
+    /// stops during a match. Off unless the preference is 1. It takes
+    /// effect when OK is pressed.
+    bool update_download{};
     /// The game opens mod packages (.oamod). On unless the preference is the
     /// word off. Windows and Linux register it when OK is pressed. On macOS
     /// the switch shows whether this copy is the default opener, and OK

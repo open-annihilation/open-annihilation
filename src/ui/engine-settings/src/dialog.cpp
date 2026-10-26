@@ -1848,6 +1848,10 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         return DialogAction::check_updates;
     if (action == updates::open_release_action)
         return DialogAction::open_release;
+    if (action == updates::restart_update_action)
+        return DialogAction::restart_update;
+    if (action == updates::retry_update_action)
+        return DialogAction::retry_update;
     const kit::ActionId button = action - layout::first_folder_action;
     if (button < 0 || button >= static_cast<kit::ActionId>(folder_button_count))
         return DialogAction::none;
