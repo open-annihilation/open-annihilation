@@ -88,6 +88,7 @@ SetCompressor /SOLID lzma
 !include MUI2.nsh
 !include LogicLib.nsh
 !include FileFunc.nsh
+!include Sections.nsh
 !ifdef OA_64BIT
   !include x64.nsh
 !endif
@@ -185,7 +186,7 @@ Function .onInit
   !ifdef OA_REFUSE_32BIT
     ${IfNot} ${RunningX64}
       DetailPrint "This installer is for 64-bit Windows. It does not run on 32-bit Windows."
-      MessageBox MB_OK|MB_ICONSTOP "This installer is for 64-bit Windows. It does not run on 32-bit Windows."
+      MessageBox MB_OK|MB_ICONSTOP "This installer is for 64-bit Windows. It does not run on 32-bit Windows." /SD IDOK
       Quit
     ${EndIf}
   !endif
@@ -193,7 +194,7 @@ Function .onInit
   !ifdef OA_REFUSE_NOT_ARM64
     ${IfNot} ${IsNativeARM64}
       DetailPrint "This installer is for Windows on ARM. It does not run on this computer."
-      MessageBox MB_OK|MB_ICONSTOP "This installer is for Windows on ARM. It does not run on this computer."
+      MessageBox MB_OK|MB_ICONSTOP "This installer is for Windows on ARM. It does not run on this computer." /SD IDOK
       Quit
     ${EndIf}
   !endif
@@ -201,13 +202,13 @@ Function .onInit
   !ifdef OA_REFUSE_BEFORE_XPSP3
     ${IfNot} ${AtLeastWinXP}
       DetailPrint "This installer needs Windows XP Service Pack 3 or newer."
-      MessageBox MB_OK|MB_ICONSTOP "This installer needs Windows XP Service Pack 3 or newer."
+      MessageBox MB_OK|MB_ICONSTOP "This installer needs Windows XP Service Pack 3 or newer." /SD IDOK
       Quit
     ${EndIf}
     ${If} ${IsWinXP}
     ${AndIfNot} ${AtLeastServicePack} 3
       DetailPrint "This installer needs Windows XP Service Pack 3 or newer."
-      MessageBox MB_OK|MB_ICONSTOP "This installer needs Windows XP Service Pack 3 or newer."
+      MessageBox MB_OK|MB_ICONSTOP "This installer needs Windows XP Service Pack 3 or newer." /SD IDOK
       Quit
     ${EndIf}
   !endif
@@ -216,11 +217,11 @@ Function .onInit
     SetRegView 64
   !endif
 
-  StrCpy $DesktopWasInstalled "0"
+  StrCpy $DesktopWasInstalled ""
   ClearErrors
   ReadRegDWORD $DesktopWasInstalled HKLM "${OA_UNINST_KEY}" "DesktopShortcut"
   ${If} ${Errors}
-    StrCpy $DesktopWasInstalled "0"
+    StrCpy $DesktopWasInstalled ""
   ${EndIf}
   ClearErrors
 
@@ -232,6 +233,8 @@ Function .onInit
     oa_keep_dir:
     ClearErrors
   !endif
+
+  Call oa_SilentShortcut
 FunctionEnd
 
 Section "Open Annihilation" SecProgram
@@ -240,6 +243,9 @@ Section "Open Annihilation" SecProgram
   File "${OA_PACKAGE_DIR}/open-annihilation.exe"
   File "${OA_PACKAGE_DIR}/oa-intro.exe"
   File "${OA_PACKAGE_DIR}/oa-tool.exe"
+  !if /FileExists "${OA_PACKAGE_DIR}/oa-update.exe"
+    File "${OA_PACKAGE_DIR}/oa-update.exe"
+  !endif
   File "${OA_PACKAGE_DIR}/LICENSE"
   File "${OA_PACKAGE_DIR}/ATTRIBUTIONS.md"
 
@@ -290,8 +296,23 @@ Section "Desktop shortcut" SecDesktop
   WriteRegDWORD HKLM "${OA_UNINST_KEY}" "DesktopShortcut" 1
 SectionEnd
 
+; A silent install over a copy already there keeps the recorded shortcut.
+; A missing value and an explicit 0 both leave the shortcut off. A first
+; install, with no InstallLocation yet, keeps the shortcut on. The section
+; index exists only after SecDesktop, so this is not inside .onInit.
+Function oa_SilentShortcut
+  ReadRegStr $0 HKLM "${OA_UNINST_KEY}" "InstallLocation"
+  IfSilent 0 oa_shortcut_choice_done
+  StrCmp $0 "" oa_shortcut_choice_done
+  StrCmp $DesktopWasInstalled "1" oa_shortcut_choice_done
+    !insertmacro UnselectSection ${SecDesktop}
+  oa_shortcut_choice_done:
+  ClearErrors
+FunctionEnd
+
 Function .onInstSuccess
   ${IfNot} ${SectionIsSelected} ${SecDesktop}
+    WriteRegDWORD HKLM "${OA_UNINST_KEY}" "DesktopShortcut" 0
     StrCmp $DesktopWasInstalled "1" 0 oa_keep_desktop
       Delete "${OA_DESKTOP_LNK}"
     oa_keep_desktop:
@@ -499,6 +520,7 @@ Section "Uninstall"
   Delete "$INSTDIR\open-annihilation.exe"
   Delete "$INSTDIR\oa-intro.exe"
   Delete "$INSTDIR\oa-tool.exe"
+  Delete "$INSTDIR\oa-update.exe"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\ATTRIBUTIONS.md"
   Delete "$INSTDIR\brains\classic.oabrain"
