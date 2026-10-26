@@ -74,6 +74,18 @@ struct CategoryEntry {
     bool read_only{false}; ///< a heading, or actions this version does not know
 };
 
+/// A chord the draft took, so resolution dropped it from the other action.
+///
+/// The pair is no longer in the resolved chords: the draft's action holds the
+/// key and the other action lost it. The card, the search and a capture still
+/// name both. SAVE does not wait on this pair. It waits only on a clash that
+/// resolution kept, and that the draft takes part in.
+struct DraftTake {
+    std::string winner{};                ///< the action that kept the chord
+    std::string loser{};                 ///< the action that lost it
+    oa::ui::key_bindings::Chord chord{}; ///< the chord, as the loser had bound it
+};
+
 /// One action in the list.
 struct Row {
     std::string id{};                      ///< the action id
@@ -360,8 +372,10 @@ class Editor {
 
     /// What binding this chord on an action would clash with.
     ///
-    /// The chord and its paired Primary form are both asked. Each other
-    /// action is named once. `a` is this action and `b` is the other.
+    /// A character's position is ignored, and the chord's paired Primary form
+    /// is asked as well. Each other action is named once. `a` is this action
+    /// and `b` is the other. An action that lost the chord to the draft is
+    /// named too.
     ///
     /// @param id the action the chord would be bound to
     /// @param chord the chord
@@ -371,11 +385,21 @@ class Editor {
 
     /// The draft clash this action is in, with `a` set to this action.
     ///
-    /// A clash that the draft does not name is not returned.
+    /// A clash that the draft does not name is not returned. A chord the draft
+    /// took, so the other action lost it, is returned: the card can give it
+    /// back. SAVE does not wait on that pair.
     ///
     /// @param id the action id
     /// @return the pair, or nothing when this action is not in a draft clash
     [[nodiscard]] std::optional<oa::ui::key_bindings::Clash> draft_clash(std::string_view id) const;
+
+    /// Chords the draft took from another action.
+    ///
+    /// Resolution has already dropped the loser's chord. The list marks both
+    /// actions, and the card settles the pair.
+    ///
+    /// @return one entry per chord the draft took
+    [[nodiscard]] std::vector<DraftTake> draft_takes() const;
 
   private:
 
@@ -475,6 +499,24 @@ struct ChordUse {
 /// @return the bits a chord stores
 [[nodiscard]] uint8_t
 stored_modifiers(uint8_t physical, oa::ui::key_bindings::Platform platform) noexcept;
+
+/// True when two chords are the key a player pressed.
+///
+/// A character's position is ignored. Two named keys with the same id match
+/// even when one of them stored no position. Primary and the platform's
+/// physical primary key count as one key, in either direction.
+///
+/// @param bound a chord in use
+/// @param wanted the chord being asked
+/// @param keyboard the map a letter and a place are read on
+/// @param platform which key Primary means
+/// @return true when a player would call them the same key
+[[nodiscard]] bool chords_match(
+    const oa::ui::key_bindings::Chord& bound,
+    const oa::ui::key_bindings::Chord& wanted,
+    const oa::ui::key_bindings::KeyboardMap& keyboard,
+    oa::ui::key_bindings::Platform platform
+);
 
 /// The same chord with Primary and the platform's physical primary key exchanged.
 ///
@@ -583,7 +625,8 @@ bool settle(Editor& editor, const oa::ui::key_bindings::Clash& clash, Settle whi
 
 /// Every action bound to this chord, in list order, in every context.
 ///
-/// The paired Primary form counts as the same chord.
+/// The paired Primary form counts as the same chord. An action that lost the
+/// chord to the draft is listed as well.
 ///
 /// @param editor the editor
 /// @param chord the chord

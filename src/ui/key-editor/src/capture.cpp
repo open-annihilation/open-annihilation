@@ -330,6 +330,49 @@ uint8_t stored_modifiers(uint8_t physical, keys::Platform platform) noexcept {
     return out;
 }
 
+namespace {
+
+/// True when two chords are one key, ignoring a character's position and a
+/// named key's position.
+///
+/// @param left one chord
+/// @param right the other chord
+/// @param keyboard the map a letter and a place are read on
+/// @return true when they are one key
+bool same_chord(
+    const keys::Chord& left, const keys::Chord& right, const keys::KeyboardMap& keyboard
+) {
+    if (keys::same_key(left, right, &keyboard))
+        return true;
+    if (left.kind == keys::TriggerKind::named && right.kind == keys::TriggerKind::named &&
+        left.named == right.named && left.modifiers == right.modifiers &&
+        left.gesture == right.gesture)
+        return true;
+    if (left.kind != keys::TriggerKind::character && right.kind != keys::TriggerKind::character)
+        return false;
+    keys::Chord first = left;
+    keys::Chord second = right;
+    if (first.kind == keys::TriggerKind::character)
+        first.scancode = 0;
+    if (second.kind == keys::TriggerKind::character)
+        second.scancode = 0;
+    return keys::same_key(first, second, &keyboard);
+}
+
+} // namespace
+
+bool chords_match(
+    const keys::Chord& bound,
+    const keys::Chord& wanted,
+    const keys::KeyboardMap& keyboard,
+    keys::Platform platform
+) {
+    if (same_chord(bound, wanted, keyboard))
+        return true;
+    const std::optional<keys::Chord> paired = paired_chord(wanted, platform);
+    return paired.has_value() && same_chord(bound, *paired, keyboard);
+}
+
 std::optional<keys::Chord> paired_chord(const keys::Chord& chord, keys::Platform platform) {
     const uint8_t physical = platform.primary_is_meta ? keys::meta : keys::ctrl;
     const bool has_primary = (chord.modifiers & keys::primary) != 0;
@@ -516,19 +559,25 @@ CaptureStatus capture_status(const Editor& editor, const Capture& capture) {
     const keys::Chord chord = comparable(*capture.chord);
     const std::string shown = keys::display_text(chord, editor.keyboard(), editor.platform());
     const std::string context = context_phrase(editor, capture.action);
+    // A fixed action's own chord, in a context that meets this action's, is
+    // refused. The chord it holds is the one resolution kept, so a captured
+    // Escape matches the parsed one even when one of them stored no position.
+    // Settings' Primary+, is not fixed: it is an ordinary clash.
     for (const acts::Action& action : acts::actions()) {
-        if (!action.fixed)
-            continue;
-        keys::Chord escape;
-        escape.kind = keys::TriggerKind::named;
-        escape.named = static_cast<uint8_t>(keys::NamedKey::escape);
-        if (!keys::same_key(chord, escape, &editor.keyboard()))
+        if (!action.fixed || action.id == capture.action)
             continue;
         if (!keys::layers_meet(context_bits(capture.action), action.context))
             continue;
-        const Details fixed = editor.details(action.id);
+        const Details held = editor.details(action.id);
+        bool holds = false;
+        for (const ChordDetail& one : held.chords) {
+            if (chords_match(one.chord, chord, editor.keyboard(), editor.platform()))
+                holds = true;
+        }
+        if (!holds)
+            continue;
         const std::string description = lower_first(
-            fixed.description.empty() ? std::string(action.words.description) : fixed.description
+            held.description.empty() ? std::string(action.words.description) : held.description
         );
         status.refused = true;
         status.ok_enabled = false;

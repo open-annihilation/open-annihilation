@@ -1053,7 +1053,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         state_.in_match = in_match;
         if (request.filter)
             state_.filter = *request.filter;
-        else if (editor_.draft_clashes() != 0)
+        else if (editor_.draft_clashes() != 0 || !editor_.draft_takes().empty())
             state_.filter = editor::Filter::clashes;
         if (!request.select.empty())
             state_.selected = std::move(request.select);

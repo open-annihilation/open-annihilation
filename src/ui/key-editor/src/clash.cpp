@@ -38,11 +38,7 @@ keys::Chord comparable(keys::Chord chord) {
 /// @param wanted the chord being asked
 /// @return true when they are one key
 bool matches(const Editor& editor, const keys::Chord& bound, const keys::Chord& wanted) {
-    const keys::KeyboardMap& keyboard = editor.keyboard();
-    if (keys::same_key(bound, wanted, &keyboard))
-        return true;
-    const std::optional<keys::Chord> paired = paired_chord(wanted, editor.platform());
-    return paired.has_value() && keys::same_key(bound, *paired, &keyboard);
+    return chords_match(bound, wanted, editor.keyboard(), editor.platform());
 }
 
 /// The chords an action would keep after one chord is dropped.
@@ -214,19 +210,40 @@ std::vector<ChordUse> find_by_chord(const Editor& editor, const keys::Chord& cho
     const keys::Chord asked = comparable(chord);
     const std::vector<Row> rows = editor.rows({}, Filter::all, "");
     std::vector<ChordUse> uses;
+    auto add_id = [&](const std::string& id) {
+        if (id.empty())
+            return;
+        for (const ChordUse& have : uses) {
+            if (have.id == id)
+                return;
+        }
+        for (const Row& listed : rows) {
+            if (listed.id != id)
+                continue;
+            ChordUse made;
+            made.id = listed.id;
+            made.name = listed.name;
+            made.context = context_phrase(editor, listed.id);
+            uses.push_back(std::move(made));
+            return;
+        }
+    };
     for (const Row& row : rows) {
         bool hit = false;
         for (const keys::Chord& bound : row.chords) {
             if (matches(editor, bound, asked))
                 hit = true;
         }
-        if (!hit)
+        if (hit)
+            add_id(row.id);
+    }
+    // The draft took the chord, so the loser no longer shows it. The search
+    // still names that action.
+    for (const DraftTake& take : editor.draft_takes()) {
+        if (!matches(editor, take.chord, asked))
             continue;
-        ChordUse use;
-        use.id = row.id;
-        use.name = row.name;
-        use.context = context_phrase(editor, row.id);
-        uses.push_back(std::move(use));
+        add_id(take.winner);
+        add_id(take.loser);
     }
     return uses;
 }
