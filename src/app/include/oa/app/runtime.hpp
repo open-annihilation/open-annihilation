@@ -801,8 +801,10 @@ class Runtime final : public menu::Host,
 
     /// Handles the keys the profile's display rules give their own meaning
     /// in every screen (runtime_view_rules.cpp), before any screen sees them.
+    /// Screenshot chords are taken on both edges while display modes are on.
+    /// The chat macro and the build tools answer their actions in a match.
     ///
-    /// @param event a key event
+    /// @param event a key or wheel event
     /// @return true when the key is taken
     bool handle_view_rule_key(const SDL_Event& event);
 
@@ -813,17 +815,9 @@ class Runtime final : public menu::Host,
     /// Writes view_settings_ to the preferences, under the Eye section.
     void save_view_settings();
 
-    /// Tells whether a key the display-rule settings name is held; an Alt,
-    /// Ctrl or Shift key stands for either key of its kind.
+    /// Tells whether the snap-override action is held (build.snap-override).
     ///
-    /// @param key the SDL key code
-    /// @return true while it is held
-    [[nodiscard]] bool view_key_held(uint32_t key) const;
-
-    /// Tells whether the key held to stop a click snapping is down
-    /// (ViewSettings::snap_override_key).
-    ///
-    /// @return true while it is held
+    /// @return true while it is held or latched
     [[nodiscard]] bool snap_override_held() const;
 
     /// Takes a build click for the line and ring build tools
@@ -844,10 +838,10 @@ class Runtime final : public menu::Host,
     /// @param y canvas row
     void build_tool_motion(float x, float y);
 
-    /// Takes the line and ring build tools' keys in a match: the mouse wheel,
-    /// Page Up and Page Down change the spacing while the autoclick key is
-    /// held, letting it go drops the line or ring, and the key itself types
-    /// nothing in build mode.
+    /// Takes the line and ring build tools' actions in a match. The rotate
+    /// wheel turns the building. Spacing changes while the line action is
+    /// held. Letting the line key go drops the line or ring, and that key
+    /// types nothing while a building is armed.
     ///
     /// @param event a key or wheel event
     /// @return true when the tools took the event
@@ -2592,6 +2586,26 @@ class Runtime final : public menu::Host,
     /// @param action the action id
     /// @return true while one of that action's keys is down
     [[nodiscard]] bool action_key_held(std::string_view action);
+
+    /// Whether an action is held by its key, its modifier role or its latch.
+    ///
+    /// A modifier held with other modifiers still counts. Resolves the
+    /// bindings on first use. [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @return true while that action is held
+    [[nodiscard]] bool action_held(std::string_view action) const;
+
+    /// Whether this key is one of the action's chords.
+    ///
+    /// Context is ignored, so a chord still matches on a screen the action
+    /// does not list. Resolves the bindings on first use.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param action the action id
+    /// @param key the key event
+    /// @return true when the key is one of that action's chords
+    [[nodiscard]] bool action_key_matches(std::string_view action, const SDL_KeyboardEvent& key);
 
     /// The contexts, the conditions and text entry for the event about to be fed.
     ///

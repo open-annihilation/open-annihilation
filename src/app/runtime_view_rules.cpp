@@ -6,7 +6,6 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/view_rules.hpp"
-#include "device_state.hpp"
 #include "match_models.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/formats/objects3d.hpp"
@@ -54,15 +53,35 @@ constexpr const char* screenshot_folder = "\\screenshots";
 /// the clock's local time shows it, and its separator.
 constexpr const char* screenshot_date_format = "%02d/%02d/%02d - ";
 
-/// Tells whether a key event is one of the named screenshot keys: Ctrl+F9
-/// or Print Screen.
+/// Whether the events name this action at this phase.
 ///
-/// @param key the key event
-/// @return true for either key
-bool screenshot_key(const SDL_KeyboardEvent& key) {
-    const bool f9 = key.key == SDLK_F9 || key.scancode == SDL_SCANCODE_F9;
-    const bool print = key.key == SDLK_PRINTSCREEN || key.scancode == SDL_SCANCODE_PRINTSCREEN;
-    return print || (f9 && (key.mod & SDL_KMOD_CTRL) != 0);
+/// @param events the events the current input produced
+/// @param id the action id
+/// @param phase the phase
+/// @return true when one event is that pair
+bool action_phase(
+    std::span<const oa::ui::key_bindings::ActionEvent> events,
+    std::string_view id,
+    oa::ui::key_bindings::Phase phase
+) {
+    for (const oa::ui::key_bindings::ActionEvent& fed : events) {
+        if (fed.action == id && fed.phase == phase)
+            return true;
+    }
+    return false;
+}
+
+/// Whether the action went down or repeated on this input.
+///
+/// A wheel notch is a press, one for each notch. A repeat action's held key
+/// is a repeat. A press action's first down is a press.
+///
+/// @param events the events the current input produced
+/// @param id the action id
+/// @return true when one of those phases is present
+bool action_down(std::span<const oa::ui::key_bindings::ActionEvent> events, std::string_view id) {
+    return action_phase(events, id, oa::ui::key_bindings::Phase::pressed) ||
+           action_phase(events, id, oa::ui::key_bindings::Phase::repeated);
 }
 
 } // namespace
@@ -99,20 +118,7 @@ void Runtime::save_view_settings() {
 }
 
 bool Runtime::snap_override_held() const {
-    return view_key_held(view_settings_.snap_override_key);
-}
-
-bool Runtime::view_key_held(uint32_t code) const {
-    const auto key = static_cast<SDL_Keycode>(code);
-    const auto modifiers = input_modifiers(ModifierUse::keyboard);
-    // Either Alt, Ctrl or Shift key stands for its kind.
-    if (key == SDLK_LALT || key == SDLK_RALT)
-        return (modifiers & SDL_KMOD_ALT) != 0;
-    if (key == SDLK_LCTRL || key == SDLK_RCTRL)
-        return (modifiers & SDL_KMOD_CTRL) != 0;
-    if (key == SDLK_LSHIFT || key == SDLK_RSHIFT)
-        return (modifiers & SDL_KMOD_SHIFT) != 0;
-    return device_state::key_held(SDL_GetScancodeFromKey(key, nullptr));
+    return action_held("build.snap-override");
 }
 
 std::optional<Runtime::PendingBuildSite> Runtime::snapped_build_site(float x, float y) const {
@@ -249,7 +255,7 @@ Runtime::snapped_reclaim_point(const oa::sim::ground_orders::Point& ground) cons
 
 bool Runtime::build_tool_click(float x, float y) {
     if (!ui_rules().build_tools.enabled || !match_ || match_command_ != MatchCommand::build ||
-        pending_build_type_ == 0 || !view_key_held(view_settings_.autoclick_key))
+        pending_build_type_ == 0 || !action_held("build.line"))
         return false;
     auto& tool = build_tool_;
     if (tool.ring) {
@@ -305,8 +311,7 @@ void Runtime::build_tool_motion(float x, float y) {
         return;
     }
     tool.ring = false;
-    if (!view_key_held(view_settings_.autoclick_key) ||
-        on_screen_units_.size() != match_->state().unit_slot_count)
+    if (!action_held("build.line") || on_screen_units_.size() != match_->state().unit_slot_count)
         return;
     const auto unit = oa::sim::selection::unit_under_pointer(
         match_->state(), on_screen_lists(), selection_hooks()
@@ -594,25 +599,31 @@ void Runtime::give_view_command(const std::string& line, bool share) {
 }
 
 bool Runtime::handle_view_rule_key(const SDL_Event& event) {
-    const auto& ui = ui_rules();
-    const bool tools = ui.build_tools.enabled || ui.build_preview.enabled;
-    if (event.type == SDL_EVENT_MOUSE_WHEEL)
-        return tools && screen_ == Screen::match && match_ && handle_build_tool_key(event);
+    if (event.type == SDL_EVENT_MOUSE_WHEEL) {
+        if (screen_ != Screen::match || !match_)
+            return false;
+        return handle_build_tool_key(event);
+    }
     if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP)
         return false;
-    // The screenshot keys save when released, in every screen; the game's
-    // own Ctrl+F9 never sees them.
-    if (ui.display_modes.enabled && screenshot_key(event.key)) {
+    const auto& ui = ui_rules();
+    // The screenshot chords save when released, in every screen. The press is
+    // taken so the game's own chord never sees it. The chords are the
+    // binding's, so a moved key still saves and the old one does not.
+    if (ui.display_modes.enabled && action_key_matches("game.screenshot", event.key)) {
         if (event.type == SDL_EVENT_KEY_UP)
             capture_named_screenshot();
         return true;
     }
-    if (tools && screen_ == Screen::match && match_ && handle_build_tool_key(event))
+    if (screen_ == Screen::match && match_ && handle_build_tool_key(event))
         return true;
-    // F11 sends the chat macro during a match.
+    // The chat macro answers its action during a match. A repeat of a press
+    // action carries no event, so the chord is taken on both edges.
     if (ui.options_dialog.enabled && screen_ == Screen::match && match_ &&
-        (event.key.key == SDLK_F11 || event.key.scancode == SDL_SCANCODE_F11)) {
-        if (event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat)
+        action_key_matches("game.chat-macro", event.key)) {
+        if (action_phase(
+                match_action_events(), "game.chat-macro", oa::ui::key_bindings::Phase::pressed
+            ))
             run_chat_macro();
         return true;
     }
@@ -622,60 +633,60 @@ bool Runtime::handle_view_rule_key(const SDL_Event& event) {
 bool Runtime::handle_build_tool_key(const SDL_Event& event) {
     const auto& ui = ui_rules();
     auto& tool = build_tool_;
-    const auto autoclick = static_cast<SDL_Keycode>(view_settings_.autoclick_key);
+    const auto events = match_action_events();
     if (event.type == SDL_EVENT_MOUSE_WHEEL) {
         if (match_command_ != MatchCommand::build)
             return false;
-        const float turned =
-            event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
-        // The snap override key with the wheel turns the building, before
-        // the autoclick key spaces a line.
-        if (ui.build_preview.enabled && snap_override_held()) {
+        // The rotate wheel wins over spacing when one turn matches both.
+        // One event turns once, by the wheel's sign, however many notches
+        // the dispatcher reported.
+        if (action_down(events, "build.rotate-wheel")) {
+            const float turned =
+                event.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -event.wheel.y : event.wheel.y;
             if (turned != 0.0F)
                 std::ignore = rotate_pending_build(turned > 0.0F ? 1 : -1);
             return true;
         }
-        if (!ui.build_tools.enabled || !view_key_held(view_settings_.autoclick_key))
+        const bool up = action_down(events, "build.spacing-up");
+        const bool down = action_down(events, "build.spacing-down");
+        // Page and wheel spacing stay tied to the line action, so a plain
+        // wheel while placing still reaches the megamap and the camera.
+        if ((!up && !down) || !ui.build_tools.enabled || !action_held("build.line"))
             return false;
-        if (turned == 0.0F)
-            return true;
-        tool.spacing = std::clamp(
-            tool.spacing + (turned > 0.0F ? 1 : -1), 0, view_rules::build_tool_spacing_limit
-        );
-        lay_build_tool();
+        const int step = (up ? 1 : 0) - (down ? 1 : 0);
+        if (step != 0) {
+            tool.spacing = std::clamp(tool.spacing + step, 0, view_rules::build_tool_spacing_limit);
+            lay_build_tool();
+        }
         return true;
     }
-    if (ui.build_tools.enabled && event.type == SDL_EVENT_KEY_UP && event.key.key == autoclick) {
-        // Letting the key go drops the line or ring without giving it.
-        tool.drawing_line = false;
-        tool.ring = false;
-        tool.layout.slots.clear();
+    // Letting the line key go drops the line or ring without giving it. A
+    // latch keeps the tool. The key itself is not taken, as it was not before.
+    if (ui.build_tools.enabled && event.type == SDL_EVENT_KEY_UP &&
+        action_key_matches("build.line", event.key)) {
+        if (!action_held("build.line")) {
+            tool.drawing_line = false;
+            tool.ring = false;
+            tool.layout.slots.clear();
+        }
         return false;
     }
     if (event.type != SDL_EVENT_KEY_DOWN || match_command_ != MatchCommand::build)
         return false;
-    // The rotate key, without Ctrl, turns the building.
-    if (ui.build_preview.enabled &&
-        event.key.key == static_cast<SDL_Keycode>(view_settings_.rotate_build_key) &&
-        (event.key.mod & SDL_KMOD_CTRL) == 0) {
+    if (action_down(events, "build.rotate")) {
         std::ignore = rotate_pending_build(1);
         return true;
     }
-    if (!ui.build_tools.enabled)
-        return false;
-    if (event.key.key == SDLK_PAGEUP || event.key.key == SDLK_PAGEDOWN) {
-        if (!view_key_held(view_settings_.autoclick_key))
+    if (action_down(events, "build.spacing-up") || action_down(events, "build.spacing-down")) {
+        if (!ui.build_tools.enabled || !action_held("build.line"))
             return false;
-        tool.spacing = std::clamp(
-            tool.spacing + (event.key.key == SDLK_PAGEUP ? 1 : -1),
-            0,
-            view_rules::build_tool_spacing_limit
-        );
+        const int step = action_down(events, "build.spacing-up") ? 1 : -1;
+        tool.spacing = std::clamp(tool.spacing + step, 0, view_rules::build_tool_spacing_limit);
         lay_build_tool();
         return true;
     }
-    // The key itself types nothing while it builds.
-    return event.key.key == autoclick;
+    // The line key types nothing while a building is armed, repeats included.
+    return ui.build_tools.enabled && action_key_matches("build.line", event.key);
 }
 
 void Runtime::capture_named_screenshot() {

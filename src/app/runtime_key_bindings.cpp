@@ -1796,6 +1796,48 @@ bool Runtime::action_key_held(std::string_view action) {
     return key_bindings_state_->dispatcher.chord_key_held(action, keys_held);
 }
 
+bool Runtime::action_held(std::string_view action) const {
+    // Filling the binding cache does not change a key the player set.
+    const_cast<Runtime*>(this)->ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return false;
+    keys::HeldKeys keys_held;
+    keys_held.down = key_is_down;
+    if (key_bindings_state_->dispatcher.chord_key_held(action, keys_held))
+        return true;
+    return modifier_role_active(action);
+}
+
+bool Runtime::action_key_matches(std::string_view action, const SDL_KeyboardEvent& key) {
+    ensure_key_bindings(false);
+    if (key_bindings_state_ == nullptr || !key_bindings_state_->ready)
+        return false;
+    const keys::Bound* found = nullptr;
+    for (const keys::Bound& bound : key_bindings_state_->dispatcher.bindings().actions) {
+        if (bound.id == action) {
+            found = &bound;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return false;
+    keys::InputEvent input;
+    input.kind = keys::InputKind::key;
+    input.down = key.down;
+    input.repeat = key.repeat;
+    const auto scan = static_cast<uint32_t>(key.scancode);
+    input.scancode = scan < keys::scancode_limit ? static_cast<uint16_t>(scan) : uint16_t{0};
+    input.key_code = static_cast<uint32_t>(key.key);
+    input.modifiers = binding_modifiers(key.mod);
+    return binding_key(
+        *found,
+        input,
+        modifier_bit_of(input.scancode),
+        key_bindings_state_->dispatcher.keyboard(),
+        key_bindings_state_->platform
+    );
+}
+
 void Runtime::apply_binding_roles(uint32_t& modifiers, ModifierUse use) const {
     if (use == ModifierUse::keyboard || key_bindings_state_ == nullptr ||
         !key_bindings_state_->ready)
