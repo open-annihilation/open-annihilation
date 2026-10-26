@@ -436,6 +436,12 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
                 return;
             }
             if (match_drag_ && !match_drag_is_click()) {
+                const bool area_order = match_command_ == MatchCommand::attack ||
+                                        match_command_ == MatchCommand::dgun ||
+                                        match_command_ == MatchCommand::reclaim ||
+                                        match_command_ == MatchCommand::repair;
+                note_shared_latch_used(area_order ? 1 : 0);
+                consume_sticky_modifiers();
                 const bool add = (input_modifiers(ModifierUse::selection) & SDL_KMOD_SHIFT) != 0;
                 const auto [from, to] =
                     match_drag_corners(live_viewport(match_camera_x_, match_camera_z_));

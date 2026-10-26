@@ -46,6 +46,8 @@ input::OrderCommand armed_command(MatchCommand command) {
 } // namespace
 
 void Runtime::handle_match_left_click(float x, float y, int32_t clicks) {
+    consume_sticky_modifiers();
+    note_shared_latch_used(match_command_ == MatchCommand::none ? 0 : 1);
     // The frame's pick at the click: the unit under the pointer is the
     // cursor unit (Game.cursor_unit_id).
     update_pointer(x, y);

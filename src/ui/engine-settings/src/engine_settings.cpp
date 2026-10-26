@@ -681,6 +681,8 @@ EngineSettings read_settings(
             clamped(*number, base_path_search_nodes, highest_path_search_nodes);
     if (const auto number = stored_number(values, key::wheel_zoom))
         settings.wheel_zoom = *number > 0;
+    if (const auto number = stored_number(values, key::sticky_modifiers))
+        settings.sticky_modifiers = *number > 0;
     read_word(values, key::max_zoom_out, zoom_out_words, settings.max_zoom_out);
     read_word(values, key::max_zoom_in, zoom_in_words, settings.max_zoom_in);
     read_word(
@@ -878,6 +880,14 @@ void write_settings(
         switch_text(chosen.wheel_zoom),
         chosen.wheel_zoom != opened.wheel_zoom,
         chosen.wheel_zoom == defaults.wheel_zoom,
+        restored
+    );
+    store(
+        values,
+        key::sticky_modifiers,
+        switch_text(chosen.sticky_modifiers),
+        chosen.sticky_modifiers != opened.sticky_modifiers,
+        chosen.sticky_modifiers == defaults.sticky_modifiers,
         restored
     );
     store_word(

@@ -78,6 +78,13 @@ the default order, as in 3.1c: the next click gives the default order, and
 with the left-click interface one right click drops the selection. An
 order armed with none given yet stays armed when Shift is let go.
 
+A layout can list that hold so a tap of Shift latches it. The next orders
+join the queue without Shift held down, and a chip at the top of the
+battlefield reads QUEUE · latched until Shift is tapped again. The same row
+shows each other latched hold, and, with Sticky modifiers on, a tapped
+Shift, Ctrl or Alt. Losing the window clears every latch and sticky
+modifier, including a QUEUE latched from the touch controls.
+
 ## The window's edge
 
 **Window edge**, under Settings > Controls, decides what a window does with

@@ -32,6 +32,8 @@ namespace key {
 inline constexpr std::string_view path_search_nodes = "open-annihilation.path-search-nodes";
 /// 1 or 0 (EngineSettings::wheel_zoom).
 inline constexpr std::string_view wheel_zoom = "open-annihilation.wheel-zoom";
+/// 1 or 0 (EngineSettings::sticky_modifiers). Absent means off.
+inline constexpr std::string_view sticky_modifiers = "open-annihilation.access.sticky-modifiers";
 /// "automatic", "whole-map", or the share of normal size: "1/32", "1/16",
 /// "1/8", "1/4" or "1/2" (EngineSettings::max_zoom_out).
 inline constexpr std::string_view max_zoom_out = "open-annihilation.max-zoom-out";
@@ -1098,6 +1100,8 @@ struct EngineSettings {
     /// together: base_path_search_nodes times the Pathfinding cycles.
     int32_t path_search_nodes{base_path_search_nodes};
     bool wheel_zoom{true}; ///< the mouse wheel zooms the battlefield
+    /// A tapped Shift, Ctrl or Alt applies to the next key or click.
+    bool sticky_modifiers{false};
     /// How far out the battlefield's view zooms, by the wheel, a pinch, the
     /// touch controls or a controller.
     ZoomOutLimit max_zoom_out{ZoomOutLimit::automatic};

@@ -343,6 +343,7 @@ void check_game_files_options(Options& options) {
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {!options.check_key_table.empty(), "--check-key-table"},
+        {options.check_key_latches, "--check-key-latches"},
         {options.check_key_timing, "--check-key-timing"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
@@ -644,6 +645,7 @@ void check_director_options(Options& options) {
         {options.check_match_bars, "--check-match-bars"},
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {!options.check_key_table.empty(), "--check-key-table"},
+        {options.check_key_latches, "--check-key-latches"},
         {options.check_key_timing, "--check-key-timing"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
@@ -755,6 +757,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_match_bars, "--check-match-bars"},
             {!options.check_unit_pages.empty(), "--check-unit-pages"},
             {!options.check_key_table.empty(), "--check-key-table"},
+            {options.check_key_latches, "--check-key-latches"},
             {options.check_key_timing, "--check-key-timing"},
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
@@ -1015,6 +1018,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-unit-page-memory", &Options::check_unit_page_memory},
     {"--check-side-column", &Options::check_side_column},
     {"--check-match-bars", &Options::check_match_bars},
+    {"--check-key-latches", &Options::check_key_latches},
     {"--check-kill-board", &Options::check_kill_board},
     {"--check-paused-save", &Options::check_paused_save},
     {"--check-saved-brains", &Options::check_saved_brains},
@@ -1728,6 +1732,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
+                     "[--check-key-latches] "
                      "[--check-key-table FILE] [--check-key-timing] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
@@ -2035,15 +2040,16 @@ void write_startup_line(std::string_view text) {
         result.check_download_builds || result.check_stockpile_builds ||
         result.check_unit_page_memory || result.check_side_column || result.check_match_bars ||
         !result.check_unit_pages.empty() || !result.check_key_table.empty() ||
-        result.check_kill_board || !result.check_unit_language.empty() ||
-        result.check_language_switch || result.check_language_registry ||
-        result.check_language_notice || result.check_first_run || result.check_setup_window ||
-        result.check_window_place || result.check_progress || result.check_engine_feed ||
-        result.check_update_offer || result.check_update_download || result.check_text_fit ||
-        result.check_folder_chooser || result.check_patrol_reclaim || result.check_reclaim_cursor ||
-        result.check_wreck_pick || result.check_build_preview || result.check_pointer_interfaces ||
-        result.check_megamap_clicks || result.check_single_player_offers ||
-        result.check_radar_orders || result.check_touch_controls || result.check_pad_controls ||
+        result.check_key_latches || result.check_kill_board ||
+        !result.check_unit_language.empty() || result.check_language_switch ||
+        result.check_language_registry || result.check_language_notice || result.check_first_run ||
+        result.check_setup_window || result.check_window_place || result.check_progress ||
+        result.check_engine_feed || result.check_update_offer || result.check_update_download ||
+        result.check_text_fit || result.check_folder_chooser || result.check_patrol_reclaim ||
+        result.check_reclaim_cursor || result.check_wreck_pick || result.check_build_preview ||
+        result.check_pointer_interfaces || result.check_megamap_clicks ||
+        result.check_single_player_offers || result.check_radar_orders ||
+        result.check_touch_controls || result.check_pad_controls ||
         result.check_running_while_inactive || result.check_director_view ||
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||

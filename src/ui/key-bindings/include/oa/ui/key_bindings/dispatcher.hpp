@@ -5,10 +5,12 @@
 // caller passes the time; this module does not read a clock.
 #pragma once
 
+#include "oa/ui/key_bindings/helpers.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
 
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -250,7 +252,9 @@ class Dispatcher {
     /// on a repeat; any other action ignores repeats. A wheel gives `pressed`
     /// for each notch. A modifier role gives `active` or `inactive` as its
     /// own key goes down or up. An up for a key that never went down gives
-    /// nothing.
+    /// nothing. A latchable action named in `set_toggle` stays active after a
+    /// tap. With sticky modifiers on, a modifier pressed and released alone
+    /// fires nothing and applies to the next chord.
     ///
     /// With slow keys, a key down is held back (`LegacyGate::hold`) until
     /// `advance` has seen it held for `slow_keys_ms`; it then fires once, at
@@ -281,7 +285,7 @@ class Dispatcher {
     /// Releases every held action and deactivates every modifier role.
     ///
     /// Held keys, buttons and timers are cleared. A hold that had not fired
-    /// does not fire.
+    /// does not fire. Latches and sticky modifiers let go too.
     ///
     /// @param now_ms the time, in milliseconds; it is not read
     /// @return the `released` and `inactive` events
@@ -293,7 +297,7 @@ class Dispatcher {
     /// held, from `modifiers_now` or from `keys_held`. A role bound to a
     /// plain key is active while that key is held in `keys_held` and the
     /// chord's modifiers are in `modifiers_now`. This is not decided from
-    /// the key events `feed` saw.
+    /// the key events `feed` saw. A latched action is active while its latch is on.
     ///
     /// @param action the action id
     /// @param modifiers_now the physical modifiers held, never `primary`
@@ -301,6 +305,41 @@ class Dispatcher {
     /// @return true while the role is active
     [[nodiscard]] bool
     role_active(std::string_view action, uint8_t modifiers_now, const HeldKeys& keys_held) const;
+
+    /// Names the latchable actions that latch.
+    ///
+    /// An id that is not latchable never latches. An id that is not named
+    /// behaves as before. Replacing the list turns every latch off. The
+    /// sticky-modifier switch is left as it is.
+    ///
+    /// @param ids the action ids, in any order
+    void set_toggle(std::vector<std::string> ids);
+
+    /// Turns sticky modifiers on or off.
+    ///
+    /// Turning them off lets every one go. Setting the same value again
+    /// changes nothing, and does not let go of one that is already armed.
+    ///
+    /// @param on true to arm taps
+    void set_sticky_modifiers(bool on);
+
+    /// The hold latches.
+    ///
+    /// @return the latches
+    [[nodiscard]] const Latches& latches() const;
+
+    /// The sticky modifiers.
+    ///
+    /// @return the sticky modifiers
+    [[nodiscard]] const StickyModifiers& sticky() const;
+
+    /// The double-press and hold times.
+    ///
+    /// @return the times
+    [[nodiscard]] Timings timings() const;
+
+    /// Lets an armed sticky modifier go after a chord or a click. A locked one stays.
+    void consume_sticky();
 
     /// Reports whether a key of the action's chords is down.
     ///
