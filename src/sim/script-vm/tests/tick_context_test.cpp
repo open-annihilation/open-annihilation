@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <vector>
 
 namespace {
@@ -100,7 +101,21 @@ vm::Vm make_vm() {
         op::return_,
     };
     std::vector<uint32_t> entries = {0, 5, 10, 18};
-    return vm::Vm({std::move(code), std::move(entries), static_count}, time_scale);
+
+    struct HeldWords {
+        std::vector<uint32_t> code;
+        std::vector<uint32_t> entry_points;
+    };
+
+    const auto held = std::make_shared<HeldWords>();
+    held->code = std::move(code);
+    held->entry_points = std::move(entries);
+    vm::Program program;
+    program.code = held->code;
+    program.entry_points = held->entry_points;
+    program.static_count = static_count;
+    program.owner = held;
+    return vm::Vm(std::move(program), time_scale);
 }
 
 /// Checks the index bound and a stopped context.

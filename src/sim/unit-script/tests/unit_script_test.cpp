@@ -47,8 +47,8 @@ const std::vector<uint32_t> finish{op::push_constant, 0, op::return_};
 
 struct Bound {
     explicit Bound(oa::formats::cob::CobProgram program)
-        : cob(std::move(program)), host(cob.piece_names.size()),
-          vm(us::test::vm_program(cob), host) {
+        : cob(std::move(program)), host(cob.piece_names.size()), shared(us::test::vm_program(cob)),
+          vm(shared, host) {
         require(us::unit_script_attach(fixture.world, fixture.unit(1), &vm, cob), "attach");
     }
 
@@ -59,6 +59,7 @@ struct Bound {
     us::test::WorldFixture fixture;
     oa::formats::cob::CobProgram cob;
     us::test::RecordingHost host;
+    std::shared_ptr<const oa::sim::script_vm::Program> shared;
     oa::sim::script_vm::Vm vm;
 };
 
@@ -116,7 +117,11 @@ void attach_resolves_names_and_detach_releases() {
         "unbound unit reports no script"
     );
     us::test::RecordingHost other_host(2);
-    oa::sim::script_vm::Vm replaced(us::test::vm_program(bound.cob), other_host);
+    oa::sim::script_vm::Vm replaced(bound.shared, other_host);
+    require(
+        replaced.program().code.data() == bound.vm.program().code.data(),
+        "two interpreters of one script do not share its code"
+    );
     us::unit_script_detach(bound.fixture.world, bound.fixture.unit(1), &replaced);
     require(
         us::unit_script_of(bound.fixture.world, bound.fixture.unit(1)) != nullptr,

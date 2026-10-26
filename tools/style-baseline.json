@@ -127,7 +127,7 @@
    "tier-heap-container": 4
   },
   "src/sim/script-vm/include/oa/sim/script_vm.hpp": {
-   "tier-heap-container": 6,
+   "tier-heap-container": 4,
    "tier-virtual": 22
   },
   "src/sim/script-vm/src/script_vm.cpp": {
