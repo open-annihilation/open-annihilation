@@ -8,6 +8,7 @@
 #include "oa/app/runtime.hpp"
 
 #include "device_state.hpp"
+#include "tag_actions.hpp"
 #include "engine_settings_state.hpp"
 #include "oa/core/unit.h"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
@@ -78,6 +79,7 @@ struct Gesture {
     bool shift = false;
     bool primary = false;
     bool repeat = false;
+    bool twice = false;
     bool wheel_up = true;
     SDL_Scancode held = SDL_SCANCODE_UNKNOWN;
 };
@@ -99,6 +101,7 @@ struct Prepared {
     bool macos = false;
     bool escape_menu = false;
     bool settings = false;
+    std::string far;
 };
 
 struct TableRow {
@@ -445,6 +448,8 @@ void take_flag(Gesture& gesture, std::string_view flag) {
         gesture.primary = true;
     else if (flag == "repeat")
         gesture.repeat = true;
+    else if (flag == "twice")
+        gesture.twice = true;
     else if (flag.rfind("held=", 0) == 0)
         gesture.held = scancode_named(flag.substr(5));
     else if (flag.rfind("clicks=", 0) == 0)
@@ -561,6 +566,8 @@ Prepared parse_setup(std::string_view text) {
             prepared.escape_menu = true;
         else if (key == "screen" && value == "settings")
             prepared.settings = true;
+        else if (key == "far")
+            prepared.far = std::string(value);
         else
             fail("unknown setup word " + std::string(word));
     }
@@ -764,6 +771,8 @@ void Runtime::check_key_table() {
         uint16_t aircraft = 0;
         uint16_t combat = 0;
         uint16_t combat_two = 0;
+        uint16_t far_unit = 0;
+        std::string aircraft_name;
         int32_t origin_x = 0;
         int32_t origin_z = 0;
         float origin_zoom = 0;
@@ -1131,6 +1140,7 @@ void Runtime::check_key_table() {
             }
             if (flyer == nullptr)
                 fail("lacks an aircraft");
+            aircraft_name = flyer;
             aircraft = spawn_named(flyer, 160, 32);
             spawn_lab();
             const auto* builder_def = self.definition_for(builder);
@@ -1252,7 +1262,86 @@ void Runtime::check_key_table() {
                 SDL_SetWindowSize(self.sdl_.window, origin_width, origin_height);
         }
 
+        /// Removes the extra unit a `far=` row spawned, so later rows count the planted set.
+        void dismiss_far() {
+            if (far_unit == 0 || self.match_ == nullptr)
+                return;
+            auto* unit = self.match_->world().slots[far_unit].unit;
+            const uint16_t id = far_unit;
+            far_unit = 0;
+            if (unit != nullptr)
+                self.match_->kill_unit(id, static_cast<uint8_t>(orders::DeathKind::dismissed));
+        }
+
+        /// Spawns one more unit of a planted role, at least one view away from the commander.
+        ///
+        /// @param role commander, builder, factory, aircraft or combat
+        void spawn_far(std::string_view role) {
+            dismiss_far();
+            const char* name = nullptr;
+            std::string owned;
+            if (role == "builder")
+                name = "ARMCK";
+            else if (role == "combat")
+                name = "ARMPW";
+            else if (role == "factory")
+                name = "ARMLAB";
+            else if (role == "aircraft") {
+                if (aircraft_name.empty())
+                    fail("far=aircraft before an aircraft exists");
+                name = aircraft_name.c_str();
+            } else if (role == "commander") {
+                const auto type = self.match_->world().slots[commander].record.type_index;
+                if (type == 0 || type >= self.spawn_type_names_.size())
+                    fail("the commander has no type name");
+                owned = self.spawn_type_names_[type];
+                name = owned.c_str();
+            } else
+                fail("unknown far role " + std::string(role));
+
+            auto& slots = self.match_->world().slots;
+            const int32_t x0 = static_cast<int32_t>(slots[commander].unit->position[0] >> 16);
+            const int32_t z0 = static_cast<int32_t>(slots[commander].unit->position[2] >> 16);
+            const auto& game = self.match_->state().game;
+            const int32_t map_w = game.map_pixel_width;
+            const int32_t map_h = game.map_pixel_height;
+            const int32_t span =
+                std::max(static_cast<int32_t>(self.visible_map_width()), int32_t{1});
+            const auto fits = [&](int32_t x, int32_t z) {
+                return x >= 64 && z >= 64 && x < map_w - 64 && z < map_h - 64;
+            };
+            int32_t dx = 0;
+            int32_t dz = 0;
+            int32_t best = 0;
+            const auto consider = [&](int32_t try_dx, int32_t try_dz) {
+                if (!fits(x0 + try_dx, z0 + try_dz))
+                    return;
+                const int32_t along = try_dx < 0 ? -try_dx : try_dx;
+                const int32_t down = try_dz < 0 ? -try_dz : try_dz;
+                const int32_t reach = along > down ? along : down;
+                if (reach <= best)
+                    return;
+                best = reach;
+                dx = try_dx;
+                dz = try_dz;
+            };
+            consider(span * 3, 0);
+            consider(-span * 3, 0);
+            consider(0, span * 3);
+            consider(0, -span * 3);
+            if (best < span) {
+                consider(map_w - 65 - x0, 0);
+                consider(64 - x0, 0);
+                consider(0, map_h - 65 - z0);
+                consider(0, 64 - z0);
+            }
+            if (best < span)
+                fail("no ground off screen for " + std::string(role));
+            far_unit = spawn_named(name, dx, dz);
+        }
+
         void reset() {
+            dismiss_far();
             site_word.clear();
             row_watcher = false;
             if (self.engine_settings_dialog() != nullptr)
@@ -1473,6 +1562,8 @@ void Runtime::check_key_table() {
                 if (!self.megamap_open_)
                     self.megamap_open_ = true;
             }
+            if (!prepared.far.empty())
+                spawn_far(prepared.far);
         }
 
         [[nodiscard]] int screenshot_total() const {
@@ -1692,6 +1783,9 @@ void Runtime::check_key_table() {
                 if (gesture.scancode == SDL_SCANCODE_SPACE)
                     self.space_held_by_check_ = true;
                 tap(gesture.scancode, mods_of(gesture), gesture.repeat);
+                // The same chord again, with nothing between, is a second press.
+                if (gesture.twice)
+                    tap(gesture.scancode, mods_of(gesture), false);
                 hold_mods(gesture, false);
                 self.space_held_by_check_ = false;
                 // A key that resizes the window (Alt+Enter) leaves the pointer
@@ -1911,6 +2005,60 @@ void Runtime::check_key_table() {
                 fail("order quick keys do not match the stock order files");
         }
 
+        /// Prints each gathered Category word when the layout binds a tag, and
+        /// fails unless the stock words and the match's registry agree.
+        void report_tags() {
+            std::vector<std::string> bound;
+            std::vector<std::string> unknown;
+            self.tag_layout_ids(bound, unknown);
+            if (bound.empty() && unknown.empty())
+                return;
+            bool saw_kbot = false;
+            bool saw_notair = false;
+            bool saw_w = false;
+            bool saw_b = false;
+            bool saw_all = false;
+            for (const auto& tag : self.gathered_tags_) {
+                std::cout << "category word " << tag.word << ' ' << tag.action << '\n';
+                if (tag.word == "KBOT" && tag.action == "select.tag-kbot")
+                    saw_kbot = true;
+                if (tag.word == "NOTAIR" && tag.action == "select.tag-notair")
+                    saw_notair = true;
+                if (tag.word == "CTRL_W" && tag.action == "select.category-w")
+                    saw_w = true;
+                if (tag.word == "CTRL_B" && tag.action == "select.builders")
+                    saw_b = true;
+                std::string folded_word = tag.word;
+                for (char& letter : folded_word) {
+                    if (letter >= 'A' && letter <= 'Z')
+                        letter = static_cast<char>(letter - 'A' + 'a');
+                }
+                if (folded_word == "all")
+                    saw_all = true;
+            }
+            bool kept = false;
+            for (const std::string& id : unknown) {
+                if (id == "select.tag-ridge-scout")
+                    kept = true;
+            }
+            if (kept)
+                std::cout << "select.tag-ridge-scout kept, not in the loaded units\n";
+            std::vector<std::string> skipped;
+            const std::vector<TagWord> match_words =
+                tag_words(self.unit_table_.tables.categories, skipped);
+            bool same = match_words.size() == self.gathered_tags_.size();
+            if (same) {
+                for (std::size_t index = 0; index < match_words.size(); ++index) {
+                    if (match_words[index].word != self.gathered_tags_[index].word ||
+                        match_words[index].action != self.gathered_tags_[index].action)
+                        same = false;
+                }
+            }
+            std::cout.flush();
+            if (!saw_kbot || !saw_notair || !saw_w || !saw_b || saw_all || !kept || !same)
+                fail("the Category words do not match the tag check");
+        }
+
         void run() {
             if (self.sdl_.renderer == nullptr || self.sdl_.window == nullptr)
                 fail("needs the SDL window");
@@ -1925,6 +2073,7 @@ void Runtime::check_key_table() {
             prime_clock();
             settle();
             capture_origin();
+            report_tags();
             const auto rows = read_table(self.options_.check_key_table);
             std::vector<std::pair<std::string, std::string>> observed;
             std::vector<std::string> mismatches;

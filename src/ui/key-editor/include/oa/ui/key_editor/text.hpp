@@ -74,8 +74,10 @@ inline constexpr std::string_view filter_count = "{filter} ({count})";
 inline constexpr std::string_view all_categories = "All categories";
 /// The heading over the hacks that are on.
 inline constexpr std::string_view hacks_on = "Hacks on";
-/// The mod's category actions.
-inline constexpr std::string_view categories = "Categories";
+/// The mod's Category words.
+inline constexpr std::string_view tags = "Tags";
+/// A tag a layout names that the loaded units do not carry.
+inline constexpr std::string_view not_in_loaded_units = "not in the loaded units";
 /// The mod's menu keys.
 inline constexpr std::string_view menus = "Menus";
 /// Developer keys. Listed only in Developer Mode.

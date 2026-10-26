@@ -51,6 +51,15 @@ void set_error(std::string* reason, std::string message) {
         *reason = std::move(message);
 }
 
+/// Sets the reason with the system's own words after it, as the log keeps it.
+///
+/// @param[out] reason the reason, or null
+/// @param message what failed
+/// @param io the system's error
+void set_error(std::string* reason, std::string message, const std::error_code& io) {
+    set_error(reason, std::move(message) + ": " + io.message());
+}
+
 void note_line(const JournalHooks& hooks, std::string_view line) {
     if (hooks.note != nullptr)
         hooks.note(hooks.context, line);
@@ -344,7 +353,7 @@ bool copy_one(const fs::path& from, const fs::path& to, std::string* reason) {
     if (fs::is_regular_file(status)) {
         fs::copy_file(from, to, io);
         if (io) {
-            set_error(reason, "cannot copy " + utf8_of(from));
+            set_error(reason, "cannot copy " + utf8_of(from), io);
             return false;
         }
         return true;
@@ -367,7 +376,7 @@ bool copy_one(const fs::path& from, const fs::path& to, std::string* reason) {
 #else
     fs::create_directory(to, io);
     if (io) {
-        set_error(reason, "cannot copy " + utf8_of(from));
+        set_error(reason, "cannot copy " + utf8_of(from), io);
         return false;
     }
     fs::directory_iterator it(from, io);

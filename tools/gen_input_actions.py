@@ -87,8 +87,10 @@ CONTEXTS = [
     ("placing", "play", True, "Placing"),
     ("box", "match", True, "Selection box"),
 ]
-FAMILIES = ("gui", "select.category")
-FAMILY_FIELDS = {"area", "context", "kind", "by", "source", "default-template", "order-panel"}
+FAMILIES = ("gui", "select.category", "select.tag")
+FAMILY_FIELDS = {
+    "area", "context", "kind", "by", "source", "default-template", "order-panel", "words",
+}
 NAME_LIMIT = 64
 DESCRIPTION_LIMIT = 200
 DEFAULT_LIMIT = 4
@@ -401,7 +403,8 @@ def check_families(reg, areas, contexts, hack_ids, problems):
         add(problems, "registry", "field", "families is missing")
         return
     if list(raw) != list(FAMILIES):
-        add(problems, "registry", "field", "families are not gui and select.category")
+        add(problems, "registry", "field",
+            "families are not gui, select.category and select.tag")
     for family_id, body in raw.items():
         if family_id not in FAMILIES:
             add(problems, family_id, "id", "is not a load-time family")
@@ -440,13 +443,16 @@ def check_families(reg, areas, contexts, hack_ids, problems):
                     add(problems, family_id, "area", "the order-panel area is not declared")
                 if "context" in panel:
                     check_name_list(panel["context"], contexts, problems, family_id, "context")
+        if "words" in body:
+            check_words(body, problems, family_id)
 
 
 def check_id(action_id, problems, seen):
     if not isinstance(action_id, str) or not ENTRY_ID.fullmatch(action_id) \
             or len(action_id.encode()) > ID_LIMIT:
         add(problems, action_id, "id", "the id is not kebab words joined by dots")
-    if action_id.startswith("gui.") or action_id.startswith("select.category-"):
+    if action_id.startswith("gui.") or action_id.startswith("select.category-") \
+            or action_id.startswith("select.tag-"):
         add(problems, action_id, "id", "made at load")
     prefix = action_id.split(".", 1)[0]
     if prefix not in PREFIXES:
@@ -784,6 +790,15 @@ def generate_text(reg):
         panel_area = panel.get("area", "")
         panel_context = bits(panel.get("context", []), context_index) if panel else 0
         template = body.get("default-template", "")
+        words = body.get("words") or {}
+        word_name = words.get("name", "") if isinstance(words, dict) else ""
+        word_description = words.get("description", "") if isinstance(words, dict) else ""
+        if word_name or word_description:
+            words_text = (
+                "Words{" + cxx_string(word_name) + ", " + cxx_string(word_description) + "}"
+            )
+        else:
+            words_text = "Words{}"
         lines.append(
             "    {" + ", ".join([
                 cxx_string(family_id),
@@ -795,6 +810,7 @@ def generate_text(reg):
                 cxx_string(template) if template else "std::string_view{}",
                 cxx_string(panel_area) if panel_area else "std::string_view{}",
                 f"uint32_t{{{panel_context}}}",
+                words_text,
             ]) + "},\n")
     lines.append("};\n\n")
 
@@ -951,6 +967,9 @@ def self_test():
         body.pop("touch", None)
         body["order"] = 900
         reg["actions"]["gui.stolen"] = body
+        stolen = copy.deepcopy(body)
+        stolen["order"] = 901
+        reg["actions"]["select.tag-stolen"] = stolen
 
     def rule3(reg):
         reg["actions"]["order.attack"]["colour"] = "red"
@@ -1010,6 +1029,8 @@ def self_test():
         problems = check_registry(reg, hack_ids, pads, touch_enums)
         if not any(word in problem and (token is None or token in problem) for problem in problems):
             failures.append(f"rule {number} ({word}) missed: {problems[:6]}")
+        if number == 2 and not any("select.tag-stolen" in problem for problem in problems):
+            failures.append(f"rule 2 missed select.tag-stolen: {problems[:6]}")
     both = copy.deepcopy(base)
     both["actions"]["order.stop"]["kind"] = "song"
     both["actions"]["megamap.toggle"]["source"] = ["ui.no-such-hack"]

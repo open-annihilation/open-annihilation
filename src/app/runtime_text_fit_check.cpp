@@ -25,6 +25,9 @@
 // details at Regular and Large, and Compact's details page.
 // The key editor's list is painted at both sizes, and Compact's details page,
 // then the capture, the clash prompt, the keyboard, the mouse and the draft card.
+// Controls is painted with an own layout of OA default that holds twelve
+// changes, in every language and both sizes, so Key layout's value is the
+// layout's name and its count. The own layout is removed before the check ends.
 
 #include "folder_chooser_screen.hpp"
 #include "game_files_screen.hpp"
@@ -312,6 +315,53 @@ void quit_after_paint(void* /*context*/, GameFilesScreen& screen) {
 struct FitFailure {
     std::string line{}; ///< screen, language, size and text
 };
+
+/// Writes an own layout of OA default that names twelve actions, so Controls
+/// shows a change count. The check removes the file after the key editor.
+///
+/// @param user_folder the player's folder
+void write_own_layout_changes(const fs::path& user_folder) {
+    oakeys::Manifest manifest;
+    manifest.format = oakeys::format_version;
+    manifest.id = "own-oa-default";
+    manifest.name = "Your changes";
+    manifest.version.major = 1;
+    manifest.version.minor = 0;
+    manifest.version.parts = 2;
+    manifest.author.name = "You";
+    manifest.tags = {"own"};
+    manifest.base = oakeys::Base::oa_default;
+    constexpr std::string_view actions[] = {
+        "order.attack",
+        "order.move",
+        "order.stop",
+        "order.patrol",
+        "order.guard",
+        "order.reclaim",
+        "order.repair",
+        "order.dgun",
+        "camera.zoom.in",
+        "camera.zoom.out",
+        "select.idle",
+        "select.all",
+    };
+    for (const std::string_view action : actions) {
+        oakeys::BindingEntry binding;
+        binding.action = std::string(action);
+        binding.chords.push_back(oakeys::ChordText{"A", 0, 0});
+        manifest.bindings.push_back(std::move(binding));
+    }
+    const fs::path own_dir = user_folder / std::string(key_library::keys_folder_name) /
+                             key_library::own_folder_name("oa-default");
+    std::error_code made;
+    fs::create_directories(own_dir, made);
+    require(!made, "the own layout folder was not made");
+    const fs::path own_file = own_dir / std::string(oakeys::manifest_file);
+    std::ofstream out(own_file, std::ios::binary);
+    require(static_cast<bool>(out), "the own layout was not opened");
+    out << oakeys::write_manifest(manifest);
+    require(static_cast<bool>(out), "the own layout was not written");
+}
 
 } // namespace
 
@@ -1087,6 +1137,8 @@ void Runtime::check_text_fit() {
             }
             reload_installed_brains();
 
+            require(!user_folder_.empty(), "the run has no folder of the player's own");
+            write_own_layout_changes(fs::path(user_folder_));
             open_engine_settings_from_menu();
             settings::Dialog* dialog = engine_settings_dialog();
             require(dialog != nullptr, "Settings did not open");

@@ -435,6 +435,10 @@ if(BUILD_TESTING)
   add_executable(oa-app-gui-actions-test src/app/gui_actions_test.cpp src/app/gui_actions.cpp)
   target_link_libraries(oa-app-gui-actions-test PRIVATE oa-data-input-actions oa-test-support oa-options)
   add_test(NAME app-gui-actions COMMAND oa-app-gui-actions-test)
+  add_executable(oa-app-tag-actions-test src/app/tag_actions_test.cpp src/app/tag_actions.cpp)
+  target_link_libraries(oa-app-tag-actions-test PRIVATE oa-data-defs oa-ui-key-bindings
+    oa-test-support oa-options)
+  add_test(NAME app-tag-actions COMMAND oa-app-tag-actions-test)
 endif()
 # The game's three icons (branding/, made by tools/make_icons.py), each
 # embedded as a PNG file. The 256-pixel pictures: the app icon is the
@@ -1342,7 +1346,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_touch.cpp src/app/runtime_touch_actions.cpp src/app/runtime_touch_camera.cpp
   src/app/runtime_input_modifiers.cpp src/app/runtime_key_bindings.cpp
   src/app/runtime_pointer_keys.cpp
-  src/app/gui_actions.cpp src/app/runtime_gui_actions.cpp
+  src/app/gui_actions.cpp src/app/tag_actions.cpp src/app/runtime_gui_actions.cpp
   src/app/runtime_touch_hud.cpp
   src/app/runtime_phone_hud.cpp src/app/runtime_lifecycle.cpp
   src/app/game_files_screen.cpp src/app/game_files_paint.cpp src/app/game_files_dialog.cpp
@@ -3946,6 +3950,19 @@ endforeach()
         TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_new_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Category words, bound by a layout. A second press of J reaches one
+      # construction kbot spawned off screen.
+      set(oa_key_table_tags_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-table-tags")
+      file(MAKE_DIRECTORY "${oa_key_table_tags_dir}")
+      add_test(NAME native-key-table-tags COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute
+        --check-key-table "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/tags.tsv"
+        --keys "${CMAKE_CURRENT_SOURCE_DIR}/src/app/key-table/tags"
+        --preferences-file "${oa_key_table_tags_dir}/key-table.conf")
+      set_tests_properties(native-key-table-tags PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_table_tags_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
       # with a layout that lists those two holds.
       set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")
@@ -4780,6 +4797,13 @@ if(BUILD_TESTING)
   set_tests_properties(tools-oa-tool-version PROPERTIES
     PASS_REGULAR_EXPRESSION
       "^Open Annihilation [0-9]+\\.[0-9]+\\.[0-9]+(-[A-Za-z0-9.]+)? \\([a-z0-9._-]+ [A-Za-z0-9_]+, ([0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]|unknown)\\)\n?$"
+    TIMEOUT 60)
+  # A command's own --version (engine-feed write, mutator import) reaches the
+  # command: only a first --version prints the version line.
+  add_test(NAME tools-oa-tool-command-version COMMAND oa-tool engine-feed write --version 0.8.7)
+  set_tests_properties(tools-oa-tool-command-version PROPERTIES
+    PASS_REGULAR_EXPRESSION "engine-feed write: option '--date' needs a value"
+    FAIL_REGULAR_EXPRESSION "Open Annihilation [0-9]"
     TIMEOUT 60)
 endif()
 # The update helper. Its library and tests are built with the platform.

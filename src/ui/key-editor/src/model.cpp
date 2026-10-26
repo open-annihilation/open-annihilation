@@ -6,6 +6,7 @@
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/key_bindings/layout_file.hpp"
+#include "oa/ui/key_bindings/tags.hpp"
 
 #include <algorithm>
 #include <optional>
@@ -252,6 +253,44 @@ acts::Kind kind_of(const keys::Bound& bound) {
     return acts::Kind::press;
 }
 
+/// The select.tag family, or null.
+///
+/// @return the family
+const acts::Family* tag_family() {
+    for (const acts::Family& family : acts::families()) {
+        if (family.id == "select.tag")
+            return &family;
+    }
+    return nullptr;
+}
+
+/// The word a `select.tag-` id shows. A gathered word keeps the data's
+/// spelling. A tag the loaded units lack shows only the id's suffix.
+///
+/// @param inputs the inputs
+/// @param id the action id
+/// @return the word, or empty when the id is not a tag
+std::string tag_display_word(const EditorInputs& inputs, std::string_view id) {
+    constexpr std::string_view prefix = "select.tag-";
+    if (!id.starts_with(prefix) || id.size() <= prefix.size())
+        return {};
+    for (const std::string& word : inputs.mod.tags) {
+        if (keys::tag_action_id(word) == id)
+            return word;
+    }
+    return std::string(id.substr(prefix.size()));
+}
+
+/// Fills a family template. The template is looked up; the word is not.
+///
+/// @param hooks the lookup
+/// @param pattern the English template
+/// @param word the data's spelling, or an unknown id's suffix
+/// @return the sentence
+std::string tag_sentence(const TextHooks& hooks, std::string_view pattern, std::string_view word) {
+    return fill(show(hooks, pattern), {{"word", word}});
+}
+
 /// A source token as the details say it.
 ///
 /// @param hooks the lookup
@@ -409,7 +448,7 @@ std::string category_id(const keys::Bound& bound, const EditorInputs& inputs) {
     const std::string& id = bound.id;
     if (id.starts_with("ui.screen-"))
         return "oa-screens";
-    if (id.starts_with("select.category-"))
+    if (id.starts_with("select.category-") || id.starts_with("select.tag-"))
         return "mod.categories";
     if (id.starts_with("gui."))
         return "mod.menus";
@@ -657,7 +696,7 @@ void category_look(
         return;
     }
     if (id == "mod.categories") {
-        title = show(hooks, words::categories);
+        title = show(hooks, words::tags);
         tint = kit::KeyTint::mod;
         letter = show(hooks, words::letter_mod);
         return;
@@ -744,6 +783,15 @@ Listed list_bound(
         bound.id.size() > std::string("select.category-").size()
     ) {
         listed.name = utf8_of(static_cast<char32_t>(bound.id.back() - 'a' + 'A'));
+    } else if (bound.id.starts_with("select.tag-")) {
+        const std::string word = tag_display_word(inputs, bound.id);
+        const acts::Family* family = tag_family();
+        if (family != nullptr && !word.empty()) {
+            listed.name = tag_sentence(hooks, family->words.name, word);
+            listed.description = tag_sentence(hooks, family->words.description, word);
+        } else {
+            listed.name = bound.id;
+        }
     } else {
         listed.name = bound.id;
     }
@@ -771,6 +819,15 @@ Listed list_bound(
         aside.push_back(show(hooks, words::aside_confirm));
     if (!listed.gadget.empty())
         aside.push_back(listed.gadget);
+    for (const std::string& word : inputs.mod.tags) {
+        const std::string action = keys::tag_action_id(word);
+        if (action.empty() || action.starts_with("select.tag-"))
+            continue;
+        const bool held_here = action == bound.id;
+        const bool replaced = bound.entry != nullptr && bound.entry->replaces == action;
+        if (held_here || replaced)
+            aside.push_back(word);
+    }
     listed.aside = joined(aside, " · ");
     const bool held = kind == acts::Kind::hold;
     listed.where = where_text(hooks, bound.contexts, held, listed.category_title);
@@ -788,6 +845,8 @@ Listed list_bound(
     } else if (bound.id.starts_with("select.category-")) {
         defaults.push_back(std::string("Ctrl+") + listed.name);
         source = source_text(hooks, "3.1c");
+    } else if (bound.id.starts_with("select.tag-")) {
+        source = source_text(hooks, "data");
     } else if (made != nullptr) {
         source = source_text(hooks, "data");
         if (order_panel(made->gadget))
@@ -812,13 +871,28 @@ Listed list_unknown(
 ) {
     Listed listed;
     listed.id = binding.action;
-    listed.name = binding.action;
-    listed.category = "unknown";
     listed.read_only = true;
     listed.changed = draft_names(own, binding.action);
+    constexpr std::string_view prefix = "select.tag-";
+    const bool missing_tag =
+        binding.action.starts_with(prefix) && binding.action.size() > prefix.size();
+    listed.category = missing_tag ? "mod.categories" : "unknown";
     category_look(
         inputs.text, listed.category, inputs, listed.category_title, listed.tint, listed.letter
     );
+    if (missing_tag) {
+        const std::string word(binding.action.substr(prefix.size()));
+        const acts::Family* family = tag_family();
+        if (family != nullptr) {
+            listed.name = tag_sentence(inputs.text, family->words.name, word);
+            listed.description = tag_sentence(inputs.text, family->words.description, word);
+        } else {
+            listed.name = binding.action;
+        }
+        listed.aside = show(inputs.text, words::not_in_loaded_units);
+    } else {
+        listed.name = binding.action;
+    }
     for (const keys::Chord& chord : binding.chords) {
         listed.chords.push_back(chord);
         listed.steps.push_back(keys::Step::own);
@@ -919,7 +993,8 @@ std::vector<Listed> build_list(
 /// @return the haystack
 std::string haystack_of(const Listed& listed) {
     return folded(
-        listed.name + " " + listed.description + " " + listed.id + " " + listed.category_title
+        listed.name + " " + listed.description + " " + listed.aside + " " + listed.id + " " +
+        listed.category_title
     );
 }
 
@@ -1270,6 +1345,97 @@ std::string line_name(const std::string& line) {
     return line.substr(tab + 1);
 }
 
+/// Folds one ASCII letter. Any other byte is kept.
+///
+/// @param byte the byte
+/// @return the folded byte
+unsigned char folded_byte(unsigned char byte) {
+    if (byte >= 'A' && byte <= 'Z')
+        return static_cast<unsigned char>(byte - 'A' + 'a');
+    return byte;
+}
+
+/// True when the left word sorts first, ASCII case ignored.
+///
+/// @param left one Category word
+/// @param right the other
+/// @return true when the registry would list `left` first
+bool word_before(std::string_view left, std::string_view right) {
+    const std::size_t count = left.size() < right.size() ? left.size() : right.size();
+    for (std::size_t index = 0; index < count; ++index) {
+        const unsigned char a = folded_byte(static_cast<unsigned char>(left[index]));
+        const unsigned char b = folded_byte(static_cast<unsigned char>(right[index]));
+        if (a != b)
+            return a < b;
+    }
+    return left.size() < right.size();
+}
+
+/// The listed action a tag word shows, or the action that replaces it.
+///
+/// @param rows the listed actions
+/// @param action the action the word maps to
+/// @return the row, or null
+const Listed* action_row(const std::vector<Listed>& rows, std::string_view action) {
+    if (const Listed* direct = find_listed(rows, action))
+        return direct;
+    for (const Listed& row : rows) {
+        if (row.entry != nullptr && row.entry->replaces == action)
+            return &row;
+    }
+    return nullptr;
+}
+
+/// The Tags group: one row per gathered word, then the group's other rows.
+///
+/// A word another action holds lists that action. All still lists it once,
+/// in the action's own category. A tag the loaded units lack stays here.
+///
+/// @param listed the listed actions
+/// @param inputs the inputs
+/// @param filter the filter
+/// @param query the search
+/// @return the rows
+std::vector<Row> tag_group_rows(
+    const std::vector<Listed>& listed,
+    const EditorInputs& inputs,
+    Filter filter,
+    std::string_view query
+) {
+    std::vector<std::size_t> order(inputs.mod.tags.size());
+    for (std::size_t index = 0; index < order.size(); ++index)
+        order[index] = index;
+    std::stable_sort(order.begin(), order.end(), [&](std::size_t left, std::size_t right) {
+        return word_before(inputs.mod.tags[left], inputs.mod.tags[right]);
+    });
+
+    std::vector<std::string> shown;
+    std::vector<Row> out;
+    auto take = [&](const Listed& row) {
+        if (listed_id(shown, row.id))
+            return;
+        shown.push_back(row.id);
+        if (!kept(row, filter) || !matches(row, query))
+            return;
+        Row copy = row_of(row);
+        copy.category = "mod.categories";
+        out.push_back(std::move(copy));
+    };
+    for (const std::size_t index : order) {
+        const std::string action = keys::tag_action_id(inputs.mod.tags[index]);
+        if (action.empty())
+            continue;
+        const Listed* row = action_row(listed, action);
+        if (row != nullptr)
+            take(*row);
+    }
+    for (const Listed& row : listed) {
+        if (row.category == "mod.categories")
+            take(row);
+    }
+    return out;
+}
+
 } // namespace
 
 std::vector<CategoryEntry> Editor::categories() const {
@@ -1315,18 +1481,20 @@ std::vector<CategoryEntry> Editor::categories() const {
         for (const std::string& hack : hacks)
             add(hack, count_of(hack), false);
     }
-    const bool mod_rows = count_of("mod.categories") > 0 || count_of("mod.menus") > 0;
-    const bool mod_data = !inputs_.mod.categories.empty() || !inputs_.mod.keys.empty();
+    const std::size_t tag_count = tag_group_rows(listed, inputs_, Filter::all, "").size();
+    const bool mod_rows = tag_count > 0 || count_of("mod.menus") > 0;
+    const bool mod_data =
+        !inputs_.mod.categories.empty() || !inputs_.mod.keys.empty() || !inputs_.mod.tags.empty();
     if (!inputs_.mod_name.empty() || mod_rows || mod_data) {
         CategoryEntry heading;
         heading.id = "heading.mod";
         heading.title =
-            inputs_.mod_name.empty() ? show(inputs_.text, words::categories) : inputs_.mod_name;
+            inputs_.mod_name.empty() ? show(inputs_.text, words::tags) : inputs_.mod_name;
         heading.read_only = true;
         out.push_back(std::move(heading));
     }
-    if (count_of("mod.categories") > 0 || !inputs_.mod.categories.empty())
-        add("mod.categories", count_of("mod.categories"), false);
+    if (tag_count > 0 || !inputs_.mod.categories.empty() || !inputs_.mod.tags.empty())
+        add("mod.categories", tag_count, false);
     if (count_of("mod.menus") > 0 || !inputs_.mod.keys.empty())
         add("mod.menus", count_of("mod.menus"), false);
     if (inputs_.developer_mode)
@@ -1343,6 +1511,8 @@ Editor::rows(std::string_view category, Filter filter, std::string_view query) c
         return {};
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
+    if (category == "mod.categories")
+        return tag_group_rows(listed, inputs_, filter, query);
     const bool every = category.empty() || category == "all";
     std::vector<Row> out;
     for (const Listed& row : listed) {

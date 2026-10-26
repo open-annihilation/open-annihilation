@@ -20,7 +20,7 @@ The controls a journey presses, as `oa.` and the name:
 | `key-editor.nav.<id>` | One Large nav entry |
 | `key-editor.filter.all`, `.changed`, `.clashes`, `.unbound`, `.latchable` | The filter pills. At Compact they are items of the category menu |
 | `key-editor.list` | The list. Its scroll bar is `key-editor.list.bar` |
-| `key-editor.row.<id>` | A row. Its text is the name and its chords. A `gui.` id longer than 80 bytes, or any id that would make the name unsound or longer than 100 bytes, is `key-editor.row.n<k>` |
+| `key-editor.row.<id>` | A row. Its text is the name and its chords. A `gui.` id longer than 80 bytes, or any id that would make the name unsound or longer than 100 bytes (a long `select.tag-` id among them), is `key-editor.row.n<k>` |
 | `key-editor.number-keys` | Number keys select groups, at the head of Groups. Parts `off` and `on` |
 | `key-editor.detail.chord.<n>` | A chord, numbered from 1. Enter changes it. A fixed Escape chord is not a control |
 | `key-editor.detail.chord.<n>.remove` | A chord's ✕, numbered from 1. A fixed chord has none |
@@ -58,7 +58,7 @@ Tab's order is LAYOUT ▾, the search, the categories, the pills, the list, the 
 
 `editor_pointer`, `editor_key`, `editor_text`, `editor_wheel`, `editor_command` and `editor_stick` change only the model and `ScreenState`. They return what the host must do. `cancel` closes the editor. `save` writes the draft when `can_save` is true. `ask_keep_changes` names the layout being chosen. `ask_leave` asks before unsaved changes are left. `ask_name` asks a layout's name: its id is `duplicate` or `rename`.
 
-On the list, Up and Down move the chosen row, Page Up and Page Down move by the rows shown, and Home and End go to the ends. Enter on a row opens Compact's details page, or moves the focus to the details' first control at Regular and Large. Delete on a focused chord removes it. Escape closes an open menu, else clears a search that holds words, else leaves Compact's details page, else asks to leave or closes. Typed text goes to a focused search. The search matches names, descriptions, ids and category titles, folded as the Library folds them. The wheel and a finger scroll the pane under them. A tap selects the row. A press on a chord's ✕ takes that chord off.
+On the list, Up and Down move the chosen row, Page Up and Page Down move by the rows shown, and Home and End go to the ends. Enter on a row opens Compact's details page, or moves the focus to the details' first control at Regular and Large. Delete on a focused chord removes it. Escape closes an open menu, else clears a search that holds words, else leaves Compact's details page, else asks to leave or closes. Typed text goes to a focused search. The search matches names, descriptions, asides, ids and category titles, folded as the Library folds them. The wheel and a finger scroll the pane under them. A tap selects the row. A press on a chord's ✕ takes that chord off.
 
 `find` focuses the search. `back` closes a menu, or leaves the details page, or answers `cancel`. `save` answers `save`. `add_key` is + ADD KEY on the chosen row: the controller's X. The host maps a controller as it does for the Library: Y is `find`, X is `add_key`, B is `back`, Menu is `save`, and L1 and R1 are Shift+Tab and Tab. The right stick is `editor_stick`.
 
@@ -76,7 +76,7 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 
 ## Entry points
 
-- `categories` lists the categories in order, with counts, tints and letters. Developer Mode adds Developer. Actions this version does not know are "Not in this version", read only.
+- `categories` lists the categories in order, with counts, tints and letters. Developer Mode adds Developer. Under the played mod's name (or "Tags" when no mod is named) the Tags group lists every Category word the loaded units carry, in the registry's order, named from the `select.tag` template with the data's spelling. A word another action already selects lists that action, with the word as its aside, and All still counts the action once. A layout's `select.tag-` binding the loaded units lack is a greyed row in Tags, with the aside "not in the loaded units", not under "Not in this version". Other actions this version does not know are "Not in this version", read only.
 - `rows` is one category, one filter and the search. `details` is the chosen action. `counts` is what the pills say.
 - `remove_chord` takes one chord off. Escape's fixed chord on `chat.cancel` and `ui.screen-cancel` is refused, and so is any change to an unknown action. The action can take more chords.
 - `reset_action` drops the action from the draft. `restore_defaults` clears the draft's known bindings and its helpers, and puts number keys back. Unknown actions stay, so a save writes them back.
@@ -88,7 +88,7 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 
 ## Tests
 
-`ui-key-editor-model` checks the categories, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing, duplicating and renaming a layout, a clash in the mod's data that stays listed while SAVE stays allowed, a draft chord that blocks SAVE, an unknown action written back, Developer Mode, and Escape's fixed chord.
+`ui-key-editor-model` checks the categories, the filters, the search, removing and resetting a chord, Latch and Hold to confirm, the number-keys switch, choosing, duplicating and renaming a layout, a clash in the mod's data that stays listed while SAVE stays allowed, a draft chord that blocks SAVE, an unknown action written back, the Tags group's order, a bound tag, a tag the loaded units lack, Developer Mode, and Escape's fixed chord.
 
 `ui-key-editor-layout` lays the screen out at Compact, Regular and Large, including the keyboard and the mouse, and the ISO and JIS keyboards at Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits. A key scrolled past the well is clipped.
 
