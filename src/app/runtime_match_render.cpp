@@ -18,6 +18,7 @@
 #include "oa/present/model/rgb_bridge.hpp"
 #include "oa/present/blit.hpp"
 #include "oa/present/display.hpp"
+#include "oa/present/game_text.hpp"
 #include "oa/present/palette_tables.hpp"
 #include "oa/present/raster.hpp"
 #include "oa/present/scene_grid.hpp"
@@ -918,6 +919,10 @@ void Runtime::compose_match_hud() {
 }
 
 void Runtime::render_match_surface() {
+    // A match frame draws every line of text it shows, so the layers kept of
+    // the lines the frame before did not draw, such as a readout's earlier
+    // numbers, go.
+    oa::present::forget_undrawn_text_layers();
     // A failed rotated frame puts the view back classic, so the second draw
     // draws the battlefield as the classic tiers do.
     if (!draw_match_surface())
@@ -2461,6 +2466,7 @@ bool Runtime::draw_match_surface() {
     draw_clock_line(PaintLayer::battlefield);
     draw_chat_overlay();
     draw_key_latch_chips();
+    draw_hold_ring();
     draw_extension_overlay();
     draw_risen_chat_line();
     draw_unit_info_panel();

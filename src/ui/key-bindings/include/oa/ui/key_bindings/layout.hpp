@@ -9,6 +9,7 @@
 #include "oa/ui/key_bindings/chord.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -126,6 +127,10 @@ struct Resolved {
     std::vector<LayoutBinding>
         unknown{};            ///< names neither the registry nor a family makes, chords kept
     std::vector<Lost> lost{}; ///< chords that did not stay
+    /// Actions that need a hold when Hold to confirm is on. Unset means every
+    /// confirmable action. Set, even when empty, means only these ids. The
+    /// layout's helpers supply it; resolution itself does not.
+    std::optional<std::vector<std::string>> hold_to_confirm{};
 };
 
 /// Resolves the bindings in use.

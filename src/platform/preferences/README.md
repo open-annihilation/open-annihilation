@@ -201,6 +201,8 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.path-search-nodes` | path nodes a game tick, 1333 to 10664 | 1333 |
 | `open-annihilation.wheel-zoom` | 0 or 1 | 1 |
 | `open-annihilation.access.sticky-modifiers` | 0 or 1 | 0 |
+| `open-annihilation.access.pointer-keys` | 0 or 1 | 0 |
+| `open-annihilation.access.hold-to-confirm` | 0 or 1. Self-destruct, surrender and quitting need the long-press time, and a ring fills while the press is held | 0 |
 | `open-annihilation.middle-click-pan` | 0 or 1 | 1 |
 | `open-annihilation.max-zoom-out` | `automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`; any other text reads as `automatic` | `automatic` |
 | `open-annihilation.max-zoom-in` | `1`, `2`, `3` or `4` times the game's scale; any other text reads as `4` | `4` |

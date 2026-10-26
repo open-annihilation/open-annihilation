@@ -21,6 +21,8 @@ namespace oa::app {
 /// The mouse the pad pointer's synthetic events name: no device registers it, and it is
 /// neither SDL_TOUCH_MOUSEID nor SDL_PEN_MOUSEID, so the pointer rests like a mouse's.
 inline constexpr SDL_MouseID pad_mouse_id = 0x70ad;
+/// The mouse the numpad pointer's synthetic events name. No device registers it.
+inline constexpr SDL_MouseID pointer_keys_mouse_id = 0x70ae;
 /// The most gamepads kept open at once.
 inline constexpr std::size_t max_open_pads = 4;
 /// The key Open Annihilation's Steam Input layout sends for the R4 grip, read as the grip
@@ -390,12 +392,6 @@ struct PadAccess {
     /// @param runtime the runtime
     /// @return whether a held grip presses QUEUE or x5
     [[nodiscard]] static bool queue_grip_held(const Runtime& runtime);
-    /// Presses a match key as the keyboard would, with modifiers.
-    ///
-    /// @param runtime the runtime
-    /// @param key the key
-    /// @param mods its modifiers
-    static void match_key(Runtime& runtime, SDL_Keycode key, SDL_Keymod mods = SDL_KMOD_NONE);
     /// Sends a key's press and release through dispatch_event, as the keyboard would.
     ///
     /// @param runtime the runtime

@@ -106,7 +106,7 @@ contexts:
     title: Selection box
 
 conditions:
-  names: [single-player, multiplayer, seat, selection, developer, debug-keys, wheel-zoom, no-wheel-zoom]
+  names: [single-player, multiplayer, seat, selection, developer, debug-keys, wheel-zoom, no-wheel-zoom, pointer-keys]
   exclusive:
     - [single-player, multiplayer]
     - [wheel-zoom, no-wheel-zoom]
@@ -560,6 +560,126 @@ actions:
     default: ["MouseRight"]
     target: build-button
     words: {name: "Build remove", description: "A build button: take one off"}
+  pointer.move-up:
+    area: mouse
+    order: 18
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad8"]
+    words: {name: "Pointer up", description: "Moves the pointer up, faster the longer the key is held"}
+  pointer.move-down:
+    area: mouse
+    order: 19
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad2"]
+    words: {name: "Pointer down", description: "Moves the pointer down, faster the longer the key is held"}
+  pointer.move-left:
+    area: mouse
+    order: 20
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad4"]
+    words: {name: "Pointer left", description: "Moves the pointer left, faster the longer the key is held"}
+  pointer.move-right:
+    area: mouse
+    order: 21
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad6"]
+    words: {name: "Pointer right", description: "Moves the pointer right, faster the longer the key is held"}
+  pointer.move-up-left:
+    area: mouse
+    order: 22
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad7"]
+    words: {name: "Pointer up left", description: "Moves the pointer up and left, faster the longer the key is held"}
+  pointer.move-up-right:
+    area: mouse
+    order: 23
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad9"]
+    words: {name: "Pointer up right", description: "Moves the pointer up and right, faster the longer the key is held"}
+  pointer.move-down-left:
+    area: mouse
+    order: 24
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad1"]
+    words: {name: "Pointer down left", description: "Moves the pointer down and left, faster the longer the key is held"}
+  pointer.move-down-right:
+    area: mouse
+    order: 25
+    context: [global]
+    when: [pointer-keys]
+    kind: hold
+    by: place
+    source: [OA]
+    default: ["Numpad3"]
+    words: {name: "Pointer down right", description: "Moves the pointer down and right, faster the longer the key is held"}
+  pointer.click-left:
+    area: mouse
+    order: 26
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["Numpad5"]
+    words: {name: "Pointer click left", description: "Clicks the left button. Twice quickly, a double click"}
+  pointer.click-right:
+    area: mouse
+    order: 27
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["Numpad0"]
+    words: {name: "Pointer click right", description: "Clicks the right button"}
+  pointer.hold-left:
+    area: mouse
+    order: 28
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["NumpadAdd"]
+    words: {name: "Pointer hold left", description: "Holds the left button down until pressed again"}
+  pointer.let-go:
+    area: mouse
+    order: 29
+    context: [global]
+    when: [pointer-keys]
+    kind: press
+    by: place
+    source: [OA]
+    default: ["NumpadDecimal"]
+    words: {name: "Pointer let go", description: "Lets a held mouse button go"}
   select.all:
     area: selection
     order: 1
@@ -629,6 +749,8 @@ actions:
     by: letter
     source: [3.1c]
     default: ["Ctrl+Shift+C"]
+    pad: commander
+    touch: select.commander
     words: {name: "Add commander", description: "Adds the commander"}
   select.same-type:
     area: selection
@@ -638,6 +760,7 @@ actions:
     by: letter
     source: [3.1c]
     default: ["Ctrl+Z"]
+    pad: select_type
     touch: select.same_type
     words: {name: "Select same type", description: "Every unit of a selected unit's type"}
   select.idle-builders:
@@ -702,6 +825,7 @@ actions:
     kind: press
     source: [OA]
     default: ["Tab"]
+    pad: team_menu
     words: {name: "Next primary", description: "Next selected unit becomes primary"}
   select.previous-primary:
     area: selection
@@ -711,6 +835,7 @@ actions:
     kind: press
     source: [3.1c]
     default: ["Shift+Tab"]
+    pad: share_panel
     words: {name: "Previous primary", description: "Previous selected unit becomes primary"}
   select.clear:
     area: selection
@@ -1112,6 +1237,7 @@ actions:
     by: letter
     source: [OA]
     default: ["Shift+T"]
+    pad: follow
     words: {name: "Follow previous", description: "Follows the previous selected unit"}
   camera.next-unit:
     area: camera
@@ -1496,6 +1622,7 @@ actions:
     kind: press
     source: [3.1c]
     default: ["Shift+F1", "Ctrl+Shift+F1"]
+    pad: unit_info
     words: {name: "Pin unit", description: "Pins the unit under the pointer"}
   game.kill-board:
     area: game

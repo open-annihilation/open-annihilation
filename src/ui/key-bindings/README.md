@@ -103,6 +103,23 @@ dispatcher times a double press and a hold from that time.
   an armed modifier go and keeps a locked one. `release_all` clears the
   latches and the sticky modifiers, which is what losing the window does.
   `shown` is the order they were turned on. A repeat does not toggle a latch.
+- `PointerKeys` moves the pointer from the numpad while pointer keys are on.
+  Eight directions add up, and a diagonal travels at the same speed along
+  its line. The speed starts at `pointer_keys_start_speed` (60 points of the
+  640×480 game a second) and rises in a straight line to
+  `pointer_keys_top_speed` (480) after `pointer_keys_ramp_ms` (1,000 ms).
+  5 clicks the left button and, a second time within the double-press time,
+  double-clicks. 0 clicks the right button. + holds the left button until it
+  is pressed again. . lets a held button go. `clear` does that too, and
+  drops every direction; the button comes up on the next `step`. The caller
+  passes the time and sends the movement as mouse events.
+- `pointer_keys_bindings` sets a chord aside while pointer keys are on, when
+  that chord belongs to the base, the chosen layout or the mod and a
+  pointer-key default takes the same key. Faster then keeps `=` and loses
+  NumpadAdd; a page key loses its plain numpad digit and keeps the digit
+  row. The player's own chord stays. A group chord keeps its Ctrl or Alt, so
+  it is not the same key. While pointer keys are off the bindings are
+  unchanged. The layout file is not rewritten.
 
 ## State
 
@@ -190,6 +207,22 @@ the double-press time lock until a third; a tap with another key between,
 and a modifier held during a click, stay plain; `release_all` empties both;
 and `shown` keeps the order turned on.
 
+`ui-key-bindings-pointer-keys` (`tests/pointer_keys_test.cpp`) walks a
+synthetic clock: the speed at 0, 500 and 1,500 ms, a diagonal of two keys,
+a click and a double click inside and outside the double-press time, Hold
+left and Let go, and `clear` releasing a held button. It resolves
+`oa-default` and checks that pointer keys on set NumpadAdd aside from
+Faster while `=` stays, that a player's own NumpadAdd stays, and that
+pointer keys off changes nothing.
+
+`ui-key-bindings-confirm` (`tests/confirm_test.cpp`) checks the hold rule
+and `HoldConfirm`. With the setting off, nothing needs a hold. With it on
+and no list, a confirmable action needs one and an action that is not
+confirmable does not. A list that names the action needs the hold. A list
+that leaves it out does not. The hold is `done` at the long-press time and
+not before. A release at 90% reports `none`. Progress at the quarters is
+0, 250, 500, 750 and 1000 thousandths.
+
 `ui-key-bindings-timing` (`tests/timing_test.cpp`) walks synthetic
 timelines: a slow-key tap of 100 ms fires nothing and a hold fires once at
 300 ms; a bounce at 200 ms is dropped and one at 400 ms is kept, including
@@ -207,6 +240,24 @@ keeps a zero that means the system's own time.
 numbers the library holds: every scancode SDL names is in the position table
 or in `scancodes_without_code`, every table entry equals SDL's scancode for
 that key, and every named key's key code equals SDL's.
+
+## Hold to confirm
+
+`needs_hold` is the rule. Hold to confirm off never asks for a hold. On, a
+confirmable action needs the long-press time when the resolved layout names
+no `hold-to-confirm` list, or names that action in the list. A list that is
+present and empty names nothing. `order.self-destruct` is confirmable in the
+registry. `gui.yesorno.choice1`, the Yes of the surrender question, is
+confirmable by this rule: a made `gui.` action has no registry row.
+
+`HoldConfirm` keeps one press. `start` names the action, the time and a
+target: the pointer's point, or a button's rectangle, in match canvas pixels.
+`tick` reports `waiting` until the long-press time and `done` once it has
+passed, while the press is still held. `release` before that, or `cancel`,
+makes the next tick report `none`. `progress` is how far the ring has filled,
+in thousandths. The app fires the action when `tick` reports `done` and then
+cancels the hold, so the ring goes and a key that is still down does not
+fire again.
 
 ## Limitations
 

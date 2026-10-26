@@ -34,6 +34,10 @@ inline constexpr std::string_view path_search_nodes = "open-annihilation.path-se
 inline constexpr std::string_view wheel_zoom = "open-annihilation.wheel-zoom";
 /// 1 or 0 (EngineSettings::sticky_modifiers). Absent means off.
 inline constexpr std::string_view sticky_modifiers = "open-annihilation.access.sticky-modifiers";
+/// 1 or 0 (EngineSettings::pointer_keys). Absent means off.
+inline constexpr std::string_view pointer_keys = "open-annihilation.access.pointer-keys";
+/// 1 or 0 (EngineSettings::hold_to_confirm). Absent means off.
+inline constexpr std::string_view hold_to_confirm = "open-annihilation.access.hold-to-confirm";
 /// "automatic", "whole-map", or the share of normal size: "1/32", "1/16",
 /// "1/8", "1/4" or "1/2" (EngineSettings::max_zoom_out).
 inline constexpr std::string_view max_zoom_out = "open-annihilation.max-zoom-out";
@@ -325,6 +329,8 @@ inline constexpr std::string_view access_repeat_delay = "open-annihilation.acces
 inline constexpr std::string_view access_repeat_rate = "open-annihilation.access.repeat-rate";
 /// How far a drag may travel and still be a click, in pixels of the 640×480 game.
 inline constexpr std::string_view access_drag_threshold = "open-annihilation.access.drag-threshold";
+static_assert(hold_to_confirm.find('|') == std::string_view::npos);
+static_assert(hold_to_confirm.find('\\') == std::string_view::npos);
 static_assert(access_slow_keys.find('|') == std::string_view::npos);
 static_assert(access_bounce_keys.find('|') == std::string_view::npos);
 static_assert(access_double_press.find('|') == std::string_view::npos);
@@ -1102,6 +1108,10 @@ struct EngineSettings {
     bool wheel_zoom{true}; ///< the mouse wheel zooms the battlefield
     /// A tapped Shift, Ctrl or Alt applies to the next key or click.
     bool sticky_modifiers{false};
+    /// The numpad moves the pointer, clicks, and holds a button.
+    bool pointer_keys{false};
+    /// Self-destruct, surrender and quitting need the long-press time.
+    bool hold_to_confirm{false};
     /// How far out the battlefield's view zooms, by the wheel, a pinch, the
     /// touch controls or a controller.
     ZoomOutLimit max_zoom_out{ZoomOutLimit::automatic};

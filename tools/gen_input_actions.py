@@ -64,7 +64,7 @@ ACTION_FIELDS = {
 }
 REQUIRED_FIELDS = ("area", "order", "context", "kind", "source", "words")
 CONDITION_NAMES = ["single-player", "multiplayer", "seat", "selection", "developer", "debug-keys",
-                   "wheel-zoom", "no-wheel-zoom"]
+                   "wheel-zoom", "no-wheel-zoom", "pointer-keys"]
 EXCLUSIVE_PAIRS = [["single-player", "multiplayer"], ["wheel-zoom", "no-wheel-zoom"]]
 AREAS = [
     ("orders", "Orders"), ("mouse", "Pointer"), ("selection", "Selection"), ("groups", "Groups"),
@@ -319,7 +319,7 @@ def check_conditions(reg, problems):
             add(problems, "registry", "field", f"conditions.{key} is not a field")
     names = raw.get("names")
     if names != CONDITION_NAMES:
-        add(problems, "registry", "field", "conditions are not the eight, in order")
+        add(problems, "registry", "field", "conditions are not the nine, in order")
         names = names if as_strings(names) else []
     if raw.get("exclusive") != EXCLUSIVE_PAIRS:
         add(problems, "registry", "exclusive", "the exclusive pairs are not the two named")
