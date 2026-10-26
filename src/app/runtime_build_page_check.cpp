@@ -640,6 +640,9 @@ void Runtime::check_unit_page_memory() {
         event.type = SDL_EVENT_KEY_DOWN;
         event.key.windowID = SDL_GetWindowID(sdl_.window);
         event.key.key = code;
+        // The place a keyboard sends with the key: the action dispatcher
+        // follows a held key by it.
+        event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
         event.key.down = true;
         event.key.repeat = repeat;
         bool running = true;
