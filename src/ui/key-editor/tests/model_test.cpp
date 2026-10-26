@@ -212,7 +212,7 @@ void categories_and_letters() {
             made_ids += ", ";
         made_ids += row.id;
     }
-    // Ctrl+Z is select.same-type, so a Z in mod.categories is dropped. E is free.
+    // Ctrl+Z is select.same-type, so a Z in mod.categories is dropped. E and W are free.
     expect(has_row(made, "select.category-e"), "mod.categories rows: " + made_ids);
     const std::vector<editor::Row> menus_rows = model.rows("mod.menus", editor::Filter::all, "");
     expect(has_row(menus_rows, "gui.ridge"), "mod.menus has no gui.ridge");
@@ -668,6 +668,88 @@ void unknown_binding() {
     expect(model.changes() == 1, "restore did not leave only the unknown binding");
 }
 
+/// The Tags group lists each gathered word in registry order. A word a named
+/// action holds is that action, with the word as its aside. A bound tag counts
+/// as a change. Search matches the word. A tag the loaded units lack is greyed
+/// here, not under "Not in this version".
+void tag_group() {
+    const editor::Editor model(editor_fixture());
+    const std::vector<editor::CategoryEntry> categories = model.categories();
+    const editor::CategoryEntry* tags = category_named(categories, "mod.categories");
+    const std::vector<editor::Row> rows = model.rows("mod.categories", editor::Filter::all, "");
+    expect(tags != nullptr && tags->title == "Tags", "the tag group is not titled Tags");
+    expect(tags != nullptr && tags->count == rows.size(), "the tag count disagrees with its rows");
+
+    const std::vector<std::string> expected = {
+        "select.category-w",
+        "select.tag-kbot",
+        "select.tag-ridge-scout",
+        "select.category-e",
+    };
+    std::vector<std::string> ids;
+    for (const editor::Row& row : rows)
+        ids.push_back(row.id);
+    expect(ids == expected, "tag rows: " + joined_ids(ids));
+
+    const editor::Row* letter = row_named(rows, "select.category-w");
+    expect(
+        letter != nullptr && letter->name == "W" && letter->aside == "CTRL_W",
+        "CTRL_W is not the aside of select.category-w"
+    );
+    const editor::Row* kbot = row_named(rows, "select.tag-kbot");
+    expect(kbot != nullptr && kbot->name == "Select KBOT", "KBOT is not named Select KBOT");
+    const editor::Row* scout = row_named(rows, "select.tag-ridge-scout");
+    expect(
+        scout != nullptr && scout->name == "Select RIDGE_SCOUT",
+        "RIDGE_SCOUT is not named from the data"
+    );
+    expect(
+        has_row(model.rows("all", editor::Filter::all, "kbot"), "select.tag-kbot"),
+        "kbot does not find select.tag-kbot"
+    );
+    expect(
+        has_row(model.rows("mod.categories", editor::Filter::all, "ctrl_w"), "select.category-w"),
+        "ctrl_w does not find select.category-w"
+    );
+
+    editor::Editor bound(editor_fixture());
+    expect(bound.changes() == 1, "the fresh fixture does not start at one change");
+    expect(
+        bound.set_chords("select.tag-kbot", {parsed_chord("J")}), "select.tag-kbot did not take J"
+    );
+    expect(bound.changes() == 2, "a bound tag does not count as a change");
+    expect(
+        has_row(bound.rows("all", editor::Filter::changed, ""), "select.tag-kbot"),
+        "the bound tag is not in Changed"
+    );
+
+    editor::EditorInputs inputs = editor_fixture();
+    inputs.own.bindings.push_back(binding_of("select.tag-ridge-lancer", "Y"));
+    const editor::Editor missing(std::move(inputs));
+    expect(
+        category_named(missing.categories(), "unknown") == nullptr,
+        "a missing tag is listed as not in this version"
+    );
+    const std::vector<editor::Row> missing_rows =
+        missing.rows("mod.categories", editor::Filter::all, "");
+    const editor::Row* lancer = row_named(missing_rows, "select.tag-ridge-lancer");
+    expect(
+        lancer != nullptr && lancer->read_only && lancer->aside == "not in the loaded units" &&
+            lancer->name == "Select ridge-lancer",
+        "the missing tag is not greyed under Tags"
+    );
+    expect(
+        !has_row(missing.rows("unknown", editor::Filter::all, ""), "select.tag-ridge-lancer"),
+        "the missing tag is under Not in this version"
+    );
+    if (!missing_rows.empty()) {
+        expect(
+            missing_rows.back().id == "select.tag-ridge-lancer",
+            "the missing tag is not after the gathered words"
+        );
+    }
+}
+
 /// Developer keys appear only while developer mode is on.
 void developer_category() {
     const editor::Editor off(editor_fixture());
@@ -708,6 +790,7 @@ int main() {
     mod_data_clash_can_save();
     draft_chord_blocks_save();
     unknown_binding();
+    tag_group();
     developer_category();
     return oa::test::failed_checks() == 0 ? 0 : 1;
 }
