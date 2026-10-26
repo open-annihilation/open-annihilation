@@ -1736,7 +1736,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-build-preview] "
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
-                     "[--check-key-latches] "
+                     "[--check-key-latches] [--check-hold-confirm] "
                      "[--check-key-table FILE] [--check-key-timing] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
