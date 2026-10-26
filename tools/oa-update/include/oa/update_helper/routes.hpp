@@ -119,17 +119,17 @@ macos_may_swap(const BundleSignature& running, const BundleSignature& staged, bo
     std::string* why
 );
 
+#if defined(__APPLE__)
 /// Starts the bundle through Launch Services and waits until it has started.
 ///
 /// The arguments are the plan's, plus `--updated-from`. A failure is reported
-/// and nothing else is moved. Off macOS this is not declared.
+/// and nothing else is moved.
 ///
 /// @param bundle the application, already in its place
 /// @param arguments the arguments, before the update flag
 /// @param from_version the version the flag names
 /// @param[out] error why it did not start; may be null
 /// @return true when Launch Services started it
-#if defined(__APPLE__)
 [[nodiscard]] bool start_macos_bundle(
     const std::filesystem::path& bundle,
     const std::vector<std::string>& arguments,
