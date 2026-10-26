@@ -450,6 +450,10 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-progress", &Options::check_progress, {}},
         {"--check-engine-feed", &Options::check_engine_feed, {}},
         {"--check-update-offer", &Options::check_update_offer, {}},
+        {"--check-update-download", &Options::check_update_download, {}},
+        {"--update-and-quit",
+         &Options::update_and_quit,
+         {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
         {"--check-icloud-wait", &Options::check_icloud_wait, {}},
         {"--check-text-fit", &Options::check_text_fit, {}},
         {"--check-folder-chooser", &Options::check_folder_chooser, {}},
@@ -574,6 +578,11 @@ const std::vector<ValueCase>& value_cases() {
         {"--update-key",
          "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
          {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
+        {"--updated-from", "0.8.7", {}},
+        {"--update-install-folder",
+         "install",
+         {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
+        {"--update-download-case", "resume", {"--check-update-download"}},
     };
     return cases;
 }
@@ -1134,6 +1143,41 @@ void update_feed_options() {
                 "--check-update-offer draws in a window and cannot be used with --headless-check",
             "--check-update-offer is not headless"
         );
+        expect(
+            rejection({"--update-install-folder", "install"}) ==
+                "--update-install-folder needs --update-feed",
+            "--update-install-folder needs --update-feed"
+        );
+        expect(
+            rejection({"--update-and-quit"}) == "--update-and-quit needs --update-feed",
+            "--update-and-quit needs --update-feed"
+        );
+        expect(
+            rejection({"--update-download-case", "resume"}) ==
+                "--update-download-case needs --check-update-download",
+            "--update-download-case needs --check-update-download"
+        );
+        const auto download = parse({"--check-update-download"});
+        expect(
+            download.check_update_download && download.fixed_clock && download.unattended &&
+                !download.headless_check,
+            "--check-update-download is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-update-download", "--headless-check"}) ==
+                "--check-update-download draws in a window and cannot be used with "
+                "--headless-check",
+            "--check-update-download is not headless"
+        );
+        const auto folder = parse(
+            {"--update-feed", kUrl, "--update-install-folder", "install", "--update-and-quit"}
+        );
+        expect(
+            folder.update_install_folder &&
+                *folder.update_install_folder == oa::app::path_from_utf8("install") &&
+                folder.update_and_quit,
+            "--update-install-folder and --update-and-quit are taken with a feed"
+        );
     } else {
         const std::string feed = rejection({"--update-feed", kUrl});
         expect(feed.find("self-check") != std::string::npos, "--update-feed needs the self-checks");
@@ -1149,7 +1193,37 @@ void update_feed_options() {
             offer.find("self-check") != std::string::npos,
             "--check-update-offer needs the self-checks"
         );
+        const std::string download = rejection({"--check-update-download"});
+        expect(
+            download.find("self-check") != std::string::npos,
+            "--check-update-download needs the self-checks"
+        );
+        const std::string folder =
+            rejection({"--update-feed", kUrl, "--update-install-folder", "install"});
+        expect(
+            folder.find("self-check") != std::string::npos,
+            "--update-install-folder needs the self-checks"
+        );
+        const std::string quit = rejection({"--update-feed", kUrl, "--update-and-quit"});
+        expect(
+            quit.find("self-check") != std::string::npos, "--update-and-quit needs the self-checks"
+        );
+        const std::string named =
+            rejection({"--check-update-download", "--update-download-case", "resume"});
+        expect(
+            named.find("self-check") != std::string::npos,
+            "--update-download-case needs the self-checks"
+        );
     }
+    for (const char* bad : {"nope", "1.2"}) {
+        const std::string refused = rejection({"--updated-from", bad});
+        expect(
+            refused == "--updated-from must be a version such as 0.8.7",
+            "--updated-from refuses a version that is not whole"
+        );
+    }
+    const auto from = parse({"--updated-from", "0.8.7"});
+    expect(from.updated_from && *from.updated_from == "0.8.7", "--updated-from takes a version");
 }
 
 int main() {

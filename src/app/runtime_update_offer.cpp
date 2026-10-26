@@ -135,6 +135,9 @@ void Runtime::offer_update() {
         return;
     if (!update::offer_wanted(held.offer, update::read_skipped(preference_values_)))
         return;
+    // --update-and-quit and Download in the background fetch without asking.
+    if (options_.update_and_quit || background_download_covers_offer())
+        return;
     const int64_t release_number = held.offer.release->release;
     // Asked once this run for this release. A match that closed the question
     // cleared the number, so the next settled menu asks again. A higher
@@ -249,7 +252,8 @@ void Runtime::offer_update() {
                 std::cerr << "open-annihilation: update check: failed: " << failure.what() << '\n';
             }
         } else if (button == kUpdateButton) {
-            runtime->open_release_page();
+            if (!runtime->start_update_download())
+                runtime->open_release_page();
         }
         return true;
     };

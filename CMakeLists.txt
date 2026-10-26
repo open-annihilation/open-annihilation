@@ -1268,6 +1268,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_presence_card.cpp
   src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_update.cpp
   src/app/runtime_update_offer.cpp
+  src/app/runtime_update_install.cpp
   src/app/runtime_challenge.cpp
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
@@ -1377,6 +1378,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_progress_check.cpp
   src/app/runtime_update_check.cpp
   src/app/runtime_update_offer_check.cpp
+  src/app/runtime_update_install_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -2214,6 +2216,21 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-update-offer PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_update_offer_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The download, the ready prompt and the hand-off. One process for each
+      # part, so a resumed file, a bad file, the Updated notice and a quit
+      # with no offer do not share a folder.
+      set(oa_update_download_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-download")
+      file(MAKE_DIRECTORY "${oa_update_download_dir}")
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-update-download COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/app/native_update_download_check.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --work-dir "${oa_update_download_dir}")
+        set_tests_properties(native-update-download PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_update_download_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      endif()
       # One evicted archive's read is held. The window keeps drawing the iCloud
       # line in the stored language, and the folder step then continues. Off
       # macOS no file is evicted, and the line never names iCloud.

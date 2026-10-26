@@ -795,6 +795,8 @@ EngineSettings read_settings(
     // Unknown text leaves the default read_settings started from.
     read_word(values, key::content_check, content_check_words, settings.content_check);
     read_word(values, key::update_check, update_check_words, settings.update_check);
+    if (const auto number = stored_number(values, key::update_download))
+        settings.update_download = *number > 0;
     settings.file_type_oamod = file_type_on(values, key::file_type_oamod);
     settings.file_type_oamap = file_type_on(values, key::file_type_oamap);
     settings.file_type_oalang = file_type_on(values, key::file_type_oalang);
@@ -1308,6 +1310,14 @@ void write_settings(
         opened.update_check,
         chosen.update_check,
         defaults.update_check,
+        restored
+    );
+    store(
+        values,
+        key::update_download,
+        switch_text(chosen.update_download),
+        chosen.update_download != opened.update_download,
+        chosen.update_download == defaults.update_download,
         restored
     );
     const auto store_file_type = [&](std::string_view key, bool EngineSettings::* member) {

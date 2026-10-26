@@ -241,6 +241,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.update-check` | `automatically`, `when-asked` (only when asked) or `never`; any other text reads as `automatically` | `automatically` |
 | `open-annihilation.update-checked` | seconds since 1970 of the last check for a new release that reached the server; absent, or any text that is not a whole number, means that has not happened | absent |
 | `open-annihilation.update-skipped` | the highest release number the player skipped; absent, or any text that is not a whole number, means none | absent |
+| `open-annihilation.update-download` | 0 or 1 | absent reads as 0: a found update is not fetched until UPDATE |
 | `open-annihilation.file-types.oamod` | `on` or `off`. Only the word `off` turns the switch off; any other text reads as on. Not `0` and `1` | on: this copy opens mod packages |
 | `open-annihilation.file-types.oamap` | `on` or `off`, as the mod packages' key | on: this copy opens map packs |
 | `open-annihilation.file-types.oalang` | `on` or `off`, as the mod packages' key | on: this copy opens language packs |

@@ -599,8 +599,16 @@ enum class DialogAction : uint8_t {
     /// CHECK NOW on Updates: look for a release now. The dialog stays open.
     /// Nothing is asked while the check is Never.
     check_updates,
-    /// UPDATE… on Updates: open the release's page. The dialog stays open.
+    /// UPDATE… on Updates: open the release's page, or download the package
+    /// where this install has a route. The dialog stays open.
     open_release,
+    /// RESTART TO UPDATE on Updates: the verified package installs as the
+    /// player quits, and the game asks to quit now. The dialog stays open
+    /// until that quit runs.
+    restart_update,
+    /// RETRY on Updates: start the download of the offered package again.
+    /// The dialog stays open.
+    retry_update,
 };
 
 /// One of the Library's tabs, as the dialog asks the host to open it
@@ -773,9 +781,18 @@ struct DownloadsOffer {
     bool https_over_http{};
 };
 
+/// Where a download of the offered package stands, as Updates shows it.
+enum class DownloadShown : uint8_t {
+    none,        ///< no download to show; the status is the check's own line
+    downloading, ///< "Downloading {version} · {done} of {size}"
+    paused,      ///< "Paused during the game"
+    ready,       ///< "{version} is ready · {size} downloaded", RESTART TO UPDATE
+    stopped,     ///< "The download stopped: {reason}", RETRY
+};
+
 /// What Updates shows besides the check, which the host fills. The check the
 /// player moves lives on the dialog, as its chosen settings do, and takes
-/// effect at OK. CHECK NOW and UPDATE… act at once.
+/// effect at OK. CHECK NOW, UPDATE…, RESTART TO UPDATE and RETRY act at once.
 struct UpdatesOffer {
     std::string version_line; ///< "Open Annihilation {version}", already filled
     std::string status;       ///< the status line, already as the page shows it
@@ -786,6 +803,15 @@ struct UpdatesOffer {
     /// itself and a packager is named. Empty otherwise. The status line
     /// joins it after the check's own words.
     std::string updated_by;
+    /// The background switch and the download's own status. Off leaves the
+    /// two rows the page has always shown, so a picture of that page does
+    /// not move.
+    bool show_download{};
+    DownloadShown download{DownloadShown::none}; ///< which download line the status shows
+    std::string download_version;                ///< the release being fetched
+    std::string download_done;                   ///< bytes so far, as the player reads a size
+    std::string download_size;                   ///< the whole file, as the player reads a size
+    std::string download_reason;                 ///< why it stopped; not looked up
 };
 
 /// Where a check for a release stands, as the host tells update_lines.
@@ -888,8 +914,11 @@ struct Dialog {
     Locks locks{};                     ///< what cannot be changed now
     AccelerationStatus acceleration{}; ///< Hardware acceleration's status
     std::string version;               ///< the header's version text
-    Page page{Page::controls};         ///< the section shown
-    bool restored{};                   ///< Restore defaults was pressed
+    /// A note beside the version, already translated. Empty shows none.
+    /// A shared game's note still takes the header instead.
+    std::string header_note;
+    Page page{Page::controls}; ///< the section shown
+    bool restored{};           ///< Restore defaults was pressed
     /// The times the player asked, since the dialog opened, for the graphics
     /// card to be tried afresh: each press of Restore defaults, and each
     /// time Hardware acceleration passed to a higher level, from Off to

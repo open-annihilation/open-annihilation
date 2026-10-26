@@ -402,7 +402,12 @@ Network play's own checks, the last rows, are in every build.
 | `--update-feed URL` | For one run, looks for a new release at this feed instead of the published one. A self-check. |
 | `--update-key ID=ed25519:KEY` | A key that may sign the `--update-feed` feed. Give it once for each key. Needs `--update-feed`. A self-check. |
 | `--check-engine-feed` | Checks looking for a new release against a feed the check serves. |
+| `--updated-from VERSION` | Every build. The version this start replaced. The first settled main menu shows "Updated to …" once when this copy is newer. |
+| `--update-install-folder DIR` | A self-check. With `--update-feed`, the route is that folder, so a download can be handed to the helper in a test. Needs `--update-feed`. |
+| `--update-and-quit` | A self-check. Needs `--update-feed`. At the settled main menu, downloads where there is a route, with no prompt, and quits when the file is ready so the hand-off follows. With no offer or no route, quits with status 1. |
 | `--check-update-offer` | Shows the update question against a feed the check serves, including its notes, and checks it waits out a match, a message and Settings. |
+| `--check-update-download` | Serves a feed and a package and checks the download, the pause during a match, the ready prompt, Settings and the recorded hand-off. |
+| `--update-download-case NAME` | With `--check-update-download`, which part to run. Needs `--check-update-download`. |
 | `--check-icloud-wait` | On macOS, holds one evicted archive's read and checks the window keeps drawing the iCloud line, then continues. Elsewhere, checks the line never names iCloud. |
 | `--check-text-fit` | Opens every Open Annihilation screen in each built-in language and Simplified Chinese at two sizes, and fails when a text does not fit. |
 | `--check-language TAG` | With `--check-text-fit`, the language to check in place of those, such as an installed pack's (`uk`); give it once for each. With `--check-language-switch`, the language it starts in. The language must be one the game shows. |

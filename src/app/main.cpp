@@ -2215,9 +2215,12 @@ int run_once(
         switch_memory.sample(restarts);
     const int status = runtime->run();
     if (!runtime->soft_restart_requested()) {
+        if (status == 0 && runtime->hand_off_requested())
+            runtime->hand_off_update();
+        const int reported = runtime->report_update_handoff() ? status : 1;
         if (checked_options)
-            return game_files_status(*checked_options, status);
-        return check_mod_switch && status == 0 ? switch_memory.verdict() : status;
+            return game_files_status(*checked_options, reported);
+        return check_mod_switch && reported == 0 ? switch_memory.verdict() : reported;
     }
     // The next runtime takes over the window as Alt+Enter left it, and the
     // renderer without this runtime's textures; this runtime and its

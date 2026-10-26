@@ -817,6 +817,8 @@ bool run_game_files_language_dialog(const GameFilesLanguageRequest& request) {
             case settings::DialogAction::cancel_content_copy:
             case settings::DialogAction::check_updates:
             case settings::DialogAction::open_release:
+            case settings::DialogAction::restart_update:
+            case settings::DialogAction::retry_update:
                 // The Language dialog lists none of the controls that ask
                 // for these, and no language that is only available to download.
                 dirty = true;
