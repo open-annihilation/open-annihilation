@@ -159,7 +159,7 @@ Resolved prepared(const KeyboardMap& map) {
 /// @return the dispatcher
 Dispatcher open_dispatcher(const Resolved& resolved, const KeyboardMap& map) {
     Dispatcher dispatcher;
-    dispatcher.set_bindings(resolved);
+    dispatcher.set_bindings(Resolved{resolved});
     dispatcher.set_keyboard(map);
     Platform where;
     where.primary_is_meta = true;
