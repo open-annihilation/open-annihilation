@@ -149,6 +149,16 @@ if(BUILD_TESTING)
   add_test(NAME tools-oa-tool-brain COMMAND oa-tool-brain-test)
   set_tests_properties(tools-oa-tool-brain PROPERTIES TIMEOUT 60)
 
+  # keys: a made-up layout packs to a .oakeys, check reports its facts,
+  # and a broken chord, an outside file, an icon or a second manifest is refused.
+  add_executable(oa-tool-keys-test tests/keys_test.cpp)
+  target_link_libraries(oa-tool-keys-test PRIVATE oa-tool-commands oa-app-package-install
+    oa-formats-zip oa-formats-json oa-formats-png oa-formats-oakeys oa-base-sha256
+    oa-platform-shims ZLIB::ZLIB oa-test-support oa-options)
+  add_test(NAME tools-oa-tool-keys COMMAND oa-tool-keys-test)
+  set_tests_properties(tools-oa-tool-keys PROPERTIES TIMEOUT 60)
+  # keys picture draws with the text fonts that sit beside the test.
+  oa_copy_text_fonts(oa-tool-keys-test "$<TARGET_FILE_DIR:oa-tool-keys-test>")
 
   # brain net: models this test writes, quantised and checked against the
   # integer network, and the refusals of a bad file or a bad invocation.
