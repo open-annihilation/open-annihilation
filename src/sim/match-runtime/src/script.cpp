@@ -19,13 +19,11 @@ uint32_t SharedRandom::bounded(uint32_t bound) noexcept {
 }
 
 namespace {
-sim::script_vm::Program make_program(const formats::cob::CobProgram& program) {
-    return {
-        program.code,
-        program.entry_points,
-        program.header.static_variable_count,
-        program.piece_names.size()
-    };
+int32_t named_script(const formats::cob::CobProgram& program, std::string_view name) noexcept {
+    for (std::size_t i = 0; i < program.scripts.size(); ++i)
+        if (program.scripts[i].name == name)
+            return static_cast<int32_t>(i);
+    return -1;
 }
 
 // The program a script instance made without one runs: no code, which the VM
@@ -36,19 +34,41 @@ held_program(std::shared_ptr<const formats::cob::CobProgram> program) {
 }
 } // namespace
 
+SharedScriptProgram
+prepare_type_script(const std::shared_ptr<const formats::cob::CobProgram>& program) {
+    SharedScriptProgram made;
+    if (!program) {
+        made.vm_program = sim::script_vm::prepare_program({});
+        made.function_index.fill(-1);
+        return made;
+    }
+    sim::script_vm::Program script_program;
+    script_program.code = program->code;
+    script_program.entry_points = program->entry_points;
+    script_program.static_count = program->header.static_variable_count;
+    script_program.piece_count = program->piece_names.size();
+    script_program.owner = program;
+    made.vm_program = sim::script_vm::prepare_program(std::move(script_program));
+    for (std::size_t index = 0; index < made.function_index.size(); ++index) {
+        made.function_index[index] = named_script(
+            *program, sim::unit_script::script_function_name(static_cast<ScriptFunction>(index))
+        );
+    }
+    return made;
+}
+
 ScriptInstance::ScriptInstance(
     std::shared_ptr<const formats::cob::CobProgram> program,
+    const SharedScriptProgram& shared,
     sim::script_vm::Host& host,
     int32_t scale,
     MatchFault* fault
 )
-    : program_(held_program(std::move(program))), vm_(make_program(*program_), host, scale),
+    : program_(held_program(std::move(program))), vm_(shared.vm_program, host, scale),
       fault_(fault) {
     if (const auto& refused = vm_.program_error())
         note("script program refused", refused->message);
-    for (std::size_t i = 0; i < function_index_.size(); ++i)
-        function_index_[i] =
-            find(sim::unit_script::script_function_name(static_cast<ScriptFunction>(i)));
+    function_index_ = shared.function_index;
 }
 
 void ScriptInstance::note(std::string_view what, std::string_view detail) noexcept {
@@ -210,10 +230,7 @@ bool ScriptInstance::call_with_locals(
 }
 
 int32_t ScriptInstance::find(std::string_view name) const noexcept {
-    for (std::size_t i = 0; i < program_->scripts.size(); ++i)
-        if (program_->scripts[i].name == name)
-            return static_cast<int32_t>(i);
-    return -1;
+    return named_script(*program_, name);
 }
 
 int32_t ScriptInstance::find(ScriptFunction function) const noexcept {

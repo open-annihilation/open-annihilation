@@ -453,6 +453,7 @@ const std::vector<FlagCase>& flag_cases() {
         {"--check-engine-feed", &Options::check_engine_feed, {}},
         {"--check-update-offer", &Options::check_update_offer, {}},
         {"--check-update-download", &Options::check_update_download, {}},
+        {"--check-update-roll-back", &Options::check_update_roll_back, {}},
         {"--update-and-quit",
          &Options::update_and_quit,
          {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
@@ -583,6 +584,9 @@ const std::vector<ValueCase>& value_cases() {
          "test-key=ed25519:11qYAYKxCrfVS/7TyWQHOg7hcvPapiMlrwIaaPcHURo=",
          {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
         {"--updated-from", "0.8.7", {}},
+        {"--rolled-back-from", "0.8.4", {"--roll-back-reason", "player"}},
+        {"--roll-back-reason", "failed-starts", {"--rolled-back-from", "0.8.4"}},
+        {"--roll-back-case", "guard", {"--check-update-roll-back"}},
         {"--update-install-folder",
          "install",
          {"--update-feed", "http://127.0.0.1:9/v1/engine/stable.json"}},
@@ -909,7 +913,7 @@ void version_line_stands_alone() {
 
 } // namespace
 
-// --open, --install-mod, bare files of the six types the game installs or
+// --open, --install-mod, bare files of the seven types the game installs or
 // adds, macOS's process serial number and --check-mod-install.
 void mod_install_options() {
     namespace fs = std::filesystem;
@@ -925,12 +929,13 @@ void mod_install_options() {
          "--open",
          "g.oamut",
          "h.OABRAIN",
+         "i.OAKEYS",
          "-psn_0_123",
          "german"}
     );
-    expect(opened.open_files.size() == 8, "--open, --install-mod and bare files are all opened");
+    expect(opened.open_files.size() == 9, "--open, --install-mod and bare files are all opened");
     expect(
-        opened.open_files.size() == 8 && opened.open_files[0].is_absolute() &&
+        opened.open_files.size() == 9 && opened.open_files[0].is_absolute() &&
             opened.open_files[0].filename() == "a.oalang" &&
             opened.open_files[1].filename() == "B.OAMAP" &&
             opened.open_files[2].filename() == "c.oareg" &&
@@ -938,7 +943,8 @@ void mod_install_options() {
             opened.open_files[4].filename() == "d.oamod" &&
             opened.open_files[5].filename() == "e.oamod" &&
             opened.open_files[6].filename() == "g.oamut" &&
-            opened.open_files[7].filename() == "h.OABRAIN",
+            opened.open_files[7].filename() == "h.OABRAIN" &&
+            opened.open_files[8].filename() == "i.OAKEYS",
         "the files are absolute, in the order given, and --install-mod still opens one"
     );
     expect(opened.skip_intro, "a file opened with the game skips the movies");
@@ -960,7 +966,8 @@ void mod_install_options() {
     expect(
         rejection({"x.oamod", "--headless-check"})
                 .find(
-                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain or .oareg), after "
+                    "a file to open (.oamod, .oalang, .oamap, .oamut, .oabrain, .oakeys or "
+                    ".oareg), after "
                     "--open or "
                     "on "
                     "its own,"
@@ -1173,6 +1180,23 @@ void update_feed_options() {
                 "--headless-check",
             "--check-update-download is not headless"
         );
+        const auto roll_back = parse({"--check-update-roll-back", "--roll-back-case", "confirm"});
+        expect(
+            roll_back.check_update_roll_back && roll_back.roll_back_case == "confirm" &&
+                roll_back.fixed_clock && roll_back.unattended && !roll_back.headless_check,
+            "--check-update-roll-back is a windowed, fixed-clock and unattended run"
+        );
+        expect(
+            rejection({"--check-update-roll-back", "--headless-check"}) ==
+                "--check-update-roll-back draws in a window and cannot be used with "
+                "--headless-check",
+            "--check-update-roll-back is not headless"
+        );
+        expect(
+            rejection({"--roll-back-case", "guard"}) ==
+                "--roll-back-case needs --check-update-roll-back",
+            "--roll-back-case needs --check-update-roll-back"
+        );
         const auto folder = parse(
             {"--update-feed", kUrl, "--update-install-folder", "install", "--update-and-quit"}
         );
@@ -1218,6 +1242,17 @@ void update_feed_options() {
             named.find("self-check") != std::string::npos,
             "--update-download-case needs the self-checks"
         );
+        const std::string roll = rejection({"--check-update-roll-back"});
+        expect(
+            roll.find("self-check") != std::string::npos,
+            "--check-update-roll-back needs the self-checks"
+        );
+        const std::string roll_case =
+            rejection({"--check-update-roll-back", "--roll-back-case", "guard"});
+        expect(
+            roll_case.find("self-check") != std::string::npos,
+            "--roll-back-case needs the self-checks"
+        );
     }
     for (const char* bad : {"nope", "1.2"}) {
         const std::string refused = rejection({"--updated-from", bad});
@@ -1228,6 +1263,32 @@ void update_feed_options() {
     }
     const auto from = parse({"--updated-from", "0.8.7"});
     expect(from.updated_from && *from.updated_from == "0.8.7", "--updated-from takes a version");
+    expect(
+        rejection({"--rolled-back-from", "0.8.4"}) ==
+            "--rolled-back-from and --roll-back-reason are used together",
+        "--rolled-back-from needs --roll-back-reason"
+    );
+    expect(
+        rejection({"--roll-back-reason", "player"}) ==
+            "--rolled-back-from and --roll-back-reason are used together",
+        "--roll-back-reason needs --rolled-back-from"
+    );
+    expect(
+        rejection({"--rolled-back-from", "nope", "--roll-back-reason", "player"}) ==
+            "--rolled-back-from must be a version such as 0.8.7",
+        "--rolled-back-from refuses a version that is not whole"
+    );
+    expect(
+        rejection({"--rolled-back-from", "0.8.4", "--roll-back-reason", "later"}) ==
+            "--roll-back-reason must be failed-starts or player",
+        "--roll-back-reason refuses an unknown reason"
+    );
+    const auto back = parse({"--rolled-back-from", "0.8.4", "--roll-back-reason", "failed-starts"});
+    expect(
+        back.rolled_back_from && *back.rolled_back_from == "0.8.4" &&
+            back.roll_back_reason == "failed-starts",
+        "--rolled-back-from and --roll-back-reason are taken together"
+    );
 }
 
 int main() {

@@ -28,8 +28,20 @@ inline constexpr std::size_t max_window_line_bytes = 200;
 /// What the helper is asked to do.
 enum class Action : uint8_t {
     install,   ///< put the package in place
-    roll_back, ///< put the kept version back; a later build carries this out
+    roll_back, ///< put the kept version back
 };
+
+/// Why a roll-back plan was written. An install plan leaves this unset.
+enum class RollBackReason : uint8_t {
+    none,          ///< not a roll back
+    failed_starts, ///< the new version closed twice before the main menu
+    player,        ///< the player pressed ROLL BACK
+};
+
+/// Starts that did not reach the main menu before the next one rolls back.
+///
+/// The first two starts record 1 and 2 and keep going. The third finds 3.
+inline constexpr int32_t failed_starts_that_roll_back = 3;
 
 /// How the install folder is laid out.
 enum class Route : uint8_t {
@@ -42,8 +54,11 @@ enum class Route : uint8_t {
 
 /// The plan the game writes and the helper reads.
 struct Plan {
-    int64_t plan{plan_format};          ///< the format, 1
-    Action action{Action::install};     ///< install, or roll back
+    int64_t plan{plan_format};      ///< the format, 1
+    Action action{Action::install}; ///< install, or roll back
+    /// Why this is a roll back. Written only when it is not `none`, so an
+    /// install plan keeps the bytes it had before roll back existed.
+    RollBackReason roll_back_reason{RollBackReason::none};
     Route route{Route::check_folder};   ///< which layout the install uses
     int64_t wait_for{};                 ///< the process to wait for; 0 waits for nothing
     std::string install;                ///< the folder or bundle the route replaces
@@ -85,6 +100,18 @@ struct State {
 /// @param text `install` or `roll-back`
 /// @return the action, or nothing for any other text
 [[nodiscard]] std::optional<Action> parse_action(std::string_view text) noexcept;
+
+/// The roll-back reason as the plan writes it.
+///
+/// @param reason the reason
+/// @return `failed-starts` or `player`; empty for `none` or a value this build does not know
+[[nodiscard]] const char* roll_back_reason_name(RollBackReason reason) noexcept;
+
+/// Reads a roll-back reason.
+///
+/// @param text `failed-starts` or `player`
+/// @return the reason, or nothing for any other text, including empty
+[[nodiscard]] std::optional<RollBackReason> parse_roll_back_reason(std::string_view text) noexcept;
 
 /// The route as the plan writes it.
 ///
@@ -145,5 +172,21 @@ struct State {
 /// @return true when the file was replaced
 [[nodiscard]] bool
 write_state(const std::filesystem::path& path, const State& state, std::string* error);
+
+/// Marks a start that reached the main menu.
+///
+/// `confirmed` becomes true and `failed_starts` becomes 0. Nothing else moves.
+///
+/// @param[in,out] state the state
+void confirm_state(State& state) noexcept;
+
+/// Counts one start that did not reach the main menu.
+///
+/// The count stops at the largest int32_t. A confirmed state is still counted
+/// when the caller asks: the caller decides whether a confirmed version counts.
+///
+/// @param[in,out] state the state
+/// @return the count after this start
+int32_t count_failed_start(State& state) noexcept;
 
 } // namespace oa::app::update

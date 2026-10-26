@@ -26,17 +26,23 @@ inline constexpr int32_t open_release_action = 11;
 inline constexpr int32_t restart_update_action = 12;
 /// What RETRY asks the host for.
 inline constexpr int32_t retry_update_action = 13;
+/// What ROLL BACK asks the host for.
+inline constexpr int32_t roll_back_action = 14;
 
-/// Places Updates' two rows from the dialog's offer.
+/// Places Updates' rows from the dialog's offer.
+///
+/// The status and the check are always placed. Previous version is placed
+/// only while a version is kept, and that row locks during a game.
 ///
 /// @param dialog the dialog
-/// @param locks what cannot be changed now; this page locks nothing
+/// @param locks what cannot be changed now; Previous version locks in a game
 /// @param width how wide a text is in the small font; empty estimates
 /// @param[out] placed the kit's rows, when not null
 /// @param sizes the dialog's sizes; null uses the class's own
 /// @param regular how wide a text is in the regular font; null leaves a
 ///     drop-down at the class's width
-/// @return the rows: the status, then the check
+/// @return the rows: the status, a download when one shows, the check, then
+///     Previous version while one is kept
 [[nodiscard]] geometry::Rows place(
     const Dialog& dialog,
     const Locks& locks,

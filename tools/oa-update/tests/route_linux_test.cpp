@@ -206,7 +206,7 @@ void first_update_keeps_a_players_file(const fs::path& root) {
     const std::string launcher = read_text(install / "open-annihilation");
     OA_CHECK(launcher == std::string(helper::linux_launcher_script()));
     OA_CHECK(launcher.starts_with("#!/bin/sh\n"));
-    OA_CHECK(count_phrase(launcher, "mv -T") == 1);
+    OA_CHECK(count_phrase(launcher, "mv -T") == 2);
 #if !defined(_WIN32)
     const fs::perms bits = fs::status(install / "open-annihilation").permissions();
     const fs::perms expect = fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec |
@@ -257,6 +257,45 @@ void later_update_replaces_next_and_drops_old_versions(const fs::path& root) {
     expect_same(before, snapshot(install));
 }
 
+void restoring_points_current_at_the_kept_version(const fs::path& root) {
+    const fs::path install = root / "install";
+    const fs::path updates = root / "updates";
+    fs::create_directories(install / "versions" / "0.8.6");
+    fs::create_directories(install / "versions" / "0.8.7");
+    write_text(install / "versions/0.8.6/open-annihilation", "old-game");
+    write_text(install / "versions/0.8.7/open-annihilation", "new-game");
+    write_text(install / "notes.txt", "player");
+    write_text(install / "update-starts", "2\n");
+    std::error_code io;
+    fs::create_symlink("versions/0.8.7", install / "current", io);
+    OA_CHECK(!io);
+    const std::vector<Entry> before = snapshot(install);
+
+    update::State state;
+    state.installed_version = "0.8.7";
+    state.kept_version = "0.8.6";
+    state.kept_path = helper::utf8_of(install / "versions" / "0.8.6");
+    state.kept_route = update::Route::linux_versions;
+    std::string why;
+    const std::vector<helper::Operation> operations =
+        helper::linux_restore_operations(state, install, &why);
+    OA_CHECK(why.empty());
+    fs::create_directories(updates);
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(updates, operations, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    OA_CHECK(helper::utf8_of(fs::read_symlink(install / "current")) == "versions/0.8.6");
+    OA_CHECK(read_text(install / "notes.txt") == "player");
+    OA_CHECK(read_text(install / "versions/0.8.7/open-annihilation") == "new-game");
+    OA_CHECK(!fs::exists(install / "update-starts"));
+
+    OA_CHECK(helper::undo_journal(updates, helper::JournalHooks{}, &error));
+    OA_CHECK(error.empty());
+    expect_same(before, snapshot(install));
+}
+
 } // namespace
 
 void test_linux_versions_route() {
@@ -270,5 +309,9 @@ void test_linux_versions_route() {
     {
         Scratch later("linux-later");
         later_update_replaces_next_and_drops_old_versions(later.path);
+    }
+    {
+        Scratch restored("linux-restore");
+        restoring_points_current_at_the_kept_version(restored.path);
     }
 }

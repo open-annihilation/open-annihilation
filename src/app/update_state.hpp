@@ -47,6 +47,16 @@ struct Runtime::UpdateState {
     std::optional<std::string> offered_page;
     /// The Updated notice has been queued this run.
     bool updated_notice_shown = false;
+    /// --rolled-back-from has been applied to the preferences and the state.
+    bool roll_back_bookkept = false;
+    /// A settled menu has confirmed this build, or there was nothing to confirm.
+    bool version_confirmed = false;
+    /// The "Back on {version}" question has been queued this run.
+    bool roll_back_prompted = false;
+    /// `kept_version` has been read from state.json this run.
+    bool kept_loaded = false;
+    /// The version state.json keeps. Empty when none is kept.
+    std::string kept_version;
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
     /// The package download. Empty until one is started.
     std::unique_ptr<update::PackageDownload> download;

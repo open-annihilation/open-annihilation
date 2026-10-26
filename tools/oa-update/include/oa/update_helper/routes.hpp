@@ -8,6 +8,8 @@
 
 #include "oa/app/update/plan.hpp"
 #include "oa/update_helper/journal.hpp"
+#include "oa/update_helper/log.hpp"
+#include "oa/update_helper/window.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -123,21 +125,42 @@ macos_may_swap(const BundleSignature& running, const BundleSignature& staged, bo
 #if defined(__APPLE__)
 /// Starts the bundle through Launch Services and waits until it has started.
 ///
-/// The arguments are the plan's, plus `--updated-from`. A failure is reported
-/// and nothing else is moved.
+/// The arguments are the plan's. `--updated-from` is added when `from_version`
+/// is not empty. A failure is reported and nothing else is moved.
 ///
 /// @param bundle the application, already in its place
 /// @param arguments the arguments, before the update flag
-/// @param from_version the version the flag names
+/// @param from_version the version the flag names; empty adds no `--updated-from`
 /// @param[out] error why it did not start; may be null
+/// @param[out] pid the process id, when not null and the start succeeded
 /// @return true when Launch Services started it
 [[nodiscard]] bool start_macos_bundle(
     const std::filesystem::path& bundle,
     const std::vector<std::string>& arguments,
     std::string_view from_version,
-    std::string* error
+    std::string* error,
+    int* pid
 );
 #endif
+
+/// The operations that put a kept version back.
+///
+/// The list comes from `state.kept_route` and `state.kept_path`. It moves
+/// only the kept program files and the install they return to. It does not
+/// copy preferences, rewrite the state file, or touch a save, a mod, the
+/// user folder or installed content. The caller adds those bookkeeping steps.
+///
+/// @param state the record the swap wrote
+/// @param install the folder or bundle the route replaces
+/// @param bad_version the version now in place, for a step that records it
+/// @param[out] why why no operations were produced; may be null; cleared on success
+/// @return the operations; empty when `why` is set
+[[nodiscard]] std::vector<Operation> restore_operations(
+    const oa::app::update::State& state,
+    const std::filesystem::path& install,
+    std::string_view bad_version,
+    std::string* why
+);
 
 /// The operations for a Linux or Steam Deck install.
 ///
@@ -147,6 +170,46 @@ macos_may_swap(const BundleSignature& running, const BundleSignature& staged, bo
 /// @return the operations; empty when `why` is set
 [[nodiscard]] std::vector<Operation> linux_operations(
     const oa::app::update::Plan& plan, const std::filesystem::path& staged, std::string* why
+);
+
+/// Points `current` at the kept version and moves `update-starts` aside.
+///
+/// @param state the record; its kept path is `versions/<kept>` under the install
+/// @param install the install folder
+/// @param[out] why why no operations were produced; may be null
+/// @return the operations
+[[nodiscard]] std::vector<Operation> linux_restore_operations(
+    const oa::app::update::State& state, const std::filesystem::path& install, std::string* why
+);
+
+/// Puts the kept version back and, when `start_game` is set, starts it.
+///
+/// Preferences become the copy taken at the swap, with the bad release
+/// skipped when that copy can be read. The state file then names the kept
+/// version, confirmed, with nothing kept. When the install folder cannot be
+/// written on Windows and `may_elevate` is set, an elevated copy does the
+/// restore and this process only starts the game.
+///
+/// @param plan the plan, an install or a roll back
+/// @param updates the updates folder, holding state.json
+/// @param plan_path the plan file an elevated copy reads; may be null when not elevating
+/// @param log the log
+/// @param window the window; closed before the start
+/// @param hooks journal hooks
+/// @param reason why the roll back is happening
+/// @param may_elevate true when this process may relaunch itself elevated
+/// @param start_game false for the elevated copy, which restores and exits
+/// @return an exit status
+[[nodiscard]] int restore_kept(
+    const oa::app::update::Plan& plan,
+    const std::filesystem::path& updates,
+    const std::filesystem::path* plan_path,
+    Log& log,
+    ProgressWindow& window,
+    JournalHooks& hooks,
+    oa::app::update::RollBackReason reason,
+    bool may_elevate,
+    bool start_game
 );
 
 /// The launcher script a Linux install runs, the same bytes the package ships.

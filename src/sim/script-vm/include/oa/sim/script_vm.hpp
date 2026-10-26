@@ -117,12 +117,48 @@ inline constexpr uint32_t angle_mask = angle_units_per_revolution - 1U;
 inline constexpr uint32_t continuous_spin_target = 0xffffffffU;
 } // namespace unit
 
+/// Code and entry points of one unit script, shared by every VM that runs it.
+///
+/// `code` and `entry_points` view words the caller already holds. `owner`
+/// keeps that storage alive when it is a loaded script or storage a test
+/// allocated. A null owner means the spans are empty, or the caller keeps
+/// the words alive for every VM that runs them. prepare_program validates
+/// once and does not copy the words.
 struct Program {
-    std::vector<uint32_t> code;
-    std::vector<uint32_t> entry_points;
+    /// Words of the script. Empty when prepare_program refused the program.
+    std::span<const uint32_t> code{};
+    /// First word of each script. Empty when the program was refused.
+    std::span<const uint32_t> entry_points{};
     std::size_t static_count = 0;
     std::size_t piece_count = 0;
+    /// Slots each context is given. Zero means prepare_program has not run.
+    /// A prepared program with no code uses stack_capacity.
+    std::size_t stack_slots = 0;
+    /// True once prepare_program has validated this program and recorded
+    /// stack_slots. A prepared program is not changed again.
+    bool prepared = false;
+    /// Why prepare_program refused this program. Null when it was accepted.
+    /// A refused program is cleared, so a VM that shares it starts no script.
+    /// The text is a static message, the same ones the VM's other refusals use.
+    const char* refusal = nullptr;
+    /// Keeps the words `code` and `entry_points` refer to alive. Null when
+    /// those spans are empty, or when the caller keeps the words alive.
+    std::shared_ptr<const void> owner{};
 };
+
+/// Validates a program, records the stack its deepest script needs, and
+/// returns a program any number of VMs can share.
+///
+/// The returned program views the words the argument's spans already refer
+/// to and keeps `owner` alive. It does not copy those words. An empty
+/// program, one past the limit namespace, or one whose entry point lies
+/// outside its code is cleared and comes back refused: its spans are empty,
+/// its refusal says why, and it starts no script. A program that was already
+/// prepared is shared as it is. The code of a prepared program is never written.
+///
+/// @param program code and entry-point views, their owner, and the counts
+/// @return a shared program VMs keep alive for as long as they run it
+[[nodiscard]] std::shared_ptr<const Program> prepare_program(Program program);
 
 /// Finds a script by exact, case-sensitive name in a COB name table.
 ///
@@ -365,16 +401,37 @@ class Vm {
     /// exceeds the limit namespace or has an entry point outside its code is
     /// not taken: the VM holds an empty program, which starts no script, and
     /// program_error() says why. Host-facing instructions fail with missing_host.
+    /// The VM keeps the program alive and does not write its code. The words
+    /// stay where the program's spans point, kept alive by its owner. Pass the
+    /// shared program from prepare_program when several VMs should run one script.
     ///
     /// @param program code, entry points and static and piece counts
     /// @param time_scale SLEEP multiplier: delay = time_scale * ms / 1000
     explicit Vm(Program program, int32_t time_scale = unit::milliseconds_per_second);
+    /// Creates a VM that runs a shared program, with no host.
+    ///
+    /// Same as the by-value constructor. A null program, or one that
+    /// prepare_program has not accepted yet, is prepared for this VM alone.
+    ///
+    /// @param program shared code, entry points and counts; kept alive by the VM
+    /// @param time_scale SLEEP multiplier: delay = time_scale * ms / 1000
+    explicit Vm(
+        std::shared_ptr<const Program> program, int32_t time_scale = unit::milliseconds_per_second
+    );
     /// Creates a VM for a program with a host for piece and unit calls.
     ///
     /// @param program code, entry points and static and piece counts
     /// @param host host the VM calls; must outlive the VM
     /// @param time_scale SLEEP multiplier: delay = time_scale * ms / 1000
     Vm(Program program, Host& host, int32_t time_scale = unit::milliseconds_per_second);
+    /// Creates a VM that runs a shared program and calls a host.
+    ///
+    /// @param program shared code, entry points and counts; kept alive by the VM
+    /// @param host host the VM calls; must outlive the VM
+    /// @param time_scale SLEEP multiplier: delay = time_scale * ms / 1000
+    Vm(std::shared_ptr<const Program> program,
+       Host& host,
+       int32_t time_scale = unit::milliseconds_per_second);
 
     /// Starts a script in the lowest free context with its arguments on the stack.
     ///
@@ -468,6 +525,15 @@ class Vm {
         return program_error_;
     }
 
+    /// The program this VM runs.
+    ///
+    /// VMs built from one shared program run the same code. Each VM keeps its
+    /// own statics, stacks and contexts. The reference stays valid while this
+    /// VM is alive, because the VM keeps the program alive.
+    ///
+    /// @return the program given to the constructor, after it was prepared
+    [[nodiscard]] const Program& program() const noexcept { return *program_; }
+
     /// Returns the number of contexts that are not stopped.
     ///
     /// @return 0..8
@@ -525,7 +591,7 @@ class Vm {
         ReturnCallback return_callback;
     };
 
-    Program program_;
+    std::shared_ptr<const Program> program_;
     std::optional<Error> program_error_;
     Host* host_ = nullptr;
     std::vector<uint32_t> statics_;

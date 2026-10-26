@@ -19,6 +19,7 @@
 #include "oa/ui/frontend_renderer.hpp"
 #include "oa/ui/frontend_renderer/artless.hpp"
 #include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/kit/rows.hpp"
@@ -120,7 +121,7 @@ inline constexpr std::size_t page_count = 19;
 /// Touch, Controller and Game files, ten without them; a mod's options have
 /// five.
 inline constexpr std::size_t most_listed_pages = 13;
-/// Windows and Linux register the seven file types at run time, and macOS
+/// Windows and Linux register the eight file types at run time, and macOS
 /// chooses whether this copy is the default opener of each, so System lists
 /// a switch for each. iOS takes the types from the app and has no way to
 /// choose a default opener, so System shows a text row. Android does not
@@ -291,7 +292,7 @@ enum class Setting : uint8_t {
     /// part of Open Annihilation's own screens (DialogAction::show_gallery);
     /// it changes no setting
     kit_gallery,
-    /// File Type Registration: the heading over the seven file-type switches,
+    /// File Type Registration: the heading over the eight file-type switches,
     /// with the group's hint. It changes no setting.
     file_type_registration,
     file_type_oamod,    ///< Mod packages (.oamod): a switch
@@ -300,6 +301,7 @@ enum class Setting : uint8_t {
     file_type_oareg,    ///< Registry files (.oareg): a switch
     file_type_oamut,    ///< Mutator packages (.oamut): a switch
     file_type_oabrain,  ///< Brain packages (.oabrain): a switch
+    file_type_oakeys,   ///< Key layout packages (.oakeys): a switch
     file_type_oalaunch, ///< Launch files (.oalaunch): a switch
     /// File types: the text row iOS shows in place of the switches.
     /// It changes no setting.
@@ -609,6 +611,9 @@ enum class DialogAction : uint8_t {
     /// RETRY on Updates: start the download of the offered package again.
     /// The dialog stays open.
     retry_update,
+    /// ROLL BACK on Updates: ask, then put the kept version back. The dialog
+    /// stays open until that question is answered.
+    roll_back,
 };
 
 /// One of the Library's tabs, as the dialog asks the host to open it
@@ -812,7 +817,22 @@ struct UpdatesOffer {
     std::string download_done;                   ///< bytes so far, as the player reads a size
     std::string download_size;                   ///< the whole file, as the player reads a size
     std::string download_reason;                 ///< why it stopped; not looked up
+    /// The version kept beside this one. Empty hides Previous version, so the
+    /// page keeps the two rows a picture of it was drawn with.
+    std::string kept_version;
 };
+
+namespace updates {
+
+/// The question ROLL BACK asks. {version} is the kept one, {current} this build.
+///
+/// @param kept the version that would be put back
+/// @param current the version that is running
+/// @return the question, already in the language shown
+[[nodiscard]] oa::ui::kit::Question
+roll_back_question(std::string_view kept, std::string_view current);
+
+} // namespace updates
 
 /// Where a check for a release stands, as the host tells update_lines.
 enum class UpdateStand : uint8_t {

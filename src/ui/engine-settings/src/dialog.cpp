@@ -1852,6 +1852,8 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         return DialogAction::restart_update;
     if (action == updates::retry_update_action)
         return DialogAction::retry_update;
+    if (action == updates::roll_back_action)
+        return DialogAction::roll_back;
     const kit::ActionId button = action - layout::first_folder_action;
     if (button < 0 || button >= static_cast<kit::ActionId>(folder_button_count))
         return DialogAction::none;
@@ -2356,6 +2358,11 @@ DialogAction dialog_pointer_up(Dialog& dialog, int32_t x, int32_t y) {
         return changed_or_redraw(dialog, before);
     }
     if (row->updates >= 0) {
+        // A game locks ROLL BACK the way it locks the page's other rows.
+        // The kit omits the control while the lock shows; this stops a press
+        // that still reaches the row.
+        if (row->lock != Lock::none)
+            return DialogAction::none;
         const EngineSettings before = dialog.chosen;
         const kit::RowResult result = updates::release(dialog, *row, x, y);
         if (result.event == kit::RowEvent::open_menu)
@@ -2931,10 +2938,20 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
                 );
         switch (view.kind) {
         case oa::ui::kit::RowKind::value_and_button:
-            // MANAGE…: one button.
-            row_part(
-                LayoutPart{row.control_area, view.buttons.front(), DialogFont::small, 0, control}
-            );
+            // Previous version names the kept release beside the label. The
+            // other buttons of this kind show a caption and no value.
+            if (row.updates == 3 && !view.value.empty())
+                row_part(
+                    LayoutPart{
+                        placed.rows[index].value, view.value, DialogFont::regular, 0, no_control
+                    }
+                );
+            if (!view.buttons.empty())
+                row_part(
+                    LayoutPart{
+                        row.control_area, view.buttons.front(), DialogFont::small, 0, control
+                    }
+                );
             break;
         case oa::ui::kit::RowKind::buttons:
             if (row.control_area.width > 0)

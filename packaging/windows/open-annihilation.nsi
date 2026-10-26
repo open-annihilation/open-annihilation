@@ -498,6 +498,7 @@ Section "Uninstall"
   ${OA_WithdrawUserType} ".oamap" "OpenAnnihilation.MapPack" "application/x-oamap"
   ${OA_WithdrawUserType} ".oamut" "OpenAnnihilation.Mutator" "application/x-oamut"
   ${OA_WithdrawUserType} ".oabrain" "OpenAnnihilation.Brain" "application/x-oabrain"
+  ${OA_WithdrawUserType} ".oakeys" "OpenAnnihilation.KeyLayout" "application/x-oakeys"
   ${OA_WithdrawUserType} ".oareg" "OpenAnnihilation.Registry" "application/x-oareg"
   ${OA_WithdrawUserType} ".oalaunch" "${OA_LAUNCH_PROGRAM_ID}" "${OA_LAUNCH_MIME_TYPE}"
 

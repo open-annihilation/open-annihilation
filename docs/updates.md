@@ -113,7 +113,28 @@ no route, UPDATE opens the release page as before.
 
 The first settled main menu of a start that names `--updated-from` with an
 older version shows "Updated to {version}" once, with the notes from the
-saved feed when it has them.
+saved feed when it has them. While a version is kept, that notice also
+says "{version} is kept. To go back to it, open Settings › Updates and
+press ROLL BACK."
+
+## Rolling back
+
+A version marks itself good when it first reaches the main menu. Until
+then, a start that does not get there counts as failed. On macOS and
+Windows the game counts that start before it loads the game's files or a
+mod, and after two failed starts it hands the kept version to `oa-update`
+and leaves. On Linux and Steam Deck the launcher counts in
+`<install>/update-starts` and, at the same point, points `current` at the
+kept version and starts it. A run that only checks something, and a run
+you asked to leave unattended, is not counted as a start. A version that
+already reached the main menu is not put back by this.
+
+The kept version comes back with the preferences file copied when the new
+version was swapped in. The bad release is not offered again. Saves, mods,
+the user folder and installed content stay where they are. The old version
+says "Back on {version}", with SHOW THE LOG and OK. Settings › Updates
+shows Previous version while one is kept, and ROLL BACK asks once, then
+restores the same way.
 
 ## Turning it off
 

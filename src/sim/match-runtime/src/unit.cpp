@@ -90,6 +90,7 @@ UnitInstance::UnitInstance(
     Effects& effects,
     SharedRandom& random,
     int32_t scale,
+    const SharedScriptProgram* type_script,
     MatchFault* fault
 )
     : slot_(slot), world_(state), model_(construct_model(loaded, slot)),
@@ -105,11 +106,16 @@ UnitInstance::UnitInstance(
     if (const auto* refused = sim::model_runtime::model_hierarchy_error(loaded.model))
         note("unit model refused", refused);
     if (loaded.script) {
-        script_ = std::make_unique<ScriptInstance>(loaded.script, host_, scale, fault);
-        // Engine callers reach this interpreter through the World's script table.
-        oa::sim::unit_script::unit_script_attach(
-            &world_, &slot_.record, &script_->vm(), *loaded.script
-        );
+        if (type_script == nullptr)
+            note("unit type has no prepared script program");
+        else {
+            script_ =
+                std::make_unique<ScriptInstance>(loaded.script, *type_script, host_, scale, fault);
+            // Engine callers reach this interpreter through the World's script table.
+            oa::sim::unit_script::unit_script_attach(
+                &world_, &slot_.record, &script_->vm(), *loaded.script
+            );
+        }
     }
 }
 

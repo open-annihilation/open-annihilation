@@ -1398,6 +1398,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_update_check.cpp
   src/app/runtime_update_offer_check.cpp
   src/app/runtime_update_install_check.cpp
+  src/app/runtime_update_roll_back_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -2249,6 +2250,20 @@ if(OA_BUILD_PLATFORM)
           --work-dir "${oa_update_download_dir}")
         set_tests_properties(native-update-download PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
           WORKING_DIRECTORY "${oa_update_download_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      endif()
+      # Confirming a version, the roll-back prompt, ROLL BACK and the guard
+      # leaving a check's start uncounted. Each part has its own state file.
+      set(oa_update_roll_back_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-roll-back")
+      file(MAKE_DIRECTORY "${oa_update_roll_back_dir}")
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-update-roll-back COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_update_roll_back.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --work-dir "${oa_update_roll_back_dir}")
+        set_tests_properties(native-update-roll-back PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_update_roll_back_dir}"
           ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       endif()
       # One evicted archive's read is held. The window keeps drawing the iCloud
@@ -4765,9 +4780,9 @@ if(BUILD_TESTING)
     # have the sizes the builds and the platforms want.
     add_test(NAME branding-icons COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/make_icons.py --check)
     set_tests_properties(branding-icons PROPERTIES TIMEOUT 60)
-    # The macOS and iOS bundles declare the game's seven file types as its own and open each as
-    # its owner, with the icon each system takes; the Windows uninstaller withdraws all seven and
-    # iOS brings in the six the game installs or adds (tools/check_bundle_file_types.py).
+    # The macOS and iOS bundles declare the game's eight file types as its own and open each as
+    # its owner, with the icon each system takes; the Windows uninstaller withdraws all eight and
+    # iOS brings in the seven the game installs or adds (tools/check_bundle_file_types.py).
     add_test(NAME app-bundle-file-types COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_bundle_file_types.py
       ${CMAKE_CURRENT_SOURCE_DIR}/src/app/Info.plist.in ${CMAKE_CURRENT_SOURCE_DIR}/platforms/ios/Info.plist.in)

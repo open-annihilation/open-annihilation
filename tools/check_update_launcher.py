@@ -81,6 +81,53 @@ def without_next(root: Path, launcher_src: Path) -> None:
         raise SystemExit("arguments were " + repr(lines))
 
 
+def three_unconfirmed_starts_roll_back(root: Path, launcher_src: Path) -> None:
+    install = root / "three"
+    stand_in(install / "versions" / "0.8.6" / "open-annihilation")
+    stand_in(install / "versions" / "0.8.7" / "open-annihilation")
+    os.symlink("versions/0.8.7", install / "current")
+    (install / "update-starts").write_text("0\n", encoding="utf-8")
+    launcher = install / "open-annihilation"
+    shutil.copy(launcher_src, launcher)
+    launcher.chmod(0o755)
+    args_file = root / "three-args"
+    start(launcher, args_file, ["--skip-intro"])
+    if link_target(install / "current") != "versions/0.8.7":
+        raise SystemExit("the first unconfirmed start rolled back")
+    if (install / "update-starts").read_text(encoding="utf-8") != "1\n":
+        raise SystemExit("the first start did not count")
+    start(launcher, args_file, ["--skip-intro"])
+    if link_target(install / "current") != "versions/0.8.7":
+        raise SystemExit("the second unconfirmed start rolled back")
+    start(launcher, args_file, ["--mute"])
+    if link_target(install / "current") != "versions/0.8.6":
+        raise SystemExit("the third start did not roll back")
+    if (install / "update-starts").exists():
+        raise SystemExit("update-starts was left after the roll back")
+    lines = args_file.read_text(encoding="utf-8").splitlines()
+    if lines != ["--mute", "--rolled-back-from", "0.8.7", "--roll-back-reason", "failed-starts"]:
+        raise SystemExit("roll-back arguments were " + repr(lines))
+
+
+def a_removed_count_does_not_roll_back(root: Path, launcher_src: Path) -> None:
+    install = root / "confirmed"
+    stand_in(install / "versions" / "0.8.6" / "open-annihilation")
+    stand_in(install / "versions" / "0.8.7" / "open-annihilation")
+    os.symlink("versions/0.8.7", install / "current")
+    (install / "update-starts").write_text("2\n", encoding="utf-8")
+    (install / "update-starts").unlink()
+    launcher = install / "open-annihilation"
+    shutil.copy(launcher_src, launcher)
+    launcher.chmod(0o755)
+    args_file = root / "confirmed-args"
+    start(launcher, args_file, ["hello"])
+    if link_target(install / "current") != "versions/0.8.7":
+        raise SystemExit("a removed count rolled back")
+    lines = args_file.read_text(encoding="utf-8").splitlines()
+    if lines != ["hello"]:
+        raise SystemExit("arguments were " + repr(lines))
+
+
 def missing_current(root: Path, launcher_src: Path) -> None:
     install = root / "no-current"
     stand_in(install / "versions" / "0.8.7" / "open-annihilation")
@@ -105,6 +152,8 @@ def main() -> None:
         with_next(root, launcher_src)
         without_next(root, launcher_src)
         missing_current(root, launcher_src)
+        three_unconfirmed_starts_roll_back(root, launcher_src)
+        a_removed_count_does_not_roll_back(root, launcher_src)
 
 
 if __name__ == "__main__":

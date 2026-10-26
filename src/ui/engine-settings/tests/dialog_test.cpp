@@ -699,7 +699,7 @@ void each_section_shows_its_rows() {
     const auto system_rows = settings::page_settings(Page::system);
     CHECK(system_rows[0] == Setting::user_folder);
     if (settings::file_types_switchable) {
-        CHECK(system_rows.size() == 10);
+        CHECK(system_rows.size() == 11);
         CHECK(system_rows[1] == Setting::welcome_setup);
         CHECK(system_rows[2] == Setting::file_type_registration);
         CHECK(system_rows[3] == Setting::file_type_oamod);
@@ -708,7 +708,8 @@ void each_section_shows_its_rows() {
         CHECK(system_rows[6] == Setting::file_type_oareg);
         CHECK(system_rows[7] == Setting::file_type_oamut);
         CHECK(system_rows[8] == Setting::file_type_oabrain);
-        CHECK(system_rows[9] == Setting::file_type_oalaunch);
+        CHECK(system_rows[9] == Setting::file_type_oakeys);
+        CHECK(system_rows[10] == Setting::file_type_oalaunch);
     } else {
         CHECK(system_rows.size() == 3);
         CHECK(system_rows[1] == Setting::welcome_setup);
@@ -718,7 +719,7 @@ void each_section_shows_its_rows() {
     settings::Dialog runtime = opened(Page::system);
     runtime.file_type_switches = true;
     const auto runtime_rows = geometry::open_rows(runtime).rows.rows;
-    CHECK(runtime_rows.size() == 10);
+    CHECK(runtime_rows.size() == 11);
     CHECK(runtime_rows[0].setting == Setting::user_folder);
     CHECK(runtime_rows[1].setting == Setting::welcome_setup);
     CHECK(runtime_rows[2].setting == Setting::file_type_registration);
@@ -728,7 +729,8 @@ void each_section_shows_its_rows() {
     CHECK(runtime_rows[6].setting == Setting::file_type_oareg);
     CHECK(runtime_rows[7].setting == Setting::file_type_oamut);
     CHECK(runtime_rows[8].setting == Setting::file_type_oabrain);
-    CHECK(runtime_rows[9].setting == Setting::file_type_oalaunch);
+    CHECK(runtime_rows[9].setting == Setting::file_type_oakeys);
+    CHECK(runtime_rows[10].setting == Setting::file_type_oalaunch);
     settings::Dialog bundle = opened(Page::system);
     bundle.file_type_switches = false;
     const auto bundle_rows = geometry::open_rows(bundle).rows.rows;
@@ -8556,6 +8558,57 @@ void updates_lists_its_rows_and_the_compact_list_of_thirteen_scrolls() {
     }
 }
 
+void previous_version_offers_roll_back_and_locks_in_a_game() {
+    // Nothing kept leaves the two rows a picture of the page was drawn with.
+    settings::UpdatesOffer plain;
+    plain.version_line = "Open Annihilation 0.8.7";
+    plain.status = "Up to date · Stable · checked today at 09:00";
+    plain.can_check = true;
+    settings::Dialog absent = updates_dialog(plain);
+    const auto absent_parts = settings::dialog_layout(absent);
+    CHECK(find_part(absent_parts, "Previous version", settings::no_control) == nullptr);
+    CHECK(find_part(absent_parts, "ROLL BACK", settings::no_control) == nullptr);
+
+    settings::UpdatesOffer offer = plain;
+    offer.kept_version = "0.8.6";
+    settings::Dialog kept = updates_dialog(offer);
+    const auto parts = settings::dialog_layout(kept);
+    CHECK(find_part(parts, "Previous version", settings::no_control) != nullptr);
+    CHECK(find_part(parts, "0.8.6 kept", settings::no_control) != nullptr);
+    const settings::LayoutPart* button = find_part(parts, "ROLL BACK", settings::no_control);
+    CHECK(button != nullptr);
+    if (button != nullptr)
+        CHECK(click(kept, centre(button->rect)) == settings::DialogAction::roll_back);
+
+    kept.locks.path_search = settings::Lock::in_game;
+    const auto locked_parts = settings::dialog_layout(kept);
+    const settings::LayoutPart* locked = find_part(locked_parts, "ROLL BACK", settings::no_control);
+    CHECK(locked != nullptr);
+    if (locked != nullptr)
+        CHECK(click(kept, centre(locked->rect)) == settings::DialogAction::none);
+
+    const oa::ui::kit::Question asked = settings::updates::roll_back_question("0.8.6", "0.8.7");
+    CHECK(asked.word == "update-previous");
+    CHECK(asked.title == "Go back to 0.8.6?");
+    CHECK(asked.paragraphs.size() == 1);
+    if (!asked.paragraphs.empty()) {
+        CHECK(
+            asked.paragraphs.front().text ==
+            "OA restarts on 0.8.6, with the settings it had. 0.8.7 won't be offered again until "
+            "you choose it."
+        );
+    }
+    CHECK(asked.buttons.size() == 2);
+    if (asked.buttons.size() == 2) {
+        CHECK(asked.buttons[0].caption == "CANCEL");
+        CHECK(asked.buttons[0].id == "cancel");
+        CHECK(asked.buttons[1].caption == "ROLL BACK");
+        CHECK(asked.buttons[1].id == "roll-back");
+    }
+    CHECK(asked.cancel_button == 0);
+    CHECK(asked.primary_button == 1);
+}
+
 void download_rows_sit_between_the_status_and_the_check() {
     // The switch is off unless the host asks, so the two rows stay put.
     settings::UpdatesOffer plain;
@@ -10819,6 +10872,7 @@ int main(int argc, char** argv) {
         touch_shows_its_rows_and_their_values();
         touch_changes_only_its_entry_and_the_sections_under_it();
         updates_lists_its_rows_and_the_compact_list_of_thirteen_scrolls();
+        previous_version_offers_roll_back_and_locks_in_a_game();
         download_rows_sit_between_the_status_and_the_check();
         controller_is_listed_only_once_a_gamepad_sent_input();
         controller_shows_its_rows_and_their_values();

@@ -58,6 +58,49 @@ if [ ! -e "$here/current" ] && [ ! -L "$here/current" ]; then
 fi
 
 game=$here/current/open-annihilation
+
+# An unconfirmed install leaves update-starts. Three starts that have not
+# reached the main menu point current at the other versions/ folder.
+if [ -f "$here/update-starts" ]; then
+    starts=0
+    read -r starts < "$here/update-starts" || starts=0
+    case "$starts" in
+        ''|*[!0-9]*)
+            starts=0
+            ;;
+    esac
+    starts=$((starts + 1))
+    printf '%s\n' "$starts" > "$here/update-starts"
+    if [ "$starts" -ge 3 ]; then
+        current_name=
+        if [ -L "$here/current" ]; then
+            current_target=$(readlink "$here/current" || true)
+            if [ -n "$current_target" ]; then
+                current_name=$(basename "$current_target")
+            fi
+        fi
+        kept=
+        if [ -d "$here/versions" ]; then
+            for entry in "$here"/versions/*; do
+                if [ -d "$entry" ]; then
+                    name=$(basename "$entry")
+                    if [ -n "$name" ] && [ "$name" != "$current_name" ]; then
+                        kept=$name
+                        break
+                    fi
+                fi
+            done
+        fi
+        if [ -n "$kept" ] && [ -n "$current_name" ]; then
+            ln -s "versions/$kept" "$here/rollback-link"
+            mv -T "$here/rollback-link" "$here/current"
+            rm -f "$here/update-starts"
+            game=$here/current/open-annihilation
+            exec "$game" "$@" --rolled-back-from "$current_name" --roll-back-reason failed-starts
+        fi
+    fi
+fi
+
 if [ "$swapped" -eq 1 ] && [ -n "$old" ]; then
     exec "$game" "$@" --updated-from "$old"
 fi

@@ -83,7 +83,7 @@ int main() {
     cob->scripts = {{"Create", 0}};
     cob->header.script_count = 1;
     UnusedVmHost vmhost;
-    ScriptInstance script(cob, vmhost, 30);
+    ScriptInstance script(cob, prepare_type_script(cob), vmhost, 30);
     int32_t returned = -1;
     CHECK(script.call("Create", {}, true, [&](int32_t n) { returned = n; }));
     CHECK(returned == 42 && script.vm().active_count() == 0);
@@ -111,7 +111,8 @@ int main() {
     queries->entry_points = {0, 5};
     queries->scripts = {{"Deferred", 0}, {"QueryPrimary", 5}};
     queries->header.static_variable_count = 1;
-    ScriptInstance query_script(queries, vmhost, 30);
+    const auto queries_shared = prepare_type_script(queries);
+    ScriptInstance query_script(queries, queries_shared, vmhost, 30);
     CHECK(query_script.call("Deferred", {}, false));
     std::array<int32_t, 4> query_args{0, 2, 3, 4};
     CHECK(query_script.query("QueryPrimary", query_args));
@@ -120,12 +121,26 @@ int main() {
     CHECK(!query_script.query("queryprimary", query_args) && query_args[0] == 17);
     query_script.tick(0);
     CHECK(query_script.vm().static_value(0) == 99);
+    // A second unit of this type shares the code and keeps its own statics,
+    // stack and running script.
+    ScriptInstance other_query(queries, queries_shared, vmhost, 30);
+    CHECK(query_script.vm().program().code.data() == other_query.vm().program().code.data());
+    CHECK(!query_script.vm().program().code.empty());
+    CHECK(other_query.vm().static_value(0) == 0 && other_query.vm().active_count() == 0);
+    CHECK(
+        other_query.find(ScriptFunction::query_primary) ==
+        query_script.find(ScriptFunction::query_primary)
+    );
+    const std::array<int32_t, 1> only{4};
+    CHECK(other_query.call("Deferred", only, false));
+    CHECK(other_query.vm().active_count() == 1 && other_query.vm().context(0).slots[0] == 4);
+    CHECK(query_script.vm().static_value(0) == 99 && query_script.vm().active_count() == 0);
     auto parameter_cob = std::make_shared<oa::formats::cob::CobProgram>();
     parameter_cob->code = {opcode::push_local, 3, opcode::pop_static, 0, opcode::return_};
     parameter_cob->entry_points = {0};
     parameter_cob->scripts = {{"ReadFourth", 0}};
     parameter_cob->header.static_variable_count = 1;
-    ScriptInstance parameter_script(parameter_cob, vmhost, 30);
+    ScriptInstance parameter_script(parameter_cob, prepare_type_script(parameter_cob), vmhost, 30);
     const std::array<int32_t, 4> four{1, 2, 3, 77};
     CHECK(parameter_script.call("ReadFourth", four, true));
     CHECK(parameter_script.vm().static_value(0) == 77);
@@ -169,7 +184,7 @@ int main() {
     fixed_cob->entry_points = {0, 3, 6, 9};
     fixed_cob->scripts = {{"rockunit", 0}, {"RockUnit", 3}, {"RockUnit", 6}, {"SweetSpot", 9}};
     fixed_cob->header.static_variable_count = 1;
-    ScriptInstance fixed(fixed_cob, vmhost, 30);
+    ScriptInstance fixed(fixed_cob, prepare_type_script(fixed_cob), vmhost, 30);
     CHECK(fixed.find(ScriptFunction::rock_unit) == 1 && fixed.find("RockUnit") == 1);
     CHECK(fixed.find(ScriptFunction::sweet_spot) == 3);
     CHECK(fixed.find(ScriptFunction::create) == -1 && fixed.find(ScriptFunction::killed) == -1);
@@ -197,7 +212,7 @@ int main() {
     CHECK(!fixed.query(ScriptFunction::query_primary, missing));
     CHECK(missing == (std::array<int32_t, 4>{5, 6, 7, 8}));
     // An instance without a program finds no fixed function.
-    ScriptInstance empty(nullptr, vmhost, 30);
+    ScriptInstance empty(nullptr, prepare_type_script(nullptr), vmhost, 30);
     CHECK(empty.find(ScriptFunction::create) == -1);
     oa::sim::unit_spawn::LegacyWorld world(2);
     world.types()[1].simulation.maximum_health = 100;

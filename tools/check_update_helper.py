@@ -87,7 +87,10 @@ def feed_written(text):
     return ""
 
 
-def write_plan(path, install, updates, package, preferences, program, script, marker):
+def write_plan(path, install, updates, package, preferences, program, script, marker, extra=None):
+    arguments = [spell(script), "--started", spell(marker)]
+    if extra:
+        arguments.extend(extra)
     plan = {
         "plan": 1,
         "action": "install",
@@ -95,7 +98,7 @@ def write_plan(path, install, updates, package, preferences, program, script, ma
         "wait_for": 0,
         "install": spell(install),
         "program": spell(program),
-        "arguments": [spell(script), "--started", spell(marker)],
+        "arguments": arguments,
         "from_version": "0.0.1",
         "feed": spell(path.parent / "feed.json"),
         "signature": spell(path.parent / "feed.json.sig"),
@@ -160,14 +163,14 @@ def run_helper(oa_update, plan, feed_key):
     )
 
 
-def prepare_case(root, package, preferences, program, script):
+def prepare_case(root, package, preferences, program, script, extra=None):
     install = root / "install"
     updates = root / "updates"
     marker = root / "marker.txt"
     plan = root / "plan.json"
     write_tree(install, OLD)
     updates.mkdir()
-    write_plan(plan, install, updates, package, preferences, program, script, marker)
+    write_plan(plan, install, updates, package, preferences, program, script, marker, extra)
     # The plan's feed paths were written beside the plan. Point them at the shared feed.
     return install, updates, marker, plan
 
@@ -191,7 +194,9 @@ def check_swapped(install, updates, preferences, marker):
     state = json.loads((updates / "state.json").read_text(encoding="utf-8"))
     if state.get("installed_version") != "0.0.2" or state.get("installed_release") != 2:
         return fail("state.json does not name the installed release")
-    if state.get("kept_version") != "0.0.1" or state.get("confirmed") is not False:
+    # The stand-in confirms the state, standing in for a start that reached
+    # the main menu. The helper wrote it unconfirmed.
+    if state.get("kept_version") != "0.0.1" or state.get("confirmed") is not True:
         return fail("state.json does not name the kept version")
     if state.get("failed_starts") != 0:
         return fail("state.json does not start the failure count at 0")
@@ -215,12 +220,65 @@ def check_unchanged(install, marker, updated_from):
     return 0
 
 
+def confirm_started(marker):
+    """Marks state.json confirmed, as a start that reached the main menu."""
+    state_path = marker.parent / "updates" / "state.json"
+    if not state_path.is_file():
+        return
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    if state.get("confirmed") is True:
+        return
+    state["confirmed"] = True
+    state["failed_starts"] = 0
+    state_path.write_text(json.dumps(state) + "\n", encoding="utf-8")
+
+
+def await_token(marker, token):
+    deadline = time.monotonic() + 10
+    previous = None
+    while True:
+        lines = marker_lines(marker)
+        if token in lines and lines == previous:
+            return lines
+        previous = lines
+        if time.monotonic() >= deadline:
+            return lines
+        time.sleep(0.05)
+
+
+def check_restored(install, updates, preferences, original, marker, reason):
+    if not same_files(install, OLD):
+        return fail("the old files are not back")
+    state = json.loads((updates / "state.json").read_text(encoding="utf-8"))
+    if state.get("installed_version") != "0.0.1" or state.get("confirmed") is not True:
+        return fail("state.json does not name the old version confirmed: " + repr(state))
+    if state.get("installed_release") != 0 or state.get("failed_starts") != 0:
+        return fail("state.json still records the bad release: " + repr(state))
+    if state.get("kept_version") not in ("", None):
+        return fail("state.json still keeps a version: " + repr(state))
+    copy = updates / "previous" / "preferences.conf"
+    if not copy.is_file() or copy.read_bytes() != original:
+        return fail("the preferences copy changed")
+    live = preferences.read_text(encoding="utf-8")
+    if '"key"' not in live or "open-annihilation.update-skipped" not in live or '"2"' not in live:
+        return fail("the restored preferences were " + live)
+    lines = await_token(marker, "--rolled-back-from")
+    if "--rolled-back-from" not in lines or "0.0.2" not in lines:
+        return fail("the restored start did not name the bad version: " + repr(lines))
+    if "--roll-back-reason" not in lines or reason not in lines:
+        return fail("the restored start did not name the reason: " + repr(lines))
+    return 0
+
+
 def main(argv):
     if "--started" in argv:
         at = argv.index("--started")
         if at + 1 >= len(argv):
             return fail("--started needs a marker")
-        Path(argv[at + 1]).write_text("\n".join(argv) + "\n", encoding="utf-8")
+        marker = Path(argv[at + 1])
+        marker.write_text("\n".join(argv) + "\n", encoding="utf-8")
+        if "--fail-start" not in argv:
+            confirm_started(marker)
         return 0
     if len(argv) != 3:
         return fail("usage: check_update_helper.py OA-UPDATE OA-TOOL")
@@ -317,6 +375,53 @@ def main(argv):
             sys.stderr.write(first.stderr)
             return fail("the swap exited " + str(first.returncode))
         status = check_swapped(install, updates, preferences, marker)
+        if status != 0:
+            return status
+
+        valid = scratch / "valid-preferences.conf"
+        valid.write_bytes(b'open-annihilation-preferences 1\n"key" "value"\n')
+        original = valid.read_bytes()
+
+        failed = scratch / "failed"
+        install, updates, marker, plan = prepare_case(
+            failed, package, valid, sys.executable, script, ["--fail-start"]
+        )
+        retarget_feed(plan, feed, signature)
+        failed_run = run_helper(oa_update, plan, feed_key)
+        if failed_run.returncode != 0:
+            sys.stderr.write(failed_run.stdout)
+            sys.stderr.write(failed_run.stderr)
+            return fail("two failed starts exited " + str(failed_run.returncode))
+        status = check_restored(install, updates, valid, original, marker, "failed-starts")
+        if status != 0:
+            return status
+
+        # The failed case rewrote the shared preferences file. Put the copy back.
+        valid.write_bytes(original)
+        player = scratch / "player"
+        install, updates, marker, plan = prepare_case(
+            player, package, valid, sys.executable, script
+        )
+        retarget_feed(plan, feed, signature)
+        installed = run_helper(oa_update, plan, feed_key)
+        if installed.returncode != 0:
+            sys.stderr.write(installed.stdout)
+            sys.stderr.write(installed.stderr)
+            return fail("the confirmed install exited " + str(installed.returncode))
+        if not same_files(install, NEW):
+            return fail("the confirmed install did not swap")
+        rolled = json.loads(plan.read_text(encoding="utf-8"))
+        rolled["action"] = "roll-back"
+        rolled["roll_back_reason"] = "player"
+        plan.write_text(json.dumps(rolled) + "\n", encoding="utf-8")
+        if marker.exists():
+            marker.unlink()
+        player_run = run_helper(oa_update, plan, feed_key)
+        if player_run.returncode != 0:
+            sys.stderr.write(player_run.stdout)
+            sys.stderr.write(player_run.stderr)
+            return fail("the player's roll back exited " + str(player_run.returncode))
+        status = check_restored(install, updates, valid, original, marker, "player")
         if status != 0:
             return status
 

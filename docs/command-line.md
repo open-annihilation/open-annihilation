@@ -80,7 +80,7 @@ On Linux, in a terminal in the game's folder:
 - A word that begins with `-` or `/` and a letter, such as `-c` or `/d`, is
   one of 3.1c's switches ([The 3.1c command line](#the-31c-command-line)).
   Any other word names the language, as in 3.1c: `german`.
-- A `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file named on
+- A `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys` or `.oareg` file named on
   its own is opened
   as `--open FILE` opens it. A launch file is named with `-c` or `--launch`:
   on its own, its name is just a word of 3.1c's command line, and no launch
@@ -148,7 +148,7 @@ the console it was started from.
 | `--preferences-file PATH` | Reads and writes the preferences in `PATH` instead of the usual file. Your Open Annihilation folder is then the one beside it ([settings](settings.md#where-the-settings-are-kept)). |
 | `--data-dir PATH` | Keeps the data the game unpacks for itself in `PATH`, in place of the system's per-user data folder. |
 | `--log-dir PATH` | Writes this run's log into `PATH`, whatever kind of run it is. What the game prints goes into the log too; only `--status-stdout`'s lines stay on standard output. |
-| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
+| `--open FILE` | Opens a `.oamod`, `.oalang`, `.oamap`, `.oamut`, `.oabrain`, `.oakeys` or `.oareg` file once the main menu shows, as opening it from the desktop does; give it once for each file. |
 | `--install-mod FILE` | The same as `--open FILE`. |
 | `--no-game-files-screen` | With no usable game folder, shows the notice with its look-again button instead of the Game files screen, where a system offers both ([game files](game-files.md)). |
 
@@ -403,6 +403,10 @@ Network play's own checks, the last rows, are in every build.
 | `--update-key ID=ed25519:KEY` | A key that may sign the `--update-feed` feed. Give it once for each key. Needs `--update-feed`. A self-check. |
 | `--check-engine-feed` | Checks looking for a new release against a feed the check serves. |
 | `--updated-from VERSION` | Every build. The version this start replaced. The first settled main menu shows "Updated to …" once when this copy is newer. |
+| `--rolled-back-from VERSION` | Every build. The version this start replaced by rolling back. Used with `--roll-back-reason`. The first settled main menu says "Back on …". |
+| `--roll-back-reason failed-starts or player` | Every build. Why the roll back happened. Used with `--rolled-back-from`. |
+| `--check-update-roll-back` | Checks confirming a version, the roll-back prompt, ROLL BACK and that a check is not counted as a start. |
+| `--roll-back-case NAME` | With `--check-update-roll-back`, which part to run: `guard`, `confirm`, `prompt` or `settings`. Needs `--check-update-roll-back`. |
 | `--update-install-folder DIR` | A self-check. With `--update-feed`, the route is that folder, so a download can be handed to the helper in a test. Needs `--update-feed`. |
 | `--update-and-quit` | A self-check. Needs `--update-feed`. At the settled main menu, downloads where there is a route, with no prompt, and quits when the file is ready so the hand-off follows. With no offer or no route, quits with status 1. |
 | `--check-update-offer` | Shows the update question against a feed the check serves, including its notes, and checks it waits out a match, a message and Settings. |

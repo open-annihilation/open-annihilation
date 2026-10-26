@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// System's seven file-type switches as the file types they choose: the set a registration acts
+// System's eight file-type switches as the file types they choose: the set a registration acts
 // on and whose rest a withdrawal acts on (Windows, Linux), and the default-opener changes OK
 // asks for (macOS). Each switch stands for its own type alone.
 
