@@ -21,6 +21,7 @@
 #include "pad_state.hpp"
 #include "touch_state.hpp"
 #include "oa/app/frame_pacing.hpp"
+#include "oa/app/game_directory.hpp"
 #include "oa/data/defs/layout.hpp"
 #include "oa/present/world_renderer.hpp"
 #include "oa/sim/ground_orders/orders.hpp"
@@ -39,6 +40,8 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <initializer_list>
 #include <iostream>
 #include <limits>
@@ -3617,6 +3620,113 @@ struct PadCheckAccess {
             "F13 to F16 did not end the fallback map"
         );
     }
+
+    /// K19. A layout that moves Stop to J leaves the pad's X stopping, and the raw keys follow
+    /// the layout: S no longer stops the Peewee and J does.
+    static void case_stop_follows_action(Runtime& runtime, PadRun& run) {
+        require_attached(run.deck);
+        fs::path folder = runtime.user_folder();
+        if (folder.empty())
+            folder = "K16-stop-on-j";
+        else
+            folder /= "K16-stop-on-j";
+        std::error_code make_error;
+        fs::create_directories(folder, make_error);
+        require(!make_error, Part::check, "the Stop-on-J layout folder could not be made");
+        const fs::path manifest = folder / "oakeys.yaml";
+        {
+            std::ofstream out(manifest, std::ios::binary);
+            require(
+                static_cast<bool>(out), Part::check, "the Stop-on-J layout could not be written"
+            );
+            out << "oakeys: 1\n"
+                << "id: k16-stop-on-j\n"
+                << "name: \"Stop on J\"\n"
+                << "version: \"1.0\"\n"
+                << "author: {name: \"Open Annihilation\"}\n"
+                << "description: \"Stop is J.\"\n"
+                << "tags: [orders]\n"
+                << "base: oa-default\n"
+                << "bindings:\n"
+                << "  order.stop: [\"@KeyJ\"]\n";
+            require(
+                static_cast<bool>(out), Part::check, "the Stop-on-J layout could not be written"
+            );
+        }
+
+        // A failed check still puts the default layout back before the next case.
+        struct RestoreKeys {
+            Runtime& runtime;
+            std::string saved;
+
+            ~RestoreKeys() {
+                try {
+                    runtime.options_.keys = saved;
+                    runtime.key_bindings_refusal_.clear();
+                    runtime.load_key_bindings();
+                    runtime.ensure_key_bindings(false);
+                } catch (...) {
+                    // The next case reports a layout this one could not put back.
+                }
+            }
+        } restore{runtime, runtime.options_.keys};
+
+        runtime.key_bindings_refusal_.clear();
+        runtime.options_.keys = path_to_utf8(folder);
+        runtime.load_key_bindings();
+        runtime.ensure_key_bindings(false);
+        require(
+            runtime.key_bindings_refusal_.empty(),
+            Part::check,
+            "the Stop-on-J layout was refused: " + runtime.key_bindings_refusal_
+        );
+        hold_units_still(runtime);
+        const auto peewee = run.peewees[0];
+        select_only(runtime, peewee);
+        look_at_units(runtime, {peewee});
+        step(runtime, run, kFrameMs);
+        const auto give_move = [&] {
+            mouse_click(
+                runtime,
+                run,
+                ground_beside(runtime, run, peewee, 0.0F, -kGroundOffsetPoints),
+                SDL_KMOD_NONE
+            );
+        };
+        give_move();
+        require(
+            !queue_of(runtime, peewee).empty(), Part::check, "a mouse click gave the Peewee no move"
+        );
+        const auto moving = queue_of(runtime, peewee);
+        tap(runtime, run, run.deck, pad::PadButton::x);
+        const auto stopped = queue_of(runtime, peewee);
+        require(
+            stopped.empty() || !same_orders(stopped, moving),
+            Part::dispatch,
+            "X did not stop the Peewee after Stop moved to J: its queue stayed " +
+                queue_text(stopped)
+        );
+        give_move();
+        const auto again = queue_of(runtime, peewee);
+        require(!again.empty(), Part::check, "a mouse click gave the Peewee no second move");
+        send_key(runtime, run, SDLK_S, SDL_SCANCODE_S, true);
+        send_key(runtime, run, SDLK_S, SDL_SCANCODE_S, false);
+        const auto after_s = queue_of(runtime, peewee);
+        require(
+            same_orders(after_s, again),
+            Part::dispatch,
+            "S stopped the Peewee after Stop moved to J: its queue became " + queue_text(after_s)
+        );
+        send_key(runtime, run, SDLK_J, SDL_SCANCODE_J, true);
+        send_key(runtime, run, SDLK_J, SDL_SCANCODE_J, false);
+        const auto after_j = queue_of(runtime, peewee);
+        require(
+            after_j.empty() || !same_orders(after_j, again),
+            Part::dispatch,
+            "J did not stop the Peewee after Stop moved to J: its queue stayed " +
+                queue_text(after_j)
+        );
+    }
 };
 
 void Runtime::check_pad_controls() {
@@ -3671,6 +3781,7 @@ void Runtime::check_pad_controls() {
     run_case("K10 build ring", Access::case_build_ring);
     run_case("K11 camera", Access::case_camera);
     run_case("K12 buttons, D-pad and SELECT", Access::case_buttons);
+    run_case("K19 Stop follows the action", Access::case_stop_follows_action);
     run_case("K13 View, Menu and menu focus", Access::case_view_and_menu);
     run_case("K15 haptics", Access::case_haptics);
     run_case("K17 same as the mouse", Access::case_same_as_mouse);
