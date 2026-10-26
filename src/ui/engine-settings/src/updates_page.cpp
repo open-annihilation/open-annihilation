@@ -224,6 +224,14 @@ std::string kept_value(const RowModel& model) {
     return geometry::filled("{version} kept", {{"version", model.dialog->updates.kept_version}});
 }
 
+/// The lock ROLL BACK shows during a game. The page reads the same field
+/// Downloads does: a game sets path_search, and that is what stops the row.
+std::string_view previous_lock(const RowModel& model) {
+    if (model.dialog == nullptr || model.dialog->locks.path_search == Lock::none)
+        return {};
+    return geometry::lock_text(Lock::in_game);
+}
+
 /// Returns how many ways the check offers.
 ///
 /// @return 3
@@ -329,6 +337,7 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
             roll_back_action
         );
         spec.control_width = geometry::manage_button_width;
+        spec.lock = previous_lock;
         return spec;
     }
     kit::Stepper<RowModel> stepper;
