@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
+# SPDX-License-Identifier: GPL-3.0-only
+
+# The actions a layout may bind. The default leaves them unbound, except the
+# keys overlay, which stays on Primary+/.
+oakeys: 1
+id: new-actions
+name: "New actions"
+version: "1.0"
+author: {name: "Open Annihilation"}
+description: "Build cells, zoom keys, allies chat and the other new actions."
+tags: [grid]
+base: oa-default
+bindings:
+  # The number row is the build cells. The pages and the speed keys keep the
+  # numpad, and repeat leaves the backslash to the zoom reset.
+  build.page-1: ["Numpad1"]
+  build.page-2: ["Numpad2"]
+  build.page-3: ["Numpad3"]
+  build.page-4: ["Numpad4"]
+  build.page-5: ["Numpad5"]
+  build.page-6: ["Numpad6"]
+  build.page-7: ["Numpad7"]
+  build.page-8: ["Numpad8"]
+  build.page-9: ["Numpad9"]
+  game.speed-down: ["NumpadSubtract"]
+  game.speed-up: ["NumpadAdd"]
+  game.repeat-command: []
+  build.cell-1: ["@Digit1"]
+  build.cell-2: ["@Digit2"]
+  build.cell-3: ["@Digit3"]
+  build.cell-4: ["@Digit4"]
+  build.cell-5: ["@Digit5"]
+  build.cell-6: ["@Digit6"]
+  build.cell-7: ["@Digit7"]
+  build.cell-8: ["@Digit8"]
+  build.cell-9: ["@Digit9"]
+  build.cell-10: ["@Digit0"]
+  build.cell-11: ["@Minus"]
+  build.cell-12: ["@Equal"]
+  camera.zoom-in-key: ["@BracketLeft"]
+  camera.zoom-out-key: ["@BracketRight"]
+  camera.zoom-reset: ["@Backslash"]
+  chat.open-allies: [F9]
+  ui.release-pointer: [Insert]
+  megamap.jump: ["MouseLeft:double"]
+  order.cancel: [PrintScreen]
+  select.clear: [End]

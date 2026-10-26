@@ -265,7 +265,7 @@ void PadAccess::act_press(
         if (text_input_on(runtime))
             send_key(runtime, SDLK_ESCAPE);
         else if (in_match(runtime))
-            runtime.clear_or_cancel_match_command();
+            runtime.cancel_or_clear_match_command();
         return;
     case pc::Action::stop:
         runtime.press_match_action("order.stop");
