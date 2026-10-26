@@ -1449,14 +1449,13 @@ void Runtime::check_text_fit() {
                 manifest.author.name = "You";
                 manifest.tags = {"own"};
                 manifest.base = oakeys::Base::oa_default;
+                // Attack takes Select builders' Ctrl+B, the clash a player makes
+                // before SAVE. A second binding of the same chord in this file
+                // is dropped as the layout loads, so the card would not show.
                 oakeys::BindingEntry attack_binding;
                 attack_binding.action = "order.attack";
-                attack_binding.chords.push_back(oakeys::ChordText{"Ctrl+Alt+Shift+F12", 0, 0});
-                oakeys::BindingEntry move_binding;
-                move_binding.action = "order.move";
-                move_binding.chords.push_back(oakeys::ChordText{"Ctrl+Alt+Shift+F12", 0, 0});
+                attack_binding.chords.push_back(oakeys::ChordText{"Ctrl+B", 0, 0});
                 manifest.bindings.push_back(std::move(attack_binding));
-                manifest.bindings.push_back(std::move(move_binding));
                 const std::filesystem::path own_dir = std::filesystem::path(user_folder_) /
                                                       std::string(key_library::keys_folder_name) /
                                                       key_library::own_folder_name("oa-default");

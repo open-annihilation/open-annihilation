@@ -479,14 +479,13 @@ void Runtime::check_key_capture() {
     manifest.author.name = "You";
     manifest.tags = {"own"};
     manifest.base = oakeys::Base::oa_default;
+    // One own binding takes Select builders' Ctrl+B. The draft holds the clash
+    // the player would see before SAVE. Two bindings of one chord in this file
+    // would be dropped as the layout loads, and the card would never show.
     oakeys::BindingEntry attack;
     attack.action = "order.attack";
-    attack.chords.push_back(oakeys::ChordText{"Ctrl+Alt+Shift+F12", 0, 0});
-    oakeys::BindingEntry move;
-    move.action = "order.move";
-    move.chords.push_back(oakeys::ChordText{"Ctrl+Alt+Shift+F12", 0, 0});
+    attack.chords.push_back(oakeys::ChordText{"Ctrl+B", 0, 0});
     manifest.bindings.push_back(std::move(attack));
-    manifest.bindings.push_back(std::move(move));
     const fs::path own_dir = user_folder_ / std::string(library::keys_folder_name) /
                              library::own_folder_name("oa-default");
     std::error_code made;
