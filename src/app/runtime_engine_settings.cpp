@@ -1350,6 +1350,8 @@ void Runtime::apply_engine_settings(const settings::EngineSettings& chosen) {
     // ui.megamap acts only while the wheel zoom is off.
     if (before.wheel_zoom != chosen.wheel_zoom && match_)
         megamap_wheel_zoom_changed();
+    if (before.sticky_modifiers != chosen.sticky_modifiers)
+        apply_sticky_modifiers(chosen.sticky_modifiers);
     // SwitchAlt, where the keys read it: the match's options and the
     // frontend's preferences, which the match's options go back into.
     const auto with_switch_alt = [&](uint16_t flags) {

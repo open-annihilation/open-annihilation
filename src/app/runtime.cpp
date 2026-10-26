@@ -1030,6 +1030,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_latches) {
+            check_key_latches();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_paused_save) {
             check_paused_save();
             flush_preferences();
@@ -1277,8 +1282,20 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // While an input method composes, the keys it uses are its own.
     if (take_composition_event(event))
         return;
-    // The action events are kept. Nothing acts on them. A key held back or
-    // dropped here does not reach the screen.
+
+    // The action events are kept. The sticky modifiers this event sees are the
+    // ones it began with. A key held back or dropped here does not reach the
+    // screen.
+    struct StickyEventGuard {
+        Runtime& runtime;
+
+        explicit StickyEventGuard(Runtime& runtime) : runtime(runtime) {
+            runtime.begin_sticky_event();
+        }
+
+        ~StickyEventGuard() { runtime.end_sticky_event(); }
+    } sticky_event{*this};
+
     if (feed_input_actions(event))
         return;
     dispatch_after_actions(event, running);
