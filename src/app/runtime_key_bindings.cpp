@@ -2373,6 +2373,21 @@ void Runtime::replay_order_wheel(bool& running) {
 }
 
 bool Runtime::feed_input_actions(const SDL_Event& event) {
+    // A capture or a clash prompt takes the key itself. Nothing is fed, so no
+    // action fires, and a key-up still reaches the prompt (Escape cancels).
+    if (key_editor_capturing()) {
+        if (event.type == SDL_EVENT_KEY_UP)
+            key_editor_capture_event(event);
+        return false;
+    }
+    // An empty, focused search lists a chord and does not do what it names.
+    // The screen still sees the key. A stale action from the last feed must
+    // not fire in its place.
+    if (key_editor_find_swallows(event)) {
+        if (key_bindings_state_ != nullptr)
+            key_bindings_state_->events.clear();
+        return false;
+    }
     const bool keymap_changed = event.type == SDL_EVENT_KEYMAP_CHANGED;
     ensure_key_bindings(keymap_changed);
     KeyBindingsState& state = *key_bindings_state_;
@@ -2427,6 +2442,9 @@ bool Runtime::feed_input_actions(const SDL_Event& event) {
 }
 
 void Runtime::advance_input_actions(bool& running) {
+    // A hold that started before the prompt must not fire while it is open.
+    if (key_editor_capturing())
+        return;
     ensure_key_bindings(false);
     KeyBindingsState& state = *key_bindings_state_;
     const keys::Contexts contexts = input_contexts();

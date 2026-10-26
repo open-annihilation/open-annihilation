@@ -16,8 +16,12 @@
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
+#include "oa/ui/key_bindings/chord.hpp"
+#include "oa/ui/key_bindings/input.hpp"
 #include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/kit/chrome.hpp"
+
+#include <SDL3/SDL.h>
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
@@ -30,6 +34,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <vector>
 
 namespace oa::app {
 
@@ -37,6 +42,7 @@ namespace {
 
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
+namespace keys = oa::ui::key_bindings;
 namespace settings = oa::ui::engine_settings;
 namespace display = oa::ui::display_layout;
 namespace pad = oa::ui::pad_controls;
@@ -977,6 +983,58 @@ bool editor_gone(const OaLayer& layer) {
     return layer.find(editor::screen_name) == nullptr;
 }
 
+/// The physical modifier bits an event carries. Never `primary`.
+///
+/// @param mods the SDL modifier bits
+/// @return the binding bits
+uint8_t capture_modifiers(uint16_t mods) {
+    uint8_t bits = 0;
+    if ((mods & SDL_KMOD_CTRL) != 0)
+        bits = static_cast<uint8_t>(bits | keys::ctrl);
+    if ((mods & SDL_KMOD_SHIFT) != 0)
+        bits = static_cast<uint8_t>(bits | keys::shift);
+    if ((mods & SDL_KMOD_ALT) != 0)
+        bits = static_cast<uint8_t>(bits | keys::alt);
+    if ((mods & SDL_KMOD_GUI) != 0)
+        bits = static_cast<uint8_t>(bits | keys::meta);
+    return bits;
+}
+
+/// One key as the capture reads it. The time is this process's clock, and
+/// never 0, so a held Escape can tell that its timer has started.
+///
+/// @param sdl_key the key code
+/// @param modifiers the SDL modifier bits
+/// @param down the key went down
+/// @param repeat the platform repeated a key that is still held
+/// @param scancode the key's position
+/// @return the input event
+keys::InputEvent
+capture_key_event(uint32_t sdl_key, uint16_t modifiers, bool down, bool repeat, uint16_t scancode) {
+    keys::InputEvent input;
+    input.kind = keys::InputKind::key;
+    input.down = down;
+    input.repeat = repeat;
+    input.key_code = sdl_key;
+    input.scancode = scancode;
+    input.modifiers = capture_modifiers(modifiers);
+    const uint64_t now = SDL_GetTicks();
+    input.time_ms = now == 0 ? uint64_t{1} : now;
+    return input;
+}
+
+/// The position number of a key code, or 0 when it is past the map.
+///
+/// @param sdl_key the key code
+/// @return the position
+uint16_t capture_scancode(uint32_t sdl_key) {
+    const SDL_Scancode scan = SDL_GetScancodeFromKey(static_cast<SDL_Keycode>(sdl_key), nullptr);
+    const auto value = static_cast<uint32_t>(scan);
+    if (value == 0 || value >= keys::scancode_limit)
+        return 0;
+    return static_cast<uint16_t>(value);
+}
+
 } // namespace
 
 /// The key editor as a screen of the OA layer.
@@ -995,8 +1053,15 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         state_.in_match = in_match;
         if (request.filter)
             state_.filter = *request.filter;
+        else if (editor_.draft_clashes() != 0 || !editor_.draft_takes().empty())
+            state_.filter = editor::Filter::clashes;
         if (!request.select.empty())
             state_.selected = std::move(request.select);
+        else if (state_.filter == editor::Filter::clashes && state_.selected.empty()) {
+            const std::vector<editor::Row> clashing = editor_.rows({}, editor::Filter::clashes, "");
+            if (!clashing.empty())
+                state_.selected = clashing.front().id;
+        }
     }
 
     /// Returns "key-editor".
@@ -1088,7 +1153,39 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         return take(editor::editor_key(editor_, state_, list_, pressed));
     }
 
-    /// Y finds, B goes back, Menu saves, and the shoulders are Tab.
+    /// While a capture is waiting, every key is the chord's, including
+    /// Escape. Once the chord is finished the prompt is an ordinary dialog.
+    /// An empty, focused search takes a chord with a modifier, or a key that
+    /// types nothing, and lists what that chord does.
+    ///
+    /// @param sdl_key the key code
+    /// @param modifiers the SDL modifier bits
+    /// @return what the editor did; pass when the key is ordinary text
+    LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
+        if (state_.prompt == editor::Prompt::capture &&
+            state_.capture.state == editor::CaptureState::waiting) {
+            const keys::InputEvent event =
+                capture_key_event(sdl_key, modifiers, true, false, capture_scancode(sdl_key));
+            return take(editor::editor_capture_input(editor_, state_, event));
+        }
+        if (state_.prompt != editor::Prompt::none)
+            return LayerAnswer::pass;
+        if (!editor::focused_field(state_, list_) || !state_.search.text.empty())
+            return LayerAnswer::pass;
+        const keys::InputEvent event =
+            capture_key_event(sdl_key, modifiers, true, false, capture_scancode(sdl_key));
+        const std::optional<keys::Chord> found = editor::chord_to_find(editor_, event);
+        if (!found)
+            return LayerAnswer::pass;
+        state_.search_chord = *found;
+        state_.search.text.clear();
+        state_.search.caret = 0;
+        state_.list_scroll = 0;
+        relayout();
+        return LayerAnswer::redraw;
+    }
+
+    /// Y finds, B goes back, Menu saves, X adds a key, and the shoulders are Tab.
     ///
     /// @param action the gamepad action
     /// @return what the editor did; pass for every other action
@@ -1110,6 +1207,10 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             return take(editor::editor_key(editor_, state_, list_, kit::Key::back_tab));
         case pad::Action::focus_next:
             return take(editor::editor_key(editor_, state_, list_, kit::Key::tab));
+        case pad::Action::library_action:
+            return take(
+                editor::editor_command(editor_, state_, list_, editor::EditorCommand::add_key)
+            );
         default:
             return LayerAnswer::pass;
         }
@@ -1168,13 +1269,51 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             if (runtime_.screen_ != Screen::match || runtime_.match_ == nullptr ||
                 runtime_.match_finished_)
                 return LayerAnswer::close;
-            return LayerAnswer::none;
+        } else if (runtime_.screen_ == Screen::match) {
+            return LayerAnswer::close;
+        } else if (over_settings_ && runtime_.oa_layer().find(kSettingsScreen) == nullptr) {
+            return LayerAnswer::close;
         }
-        if (runtime_.screen_ == Screen::match)
-            return LayerAnswer::close;
-        if (over_settings_ && runtime_.oa_layer().find(kSettingsScreen) == nullptr)
-            return LayerAnswer::close;
+        if (state_.prompt == editor::Prompt::capture)
+            return take(editor::editor_capture_tick(editor_, state_, SDL_GetTicks()));
         return LayerAnswer::none;
+    }
+
+    /// True while the capture prompt or the clash prompt covers the list.
+    ///
+    /// @return true while a prompt is open
+    [[nodiscard]] bool capturing() const { return state_.prompt != editor::Prompt::none; }
+
+    /// True when this key is a chord the empty, focused search would list.
+    ///
+    /// A key-up and a repeat are asked as a fresh press: the search reads the
+    /// press, and the feed must skip the release and the repeat as well.
+    ///
+    /// @param event the event dispatch_event is given
+    /// @return true when the feed should not give the chord to the dispatcher
+    [[nodiscard]] bool find_swallows(const SDL_Event& event) const {
+        if (state_.prompt != editor::Prompt::none)
+            return false;
+        if (!editor::focused_field(state_, list_) || !state_.search.text.empty())
+            return false;
+        if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP)
+            return false;
+        const keys::InputEvent probe = capture_key_event(
+            static_cast<uint32_t>(event.key.key),
+            static_cast<uint16_t>(static_cast<uint32_t>(event.key.mod)),
+            true,
+            false,
+            capture_scancode(static_cast<uint32_t>(event.key.key))
+        );
+        return editor::chord_to_find(editor_, probe).has_value();
+    }
+
+    /// Gives a key-up to the capture. The layer does not call the screen for
+    /// a key-up, and a held Escape cancels when it is let go before a second.
+    ///
+    /// @param event the key
+    void capture_event(const keys::InputEvent& event) {
+        take(editor::editor_capture_input(editor_, state_, event));
     }
 
     /// Returns the editor's revision.
@@ -1428,6 +1567,39 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     kit::DisplayList list_{};     ///< what it draws
     uint64_t revision_{};         ///< counts the changes to what it draws
 };
+
+bool Runtime::key_editor_capturing() {
+    LayerScreen* found = oa_layer().find(editor::screen_name);
+    if (found == nullptr)
+        return false;
+    return static_cast<KeyEditorScreen*>(found)->capturing();
+}
+
+bool Runtime::key_editor_find_swallows(const SDL_Event& event) {
+    LayerScreen* found = oa_layer().find(editor::screen_name);
+    if (found == nullptr)
+        return false;
+    return static_cast<KeyEditorScreen*>(found)->find_swallows(event);
+}
+
+void Runtime::key_editor_capture_event(const SDL_Event& event) {
+    if (event.type != SDL_EVENT_KEY_UP)
+        return;
+    LayerScreen* found = oa_layer().find(editor::screen_name);
+    if (found == nullptr)
+        return;
+    const auto scan = static_cast<uint32_t>(event.key.scancode);
+    const uint16_t scancode =
+        scan > 0 && scan < keys::scancode_limit ? static_cast<uint16_t>(scan) : uint16_t{0};
+    const keys::InputEvent input = capture_key_event(
+        static_cast<uint32_t>(event.key.key),
+        static_cast<uint16_t>(static_cast<uint32_t>(event.key.mod)),
+        false,
+        event.key.repeat,
+        scancode
+    );
+    static_cast<KeyEditorScreen*>(found)->capture_event(input);
+}
 
 bool Runtime::open_key_editor(KeyEditorRequest request) {
     if (oa_layer().screen_fonts() == nullptr)

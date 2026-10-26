@@ -1414,6 +1414,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_mod_map_settings_check.cpp
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_key_editor_check.cpp
+  src/app/runtime_key_capture_check.cpp
   src/app/runtime_mutator_picker_check.cpp
   src/app/runtime_brain_picker_check.cpp
   src/app/runtime_brain_seats_check.cpp
@@ -2358,6 +2359,29 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_key_editor_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-editor-clean)
+      # Capturing a chord, a clash, Escape held for a second, and a draft
+      # clash's card, over a paused skirmish. Each run starts from a clean
+      # folder. --snapshot writes key-capture-<w>x<h>.ppm and
+      # key-clash-<w>x<h>.ppm beside the named file.
+      set(oa_key_capture_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-capture")
+      file(MAKE_DIRECTORY "${oa_key_capture_dir}")
+      add_test(NAME key-capture-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_capture_dir}/Open Annihilation" "${oa_key_capture_dir}/key-capture.conf"
+        "${oa_key_capture_dir}/key-capture.ppm"
+        "${oa_key_capture_dir}/key-capture-640x480.ppm" "${oa_key_capture_dir}/key-capture-1280x720.ppm"
+        "${oa_key_capture_dir}/key-capture-1920x1080.ppm"
+        "${oa_key_capture_dir}/key-clash-640x480.ppm" "${oa_key_capture_dir}/key-clash-1280x720.ppm"
+        "${oa_key_capture_dir}/key-clash-1920x1080.ppm")
+      set_tests_properties(key-capture-clean PROPERTIES FIXTURES_SETUP key-capture-clean)
+      add_test(NAME native-key-capture COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-capture
+        --snapshot "${oa_key_capture_dir}/key-capture.ppm"
+        --preferences-file "${oa_key_capture_dir}/key-capture.conf"
+        --user-folder "${oa_key_capture_dir}/Open Annihilation")
+      set_tests_properties(native-key-capture PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_capture_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-capture-clean)
       # The mutator picker over the main menu, on a feed of made-up mutators,
       # at 640x480, 1280x720, 1920x1080 and 2560x1440: the mended On order,
       # every row's grip and switch, one download and the waiting words, the

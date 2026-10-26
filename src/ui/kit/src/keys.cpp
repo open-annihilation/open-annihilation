@@ -3,8 +3,8 @@
 
 // Keycaps, chord chips, keyboard and mouse pictures, and the hold ring.
 // Shapes are coverage at the canvas's own pixels, not pictures or one-bit
-// marks. Labels are the caller's, except the add form's caption, which the
-// look draws itself.
+// marks. Labels are the caller's. The add form's caption is the look's,
+// or "+ ADD KEY" when the look leaves it empty.
 
 #include "oa/ui/kit/keys.hpp"
 
@@ -21,8 +21,18 @@
 namespace oa::ui::kit {
 namespace {
 
-/// The add form's caption.
+/// The add form's caption when the look does not name one.
 constexpr std::string_view kAddCaption = "+ ADD KEY";
+
+/// The add form's caption: the look's words, or the English default.
+///
+/// @param look the chip
+/// @return the caption
+std::string_view add_caption_of(const ChordChipLook& look) noexcept {
+    if (!look.add_caption.empty())
+        return look.add_caption;
+    return kAddCaption;
+}
 
 /// Samples across, and down, each pixel of a mark or a ring.
 constexpr int32_t kSamples = 4;
@@ -131,11 +141,13 @@ bool mark_covers(MarkShape shape, int64_t px, int64_t py) noexcept {
     if (shape == MarkShape::diamond)
         return dx + dy <= 430;
     if (shape == MarkShape::triangle) {
+        // Apex, then the base from right to left. The other way round makes
+        // the signed area negative, and the test below then covers nothing.
         constexpr int64_t x1 = 512;
         constexpr int64_t y1 = 80;
-        constexpr int64_t x2 = 80;
+        constexpr int64_t x2 = 944;
         constexpr int64_t y2 = 940;
-        constexpr int64_t x3 = 944;
+        constexpr int64_t x3 = 80;
         constexpr int64_t y3 = 940;
         constexpr int64_t denom = (y2 - y3) * (x1 - x3) + (x3 - x2) * (y1 - y3);
         const int64_t wa = (y2 - y3) * (px - x3) + (x3 - x2) * (py - y3);
@@ -815,7 +827,8 @@ void add_keycap(
 
 int32_t chord_chip_width(const Fonts& fonts, const ChordChipLook& look) {
     if (look.add && look.keys.empty()) {
-        int32_t width = text_width(fonts, FontRole::small, kAddCaption) + 8;
+        const std::string_view caption = add_caption_of(look);
+        int32_t width = text_width(fonts, FontRole::small, caption) + 8;
         if (!look.none_text.empty())
             width += 4 + text_width(fonts, FontRole::small, look.none_text);
         return std::max(keycap_least_width, width);
@@ -842,12 +855,13 @@ void draw_chord_chip(const Canvas& canvas, const Rect& rect, const ChordChipLook
     const Canvas local = clipped(canvas, rect);
     if (look.add && look.keys.empty()) {
         dash_border(local, rect, colour::control_border);
+        const std::string_view caption_words = add_caption_of(look);
         const int32_t caption =
-            canvas.fonts != nullptr ? text_width(*canvas.fonts, FontRole::small, kAddCaption) : 0;
+            canvas.fonts != nullptr ? text_width(*canvas.fonts, FontRole::small, caption_words) : 0;
         box_text(
             local,
             FontRole::small,
-            kAddCaption,
+            caption_words,
             Rect{rect.x + 4, rect.y, std::max(caption, int32_t{1}), rect.height},
             Align::left,
             colour::button_text
@@ -924,7 +938,7 @@ void add_chord_chip(
     item.state.selected = look.selected;
     std::string text;
     if (look.add && look.keys.empty())
-        text = std::string(kAddCaption);
+        text = std::string(add_caption_of(look));
     else if (look.keys.empty())
         text = look.none_text;
     else {

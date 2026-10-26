@@ -86,6 +86,44 @@ inline constexpr std::string_view name_footer_note = "key-editor.footer-note";
 inline constexpr std::string_view name_list_bar = "key-editor.list.bar";
 /// The details' scroll bar. It takes no focus.
 inline constexpr std::string_view name_details_bar = "key-editor.details.bar";
+/// + ADD KEY, in the details.
+inline constexpr std::string_view name_detail_add = "key-editor.detail.add";
+/// The capture prompt. Its text is the title, the chord and the status line.
+inline constexpr std::string_view name_capture = "key-editor.capture";
+/// The capture prompt's well.
+inline constexpr std::string_view name_capture_well = "key-editor.capture.well";
+/// Means: the letter.
+inline constexpr std::string_view name_capture_letter = "key-editor.capture.means.letter";
+/// Means: the key's place.
+inline constexpr std::string_view name_capture_place = "key-editor.capture.means.place";
+/// Starts on: a press.
+inline constexpr std::string_view name_capture_press = "key-editor.capture.starts.press";
+/// Starts on: a double press.
+inline constexpr std::string_view name_capture_double = "key-editor.capture.starts.double";
+/// Starts on: a hold.
+inline constexpr std::string_view name_capture_hold = "key-editor.capture.starts.hold";
+/// The line under the well.
+inline constexpr std::string_view name_capture_status = "key-editor.capture.status";
+/// The capture prompt's CANCEL.
+inline constexpr std::string_view name_capture_cancel = "key-editor.capture.cancel";
+/// The capture prompt's OK.
+inline constexpr std::string_view name_capture_ok = "key-editor.capture.ok";
+/// The clash prompt. Its text is the question.
+inline constexpr std::string_view name_clash = "key-editor.clash";
+/// REPLACE.
+inline constexpr std::string_view name_clash_replace = "key-editor.clash.replace";
+/// SWAP. Absent when the capture is + ADD KEY.
+inline constexpr std::string_view name_clash_swap = "key-editor.clash.swap";
+/// The clash prompt's CANCEL.
+inline constexpr std::string_view name_clash_cancel = "key-editor.clash.cancel";
+/// KEEP IT HERE, on the draft card.
+inline constexpr std::string_view name_card_here = "key-editor.card.keep-here";
+/// KEEP IT FOR the other action.
+inline constexpr std::string_view name_card_there = "key-editor.card.keep-there";
+/// CHOOSE ANOTHER KEY, on the draft card.
+inline constexpr std::string_view name_card_choose = "key-editor.card.choose";
+/// The chord chip in the search, with its clear mark.
+inline constexpr std::string_view name_search_chord = "key-editor.search.chord";
 
 /// The layout drop-down's least width at Large, in points.
 inline constexpr int32_t large_layout_width = 240;
@@ -152,9 +190,17 @@ enum class PointerKind : uint8_t {
 /// stick is editor_stick. Tab stays a key: the host turns the pad's L1 and
 /// R1 into it.
 enum class EditorCommand : uint8_t {
-    find, ///< the controller's Y: the search takes the focus
-    back, ///< the controller's B: leave the details page, else ask to leave
-    save, ///< the controller's Menu: save, when SAVE is enabled
+    find,    ///< the controller's Y: the search takes the focus
+    back,    ///< the controller's B: leave the details page, else ask to leave
+    save,    ///< the controller's Menu: save, when SAVE is enabled
+    add_key, ///< the controller's X: + ADD KEY on the chosen row
+};
+
+/// Which prompt covers the editor. The list is not laid out while one is open.
+enum class Prompt : uint8_t {
+    none,    ///< the list
+    capture, ///< Press the keys
+    clash,   ///< the chord is taken
 };
 
 /// What the editor's screen keeps between layouts, beside the model.
@@ -195,6 +241,13 @@ struct ScreenState {
     bool finger_moved{false};      ///< the finger has moved past its reach
     bool finger_in_details{false}; ///< the finger pressed in the details
     std::string finger_row{};      ///< the row under the finger, when it pressed on one
+
+    Prompt prompt{Prompt::none}; ///< the capture or the clash question
+    Capture capture{};           ///< the capture, while a prompt is open
+    /// The clash the question names. `a` is the action being bound.
+    oa::ui::key_bindings::Clash pending_clash{};
+    /// A chord the empty search is listing. The list ignores the category.
+    std::optional<oa::ui::key_bindings::Chord> search_chord{};
 };
 
 /// The name of one list row. An action id that would make
@@ -357,5 +410,28 @@ EditorResult editor_command(
 /// @return what the host is to do
 EditorResult
 editor_stick(Editor& editor, ScreenState& state, const kit::DisplayList& list, float notches);
+
+/// Takes a key, button or wheel while the capture prompt is waiting, and
+/// moves the focus to OK or CANCEL.
+///
+/// A host calls this from the screen's shortcut for a key, and from the
+/// pointer for a button in the well. Once the chord is finished the prompt
+/// is an ordinary dialog and this keeps the event.
+///
+/// @param[in,out] editor the model
+/// @param[in,out] state the screen's state
+/// @param event the input
+/// @return what the host is to do
+EditorResult editor_capture_input(
+    Editor& editor, ScreenState& state, const oa::ui::key_bindings::InputEvent& event
+);
+
+/// Finishes Escape when it has been held for a second, and moves the focus.
+///
+/// @param[in,out] editor the model
+/// @param[in,out] state the screen's state
+/// @param now_ms the time, in milliseconds
+/// @return what the host is to do
+EditorResult editor_capture_tick(Editor& editor, ScreenState& state, uint64_t now_ms);
 
 } // namespace oa::ui::key_editor

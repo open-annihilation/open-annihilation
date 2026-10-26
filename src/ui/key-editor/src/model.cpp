@@ -829,6 +829,34 @@ Listed list_unknown(
     return listed;
 }
 
+/// Chords the draft took, so the other action lost them at resolution.
+///
+/// Only a later step and an earlier line in the same file are a take. A fixed
+/// key, a fifth chord and the number-key swap are not: those are not a pair
+/// the card gives back.
+///
+/// @param resolved the bindings in use, and the chords that lost
+/// @param own the draft
+/// @return one entry per chord the draft took
+std::vector<DraftTake> takes_of(const keys::Resolved& resolved, const keys::Layout& own) {
+    std::vector<DraftTake> takes;
+    for (const keys::Lost& lost : resolved.lost) {
+        if (lost.reason != keys::LostReason::later_step &&
+            lost.reason != keys::LostReason::earlier_in_file)
+            continue;
+        if (lost.winner.empty() || lost.action.empty())
+            continue;
+        if (!draft_names(own, lost.winner) && !draft_names(own, lost.action))
+            continue;
+        DraftTake take;
+        take.winner = lost.winner;
+        take.loser = lost.action;
+        take.chord = lost.chord;
+        takes.push_back(std::move(take));
+    }
+    return takes;
+}
+
 /// Every row the editor lists, in category order.
 ///
 /// @param inputs the inputs
@@ -857,7 +885,16 @@ std::vector<Listed> build_list(
     input.platform = inputs.platform;
     input.keyboard = &inputs.keyboard;
     const keys::Resolved resolved = keys::resolve(input);
-    const std::vector<keys::Clash> clashes = keys::find_clashes(resolved, input);
+    std::vector<keys::Clash> clashes = keys::find_clashes(resolved, input);
+    // A chord the draft took is still listed, on both actions, even though
+    // resolution already dropped the loser's copy.
+    for (const DraftTake& take : takes_of(resolved, own)) {
+        keys::Clash mark;
+        mark.a = take.winner;
+        mark.b = take.loser;
+        mark.chord = take.chord;
+        clashes.push_back(std::move(mark));
+    }
     oa::formats::oakeys::Helpers effective =
         has_chosen ? chosen.helpers : oa::formats::oakeys::Helpers{};
     if (helpers.toggle)
@@ -1702,6 +1739,130 @@ oa::ui::key_bindings::Platform Editor::platform() const noexcept {
 
 const std::string& Editor::mod_name() const noexcept {
     return inputs_.mod_name;
+}
+
+bool Editor::set_chords(std::string_view id, std::vector<keys::Chord> chords) {
+    constexpr std::size_t chord_limit = 4;
+    if (chords.size() > chord_limit)
+        return false;
+    const std::vector<Listed> listed =
+        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
+    const Listed* row = find_listed(listed, id);
+    if (row == nullptr || row->read_only)
+        return false;
+    for (const keys::Chord& had : row->chords) {
+        if (!fixed_escape(*row, had, inputs_.keyboard))
+            continue;
+        bool kept = false;
+        for (const keys::Chord& next : chords) {
+            if (keys::same_key(next, had, &inputs_.keyboard))
+                kept = true;
+        }
+        if (!kept)
+            return false;
+    }
+    put_binding(own_, std::string(id), std::move(chords));
+    return true;
+}
+
+bool Editor::clear_chords(std::string_view id) {
+    const std::vector<Listed> listed =
+        listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
+    const Listed* row = find_listed(listed, id);
+    if (row == nullptr || row->read_only)
+        return false;
+    return erase_binding(own_, id);
+}
+
+std::vector<keys::Clash> Editor::clashes_for(std::string_view id, const keys::Chord& chord) const {
+    keys::Chord asked = chord;
+    if (asked.kind == keys::TriggerKind::character)
+        asked.scancode = 0;
+    const keys::ResolveInput input = resolve_input();
+    const keys::Resolved bound = keys::resolve(input);
+    std::vector<keys::Clash> found = keys::clashes_with(bound, input, id, asked);
+    const std::optional<keys::Chord> paired = paired_chord(asked, inputs_.platform);
+    if (paired) {
+        const std::vector<keys::Clash> more = keys::clashes_with(bound, input, id, *paired);
+        for (const keys::Clash& extra : more) {
+            bool seen = false;
+            for (const keys::Clash& have : found) {
+                if (have.b == extra.b)
+                    seen = true;
+            }
+            if (!seen)
+                found.push_back(extra);
+        }
+    }
+    auto contexts_of = [&](std::string_view action) -> uint32_t {
+        for (const keys::Bound& row : bound.actions) {
+            if (row.id == action)
+                return row.contexts;
+        }
+        if (const acts::Action* entry = acts::find(action))
+            return entry->context;
+        return 0;
+    };
+    const uint32_t mine = contexts_of(id);
+    auto named = [&](std::string_view other) {
+        for (const keys::Clash& have : found) {
+            if (have.b == other)
+                return true;
+        }
+        return false;
+    };
+    for (const DraftTake& take : takes_of(bound, own_)) {
+        if (!chords_match(take.chord, asked, inputs_.keyboard, inputs_.platform))
+            continue;
+        auto add_other = [&](const std::string& other) {
+            if (other.empty() || other == id || named(other))
+                return;
+            if (!keys::layers_meet(mine, contexts_of(other)))
+                return;
+            keys::Clash extra;
+            extra.a = std::string(id);
+            extra.b = other;
+            extra.chord = asked;
+            found.push_back(std::move(extra));
+        };
+        add_other(take.winner);
+        add_other(take.loser);
+    }
+    return found;
+}
+
+std::vector<DraftTake> Editor::draft_takes() const {
+    return takes_of(resolved(), own_);
+}
+
+std::optional<keys::Clash> Editor::draft_clash(std::string_view id) const {
+    const keys::ResolveInput input = resolve_input();
+    const keys::Resolved bound = keys::resolve(input);
+    for (const keys::Clash& clash : keys::find_clashes(bound, input)) {
+        if (!draft_names(own_, clash.a) && !draft_names(own_, clash.b))
+            continue;
+        if (clash.a != id && clash.b != id)
+            continue;
+        keys::Clash oriented = clash;
+        if (oriented.a != id)
+            std::swap(oriented.a, oriented.b);
+        return oriented;
+    }
+    for (const DraftTake& take : takes_of(bound, own_)) {
+        if (take.winner != id && take.loser != id)
+            continue;
+        keys::Clash oriented;
+        oriented.chord = take.chord;
+        if (take.winner == id) {
+            oriented.a = take.winner;
+            oriented.b = take.loser;
+        } else {
+            oriented.a = take.loser;
+            oriented.b = take.winner;
+        }
+        return oriented;
+    }
+    return std::nullopt;
 }
 
 } // namespace oa::ui::key_editor

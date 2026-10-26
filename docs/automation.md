@@ -344,7 +344,19 @@ Its names are the module's
 | A filter pill | `oa.key-editor.filter.all`, `.changed`, `.clashes`, `.unbound`, `.latchable` | button, its text the name and the count |
 | A row | `oa.key-editor.row.<id>` | list, its text the action's name and its chords |
 | Number keys select groups | `oa.key-editor.number-keys` | check box, at the head of Groups. Parts `oa.key-editor.number-keys.off` and `.on` |
+| A chord | `oa.key-editor.detail.chord.<n>` | button, numbered from 1. Enter changes it. A fixed chord has none |
 | A chord's ✕ | `oa.key-editor.detail.chord.<n>.remove` | button, numbered from 1. A fixed chord has none |
+| + ADD KEY | `oa.key-editor.detail.add` | button. The controller's X on the chosen row |
+| The capture | `oa.key-editor.capture` | label, its text the title, the chord and the status line |
+| The well | `oa.key-editor.capture.well` | the place a click or a wheel turn finishes the chord |
+| Means | `oa.key-editor.capture.means.letter`, `.place` | button |
+| Starts on | `oa.key-editor.capture.starts.press`, `.double`, `.hold` | button |
+| The status line | `oa.key-editor.capture.status` | label |
+| The capture's footer | `oa.key-editor.capture.cancel`, `oa.key-editor.capture.ok` | button. OK is disabled while the chord is refused or still waiting |
+| The clash prompt | `oa.key-editor.clash` | label, "{chord} is taken" |
+| REPLACE, SWAP, CANCEL | `oa.key-editor.clash.replace`, `.swap`, `.cancel` | button. SWAP is absent for + ADD KEY |
+| The draft card | `oa.key-editor.card.keep-here`, `.keep-there`, `.choose` | button |
+| The search's chord | `oa.key-editor.search.chord` | button, the chip and its ✕ |
 | Latch, Hold to confirm | `oa.key-editor.detail.latch`, `oa.key-editor.detail.confirm` | check box. Parts `.off` and `.on` |
 | The footer | `oa.key-editor.restore`, `.cancel`, `.save` | button. Compact's MORE is `oa.key-editor.more`, and its details page's BACK is `oa.key-editor.back` |
 | The summary | `oa.key-editor.summary` | label, its text the words shown |

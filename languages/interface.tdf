@@ -10,6 +10,230 @@
 
 
 
+[+ ADD KEY]
+	{
+	de=+ TASTE HINZUFÜGEN;
+	fr=+ AJOUTER UNE TOUCHE;
+	es=+ AÑADIR TECLA;
+	it=+ AGGIUNGI TASTO;
+	}
+
+[A double press]
+	{
+	de=Ein Doppeldruck;
+	fr=Un double appui;
+	es=Una doble pulsación;
+	it=Una doppia pressione;
+	}
+
+[A hold]
+	{
+	de=Halten;
+	fr=Un maintien;
+	es=Una pulsación larga;
+	it=Una pressione prolungata;
+	}
+
+[A press]
+	{
+	de=Ein Druck;
+	fr=Un appui;
+	es=Una pulsación;
+	it=Una pressione;
+	}
+
+[After Replace, {action} is chosen in the list so you can give it another key.]
+	{
+	de=Nach dem Ersetzen ist {action} in der Liste gewählt, damit du ihm eine andere Taste geben kannst.;
+	fr=Après le remplacement, {action} est choisi dans la liste pour que tu lui donnes une autre touche.;
+	es=Tras Reemplazar, {action} queda elegido en la lista para que le des otra tecla.;
+	it=Dopo Sostituisci, {action} è scelto nell'elenco così puoi dargli un altro tasto.;
+	}
+
+[Always {description} in Open Annihilation. Choose another key.]
+	{
+	de=Immer {description} in Open Annihilation. Wähl eine andere Taste.;
+	fr=Toujours {description} dans Open Annihilation. Choisis une autre touche.;
+	es=Siempre {description} en Open Annihilation. Elige otra tecla.;
+	it=Sempre {description} in Open Annihilation. Scegli un altro tasto.;
+	}
+
+[CHOOSE ANOTHER KEY…]
+	{
+	de=ANDERE TASTE WÄHLEN…;
+	fr=CHOISIR UNE AUTRE TOUCHE…;
+	es=ELEGIR OTRA TECLA…;
+	it=SCEGLI UN ALTRO TASTO…;
+	}
+
+[Escape cancels · hold Escape to bind Escape]
+	{
+	de=Escape bricht ab · halte Escape, um Escape zu belegen;
+	fr=Échap annule · maintiens Échap pour assigner Échap;
+	es=Escape cancela · mantén Escape para asignar Escape;
+	it=Esc annulla · tieni premuto Esc per assegnare Esc;
+	}
+
+[Here, and in {name}. Both are read {context}.]
+	{
+	de=Hier und bei {name}. Beide gelten {context}.;
+	fr=Ici, et dans {name}. Les deux se lisent {context}.;
+	es=Aquí y en {name}. Las dos se leen {context}.;
+	it=Qui e in {name}. Entrambe valgono {context}.;
+	}
+
+[Hold the modifiers you want, then press a key or a mouse button, or turn the wheel.]
+	{
+	de=Halt die Zusatztasten, die du willst, und drück dann eine Taste, eine Maustaste oder dreh das Rad.;
+	fr=Maintiens les modificateurs que tu veux, puis appuie sur une touche ou un bouton de souris, ou tourne la molette.;
+	es=Mantén los modificadores que quieras y pulsa una tecla o un botón del ratón, o gira la rueda.;
+	it=Tieni premuti i modificatori che vuoi, poi premi un tasto o un pulsante del mouse, oppure gira la rotella.;
+	}
+
+[KEEP IT FOR {name}]
+	{
+	de=FÜR {name} BEHALTEN;
+	fr=LE GARDER POUR {name};
+	es=CONSERVARLO PARA {name};
+	it=TIENILO PER {name};
+	}
+
+[KEEP IT HERE]
+	{
+	de=HIER BEHALTEN;
+	fr=LE GARDER ICI;
+	es=CONSERVARLO AQUÍ;
+	it=TIENILO QUI;
+	}
+
+[Keep it here leaves {name} with {chord}.]
+	{
+	de=Hier behalten lässt {name} mit {chord}.;
+	fr=Le garder ici laisse {name} avec {chord}.;
+	es=Conservarlo aquí deja a {name} con {chord}.;
+	it=Tenerlo qui lascia {name} con {chord}.;
+	}
+
+[Means]
+	{
+	de=Bedeutung;
+	fr=Sens;
+	es=Significa;
+	it=Significa;
+	}
+
+[Not on this keyboard]
+	{
+	de=Nicht auf dieser Tastatur;
+	fr=Pas sur ce clavier;
+	es=No está en este teclado;
+	it=Non c'è su questa tastiera;
+	}
+
+[Press a key…]
+	{
+	de=Taste drücken…;
+	fr=Appuie sur une touche…;
+	es=Pulsa una tecla…;
+	it=Premi un tasto…;
+	}
+
+[Press the keys for {action}]
+	{
+	de=Tasten für {action} drücken;
+	fr=Appuie sur les touches pour {action};
+	es=Pulsa las teclas para {action};
+	it=Premi i tasti per {action};
+	}
+
+[SWAP]
+	{
+	de=TAUSCHEN;
+	fr=ÉCHANGER;
+	es=INTERCAMBIAR;
+	it=SCAMBIA;
+	}
+
+[Starts on]
+	{
+	de=Beginnt mit;
+	fr=Commence par;
+	es=Empieza con;
+	it=Inizia con;
+	}
+
+[The letter {key}]
+	{
+	de=Der Buchstabe {key};
+	fr=La lettre {key};
+	es=La letra {key};
+	it=La lettera {key};
+	}
+
+[You are giving {action} the chord {chord} in place of {old}.]
+	{
+	de=Du gibst {action} die Kombination {chord} statt {old}.;
+	fr=Tu donnes à {action} la combinaison {chord} à la place de {old}.;
+	es=Le das a {action} la combinación {chord} en lugar de {old}.;
+	it=Stai dando a {action} la combinazione {chord} al posto di {old}.;
+	}
+
+[You are giving {action} the chord {chord}.]
+	{
+	de=Du gibst {action} die Kombination {chord}.;
+	fr=Tu donnes à {action} la combinaison {chord}.;
+	es=Le das a {action} la combinación {chord}.;
+	it=Stai dando a {action} la combinazione {chord}.;
+	}
+
+[nothing: unbound]
+	{
+	de=nichts: ungebunden;
+	fr=rien : sans touche;
+	es=nada: sin tecla;
+	it=niente: senza tasto;
+	}
+
+[{chord} does two things]
+	{
+	de={chord} macht zwei Dinge;
+	fr={chord} fait deux choses;
+	es={chord} hace dos cosas;
+	it={chord} fa due cose;
+	}
+
+[{chord} is free {context}.]
+	{
+	de={chord} ist frei {context}.;
+	fr={chord} est libre {context}.;
+	es={chord} está libre {context}.;
+	it={chord} è libero {context}.;
+	}
+
+[{chord} is taken]
+	{
+	de={chord} ist belegt;
+	fr={chord} est pris;
+	es={chord} está ocupado;
+	it={chord} è occupato;
+	}
+
+[{name}: {description} {context}. OK asks what to do.]
+	{
+	de={name}: {description} {context}. OK fragt, was zu tun ist.;
+	fr={name} : {description} {context}. OK demande quoi faire.;
+	es={name}: {description} {context}. OK pregunta qué hacer.;
+	it={name}: {description} {context}. OK chiede cosa fare.;
+	}
+
+[{where}, {chord} already does what {other} does.]
+	{
+	de={where}, {chord} macht schon, was {other} macht.;
+	fr={where}, {chord} fait déjà ce que fait {other}.;
+	es={where}, {chord} ya hace lo que hace {other}.;
+	it={where}, {chord} fa già ciò che fa {other}.;
+	}
+
 [· from {registry}]
 	{
 	de=· von {registry};

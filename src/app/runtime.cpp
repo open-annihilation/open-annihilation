@@ -760,6 +760,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_capture) {
+            check_key_capture();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_mutator_picker) {
             check_mutator_picker();
             flush_preferences();

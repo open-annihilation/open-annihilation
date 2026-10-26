@@ -241,6 +241,71 @@ inline constexpr std::string_view write_failed = "The layout was not saved: {rea
 /// The name question's accept, and a notice's OK. The catalogue already has this word.
 inline constexpr std::string_view ok = "OK";
 
+/// The dashed chip that starts a capture. The kit draws this English on the chip.
+inline constexpr std::string_view add_key = "+ ADD KEY";
+/// The capture prompt's title. `{action}` is the action's name.
+inline constexpr std::string_view press_keys = "Press the keys for {action}";
+/// The line under the well.
+inline constexpr std::string_view hold_modifiers =
+    "Hold the modifiers you want, then press a key or a mouse button, or turn the wheel.";
+/// The well, before a key has finished the chord.
+inline constexpr std::string_view press_a_key = "Press a key…";
+/// The means heading.
+inline constexpr std::string_view means = "Means";
+/// A letter, shorter than the details' explanation. `{key}` is the character.
+inline constexpr std::string_view means_letter = "The letter {key}";
+/// The gesture heading.
+inline constexpr std::string_view starts_on = "Starts on";
+/// A plain press.
+inline constexpr std::string_view a_press = "A press";
+/// Two presses.
+inline constexpr std::string_view a_double_press = "A double press";
+/// A hold.
+inline constexpr std::string_view a_hold = "A hold";
+/// The chord is free. `{chord}` is how it is drawn and `{context}` where it is read.
+inline constexpr std::string_view chord_free = "{chord} is free {context}.";
+/// The chord is taken. `{name}` is every other action, `{description}` what the
+/// first of them does, and `{context}` where it is read.
+inline constexpr std::string_view clash_line =
+    "{name}: {description} {context}. OK asks what to do.";
+/// A fixed chord. `{description}` is that action's description, with a small first letter.
+inline constexpr std::string_view always_fixed =
+    "Always {description} in Open Annihilation. Choose another key.";
+/// A letter no key on this keyboard types.
+inline constexpr std::string_view not_on_keyboard = "Not on this keyboard";
+/// The capture prompt's footer.
+inline constexpr std::string_view escape_hint = "Escape cancels · hold Escape to bind Escape";
+/// The clash prompt's title. `{chord}` is the chord.
+inline constexpr std::string_view chord_taken = "{chord} is taken";
+/// Giving a chord in place of another. `{old}` is the chord being changed.
+inline constexpr std::string_view giving_instead =
+    "You are giving {action} the chord {chord} in place of {old}.";
+/// Giving a chord that is new.
+inline constexpr std::string_view giving_chord = "You are giving {action} the chord {chord}.";
+/// Where the chord is already taken. `{where}` starts with a capital.
+inline constexpr std::string_view already_does = "{where}, {chord} already does what {other} does.";
+/// What an action keeps when Replace takes its only chord.
+inline constexpr std::string_view nothing_unbound = "nothing: unbound";
+/// The line under the clash table. `{action}` is the action Replace chooses.
+inline constexpr std::string_view after_replace =
+    "After Replace, {action} is chosen in the list so you can give it another key.";
+/// Replace, on the clash prompt.
+inline constexpr std::string_view replace = "REPLACE";
+/// Swap, on the clash prompt. Shown only when a chord is being changed.
+inline constexpr std::string_view swap = "SWAP";
+/// The draft card's title. `{chord}` is the shared chord.
+inline constexpr std::string_view does_two = "{chord} does two things";
+/// The draft card's place. `{name}` is the other action and `{context}` where both are read.
+inline constexpr std::string_view here_and_in = "Here, and in {name}. Both are read {context}.";
+/// The card keeps the chord on this action.
+inline constexpr std::string_view keep_here = "KEEP IT HERE";
+/// The card keeps the chord on the other action. `{name}` is that action's name.
+inline constexpr std::string_view keep_for = "KEEP IT FOR {name}";
+/// The card starts a capture on the shared chord.
+inline constexpr std::string_view choose_another = "CHOOSE ANOTHER KEY…";
+/// What the other action is left with. `{chord}` is that, or "nothing: unbound".
+inline constexpr std::string_view keep_leaves = "Keep it here leaves {name} with {chord}.";
+
 } // namespace words
 
 } // namespace oa::ui::key_editor

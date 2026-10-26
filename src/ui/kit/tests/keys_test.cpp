@@ -4,8 +4,9 @@
 // Keycaps, chord chips, keyboard and mouse pictures, and the hold ring.
 // Geometry stays inside 91 by 25 quarters without overlaps. Drawings stay
 // inside their rectangle at 1x, 2x, 3x and 150%, and a 2x drawing is not a
-// 1x drawing doubled. Marks differ in shape. Each tint's face reaches 4.5:1
-// against its ink. A reduced-motion ring snaps to quarters.
+// 1x drawing doubled. Marks differ in shape, and a clash mark on its own
+// paints the danger colour. Each tint's face reaches 4.5:1 against its ink.
+// A reduced-motion ring snaps to quarters.
 
 #include "oa/formats/fnt.hpp"
 #include "oa/test/check.hpp"
@@ -350,6 +351,27 @@ void marks_differ_in_shape() {
     OA_CHECK(grey_differs(clash, changed));
 }
 
+// A labelled keycap's dashed border differs even when the triangle covers
+// nothing, so the mark is drawn on its own.
+void clash_mark_paints_danger() {
+    kit::KeycapLook look;
+    look.mark_only = true;
+    look.mark = kit::KeyMark::clash;
+    renderer::Surface surface = black(14, 14);
+    kit::draw_keycap(canvas_on(surface), {0, 0, 14, 14}, look);
+    int painted = 0;
+    for (uint32_t y = 0; y < surface.height; ++y) {
+        for (uint32_t x = 0; x < surface.width; ++x) {
+            const kit::Colour pixel =
+                pixel_of(surface, static_cast<int32_t>(x), static_cast<int32_t>(y));
+            if (pixel.r == kit::colour::danger.r && pixel.g == kit::colour::danger.g &&
+                pixel.b == kit::colour::danger.b)
+                ++painted;
+        }
+    }
+    OA_CHECK(painted > 0);
+}
+
 double channel(uint8_t value) {
     const double unit = static_cast<double>(value) / 255.0;
     if (unit <= 0.04045)
@@ -528,6 +550,7 @@ int main() {
     keyboard_names_one_control_per_key();
     mouse_names_its_buttons();
     marks_differ_in_shape();
+    clash_mark_paints_danger();
     tints_reach_contrast();
     ring_snaps_to_quarters();
     parts_stay_inside_at_every_scale();

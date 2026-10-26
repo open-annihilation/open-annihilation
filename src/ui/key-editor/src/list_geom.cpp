@@ -71,6 +71,20 @@ int32_t list_row_height(kit::SizeClass size_class) noexcept {
 }
 
 std::vector<Slot> list_slots(const Editor& editor, const ScreenState& state) {
+    if (state.search_chord) {
+        // Every action on the chord, in every context. The category and the
+        // typed search do not narrow this list.
+        const std::vector<ChordUse> uses = find_by_chord(editor, *state.search_chord);
+        std::vector<Slot> found;
+        found.reserve(uses.size());
+        for (const ChordUse& use : uses) {
+            Slot slot;
+            slot.kind = Slot::Kind::row;
+            slot.id = use.id;
+            found.push_back(std::move(slot));
+        }
+        return found;
+    }
     const std::vector<Row> rows = editor.rows(state.category, state.filter, state.search.text);
     const bool every = state.category.empty() || state.category == "all";
     std::vector<Slot> slots;
