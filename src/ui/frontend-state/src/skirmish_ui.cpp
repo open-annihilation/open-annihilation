@@ -175,7 +175,16 @@ uint32_t slot_hidden_sides(const UiState& ui, const game_entry::SkirmishSlot& va
     return hidden;
 }
 
-void cycle_player(Settings& s, int32_t index, const UiState& ui, Host& h) {
+namespace {
+
+/// Cycles a slot's controller; with panel state, a slot that becomes a
+/// computer also moves to the first side its Side button offers.
+///
+/// @param[in,out] s Skirmish settings.
+/// @param index Slot index.
+/// @param ui Panel state, or null to leave the side as it is.
+/// @param[in,out] h Routines the panel calls.
+void cycle_player_with(Settings& s, int32_t index, const UiState* ui, Host& h) {
     auto& value = slot(s, index);
     const int32_t before = value.controller;
     switch (value.controller) {
@@ -205,13 +214,23 @@ void cycle_player(Settings& s, int32_t index, const UiState& ui, Host& h) {
             widget("Color", index), Sprite::player_colors, static_cast<uint16_t>(value.color)
         );
     }
-    if (value.controller == game_entry::controller::computer &&
+    if (ui != nullptr && value.controller == game_entry::controller::computer &&
         before != game_entry::controller::computer) {
-        value.side = offered_side(value.side, ui.side_count, slot_hidden_sides(ui, value));
+        value.side = offered_side(value.side, ui->side_count, slot_hidden_sides(*ui, value));
         h.set_side_stage(widget("Side", index), static_cast<uint8_t>(value.side));
     }
     enable_slot(index, value.controller != 0, h);
     update_alliance_images(s, h);
+}
+
+} // namespace
+
+void cycle_player(Settings& s, int32_t index, Host& h) {
+    cycle_player_with(s, index, nullptr, h);
+}
+
+void cycle_player(Settings& s, int32_t index, const UiState& ui, Host& h) {
+    cycle_player_with(s, index, &ui, h);
 }
 
 void cycle_color(Settings& s, int32_t index, bool reverse, Host& h) {
