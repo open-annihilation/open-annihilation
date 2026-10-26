@@ -5,9 +5,13 @@
 """Configure a scratch tree with self-update off and check the targets.
 
 The scratch configure uses the running build's prefix path, text-font folder,
-generator and compilers, read from its CMakeCache.txt. It does not build.
-oa-game is listed and the oa-update program is not. A second configure with
-self-update on and process spawning off fails, and names both options.
+generator, compilers and the dependency folders its cache records, read from
+its CMakeCache.txt. It does not build. oa-game is listed and the oa-update
+program is not. A second configure with self-update on and process spawning
+off fails, and names both options.
+
+A Windows host skips. The nested configure is not run there. When the running
+build's FreeType cannot be found for a new configure, the check skips too.
 """
 import subprocess
 import sys
@@ -17,6 +21,10 @@ from pathlib import Path
 
 class SelfUpdateFailure(Exception):
     """A configure that does not do what self-update off requires."""
+
+
+class SelfUpdateSkip(Exception):
+    """This host cannot run the nested configure."""
 
 
 def expect(condition, what):
@@ -65,6 +73,30 @@ PASSTHROUGH = (
     "CMAKE_GENERATOR_PLATFORM",
 )
 
+# Where the running build found a dependency that CMAKE_PREFIX_PATH does not
+# name. A FreeType in its own folder is freetype_DIR. A value CMake recorded
+# as missing is not a place to look.
+DEPENDENCY = (
+    "freetype_DIR",
+    "Freetype_DIR",
+    "SDL3_DIR",
+    "ZLIB_INCLUDE_DIR",
+    "ZLIB_LIBRARY",
+    "ZLIB_LIBRARY_RELEASE",
+    "ZLIB_ROOT",
+    "FREETYPE_INCLUDE_DIR_ft2build",
+    "FREETYPE_INCLUDE_DIR_freetype2",
+    "FREETYPE_LIBRARY",
+    "FREETYPE_LIBRARY_RELEASE",
+    "CMAKE_IGNORE_PREFIX_PATH",
+    "CMAKE_FIND_ROOT_PATH",
+)
+
+
+def configured(value):
+    """True when a cache value names something the build found."""
+    return bool(value) and not value.endswith("-NOTFOUND")
+
 
 def configure_flags(source, build, entries, extra):
     """The flags of one scratch configure."""
@@ -81,6 +113,10 @@ def configure_flags(source, build, entries, extra):
     for key in PASSTHROUGH:
         value = entries.get(key, "")
         if value:
+            flags.append(f"-D{key}={value}")
+    for key in DEPENDENCY:
+        value = entries.get(key, "")
+        if configured(value):
             flags.append(f"-D{key}={value}")
     flags.extend(extra)
     return flags
@@ -158,10 +194,13 @@ def check(source, binary):
             ],
             source,
         )
-        expect(
-            off_run.returncode == 0,
-            "self-update off did not configure:\n" + off_run.stderr,
-        )
+        if off_run.returncode != 0:
+            told = off_run.stderr + "\n" + off_run.stdout
+            if "FreeType 2.10 or later was not found" in told:
+                raise SelfUpdateSkip(
+                    "the running build's FreeType could not be found for a new configure"
+                )
+            raise SelfUpdateFailure("self-update off did not configure:\n" + off_run.stderr)
         helped = run([cmake, "--build", str(off), "--target", "help"], source)
         expect(helped.returncode == 0, "target help failed:\n" + helped.stderr)
         names = target_names(helped.stdout + "\n" + helped.stderr)
@@ -197,11 +236,17 @@ def check(source, binary):
 
 def main():
     """Checks the source tree against the running build's cache."""
+    if sys.platform == "win32":
+        print("self-update off: skipped on Windows", file=sys.stderr)
+        return 77
     if len(sys.argv) != 3:
         print("usage: check_self_update_off.py SOURCE BINARY", file=sys.stderr)
         return 2
     try:
         check(Path(sys.argv[1]), Path(sys.argv[2]))
+    except SelfUpdateSkip as skipped:
+        print(f"self-update off: skipped, {skipped}", file=sys.stderr)
+        return 77
     except SelfUpdateFailure as failure:
         print(f"self-update off: {failure}", file=sys.stderr)
         return 1

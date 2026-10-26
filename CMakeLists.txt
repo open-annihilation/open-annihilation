@@ -4757,10 +4757,12 @@ if(BUILD_TESTING)
     endif()
     # A configure with self-update off builds oa-game and not oa-update, and
     # self-update on with process spawning off is refused. Configure only.
+    # A Windows host skips, and so does a configure that cannot find the
+    # running build's FreeType. Exit 77 is that skip.
     add_test(NAME cmake-self-update-off COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_self_update_off.py
       ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR})
-    set_tests_properties(cmake-self-update-off PROPERTIES TIMEOUT 300)
+    set_tests_properties(cmake-self-update-off PROPERTIES TIMEOUT 300 SKIP_RETURN_CODE 77)
     if(UNIX)
       find_program(OA_BASH_EXECUTABLE bash)
       if(OA_BASH_EXECUTABLE)
