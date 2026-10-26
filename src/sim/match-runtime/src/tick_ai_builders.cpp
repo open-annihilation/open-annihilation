@@ -44,12 +44,8 @@ bool Match::allied(uint8_t player, uint8_t other) const noexcept {
 
 uint8_t Match::primary_order_command_flags(uint16_t unit) const {
     const auto* head = units_.at(unit).primary;
-    if (head == nullptr)
-        return 0;
-    for (const auto& record : orders_)
-        if (&record->order == head)
-            return record->extra.command_flags;
-    return 0;
+    const auto* record = runtime_order(head);
+    return record ? record->extra.command_flags : uint8_t{0};
 }
 
 } // namespace oa::sim::match_runtime

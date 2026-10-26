@@ -1356,8 +1356,8 @@ DialogAction scroll_key(Dialog& dialog, layout::ScrolledRows& open, DialogKey ke
 /// Reports a change of the chosen settings, or only a look's. Hardware
 /// acceleration passing to a higher level, from Off to Basic or Full or
 /// from Basic to Full, asks for the graphics card to be tried afresh, and
-/// leaving or reaching Full turns the four effects off or on
-/// (follow_acceleration_with_effects).
+/// leaving Full turns the four effects off and reaching it sets each to its
+/// own default there (follow_acceleration_with_effects).
 ///
 /// @param[in,out] dialog the dialog, its chosen settings after the event
 /// @param before the chosen settings before the event
@@ -1848,6 +1848,10 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         return DialogAction::check_updates;
     if (action == updates::open_release_action)
         return DialogAction::open_release;
+    if (action == updates::restart_update_action)
+        return DialogAction::restart_update;
+    if (action == updates::retry_update_action)
+        return DialogAction::retry_update;
     const kit::ActionId button = action - layout::first_folder_action;
     if (button < 0 || button >= static_cast<kit::ActionId>(folder_button_count))
         return DialogAction::none;

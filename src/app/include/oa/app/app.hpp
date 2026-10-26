@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -550,6 +551,8 @@ struct Options {
     bool check_key_timing = false;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
+    // Latches Shift and Space from a scratch layout, then sticky Ctrl and Alt.
+    bool check_key_latches = false;
     // Pauses a skirmish with the Pause key, saves it from the in-game menu,
     // loads the save and checks the loaded game runs, and that Pause and the
     // in-game menu still hold it and let it go.
@@ -615,6 +618,17 @@ struct Options {
     bool check_engine_feed = false;
     /// Serves a feed and checks the question a new release asks.
     bool check_update_offer = false;
+    /// The version this start replaced. The first settled main menu says so
+    /// once, when this build is newer.
+    std::optional<std::string> updated_from;
+    /// A folder the self-check installs into, which gives this build a route.
+    std::optional<fs::path> update_install_folder;
+    /// Checks, downloads and quits, with no prompt. Needs a feed.
+    bool update_and_quit = false;
+    /// Serves a package and checks the download, the ready prompt and the hand-off.
+    bool check_update_download = false;
+    /// Which part of --check-update-download to run. Empty runs the resume.
+    std::string update_download_case;
     // Holds one evicted archive's read, checks the window keeps drawing the
     // iCloud line, then continues the folder step.
     bool check_icloud_wait = false;
@@ -859,6 +873,10 @@ struct Options {
     // The soft restarts the process has made before this run: 0 for the
     // first; each switch of the mod from the settings adds one.
     uint32_t restarts = 0;
+    // What the progress dialog says while this run applies a switch of the
+    // mod made in the Library, in the language shown, such as "Switching on
+    // Ridge…"; empty says "Applying your changes".
+    std::string restart_line;
     // Forces each renderer failure the game handles while it runs, on the
     // renderer the start made, and checks that it goes on presenting: the
     // walk of the render drivers, a present error on a menu, match or

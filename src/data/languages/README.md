@@ -110,7 +110,10 @@ the interface.
   `InterfaceText`, the engine's own words in the languages translations are
   given for, read from TDF files whose sections name the English text and
   whose keys are tags; `set_interface_language()` and `interface_text()`.
-  It keeps the characters of each file's texts in one block, each English
+  `interface_generation()` changes with every installation, the same
+  catalogue and language again among them, so that what was drawn in the
+  interface's words is drawn again after a pack read again replaced them
+  in place. It keeps the characters of each file's texts in one block, each English
   text once, and finds a translation by binary search over sorted tables,
   so a text costs no allocation of its own.
   `interface_text_in(english, language)` reads one text in a named language

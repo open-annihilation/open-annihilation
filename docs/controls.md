@@ -19,6 +19,24 @@ press opens the game menu when there is nothing left to cancel. Escape
 closes the open game menu as Resume does. Canceling a surrender dialog or
 closing a team panel does not clear an explicit simulation pause.
 
+## Unit information
+
+F1 opens the unit information panel for the build button or the unit under
+the pointer: its picture, costs and statistics. OK closes it, with either
+mouse button, and so do Enter, Escape and O. As in 3.1c, what drops the
+selection closes it too: a box dragged over open ground that selects
+nothing, a right click on the battlefield in the left-click interface, and
+a left click on open ground in the right-click interface, where a right
+click on the battlefield gives the selection its order and the panel stays
+open.
+
+While the panel is open it takes the pointer from the side column, as in
+3.1c: the side column's buttons and their keys do nothing until it closes.
+A click or a drag that starts on the panel is the panel's, so it never
+starts a selection box. The battlefield beside the panel, the minimap and
+the game's other keys work as usual. The same holds with touch controls and
+a gamepad.
+
 ## The 3D camera
 
 With **Allow Full 3D Mode** on under Settings > Graphics and Full hardware
@@ -59,6 +77,13 @@ armed for the next click while Shift is held. Letting Shift go returns to
 the default order, as in 3.1c: the next click gives the default order, and
 with the left-click interface one right click drops the selection. An
 order armed with none given yet stays armed when Shift is let go.
+
+A layout can list that hold so a tap of Shift latches it. The next orders
+join the queue without Shift held down, and a chip at the top of the
+battlefield reads QUEUE · latched until Shift is tapped again. The same row
+shows each other latched hold, and, with Sticky modifiers on, a tapped
+Shift, Ctrl or Alt. Losing the window clears every latch and sticky
+modifier, including a QUEUE latched from the touch controls.
 
 ## The window's edge
 

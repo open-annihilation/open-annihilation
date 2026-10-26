@@ -20,8 +20,12 @@ namespace oa::ui::engine_settings::updates {
 
 /// What CHECK NOW asks the host for. Checked before the folder buttons' actions.
 inline constexpr int32_t check_updates_action = 10;
-/// What UPDATE… asks the host for: the release's page.
+/// What UPDATE… asks the host for: the release's page, or the download.
 inline constexpr int32_t open_release_action = 11;
+/// What RESTART TO UPDATE asks the host for.
+inline constexpr int32_t restart_update_action = 12;
+/// What RETRY asks the host for.
+inline constexpr int32_t retry_update_action = 13;
 
 /// Places Updates' two rows from the dialog's offer.
 ///

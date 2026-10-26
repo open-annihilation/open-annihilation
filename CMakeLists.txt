@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 cmake_minimum_required(VERSION 3.24)
-project(open_annihilation VERSION 0.8.6 LANGUAGES C CXX)
+project(open_annihilation VERSION 0.8.7 LANGUAGES C CXX)
 # The version's label. A build of a tree whose label is not empty is a
 # development build. The label is empty for a release, and for a build the
 # maintainer reviews as one; the commit after a release sets it back to "dev"
 # and raises the version.
-set(OA_VERSION_LABEL "")
+set(OA_VERSION_LABEL "dev")
 # A target that links one static library both directly and through
 # another library gets it once on its link line, in dependency order, rather
 # than once for each path that reaches it. The linker then has nothing to
@@ -721,7 +721,8 @@ if(OA_BUILD_PLATFORM)
     # The model stage on SDL's software renderer over a transparent target,
     # read back against the processor's raster of the same list drawn
     # through the bridge: synthetic scenes of flat and textured models at
-    # rest and turned, a depth-sorted unit, a lit building and its bright
+    # rest and turned, a depth-sorted unit, units whose polygons cross or
+    # lie each over the next, drawn with holes, a lit building and its bright
     # page, a cloaked unit, a unit under construction, units under water
     # of both sides, carried units, shadows into the target and straight
     # into the frame, shadows lighter at zoom 0.5 and none at a quarter on
@@ -729,7 +730,8 @@ if(OA_BUILD_PLATFORM)
     # back-facing polygon left out, the pages placed once and uploaded, and
     # a frame at zoom 2; with --data, every unit model of the installed
     # game at zoom 1, drawn from a cached image with and without a depth
-    # plane, held to the bounds the figures print.
+    # plane, held to the bounds the figures print, and every model with a
+    # depth plane, a colour a face, its faces held to the processor's.
     add_executable(oa-app-full-models-test src/app/runtime_full_models_test.cpp
       src/app/world_draws.cpp)
     target_link_libraries(oa-app-full-models-test PRIVATE oa-app-full-models oa-formats-hpi
@@ -1272,6 +1274,7 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_presence_card.cpp
   src/app/runtime_mod_install.cpp src/app/runtime_content.cpp src/app/runtime_update.cpp
   src/app/runtime_update_offer.cpp
+  src/app/runtime_update_install.cpp
   src/app/runtime_challenge.cpp
   src/app/runtime_registries.cpp
   src/app/runtime_package_kinds.cpp
@@ -1362,6 +1365,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_click_snap_check.cpp
   src/app/runtime_build_preview_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
+  src/app/runtime_key_latches_check.cpp
   src/app/runtime_key_timing_check.cpp
   src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
@@ -1384,6 +1388,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_progress_check.cpp
   src/app/runtime_update_check.cpp
   src/app/runtime_update_offer_check.cpp
+  src/app/runtime_update_install_check.cpp
   src/app/runtime_text_fit_check.cpp
   src/app/runtime_side_column_check.cpp src/app/runtime_match_bars_check.cpp
   src/app/runtime_unit_pages_check.cpp src/app/runtime_frontend_controls_check.cpp
@@ -1706,7 +1711,8 @@ if(OA_BUILD_PLATFORM)
       # each tier's frame is the processor's far view, which plans no model,
       # Full's presented without leaving Full. A shot of render type 2 whose
       # lens's centre lies off the battlefield draws no lens, and a laser's
-      # shot after it lists the lines it lists alone.
+      # shot after it lists the lines it lists alone. The Arm commander's
+      # laser lights in its beam's colour.
       # Pictures of one moment at zoom 0.5, 1 and 2.5 in both tiers, and of
       # the shadows at each of those zooms, go to local/reports. Skips under
       # 2 GiB of memory.
@@ -2221,6 +2227,21 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-update-offer PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_update_offer_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # The download, the ready prompt and the hand-off. One process for each
+      # part, so a resumed file, a bad file, the Updated notice and a quit
+      # with no offer do not share a folder.
+      set(oa_update_download_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/update-download")
+      file(MAKE_DIRECTORY "${oa_update_download_dir}")
+      find_package(Python3 COMPONENTS Interpreter QUIET)
+      if(Python3_Interpreter_FOUND)
+        add_test(NAME native-update-download COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_update_download.py"
+          --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+          --work-dir "${oa_update_download_dir}")
+        set_tests_properties(native-update-download PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+          WORKING_DIRECTORY "${oa_update_download_dir}"
+          ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      endif()
       # One evicted archive's read is held. The window keeps drawing the iCloud
       # line in the stored language, and the folder step then continues. Off
       # macOS no file is evicted, and the line never names iCloud.
@@ -3688,7 +3709,11 @@ endforeach()
       # closing it and resuming the game, the Pause key's pause kept, a
       # group's moves and patrols in its shape, a solar collector selected
       # with it given no patrol, and a factory build button's right click
-      # taking its type off the queue;
+      # taking its type off the queue; the unit info panel in both interface
+      # types: right and left clicks on it and beside it, its keys, a drag
+      # from it starting no box, the side column's buttons and quick keys
+      # doing nothing under it, the radar still moving the view, and a box
+      # that selects nothing closing it;
       # and the system's pointer in place of the game's cursor without the focus.
       set(oa_pointer_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/pointer-interfaces")
       file(MAKE_DIRECTORY "${oa_pointer_check_dir}")
@@ -3777,6 +3802,28 @@ endforeach()
       set_tests_properties(native-key-table-hacks PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_hacks_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Latched Shift and Space, then sticky Ctrl and Alt, on a skirmish,
+      # with a layout that lists those two holds.
+      set(oa_key_latches_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-latches")
+      file(MAKE_DIRECTORY "${oa_key_latches_dir}")
+      file(WRITE "${oa_key_latches_dir}/oakeys.yaml"
+        "oakeys: 1\n"
+        "id: key-latches\n"
+        "name: \"Key latches\"\n"
+        "version: \"1.0\"\n"
+        "author: {name: \"Open Annihilation\"}\n"
+        "tags: [grid]\n"
+        "base: oa-default\n"
+        "helpers:\n"
+        "  toggle: [\"order.queue-modifier\", \"game.status-strip\"]\n")
+      add_test(NAME native-key-latches COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-latches
+        --keys "${oa_key_latches_dir}/oakeys.yaml"
+        --snapshot "${oa_key_latches_dir}/key-latches.ppm"
+        --preferences-file "${oa_key_latches_dir}/key-latches.conf")
+      set_tests_properties(native-key-latches PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_latches_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # With the request held, the frame hook keeps being called while the
       # window is inactive; released, the loop waits for an event.
       set(oa_inactive_loop_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/running-while-inactive")
@@ -3792,8 +3839,14 @@ endforeach()
       # view and dark grey bars; then its clicks against the battlefield's in
       # both interface types: orders, selection, deselection, guard, an
       # armed command given and cancelled, and a patrol that gives a solar
-      # collector selected beside the mover no order, under a profile that
-      # turns the megamap on.
+      # collector selected beside the mover no order; the panels over it
+      # (the exit menu and its questions, the save page, the unit info
+      # panel) taking their own clicks and taps, and beside the in-game menu
+      # a left click doing nothing and a right press acting as the
+      # battlefield's; a drop of the selection on it closing the unit info
+      # panel; and the touch controls' taps, double tap, order wheel, box and
+      # building placement on it acting as the mouse's clicks there, never on
+      # the battlefield under it; under a profile that turns the megamap on.
       set(oa_megamap_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/megamap-clicks")
       file(MAKE_DIRECTORY "${oa_megamap_check_dir}")
       file(WRITE "${oa_megamap_check_dir}/megamap-clicks.oamod.yaml"
@@ -3829,8 +3882,9 @@ endforeach()
         WORKING_DIRECTORY "${oa_radar_orders_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # --check-touch-controls: the touch controls, driven by finger events through the
-      # dispatcher, on a skirmish: taps, boxes, latches, the radial, placement, the
-      # minimap, pinch and pan, the lifecycle pause, and the tablet (1180x820) or
+      # dispatcher, on a skirmish: taps, boxes, latches, the radial, the unit info
+      # panel taking the finger, placement, the minimap, pinch and pan, the
+      # lifecycle pause, and the tablet (1180x820) or
       # phone (852x393) layout; it writes touch-<case>.ppm snapshots for people.
       set(oa_touch_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/touch-controls")
       file(MAKE_DIRECTORY "${oa_touch_check_dir}")
@@ -4101,6 +4155,15 @@ endforeach()
           --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
           --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
         set_tests_properties(native-stage PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+        # Buildings created by name on the chat line stand on their build
+        # grid at their yard's height: a shipyard floats its waterline below
+        # the sea, a solar collector on a hill stands on its lowest corner.
+        add_test(NAME native-spawn-heights COMMAND ${Python3_EXECUTABLE}
+          "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_native_spawn_heights.py"
+          --native $<TARGET_FILE:oa-game> --oa-tool $<TARGET_FILE:oa-tool>
+          --game-dir "${OA_GAME_DIR}"
+          --scratch-root "${CMAKE_CURRENT_BINARY_DIR}/native-checks")
+        set_tests_properties(native-spawn-heights PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
         # The trace skirmish, the stage and the director render, each played
         # again with Classic in the computer seat. The director's pass and
         # fail lines are the pinned render's.
@@ -4526,6 +4589,8 @@ endif()
 add_subdirectory(tools/oa-tool)
 add_executable(oa-tool tools/oa-tool/main.cpp)
 target_link_libraries(oa-tool PRIVATE oa-tool-commands oa-options)
+# keys picture draws with the text fonts that sit beside the program.
+oa_copy_text_fonts(oa-tool "$<TARGET_FILE_DIR:oa-tool>")
 # The same version line as the game, so `oa-tool --version` matches
 # `open-annihilation --version`. A build without the platform has no
 # engine-build header, and the line names no commit.
@@ -4718,6 +4783,12 @@ if(BUILD_TESTING)
     add_test(NAME conversion-check-selftest COMMAND ${Python3_EXECUTABLE}
       ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_conversions.py --self-test)
     set_tests_properties(conversion-check-selftest PROPERTIES TIMEOUT 60)
+    # The MCP server that drives the game through the automation endpoint
+    # (tools/mcp/oa_mcp_server.py) answers MCP's requests and every kind of
+    # tool against a stand-in endpoint.
+    add_test(NAME mcp-server-selftest COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/tools/mcp/oa_mcp_server.py --self-test)
+    set_tests_properties(mcp-server-selftest PROPERTIES TIMEOUT 60)
     # The engine's C, C++ and Objective-C sources are laid out as
     # .clang-format says, by the clang-format release that
     # tools/format/requirements.txt pins (tools/format_sources.py, whose

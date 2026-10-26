@@ -1709,6 +1709,212 @@ void test_brain() {
     }
 }
 
+/// One key-layout entry. `members` is the JSON members after `file`, without a leading comma.
+std::string key_entry(std::string_view id, std::string_view members) {
+    const std::string hash = hex_of(std::string("keys/") + std::string(id) + std::string(members));
+    std::string json = "{\"kind\":\"oakeys\",\"id\":\"";
+    json += id;
+    json += "\",\"name\":\"Grid, left hand\",\"release\":1,\"size\":4,\"sha256\":\"";
+    json += hash;
+    json += "\",\"file\":\"/v1/p/";
+    json += hash;
+    json += ".oakeys\"";
+    if (!members.empty()) {
+        json += ',';
+        json += members;
+    }
+    json += '}';
+    return json;
+}
+
+void test_oakeys() {
+    OA_CHECK(std::string(catalogue::kind_name(catalogue::Kind::oakeys)) == "oakeys");
+    OA_CHECK(std::string(catalogue::package_extension(catalogue::Kind::oakeys)) == "oakeys");
+    OA_CHECK(catalogue::valid_package_key(catalogue::Kind::oakeys, "grid-left-hand"));
+    OA_CHECK(!catalogue::valid_package_key(catalogue::Kind::oakeys, "Grid"));
+
+    const std::string facts = "\"version\":\"1.0\",\"base\":\"oa-default\","
+                              "\"works_with\":[\"ta-3.1c\",\"ridge >= 28\"],"
+                              "\"keyboard\":\"iso\",\"pointer\":\"left-click\","
+                              "\"helpers\":[\"toggle\",\"nope\",\"sticky-modifiers\"],"
+                              "\"changes\":11,"
+                              "\"triggers\":[\"Q\",\"Nope\",\"@KeyW\",\"Ctrl\",\"MouseLeft\"],"
+                              "\"preview\":\"/v1/i/preview.png\","
+                              "\"tags\":[\"grid\",\"left-hand\"],\"badge\":\"/v1/i/badge.png\"";
+    const auto out =
+        read_ok(catalogue_of(key_entry("grid-left-hand", facts) + "," + bare("oamod", "keeper")));
+    OA_CHECK(out.problems.empty());
+    OA_CHECK(out.packages.size() == 2);
+    if (out.packages.size() == 2) {
+        const catalogue::Package& package = out.packages[0];
+        OA_CHECK(package.kind == catalogue::Kind::oakeys);
+        OA_CHECK(package.id == "grid-left-hand");
+        OA_CHECK(package.version == "1.0");
+        OA_CHECK(package.key_base == "oa-default");
+        OA_CHECK(package.keyboard == "iso");
+        OA_CHECK(package.pointer == "left-click");
+        OA_CHECK(package.helpers == std::vector<std::string>({"toggle", "sticky-modifiers"}));
+        OA_CHECK(package.changes == 11);
+        OA_CHECK(package.triggers == std::vector<std::string>({"Q", "@KeyW", "MouseLeft"}));
+        OA_CHECK(package.preview == "/v1/i/preview.png");
+        OA_CHECK(package.works_with == std::vector<std::string>({"ta-3.1c", "ridge >= 28"}));
+        OA_CHECK(package.tags == std::vector<std::string>({"grid", "left-hand"}));
+        OA_CHECK(package.badge == "/v1/i/badge.png");
+        OA_CHECK(
+            package.file.size() >= 7 &&
+            package.file.compare(package.file.size() - 7, 7, ".oakeys") == 0
+        );
+        const catalogue::Package& keeper = out.packages[1];
+        OA_CHECK(keeper.id == "keeper");
+        OA_CHECK(keeper.key_base.empty());
+        OA_CHECK(keeper.keyboard.empty());
+        OA_CHECK(keeper.changes == 0);
+        OA_CHECK(keeper.helpers.empty());
+        OA_CHECK(keeper.triggers.empty());
+        OA_CHECK(keeper.preview.empty());
+    }
+
+    const std::string base_only = "\"version\":\"1.0\",\"base\":\"none\"";
+    const auto defaults = read_ok(catalogue_of(key_entry("grid-left-hand", base_only)));
+    OA_CHECK(defaults.packages.size() == 1);
+    if (!defaults.packages.empty()) {
+        OA_CHECK(defaults.packages[0].keyboard == "any");
+        OA_CHECK(defaults.packages[0].changes == 0);
+        OA_CHECK(defaults.packages[0].pointer.empty());
+        OA_CHECK(defaults.packages[0].helpers.empty());
+        OA_CHECK(defaults.packages[0].triggers.empty());
+        OA_CHECK(defaults.packages[0].key_base == "none");
+    }
+
+    const auto skipped = read_ok(catalogue_of(
+        key_entry("grid-left-hand", base_only + ",\"triggers\":[\"Ctrl\",\"Pad.A\",\"Pad.a\"]")
+    ));
+    OA_CHECK(skipped.problems.empty());
+    OA_CHECK(skipped.packages.size() == 1);
+    if (!skipped.packages.empty())
+        OA_CHECK(skipped.packages[0].triggers == std::vector<std::string>({"Pad.A"}));
+
+    skips_one(key_entry("grid-left-hand", "\"version\":\"1.0\""), "base is missing");
+    skips_one(
+        key_entry("grid-left-hand", "\"version\":\"1.0\",\"base\":\"qwerty\""),
+        "base is not oa-default or none"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"keyboard\":\"dvorak\""),
+        "keyboard is not any, ansi, iso or jis"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"pointer\":\"middle\""),
+        "pointer is not right-click or left-click"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"helpers\":\"toggle\""), "helpers is not a list"
+    );
+    skips_one(
+        key_entry(
+            "grid-left-hand",
+            base_only + ",\"helpers\":[\"toggle\",\"sticky-modifiers\",\"hold-to-confirm\","
+                        "\"pointer-keys\",\"radial-orders\",\"edge-scroll\",\"toggle\"]"
+        ),
+        "helpers lists more than 6"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"helpers\":[\"toggle\",\"toggle\"]"),
+        "helpers[1] is repeated"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"helpers\":[1]"), "helpers[0] is not text"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"triggers\":\"Q\""), "triggers is not a list"
+    );
+    std::string many = base_only + ",\"triggers\":[";
+    for (int index = 0; index < 129; ++index) {
+        if (index != 0)
+            many += ',';
+        many += "\"Q\"";
+    }
+    many += ']';
+    skips_one(key_entry("grid-left-hand", many), "triggers lists more than 128");
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"triggers\":[\"Q\",\"Nope\",\"Q\"]"),
+        "triggers[2] is repeated"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"triggers\":[\"Q\",1]"),
+        "triggers[1] is not text"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"preview\":\"/v1/i/preview.jpg\""),
+        "preview is not a picture reference"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"changes\":-1"),
+        "changes is not a whole number from 0 to 2048"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"changes\":2049"),
+        "changes is not a whole number from 0 to 2048"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"changes\":\"eleven\""),
+        "changes is not a whole number from 0 to 2048"
+    );
+    skips_one(key_entry("grid-left-hand", "\"base\":\"oa-default\""), "version is missing");
+    skips_one(
+        key_entry("grid-left-hand", "\"version\":\"1.2.3.4\",\"base\":\"oa-default\""),
+        "version is not a mutator version"
+    );
+    skips_one(
+        key_entry("grid-left-hand", base_only + ",\"works_with\":\"*\""), "works_with is not a list"
+    );
+
+    const auto untouched = read_ok(catalogue_of(
+        bare(
+            "oamod",
+            "ridge",
+            "\"base\":\"oa-default\",\"keyboard\":\"iso\",\"pointer\":\"left-click\","
+            "\"helpers\":[\"toggle\"],\"changes\":11,\"triggers\":[\"Q\"],"
+            "\"preview\":\"/v1/i/preview.png\""
+        ) +
+        "," + bare("oamut", "steady-hands", "\"base\":\"none\",\"changes\":\"lots\"")
+    ));
+    OA_CHECK(untouched.problems.empty());
+    OA_CHECK(untouched.packages.size() == 2);
+    if (untouched.packages.size() == 2) {
+        OA_CHECK(untouched.packages[0].kind == catalogue::Kind::oamod);
+        OA_CHECK(untouched.packages[0].key_base.empty());
+        OA_CHECK(untouched.packages[0].keyboard.empty());
+        OA_CHECK(untouched.packages[0].changes == 0);
+        OA_CHECK(untouched.packages[0].helpers.empty());
+        OA_CHECK(untouched.packages[0].triggers.empty());
+        OA_CHECK(untouched.packages[0].preview.empty());
+        OA_CHECK(untouched.packages[1].kind == catalogue::Kind::oamut);
+        OA_CHECK(untouched.packages[1].key_base.empty());
+        OA_CHECK(untouched.packages[1].changes == 0);
+    }
+
+    std::string wrong_file = key_entry("grid-left-hand", base_only);
+    const auto suffix = wrong_file.rfind(".oakeys");
+    OA_CHECK(suffix != std::string::npos);
+    if (suffix != std::string::npos)
+        wrong_file.replace(suffix, 7, ".oamod");
+    skips_one(wrong_file, "file not named");
+    skips_one("{\"kind\":\"oafuture\",\"id\":\"grid-left-hand\"}", "unknown kind");
+
+    const auto duplicate = read_ok(catalogue_of(
+        key_entry("ridge", base_only) + "," + bare("oamod", "ridge") + "," + bare("oamod", "keeper")
+    ));
+    OA_CHECK(duplicate.packages.size() == 1);
+    if (!duplicate.packages.empty())
+        OA_CHECK(duplicate.packages[0].id == "keeper");
+    OA_CHECK(duplicate.problems.size() == 2);
+    if (duplicate.problems.size() == 2) {
+        OA_CHECK(duplicate.problems[0].find("same key") != std::string::npos);
+        OA_CHECK(duplicate.problems[0].find("ridge") != std::string::npos);
+    }
+}
+
 } // namespace
 
 int main() {
@@ -1724,5 +1930,6 @@ int main() {
     test_expansion();
     test_mutator();
     test_brain();
+    test_oakeys();
     return oa::test::check_exit_status();
 }

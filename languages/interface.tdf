@@ -2930,6 +2930,14 @@
 	it=Scarica e seleziona;
 	}
 
+[Download in the background]
+	{
+	de=Im Hintergrund herunterladen;
+	fr=Télécharger en arrière-plan;
+	es=Descargar en segundo plano;
+	it=Scarica in background;
+	}
+
 [Downloaded]
 	{
 	de=Heruntergeladen;
@@ -2992,6 +3000,14 @@
 	fr=Téléchargement de {pack} · {done} sur {size};
 	es=Descargando {pack} · {done} de {size};
 	it=Download di {pack} · {done} di {size};
+	}
+
+[Downloading {version} · {done} of {size}]
+	{
+	de=Lade {version} herunter · {done} von {size};
+	fr=Téléchargement de {version} · {done} sur {size};
+	es=Descargando {version} · {done} de {size};
+	it=Download di {version} · {done} di {size};
 	}
 
 [Downloading · {progress}]
@@ -4034,6 +4050,14 @@
 	it=Ottenere {name}?;
 	}
 
+[Gets it ready while you're in the menus, and stops during a match.]
+	{
+	de=Macht es fertig, während du in den Menüs bist, und hält während einer Partie an.;
+	fr=Le prépare pendant que tu es dans les menus, et s'arrête pendant une partie.;
+	es=Lo deja listo mientras estás en los menús, y se detiene durante una partida.;
+	it=Lo prepara mentre sei nei menu, e si ferma durante una partita.;
+	}
+
 [Getting {name} · {percent}%]
 	{
 	de={name} wird geholt · {percent}%;
@@ -4738,6 +4762,14 @@
 	it=Installazione di {name};
 	}
 
+[Installing {version}]
+	{
+	de={version} wird installiert;
+	fr=Installation de {version};
+	es=Instalando {version};
+	it=Installazione di {version};
+	}
+
 [Interface]
 	{
 	de=Oberfläche;
@@ -4784,6 +4816,14 @@
 	fr=Il est illisible.;
 	es=No se puede leer.;
 	it=Non si può leggere.;
+	}
+
+[It installs when you quit, or now if you restart. Restarting takes a few seconds and brings you back to the main menu.]
+	{
+	de=Es wird installiert, wenn du beendest, oder jetzt, wenn du neu startest. Der Neustart dauert ein paar Sekunden und bringt dich ins Hauptmenü zurück.;
+	fr=Il s'installe quand tu quittes, ou maintenant si tu redémarres. Le redémarrage prend quelques secondes et te ramène au menu principal.;
+	es=Se instala cuando sales, o ahora si reinicias. Reiniciar tarda unos segundos y te devuelve al menú principal.;
+	it=Si installa quando esci, oppure adesso se riavvii. Il riavvio richiede qualche secondo e ti riporta al menu principale.;
 	}
 
 [It finishes when you leave {name}.]
@@ -7642,6 +7682,14 @@
 	it=Open Annihilation {version} è uscito;
 	}
 
+[Open Annihilation {version} is ready]
+	{
+	de=Open Annihilation {version} ist bereit;
+	fr=Open Annihilation {version} est prêt;
+	es=Open Annihilation {version} está listo;
+	it=Open Annihilation {version} è pronto;
+	}
+
 [Open Annihilation's own settings: controls, graphics, the interface's size, downloads and your files.]
 	{
 	de=Die eigenen Einstellungen von Open Annihilation: Steuerung, Grafik, Größe der Oberfläche, Downloads und deine Dateien.;
@@ -7944,6 +7992,14 @@
 	fr=En patrouille;
 	es=Patrullando;
 	it=In pattuglia;
+	}
+
+[Paused during the game]
+	{
+	de=Während der Partie pausiert;
+	fr=En pause pendant la partie;
+	es=En pausa durante la partida;
+	it=In pausa durante la partita;
 	}
 
 [Pick the folder that holds totala1.hpi: {places}. It is checked, then copied in.]
@@ -8320,6 +8376,22 @@
 	fr=RÉINITIALISER;
 	es=RESTABLECER;
 	it=REIMPOSTA;
+	}
+
+[RESTART NOW]
+	{
+	de=JETZT NEU STARTEN;
+	fr=REDÉMARRER MAINTENANT;
+	es=REINICIAR AHORA;
+	it=RIAVVIA ORA;
+	}
+
+[RESTART TO UPDATE]
+	{
+	de=NEU STARTEN ZUM AKTUALISIEREN;
+	fr=REDÉMARRER POUR METTRE À JOUR;
+	es=REINICIAR PARA ACTUALIZAR;
+	it=RIAVVIA PER AGGIORNARE;
 	}
 
 [RESTORE DEFAULTS]
@@ -9746,6 +9818,22 @@
 	it=Passare a {title} ora? Il gioco ricarica i dati per il nuovo mod e torna al menu principale. Le altre impostazioni restano.;
 	}
 
+[Switching off {name}…]
+	{
+	de={name} wird ausgeschaltet…;
+	fr=Désactivation de {name}…;
+	es=Desactivando {name}…;
+	it=Disattivazione di {name}…;
+	}
+
+[Switching on {name}…]
+	{
+	de={name} wird eingeschaltet…;
+	fr=Activation de {name}…;
+	es=Activando {name}…;
+	it=Attivazione di {name}…;
+	}
+
 [Switching to {name} restarts the game's files, then loads this save.]
 	{
 	de=Der Wechsel zu {name} lädt die Spieldateien neu und dann diesen Spielstand.;
@@ -10176,6 +10264,14 @@
 	fr=Le téléchargement a échoué;
 	es=La descarga falló;
 	it=Il download non è riuscito;
+	}
+
+[The download stopped: {reason}]
+	{
+	de=Der Download hat angehalten: {reason};
+	fr=Le téléchargement s'est arrêté : {reason};
+	es=La descarga se detuvo: {reason};
+	it=Il download si è fermato: {reason};
 	}
 
 [The expansion holds {name}, which it does not have.]
@@ -11834,6 +11930,14 @@
 	it=Aggiornata da {name};
 	}
 
+[Updated to {version}]
+	{
+	de=Aktualisiert auf {version};
+	fr=Mis à jour vers {version};
+	es=Actualizado a {version};
+	it=Aggiornato a {version};
+	}
+
 [Updated {name} · {new} changes the game's rules · ROLL BACK restores {old}]
 	{
 	de={name} aktualisiert · {new} ändert die Spielregeln · ZURÜCKROLLEN stellt {old} wieder her;
@@ -12184,6 +12288,14 @@
 	fr=Bienvenue;
 	es=Bienvenido;
 	it=Benvenuto;
+	}
+
+[WHEN I QUIT]
+	{
+	de=WENN ICH BEENDE;
+	fr=QUAND JE QUITTE;
+	es=CUANDO SALGA;
+	it=QUANDO ESCO;
 	}
 
 [Welcome setup]
@@ -13288,6 +13400,14 @@
 	fr=kB;
 	es=kB;
 	it=kB;
+	}
+
+[key layouts]
+	{
+	de=Tastenbelegungen;
+	fr=dispositions des touches;
+	es=distribuciones de teclas;
+	it=disposizioni dei tasti;
 	}
 
 [later than {version}]
@@ -14658,6 +14778,30 @@
 	it={name} non può giocare questo posto adesso, quindi parte con il giocatore integrato.;
 	}
 
+[{modifier} · locked]
+	{
+	de={modifier} · festgestellt;
+	fr={modifier} · bloqué;
+	es={modifier} · bloqueado;
+	it={modifier} · bloccato;
+	}
+
+[{modifier} · next key or click]
+	{
+	de={modifier} · nächste Taste oder Klick;
+	fr={modifier} · prochaine touche ou clic;
+	es={modifier} · próxima tecla o clic;
+	it={modifier} · prossimo tasto o clic;
+	}
+
+[{name} · latched]
+	{
+	de={name} · eingerastet;
+	fr={name} · enclenché;
+	es={name} · fijado;
+	it={name} · agganciato;
+	}
+
 [{name} from {installed} is installed. Replace it with {name} from {new}? The one from {installed} is kept, and ROLL BACK brings it back.]
 	{
 	de={name} von {installed} ist installiert. Durch {name} von {new} ersetzen? Das von {installed} bleibt erhalten, und ZURÜCKROLLEN holt es zurück.;
@@ -15602,12 +15746,44 @@
 	it={version} è uscito;
 	}
 
+[{version} is kept, in case you want it back. The game starts again by itself.]
+	{
+	de={version} bleibt erhalten, falls du sie zurückwillst. Das Spiel startet von selbst wieder.;
+	fr={version} est gardée, au cas où tu la voudrais. Le jeu redémarre tout seul.;
+	es={version} se conserva, por si la quieres de vuelta. El juego vuelve a arrancar solo.;
+	it={version} viene conservata, nel caso la rivoglia. Il gioco riparte da solo.;
+	}
+
 [{version} is out · Stable · checked {when}]
 	{
 	de={version} ist da · Stabil · geprüft {when};
 	fr={version} est sorti · Stable · vérifié {when};
 	es={version} ya está · Estable · comprobado {when};
 	it={version} è uscito · Stabile · controllato {when};
+	}
+
+[{version} is ready · {size} downloaded]
+	{
+	de={version} ist bereit · {size} heruntergeladen;
+	fr={version} est prêt · {size} téléchargés;
+	es={version} está listo · {size} descargados;
+	it={version} è pronto · {size} scaricati;
+	}
+
+[{version} ready]
+	{
+	de={version} bereit;
+	fr={version} prêt;
+	es={version} listo;
+	it={version} pronto;
+	}
+
+[{version} downloading]
+	{
+	de={version} wird heruntergeladen;
+	fr={version} en téléchargement;
+	es={version} descargándose;
+	it={version} in download;
 	}
 
 [{version} (rev {revision})]

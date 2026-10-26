@@ -103,6 +103,14 @@ struct Slot {
     uint8_t down_modifiers{};
     std::vector<Started> started{};
     std::vector<HoldArm> holds{};
+    std::vector<std::string> latch_ids{}; ///< latchable actions this down pressed
+};
+
+/// A modifier key sticky modifiers are watching, and the latches it pressed.
+struct ModifierFinger {
+    bool down{};                          ///< the key went down and has not come up
+    bool plain{};                         ///< another key or button went down while it was held
+    std::vector<std::string> latch_ids{}; ///< latchable modifier roles this key pressed
 };
 
 /// A modifier role that is active.
@@ -471,6 +479,12 @@ struct DispatcherState {
     std::array<Slot, 9> buttons{};
     std::vector<LiveRole> live{};
     std::vector<std::pair<std::string, std::string>> logged{};
+    Latches latches{};                       ///< hold latches for the toggle list
+    StickyModifiers sticky{};                ///< armed and locked modifiers
+    bool sticky_on{};                        ///< sticky modifiers are in use
+    std::vector<std::string> toggle{};       ///< latchable actions that latch
+    std::array<ModifierFinger, 8> fingers{}; ///< one per modifier bit
+    uint8_t tracked_modifiers{};             ///< modifier bits whose keys are down
 };
 
 namespace {
@@ -726,38 +740,71 @@ bool second_press(const Slot& slot, const InputEvent& event, uint32_t window) {
     return event.time_ms - slot.down_ms <= window;
 }
 
-/// Emits `active` and `inactive` as a modifier key goes down or up.
+/// The index of one modifier bit, or -1 when the value is not a single bit.
 ///
-/// A key that is not itself a modifier does not change a role: a check's
-/// `mod` field is read by `role_active`, not by this.
-///
-/// @param state the roles
-/// @param event the key event
-/// @param fed the result
-void apply_modifiers(DispatcherState& state, const InputEvent& event, Fed& fed) {
-    if (event.kind != InputKind::key || event.repeat || bit_for_scancode(event.scancode) == 0)
-        return;
-    const uint8_t bit = bit_for_scancode(event.scancode);
-    uint8_t now = event.modifiers;
-    if (event.down)
-        now = static_cast<uint8_t>(now | bit);
-    else
-        now = static_cast<uint8_t>(now & static_cast<uint8_t>(~bit));
+/// @param bit a modifier bit
+/// @return 0 to 7, or -1
+int modifier_index(uint8_t bit) {
+    if (bit == 0 || (bit & static_cast<uint8_t>(bit - 1)) != 0)
+        return -1;
+    int index = 0;
+    uint8_t rest = bit;
+    while ((rest & 1u) == 0) {
+        rest = static_cast<uint8_t>(rest >> 1);
+        ++index;
+    }
+    return index < 8 ? index : -1;
+}
 
-    Contexts stack = state.contexts;
-    stack.text_entry = false;
-    const std::vector<Group> groups = groups_for(stack, context_names());
-    std::vector<LiveRole> want;
+/// Whether the toggle list names an action.
+///
+/// @param state the list
+/// @param id the action id
+/// @return true when the id is listed
+bool toggle_lists(const DispatcherState& state, std::string_view id) {
+    for (const std::string& name : state.toggle) {
+        if (name == id)
+            return true;
+    }
+    return false;
+}
+
+/// Whether the binding may latch.
+///
+/// @param bound the binding
+/// @return true when the registry marks it latchable
+bool latchable_action(const Bound& bound) {
+    return bound.entry != nullptr && bound.entry->latchable;
+}
+
+/// Adds modifier roles whose latch is on and that the visible modifiers missed.
+///
+/// @param state the latches
+/// @param groups the context stack
+/// @param[in,out] want the roles that should be active
+void append_latched_roles(
+    const DispatcherState& state, const std::vector<Group>& groups, std::vector<LiveRole>& want
+) {
+    if (state.toggle.empty())
+        return;
     for (std::size_t action_index = 0; action_index < state.resolved.actions.size();
          ++action_index) {
         const Bound& bound = state.resolved.actions[action_index];
-        if (!modifier_role(bound) || !conditions_hold(bound, state.contexts))
+        if (!toggle_lists(state, bound.id) || !latchable_action(bound) || !modifier_role(bound))
+            continue;
+        if (!state.latches.active(bound.id) || !conditions_hold(bound, state.contexts))
             continue;
         if ((bound.contexts & state.contexts.active) == 0)
             continue;
+        bool already = false;
+        for (const LiveRole& role : want) {
+            if (role.action_index == action_index)
+                already = true;
+        }
+        if (already)
+            continue;
         for (std::size_t chord_index = 0; chord_index < bound.chords.size(); ++chord_index) {
-            const Chord& chord = bound.chords[chord_index].chord;
-            if (chord.kind != TriggerKind::modifier_alone || !held(chord, now, state.platform))
+            if (bound.chords[chord_index].chord.kind != TriggerKind::modifier_alone)
                 continue;
             LiveRole role;
             role.action_index = action_index;
@@ -772,6 +819,44 @@ void apply_modifiers(DispatcherState& state, const InputEvent& event, Fed& fed) 
             break;
         }
     }
+}
+
+/// Emits `active` and `inactive` so the live roles match `visible_mods`.
+///
+/// @param state the roles
+/// @param visible_mods the modifiers that count as held
+/// @param fed the result
+void sync_modifier_roles(DispatcherState& state, uint8_t visible_mods, Fed& fed) {
+    Contexts stack = state.contexts;
+    stack.text_entry = false;
+    const std::vector<Group> groups = groups_for(stack, context_names());
+    std::vector<LiveRole> want;
+    for (std::size_t action_index = 0; action_index < state.resolved.actions.size();
+         ++action_index) {
+        const Bound& bound = state.resolved.actions[action_index];
+        if (!modifier_role(bound) || !conditions_hold(bound, state.contexts))
+            continue;
+        if ((bound.contexts & state.contexts.active) == 0)
+            continue;
+        for (std::size_t chord_index = 0; chord_index < bound.chords.size(); ++chord_index) {
+            const Chord& chord = bound.chords[chord_index].chord;
+            if (chord.kind != TriggerKind::modifier_alone ||
+                !held(chord, visible_mods, state.platform))
+                continue;
+            LiveRole role;
+            role.action_index = action_index;
+            role.chord_index = chord_index;
+            for (const Group& group : groups) {
+                if (!in_group(bound, group, context_names()))
+                    continue;
+                role.context = context_in_group(bound, group, context_names());
+                break;
+            }
+            want.push_back(role);
+            break;
+        }
+    }
+    append_latched_roles(state, groups, want);
 
     for (const LiveRole& role : state.live) {
         bool still = false;
@@ -802,6 +887,27 @@ void apply_modifiers(DispatcherState& state, const InputEvent& event, Fed& fed) 
     state.live = std::move(want);
 }
 
+/// Emits `active` and `inactive` as a modifier key goes down or up.
+///
+/// A key that is not itself a modifier does not change a role: a check's
+/// `mod` field is read by `role_active`, not by this. With no toggle list and
+/// sticky modifiers off, this is the only path that touches a modifier role.
+///
+/// @param state the roles
+/// @param event the key event
+/// @param fed the result
+void apply_modifiers(DispatcherState& state, const InputEvent& event, Fed& fed) {
+    if (event.kind != InputKind::key || event.repeat || bit_for_scancode(event.scancode) == 0)
+        return;
+    const uint8_t bit = bit_for_scancode(event.scancode);
+    uint8_t visible_mods = event.modifiers;
+    if (event.down)
+        visible_mods = static_cast<uint8_t>(visible_mods | bit);
+    else
+        visible_mods = static_cast<uint8_t>(visible_mods & static_cast<uint8_t>(~bit));
+    sync_modifier_roles(state, visible_mods, fed);
+}
+
 /// Emits the winners of one gesture.
 ///
 /// @param state the bindings
@@ -828,20 +934,265 @@ void emit_winners(
     }
 }
 
+/// Ends the latches a press started.
+///
+/// @param state the latches
+/// @param ids the action ids
+/// @param now_ms the time
+void release_latch_ids(DispatcherState& state, std::vector<std::string>& ids, uint64_t now_ms) {
+    for (const std::string& id : ids)
+        state.latches.release(id, now_ms, state.timings.long_press_ms);
+    ids.clear();
+}
+
+/// Presses the modifier roles in the toggle list that this key alone holds.
+///
+/// @param state the latches
+/// @param bit the modifier bit of the key
+/// @param now_ms the time
+/// @param[out] recorded the ids this key pressed
+void press_modifier_latches(
+    DispatcherState& state, uint8_t bit, uint64_t now_ms, std::vector<std::string>& recorded
+) {
+    if (bit == 0 || state.toggle.empty())
+        return;
+    for (const std::string& id : state.toggle) {
+        const Bound* bound = nullptr;
+        for (const Bound& item : state.resolved.actions) {
+            if (item.id == id) {
+                bound = &item;
+                break;
+            }
+        }
+        if (bound == nullptr || !latchable_action(*bound) || !modifier_role(*bound))
+            continue;
+        if (!conditions_hold(*bound, state.contexts) ||
+            (bound->contexts & state.contexts.active) == 0)
+            continue;
+        if (state.latches.held(id))
+            continue;
+        bool mine = false;
+        for (const BoundChord& item : bound->chords) {
+            if (item.chord.kind == TriggerKind::modifier_alone &&
+                held(item.chord, bit, state.platform)) {
+                mine = true;
+                break;
+            }
+        }
+        if (!mine)
+            continue;
+        state.latches.press(id, now_ms);
+        recorded.push_back(id);
+    }
+}
+
+/// Modifier bits that are down and not yet a plain hold.
+///
+/// @param state the fingers
+/// @return the bits
+uint8_t hidden_sticky_bits(const DispatcherState& state) {
+    uint8_t hidden = 0;
+    if (!state.sticky_on)
+        return 0;
+    for (const uint8_t bit : {uint8_t{ctrl}, uint8_t{alt}, uint8_t{shift}, uint8_t{meta}}) {
+        const int index = modifier_index(bit);
+        if (index < 0)
+            continue;
+        const ModifierFinger& finger = state.fingers[static_cast<std::size_t>(index)];
+        if (finger.down && !finger.plain)
+            hidden = static_cast<uint8_t>(hidden | bit);
+    }
+    return hidden;
+}
+
+/// Marks every modifier key down, except one bit, as a plain hold.
+///
+/// @param state the fingers
+/// @param except_bit the bit to leave, or 0 for every bit
+void mark_fingers_plain(DispatcherState& state, uint8_t except_bit) {
+    for (const uint8_t bit : {uint8_t{ctrl}, uint8_t{alt}, uint8_t{shift}, uint8_t{meta}}) {
+        if (bit == except_bit)
+            continue;
+        const int index = modifier_index(bit);
+        if (index < 0)
+            continue;
+        ModifierFinger& finger = state.fingers[static_cast<std::size_t>(index)];
+        if (finger.down)
+            finger.plain = true;
+    }
+}
+
+/// Marks every held latch as used, so letting go does not toggle it.
+///
+/// @param state the latches
+void used_held_latches(DispatcherState& state) {
+    for (const std::string& id : state.toggle) {
+        if (state.latches.held(id))
+            state.latches.used(id);
+    }
+}
+
+/// Presses latchable holds the down started, other than modifier roles.
+///
+/// @param state the latches
+/// @param slot the key or button
+/// @param winners the press winners
+/// @param holds the hold arms
+/// @param now_ms the time
+void remember_key_latches(
+    DispatcherState& state,
+    Slot& slot,
+    const std::vector<Candidate>& winners,
+    const std::vector<Candidate>& holds,
+    uint64_t now_ms
+) {
+    slot.latch_ids.clear();
+    const auto consider = [&](std::size_t action_index) {
+        if (action_index >= state.resolved.actions.size())
+            return;
+        const Bound& bound = state.resolved.actions[action_index];
+        if (!toggle_lists(state, bound.id) || !latchable_action(bound) || modifier_role(bound))
+            return;
+        if (state.latches.held(bound.id))
+            return;
+        for (const std::string& already : slot.latch_ids) {
+            if (already == bound.id)
+                return;
+        }
+        state.latches.press(bound.id, now_ms);
+        slot.latch_ids.push_back(bound.id);
+    };
+    for (const Candidate& item : winners)
+        consider(item.action_index);
+    for (const Candidate& item : holds)
+        consider(item.action_index);
+}
+
+/// Whether a toggle list or sticky modifiers change what an accepted event does.
+///
+/// With both off, `feed` does not call the helper path, so the events match
+/// the path that has no latches.
+///
+/// @param state the dispatcher
+/// @return true when a latch or a sticky modifier can apply
+bool helpers_engaged(const DispatcherState& state) {
+    return state.sticky_on || !state.toggle.empty();
+}
+
+/// Notes a latch or a sticky modifier for an event the bindings are about to accept.
+///
+/// A key held back or dropped never reaches this. A modifier key that goes
+/// down and up with nothing else between is a tap. Another key or button
+/// makes it a plain modifier. `seen` carries the sticky bits for `choose`.
+/// The event itself keeps the physical modifiers, and so does the slot.
+///
+/// @param state the dispatcher
+/// @param event the physical event
+/// @param[out] seen the event `choose` matches
+/// @param fed the result
+void note_accepted_helpers(
+    DispatcherState& state, const InputEvent& event, InputEvent& seen, Fed& fed
+) {
+    const uint8_t sticky_before = state.sticky.mods();
+    const bool modifier_key =
+        event.kind == InputKind::key && !event.repeat && bit_for_scancode(event.scancode) != 0;
+    const uint8_t bit = modifier_key ? bit_for_scancode(event.scancode) : uint8_t{0};
+    const bool other_down = !event.repeat && state.sticky_on && event.down && !modifier_key &&
+                            (event.kind == InputKind::key || event.kind == InputKind::button);
+
+    if (!event.repeat && state.sticky_on && event.down && modifier_key)
+        mark_fingers_plain(state, bit);
+    if (other_down)
+        mark_fingers_plain(state, 0);
+    if (!event.repeat && event.kind == InputKind::button && event.down)
+        used_held_latches(state);
+
+    if (other_down) {
+        const uint8_t physical = static_cast<uint8_t>(event.modifiers | state.tracked_modifiers);
+        const uint8_t visible =
+            static_cast<uint8_t>(physical & static_cast<uint8_t>(~hidden_sticky_bits(state)));
+        sync_modifier_roles(state, visible, fed);
+    }
+
+    if (modifier_key) {
+        const int index = modifier_index(bit);
+        uint8_t physical = event.modifiers;
+        if (event.down)
+            physical = static_cast<uint8_t>(physical | bit);
+        else
+            physical = static_cast<uint8_t>(physical & static_cast<uint8_t>(~bit));
+        bool tapped = false;
+        if (index >= 0) {
+            ModifierFinger& finger = state.fingers[static_cast<std::size_t>(index)];
+            if (event.down) {
+                if (state.sticky_on) {
+                    finger.down = true;
+                    finger.plain = false;
+                    state.tracked_modifiers = static_cast<uint8_t>(state.tracked_modifiers | bit);
+                }
+                finger.latch_ids.clear();
+                press_modifier_latches(state, bit, event.time_ms, finger.latch_ids);
+            } else {
+                tapped = state.sticky_on && finger.down && !finger.plain;
+                release_latch_ids(state, finger.latch_ids, event.time_ms);
+                finger = ModifierFinger{};
+                state.tracked_modifiers =
+                    static_cast<uint8_t>(state.tracked_modifiers & static_cast<uint8_t>(~bit));
+            }
+        }
+        uint8_t visible = physical;
+        if (state.sticky_on) {
+            visible = static_cast<uint8_t>(
+                static_cast<uint8_t>(physical | state.tracked_modifiers) &
+                static_cast<uint8_t>(~hidden_sticky_bits(state))
+            );
+        }
+        sync_modifier_roles(state, visible, fed);
+        if (tapped)
+            state.sticky.tap(bit, event.time_ms, state.timings.double_press_ms);
+    }
+
+    seen = event;
+    if (!state.sticky_on)
+        return;
+    const uint8_t sticky_bits = modifier_key ? sticky_before : state.sticky.mods();
+    uint8_t plain_bits = 0;
+    for (const uint8_t modifier_bit :
+         {uint8_t{ctrl}, uint8_t{alt}, uint8_t{shift}, uint8_t{meta}}) {
+        const int index = modifier_index(modifier_bit);
+        if (index < 0)
+            continue;
+        const ModifierFinger& finger = state.fingers[static_cast<std::size_t>(index)];
+        if (finger.down && finger.plain)
+            plain_bits = static_cast<uint8_t>(plain_bits | modifier_bit);
+    }
+    seen.modifiers = static_cast<uint8_t>(seen.modifiers | sticky_bits | plain_bits);
+}
+
 /// Turns one key or button the bindings are allowed to see into action events.
 ///
+/// `event` is the physical key. `seen` is that key with sticky modifiers added,
+/// and it is what `choose` matches. A repeat, including one that is the key's
+/// first event, does not press or release a latch and does not consume a
+/// sticky modifier.
+///
 /// @param state the bindings
-/// @param event the key or button
+/// @param event the physical key or button
+/// @param seen the event `choose` matches
 /// @param fed the result
-void accept_control(DispatcherState& state, const InputEvent& event, Fed& fed) {
+void accept_control(
+    DispatcherState& state, const InputEvent& event, const InputEvent& seen, Fed& fed
+) {
     Slot& slot = slot_for(state, event);
+    const bool modifier_key =
+        event.kind == InputKind::key && !event.repeat && bit_for_scancode(event.scancode) != 0;
     if (event.repeat) {
         // A repeat can be the first event for the key: a check holds it down
         // by sending the repeat itself. Resolve that the way a press would,
         // and report one repeat of each repeat action. A press action still
-        // waits for a down that was not a repeat.
+        // waits for a down that was not a repeat. Neither arm latches.
         if (!slot.down) {
-            const std::vector<Candidate> winners = choose(state, event, Gesture::press);
+            const std::vector<Candidate> winners = choose(state, seen, Gesture::press);
             for (const Candidate& item : winners) {
                 if (item.action_index >= state.resolved.actions.size())
                     continue;
@@ -859,27 +1210,26 @@ void accept_control(DispatcherState& state, const InputEvent& event, Fed& fed) {
                 slot.down_modifiers = event.modifiers;
                 slot.down_ms = event.time_ms;
                 slot.had_binding = true;
+                slot.latch_ids.clear();
             }
             fed.bound = !fed.events.empty();
             return;
         }
-        if (slot.down) {
-            for (const Started& started : slot.started) {
-                if (started.action_index >= state.resolved.actions.size())
-                    continue;
-                const Bound& bound = state.resolved.actions[started.action_index];
-                const actions::Kind kind =
-                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
-                if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
-                    continue;
-                push_event(
-                    fed,
-                    bound,
-                    Phase::repeated,
-                    bound.chords[started.chord_index].chord,
-                    started.context
-                );
-            }
+        for (const Started& started : slot.started) {
+            if (started.action_index >= state.resolved.actions.size())
+                continue;
+            const Bound& bound = state.resolved.actions[started.action_index];
+            const actions::Kind kind =
+                bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+            if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                continue;
+            push_event(
+                fed,
+                bound,
+                Phase::repeated,
+                bound.chords[started.chord_index].chord,
+                started.context
+            );
         }
         fed.bound = slot.down && slot.had_binding;
         return;
@@ -890,34 +1240,42 @@ void accept_control(DispatcherState& state, const InputEvent& event, Fed& fed) {
             fed.bound = !fed.events.empty();
             return;
         }
+        release_latch_ids(state, slot.latch_ids, event.time_ms);
         release_started(state, slot, fed);
-        const std::vector<Candidate> winners = choose(state, event, Gesture::release);
+        const std::vector<Candidate> winners = choose(state, seen, Gesture::release);
         emit_winners(state, winners, Phase::pressed, event, fed);
+        if (state.sticky_on && !modifier_key && !winners.empty())
+            state.sticky.consume();
         fed.bound = !fed.events.empty();
         return;
     }
 
     // A second down is a double press only after the key has come up. Two downs
-    // with no up between them are a missed release, not a double press.
+    // with no up between them are a missed release, not a double press. The
+    // stored modifiers stay the physical ones, so a sticky bit `choose` saw
+    // does not become the next double-press's modifiers.
     const bool as_double =
         event.kind == InputKind::button
             ? event.clicks == 2
             : !slot.down && second_press(slot, event, state.timings.double_press_ms);
-    if (slot.down)
+    if (slot.down) {
+        release_latch_ids(state, slot.latch_ids, event.time_ms);
         release_started(state, slot, fed);
+    }
     slot.down = true;
     slot.saw_up = false;
     slot.down_modifiers = event.modifiers;
     slot.down_ms = event.time_ms;
     slot.started.clear();
     slot.holds.clear();
+    slot.latch_ids.clear();
 
     std::vector<Candidate> winners;
     if (as_double)
-        winners = choose(state, event, Gesture::double_press);
+        winners = choose(state, seen, Gesture::double_press);
     if (winners.empty())
-        winners = choose(state, event, Gesture::press);
-    const std::vector<Candidate> holds = choose(state, event, Gesture::hold);
+        winners = choose(state, seen, Gesture::press);
+    const std::vector<Candidate> holds = choose(state, seen, Gesture::hold);
     for (const Candidate& item : holds) {
         HoldArm arm;
         arm.action_index = item.action_index;
@@ -934,7 +1292,11 @@ void accept_control(DispatcherState& state, const InputEvent& event, Fed& fed) {
     emit_winners(state, winners, down_phase, event, fed);
     for (const Candidate& item : winners)
         remember(slot, item);
+    if (!modifier_key)
+        remember_key_latches(state, slot, winners, holds, event.time_ms);
     slot.had_binding = !winners.empty() || !slot.holds.empty() || !fed.events.empty();
+    if (state.sticky_on && !modifier_key && (!winners.empty() || !slot.holds.empty()))
+        state.sticky.consume();
     fed.bound = slot.had_binding;
 }
 
@@ -995,6 +1357,10 @@ void Dispatcher::set_bindings(const Resolved& bindings) {
     state_->buttons = {};
     state_->live.clear();
     state_->logged.clear();
+    state_->latches.clear();
+    state_->sticky.clear();
+    state_->fingers = {};
+    state_->tracked_modifiers = 0;
     clear_clocks(state_->clocks);
 }
 
@@ -1022,6 +1388,8 @@ Fed Dispatcher::feed(const InputEvent& event) {
     Fed fed;
     if (event.kind == InputKind::pad)
         return fed;
+    // Slow keys and bounce keys decide first. A key they hold back or drop
+    // does not latch and does not arm a sticky modifier.
     const KeyFate fate =
         event.kind == InputKind::key
             ? consider_key(state_->clocks, state_->timings, state_->contexts.text_entry, event)
@@ -1034,11 +1402,16 @@ Fed Dispatcher::feed(const InputEvent& event) {
         fed.legacy = LegacyGate::drop;
         return fed;
     }
-    if (event.kind == InputKind::key)
+    InputEvent seen = event;
+    if (helpers_engaged(*state_))
+        note_accepted_helpers(*state_, event, seen, fed);
+    else if (event.kind == InputKind::key)
         apply_modifiers(*state_, event, fed);
     if (event.kind == InputKind::wheel) {
-        const std::vector<Candidate> winners = choose(*state_, event, Gesture::press);
+        const std::vector<Candidate> winners = choose(*state_, seen, Gesture::press);
         emit_winners(*state_, winners, Phase::pressed, event, fed);
+        if (state_->sticky_on && !winners.empty())
+            state_->sticky.consume();
         fed.bound = !fed.events.empty();
         return fed;
     }
@@ -1049,7 +1422,7 @@ Fed Dispatcher::feed(const InputEvent& event) {
         fed.bound = slot.down && slot.had_binding;
         return fed;
     }
-    accept_control(*state_, event, fed);
+    accept_control(*state_, event, seen, fed);
     if (!state_->contexts.text_entry)
         note_accepted_down(state_->clocks, state_->timings, event);
     return fed;
@@ -1059,8 +1432,12 @@ Fed Dispatcher::advance(uint64_t now_ms) {
     Fed fed;
     const std::vector<InputEvent> due = take_admissions(state_->clocks, now_ms);
     for (const InputEvent& event : due) {
-        apply_modifiers(*state_, event, fed);
-        accept_control(*state_, event, fed);
+        InputEvent seen = event;
+        if (helpers_engaged(*state_))
+            note_accepted_helpers(*state_, event, seen, fed);
+        else
+            apply_modifiers(*state_, event, fed);
+        accept_control(*state_, event, seen, fed);
         note_accepted_down(state_->clocks, state_->timings, event);
         fed.admitted.push_back(event);
     }
@@ -1123,6 +1500,10 @@ Fed Dispatcher::release_all(uint64_t now_ms) {
         push_event(fed, bound, Phase::inactive, bound.chords[role.chord_index].chord, role.context);
     }
     state_->live.clear();
+    state_->latches.clear();
+    state_->sticky.clear();
+    state_->fingers = {};
+    state_->tracked_modifiers = 0;
     return fed;
 }
 
@@ -1138,6 +1519,8 @@ bool Dispatcher::role_active(
     }
     if (found == nullptr)
         return false;
+    if (state_->latches.active(action))
+        return true;
     for (const BoundChord& item : found->chords) {
         const Chord& chord = item.chord;
         if (chord.kind == TriggerKind::modifier_alone) {
@@ -1169,6 +1552,38 @@ bool Dispatcher::role_active(
             return true;
     }
     return false;
+}
+
+void Dispatcher::set_toggle(std::vector<std::string> ids) {
+    state_->toggle = std::move(ids);
+    state_->latches.clear();
+}
+
+void Dispatcher::set_sticky_modifiers(bool on) {
+    if (state_->sticky_on == on)
+        return;
+    state_->sticky_on = on;
+    if (!on) {
+        state_->sticky.clear();
+        state_->fingers = {};
+        state_->tracked_modifiers = 0;
+    }
+}
+
+const Latches& Dispatcher::latches() const {
+    return state_->latches;
+}
+
+const StickyModifiers& Dispatcher::sticky() const {
+    return state_->sticky;
+}
+
+Timings Dispatcher::timings() const {
+    return state_->timings;
+}
+
+void Dispatcher::consume_sticky() {
+    state_->sticky.consume();
 }
 
 bool Dispatcher::chord_key_held(std::string_view action, const HeldKeys& keys_held) const {

@@ -28,4 +28,13 @@ inline constexpr float rim_blue = 1.0F;
 inline constexpr float reflection_opacity = 0.23F;
 inline constexpr float reflection_cap = 0.46F;
 inline constexpr float reflection_brightness = 0.90F;
+/// Coastal waves' foam at 100% where its cover is whole on open water at
+/// full wind, before foam_cap holds it.
+inline constexpr float foam_strength = 1.0F;
+inline constexpr float foam_cap = 0.85F;
+/// The share of foam_strength the most sheltered water keeps.
+inline constexpr float foam_sheltered = 0.35F;
+inline constexpr float foam_red = 0.88F;
+inline constexpr float foam_green = 0.94F;
+inline constexpr float foam_blue = 0.97F;
 } // namespace oa::app::renderer_water_appearance

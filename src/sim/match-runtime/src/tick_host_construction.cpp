@@ -110,7 +110,7 @@ void TickHost::ConstructionAdapter::start_building(int16_t heading) {
     bool started = false;
     if (instance && instance->script()) {
         const std::array<int32_t, 4> args{heading, 0, 0, 0};
-        started = instance->script()->call("StartBuilding", args, false);
+        started = instance->script()->call(ScriptFunction::start_building, args, false);
     }
     // The other players start it with the heading as its one argument,
     // zero-extended from 16 bits.
@@ -234,7 +234,7 @@ bool TickHost::ConstructionAdapter::query_build_pad(sim::ground_orders::Point& p
     if (!instance || !instance->script())
         return true;
     std::array<int32_t, 4> args{-1, 0, 0, 0};
-    if (!instance->script()->query("QueryBuildInfo", args) || args[0] < 0)
+    if (!instance->script()->query(ScriptFunction::query_build_info, args) || args[0] < 0)
         return true;
     record.construction.pad_piece = static_cast<int8_t>(args[0]);
     const auto world = host.match.piece_world_position(source, static_cast<uint32_t>(args[0]));

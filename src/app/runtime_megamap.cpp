@@ -339,6 +339,8 @@ void Runtime::set_megamap_open(bool open) {
         return;
     megamap_open_ = open;
     megamap_.pressed = false;
+    // The icons drawn while it was last open have moved since.
+    megamap_.marks.clear();
     play_match_interface_sound(open ? kOpenSound : kCloseSound);
 }
 
@@ -408,33 +410,40 @@ void Runtime::draw_megamap() {
     const int grid_w = std::max(1, game.map_width / 2);
     const int grid_h = std::max(1, game.map_height / 2);
     const auto viewer_bit = static_cast<uint16_t>(1u << (match_view_player() & 0x1fu));
+    // The picture's columns that lie on the target, and the sight cell's
+    // column under each, the same for every row.
+    const int32_t first_x = std::max(0, -layout.left);
+    const int32_t end_x = std::min(layout.width, static_cast<int32_t>(target.width) - layout.left);
+    std::vector<std::size_t> column_cells(static_cast<std::size_t>(std::max(0, end_x - first_x)));
+    for (int32_t x = first_x; x < end_x; ++x) {
+        const auto map_x =
+            static_cast<int32_t>(static_cast<int64_t>(x) * layout.map_width / layout.width);
+        column_cells[static_cast<std::size_t>(x - first_x)] =
+            static_cast<std::size_t>(std::min(grid_w - 1, map_x / kSightCellPixels));
+    }
     for (int32_t y = 0; y < layout.height; ++y) {
         const int32_t py = layout.top + y;
-        if (py < 0 || py >= static_cast<int32_t>(target.height))
+        if (py < 0 || py >= static_cast<int32_t>(target.height) || first_x >= end_x)
             continue;
         const auto map_z =
             static_cast<int32_t>(static_cast<int64_t>(y) * layout.map_height / layout.height);
         const int gy = std::min(grid_h - 1, map_z / kSightCellPixels);
-        for (int32_t x = 0; x < layout.width; ++x) {
-            const int32_t px = layout.left + x;
-            if (px < 0 || px >= static_cast<int32_t>(target.width))
-                continue;
-            const auto map_x =
-                static_cast<int32_t>(static_cast<int64_t>(x) * layout.map_width / layout.width);
-            const int gx = std::min(grid_w - 1, map_x / kSightCellPixels);
-            const auto cell = static_cast<std::size_t>(gy) * static_cast<std::size_t>(grid_w) +
-                              static_cast<std::size_t>(gx);
-            uint8_t color = state.terrain[static_cast<std::size_t>(y * layout.width + x)];
+        const auto row_cell = static_cast<std::size_t>(gy) * static_cast<std::size_t>(grid_w);
+        const uint8_t* terrain = state.terrain.data() + static_cast<std::size_t>(y * layout.width);
+        uint8_t* out = target.rgb.data() + (static_cast<std::size_t>(py) * target.width +
+                                            static_cast<std::size_t>(layout.left + first_x)) *
+                                               3U;
+        for (int32_t x = first_x; x < end_x; ++x, out += 3) {
+            const auto cell = row_cell + column_cells[static_cast<std::size_t>(x - first_x)];
+            uint8_t color = terrain[x];
             if (cell < radar.sight_bits.size() && (radar.sight_bits[cell] & viewer_bit) == 0)
                 color = unexplored;
             else if (cell < radar.coverage.size() && radar.coverage[cell] == 0)
                 color = radar.gray_table[color];
             const auto pal = static_cast<std::size_t>(color) * 4U;
-            const auto di =
-                (static_cast<std::size_t>(py) * target.width + static_cast<std::size_t>(px)) * 3U;
-            target.rgb[di] = match_palette_[pal];
-            target.rgb[di + 1] = match_palette_[pal + 1];
-            target.rgb[di + 2] = match_palette_[pal + 2];
+            out[0] = match_palette_[pal];
+            out[1] = match_palette_[pal + 1];
+            out[2] = match_palette_[pal + 2];
         }
     }
     // The units the minimap shows, by their icons; the hovered one is found as they are drawn.
@@ -445,6 +454,7 @@ void Runtime::draw_megamap() {
     const auto pointer_x = state.pointer_x;
     const auto pointer_y = state.pointer_y;
     state.hovered = 0;
+    state.marks.clear();
     std::vector<const oa::data::defs::CategoryMask*> masks;
     masks.reserve(state.entries.size());
     for (const auto& entry : state.entries)
@@ -499,6 +509,9 @@ void Runtime::draw_megamap() {
                                   : choice == hud::IconChoice::unknown ? state.unknown
                                                                        : state.nothing;
         const int32_t half_w = std::max(2, icon.width / 2), half_h = std::max(2, icon.height / 2);
+        state.marks.push_back(
+            {unit.id, at[0] - half_w, at[1] - half_h, at[0] + half_w, at[1] + half_h}
+        );
         const bool hovered = pointer_x >= at[0] - half_w && pointer_x < at[0] + half_w &&
                              pointer_y >= at[1] - half_h && pointer_y < at[1] + half_h;
         if (hovered)
@@ -572,7 +585,9 @@ void Runtime::draw_megamap_ring(int32_t x, int32_t y, int32_t radius, uint8_t co
 }
 
 bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
-    if (!megamap_open_ || !megamap_on())
+    // A page opened over the match, such as the save page, takes the pointer
+    // in its own pixels.
+    if (screen_ != Screen::match || !megamap_open_ || !megamap_on())
         return false;
     auto& state = megamap_;
     const int32_t px = static_cast<int32_t>(x) - match_layout_.left;
@@ -582,26 +597,34 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
         state.pointer_y = py;
         return state.pressed;
     }
-    // Presses are taken in the overlays' area, where the map is drawn, and
-    // not on a touch control or a placed part of the HUD; the release of a
-    // press taken is taken wherever it lands.
+    // Presses are taken in the overlays' area, where the map is drawn, as
+    // the battlefield would take them: not on a touch control, a placed part
+    // of the HUD or a button of a panel over the battlefield, such as the
+    // exit menu's, and while the in-game menu or another panel holds the
+    // match, only a right press beside the menu. The release of a press
+    // taken is taken wherever it lands, and any other in the area off a
+    // button.
     const auto area = overlay_area();
     const bool in_area = x >= static_cast<float>(area.x) && y >= static_cast<float>(area.y) &&
                          x < static_cast<float>(area.x + area.width) &&
-                         y < static_cast<float>(area.y + area.height) && !placed_hud_covers(x, y);
-    if (!in_area && !(state.pressed && event.type == SDL_EVENT_MOUSE_BUTTON_UP))
+                         y < static_cast<float>(area.y + area.height) && !placed_hud_covers(x, y) &&
+                         !hovered_;
+    const bool held_by_panel =
+        event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && match_paused_ &&
+        !(event.button.button == SDL_BUTTON_RIGHT && right_press_beside_menu(x, y));
+    if ((!in_area || held_by_panel) && !(state.pressed && event.type == SDL_EVENT_MOUSE_BUTTON_UP))
         return false;
     auto& world = match_->state();
     world.game.local_player_index = match_local_player_;
     state.pointer_x = px;
     state.pointer_y = py;
+    // The icon under the button is the one drawn there, though no frame has
+    // drawn the pointer there yet, as for a finger's tap.
+    state.hovered = state.unit_at(px, py);
     // The press's buttons and modifiers, which queueing() reads, as the
     // battlefield's.
     record_pointer_event(event);
-    const auto ground = [&]() -> std::optional<oa::sim::ground_orders::Point> {
-        const auto point = hud::megamap_map_point(state.layout, px, py);
-        return point ? map_world_point((*point)[0], (*point)[1]) : std::nullopt;
-    };
+    const auto ground = [&] { return megamap_ground(x, y); };
     if (event.button.button == SDL_BUTTON_RIGHT) {
         if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN)
             megamap_right_press(state.hovered, ground());
@@ -654,7 +677,30 @@ bool Runtime::megamap_pointer(const SDL_Event& event, float x, float y) {
     }
     selected_match_unit_ = 0;
     adopt_selected_units();
+    // A box that leaves nothing selected drops the selection, and the unit
+    // info panel closes with it, as on the battlefield.
+    if (!has_local_selection())
+        close_unit_info();
     return true;
+}
+
+std::optional<oa::sim::ground_orders::Point> Runtime::megamap_ground(float x, float y) {
+    const auto point = hud::megamap_map_point(
+        megamap_.layout,
+        static_cast<int32_t>(x) - match_layout_.left,
+        static_cast<int32_t>(y) - match_layout_.top
+    );
+    return point ? map_world_point((*point)[0], (*point)[1]) : std::nullopt;
+}
+
+uint16_t Runtime::megamap_unit_at(float x, float y) const {
+    return megamap_.unit_at(
+        static_cast<int32_t>(x) - match_layout_.left, static_cast<int32_t>(y) - match_layout_.top
+    );
+}
+
+uint8_t Runtime::megamap_cursor_at(float x, float y) {
+    return pick_map_cursor(megamap_unit_at(x, y), megamap_ground(x, y));
 }
 
 void Runtime::megamap_click(
@@ -709,7 +755,10 @@ void Runtime::megamap_click(
         return;
     }
     case input::ClickAction::clear_selection:
+        // The unit info panel closes with the selection, as on the
+        // battlefield.
         clear_local_selection();
+        close_unit_info();
         apply_match_hud_for_selection();
         return;
     case input::ClickAction::issue_command:
@@ -740,9 +789,16 @@ void Runtime::megamap_right_press(
         return;
     case input::RightPress::mouse_look:
     case input::RightPress::clear_selection:
-        // The megamap has no view to look round: Control drops the selection too.
+        // The megamap has no view to look round: Control drops the selection
+        // too. The unit info panel closes with it, and beside the in-game
+        // menu the menu closes and the match it held runs again, as on the
+        // battlefield.
         clear_local_selection();
-        apply_match_hud_for_selection();
+        close_unit_info();
+        if (match_paused_)
+            resume_match_pause();
+        else
+            apply_match_hud_for_selection();
         return;
     case input::RightPress::default_order:
         break;

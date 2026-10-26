@@ -423,8 +423,12 @@ Runtime::Runtime(
     // stays closed then. A bundle this start's setup already copied and
     // checked is answered from that result and is not read again.
     phase_began = oa::platform::tick_ms();
-    const char* content_line = options_.restarts > 0 ? "Applying your changes"
-                                                     : "Checking your copy of Total Annihilation";
+    // A switch of the mod in the Library says what it switches.
+    const std::string_view applying = options_.restart_line.empty()
+                                          ? std::string_view("Applying your changes")
+                                          : std::string_view(options_.restart_line);
+    const std::string_view content_line =
+        options_.restarts > 0 ? applying : "Checking your copy of Total Annihilation";
     run_progress(content_line, [this](LongWork& work) {
         const auto note = [](uint32_t files_done, uint32_t files_total, void* context) -> bool {
             auto& held = *static_cast<LongWork*>(context);
@@ -467,7 +471,7 @@ Runtime::Runtime(
     // table and the fonts: 3.1c's command line, else the setting, else the
     // operating system's.
     phase_began = oa::platform::tick_ms();
-    run_progress("Applying your changes", [this](LongWork&) { start_language(); });
+    run_progress(applying, [this](LongWork&) { start_language(); });
     mark_phase("language", phase_began);
     // SIDEDATA, and the sides' interface art and fonts it names, from the
     // language's folders first.
@@ -1016,6 +1020,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_update_download) {
+            const int download_status = check_update_download();
+            flush_preferences();
+            return download_status;
+        }
         if (options_.check_text_fit) {
             check_text_fit();
             flush_preferences();
@@ -1023,6 +1032,11 @@ int Runtime::run() {
         }
         if (options_.check_kill_board) {
             check_kill_board();
+            flush_preferences();
+            return 0;
+        }
+        if (options_.check_key_latches) {
+            check_key_latches();
             flush_preferences();
             return 0;
         }
@@ -1273,8 +1287,20 @@ void Runtime::dispatch_event(SDL_Event& event, bool& running) {
     // While an input method composes, the keys it uses are its own.
     if (take_composition_event(event))
         return;
-    // The action events are kept. Nothing acts on them. A key held back or
-    // dropped here does not reach the screen.
+
+    // The action events are kept. The sticky modifiers this event sees are the
+    // ones it began with. A key held back or dropped here does not reach the
+    // screen.
+    struct StickyEventGuard {
+        Runtime& runtime;
+
+        explicit StickyEventGuard(Runtime& runtime) : runtime(runtime) {
+            runtime.begin_sticky_event();
+        }
+
+        ~StickyEventGuard() { runtime.end_sticky_event(); }
+    } sticky_event{*this};
+
     if (feed_input_actions(event))
         return;
     dispatch_after_actions(event, running);

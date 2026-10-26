@@ -153,6 +153,17 @@ int letter_rows_above_baseline(const oa::present::TextLayers& layers) {
     return 0;
 }
 
+/// Gives how far a line must be lowered so that none of its letters rises
+/// above a row.
+///
+/// @param top_row the paint row no letter may rise above
+/// @param baseline the paint row of the line's baseline
+/// @param layers the line
+/// @return paint rows; 0 or less for a line that keeps its place
+int rows_below(int top_row, int baseline, const oa::present::TextLayers& layers) {
+    return top_row - (baseline - letter_rows_above_baseline(layers));
+}
+
 } // namespace
 
 int Runtime::builder_gui_page_count() const {
@@ -228,7 +239,9 @@ void Runtime::open_match_build_page(int page) {
     if (state.unit_id == unit->id) {
         hud::order_panel_store(game, state);
         status_ = "Build page " + std::to_string(page);
-        render_match_surface();
+        // The HUD layer takes the page at once; the frame draws the match,
+        // the page with it, once.
+        compose_match_hud();
     } else {
         match_build_page_ = previous_page;
         match_build_page_unit_ = previous_page_unit;
@@ -315,6 +328,8 @@ void Runtime::press_match_panel_page(oa::ui::hud::BuildPanelClick press, bool cy
 void Runtime::load_match_chrome() {
     match_chrome_ = {};
     match_hud_.reset();
+    // The side column's art is read again for each match, from its own files.
+    match_hud_art_.reset();
     try {
         const auto path = match_side_tile();
         match_chrome_ = oa::ui::decoded::require(oa::decode_pcx(assets_.read(path).bytes), path);
@@ -489,7 +504,21 @@ void Runtime::paint_text(
             laid[index] = oa::present::modern_text(
                 runs[index].text, face, scale, painted_text_size(runs[index]), allow_background
             );
-    const int drop = panel_text_drop(font, y, text, scale);
+    // Lowered as panel_text_drop gives, from the layers already built: the
+    // rows a line's letters rise above its baseline are the same with or
+    // without its background box.
+    int drop = 0;
+    if (text_place_ == TextPlace::panel && panel_top_row_)
+        for (std::size_t index = 0; index < runs.size(); ++index)
+            if (const auto& layers = laid[index])
+                drop = std::max(
+                    drop,
+                    rows_below(
+                        *panel_top_row_,
+                        y + painted_baseline(font_baseline, painted_text_size(runs[index])) * scale,
+                        *layers
+                    )
+                );
     int pen = x;
     for (std::size_t index = 0; index < runs.size(); ++index) {
         const auto& run = runs[index];
@@ -527,8 +556,9 @@ int Runtime::panel_text_drop(
         if (const auto layers = oa::present::modern_text(run.text, face, scale, size, false))
             drop = std::max(
                 drop,
-                *panel_top_row_ - (y + painted_baseline(font_baseline, size) * scale -
-                                   letter_rows_above_baseline(*layers))
+                rows_below(
+                    *panel_top_row_, y + painted_baseline(font_baseline, size) * scale, *layers
+                )
             );
     }
     return drop;
@@ -544,10 +574,10 @@ int Runtime::match_text_width(
     for (const auto& run :
          renderer::split_game_text(text, renderer::fnt_font_characters(font), true)) {
         if (run.modern)
-            if (const auto layers = oa::present::modern_text(
+            if (const auto advance = oa::present::modern_text_advance(
                     run.text, renderer::fnt_font_face(font), scale, painted_text_size(run)
                 )) {
-                width += layers->advance;
+                width += *advance;
                 continue;
             }
         const std::string bytes =
@@ -640,22 +670,32 @@ void Runtime::paint_font_text(
     // The text is measured before it is drawn; where the pen stops is not
     // needed.
     std::ignore = oa::formats::fnt::raster_text(target, font, text, 0, pen_row);
+    // The enlarged columns that land on the target; each covered glyph
+    // column paints its `scale` of them, as far as they reach.
+    const int first_column = std::max(0, -x);
+    const int end_column = std::min(text_w * scale, static_cast<int>(dest.width) - x);
+    if (first_column >= end_column)
+        return;
+    const int first_texel = first_column / scale;
     for (int row = 0; row < text_h * scale; ++row) {
         const int py = y + row - pen_row * scale;
         if (py < 0 || py >= static_cast<int>(dest.height))
             continue;
         auto* out = dest.rgb.data() + (static_cast<std::size_t>(py) * dest.width) * 3U;
         const auto* cover = coverage.data() + static_cast<std::size_t>(row / scale) * text_w;
-        for (int column = 0; column < text_w * scale; ++column) {
-            if (cover[column / scale] == 0)
+        int texel = first_texel;
+        for (int column = first_column; column < end_column; ++texel) {
+            const int texel_end = std::min(end_column, (texel + 1) * scale);
+            if (cover[texel] == 0) {
+                column = texel_end;
                 continue;
-            const int px = x + column;
-            if (px < 0 || px >= static_cast<int>(dest.width))
-                continue;
-            auto* pixel = out + static_cast<std::size_t>(px) * 3U;
-            pixel[0] = color[0];
-            pixel[1] = color[1];
-            pixel[2] = color[2];
+            }
+            auto* pixel = out + static_cast<std::size_t>(x + column) * 3U;
+            for (; column < texel_end; ++column, pixel += 3) {
+                pixel[0] = color[0];
+                pixel[1] = color[1];
+                pixel[2] = color[2];
+            }
         }
     }
 }
@@ -1406,8 +1446,9 @@ void Runtime::draw_status_panel() {
     namespace hud = oa::ui::hud;
     if (!match_)
         return;
-    const bool held =
-        (action_key_held("game.status-strip") || space_held_by_check_) && !chat_composing_;
+    const bool held = (action_key_held("game.status-strip") ||
+                       action_latched("game.status-strip") || space_held_by_check_) &&
+                      !chat_composing_;
     auto& game = match_->state().game;
     // The strip sounds "Panel" as it leaves an end and "Options" as it
     // reaches one, as the kills board does.
@@ -1516,6 +1557,98 @@ void Runtime::draw_status_panel() {
     for (const auto& [x, line] : readouts) {
         const auto at = pen(x);
         draw_match_label(at.x, at.y, line, hud::kPaletteWhite, scale);
+    }
+}
+
+void Runtime::draw_key_latch_chips() {
+    key_latch_chips_drawn_.clear();
+    if (screen_ != Screen::match || match_ == nullptr)
+        return;
+    std::vector<KeyLatchChip> chips;
+    gather_key_latch_chips(chips);
+    if (chips.empty())
+        return;
+
+    const auto area = overlay_area();
+    const auto corner = canvas_paint(area.x, area.y);
+    const int scale = std::max(1, hud_text_scale());
+    const kit::Canvas canvas = overlay_kit_canvas(
+        paint_target(),
+        engine_settings_fonts(),
+        corner,
+        scale,
+        {corner.x, corner.y, area.width, area.height}
+    );
+    const int32_t gap = 4;
+    const int32_t chip_height = kit::compact_metrics.chip_height;
+    const int32_t top = canvas.placement.clip.y + 6;
+    const int32_t span = canvas.placement.clip.width;
+
+    struct Placed {
+        std::string text;
+        bool filled;
+        int32_t width;
+    };
+
+    const auto width_of = [&](const std::string& text, bool filled) {
+        kit::ChipLook look;
+        look.text = text;
+        look.state = filled ? kit::ChipState::playing : kit::ChipState::installed;
+        if (canvas.fonts == nullptr)
+            return 2 * kit::compact_metrics.chip_padding;
+        return kit::chip_width(*canvas.fonts, look);
+    };
+    if (span <= 0 || canvas.surface == nullptr) {
+        for (const KeyLatchChip& chip : chips)
+            key_latch_chips_drawn_.push_back(chip.text);
+        return;
+    }
+
+    std::vector<Placed> row;
+    int32_t used_width = 0;
+    int dropped = 0;
+    for (const KeyLatchChip& chip : chips) {
+        const int32_t width = width_of(chip.text, chip.filled);
+        const int32_t next = used_width + (row.empty() ? 0 : gap) + width;
+        if (!row.empty() && next > span) {
+            ++dropped;
+            continue;
+        }
+        used_width = next;
+        row.push_back(Placed{chip.text, chip.filled, width});
+    }
+    if (dropped > 0) {
+        const auto more_width = [&](int count) {
+            return width_of("+" + std::to_string(count), true);
+        };
+        int extra = dropped;
+        while (!row.empty()) {
+            const int32_t width = more_width(extra);
+            const int32_t with_more = used_width + gap + width;
+            if (with_more <= span)
+                break;
+            used_width -= row.back().width;
+            if (row.size() > 1)
+                used_width -= gap;
+            row.pop_back();
+            ++extra;
+        }
+        row.push_back(Placed{"+" + std::to_string(extra), true, more_width(extra)});
+    }
+
+    int32_t total = 0;
+    for (std::size_t index = 0; index < row.size(); ++index)
+        total += row[index].width + (index == 0 ? int32_t{0} : gap);
+    int32_t origin = canvas.placement.clip.x;
+    if (total < span)
+        origin += (span - total) / 2;
+    for (const Placed& item : row) {
+        key_latch_chips_drawn_.push_back(item.text);
+        kit::ChipLook look;
+        look.text = item.text;
+        look.state = item.filled ? kit::ChipState::playing : kit::ChipState::installed;
+        kit::draw_chip(canvas, {origin, top, item.width, chip_height}, look);
+        origin += item.width + gap;
     }
 }
 

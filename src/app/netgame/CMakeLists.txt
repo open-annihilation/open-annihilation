@@ -99,7 +99,7 @@ if(TARGET oa-game)
       oa-app-netgame-launch-binding oa-ui-frontend-multiplayer oa-netgame-match-runtime oa-session-demo
       oa-netgame-console oa-netgame-messages
     PRIVATE oa::extension-sdk oa-app-view-rules oa-base-text oa-data-languages oa-present
-      oa-data-map-pack oa-platform-shims)
+      oa-data-map-pack oa-platform-shims oa-netgame-sync)
   # Network play's API for the extensions built on it: an extension library
   # that links it links network play's extension too, so the engine lists
   # that extension after network play's.

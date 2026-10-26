@@ -40,7 +40,7 @@ void plan_battlefield_draws(
     plan.raised_units.clear();
 
     // Sort keys: the row, then units before features, then a unit's place
-    // in the list or a feature's column.
+    // in the list or a feature's column, then a feature's place in the list.
     struct Keyed {
         int32_t row{};
         uint8_t rank{};
@@ -48,11 +48,14 @@ void plan_battlefield_draws(
         BattlefieldDraw draw{};
     };
 
-    // Room for every draw at once, so that a frame's lists do not grow as
-    // they fill.
-    std::vector<Keyed> ground;
-    std::vector<Keyed> lying;
-    std::vector<Keyed> raised;
+    // Kept from frame to frame with room for every draw at once, so that a
+    // frame's lists neither take memory nor grow as they fill.
+    thread_local std::vector<Keyed> ground;
+    thread_local std::vector<Keyed> lying;
+    thread_local std::vector<Keyed> raised;
+    ground.clear();
+    lying.clear();
+    raised.clear();
     ground.reserve(features.size() + units.size());
     lying.reserve(features.size());
     raised.reserve(units.size());
@@ -72,12 +75,15 @@ void plan_battlefield_draws(
         const bool on_ground = (unit.flags & OA_UNIT_FLAG_OCCUPANCY_MASK) == ground_occupancy;
         (on_ground ? ground : raised).push_back(keyed);
     }
+    // Every draw of a list has keys of its own: a unit's place is its own,
+    // and a feature in the same cell as another follows it in the list.
     const auto before = [](const Keyed& a, const Keyed& b) {
-        return std::tie(a.row, a.rank, a.order) < std::tie(b.row, b.rank, b.order);
+        return std::tie(a.row, a.rank, a.order, a.draw.index) <
+               std::tie(b.row, b.rank, b.order, b.draw.index);
     };
-    std::stable_sort(lying.begin(), lying.end(), before);
-    std::stable_sort(ground.begin(), ground.end(), before);
-    std::stable_sort(raised.begin(), raised.end(), before);
+    std::sort(lying.begin(), lying.end(), before);
+    std::sort(ground.begin(), ground.end(), before);
+    std::sort(raised.begin(), raised.end(), before);
     plan.lying_features.reserve(lying.size());
     plan.ground.reserve(ground.size());
     plan.raised_units.reserve(raised.size());

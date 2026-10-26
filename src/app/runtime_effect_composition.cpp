@@ -34,6 +34,14 @@ float light_intensity(
 } // namespace
 
 bool Runtime::match_effects_enabled() {
+    return match_effects_in_view(false);
+}
+
+bool Runtime::match_effects_distort() {
+    return match_effects_in_view(true);
+}
+
+bool Runtime::match_effects_in_view(bool distortion_only) {
     if (!match_)
         return false;
     const auto& settings = engine_settings();
@@ -43,11 +51,13 @@ bool Runtime::match_effects_enabled() {
         const auto detail = renderer_effects::detail_strength(source.radius * zoom, zoom);
         const float light_scale = light_intensity(settings, source.kind);
         const float heat_scale = std::min(settings.heat_distortion, 200U) / 100.0F;
-        if (std::clamp(source.intensity, 0.0F, 1.0F) * detail[0] * light_scale >=
+        const bool lights =
+            std::clamp(source.intensity, 0.0F, 1.0F) * detail[0] * light_scale >=
                 minimum_light_strength ||
-            std::clamp(source.glow, 0.0F, 1.0F) * detail[0] * light_scale >=
-                minimum_glow_strength ||
-            std::clamp(source.heat, 0.0F, 1.0F) * detail[1] * heat_scale >= minimum_heat_strength) {
+            std::clamp(source.glow, 0.0F, 1.0F) * detail[0] * light_scale >= minimum_glow_strength;
+        const bool distorts =
+            std::clamp(source.heat, 0.0F, 1.0F) * detail[1] * heat_scale >= minimum_heat_strength;
+        if (distorts || (lights && !distortion_only)) {
             float x = (source.x - static_cast<float>(place[0])) * zoom;
             float y = (source.z - source.height * 0.5F - static_cast<float>(place[1])) * zoom;
             if (live_renderer_active()) {

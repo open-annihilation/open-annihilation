@@ -46,6 +46,9 @@ ScriptInstance::ScriptInstance(
       fault_(fault) {
     if (const auto& refused = vm_.program_error())
         note("script program refused", refused->message);
+    for (std::size_t i = 0; i < function_index_.size(); ++i)
+        function_index_[i] =
+            find(sim::unit_script::script_function_name(static_cast<ScriptFunction>(i)));
 }
 
 void ScriptInstance::note(std::string_view what, std::string_view detail) noexcept {
@@ -53,18 +56,12 @@ void ScriptInstance::note(std::string_view what, std::string_view detail) noexce
         fault_->note(what, detail);
 }
 
-bool ScriptInstance::call_no_arguments(
-    std::string_view name, bool immediate, sim::script_vm::ReturnCallback callback
+bool ScriptInstance::start_no_arguments(
+    int32_t index, bool immediate, sim::script_vm::ReturnCallback callback
 ) {
-    std::optional<uint32_t> index;
-    for (std::size_t i = 0; i < program_->scripts.size(); ++i)
-        if (program_->scripts[i].name == name) {
-            index = static_cast<uint32_t>(i);
-            break;
-        }
-    if (!index)
+    if (index < 0)
         return false;
-    const auto result = vm_.start(*index, {}, std::move(callback));
+    const auto result = vm_.start(static_cast<uint32_t>(index), {}, std::move(callback));
     if (!result.ok()) {
         if (result.error->code != sim::script_vm::ErrorCode::no_free_context)
             note("script start", result.error->message);
@@ -75,7 +72,8 @@ bool ScriptInstance::call_no_arguments(
     return true;
 }
 
-bool ScriptInstance::call(
+bool ScriptInstance::start_with_arguments(
+    int32_t index,
     std::string_view name,
     std::span<const int32_t> args,
     bool immediate,
@@ -89,10 +87,11 @@ bool ScriptInstance::call(
     }
     std::array<int32_t, 4> locals{};
     std::copy(args.begin(), args.end(), locals.begin());
-    return call_with_locals(name, locals, args.size(), immediate, std::move(callback));
+    return start_with_locals(index, name, locals, args.size(), immediate, std::move(callback));
 }
 
-bool ScriptInstance::call_with_locals(
+bool ScriptInstance::start_with_locals(
+    int32_t index,
     std::string_view name,
     const std::array<int32_t, 4>& locals,
     std::size_t count,
@@ -105,13 +104,7 @@ bool ScriptInstance::call_with_locals(
             callback(0);
         return false;
     }
-    std::optional<uint32_t> index;
-    for (std::size_t i = 0; i < program_->scripts.size(); ++i)
-        if (program_->scripts[i].name == name) {
-            index = static_cast<uint32_t>(i);
-            break;
-        }
-    if (!index) {
+    if (index < 0) {
         if (callback)
             callback(0);
         return false;
@@ -119,7 +112,8 @@ bool ScriptInstance::call_with_locals(
     // Keep a copy because a supplied callback is invoked with zero
     // when allocation fails. Vm::start owns the successful callback afterwards.
     const auto failed_callback = callback;
-    const auto result = vm_.start_parameterized(*index, locals, count, std::move(callback));
+    const auto result =
+        vm_.start_parameterized(static_cast<uint32_t>(index), locals, count, std::move(callback));
     if (!result.ok()) {
         if (result.error->code != sim::script_vm::ErrorCode::no_free_context)
             note("script start", result.error->message);
@@ -132,23 +126,10 @@ bool ScriptInstance::call_with_locals(
     return true;
 }
 
-int32_t ScriptInstance::find(std::string_view name) const noexcept {
-    for (std::size_t i = 0; i < program_->scripts.size(); ++i)
-        if (program_->scripts[i].name == name)
-            return static_cast<int32_t>(i);
-    return -1;
-}
-
-bool ScriptInstance::query(std::string_view name, std::array<int32_t, 4>& args) {
-    std::optional<uint32_t> index;
-    for (std::size_t i = 0; i < program_->scripts.size(); ++i)
-        if (program_->scripts[i].name == name) {
-            index = static_cast<uint32_t>(i);
-            break;
-        }
-    if (!index)
+bool ScriptInstance::run_query(int32_t index, std::array<int32_t, 4>& args) {
+    if (index < 0)
         return false;
-    const auto started = vm_.start(*index, args);
+    const auto started = vm_.start(static_cast<uint32_t>(index), args);
     if (!started.ok()) {
         if (started.error->code != sim::script_vm::ErrorCode::no_free_context)
             note("script query start", started.error->message);
@@ -163,6 +144,89 @@ bool ScriptInstance::query(std::string_view name, std::array<int32_t, 4>& args) 
     for (std::size_t i = 0; i < args.size(); ++i)
         args[i] = context.slots[i];
     return true;
+}
+
+bool ScriptInstance::call_no_arguments(
+    std::string_view name, bool immediate, sim::script_vm::ReturnCallback callback
+) {
+    return start_no_arguments(find(name), immediate, std::move(callback));
+}
+
+bool ScriptInstance::call_no_arguments(
+    ScriptFunction function, bool immediate, sim::script_vm::ReturnCallback callback
+) {
+    return start_no_arguments(find(function), immediate, std::move(callback));
+}
+
+bool ScriptInstance::call(
+    std::string_view name,
+    std::span<const int32_t> args,
+    bool immediate,
+    sim::script_vm::ReturnCallback callback
+) {
+    return start_with_arguments(find(name), name, args, immediate, std::move(callback));
+}
+
+bool ScriptInstance::call(
+    ScriptFunction function,
+    std::span<const int32_t> args,
+    bool immediate,
+    sim::script_vm::ReturnCallback callback
+) {
+    return start_with_arguments(
+        find(function),
+        sim::unit_script::script_function_name(function),
+        args,
+        immediate,
+        std::move(callback)
+    );
+}
+
+bool ScriptInstance::call_with_locals(
+    std::string_view name,
+    const std::array<int32_t, 4>& locals,
+    std::size_t count,
+    bool immediate,
+    sim::script_vm::ReturnCallback callback
+) {
+    return start_with_locals(find(name), name, locals, count, immediate, std::move(callback));
+}
+
+bool ScriptInstance::call_with_locals(
+    ScriptFunction function,
+    const std::array<int32_t, 4>& locals,
+    std::size_t count,
+    bool immediate,
+    sim::script_vm::ReturnCallback callback
+) {
+    return start_with_locals(
+        find(function),
+        sim::unit_script::script_function_name(function),
+        locals,
+        count,
+        immediate,
+        std::move(callback)
+    );
+}
+
+int32_t ScriptInstance::find(std::string_view name) const noexcept {
+    for (std::size_t i = 0; i < program_->scripts.size(); ++i)
+        if (program_->scripts[i].name == name)
+            return static_cast<int32_t>(i);
+    return -1;
+}
+
+int32_t ScriptInstance::find(ScriptFunction function) const noexcept {
+    const auto index = static_cast<std::size_t>(function);
+    return function_index_[index < function_index_.size() ? index : 0];
+}
+
+bool ScriptInstance::query(std::string_view name, std::array<int32_t, 4>& args) {
+    return run_query(find(name), args);
+}
+
+bool ScriptInstance::query(ScriptFunction function, std::array<int32_t, 4>& args) {
+    return run_query(find(function), args);
 }
 
 bool ScriptInstance::tick(uint32_t elapsed) {

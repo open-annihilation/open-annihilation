@@ -200,6 +200,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | --- | --- | --- |
 | `open-annihilation.path-search-nodes` | path nodes a game tick, 1333 to 10664 | 1333 |
 | `open-annihilation.wheel-zoom` | 0 or 1 | 1 |
+| `open-annihilation.access.sticky-modifiers` | 0 or 1 | 0 |
 | `open-annihilation.middle-click-pan` | 0 or 1 | 1 |
 | `open-annihilation.max-zoom-out` | `automatic`, `whole-map`, `1/32`, `1/16`, `1/8`, `1/4` or `1/2`; any other text reads as `automatic` | `automatic` |
 | `open-annihilation.max-zoom-in` | `1`, `2`, `3` or `4` times the game's scale; any other text reads as `4` | `4` |
@@ -224,8 +225,8 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.zoomed-out-after` | `1/2`, `1/3`, `1/4`, `1/6`, `1/8`, `1/12` or `1/16`; any other text reads as `1/6` | `1/6` |
 | `open-annihilation.allow-full-3d` | 0 or 1 | 1 |
 | `open-annihilation.unlocked-camera` | 0 or 1 | 0 |
-| `open-annihilation.weapon-lighting.intensity`, `open-annihilation.nanolathe-lighting.intensity`, `open-annihilation.wreck-glow.intensity`, `open-annihilation.heat-distortion.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored. Without it, the effect's earlier switch (`open-annihilation.weapon-lighting`, `.nanolathe-lighting`, `.wreck-glow` or `.heat-distortion`, 0 or 1) reads as 0 or 100 | 100 with `open-annihilation.hardware-acceleration` at `full`, else 0 |
-| `open-annihilation.water-ripples.intensity`, `open-annihilation.coastal-waves.intensity`, `open-annihilation.underwater-shimmer.intensity`, `open-annihilation.naval-reflections.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored | 100 |
+| `open-annihilation.weapon-lighting.intensity`, `open-annihilation.nanolathe-lighting.intensity`, `open-annihilation.wreck-glow.intensity`, `open-annihilation.heat-distortion.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored. Without it, the effect's earlier switch (`open-annihilation.weapon-lighting`, `.nanolathe-lighting`, `.wreck-glow` or `.heat-distortion`, 0 or 1) reads as 0 or 100 | with `open-annihilation.hardware-acceleration` at `full`, 20 for weapon lighting and nanolathe lighting, 30 for wreck glow and 40 for heat distortion; else 0 |
+| `open-annihilation.water-ripples.intensity`, `open-annihilation.coastal-waves.intensity`, `open-annihilation.underwater-shimmer.intensity`, `open-annihilation.naval-reflections.intensity` | percent, 0 to 200, held to that range and rounded to the nearest 10; any other text is ignored | 60 for water ripples, 30 for coastal waves, and 100 for underwater shimmer and naval reflections |
 | `open-annihilation.window-frame` | `hidden-in-play` or `always-shown`; any other text reads as `hidden-in-play` | `hidden-in-play` |
 | `open-annihilation.hud-scaling` | 0 or 1 | 1 |
 | `open-annihilation.interface-size` | `automatic`, or the percent `100`, `150`, `200`, `300` or `400`; `150` read while `open-annihilation.modern-fonts` reads 0 reads as `100`; any other text, `0` among them, reads as `automatic` | `automatic` |
@@ -241,6 +242,7 @@ of range is clamped. A switch is On for any number above 0: a word such as
 | `open-annihilation.update-check` | `automatically`, `when-asked` (only when asked) or `never`; any other text reads as `automatically` | `automatically` |
 | `open-annihilation.update-checked` | seconds since 1970 of the last check for a new release that reached the server; absent, or any text that is not a whole number, means that has not happened | absent |
 | `open-annihilation.update-skipped` | the highest release number the player skipped; absent, or any text that is not a whole number, means none | absent |
+| `open-annihilation.update-download` | 0 or 1 | absent reads as 0: a found update is not fetched until UPDATE |
 | `open-annihilation.file-types.oamod` | `on` or `off`. Only the word `off` turns the switch off; any other text reads as on. Not `0` and `1` | on: this copy opens mod packages |
 | `open-annihilation.file-types.oamap` | `on` or `off`, as the mod packages' key | on: this copy opens map packs |
 | `open-annihilation.file-types.oalang` | `on` or `off`, as the mod packages' key | on: this copy opens language packs |

@@ -32,6 +32,8 @@ namespace key {
 inline constexpr std::string_view path_search_nodes = "open-annihilation.path-search-nodes";
 /// 1 or 0 (EngineSettings::wheel_zoom).
 inline constexpr std::string_view wheel_zoom = "open-annihilation.wheel-zoom";
+/// 1 or 0 (EngineSettings::sticky_modifiers). Absent means off.
+inline constexpr std::string_view sticky_modifiers = "open-annihilation.access.sticky-modifiers";
 /// "automatic", "whole-map", or the share of normal size: "1/32", "1/16",
 /// "1/8", "1/4" or "1/2" (EngineSettings::max_zoom_out).
 inline constexpr std::string_view max_zoom_out = "open-annihilation.max-zoom-out";
@@ -230,6 +232,9 @@ inline constexpr std::string_view update_checked = "open-annihilation.update-che
 /// is not a whole number, means none. That release and every older one stay
 /// quiet; a newer one asks again.
 inline constexpr std::string_view update_skipped = "open-annihilation.update-skipped";
+/// 1 or 0 (EngineSettings::update_download). Absent reads as 0: a found
+/// release is not downloaded until the player asks.
+inline constexpr std::string_view update_download = "open-annihilation.update-download";
 /// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
 /// other than off, the game opens mod packages.
 inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";
@@ -294,6 +299,8 @@ static_assert(update_check.find('|') == std::string_view::npos);
 static_assert(update_check.find('\\') == std::string_view::npos);
 static_assert(update_checked.find('|') == std::string_view::npos);
 static_assert(update_checked.find('\\') == std::string_view::npos);
+static_assert(update_download.find('|') == std::string_view::npos);
+static_assert(update_download.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
@@ -1065,12 +1072,36 @@ enum class UpdateCheck : uint8_t {
     never,         ///< the player asks, and CHECK NOW is not offered
 };
 
+/// Coloured weapon lighting's percent with Hardware acceleration Full where
+/// the preferences store none (default_effect_intensity).
+inline constexpr uint32_t default_weapon_lighting = 20;
+/// Nanolathe glow's percent with Hardware acceleration Full where the
+/// preferences store none.
+inline constexpr uint32_t default_nanolathe_lighting = 20;
+/// Wreck glow's percent with Hardware acceleration Full where the
+/// preferences store none.
+inline constexpr uint32_t default_wreck_glow = 30;
+/// Heat distortion's percent with Hardware acceleration Full where the
+/// preferences store none.
+inline constexpr uint32_t default_heat_distortion = 40;
+/// Water ripples' percent where the preferences store none, at every
+/// Hardware acceleration.
+inline constexpr uint32_t default_water_ripples = 60;
+/// Coastal waves' percent where the preferences store none.
+inline constexpr uint32_t default_coastal_waves = 30;
+/// Underwater shimmer's percent where the preferences store none.
+inline constexpr uint32_t default_underwater_shimmer = 100;
+/// Naval reflections' percent where the preferences store none.
+inline constexpr uint32_t default_naval_reflections = 100;
+
 /// The settings, as the dialog shows them and the game puts them in effect.
 struct EngineSettings {
     /// Path nodes the path search may visit in a game tick, all players
     /// together: base_path_search_nodes times the Pathfinding cycles.
     int32_t path_search_nodes{base_path_search_nodes};
     bool wheel_zoom{true}; ///< the mouse wheel zooms the battlefield
+    /// A tapped Shift, Ctrl or Alt applies to the next key or click.
+    bool sticky_modifiers{false};
     /// How far out the battlefield's view zooms, by the wheel, a pinch, the
     /// touch controls or a controller.
     ZoomOutLimit max_zoom_out{ZoomOutLimit::automatic};
@@ -1156,13 +1187,13 @@ struct EngineSettings {
     /// 0 as constructed, where acceleration is Off (default_effect_intensity).
     uint32_t heat_distortion{};
     /// Water ripples intensity, in percent.
-    uint32_t water_ripples{100};
+    uint32_t water_ripples{default_water_ripples};
     /// Coastal waves intensity, in percent.
-    uint32_t coastal_waves{100};
+    uint32_t coastal_waves{default_coastal_waves};
     /// Underwater shimmer intensity, in percent.
-    uint32_t underwater_shimmer{100};
+    uint32_t underwater_shimmer{default_underwater_shimmer};
     /// Naval reflections intensity, in percent.
-    uint32_t naval_reflections{100};
+    uint32_t naval_reflections{default_naval_reflections};
 
     /// How the menus are enlarged to the window.
     MenuScaling menu_scaling{MenuScaling::sharp};
@@ -1250,6 +1281,10 @@ struct EngineSettings {
     /// effect when OK is pressed, as the check for content does. CHECK NOW
     /// looks at once and does not store this.
     UpdateCheck update_check{UpdateCheck::automatically};
+    /// Downloads a found release while the player is in the menus, and
+    /// stops during a match. Off unless the preference is 1. It takes
+    /// effect when OK is pressed.
+    bool update_download{};
     /// The game opens mod packages (.oamod). On unless the preference is the
     /// word off. Windows and Linux register it when OK is pressed. On macOS
     /// the switch shows whether this copy is the default opener, and OK
@@ -1382,29 +1417,6 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// @return the defaults
 [[nodiscard]] EngineSettings default_settings(const Inputs& inputs);
 
-/// Returns the percent Coloured weapon lighting, Nanolathe glow, Wreck glow
-/// and Heat distortion read as when none is stored: 100 with Hardware
-/// acceleration Full and 0 below it, so a battlefield drawn without Full
-/// keeps the game's own look until the player turns an effect on.
-///
-/// @param acceleration the Hardware acceleration setting
-/// @return 100 or 0
-[[nodiscard]] constexpr uint32_t
-default_effect_intensity(HardwareAcceleration acceleration) noexcept {
-    return acceleration == HardwareAcceleration::full ? 100U : 0U;
-}
-
-/// Moves the four effects with Hardware acceleration: leaving Full sets
-/// Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat distortion
-/// to 0%, and reaching Full sets them to 100%. A change that neither leaves
-/// nor reaches Full leaves them, so a player may turn them on below Full.
-///
-/// @param[in,out] settings the settings after the change
-/// @param before Hardware acceleration before the change
-void follow_acceleration_with_effects(
-    EngineSettings& settings, HardwareAcceleration before
-) noexcept;
-
 /// A Graphics effect drawn at a percent, from 0% to 200% in steps of 10%.
 struct EffectSlider {
     /// Its name: the word of its preferences key between "open-annihilation."
@@ -1412,22 +1424,58 @@ struct EffectSlider {
     std::string_view name{};
     uint32_t EngineSettings::* percent{}; ///< its percent in the settings
     /// With no stored percent it reads as its acceleration gives
-    /// (default_effect_intensity), rather than as a fixed default.
+    /// (default_effect_intensity), rather than as its default alone.
     bool follows_acceleration{};
+    /// Its percent with Hardware acceleration Full where the preferences
+    /// store none, such as default_weapon_lighting.
+    uint32_t full_default{};
 };
 
 /// Every effect drawn at a percent: Coloured weapon lighting, Nanolathe
 /// glow, Wreck glow and Heat distortion, then the water's four.
 inline constexpr std::array<EffectSlider, 8> effect_sliders{{
-    {"weapon-lighting", &EngineSettings::weapon_lighting, true},
-    {"nanolathe-lighting", &EngineSettings::nanolathe_lighting, true},
-    {"wreck-glow", &EngineSettings::wreck_glow, true},
-    {"heat-distortion", &EngineSettings::heat_distortion, true},
-    {"water-ripples", &EngineSettings::water_ripples, false},
-    {"coastal-waves", &EngineSettings::coastal_waves, false},
-    {"underwater-shimmer", &EngineSettings::underwater_shimmer, false},
-    {"naval-reflections", &EngineSettings::naval_reflections, false},
+    {"weapon-lighting", &EngineSettings::weapon_lighting, true, default_weapon_lighting},
+    {"nanolathe-lighting", &EngineSettings::nanolathe_lighting, true, default_nanolathe_lighting},
+    {"wreck-glow", &EngineSettings::wreck_glow, true, default_wreck_glow},
+    {"heat-distortion", &EngineSettings::heat_distortion, true, default_heat_distortion},
+    {"water-ripples", &EngineSettings::water_ripples, false, default_water_ripples},
+    {"coastal-waves", &EngineSettings::coastal_waves, false, default_coastal_waves},
+    {"underwater-shimmer", &EngineSettings::underwater_shimmer, false, default_underwater_shimmer},
+    {"naval-reflections", &EngineSettings::naval_reflections, false, default_naval_reflections},
 }};
+
+/// Returns the percent an effect reads as when none is stored: its own
+/// default with Hardware acceleration Full (EffectSlider::full_default).
+/// Below Full, Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat
+/// distortion read 0, so a battlefield drawn without Full keeps the game's
+/// own look until the player turns an effect on; the water's four, locked
+/// there, keep their default.
+///
+/// @param percent the effect's percent in the settings (EffectSlider::percent)
+/// @param acceleration the Hardware acceleration setting
+/// @return 0 to 200; 0 for a field that is no effect's
+[[nodiscard]] constexpr uint32_t default_effect_intensity(
+    uint32_t EngineSettings::* percent, HardwareAcceleration acceleration
+) noexcept {
+    for (const EffectSlider& slider : effect_sliders)
+        if (slider.percent == percent)
+            return slider.follows_acceleration && acceleration != HardwareAcceleration::full
+                       ? 0U
+                       : slider.full_default;
+    return 0U;
+}
+
+/// Moves the four effects with Hardware acceleration: leaving Full sets
+/// Coloured weapon lighting, Nanolathe glow, Wreck glow and Heat distortion
+/// to 0%, and reaching Full sets each to its own default there
+/// (default_effect_intensity). A change that neither leaves nor reaches Full
+/// leaves them, so a player may turn them on below Full.
+///
+/// @param[in,out] settings the settings after the change
+/// @param before Hardware acceleration before the change
+void follow_acceleration_with_effects(
+    EngineSettings& settings, HardwareAcceleration before
+) noexcept;
 
 /// Sets each effect that follows acceleration (EffectSlider) and whose
 /// percent the preferences do not store, nor its earlier On or Off, to the

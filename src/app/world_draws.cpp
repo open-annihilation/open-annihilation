@@ -602,21 +602,32 @@ void clear_world_draws(WorldDrawList& list) {
     list.debris.clear();
     list.fragments.clear();
     list.lenses.clear();
-    list.decoded.clear();
     list.decoded_of.clear();
     list.held.clear();
+    // No draw points at a kept frame between one frame's draws and the
+    // next, so they can all go here.
+    if (list.kept_decoded_bytes > decoded_frames_kept_bytes) {
+        list.kept_decoded.clear();
+        list.kept_decoded_bytes = 0;
+    }
 }
 
 const oa::formats::gaf::RenderedFrame*
 decoded_frame(WorldDrawList& list, const oa::formats::gaf::Frame& frame) {
     if (const auto found = list.decoded_of.find(&frame); found != list.decoded_of.end())
         return found->second;
-    auto rendered = oa::formats::gaf::render_normal(frame);
-    const oa::formats::gaf::RenderedFrame* decoded = nullptr;
-    if (rendered.ok()) {
-        list.decoded.push_back(std::move(*rendered.frame));
-        decoded = &list.decoded.back();
+    auto kept = list.kept_decoded.find(&frame);
+    if (kept == list.kept_decoded.end()) {
+        auto rendered = oa::formats::gaf::render_normal(frame);
+        std::optional<oa::formats::gaf::RenderedFrame> decoded;
+        if (rendered.ok()) {
+            decoded = std::move(*rendered.frame);
+            list.kept_decoded_bytes += decoded->pixels.size() + decoded->coverage.size();
+        }
+        kept = list.kept_decoded.emplace(&frame, std::move(decoded)).first;
     }
+    const oa::formats::gaf::RenderedFrame* decoded =
+        kept->second.has_value() ? &*kept->second : nullptr;
     list.decoded_of.emplace(&frame, decoded);
     return decoded;
 }

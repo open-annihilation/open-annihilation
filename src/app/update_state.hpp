@@ -13,6 +13,12 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <vector>
+
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+#include "oa/app/update/download.hpp"
+#include "oa/app/update/route.hpp"
+#endif
 
 namespace oa::app {
 
@@ -39,6 +45,48 @@ struct Runtime::UpdateState {
     /// The page that question opens. Empty when the feed named none. Set
     /// with `offered_release`, so a later check cannot change the page.
     std::optional<std::string> offered_page;
+    /// The Updated notice has been queued this run.
+    bool updated_notice_shown = false;
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    /// The package download. Empty until one is started.
+    std::unique_ptr<update::PackageDownload> download;
+    /// The release a download was started for. 0 until then.
+    int64_t download_release = 0;
+    /// That release's version, as the feed shows it.
+    std::string download_version;
+    /// The package id the download is fetching.
+    std::string download_package;
+    /// True when the file is the package's installer.
+    bool download_installer = false;
+    /// A download of `download_release` has been started, including one that failed.
+    bool download_attempted = false;
+    /// The route the download is using. Meaningful when `route_known`.
+    update::Where route{};
+    /// `route` has been filled for the offer now held.
+    bool route_known = false;
+    /// A missing route has already been logged.
+    bool logged_route = false;
+    /// The version that is running, for the plan's kept-version line.
+    std::string from_version;
+    /// The ready prompt was queued for this release. A match clears it.
+    std::optional<int64_t> ready_prompt_release;
+    /// Starts the helper. Null records the start instead of making it.
+    bool (*start_helper)(
+        void* context,
+        const std::filesystem::path& helper,
+        const std::vector<std::string>& arguments,
+        std::string& why
+    ){};
+    /// What `start_helper` is called with. The state itself, for a recorded start.
+    void* helper_context{};
+    /// The helper start has been chosen for this run.
+    bool helper_chosen = false;
+    /// The helper a hand-off asked to start, and the arguments it was given.
+    std::string helper;
+    std::vector<std::string> helper_arguments;
+    /// A hand-off asked the hooks to start the helper.
+    bool handed = false;
+#endif
 };
 
 } // namespace oa::app

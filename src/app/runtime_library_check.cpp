@@ -1452,10 +1452,20 @@ void Runtime::check_library() {
         press_action("play-now");
         require(soft_restart_requested(), "PLAY NOW on Ridge did not ask for a soft restart" + on);
         {
-            // The check goes on: the run is not ended, and the Mod setting
-            // goes back.
+            const std::shared_ptr<const LibraryReturn> kept = library_return();
+            require(
+                kept != nullptr && kept->tab == host.model.tab &&
+                    kept->selected == host.model.selected &&
+                    kept->selected_row == host.selected_row() &&
+                    kept->list_scroll == host.state.list_scroll,
+                "PLAY NOW did not keep the Library as it showed for the next run" + on
+            );
+            // The check goes on: the run is not ended, the Library is not
+            // kept for a next run, and the Mod setting goes back.
             soft_restart_requested_ = false;
             exit_requested_ = false;
+            library_kept_.reset();
+            restart_line_.clear();
             const settings::EngineSettings played = engine_settings_state().current;
             require(
                 played.mod_folder == kept_path(ridge), "PLAY NOW did not choose Ridge's folder" + on

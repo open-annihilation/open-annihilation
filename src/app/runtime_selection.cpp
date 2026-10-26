@@ -46,6 +46,8 @@ input::OrderCommand armed_command(MatchCommand command) {
 } // namespace
 
 void Runtime::handle_match_left_click(float x, float y, int32_t clicks) {
+    consume_sticky_modifiers();
+    note_shared_latch_used(match_command_ == MatchCommand::none ? 0 : 1);
     // The frame's pick at the click: the unit under the pointer is the
     // cursor unit (Game.cursor_unit_id).
     update_pointer(x, y);
@@ -159,7 +161,10 @@ bool Runtime::issue_pointer_unit_orders(float x, float y, int32_t clicks, bool q
         select_match_unit(x, y, clicks);
         return true;
     case input::ClickAction::clear_selection:
+        // The unit info panel over the order panel closes with it, as over
+        // open ground.
         clear_local_selection();
+        close_unit_info();
         apply_match_hud_for_selection();
         return true;
     case input::ClickAction::issue_command:

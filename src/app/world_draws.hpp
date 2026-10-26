@@ -35,7 +35,6 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <limits>
 #include <list>
 #include <memory>
@@ -489,6 +488,11 @@ struct FragmentDraw {
     oa::sim::model_runtime::RotationWords spin{};
 };
 
+/// Bytes of pixels and coverage of decoded GAF frames a draw list keeps from
+/// one frame's draws to the next (WorldDrawList::kept_decoded): 32 MiB, many
+/// times what the frames of FX.GAF take.
+inline constexpr std::size_t decoded_frames_kept_bytes = 32U * 1024U * 1024U;
+
 /// The battlefield's draws of one frame, in order, and what they draw from.
 struct WorldDrawList {
     /// How dark the frame's shadows are drawn, from 0 to
@@ -517,10 +521,21 @@ struct WorldDrawList {
     std::vector<FragmentDraw> fragments;
     /// The centres of the projectiles' lenses, as frame points.
     std::vector<oa::present::world_renderer::ScreenPoint> lenses;
-    /// GAF frames decoded for this frame's draws (particles, plasma and
-    /// flames), each once: a deque, so that the draws keep pointing at them.
-    std::deque<oa::formats::gaf::RenderedFrame> decoded;
-    /// The decoded frame of each GAF frame, by the GAF frame's address.
+    /// GAF frames decoded for the draws (particles, plasma and flames), each
+    /// once, kept from one frame's draws to the next by the GAF frame's
+    /// address; empty where the frame cannot be decoded. A map's elements
+    /// stay where they are, so that the draws keep pointing at them.
+    /// clear_world_draws lets them all go once they take more than
+    /// decoded_frames_kept_bytes; the list itself goes with the match whose
+    /// archives the addresses name.
+    std::unordered_map<
+        const oa::formats::gaf::Frame*,
+        std::optional<oa::formats::gaf::RenderedFrame>>
+        kept_decoded{};
+    /// Bytes of pixels and coverage the frames of kept_decoded take.
+    std::size_t kept_decoded_bytes{};
+    /// The decoded frame of each GAF frame this frame's draws use, by the
+    /// GAF frame's address; null for a frame that cannot be decoded.
     std::unordered_map<const oa::formats::gaf::Frame*, const oa::formats::gaf::RenderedFrame*>
         decoded_of;
     /// Frames of files drawn a frame at a time that this frame's draws use
@@ -532,7 +547,8 @@ struct WorldDrawList {
 /// Empties a draw list for the next frame, keeping its buffers.
 ///
 /// The shadow level, the flash strength and the shown map are left as they
-/// are.
+/// are, and so are the decoded GAF frames (WorldDrawList::kept_decoded)
+/// while they take no more than decoded_frames_kept_bytes.
 ///
 /// @param[in,out] list the list
 void clear_world_draws(WorldDrawList& list);
@@ -572,7 +588,8 @@ void set_frame_shadows(
     return list.shadow_level != 0;
 }
 
-/// Returns a GAF frame decoded for a frame's draws, decoding it the first time it is asked for.
+/// Returns a GAF frame decoded for a frame's draws, decoding it the first
+/// time any frame's draws ask for it.
 ///
 /// @param[in,out] list the frame's list, which keeps the decoded frame
 /// @param frame the GAF frame

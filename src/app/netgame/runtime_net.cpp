@@ -41,6 +41,7 @@
 #include "oa/data/mutators/loadout.hpp"
 #include "oa/base/text.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/netgame/sync/unit_checksum.hpp"
 #include "oa/present/game_text.hpp"
 #include "oa/sim/ai.hpp"
 #include "oa/sim/match_runtime.hpp"
@@ -1009,6 +1010,43 @@ std::vector<ServedHeader> served_unit_headers(const oa::AssetStore& assets) {
     return headers;
 }
 
+/// Computes the content checksum of every unit of the battle room's table,
+/// as LobbyServices::unit_checksum gives it, listing the GUI pages once.
+///
+/// @param assets the store the unit files are read from, or null
+/// @param units the unit table
+/// @param unit_count entries in the table
+/// @return one checksum per entry; the stored content checksum where the
+///         files cannot be read, and for entry 0, the reserved empty type,
+///         which names no unit's files
+std::vector<uint32_t> unit_content_checksums(
+    const oa::AssetStore* assets, const mp::LobbyUnit* units, int32_t unit_count
+) {
+    std::vector<uint32_t> checksums;
+    for (int32_t index = 0; units != nullptr && index < unit_count; ++index)
+        checksums.push_back(units[index].content_checksum);
+    if (assets == nullptr)
+        return checksums;
+    const oa::netgame::sync::StoreUnitFiles files(*assets);
+    const auto pages = oa::netgame::sync::list_unit_gui_pages(files);
+    for (int32_t index = 1; units != nullptr && index < unit_count; ++index) {
+        const auto& unit = units[index];
+        // A failed listing leaves every stored checksum, as each unit's own
+        // listing would.
+        if (unit.unit_name == nullptr || !pages)
+            continue;
+        try {
+            const auto mixed = oa::netgame::sync::mix_unit_file_checksum(
+                files, unit.unit_name, unit.content_checksum, unit.weapon_checksum, pages.value
+            );
+            if (mixed)
+                checksums[static_cast<std::size_t>(index)] = mixed.value;
+        } catch (const std::exception&) {
+        }
+    }
+    return checksums;
+}
+
 struct LoopbackSide {
     NetworkPlay* play{};
     const char* nickname{};
@@ -1689,13 +1727,14 @@ struct NetworkPlay::NetHost {
         // the verdicts its launch applied.
         int32_t unit_count = 0;
         const CheckHost host_check = check_host(runtime);
-        const mp::LobbyUnit* units =
-            mp::multiplayer_units(*host_check.assets(host_check.context), &unit_count);
+        const oa::AssetStore* unit_files = host_check.assets(host_check.context);
+        const mp::LobbyUnit* units = mp::multiplayer_units(*unit_files, &unit_count);
+        const auto checksums = unit_content_checksums(unit_files, units, unit_count);
         for (int32_t index = 1; units != nullptr && index < unit_count; ++index) {
             oa::netgame::UnitDefHandshakeRecord check{};
             check.subtype = static_cast<uint8_t>(oa::netgame::HandshakeSubtype::def_checksum);
             check.key = units[index].fbi_hash;
-            check.value = mp::multiplayer_unit_checksum(nullptr, units[index]);
+            check.value = checksums[static_cast<std::size_t>(index)];
             std::array<uint8_t, oa::formats::tad::layout::unit_check_record_bytes> bytes{};
             std::size_t written = 0;
             if (oa::netgame::encode_record(check, bytes.data(), bytes.size(), &written) ==

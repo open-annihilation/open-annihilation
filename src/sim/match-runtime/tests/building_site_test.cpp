@@ -241,6 +241,20 @@ int main() {
     def.waterline = 60;
     metadata.min_water_depth = -10000;
     CHECK(match.building_site(1, 2, 2, 0) == 246);
+    // A building a mission places, or the unit-name cheat creates, snaps to
+    // the footprint's centre over the site, (3 + 2 * 2) * 8 = 56, and the 'w'
+    // yard floats its waterline below the sea, as a shipyard (WaterLine=22)
+    // does, whatever height the point had. A mobile unit keeps its point.
+    const auto fixed = [](int32_t whole) {
+        return static_cast<int32_t>(static_cast<uint32_t>(whole) << 16);
+    };
+    def.waterline = 22;
+    FixedVec3 floating{fixed(50) + 0x4000, fixed(90), fixed(61)};
+    match.snap_to_build_grid(1, floating);
+    CHECK(floating.x == fixed(56) && floating.y == fixed(28) && floating.z == fixed(56));
+    FixedVec3 moving{fixed(50), fixed(90), fixed(61)};
+    match.snap_to_build_grid(2, moving);
+    CHECK(moving.x == fixed(50) && moving.y == fixed(90) && moving.z == fixed(61));
     def.waterline = 0;
     metadata.min_water_depth = 20;
 
@@ -278,6 +292,10 @@ int main() {
     fields[1].yard_mask = metadata.yard_cells;
     metadata.min_water_depth = -10000;
     set_site(2, 2, 3, 80, 80);
+    // On land the building stands on its lowest level plot.
+    FixedVec3 standing{fixed(50), 0, fixed(61)};
+    match.snap_to_build_grid(1, standing);
+    CHECK(standing.x == fixed(56) && standing.y == fixed(80) && standing.z == fixed(56));
     CHECK(match.point_mapped({56u << 16, 0, 56u << 16}));
     CHECK(match.building_site(1, 2, 2, 0, 0) == 80);
 

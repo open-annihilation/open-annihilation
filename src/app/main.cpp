@@ -21,6 +21,7 @@
 #include "oa/app/game_files_hooks.hpp"
 #include "oa/app/content_copy.hpp"
 #include "oa/app/long_work.hpp"
+#include "oa/data/languages/interface_text.hpp"
 #include "oa/app/setup_before_game.hpp"
 #include "oa/app/disk_image_source.hpp"
 #include "oa/app/game_files_import.hpp"
@@ -883,6 +884,14 @@ bool run_game_files_until_resolved(
 /// The status run_once returns when SWITCH on the settings' Switch Mod
 /// question ended the run: main() starts the game afresh for the mod stored.
 constexpr int kSoftRestartStatus = -1;
+
+/// What a run a switch of the mod in the Library ended leaves for the next.
+struct RestartCarry {
+    /// The Library it showed, to open again; null for none.
+    std::shared_ptr<const Runtime::LibraryReturn> library{};
+    /// What the progress dialog says while the switch applies; empty for none.
+    std::string line{};
+};
 
 /// The switches --check-mod-switch makes: four rounds of the mods it takes
 /// turns with.
@@ -1786,6 +1795,8 @@ void refuse_unusable_brains(const Options& options) {
 ///     where the platform brings game files in
 /// @param lookup_log --trace-lookups' log; null without it
 /// @param switch_memory --check-mod-switch's working sets
+/// @param[in,out] carried what the run before left for this run: the Library
+///     to open again; what this run leaves for the next
 /// @return the run's exit status, or kSoftRestartStatus when SWITCH ended it
 int run_once(
     Options options,
@@ -1793,7 +1804,8 @@ int run_once(
     HostDisplay& display,
     GameFilesStart& game_files,
     LookupLog* lookup_log,
-    ModSwitchMemory& switch_memory
+    ModSwitchMemory& switch_memory,
+    RestartCarry& carried
 ) {
     options.game_dir_named = !options.game_dir.empty();
     start_player_evicted_fetch(options);
@@ -1959,8 +1971,10 @@ int run_once(
     if (folder_aside) {
         // A folder dialog stays on this thread. A run nobody watches can look
         // aside, and the progress dialog covers a look that lasts.
-        const char* folder_line =
-            options.restarts > 0 ? "Applying your changes" : "Loading the game's archives";
+        const std::string_view folder_line =
+            options.restarts == 0          ? std::string_view("Loading the game's archives")
+            : options.restart_line.empty() ? std::string_view("Applying your changes")
+                                           : std::string_view(options.restart_line);
         std::ignore = run_long_work(
             display.window,
             display.renderer_host.renderer(),
@@ -2140,8 +2154,10 @@ int run_once(
         throw std::runtime_error("no game archives were selected");
     const uint32_t mount_began = oa::platform::tick_ms();
     const bool mount_shown = display.window != nullptr && !options.headless_check;
-    const char* mount_line =
-        options.restarts > 0 ? "Applying your changes" : "Loading the game's archives";
+    const std::string_view mount_line =
+        options.restarts == 0          ? std::string_view("Loading the game's archives")
+        : options.restart_line.empty() ? std::string_view("Applying your changes")
+                                       : std::string_view(options.restart_line);
     std::ignore = run_long_work(
         mount_shown ? display.window : nullptr,
         mount_shown ? display.renderer_host.renderer() : nullptr,
@@ -2189,6 +2205,7 @@ int run_once(
         checked_options = options;
     const bool check_mod_switch = options.check_mod_switch;
     const uint32_t restarts = options.restarts;
+    const bool window_shown = display.window != nullptr && !options.headless_check;
     // The runtime holds hundreds of kilobytes of game state, so it lives
     // on the heap: the main thread's stack is 1 MiB on Windows.
     const auto runtime = std::make_unique<Runtime>(
@@ -2211,18 +2228,33 @@ int run_once(
     runtime->take_full_screen_switch(display.full_screen);
     if (check_mod_switch && restarts == 0)
         switch_memory.warm_progress_dialog(display.window, display.renderer_host.renderer());
+    runtime->take_library_return(std::move(carried.library));
     if (check_mod_switch)
         switch_memory.sample(restarts);
     const int status = runtime->run();
     if (!runtime->soft_restart_requested()) {
+        if (status == 0 && runtime->hand_off_requested())
+            runtime->hand_off_update();
+        const int reported = runtime->report_update_handoff() ? status : 1;
         if (checked_options)
-            return game_files_status(*checked_options, status);
-        return check_mod_switch && status == 0 ? switch_memory.verdict() : status;
+            return game_files_status(*checked_options, reported);
+        return check_mod_switch && reported == 0 ? switch_memory.verdict() : reported;
     }
     // The next runtime takes over the window as Alt+Enter left it, and the
     // renderer without this runtime's textures; this runtime and its
     // archives go before the next are made.
     display.full_screen = runtime->full_screen_switch();
+    carried.library = runtime->library_return();
+    carried.line = runtime->restart_line();
+    // The switch's dialog shows at once, and stays while the game reloads.
+    if (!carried.line.empty() && window_shown)
+        show_work_frame(
+            display.window,
+            display.renderer_host.renderer(),
+            &display.renderer_host,
+            oa::data::languages::interface_text("Open Annihilation"),
+            carried.line
+        );
     runtime->release_renderer_textures();
     // The characters each game font draws are kept by the address of its
     // glyphs, and this runtime's fonts go with it: the next mod's fonts may
@@ -2655,18 +2687,27 @@ int main(int argc, char** argv) {
         if (!parsed.trace_lookups.empty())
             lookup_log = std::make_unique<LookupLog>(parsed.trace_lookups);
         ModSwitchMemory switch_memory;
+        // What a switch of the mod in the Library left, for the next run.
+        RestartCarry carried;
         for (uint32_t restarts = 0;; ++restarts) {
             // What a stop, or the change between runs, left in the player's
             // Mods folder is settled before the mod folder is looked for.
             recover_package_installs(parsed);
             auto options = parsed;
             options.restarts = restarts;
+            options.restart_line = std::exchange(carried.line, {});
             options.native_density_windows = kNativeDensityWindows;
             // A soft restart returns to the main menu without the movies.
             if (restarts > 0)
                 options.skip_intro = true;
             const int status = run_once(
-                std::move(options), extension, display, game_files, lookup_log.get(), switch_memory
+                std::move(options),
+                extension,
+                display,
+                game_files,
+                lookup_log.get(),
+                switch_memory,
+                carried
             );
             // A change to the mod played is made now, with the runtime and
             // its archives gone: before the next run reads the folder, or,

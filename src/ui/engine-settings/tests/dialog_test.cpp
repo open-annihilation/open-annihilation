@@ -7885,7 +7885,7 @@ void smooth_motion_shows_and_changes() {
 }
 
 /// Leaving Full turns the four effects off, an effect turned on below Full
-/// stays on, and reaching Full turns all four on.
+/// stays on, and reaching Full turns all four on at their own defaults.
 void hardware_acceleration_moves_the_effects() {
     const std::array<uint32_t settings::EngineSettings::*, 4> effects{
         &settings::EngineSettings::weapon_lighting,
@@ -7904,7 +7904,7 @@ void hardware_acceleration_moves_the_effects() {
     CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::basic);
     for (const auto field : effects)
         CHECK(dialog.chosen.*field == 0);
-    CHECK(dialog.chosen.water_ripples == 100);
+    CHECK(dialog.chosen.water_ripples == settings::default_water_ripples);
 
     dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
     dialog.focused = wreck_glow_row;
@@ -7919,7 +7919,10 @@ void hardware_acceleration_moves_the_effects() {
     CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
     CHECK(dialog.chosen.hardware_acceleration == settings::HardwareAcceleration::full);
     for (const auto field : effects)
-        CHECK(dialog.chosen.*field == 100);
+        CHECK(
+            dialog.chosen.*field ==
+            settings::default_effect_intensity(field, settings::HardwareAcceleration::full)
+        );
 }
 
 /// Effect sliders have ten-percent stops, restore defaults and cancel edits.
@@ -7934,9 +7937,15 @@ void visual_effects_show_and_change() {
         &settings::EngineSettings::underwater_shimmer,
         &settings::EngineSettings::naval_reflections,
     };
+    // Each effect's own default with Full.
+    const auto full = [&](std::size_t effect) {
+        return settings::default_effect_intensity(
+            effects[effect], settings::HardwareAcceleration::full
+        );
+    };
     for (std::size_t index = 0; index < effects.size(); ++index) {
         auto dialog = graphics_page();
-        // Full, as the player's own file starts: the four effects at 100%.
+        // Full, as the player's own file starts: each effect at its default.
         dialog.chosen.hardware_acceleration = settings::HardwareAcceleration::full;
         dialog.defaults.hardware_acceleration = settings::HardwareAcceleration::full;
         settings::follow_acceleration_with_effects(
@@ -7948,14 +7957,14 @@ void visual_effects_show_and_change() {
         dialog.scroll[static_cast<std::size_t>(Page::graphics)] = 1200;
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
         CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
-        CHECK(dialog.chosen.*effects[index] == 110);
+        CHECK(dialog.chosen.*effects[index] == full(index) + 10);
         for (std::size_t other = 0; other < effects.size(); ++other)
-            CHECK(dialog.chosen.*effects[other] == (other == index ? 110U : 100U));
+            CHECK(dialog.chosen.*effects[other] == full(other) + (other == index ? 10U : 0U));
         CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
-        CHECK(dialog.chosen.*effects[index] == 100);
+        CHECK(dialog.chosen.*effects[index] == full(index));
         dialog.focused = settings::first_row_control + 13 + static_cast<int32_t>(index);
         CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
-        CHECK(dialog.chosen.*effects[index] == 90);
+        CHECK(dialog.chosen.*effects[index] == full(index) - 10);
         CHECK(settings::dialog_key(dialog, DialogKey::escape) == DialogAction::cancelled);
         CHECK(dialog.chosen == dialog.opened);
     }
@@ -8545,6 +8554,85 @@ void updates_lists_its_rows_and_the_compact_list_of_thirteen_scrolls() {
         CHECK(menu.chosen.update_check == settings::UpdateCheck::when_asked);
         CHECK(menu.open_list == settings::no_control);
     }
+}
+
+void download_rows_sit_between_the_status_and_the_check() {
+    // The switch is off unless the host asks, so the two rows stay put.
+    settings::UpdatesOffer plain;
+    plain.version_line = "Open Annihilation 0.8.6";
+    plain.status = "Up to date · Stable · checked today at 09:00";
+    plain.can_check = true;
+    settings::Dialog closed = updates_dialog(plain);
+    const auto closed_parts = settings::dialog_layout(closed);
+    CHECK(find_part(closed_parts, "Download in the background", settings::no_control) == nullptr);
+
+    settings::UpdatesOffer offer;
+    offer.show_download = true;
+    offer.version_line = "Open Annihilation 0.8.6";
+    offer.status = "0.8.7 is out · Stable · checked today at 09:00";
+    offer.offered = true;
+    offer.can_check = true;
+    settings::Dialog downloading = updates_dialog(offer);
+    const auto order = settings::dialog_layout(downloading);
+    const settings::LayoutPart* status =
+        find_part(order, "Open Annihilation 0.8.6", settings::no_control);
+    const settings::LayoutPart* background =
+        find_part(order, "Download in the background", settings::no_control);
+    const settings::LayoutPart* check_now =
+        find_part(order, "Check for updates", settings::no_control);
+    CHECK(status != nullptr && background != nullptr && check_now != nullptr);
+    if (status != nullptr && background != nullptr && check_now != nullptr) {
+        CHECK(status->rect.y < background->rect.y);
+        CHECK(background->rect.y < check_now->rect.y);
+    }
+
+    offer.download = settings::DownloadShown::ready;
+    offer.download_version = "0.8.7";
+    offer.download_size = "4.0 MB";
+    settings::Dialog ready = updates_dialog(offer);
+    const auto ready_parts = settings::dialog_layout(ready);
+    const settings::LayoutPart* restart =
+        find_part(ready_parts, "RESTART TO UPDATE", settings::no_control);
+    CHECK(restart != nullptr);
+    if (restart != nullptr)
+        CHECK(click(ready, centre(restart->rect)) == DialogAction::restart_update);
+
+    offer.download = settings::DownloadShown::stopped;
+    offer.download_reason = "the download was not the file the feed promised";
+    settings::Dialog stopped = updates_dialog(offer);
+    const auto stopped_parts = settings::dialog_layout(stopped);
+    const settings::LayoutPart* retry = find_part(stopped_parts, "RETRY", settings::no_control);
+    CHECK(retry != nullptr);
+    if (retry != nullptr)
+        CHECK(click(stopped, centre(retry->rect)) == DialogAction::retry_update);
+
+    // The switch moves at once on the dialog and is kept at OK. Cancel puts
+    // back the switch the dialog opened with. Nothing is stored before OK.
+    settings::Dialog switching = updates_dialog(offer);
+    switching.opened.update_download = false;
+    switching.chosen.update_download = false;
+    const auto on_parts = settings::dialog_layout(switching);
+    const settings::LayoutPart* on = find_part(on_parts, "ON", settings::no_control);
+    CHECK(on != nullptr);
+    if (on != nullptr)
+        CHECK(click(switching, centre(on->rect)) == DialogAction::changed);
+    CHECK(switching.chosen.update_download);
+    CHECK(!switching.opened.update_download);
+    CHECK(click(switching, centre(geometry::ok_button)) == DialogAction::accepted);
+    CHECK(switching.chosen.update_download);
+
+    settings::Dialog cancelled = updates_dialog(offer);
+    cancelled.opened.update_download = false;
+    cancelled.chosen.update_download = false;
+    const auto cancel_parts = settings::dialog_layout(cancelled);
+    const settings::LayoutPart* cancel_on = find_part(cancel_parts, "ON", settings::no_control);
+    CHECK(cancel_on != nullptr);
+    if (cancel_on != nullptr)
+        CHECK(click(cancelled, centre(cancel_on->rect)) == DialogAction::changed);
+    CHECK(cancelled.chosen.update_download);
+    CHECK(settings::dialog_key(cancelled, DialogKey::escape) == DialogAction::cancelled);
+    CHECK(!cancelled.chosen.update_download);
+    CHECK(!cancelled.opened.update_download);
 }
 
 void controller_is_listed_only_once_a_gamepad_sent_input() {
@@ -10731,6 +10819,7 @@ int main(int argc, char** argv) {
         touch_shows_its_rows_and_their_values();
         touch_changes_only_its_entry_and_the_sections_under_it();
         updates_lists_its_rows_and_the_compact_list_of_thirteen_scrolls();
+        download_rows_sit_between_the_status_and_the_check();
         controller_is_listed_only_once_a_gamepad_sent_input();
         controller_shows_its_rows_and_their_values();
         the_steam_input_notice_shows_while_it_applies();

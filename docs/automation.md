@@ -12,6 +12,9 @@ runs on, in the same build players run.
 
 It is off unless `--fark` is on the command line. A player never needs it.
 
+An MCP client such as Claude Code can use the endpoint through the MCP
+server in [tools/mcp](../tools/mcp/README.md) ([below](#through-mcp)).
+
 ## Contents
 
 - [Turning it on](#turning-it-on)
@@ -25,6 +28,7 @@ It is off unless `--fark` is on the command line. A player never needs it.
 - [A list that does not fit](#a-list-that-does-not-fit)
 - [In a battle room](#in-a-battle-room)
 - [The welcome setup](#the-welcome-setup)
+- [Through MCP](#through-mcp)
 - [Checks](#checks)
 
 ## Turning it on
@@ -313,6 +317,13 @@ entry is not a package. Its key is `@base-game`, and the row is
 `oa.library.row.base-game`: the `@` is not a letter or a digit, so the
 row's name does not keep it.
 
+PLAY NOW and the Switch Mod question's `oa.prompt.switch` end the run
+with a soft restart, and the next run opens the Library again as it
+showed ([after a switch](library.md#after-a-switch)). Until it does, for
+at most five seconds, the switch's work dialog, `oa.work`, may show over
+the main menu, its one part the label `oa.progress.body` with its words,
+such as "Switching on Ridge…": a journey waits for `oa.library` there.
+
 ## Input
 
 `input` carries `events`: `key_down` and `key_up` with the key's SDL
@@ -445,6 +456,28 @@ stays hidden.
 Settings › System › Welcome setup is `oa.settings.first-run`. SHOW AGAIN
 waits for OK; during a game the row is locked.
 
+## Through MCP
+
+[tools/mcp/oa_mcp_server.py](../tools/mcp/README.md) is an MCP server that
+starts the game with `--fark`, or attaches to one started so, and offers
+the endpoint's requests to an MCP client as tools: the screen and its
+controls, a click on a control by its name, a list's row by its text, keys,
+typed text, the pointer and the wheel, a picture of the frame, the
+preferences, the match, the battle room and the events. It is registered
+with the client by hand; the repository holds no project file that starts
+it.
+
+Unlike the endpoint, the server starts a program: Open Annihilation's own
+executable alone, with the command-line options it allows and a new
+preferences file in a scratch folder of its own unless told otherwise. It
+reads the endpoint file and the game's log, writes only that scratch
+folder, and connects only to the loopback address. The game it drives does
+what its input does, as a player's would: it can change and save the
+settings, install and fetch packages, write to the player's folders, and
+in a battle room send chat that the other players see.
+[tools/mcp](../tools/mcp/README.md#what-it-reads-writes-and-starts) says
+it all.
+
 ## Checks
 
 The engine's tests of the endpoint are `automation-protocol`,
@@ -452,7 +485,8 @@ The engine's tests of the endpoint are `automation-protocol`,
 native checks `native-automation-menus`, `native-automation-input`,
 `native-automation-frame`, `native-automation-settings` and
 `native-automation-digest`, which run the game with `--fark` on the dummy
-drivers over an installed game.
+drivers over an installed game. `mcp-server-selftest` and
+`native-mcp-server` check the MCP server ([below](#through-mcp)).
 [testing.md](development/testing.md#the-automation-endpoint) says how to run them,
 and [src/app/automation](../src/app/automation/README.md#tests) what each
 checks.
