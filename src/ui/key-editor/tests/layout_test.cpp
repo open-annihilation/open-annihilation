@@ -94,8 +94,8 @@ bool held_inside(const kit::Control& outer, const kit::Control& inner) {
     if (!kit::wholly_in(press_area(inner), press_area(outer)))
         return false;
     if (outer.name == editor::name_list) {
-        return starts(inner.name, editor::name_row_prefix) || inner.name == editor::name_number_keys ||
-               inner.name == editor::name_list_bar;
+        return starts(inner.name, editor::name_row_prefix) ||
+               inner.name == editor::name_number_keys || inner.name == editor::name_list_bar;
     }
     if (!starts(outer.name, editor::name_row_prefix))
         return false;
@@ -133,7 +133,8 @@ std::vector<std::string> rects_outside(const kit::DisplayList& list, kit::Point 
     const kit::Rect whole{0, 0, window.x, window.y};
     std::vector<std::string> problems;
     for (const kit::Control& control : list.controls) {
-        if (control.rect.width > 0 && control.rect.height > 0 && !kit::wholly_in(control.rect, whole))
+        if (control.rect.width > 0 && control.rect.height > 0 &&
+            !kit::wholly_in(control.rect, whole))
             problems.push_back(control.name);
     }
     return problems;
@@ -218,11 +219,14 @@ std::string caption_of(const kit::DisplayList& list, std::string_view name) {
 /// @param word the word
 /// @return true when it is shown
 bool shows(const kit::DisplayList& list, std::string_view word) {
-    const auto holds = [word](std::string_view text) { return text.find(word) != std::string_view::npos; };
+    const auto holds = [word](std::string_view text) {
+        return text.find(word) != std::string_view::npos;
+    };
     for (const kit::Item& item : list.items) {
         if (holds(item.text))
             return true;
-        if (const auto* button = std::get_if<kit::ButtonLook>(&item.look); button && holds(button->caption))
+        if (const auto* button = std::get_if<kit::ButtonLook>(&item.look);
+            button && holds(button->caption))
             return true;
         if (const auto* header = std::get_if<kit::HeaderLook>(&item.look)) {
             if (holds(header->title) || holds(header->second) || holds(header->note))
@@ -236,7 +240,8 @@ bool shows(const kit::DisplayList& list, std::string_view word) {
                     return true;
             }
         }
-        if (const auto* choice = std::get_if<kit::ChoiceLook>(&item.look); choice && holds(choice->text))
+        if (const auto* choice = std::get_if<kit::ChoiceLook>(&item.look);
+            choice && holds(choice->text))
             return true;
         if (const auto* search = std::get_if<kit::SearchLook>(&item.look)) {
             if (holds(search->placeholder) || holds(search->field.text))
@@ -268,7 +273,8 @@ std::string placeholder_of(const kit::DisplayList& list) {
 /// @param state the screen's state
 /// @param frame the frame
 /// @return the display list
-kit::DisplayList laid_out(const editor::Editor& model, const editor::ScreenState& state, const kit::Frame& frame) {
+kit::DisplayList
+laid_out(const editor::Editor& model, const editor::ScreenState& state, const kit::Frame& frame) {
     return editor::editor_layout(model, state, frame, fonts());
 }
 
@@ -289,7 +295,11 @@ void check_frame(
     const kit::Point sized = editor::window_size(frame);
     if (sized.x != window.x || sized.y != window.y) {
         std::fprintf(
-            stderr, "%s: window %d x %d\n", where.c_str(), static_cast<int>(sized.x), static_cast<int>(sized.y)
+            stderr,
+            "%s: window %d x %d\n",
+            where.c_str(),
+            static_cast<int>(sized.x),
+            static_cast<int>(sized.y)
         );
     }
     OA_CHECK(sized.x == window.x && sized.y == window.y);
@@ -330,7 +340,14 @@ void check_frame(
         const std::string_view name = order[step];
         const int index = tab_index(tabs, name);
         if (index <= previous)
-            std::fprintf(stderr, "%s: tab misses %.*s after %d\n", where.c_str(), static_cast<int>(name.size()), name.data(), previous);
+            std::fprintf(
+                stderr,
+                "%s: tab misses %.*s after %d\n",
+                where.c_str(),
+                static_cast<int>(name.size()),
+                name.data(),
+                previous
+            );
         OA_CHECK(index > previous);
         previous = index;
     }
@@ -403,8 +420,9 @@ void check_french(const kit::Frame& frame, const std::string& where) {
         std::fprintf(stderr, "%s: save shows \"%s\"\n", where.c_str(), save.c_str());
     OA_CHECK(save == "ENREGISTRER");
     const bool large = frame.size_class == kit::SizeClass::large;
-    const std::string want = large ? std::string(french_shown(nullptr, editor::words::search_actions))
-                                   : std::string(french_shown(nullptr, editor::words::search_short));
+    const std::string want = large
+                                 ? std::string(french_shown(nullptr, editor::words::search_actions))
+                                 : std::string(french_shown(nullptr, editor::words::search_short));
     const std::string placeholder = placeholder_of(list);
     if (placeholder != want)
         std::fprintf(stderr, "%s: search shows \"%s\"\n", where.c_str(), placeholder.c_str());
@@ -436,7 +454,11 @@ void check_german(const kit::Frame& frame, const std::string& where) {
     const int32_t save_after = control_width(after, editor::name_save);
     if (save_after <= save_before) {
         std::fprintf(
-            stderr, "%s: save width %d then %d\n", where.c_str(), static_cast<int>(save_before), static_cast<int>(save_after)
+            stderr,
+            "%s: save width %d then %d\n",
+            where.c_str(),
+            static_cast<int>(save_before),
+            static_cast<int>(save_after)
         );
     }
     OA_CHECK(save_after > save_before);
@@ -504,7 +526,9 @@ int main() {
     OA_CHECK(large.area.width == 1280 && large.area.height == 720);
     if (regular.area.width != 960 || regular.area.height != 540 || regular.scale_percent != 200)
         std::fprintf(stderr, "1920x1080 at 2x is not 960x540\n");
-    OA_CHECK(regular.area.width == 960 && regular.area.height == 540 && regular.scale_percent == 200);
+    OA_CHECK(
+        regular.area.width == 960 && regular.area.height == 540 && regular.scale_percent == 200
+    );
 
     check_frame(compact, {480, 324}, kit::SizeClass::compact, "compact");
     check_frame(large, {960, 600}, kit::SizeClass::large, "large");

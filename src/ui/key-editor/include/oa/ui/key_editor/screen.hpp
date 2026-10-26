@@ -159,15 +159,15 @@ enum class EditorCommand : uint8_t {
 
 /// What the editor's screen keeps between layouts, beside the model.
 struct ScreenState {
-    kit::Interaction interaction{}; ///< the hover, the press and the focus
-    int32_t list_scroll{};          ///< how far the list is scrolled, in points
-    int32_t details_scroll{};       ///< how far the details are scrolled, in points
-    kit::WheelCarry list_wheel{};   ///< the wheel's turn the list has not scrolled yet
+    kit::Interaction interaction{};  ///< the hover, the press and the focus
+    int32_t list_scroll{};           ///< how far the list is scrolled, in points
+    int32_t details_scroll{};        ///< how far the details are scrolled, in points
+    kit::WheelCarry list_wheel{};    ///< the wheel's turn the list has not scrolled yet
     kit::WheelCarry details_wheel{}; ///< the wheel's turn the details have not scrolled yet
     /// The search field's text and caret. The rows are filtered by its text.
     kit::TextField search{};
-    Menu menu{Menu::none}; ///< which drop-down is open
-    int32_t menu_first{};  ///< the first item the open menu shows
+    Menu menu{Menu::none};   ///< which drop-down is open
+    int32_t menu_first{};    ///< the first item the open menu shows
     int32_t menu_marked{-1}; ///< the item the pointer or the keys mark; -1 is none
     /// Compact shows the chosen action's details on their own page.
     bool details_page{false};
@@ -188,13 +188,13 @@ struct ScreenState {
     int32_t bar_grab{}; ///< where on the thumb the pointer took hold, from its top
 
     /// A finger pressed in a pane, which may become a scroll.
-    bool finger{false};           ///< a finger is down
-    kit::Point finger_origin{};   ///< where the finger pressed
-    kit::Point finger_at{};       ///< where the finger is
-    int32_t finger_scroll{};      ///< the pane's scroll when the finger pressed
-    bool finger_moved{false};     ///< the finger has moved past its reach
+    bool finger{false};            ///< a finger is down
+    kit::Point finger_origin{};    ///< where the finger pressed
+    kit::Point finger_at{};        ///< where the finger is
+    int32_t finger_scroll{};       ///< the pane's scroll when the finger pressed
+    bool finger_moved{false};      ///< the finger has moved past its reach
     bool finger_in_details{false}; ///< the finger pressed in the details
-    std::string finger_row{};     ///< the row under the finger, when it pressed on one
+    std::string finger_row{};      ///< the row under the finger, when it pressed on one
 };
 
 /// The name of one list row. An action id that would make
@@ -311,9 +311,8 @@ EditorResult editor_pointer(
 /// @param list the display list the screen shows now
 /// @param pressed the key
 /// @return what the host is to do
-EditorResult editor_key(
-    Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Key pressed
-);
+EditorResult
+editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Key pressed);
 
 /// Takes text typed into the focused search.
 ///
@@ -356,8 +355,7 @@ EditorResult editor_command(
 /// @param list the display list the screen shows now
 /// @param notches how far the stick asked to scroll
 /// @return what the host is to do
-EditorResult editor_stick(
-    Editor& editor, ScreenState& state, const kit::DisplayList& list, float notches
-);
+EditorResult
+editor_stick(Editor& editor, ScreenState& state, const kit::DisplayList& list, float notches);
 
 } // namespace oa::ui::key_editor

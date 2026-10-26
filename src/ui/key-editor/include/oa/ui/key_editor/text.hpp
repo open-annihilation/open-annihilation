@@ -178,7 +178,8 @@ inline constexpr std::string_view source_31c = "3.1c";
 inline constexpr std::string_view source_oa = "Open Annihilation";
 inline constexpr std::string_view source_data = "the mod's data";
 inline constexpr std::string_view from_source = "{chords}, from {source}";
-inline constexpr std::string_view from_order_panel = "{chords}, from the mod's order panel ({gadget})";
+inline constexpr std::string_view from_order_panel =
+    "{chords}, from the mod's order panel ({gadget})";
 /// Condition titles for Works with.
 inline constexpr std::string_view when_single = "Single player";
 inline constexpr std::string_view when_multi = "Multiplayer";

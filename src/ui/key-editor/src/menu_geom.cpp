@@ -25,8 +25,8 @@ bool name_ok(std::string_view name) {
             word = false;
             continue;
         }
-        const bool ordinary = (letter >= 'a' && letter <= 'z') || (letter >= '0' && letter <= '9') ||
-                              letter == '-';
+        const bool ordinary =
+            (letter >= 'a' && letter <= 'z') || (letter >= '0' && letter <= '9') || letter == '-';
         if (!ordinary)
             return false;
         word = true;
@@ -56,8 +56,7 @@ std::string filter_caption(
     const Editor& editor, const ScreenState& state, Filter filter, std::string_view word
 ) {
     const std::string label = show(editor.text(), word);
-    const std::string count =
-        std::to_string(editor.rows(state.category, filter, "").size());
+    const std::string count = std::to_string(editor.rows(state.category, filter, "").size());
     return fill(show(editor.text(), words::filter_count), {{"filter", label}, {"count", count}});
 }
 
@@ -108,7 +107,8 @@ std::vector<MenuEntry> layout_entries(const Editor& editor) {
 /// @param state the category, for the filters' counts
 /// @param compact true when the filters are items of this menu
 /// @return the items
-std::vector<MenuEntry> category_entries(const Editor& editor, const ScreenState& state, bool compact) {
+std::vector<MenuEntry>
+category_entries(const Editor& editor, const ScreenState& state, bool compact) {
     std::vector<MenuEntry> entries;
     for (const CategoryEntry& category : editor.categories()) {
         MenuEntry entry;
@@ -140,11 +140,17 @@ std::vector<MenuEntry> category_entries(const Editor& editor, const ScreenState&
         Filter::all, Filter::changed, Filter::clashes, Filter::unbound, Filter::latchable
     };
     const std::string_view words_of[] = {
-        words::filter_all, words::filter_changed, words::filter_clashes, words::filter_unbound,
+        words::filter_all,
+        words::filter_changed,
+        words::filter_clashes,
+        words::filter_unbound,
         words::filter_latchable
     };
     const std::string_view names[] = {
-        name_filter_all, name_filter_changed, name_filter_clashes, name_filter_unbound,
+        name_filter_all,
+        name_filter_changed,
+        name_filter_clashes,
+        name_filter_unbound,
         name_filter_latchable
     };
     const char* ids[] = {"all", "changed", "clashes", "unbound", "latchable"};

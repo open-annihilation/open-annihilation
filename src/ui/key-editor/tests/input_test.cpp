@@ -72,7 +72,8 @@ std::size_t row_controls(const kit::DisplayList& list) {
 bool selected_is_listed(const editor::Editor& model, const editor::ScreenState& state) {
     if (state.selected.empty())
         return false;
-    const std::vector<editor::Row> rows = model.rows(state.category, state.filter, state.search.text);
+    const std::vector<editor::Row> rows =
+        model.rows(state.category, state.filter, state.search.text);
     for (const editor::Row& row : rows) {
         if (row.id == state.selected)
             return true;
@@ -90,7 +91,9 @@ struct Session {
     /// Lays the fixture out for a frame.
     ///
     /// @param framed the frame
-    explicit Session(kit::Frame framed) : model(editor_fixture()), frame(std::move(framed)) { show(); }
+    explicit Session(kit::Frame framed) : model(editor_fixture()), frame(std::move(framed)) {
+        show();
+    }
 
     /// Lays the screen out again.
     void show() { list = editor::editor_layout(model, state, frame, fonts()); }
@@ -135,9 +138,11 @@ void search_and_escape() {
     Session session(frame);
     const std::size_t before = row_controls(session.list);
     // The pad's Y. editor_command is how it arrives; Key has no Y.
-    session.take(editor::editor_command(
-        session.model, session.state, session.list, editor::EditorCommand::find
-    ));
+    session.take(
+        editor::editor_command(
+            session.model, session.state, session.list, editor::EditorCommand::find
+        )
+    );
     const std::optional<kit::Rect> field = editor::focused_field(session.state, session.list);
     if (!field)
         std::fprintf(stderr, "find did not focus the search\n");
@@ -173,9 +178,8 @@ void leave_and_save() {
     OA_CHECK(!attack.chords.empty());
     OA_CHECK(dirty.model.remove_chord("order.attack", 0));
     OA_CHECK(dirty.model.unsaved() > 0);
-    const editor::EditorResult escape = dirty.take(
-        editor::editor_key(dirty.model, dirty.state, dirty.list, kit::Key::escape)
-    );
+    const editor::EditorResult escape =
+        dirty.take(editor::editor_key(dirty.model, dirty.state, dirty.list, kit::Key::escape));
     OA_CHECK(escape.action == editor::EditorAction::ask_leave);
 
     Session back(frame_for(1280, 720, 100));
@@ -198,7 +202,8 @@ void leave_and_save() {
 /// Up and Down on the focused list move the chosen row.
 void arrows_move_the_row() {
     Session session(frame_for(1280, 720, 100));
-    const std::size_t rows = session.model.rows(session.state.category, session.state.filter, "").size();
+    const std::size_t rows =
+        session.model.rows(session.state.category, session.state.filter, "").size();
     OA_CHECK(rows > 2);
     focus_list(session);
     const std::string first = session.state.selected;
@@ -249,12 +254,22 @@ void finger_scrolls_and_taps() {
             continue;
         const kit::Point at = centre_of(*list);
         const kit::Point moved{at.x, at.y + dy};
-        session.take(editor::editor_pointer(
-            session.model, session.state, session.list, editor::PointerKind::down, 1, at, reach
-        ));
-        session.take(editor::editor_pointer(
-            session.model, session.state, session.list, editor::PointerKind::move, 0, moved, reach
-        ));
+        session.take(
+            editor::editor_pointer(
+                session.model, session.state, session.list, editor::PointerKind::down, 1, at, reach
+            )
+        );
+        session.take(
+            editor::editor_pointer(
+                session.model,
+                session.state,
+                session.list,
+                editor::PointerKind::move,
+                0,
+                moved,
+                reach
+            )
+        );
         if (session.state.list_scroll != 0)
             scrolled = true;
     }
@@ -277,11 +292,15 @@ void finger_scrolls_and_taps() {
         return;
     const kit::Point at = centre_of(*row);
     const std::string before = tap.state.selected;
-    tap.take(editor::editor_pointer(
-        tap.model, tap.state, tap.list, editor::PointerKind::down, 1, at, reach
-    ));
     tap.take(
-        editor::editor_pointer(tap.model, tap.state, tap.list, editor::PointerKind::up, 1, at, reach)
+        editor::editor_pointer(
+            tap.model, tap.state, tap.list, editor::PointerKind::down, 1, at, reach
+        )
+    );
+    tap.take(
+        editor::editor_pointer(
+            tap.model, tap.state, tap.list, editor::PointerKind::up, 1, at, reach
+        )
     );
     if (tap.state.selected == before || !selected_is_listed(tap.model, tap.state))
         std::fprintf(stderr, "tap selected \"%s\"\n", tap.state.selected.c_str());
