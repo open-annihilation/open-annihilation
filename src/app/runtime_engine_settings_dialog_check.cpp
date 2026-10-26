@@ -460,6 +460,12 @@ std::string_view label_of(settings::Setting setting) {
         return "Weapon types";
     case settings::Setting::sides:
         return "Sides";
+    case settings::Setting::key_layout:
+        return "Key layout";
+    case settings::Setting::key_layout_for_mod:
+        return "Key layout with Ridge";
+    case settings::Setting::show_keys_on_buttons:
+        return "Show keys on buttons";
     case settings::Setting::welcome_setup:
         return "Welcome setup";
     case settings::Setting::fog_of_war:
