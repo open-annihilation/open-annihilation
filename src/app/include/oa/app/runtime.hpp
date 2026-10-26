@@ -2584,6 +2584,28 @@ class Runtime final : public menu::Host,
     /// @return the events kept for the event just fed
     [[nodiscard]] std::span<const oa::ui::key_bindings::ActionEvent> match_action_events() const;
 
+    /// The pressed or repeated event of one action.
+    ///
+    /// The pointer stays valid until the next feed, advance or binding rebuild.
+    /// Null when the dispatcher has not been made, or this event did not start
+    /// that action. [runtime_key_bindings.cpp]
+    ///
+    /// @param id the action id
+    /// @return that event, or null
+    [[nodiscard]] const oa::ui::key_bindings::ActionEvent* fired_action(std::string_view id) const;
+
+    /// The screen action this key still means.
+    ///
+    /// A screen action this event started comes first. Otherwise the screen
+    /// action whose chord still matches the key, the most specific chord, and
+    /// the earliest action when two match as well. Empty when the bindings are
+    /// not ready and this event started none. [runtime_key_bindings.cpp]
+    ///
+    /// @param key the SDL keycode
+    /// @param sdl_mods the SDL modifier bits
+    /// @return the action id, or empty
+    [[nodiscard]] std::string screen_action_for_key(uint32_t key, uint16_t sdl_mods) const;
+
     /// Whether a key of the action's chords is down.
     ///
     /// A modifier never stops it: any chord whose key is held counts. Resolves
@@ -2596,7 +2618,9 @@ class Runtime final : public menu::Host,
     /// The contexts, the conditions and text entry for the event about to be fed.
     ///
     /// Computed for that event, not once a frame. While a modal Open Annihilation screen shows,
-    /// the match and the menus are left out: that screen takes the input. [runtime_key_bindings.cpp]
+    /// the match and the menus are left out: that screen takes the input. A screen that shows
+    /// and does not take the input exclusively is searched alongside the menus or the match.
+    /// [runtime_key_bindings.cpp]
     ///
     /// @return the contexts the dispatcher searches
     [[nodiscard]] oa::ui::key_bindings::Contexts input_contexts();
@@ -7487,6 +7511,14 @@ class Runtime final : public menu::Host,
     /// where the in-game menu opens under the dialog; elsewhere nothing.
     void request_engine_settings();
 
+    /// Opens the settings for the settings action, except while the Library is
+    /// open over Settings, which goes back to Settings itself.
+    ///
+    /// [runtime_engine_settings_menu.cpp]
+    ///
+    /// @return true when the action opened the settings
+    bool take_settings_action();
+
     /// Takes the application menu's request to open the settings.
     ///
     /// @param event the event just received
@@ -10669,13 +10701,16 @@ class Runtime final : public menu::Host,
     /// Handles an event of the full-screen switch before any screen sees it
     /// (oa::app::take_full_screen_event), with the game's window.
     ///
-    /// Alt+Enter switches the mode and its repeats do nothing; the window's
-    /// entering or leaving full screen is noted and still reaches the screens,
-    /// which lay themselves out at the window's new size.
+    /// The full-screen action's chord switches the mode. Its repeats and its
+    /// key's release do nothing. The window's entering or leaving full screen
+    /// is noted and still reaches the screens, which lay themselves out at the
+    /// window's new size. A key handed here before the run has fed it, as
+    /// while a match loads or a movie plays, is fed first so the layout's
+    /// chord is known. Before a layout is read, the intro keeps Alt+Enter.
     ///
     /// @param event event just received
-    /// @return true when the event was Alt+Enter or one of its repeats, which
-    ///         no screen may see
+    /// @return true when the event was the full-screen action's chord, one of
+    ///         its repeats or its key's release, which no screen may see
     bool take_full_screen_event(const SDL_Event& event);
 
     /// With `--trace-input`, writes the game's window as window_trace_line
@@ -12005,7 +12040,7 @@ class Runtime final : public menu::Host,
     /// else the one nearest after the root's corner, passed on to the next
     /// when its setup hides it), moved by the GUI keyboard's keys
     /// (move_frontend_focus), given by Return to a panel with none
-    /// (press_frontend_focus_key) and given to a list pressed.
+    /// (press_frontend_focus_action) and given to a list pressed.
     ///
     /// @return the record, or -1 for none
     [[nodiscard]] int32_t frontend_focus() const;
@@ -12053,31 +12088,62 @@ class Runtime final : public menu::Host,
     /// LOAD and PREVMENU then close the map modal.
     void click_selected_frontend_gadget();
 
+    /// Notes the GUI file whose buttons the menus answer, in place of any noted before.
+    ///
+    /// An empty path notes none. The next key reads the letters. [runtime_key_bindings.cpp]
+    ///
+    /// @param path the GUI file, or empty
+    void set_menu_gui(std::string_view path);
+
+    /// Notes another GUI file whose buttons the menus answer, beside those already noted.
+    ///
+    /// An empty path adds nothing. A file already noted is left as it is.
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @param path the GUI file
+    void add_menu_gui(std::string_view path);
+
+    /// Answers the menus' Enter, Escape, Space, focus and list keys.
+    ///
+    /// Each screen keeps the target Escape has there today. A held Enter presses
+    /// nothing on the end screens. [runtime_events.cpp]
+    ///
+    /// @param key the key pressed
+    /// @return true when a menu action took the key
+    bool answer_menu_keys(const SDL_KeyboardEvent& key);
+
+    /// Steps a menu list for the wheel.
+    ///
+    /// The map list and Any Mission's mission list step. A wheel that does not
+    /// step a list is left for whatever follows. [runtime_events.cpp]
+    ///
+    /// @param wheel_y the wheel, positive away from the player
+    /// @return true when a list stepped
+    bool answer_menu_list_wheel(float wheel_y);
+
     /// Presses the frontend screen's button whose quick key a key is, as a
     /// left click released over it does.
     ///
-    /// The key presses the first active button in the panel's record order
-    /// whose quick key it is in either case; a grayed-out button takes no key
-    /// and passes it on. A key with Ctrl, Alt or the system key down, or a
-    /// held key's repeat, presses nothing.
+    /// A plain letter presses the first active button in the panel's record
+    /// order whose quick key it is in either case; a grayed-out button takes
+    /// no key and passes it on. That letter with Ctrl, Alt or the system key
+    /// down, or a held key's repeat, presses nothing. A rebound chord presses
+    /// the button of the action it started.
     ///
     /// @param key the key pressed
     /// @return true when the key pressed a button
-    bool press_frontend_quick_key(const SDL_KeyboardEvent& key);
+    bool press_frontend_gui_action(const SDL_KeyboardEvent& key);
 
-    /// Presses the frontend screen's focused button for Return, keypad Enter
-    /// or Space, as a left click released over it does; a gamepad's A and
-    /// Menu send Return.
+    /// Presses the frontend screen's focused button for the accept or press action.
     ///
-    /// With no record focused, as the main menu opens, Return and keypad
-    /// Enter give the panel its first focus (move_frontend_focus), ringed,
-    /// and press nothing. A focused record that is no active button, a
-    /// grayed-out button, a key with Ctrl, Alt or the system key down, and a
-    /// held key's repeat press nothing.
+    /// With no record focused, as the main menu opens, accept gives the panel
+    /// its first focus (move_frontend_focus), ringed, and presses nothing. A
+    /// focused record that is no active button, and a grayed-out button, press
+    /// nothing. Press does nothing while no record is focused.
     ///
-    /// @param key the key pressed
+    /// @param accept true for accept, false for the press action
     /// @return true when the key pressed the focused button or gave the focus
-    bool press_frontend_focus_key(const SDL_KeyboardEvent& key);
+    bool press_frontend_focus_action(bool accept);
 
     /// Presses a button of the frontend screen as a left click released over
     /// it does (click_selected_frontend_gadget), for a key that names it; a
@@ -18548,6 +18614,8 @@ class Runtime final : public menu::Host,
     oa::Image match_chrome_{};
     std::optional<renderer::ScreenResources> match_hud_;
     std::string match_hud_panel_; // GUI file of match_hud_, as its loader named it
+    /// GUI files whose buttons the menus answer, stems folded as a gui id's.
+    std::vector<std::string> menu_gui_stems_{};
     /// The side column's art (match_hud_art), held by match_hud_ while it
     /// is lent; dropped as a match loads and ends and as the language shown
     /// or its packs change.

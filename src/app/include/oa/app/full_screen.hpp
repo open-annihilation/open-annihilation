@@ -140,15 +140,15 @@ game_window_flags(bool start_full_screen, bool native_density) {
     return event.key.repeat ? FullScreenKey::repeat : FullScreenKey::toggle;
 }
 
-/// The window's full-screen mode as the player last asked for it, and the Enter key that asked.
+/// The window's full-screen mode as the player last asked for it, and the key that asked.
 ///
 /// On macOS, X11 and Wayland the window changes mode some time after it is
 /// asked to, and until then it still reports its old mode; a second Alt+Enter
 /// in that time switches from the mode the player asked for, not from the one
 /// still shown. Windows switches at once.
 ///
-/// The Enter key of an Alt+Enter belongs to the switch until it comes up:
-/// letting go of Alt first does not hand its repeats to the screens as Enter.
+/// The trigger key of the switch's chord belongs to the switch until it comes
+/// up: letting go of a modifier first does not hand its repeats to the screens.
 ///
 /// A window that leaves full screen is brought back onto the display it was
 /// full screen on (window_on_display) once the window system has given it its
@@ -158,7 +158,7 @@ struct FullScreenSwitch {
     bool requested{};        ///< the mode last asked for: true for full screen
     bool awaiting_shown{};   ///< the window has not yet shown the requested mode
     uint64_t requested_ms{}; ///< when the mode was asked for, SDL_GetTicks milliseconds
-    /// The Enter key of the last Alt+Enter while it is held; SDL_SCANCODE_UNKNOWN when none is.
+    /// The trigger key of the last switch chord while it is held; SDL_SCANCODE_UNKNOWN when none is.
     SDL_Scancode held_enter{SDL_SCANCODE_UNKNOWN};
     /// The display the window was last seen full screen on; 0 before it was.
     SDL_DisplayID full_screen_display{};
@@ -179,16 +179,18 @@ struct FullScreenSwitch {
     int32_t window_width{};
     int32_t window_height{}; ///< that size's height, as window_width
 
-    /// Tells what a keyboard event means to the switch, following the Enter key an Alt+Enter holds.
+    /// Tells what a keyboard event means to the switch, following the key its chord holds.
     ///
-    /// A fresh Alt+Enter holds its Enter key. Until that key comes up, its
-    /// repeats are repeats and its release is taken, with Alt held or not; a
-    /// fresh press of it without Alt (its release was lost) lets it go and
-    /// reaches the screens.
+    /// A fresh press of the switch's chord holds that key. Until the key comes
+    /// up, its repeats are repeats and its release is taken, whether or not the
+    /// chord's modifiers are still held. A fresh press of the same key that is
+    /// not the chord (its release was lost) lets it go and reaches the screens.
+    /// Any other key reaches the screens and leaves the hold as it is.
     ///
     /// @param event any SDL event
+    /// @param switch_chord true when this event is a fresh press of the switch's chord
     /// @return what the event means to the switch
-    [[nodiscard]] FullScreenKey take_key(const SDL_Event& event) {
+    [[nodiscard]] FullScreenKey take_key(const SDL_Event& event, bool switch_chord) {
         const bool key_event = event.type == SDL_EVENT_KEY_DOWN || event.type == SDL_EVENT_KEY_UP;
         const bool held =
             key_event && held_enter != SDL_SCANCODE_UNKNOWN && event.key.scancode == held_enter;
@@ -196,14 +198,15 @@ struct FullScreenSwitch {
             held_enter = SDL_SCANCODE_UNKNOWN;
             return FullScreenKey::release;
         }
-        if (held && event.key.repeat)
+        if (held && event.type == SDL_EVENT_KEY_DOWN && event.key.repeat)
             return FullScreenKey::repeat;
-        const auto key = full_screen_key(event);
-        if (key == FullScreenKey::toggle)
+        if (switch_chord && event.type == SDL_EVENT_KEY_DOWN && !event.key.repeat) {
             held_enter = event.key.scancode;
-        else if (held)
+            return FullScreenKey::toggle;
+        }
+        if (held && event.type == SDL_EVENT_KEY_DOWN)
             held_enter = SDL_SCANCODE_UNKNOWN;
-        return key;
+        return FullScreenKey::none;
     }
 
     /// Chooses the mode an Alt+Enter asks for.
@@ -621,10 +624,28 @@ bool set_window_frame(SDL_Window* window, bool shown);
 /// (bring_window_on_display) once the window system has placed it, at the
 /// size FullScreenSwitch::window_width and window_height ask for, if any.
 ///
+/// @param window the game's window; null ignores the chord and leaves the
+///        pointer and the window's place as they are
+/// @param[in,out] full_screen the mode last asked for, the key held and the
+///        window's place still to be checked
+/// @param event any SDL event
+/// @param switch_chord true when this event is a fresh press of the switch's chord
+/// @return true when the event was that chord, one of its repeats or its
+///         key's release, which nothing else may see
+bool take_full_screen_event(
+    SDL_Window* window, FullScreenSwitch& full_screen, const SDL_Event& event, bool switch_chord
+);
+
+/// Handles an event of the full-screen switch before anything else sees it.
+///
+/// Alt+Enter is the chord, for the intro and any caller that has not read a
+/// layout. A repeat of Alt+Enter is taken even when it is not the key the
+/// switch is holding.
+///
 /// @param window the game's window; null ignores Alt+Enter and leaves the
 ///        pointer and the window's place as they are
-/// @param[in,out] full_screen the mode last asked for, the Enter key held and
-///        the window's place still to be checked
+/// @param[in,out] full_screen the mode last asked for, the key held and the
+///        window's place still to be checked
 /// @param event any SDL event
 /// @return true when the event was Alt+Enter, one of its repeats or its
 ///         Enter key's release, which nothing else may see

@@ -3378,19 +3378,36 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
         match_panels_keyboard_ || match_hud_panel_ == oa::data::defs::gui_path(kPreferencesLayout);
     if (!keyboard && !confirming)
         return false;
-    // Keys with Ctrl, Alt or the system key down type no character.
-    if ((key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0)
+    namespace bindings = oa::ui::key_bindings;
+    const auto down = [](const bindings::ActionEvent* fired) {
+        return fired != nullptr && fired->phase == bindings::Phase::pressed;
+    };
+    const bool accept = down(fired_action("ui.menu-accept"));
+    const bool cancel = down(fired_action("ui.menu-cancel"));
+    const bool press = down(fired_action("ui.menu-press"));
+    const bool menu_key = accept || cancel || press;
+    const auto panel_events = match_action_events();
+    bool gui_pressed = false;
+    for (const bindings::ActionEvent& fed : panel_events) {
+        if (fed.phase == bindings::Phase::pressed && fed.action.starts_with("gui.")) {
+            gui_pressed = true;
+            break;
+        }
+    }
+    // Keys with Ctrl, Alt or the system key down type no character. A menu or
+    // button action that was moved onto such a chord still answers.
+    const bool modified = (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0;
+    if (modified && !menu_key && !gui_pressed)
         return false;
-    const bool enter = key.key == SDLK_RETURN;
-    const bool escape = key.key == SDLK_ESCAPE;
-    if (confirming && (enter || escape))
+    // The surrender question answers Enter and Escape as No, outside this panel.
+    if (confirming && (accept || cancel))
         return false;
     // Without the keyboard, Space presses nothing.
-    if (!keyboard && key.key == SDLK_SPACE)
+    if (!keyboard && press)
         return false;
     const auto& gadgets = match_hud_->layout.gadgets;
     // Enter, Escape and Space go to the panel's key dispatch first.
-    if (enter || escape || key.key == SDLK_SPACE) {
+    if (menu_key) {
         gui_input::GadgetPanel panel;
         auto* owner = load_unplaced_panel(panel, match_hud_->layout, match_hud_panel_);
         if (owner == nullptr)
@@ -3399,8 +3416,8 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
             match_hud_focus_ > 0 && static_cast<std::size_t>(match_hud_focus_) < gadgets.size()
                 ? match_hud_focus_
                 : oa::ui::gui_layout::kNoGadget;
-        const auto code = enter    ? gui_input::key_code::enter
-                          : escape ? gui_input::key_code::escape
+        const auto code = accept   ? gui_input::key_code::enter
+                          : cancel ? gui_input::key_code::escape
                                    : gui_input::key_code::space;
         const auto left = gui_input::dispatch_key(panel, code);
         if (panel.activated != oa::ui::gui_layout::kNoGadget) {
@@ -3414,32 +3431,35 @@ bool Runtime::press_match_panel_key(const SDL_KeyboardEvent& key) {
     // whose gui action this key started. A grayed button takes no key and
     // passes it on. The typed character is kept so it reaches no chat line
     // and no marker.
-    if (key.key <= 0 || key.key >= 0x7F)
-        return false;
     const std::string shown = shown_hud_stem();
-    if (shown.empty())
-        return false;
-    const auto panel_events = match_action_events();
-    for (const oa::ui::key_bindings::ActionEvent& fed : panel_events) {
-        if (fed.phase != oa::ui::key_bindings::Phase::pressed || !fed.action.starts_with("gui."))
-            continue;
-        for (std::size_t gadget_index = 1; gadget_index < gadgets.size(); ++gadget_index) {
-            const auto& gadget = gadgets[gadget_index];
-            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
-            if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
+    if (!shown.empty()) {
+        for (const oa::ui::key_bindings::ActionEvent& fed : panel_events) {
+            if (fed.phase != oa::ui::key_bindings::Phase::pressed ||
+                !fed.action.starts_with("gui."))
                 continue;
-            if (gui_action_id(shown, gadget.common.name) != fed.action)
-                continue;
-            answered_key_ = static_cast<int32_t>(std::tolower(static_cast<int>(key.key)));
-            // Yes on the surrender question holds. Enter and No are answered
-            // before this loop, and stay immediate.
-            if (confirming && gadget.common.name == "CHOICE1" &&
-                start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, gadget_index))
+            for (std::size_t gadget_index = 1; gadget_index < gadgets.size(); ++gadget_index) {
+                const auto& gadget = gadgets[gadget_index];
+                const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+                if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
+                    continue;
+                if (gui_action_id(shown, gadget.common.name) != fed.action)
+                    continue;
+                if (key.key > 0 && key.key < 0x7F)
+                    answered_key_ = static_cast<int32_t>(std::tolower(static_cast<int>(key.key)));
+                // Yes on the surrender question holds. Enter and No are answered
+                // before this loop, and stay immediate.
+                if (confirming && gadget.common.name == "CHOICE1" &&
+                    start_yes_hold(static_cast<uint16_t>(key.scancode), false, 0, gadget_index))
+                    return true;
+                activate_match_hud(gadget_index);
                 return true;
-            activate_match_hud(gadget_index);
-            return true;
+            }
         }
     }
+    // A caption's own letter is not a chord. It presses nothing while Ctrl,
+    // Alt or the system key is down.
+    if (modified || shown.empty() || key.key <= 0 || key.key >= 0x7F)
+        return false;
     // A caption set while the panel is open gives its button a letter the
     // file never stored, so no binding owns it. While a line is being typed
     // the dispatcher searches only that line's keys, so a button's own letter
@@ -4502,6 +4522,8 @@ void Runtime::activate_options_gadget() {
         // authored foreground colour the renderer draws the frame through.
         // Only a loaded panel's first draw clears it.
         bind_frontend_scrolls(oa::data::defs::gui_path("startopt.gui"), "anims/commongui.gaf");
+        set_menu_gui(oa::data::defs::gui_path("startopt.gui"));
+        add_menu_gui(oa::data::defs::gui_path(sub));
         // load() gave the focus a record of the sub-panel's file alone, which
         // the merged records no longer number so.
         frontend_focus_ = -1;

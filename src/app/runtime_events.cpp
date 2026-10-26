@@ -3,6 +3,7 @@
 
 // SDL event dispatch, menu audio and movie playback.
 #include "oa/app/runtime.hpp"
+#include "gui_actions.hpp"
 #include "oa/app/hook_call.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
 #include "oa/media/intro_player.hpp"
@@ -153,92 +154,12 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         (screen_ == Screen::campaign_end || screen_ == Screen::briefing) &&
         event.key.key == SDLK_RETURN)
         return;
-    if (event.type == SDL_EVENT_KEY_DOWN && screen_ == Screen::campaign_end &&
-        event.key.key == SDLK_RETURN) {
-        activate_end_panel_default();
-        return;
-    }
-    if (event.type == SDL_EVENT_KEY_DOWN && screen_ == Screen::briefing &&
-        (event.key.key == SDLK_RETURN || event.key.key == SDLK_ESCAPE) &&
-        press_briefing_default(event.key.key == SDLK_ESCAPE))
-        return;
-    // Up and Down move the selection of NEWGAME.GUI's focused list.
-    if (event.type == SDL_EVENT_KEY_DOWN &&
-        (screen_ == Screen::new_campaign || screen_ == Screen::any_mission) &&
-        (event.key.key == SDLK_UP || event.key.key == SDLK_DOWN)) {
-        step_campaign_list(event.key.key == SDLK_DOWN);
-        return;
-    }
-    // Up and Down move the selection of SELMAP.GUI's map list while it holds
-    // the focus, as its loader gives it; from a button they move the focus.
-    if (event.type == SDL_EVENT_KEY_DOWN && screen_ == Screen::map_selection &&
-        (event.key.key == SDLK_UP || event.key.key == SDLK_DOWN) && frontend_has_keyboard() &&
-        step_map_list(event.key.key == SDLK_DOWN))
-        return;
-    // The frontend screen's panel takes the GUI keyboard: Tab and Shift+Tab
-    // move the focus to the next and the previous record, and the arrow keys
-    // move it on from a button.
-    if (event.type == SDL_EVENT_KEY_DOWN && frontend_has_keyboard()) {
-        namespace gui = oa::ui::gui_input;
-        const auto focus = frontend_focus();
-        const bool from_button =
-            focus < 0 || resources_.layout.gadgets[static_cast<std::size_t>(focus)].common.type ==
-                             oa::ui::gui_layout::GadgetType::button;
-        std::optional<gui::FocusDirection> direction;
-        if (event.key.key == SDLK_TAB)
-            direction = (event.key.mod & SDL_KMOD_SHIFT) != 0 ? gui::FocusDirection::previous
-                                                              : gui::FocusDirection::next;
-        else if (from_button && event.key.key == SDLK_LEFT)
-            direction = gui::FocusDirection::previous;
-        else if (from_button && event.key.key == SDLK_RIGHT)
-            direction = gui::FocusDirection::next;
-        else if (from_button && event.key.key == SDLK_UP)
-            direction = gui::FocusDirection::up;
-        else if (from_button && event.key.key == SDLK_DOWN)
-            direction = gui::FocusDirection::down;
-        if (direction) {
-            move_frontend_focus(*direction);
-            rebuild_surface();
-            return;
-        }
-        // Return and Space press the focused button; a gamepad's A and Menu
-        // send Return.
-        if (press_frontend_focus_key(event.key))
-            return;
-    }
-    if (event.type == SDL_EVENT_KEY_DOWN && event.key.key == SDLK_ESCAPE) {
-        if (screen_ == Screen::main_menu) {
-            // The main menu itself does nothing with Escape, as in 3.1c: EXIT
-            // and closing the window end the program. A dialog or notice over
-            // the menu takes the key before it gets here.
-        } else if (screen_ == Screen::map_selection)
-            close_map_modal();
-        else if (screen_ == Screen::match) {
-            // A finished match leaves for the end screen on its own. Escape
-            // closes an open menu; it opens one only with the Escape opens
-            // the game menu setting and nothing else to cancel (the match's
-            // keys), and a held key's repeats do nothing more.
-            if (!match_finished_ && match_paused_ && !event.key.repeat)
-                escape_match_menu();
-        } else if (
-            screen_ == Screen::options || screen_ == Screen::sound || screen_ == Screen::visuals ||
-            screen_ == Screen::speeds || screen_ == Screen::music
-        ) {
-            leave_options_screen();
-        } else if (screen_ == Screen::load_game)
-            // As CANCEL does: a dialog opened over a paused match returns to it.
-            leave_load_dialog();
-        else if (screen_ == Screen::new_campaign || screen_ == Screen::any_mission)
-            load(Screen::single_player);
-        else if (screen_ == Screen::campaign_end)
-            load(Screen::main_menu);
-        else
-            load(Screen::main_menu);
-        return;
-    }
-    // Any other key may be the quick key of one of the panel's buttons.
-    if (event.type == SDL_EVENT_KEY_DOWN && frontend_has_keyboard() &&
-        press_frontend_quick_key(event.key))
+    // A check hands a menu key here without the dispatcher's feed. A match key
+    // was fed by the hotkey handler just above, and feeding it again would let
+    // a latch go.
+    if (event.type == SDL_EVENT_KEY_DOWN && screen_ != Screen::match && !match_key_already_fed_)
+        feed_input_actions(event);
+    if (event.type == SDL_EVENT_KEY_DOWN && answer_menu_keys(event.key))
         return;
     // A turn of the wheel ends a middle-click pan and does not zoom.
     if (event.type == SDL_EVENT_MOUSE_WHEEL && middle_pan_take(event))
@@ -260,32 +181,10 @@ void Runtime::handle_sdl_event(SDL_Event& event, bool& running) {
         );
         return;
     }
-    if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::map_selection &&
-        !bound_map_names_.empty()) {
-        const auto direction = event.wheel.y > 0.0F ? -1 : event.wheel.y < 0.0F ? 1 : 0;
-        const auto next = std::clamp<int32_t>(
-            static_cast<int32_t>(modal_map_index_) + direction,
-            0,
-            static_cast<int32_t>(bound_map_names_.size() - 1U)
-        );
-        preview_map_index(static_cast<std::size_t>(next));
+    if (event.type == SDL_EVENT_MOUSE_WHEEL && !match_key_already_fed_)
+        feed_input_actions(event);
+    if (event.type == SDL_EVENT_MOUSE_WHEEL && answer_menu_list_wheel(event.wheel.y))
         return;
-    }
-    if (event.type == SDL_EVENT_MOUSE_WHEEL && screen_ == Screen::any_mission &&
-        !campaign_mission_files_.empty()) {
-        const auto direction = event.wheel.y > 0.0F ? -1 : event.wheel.y < 0.0F ? 1 : 0;
-        const auto next = std::clamp<int32_t>(
-            static_cast<int32_t>(selected_mission_index_) + direction,
-            0,
-            static_cast<int32_t>(campaign_mission_files_.size() - 1U)
-        );
-        selected_mission_index_ = static_cast<std::size_t>(next);
-        if (selected_mission_index_ < campaign_mission_first_visible_)
-            campaign_mission_first_visible_ = selected_mission_index_;
-        select_frontend_list_row("Missions", selected_mission_index_);
-        rebuild_surface();
-        return;
-    }
     if (event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
         event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
         // Headless checks have no renderer and send canvas coordinates.
@@ -576,37 +475,200 @@ void Runtime::click_selected_frontend_gadget() {
         close_map_modal();
 }
 
-bool Runtime::press_frontend_quick_key(const SDL_KeyboardEvent& key) {
-    // Keys with Ctrl, Alt or the system key down type no character, and a
-    // held key's repeats press nothing more.
-    if (key.repeat || (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0 ||
-        key.key == SDLK_UNKNOWN || key.key >= SDLK_DELETE)
+bool Runtime::answer_menu_keys(const SDL_KeyboardEvent& key) {
+    namespace gui = oa::ui::gui_input;
+    namespace bindings = oa::ui::key_bindings;
+    const bindings::ActionEvent* accept = fired_action("ui.menu-accept");
+    const bindings::ActionEvent* cancel = fired_action("ui.menu-cancel");
+    const bindings::ActionEvent* press = fired_action("ui.menu-press");
+    const bool accept_down = accept != nullptr && accept->phase == bindings::Phase::pressed;
+    const bool press_down = press != nullptr && press->phase == bindings::Phase::pressed;
+    if (screen_ == Screen::campaign_end && accept_down) {
+        activate_end_panel_default();
+        return true;
+    }
+    if (screen_ == Screen::briefing) {
+        if (accept_down && press_briefing_default(false))
+            return true;
+        if (cancel != nullptr && press_briefing_default(true))
+            return true;
+    }
+    // Up and Down move the selection of a new campaign's focused list.
+    if ((screen_ == Screen::new_campaign || screen_ == Screen::any_mission) &&
+        (fired_action("ui.menu-list-up") != nullptr ||
+         fired_action("ui.menu-list-down") != nullptr)) {
+        step_campaign_list(fired_action("ui.menu-list-down") != nullptr);
+        return true;
+    }
+    // Up and Down move the map list while it holds the focus; from a button
+    // they move the focus, below.
+    if (screen_ == Screen::map_selection && frontend_has_keyboard() &&
+        (fired_action("ui.menu-list-up") != nullptr ||
+         fired_action("ui.menu-list-down") != nullptr) &&
+        step_map_list(fired_action("ui.menu-list-down") != nullptr))
+        return true;
+    if (frontend_has_keyboard()) {
+        const auto focus = frontend_focus();
+        const bool from_button =
+            focus < 0 || resources_.layout.gadgets[static_cast<std::size_t>(focus)].common.type ==
+                             oa::ui::gui_layout::GadgetType::button;
+        std::optional<gui::FocusDirection> direction;
+        if (fired_action("ui.menu-focus-next") != nullptr)
+            direction = gui::FocusDirection::next;
+        else if (fired_action("ui.menu-focus-previous") != nullptr)
+            direction = gui::FocusDirection::previous;
+        else if (from_button && fired_action("ui.menu-focus-left") != nullptr)
+            direction = gui::FocusDirection::previous;
+        else if (from_button && fired_action("ui.menu-focus-right") != nullptr)
+            direction = gui::FocusDirection::next;
+        else if (
+            from_button && (fired_action("ui.menu-focus-up") != nullptr ||
+                            fired_action("ui.menu-list-up") != nullptr)
+        )
+            direction = gui::FocusDirection::up;
+        else if (
+            from_button && (fired_action("ui.menu-focus-down") != nullptr ||
+                            fired_action("ui.menu-list-down") != nullptr)
+        )
+            direction = gui::FocusDirection::down;
+        if (direction) {
+            move_frontend_focus(*direction);
+            rebuild_surface();
+            return true;
+        }
+        // Return and Space press the focused button; a gamepad's A and Menu
+        // send Return.
+        if ((accept_down || press_down) && press_frontend_focus_action(accept_down))
+            return true;
+    }
+    if (cancel != nullptr) {
+        if (screen_ == Screen::main_menu) {
+            // The main menu itself does nothing with Escape, as in 3.1c: EXIT
+            // and closing the window end the program. A dialog or notice over
+            // the menu takes the key before it gets here.
+        } else if (screen_ == Screen::map_selection)
+            close_map_modal();
+        else if (screen_ == Screen::match) {
+            // A finished match leaves for the end screen on its own. Escape
+            // closes an open menu; it opens one only with the Escape opens
+            // the game menu setting and nothing else to cancel (the match's
+            // keys), and a held key's repeats do nothing more.
+            if (!match_finished_ && match_paused_ && cancel->phase == bindings::Phase::pressed)
+                escape_match_menu();
+        } else if (
+            screen_ == Screen::options || screen_ == Screen::sound || screen_ == Screen::visuals ||
+            screen_ == Screen::speeds || screen_ == Screen::music
+        ) {
+            leave_options_screen();
+        } else if (screen_ == Screen::load_game)
+            // As CANCEL does: a dialog opened over a paused match returns to it.
+            leave_load_dialog();
+        else if (screen_ == Screen::new_campaign || screen_ == Screen::any_mission)
+            load(Screen::single_player);
+        else if (screen_ == Screen::campaign_end)
+            load(Screen::main_menu);
+        else
+            load(Screen::main_menu);
+        return true;
+    }
+    // Any other key may be the quick key of one of the panel's buttons.
+    return frontend_has_keyboard() && press_frontend_gui_action(key);
+}
+
+bool Runtime::answer_menu_list_wheel(float wheel_y) {
+    if (wheel_y == 0.0F)
         return false;
-    const auto typed = std::tolower(static_cast<int>(key.key));
-    const auto& gadgets = resources_.layout.gadgets;
-    for (std::size_t index = 1; index < gadgets.size(); ++index) {
-        const auto& gadget = gadgets[index];
-        const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
-        if (gadget.common.active == 0 || button == nullptr || button->grayed_out ||
-            button->quick_key == 0 ||
-            std::tolower(static_cast<unsigned char>(button->quick_key)) != typed)
-            continue;
-        press_frontend_button(index);
+    const bool up = fired_action("ui.menu-list-up") != nullptr;
+    const bool down = fired_action("ui.menu-list-down") != nullptr;
+    if (!up && !down)
+        return false;
+    const int direction = down ? 1 : -1;
+    if (screen_ == Screen::map_selection && !bound_map_names_.empty()) {
+        const auto next = std::clamp<int32_t>(
+            static_cast<int32_t>(modal_map_index_) + direction,
+            0,
+            static_cast<int32_t>(bound_map_names_.size() - 1U)
+        );
+        preview_map_index(static_cast<std::size_t>(next));
+        return true;
+    }
+    if (screen_ == Screen::any_mission && !campaign_mission_files_.empty()) {
+        const auto next = std::clamp<int32_t>(
+            static_cast<int32_t>(selected_mission_index_) + direction,
+            0,
+            static_cast<int32_t>(campaign_mission_files_.size() - 1U)
+        );
+        selected_mission_index_ = static_cast<std::size_t>(next);
+        if (selected_mission_index_ < campaign_mission_first_visible_)
+            campaign_mission_first_visible_ = selected_mission_index_;
+        select_frontend_list_row("Missions", selected_mission_index_);
+        rebuild_surface();
         return true;
     }
     return false;
 }
 
-bool Runtime::press_frontend_focus_key(const SDL_KeyboardEvent& key) {
-    const bool enter = key.key == SDLK_RETURN;
-    if ((!enter && key.key != SDLK_SPACE) || key.repeat ||
-        (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0)
+bool Runtime::press_frontend_gui_action(const SDL_KeyboardEvent& key) {
+    namespace bindings = oa::ui::key_bindings;
+    const bindings::ActionEvent* gui = nullptr;
+    for (const bindings::ActionEvent& fed : match_action_events()) {
+        if (fed.phase == bindings::Phase::pressed && fed.action.starts_with("gui.")) {
+            gui = &fed;
+            break;
+        }
+    }
+    if (gui == nullptr)
         return false;
+    const auto note_answered = [&] {
+        if (key.key > 0 && key.key < 0x7F)
+            answered_key_ = static_cast<int32_t>(std::tolower(static_cast<int>(key.key)));
+    };
+    const bool plain_letter =
+        gui->chord.kind == bindings::TriggerKind::character && gui->chord.modifiers == 0;
+    const auto& gadgets = resources_.layout.gadgets;
+    if (plain_letter) {
+        // A plain letter with Ctrl, Alt or the system key down types no
+        // character, and a held key's repeats press nothing more.
+        if (key.repeat || (key.mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0 ||
+            key.key == SDLK_UNKNOWN || key.key >= SDLK_DELETE)
+            return false;
+        const auto typed = std::tolower(static_cast<int>(key.key));
+        for (std::size_t index = 1; index < gadgets.size(); ++index) {
+            const auto& gadget = gadgets[index];
+            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+            if (gadget.common.active == 0 || button == nullptr || button->grayed_out ||
+                button->quick_key == 0 ||
+                std::tolower(static_cast<unsigned char>(button->quick_key)) != typed)
+                continue;
+            note_answered();
+            press_frontend_button(index);
+            return true;
+        }
+    }
+    // A letter no button shows, and a rebound chord, press the button of the
+    // action the key started.
+    for (const std::string& stem : menu_gui_stems_) {
+        for (std::size_t index = 1; index < gadgets.size(); ++index) {
+            const auto& gadget = gadgets[index];
+            const auto* button = std::get_if<oa::ui::gui_layout::ButtonFields>(&gadget.fields);
+            if (gadget.common.active == 0 || button == nullptr || button->grayed_out)
+                continue;
+            if (gui_action_id(stem, gadget.common.name) != gui->action)
+                continue;
+            note_answered();
+            press_frontend_button(index);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool Runtime::press_frontend_focus_action(bool accept) {
     const auto focus = frontend_focus();
     if (focus < 0) {
         // A panel with no record focused, as the main menu opens, takes its
         // first from Return, ringed, for the next press to press.
-        if (!enter)
+        if (!accept)
             return false;
         move_frontend_focus(oa::ui::gui_input::FocusDirection::next);
         rebuild_surface();

@@ -1451,6 +1451,7 @@ void Runtime::show_mission_briefing() {
         "anims/commongui.gaf"
     };
     resources_ = renderer::load_screen(assets_, names);
+    set_menu_gui(names.layout);
     const auto& art = campaign::planet_art(
         campaign::briefing_planet_index(
             missions::campaign_planet(&state.file), static_cast<int32_t>(preferences_.side)
@@ -1577,6 +1578,7 @@ void Runtime::show_in_game_briefing() {
     compose_match_layers(below);
     const bool over_match = below.width != 0 && below.height != 0;
     resources_ = std::move(loaded);
+    set_menu_gui(names.layout);
     briefing_parent_ = Screen::match;
     briefing_from_pause_ = true;
     // The briefing leaves the match palette on the display.

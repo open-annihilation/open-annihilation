@@ -536,7 +536,7 @@ std::string_view traced_window_event(const SDL_Event& event) noexcept {
 }
 
 bool take_full_screen_event(
-    SDL_Window* window, FullScreenSwitch& full_screen, const SDL_Event& event
+    SDL_Window* window, FullScreenSwitch& full_screen, const SDL_Event& event, bool switch_chord
 ) {
     // SDL has updated the window's flags by the time its event is read.
     if (window != nullptr && changes_pointer_bounds(event))
@@ -555,7 +555,7 @@ bool take_full_screen_event(
             note_window_place(window);
         return false;
     }
-    switch (full_screen.take_key(event)) {
+    switch (full_screen.take_key(event, switch_chord)) {
     case FullScreenKey::none:
         return false;
     case FullScreenKey::toggle:
@@ -578,6 +578,16 @@ bool take_full_screen_event(
         return true;
     }
     return false;
+}
+
+bool take_full_screen_event(
+    SDL_Window* window, FullScreenSwitch& full_screen, const SDL_Event& event
+) {
+    const bool chord = full_screen_key(event) == FullScreenKey::toggle;
+    if (take_full_screen_event(window, full_screen, event, chord))
+        return true;
+    // A repeat of Alt+Enter that is not the held key is still the intro's.
+    return full_screen_key(event) == FullScreenKey::repeat;
 }
 
 namespace {

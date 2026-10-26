@@ -96,44 +96,75 @@ SDL_Event key_up(SDL_Keycode key, SDL_Keymod mod) {
     return event;
 }
 
+// Alt+Enter is the chord for the checks that have not read a layout.
+FullScreenKey held_key(FullScreenSwitch& full_screen, const SDL_Event& event) {
+    return full_screen.take_key(event, oa::app::full_screen_key(event) == FullScreenKey::toggle);
+}
+
 // The Enter key of an Alt+Enter stays the switch's until it comes up, with
 // Alt held or not.
 void test_held_enter() {
     FullScreenSwitch full_screen{};
     CHECK(
-        full_screen.take_key(key_down(SDLK_RETURN, SDL_KMOD_LALT, false)) == FullScreenKey::toggle
+        held_key(full_screen, key_down(SDLK_RETURN, SDL_KMOD_LALT, false)) == FullScreenKey::toggle
     );
     CHECK(full_screen.held_enter == SDL_SCANCODE_RETURN);
     // Alt let go of first: Enter's repeats and its release are still taken.
     CHECK(
-        full_screen.take_key(key_down(SDLK_RETURN, SDL_KMOD_NONE, true)) == FullScreenKey::repeat
+        held_key(full_screen, key_down(SDLK_RETURN, SDL_KMOD_NONE, true)) == FullScreenKey::repeat
     );
     CHECK(
-        full_screen.take_key(key_down(SDLK_RETURN, SDL_KMOD_LALT, true)) == FullScreenKey::repeat
+        held_key(full_screen, key_down(SDLK_RETURN, SDL_KMOD_LALT, true)) == FullScreenKey::repeat
     );
     // Other keys meanwhile are the screens'.
-    CHECK(full_screen.take_key(key_down(SDLK_A, SDL_KMOD_NONE, false)) == FullScreenKey::none);
+    CHECK(held_key(full_screen, key_down(SDLK_A, SDL_KMOD_NONE, false)) == FullScreenKey::none);
     CHECK(
-        full_screen.take_key(key_down(SDLK_KP_ENTER, SDL_KMOD_NONE, true)) == FullScreenKey::none
+        held_key(full_screen, key_down(SDLK_KP_ENTER, SDL_KMOD_NONE, true)) == FullScreenKey::none
     );
-    CHECK(full_screen.take_key(key_up(SDLK_RETURN, SDL_KMOD_NONE)) == FullScreenKey::release);
+    CHECK(held_key(full_screen, key_up(SDLK_RETURN, SDL_KMOD_NONE)) == FullScreenKey::release);
     CHECK(full_screen.held_enter == SDL_SCANCODE_UNKNOWN);
     // Once Enter is up, Enter alone, its repeats and its release are the screens'.
-    CHECK(full_screen.take_key(key_down(SDLK_RETURN, SDL_KMOD_NONE, false)) == FullScreenKey::none);
-    CHECK(full_screen.take_key(key_down(SDLK_RETURN, SDL_KMOD_NONE, true)) == FullScreenKey::none);
-    CHECK(full_screen.take_key(key_up(SDLK_RETURN, SDL_KMOD_NONE)) == FullScreenKey::none);
+    CHECK(
+        held_key(full_screen, key_down(SDLK_RETURN, SDL_KMOD_NONE, false)) == FullScreenKey::none
+    );
+    CHECK(held_key(full_screen, key_down(SDLK_RETURN, SDL_KMOD_NONE, true)) == FullScreenKey::none);
+    CHECK(held_key(full_screen, key_up(SDLK_RETURN, SDL_KMOD_NONE)) == FullScreenKey::none);
     // A fresh press without Alt after a lost release lets the key go.
     CHECK(
-        full_screen.take_key(key_down(SDLK_KP_ENTER, SDL_KMOD_RALT, false)) == FullScreenKey::toggle
+        held_key(full_screen, key_down(SDLK_KP_ENTER, SDL_KMOD_RALT, false)) ==
+        FullScreenKey::toggle
     );
     CHECK(full_screen.held_enter == SDL_SCANCODE_KP_ENTER);
     CHECK(
-        full_screen.take_key(key_down(SDLK_KP_ENTER, SDL_KMOD_NONE, false)) == FullScreenKey::none
+        held_key(full_screen, key_down(SDLK_KP_ENTER, SDL_KMOD_NONE, false)) == FullScreenKey::none
     );
     CHECK(full_screen.held_enter == SDL_SCANCODE_UNKNOWN);
     CHECK(
-        full_screen.take_key(key_down(SDLK_KP_ENTER, SDL_KMOD_NONE, true)) == FullScreenKey::none
+        held_key(full_screen, key_down(SDLK_KP_ENTER, SDL_KMOD_NONE, true)) == FullScreenKey::none
     );
+}
+
+// A layout's full-screen chord holds its own key. Its repeats and its release
+// reach no screen, and Alt+Enter beside it is left for the screens.
+void test_rebound_chord() {
+    FullScreenSwitch full_screen{};
+    SDL_Event down = key_down(SDLK_F6, SDL_KMOD_NONE, false);
+    down.key.scancode = SDL_SCANCODE_F6;
+    CHECK(full_screen.take_key(down, true) == FullScreenKey::toggle);
+    CHECK(full_screen.held_enter == SDL_SCANCODE_F6);
+    SDL_Event repeat = down;
+    repeat.key.repeat = true;
+    CHECK(full_screen.take_key(repeat, true) == FullScreenKey::repeat);
+    CHECK(
+        full_screen.take_key(key_down(SDLK_RETURN, SDL_KMOD_LALT, false), false) ==
+        FullScreenKey::none
+    );
+    CHECK(full_screen.held_enter == SDL_SCANCODE_F6);
+    SDL_Event up = down;
+    up.type = SDL_EVENT_KEY_UP;
+    up.key.down = false;
+    CHECK(full_screen.take_key(up, false) == FullScreenKey::release);
+    CHECK(full_screen.held_enter == SDL_SCANCODE_UNKNOWN);
 }
 
 void test_window_flags() {
@@ -1394,6 +1425,7 @@ void test_saved_window_place() {
 int main() {
     test_keys();
     test_held_enter();
+    test_rebound_chord();
     test_window_flags();
     test_edge_scroll_depth();
     test_switch_at_once();
