@@ -16,8 +16,12 @@ namespace oa::update_helper {
 /// Starts a program and keeps the handle, so a watch can see it end.
 ///
 /// The arguments are the ones given and, when `add_updated_from` is set,
-/// `--updated-from` and `from_version`. The caller destroys the handle with
-/// SDL_DestroyProcess. Destroying it does not kill the program.
+/// `--updated-from` and `from_version`. The program is a direct child, not a
+/// background process: on POSIX a background process is started by a
+/// short-lived child and SDL never learns the program's own pid, so a watch
+/// would wait for a process it cannot see. Its standard streams are
+/// discarded. The caller destroys the handle with SDL_DestroyProcess.
+/// Destroying it does not kill the program.
 ///
 /// @param program the program
 /// @param arguments its arguments

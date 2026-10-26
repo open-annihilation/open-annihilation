@@ -3,7 +3,10 @@
 
 // Watching the version the helper just started. The watch ends when that
 // process does, or when state.json says the start reached the main menu.
-// It does not time out while the process is still running.
+// It does not time out while the process is still running. A start that
+// cannot be observed — no pid, and a background process whose pid SDL did
+// not keep — ends after a short wait, so a child that is already gone
+// cannot hold the helper.
 #pragma once
 
 #include <filesystem>
@@ -23,7 +26,9 @@ enum class WatchEnd : uint8_t {
 /// Both are polled every 250 ms. A confirmed state ends the watch even while
 /// the process is still running, and the process is not killed. Pass a
 /// process from SDL, or a positive pid from Launch Services, or both. With
-/// neither, the watch ends at once as `ended`.
+/// neither, the watch ends at once as `ended`. A background process with no
+/// pid is not a process the watch can see; that watch ends after a few
+/// seconds when the state stays unconfirmed.
 ///
 /// @param process the process SDL started; destroyed when the watch ends; may be null
 /// @param pid a process id to poll; 0 polls nothing
