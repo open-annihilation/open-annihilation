@@ -4677,6 +4677,12 @@ if(BUILD_TESTING)
         $<TARGET_FILE:oa-update> $<TARGET_FILE:oa-tool>)
       set_tests_properties(tools-oa-update-run PROPERTIES TIMEOUT 300)
     endif()
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      add_test(NAME tools-oa-update-launcher COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_update_launcher.py
+        ${CMAKE_CURRENT_SOURCE_DIR}/packaging/linux/open-annihilation-launcher.sh)
+      set_tests_properties(tools-oa-update-launcher PROPERTIES TIMEOUT 60)
+    endif()
     # A configure with self-update off builds oa-game and not oa-update, and
     # self-update on with process spawning off is refused. Configure only.
     add_test(NAME cmake-self-update-off COMMAND ${Python3_EXECUTABLE}

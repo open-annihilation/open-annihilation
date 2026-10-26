@@ -5,11 +5,13 @@
 #include "oa/app/update/route.hpp"
 
 #include "oa/app/version_line.hpp"
+#include "oa/platform/system.hpp"
 
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -23,6 +25,10 @@
 #include <windows.h>
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
+#endif
+#if !defined(_WIN32)
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace oa::app::update {
@@ -83,6 +89,64 @@ namespace fs = std::filesystem;
     return (bits & fs::perms::owner_write) != fs::perms::none;
 }
 
+/// A path as UTF-8 with forward slashes.
+///
+/// @param path the path
+/// @return its spelling
+std::string generic_utf8(const fs::path& path) {
+    const std::u8string text = path.generic_u8string();
+    return {reinterpret_cast<const char*>(text.data()), text.size()};
+}
+
+/// True when `folder` is `root` or a folder inside it. `root` ends with a slash.
+///
+/// @param folder the install, as generic UTF-8
+/// @param root the blocked prefix, with its trailing slash
+/// @return true for `/opt` and `/opt/oa`, false for `/optima`
+bool under_prefix(std::string_view folder, std::string_view root) {
+    const std::string_view exact = root.substr(0, root.size() - 1);
+    return folder == exact || folder.starts_with(root);
+}
+
+/// True when the install is one the player cannot replace.
+///
+/// @param install the install folder
+/// @return true under /opt, /usr, /snap or /var/lib/flatpak
+bool system_location(const fs::path& install) {
+    const std::string folder = generic_utf8(install);
+    return under_prefix(folder, "/opt/") || under_prefix(folder, "/usr/") ||
+           under_prefix(folder, "/snap/") || under_prefix(folder, "/var/lib/flatpak/");
+}
+
+/// The install folder. A versions layout is the folder above `versions/`.
+///
+/// @param facts the machine's facts
+/// @return the folder the route replaces
+fs::path install_root(const RouteFacts& facts) {
+    const fs::path parent = facts.program_folder.parent_path();
+    if (parent.filename() == "versions" && facts.launcher_present)
+        return parent.parent_path();
+    return facts.program_folder;
+}
+
+/// True for the three Linux package platforms.
+///
+/// @param platform the package platform name
+/// @return true for linux-x86_64, linux-arm64 and linux-armhf
+bool linux_platform(std::string_view platform) {
+    return platform == "linux-x86_64" || platform == "linux-arm64" || platform == "linux-armhf";
+}
+
+/// True when `path` is a regular file or a link to one, without requiring the target.
+///
+/// @param path the path
+/// @return true when a launcher file is there
+bool launcher_file(const fs::path& path) {
+    std::error_code error;
+    const fs::file_status status = fs::symlink_status(path, error);
+    return !error && (fs::is_regular_file(status) || fs::is_symlink(status));
+}
+
 } // namespace
 
 Where find_route(const ThisBuild& build, const RouteFacts& facts) {
@@ -101,7 +165,18 @@ Where find_route(const ThisBuild& build, const RouteFacts& facts) {
         where.program = facts.executable;
         return where;
     }
-    where.why = "no route for this platform yet";
+    if (!linux_platform(facts.platform)) {
+        where.why = "no route for this platform yet";
+        return where;
+    }
+    const fs::path install = install_root(facts);
+    if (!facts.owned_by_player || facts.appimage || facts.flatpak || system_location(install)) {
+        where.why = std::string(whole_system_copy);
+        return where;
+    }
+    where.route = Route::linux_versions;
+    where.install = install;
+    where.program = facts.executable;
     return where;
 }
 
@@ -111,6 +186,20 @@ RouteFacts this_machine(const fs::path& program_folder) {
     facts.program_folder = program_folder;
     facts.folder_writable = folder_can_be_written(program_folder);
     facts.platform = std::string(release_platform_name());
+    facts.owned_by_player = true;
+#if !defined(_WIN32)
+    struct stat info{};
+    if (::stat(program_folder.c_str(), &info) == 0)
+        facts.owned_by_player = info.st_uid == ::geteuid();
+#endif
+    const std::optional<std::string> appimage = oa::platform::environment_value("APPIMAGE");
+    const std::optional<std::string> flatpak = oa::platform::environment_value("FLATPAK_ID");
+    facts.appimage = appimage.has_value();
+    facts.flatpak = flatpak.has_value();
+    if (program_folder.parent_path().filename() == "versions") {
+        const fs::path launcher = program_folder.parent_path().parent_path() / "open-annihilation";
+        facts.launcher_present = launcher_file(launcher);
+    }
     return facts;
 }
 

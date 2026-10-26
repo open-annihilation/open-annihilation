@@ -35,10 +35,8 @@ bool list_children(const fs::path& folder, std::vector<fs::path>& children, std:
     return true;
 }
 
-} // namespace
-
 std::vector<Operation>
-plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
+folder_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
     if (why != nullptr)
         why->clear();
     const fs::path install = path_from(plan.install);
@@ -89,6 +87,20 @@ plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::
         operations.push_back(std::move(operation));
     }
     return operations;
+}
+
+} // namespace
+
+std::vector<Operation>
+plan_operations(const oa::app::update::Plan& plan, const fs::path& staged, std::string* why) {
+    if (why != nullptr)
+        why->clear();
+    if (plan.route == oa::app::update::Route::linux_versions)
+        return linux_operations(plan, staged, why);
+    if (plan.route == oa::app::update::Route::check_folder)
+        return folder_operations(plan, staged, why);
+    set_why(why, "this route is not carried out");
+    return {};
 }
 
 } // namespace oa::update_helper
