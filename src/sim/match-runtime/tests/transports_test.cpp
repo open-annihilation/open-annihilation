@@ -316,6 +316,7 @@ struct Fixture {
     Scenario scenario;
     std::unique_ptr<sim::match_runtime::Match> match;
     uint32_t clock = 1;
+    bool speech = true; ///< the match's speech with captions reaches Services::speak
 
     /// Builds the match.
     ///
@@ -490,6 +491,13 @@ struct Fixture {
             loaded[i].type = types[i];
         }
         collision_plots.resize(map_cells * map_cells);
+        speech = speech_hooks;
+        build_match();
+    }
+
+    /// Builds the match from the types as they are now.
+    void build_match() {
+        match.reset();
         sim::match_runtime::OfflineInputs input{
             map,  loaded, types, fields, weapons,   terrain_values,    masks,           32, 32, 16,
             2,    0,      30,    1,      &scenario, [] { return 0u; }, collision_plots, {}, 0,  0,
@@ -497,7 +505,7 @@ struct Fixture {
         };
         match = std::make_unique<sim::match_runtime::Match>(input, services);
         services.match = match.get();
-        if (speech_hooks)
+        if (speech)
             match->set_speech_hooks({&services, &Services::speak});
         match->configure_strategic_environment({0, 0.5F, 0});
         match->simulation().players[0].present = true;
@@ -508,10 +516,15 @@ struct Fixture {
         match->configure_outcomes(0, allies, false);
     }
 
+    /// Gives the type a script before any unit is spawned.
+    ///
+    /// A match prepares each type's script program as it is built, so the
+    /// match is built again with the new script.
     void use_script(uint16_t type, std::shared_ptr<formats::cob::CobProgram> script) {
         loaded[type].script = std::move(script);
         types[type].cob = reinterpret_cast<uintptr_t>(loaded[type].script.get());
         loaded[type].type = types[type];
+        build_match();
     }
 
     sim::unit_spawn::Slot& spawn(uint16_t type, int32_t x, int32_t z) {
