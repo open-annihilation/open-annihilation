@@ -116,6 +116,10 @@ bool parse_kind(std::string_view text, Kind& kind) noexcept {
         kind = Kind::oabrain;
         return true;
     }
+    if (text == "oakeys") {
+        kind = Kind::oakeys;
+        return true;
+    }
     return false;
 }
 
@@ -850,6 +854,243 @@ bool read_brain_facts(const json::Json& object, Package& package, std::string& r
     return true;
 }
 
+/// Whether `name` is one of the six helpers a key layout may set.
+bool known_helper(std::string_view name) noexcept {
+    return name == "toggle" || name == "sticky-modifiers" || name == "hold-to-confirm" ||
+           name == "pointer-keys" || name == "radial-orders" || name == "edge-scroll";
+}
+
+/// Whether every byte is an ASCII letter or digit.
+bool letters_and_digits(std::string_view text) noexcept {
+    if (text.empty())
+        return false;
+    for (const char byte : text) {
+        const bool digit = byte >= '0' && byte <= '9';
+        const bool capital = byte >= 'A' && byte <= 'Z';
+        const bool small = byte >= 'a' && byte <= 'z';
+        if (!digit && !capital && !small)
+            return false;
+    }
+    return true;
+}
+
+/// Whether `name` is a pad control: a capital first letter, then letters and digits.
+bool pad_name_ok(std::string_view name) noexcept {
+    if (name.empty() || name.front() < 'A' || name.front() > 'Z')
+        return false;
+    return letters_and_digits(name);
+}
+
+/// Whether `text` is a trigger this build's catalogue can name.
+///
+/// A modifier on its own is not one. A string the chord grammar would not
+/// read is not one, and the caller skips it. The check is the shape only:
+/// this library does not link the key-binding parser.
+bool readable_trigger(std::string_view text) noexcept {
+    if (text == "Primary" || text == "Ctrl" || text == "Alt" || text == "Shift" || text == "Meta")
+        return false;
+    if (text.size() == 1) {
+        const unsigned char byte = static_cast<unsigned char>(text[0]);
+        return byte >= 0x21 && byte <= 0x7E;
+    }
+    if (!text.empty() && text.front() == '@')
+        return letters_and_digits(text.substr(1));
+    static constexpr std::string_view named[] = {
+        "Escape",
+        "Enter",
+        "Tab",
+        "Backspace",
+        "Space",
+        "Delete",
+        "F1",
+        "F2",
+        "F3",
+        "F4",
+        "F5",
+        "F6",
+        "F7",
+        "F8",
+        "F9",
+        "F10",
+        "F11",
+        "F12",
+        "F13",
+        "F14",
+        "F15",
+        "F16",
+        "F17",
+        "F18",
+        "F19",
+        "F20",
+        "F21",
+        "F22",
+        "F23",
+        "F24",
+        "Insert",
+        "Home",
+        "End",
+        "PageUp",
+        "PageDown",
+        "Up",
+        "Down",
+        "Left",
+        "Right",
+        "Numpad0",
+        "Numpad1",
+        "Numpad2",
+        "Numpad3",
+        "Numpad4",
+        "Numpad5",
+        "Numpad6",
+        "Numpad7",
+        "Numpad8",
+        "Numpad9",
+        "NumpadAdd",
+        "NumpadSubtract",
+        "NumpadMultiply",
+        "NumpadDivide",
+        "NumpadDecimal",
+        "NumpadEnter",
+        "PrintScreen",
+        "Pause",
+        "ContextMenu",
+    };
+    for (const std::string_view name : named) {
+        if (text == name)
+            return true;
+    }
+    static constexpr std::string_view mouse[] = {
+        "MouseLeft",
+        "MouseRight",
+        "MouseMiddle",
+        "MouseBack",
+        "MouseForward",
+        "Mouse6",
+        "Mouse7",
+        "Mouse8",
+    };
+    for (const std::string_view name : mouse) {
+        if (text == name)
+            return true;
+    }
+    if (text == "WheelUp" || text == "WheelDown" || text == "WheelRight" || text == "WheelLeft")
+        return true;
+    constexpr std::string_view pad = "Pad.";
+    if (text.size() > pad.size() && text.substr(0, pad.size()) == pad)
+        return pad_name_ok(text.substr(pad.size()));
+    return false;
+}
+
+/// Reads the members only a key layout uses.
+///
+/// An unknown helper, and a trigger this build cannot read, are skipped.
+/// The lists' limits apply before that skip. Any other broken member names
+/// itself and leaves the entry out.
+bool read_key_facts(const json::Json& object, Package& package, std::string& reason) {
+    const json::Json* base = object.find("base");
+    if (base == nullptr) {
+        reason = "base is missing";
+        return false;
+    }
+    const std::string* base_text = base->string();
+    if (base_text == nullptr || (*base_text != "oa-default" && *base_text != "none")) {
+        reason = "base is not oa-default or none";
+        return false;
+    }
+    package.key_base = *base_text;
+
+    package.keyboard = "any";
+    if (const json::Json* keyboard = object.find("keyboard")) {
+        const std::string* keyboard_text = keyboard->string();
+        if (keyboard_text == nullptr || (*keyboard_text != "any" && *keyboard_text != "ansi" &&
+                                         *keyboard_text != "iso" && *keyboard_text != "jis")) {
+            reason = "keyboard is not any, ansi, iso or jis";
+            return false;
+        }
+        package.keyboard = *keyboard_text;
+    }
+    if (const json::Json* pointer = object.find("pointer")) {
+        const std::string* pointer_text = pointer->string();
+        if (pointer_text == nullptr ||
+            (*pointer_text != "right-click" && *pointer_text != "left-click")) {
+            reason = "pointer is not right-click or left-click";
+            return false;
+        }
+        package.pointer = *pointer_text;
+    }
+    if (const json::Json* helpers = object.find("helpers")) {
+        if (helpers->type() != json::JsonType::array) {
+            reason = "helpers is not a list";
+            return false;
+        }
+        if (helpers->elements().size() > 6) {
+            reason = "helpers lists more than 6";
+            return false;
+        }
+        for (std::size_t slot = 0; slot < helpers->elements().size(); ++slot) {
+            const std::string* helper_text = helpers->elements()[slot].string();
+            if (helper_text == nullptr) {
+                reason = "helpers[" + std::to_string(slot) + "] is not text";
+                return false;
+            }
+            if (!known_helper(*helper_text))
+                continue;
+            for (const std::string& earlier : package.helpers) {
+                if (earlier == *helper_text) {
+                    reason = "helpers[" + std::to_string(slot) + "] is repeated";
+                    return false;
+                }
+            }
+            package.helpers.push_back(*helper_text);
+        }
+    }
+    if (const json::Json* changes = object.find("changes")) {
+        const std::optional<int64_t> number = changes->integer();
+        if (!number || *number < 0 || *number > 2048) {
+            reason = "changes is not a whole number from 0 to 2048";
+            return false;
+        }
+        package.changes = static_cast<uint32_t>(*number);
+    }
+    if (const json::Json* triggers = object.find("triggers")) {
+        if (triggers->type() != json::JsonType::array) {
+            reason = "triggers is not a list";
+            return false;
+        }
+        if (triggers->elements().size() > 128) {
+            reason = "triggers lists more than 128";
+            return false;
+        }
+        for (std::size_t slot = 0; slot < triggers->elements().size(); ++slot) {
+            const std::string* trigger_text = triggers->elements()[slot].string();
+            if (trigger_text == nullptr) {
+                reason = "triggers[" + std::to_string(slot) + "] is not text";
+                return false;
+            }
+            if (!readable_trigger(*trigger_text))
+                continue;
+            for (const std::string& earlier : package.triggers) {
+                if (earlier == *trigger_text) {
+                    reason = "triggers[" + std::to_string(slot) + "] is repeated";
+                    return false;
+                }
+            }
+            package.triggers.push_back(*trigger_text);
+        }
+    }
+    if (const json::Json* preview = object.find("preview")) {
+        const std::string* preview_text = preview->string();
+        const bool png = preview_text && preview_text->size() >= 4 &&
+                         preview_text->compare(preview_text->size() - 4, 4, ".png") == 0;
+        if (preview_text == nullptr || !valid_reference(*preview_text) || !png) {
+            reason = "preview is not a picture reference";
+            return false;
+        }
+        package.preview = *preview_text;
+    }
+    return true;
+}
+
 /// Reads `requires` when the package names it.
 bool read_requires(const json::Json& object, Package& package, std::string& reason) {
     const json::Json* value = object.find("requires");
@@ -1370,13 +1611,14 @@ bool read_package(const json::Json& value, Package& package, std::string& reason
     }
     package.file = *file_text;
     if (kind == Kind::oamod || kind == Kind::expansion || kind == Kind::oamut ||
-        kind == Kind::oabrain) {
+        kind == Kind::oabrain || kind == Kind::oakeys) {
         if (!require_text(value, "version", 1, 32, package.version, reason))
             return false;
     } else if (!optional_text(value, "version", 1, 32, package.version, reason)) {
         return false;
     }
-    if ((kind == Kind::oamut || kind == Kind::oabrain) && !oamut::parse_version(package.version)) {
+    if ((kind == Kind::oamut || kind == Kind::oabrain || kind == Kind::oakeys) &&
+        !oamut::parse_version(package.version)) {
         reason = "version is not a mutator version";
         return false;
     }
@@ -1458,6 +1700,9 @@ bool read_package(const json::Json& value, Package& package, std::string& reason
         return false;
     if (kind == Kind::oabrain && (!read_works_with_and_options(value, package, reason) ||
                                   !read_brain_facts(value, package, reason)))
+        return false;
+    if (kind == Kind::oakeys &&
+        (!read_works_with(value, package, reason) || !read_key_facts(value, package, reason)))
         return false;
     return true;
 }
