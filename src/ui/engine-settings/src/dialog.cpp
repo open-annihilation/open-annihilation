@@ -2945,13 +2945,16 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         const oa::ui::kit::RowView& view = placed.rows[index].view;
         // A locked row's control is drawn but takes no press.
         const int32_t control = row.lock == Lock::none ? row.control : no_control;
-        // A value that shares the label's box, as Key layout's does when it
-        // fits beside EDIT KEYS…, keeps the right of that line. The label
-        // keeps the left, so the two texts do not cover each other.
+        // Key layout and Previous version name a value beside the label.
+        // The other buttons of this kind, including Downloads', show a
+        // caption and no value part, as they did before Key layout.
+        const bool names_value =
+            !view.value.empty() && (row.setting == Setting::key_layout || row.updates == 3);
+        // A value that shares the label's box keeps the right of that line.
+        // The label keeps the left, so the two texts do not cover each other.
         layout::SourceRect label_box = row.label;
         layout::SourceRect value_box = placed.rows[index].value;
-        if (view.kind == oa::ui::kit::RowKind::value_and_button && !view.value.empty() &&
-            value_box.x == label_box.x && value_box.y == label_box.y &&
+        if (names_value && value_box.x == label_box.x && value_box.y == label_box.y &&
             value_box.width == label_box.width && value_box.height == label_box.height) {
             const auto span_of = [&](std::string_view words) {
                 return std::max(text_width(words), int32_t{1});
@@ -3001,7 +3004,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             // Previous version names the kept release, and Key layout names
             // the layout in use, beside the label. A button with no value
             // shows its caption alone.
-            if (!view.value.empty())
+            if (names_value)
                 row_part(LayoutPart{value_box, view.value, DialogFont::regular, 0, no_control});
             if (!view.buttons.empty())
                 row_part(

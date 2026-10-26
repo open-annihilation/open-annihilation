@@ -5286,7 +5286,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
         {Page::touch, 0x06e04c8c7adeaedf},
         {Page::controller, 0x33bfab27a238bf5b},
         {Page::game_files, 0x91919fcbfa7bd9a4},
-        {Page::downloads, 0x7ff41610e0f29c13},
+        {Page::downloads, 0xe8c219c70e49efd6},
         {Page::updates, 0x44e95e2faa63e655},
         {Page::game_content, 0x8ff6dbe85ecb0582},
     }};
