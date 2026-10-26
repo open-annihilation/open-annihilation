@@ -254,8 +254,8 @@ void Runtime::set_side_stage(std::string_view name, uint8_t stage) {
         fields->text.clear();
         return;
     }
-    const char* side_name = side_table_.sides[stage].name;
-    fields->text.assign(side_name, ::strnlen(side_name, sizeof side_table_.sides[stage].name));
+    const oa::Side* loaded = oa::data::defs::side_at(side_table_, stage);
+    fields->text.assign(loaded->name, ::strnlen(loaded->name, sizeof loaded->name));
 }
 
 void Runtime::set_tooltip(std::string_view name, std::string_view text) {
@@ -682,8 +682,9 @@ uint16_t Runtime::commander_type_for_side(uint8_t side) {
     // start then fails with its own message, instead of dying on the lookup.
     if (side >= side_table_.count)
         return 0;
-    const auto type =
-        oa::sim::unit_spawn::find_type_index(spawn_type_names_, side_table_.sides[side].commander);
+    const auto type = oa::sim::unit_spawn::find_type_index(
+        spawn_type_names_, oa::data::defs::side_at(side_table_, side)->commander
+    );
     if (type == 0)
         throw std::runtime_error("side commander is absent from unit catalog");
     return type;

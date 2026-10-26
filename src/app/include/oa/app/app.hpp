@@ -545,6 +545,9 @@ struct Options {
     // Drives every key, click and wheel the match answers and compares what
     // each did with the named table; empty for no check.
     std::string check_key_table;
+    // Checks slow keys, bounce keys, the double-press time, the player's
+    // repeat and the drag threshold on one skirmish.
+    bool check_key_timing = false;
     // Presses F4 in a skirmish and checks the kills board at the top right.
     bool check_kill_board = false;
     // Latches Shift and Space from a scratch layout, then sticky Ctrl and Alt.

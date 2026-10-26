@@ -12,6 +12,7 @@
 
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/ui/key_bindings/key_codes.hpp"
+#include "timing.hpp"
 
 #include <array>
 #include <cstdio>
@@ -473,6 +474,7 @@ struct DispatcherState {
     Platform platform{};
     Timings timings{};
     Contexts contexts{};
+    KeyClocks clocks{};
     std::array<Slot, scancode_limit> keys{};
     std::array<Slot, 9> buttons{};
     std::vector<LiveRole> live{};
@@ -1066,20 +1068,31 @@ void remember_key_latches(
         consider(item.action_index);
 }
 
-/// `feed` while a toggle list or sticky modifiers are on.
+/// Whether a toggle list or sticky modifiers change what an accepted event does.
 ///
-/// With both off, `feed` does not call this. A modifier key that goes down
-/// and up with nothing else between is a tap. Another key or button makes
-/// it a plain modifier.
+/// With both off, `feed` does not call the helper path, so the events match
+/// the path that has no latches.
 ///
 /// @param state the dispatcher
-/// @param event the event
-/// @return the action events
-Fed feed_with_helpers(DispatcherState& state, const InputEvent& event) {
-    Fed fed;
-    if (event.kind == InputKind::pad)
-        return fed;
+/// @return true when a latch or a sticky modifier can apply
+bool helpers_engaged(const DispatcherState& state) {
+    return state.sticky_on || !state.toggle.empty();
+}
 
+/// Notes a latch or a sticky modifier for an event the bindings are about to accept.
+///
+/// A key held back or dropped never reaches this. A modifier key that goes
+/// down and up with nothing else between is a tap. Another key or button
+/// makes it a plain modifier. `seen` carries the sticky bits for `choose`.
+/// The event itself keeps the physical modifiers, and so does the slot.
+///
+/// @param state the dispatcher
+/// @param event the physical event
+/// @param[out] seen the event `choose` matches
+/// @param fed the result
+void note_accepted_helpers(
+    DispatcherState& state, const InputEvent& event, InputEvent& seen, Fed& fed
+) {
     const uint8_t sticky_before = state.sticky.mods();
     const bool modifier_key =
         event.kind == InputKind::key && !event.repeat && bit_for_scancode(event.scancode) != 0;
@@ -1139,61 +1152,93 @@ Fed feed_with_helpers(DispatcherState& state, const InputEvent& event) {
             state.sticky.tap(bit, event.time_ms, state.timings.double_press_ms);
     }
 
-    InputEvent seen = event;
-    if (state.sticky_on) {
-        const uint8_t sticky_bits = modifier_key ? sticky_before : state.sticky.mods();
-        uint8_t plain_bits = 0;
-        for (const uint8_t modifier_bit :
-             {uint8_t{ctrl}, uint8_t{alt}, uint8_t{shift}, uint8_t{meta}}) {
-            const int index = modifier_index(modifier_bit);
-            if (index < 0)
-                continue;
-            const ModifierFinger& finger = state.fingers[static_cast<std::size_t>(index)];
-            if (finger.down && finger.plain)
-                plain_bits = static_cast<uint8_t>(plain_bits | modifier_bit);
-        }
-        seen.modifiers = static_cast<uint8_t>(seen.modifiers | sticky_bits | plain_bits);
+    seen = event;
+    if (!state.sticky_on)
+        return;
+    const uint8_t sticky_bits = modifier_key ? sticky_before : state.sticky.mods();
+    uint8_t plain_bits = 0;
+    for (const uint8_t modifier_bit :
+         {uint8_t{ctrl}, uint8_t{alt}, uint8_t{shift}, uint8_t{meta}}) {
+        const int index = modifier_index(modifier_bit);
+        if (index < 0)
+            continue;
+        const ModifierFinger& finger = state.fingers[static_cast<std::size_t>(index)];
+        if (finger.down && finger.plain)
+            plain_bits = static_cast<uint8_t>(plain_bits | modifier_bit);
     }
+    seen.modifiers = static_cast<uint8_t>(seen.modifiers | sticky_bits | plain_bits);
+}
 
-    if (event.kind == InputKind::wheel) {
-        const std::vector<Candidate> winners = choose(state, seen, Gesture::press);
-        emit_winners(state, winners, Phase::pressed, event, fed);
-        if (state.sticky_on && !winners.empty())
-            state.sticky.consume();
-        fed.bound = !fed.events.empty();
-        return fed;
-    }
-    if (event.kind != InputKind::key && event.kind != InputKind::button)
-        return fed;
-
+/// Turns one key or button the bindings are allowed to see into action events.
+///
+/// `event` is the physical key. `seen` is that key with sticky modifiers added,
+/// and it is what `choose` matches. A repeat, including one that is the key's
+/// first event, does not press or release a latch and does not consume a
+/// sticky modifier.
+///
+/// @param state the bindings
+/// @param event the physical key or button
+/// @param seen the event `choose` matches
+/// @param fed the result
+void accept_control(
+    DispatcherState& state, const InputEvent& event, const InputEvent& seen, Fed& fed
+) {
     Slot& slot = slot_for(state, event);
+    const bool modifier_key =
+        event.kind == InputKind::key && !event.repeat && bit_for_scancode(event.scancode) != 0;
     if (event.repeat) {
-        if (slot.down) {
-            for (const Started& started : slot.started) {
-                if (started.action_index >= state.resolved.actions.size())
+        // A repeat can be the first event for the key: a check holds it down
+        // by sending the repeat itself. Resolve that the way a press would,
+        // and report one repeat of each repeat action. A press action still
+        // waits for a down that was not a repeat. Neither arm latches.
+        if (!slot.down) {
+            const std::vector<Candidate> winners = choose(state, seen, Gesture::press);
+            for (const Candidate& item : winners) {
+                if (item.action_index >= state.resolved.actions.size())
                     continue;
-                const Bound& bound = state.resolved.actions[started.action_index];
+                const Bound& bound = state.resolved.actions[item.action_index];
                 const actions::Kind kind =
                     bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
-                if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                if (kind != actions::Kind::repeat)
                     continue;
-                push_event(
-                    fed,
-                    bound,
-                    Phase::repeated,
-                    bound.chords[started.chord_index].chord,
-                    started.context
-                );
+                push_event(fed, bound, Phase::repeated, item.chord, item.context);
+                remember(slot, item);
             }
+            if (!slot.started.empty()) {
+                slot.down = true;
+                slot.saw_up = false;
+                slot.down_modifiers = event.modifiers;
+                slot.down_ms = event.time_ms;
+                slot.had_binding = true;
+                slot.latch_ids.clear();
+            }
+            fed.bound = !fed.events.empty();
+            return;
+        }
+        for (const Started& started : slot.started) {
+            if (started.action_index >= state.resolved.actions.size())
+                continue;
+            const Bound& bound = state.resolved.actions[started.action_index];
+            const actions::Kind kind =
+                bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+            if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                continue;
+            push_event(
+                fed,
+                bound,
+                Phase::repeated,
+                bound.chords[started.chord_index].chord,
+                started.context
+            );
         }
         fed.bound = slot.down && slot.had_binding;
-        return fed;
+        return;
     }
 
     if (!event.down) {
         if (!slot.down) {
             fed.bound = !fed.events.empty();
-            return fed;
+            return;
         }
         release_latch_ids(state, slot.latch_ids, event.time_ms);
         release_started(state, slot, fed);
@@ -1202,9 +1247,13 @@ Fed feed_with_helpers(DispatcherState& state, const InputEvent& event) {
         if (state.sticky_on && !modifier_key && !winners.empty())
             state.sticky.consume();
         fed.bound = !fed.events.empty();
-        return fed;
+        return;
     }
 
+    // A second down is a double press only after the key has come up. Two downs
+    // with no up between them are a missed release, not a double press. The
+    // stored modifiers stay the physical ones, so a sticky bit `choose` saw
+    // does not become the next double-press's modifiers.
     const bool as_double =
         event.kind == InputKind::button
             ? event.clicks == 2
@@ -1235,6 +1284,7 @@ Fed feed_with_helpers(DispatcherState& state, const InputEvent& event) {
         arm.due_ms = event.time_ms + state.timings.long_press_ms;
         slot.holds.push_back(arm);
     }
+    // A double that found no `:double` binding falls through to the plain chord.
     const Phase down_phase =
         !winners.empty() && winners.front().chord.gesture == Gesture::double_press
             ? Phase::double_press
@@ -1248,7 +1298,46 @@ Fed feed_with_helpers(DispatcherState& state, const InputEvent& event) {
     if (state.sticky_on && !modifier_key && (!winners.empty() || !slot.holds.empty()))
         state.sticky.consume();
     fed.bound = slot.had_binding;
-    return fed;
+}
+
+/// Emits every `repeated` event the player's own rate has due, for repeat actions only.
+///
+/// @param state the bindings and the clocks
+/// @param fed the result
+/// @param now_ms the time, in milliseconds
+void emit_custom_repeats(DispatcherState& state, Fed& fed, uint64_t now_ms) {
+    if (!custom_repeat(state.timings))
+        return;
+    const uint32_t interval = repeat_interval_ms(state.timings);
+    if (interval == 0)
+        return;
+    for (uint16_t index = 0; index < scancode_limit; ++index) {
+        KeyClock& clock = state.clocks.keys[index];
+        Slot& slot = state.keys[index];
+        if (!clock.repeat_on || !slot.down)
+            continue;
+        int guard = 0;
+        while (clock.next_repeat_ms <= now_ms && guard < 64) {
+            for (const Started& started : slot.started) {
+                if (started.action_index >= state.resolved.actions.size())
+                    continue;
+                const Bound& bound = state.resolved.actions[started.action_index];
+                const actions::Kind kind =
+                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
+                if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
+                    continue;
+                push_event(
+                    fed,
+                    bound,
+                    Phase::repeated,
+                    bound.chords[started.chord_index].chord,
+                    started.context
+                );
+            }
+            clock.next_repeat_ms += interval;
+            ++guard;
+        }
+    }
 }
 
 } // namespace
@@ -1272,6 +1361,7 @@ void Dispatcher::set_bindings(const Resolved& bindings) {
     state_->sticky.clear();
     state_->fingers = {};
     state_->tracked_modifiers = 0;
+    clear_clocks(state_->clocks);
 }
 
 void Dispatcher::set_keyboard(const KeyboardMap& keyboard) {
@@ -1283,7 +1373,7 @@ void Dispatcher::set_platform(Platform platform) {
 }
 
 void Dispatcher::set_timings(Timings timings) {
-    state_->timings = timings;
+    state_->timings = clamped(timings);
 }
 
 void Dispatcher::set_contexts(Contexts contexts) {
@@ -1291,102 +1381,62 @@ void Dispatcher::set_contexts(Contexts contexts) {
 }
 
 Fed Dispatcher::feed(const InputEvent& event) {
-    if (state_->sticky_on || !state_->toggle.empty())
-        return feed_with_helpers(*state_, event);
     Fed fed;
     if (event.kind == InputKind::pad)
         return fed;
-    if (event.kind == InputKind::key)
+    // Slow keys and bounce keys decide first. A key they hold back or drop
+    // does not latch and does not arm a sticky modifier.
+    const KeyFate fate =
+        event.kind == InputKind::key
+            ? consider_key(state_->clocks, state_->timings, state_->contexts.text_entry, event)
+            : KeyFate::through;
+    if (fate == KeyFate::hold) {
+        fed.legacy = LegacyGate::hold;
+        return fed;
+    }
+    if (fate == KeyFate::drop) {
+        fed.legacy = LegacyGate::drop;
+        return fed;
+    }
+    InputEvent seen = event;
+    if (helpers_engaged(*state_))
+        note_accepted_helpers(*state_, event, seen, fed);
+    else if (event.kind == InputKind::key)
         apply_modifiers(*state_, event, fed);
     if (event.kind == InputKind::wheel) {
-        const std::vector<Candidate> winners = choose(*state_, event, Gesture::press);
+        const std::vector<Candidate> winners = choose(*state_, seen, Gesture::press);
         emit_winners(*state_, winners, Phase::pressed, event, fed);
+        if (state_->sticky_on && !winners.empty())
+            state_->sticky.consume();
         fed.bound = !fed.events.empty();
         return fed;
     }
     if (event.kind != InputKind::key && event.kind != InputKind::button)
         return fed;
-
-    Slot& slot = slot_for(*state_, event);
-    if (event.repeat) {
-        if (slot.down) {
-            for (const Started& started : slot.started) {
-                if (started.action_index >= state_->resolved.actions.size())
-                    continue;
-                const Bound& bound = state_->resolved.actions[started.action_index];
-                const actions::Kind kind =
-                    bound.entry != nullptr ? bound.entry->kind : actions::Kind::press;
-                if (kind != actions::Kind::repeat || started.chord_index >= bound.chords.size())
-                    continue;
-                push_event(
-                    fed,
-                    bound,
-                    Phase::repeated,
-                    bound.chords[started.chord_index].chord,
-                    started.context
-                );
-            }
-        }
+    if (fate == KeyFate::ignore_repeat) {
+        const Slot& slot = slot_for(*state_, event);
         fed.bound = slot.down && slot.had_binding;
         return fed;
     }
-
-    if (!event.down) {
-        if (!slot.down) {
-            fed.bound = !fed.events.empty();
-            return fed;
-        }
-        release_started(*state_, slot, fed);
-        const std::vector<Candidate> winners = choose(*state_, event, Gesture::release);
-        emit_winners(*state_, winners, Phase::pressed, event, fed);
-        fed.bound = !fed.events.empty();
-        return fed;
-    }
-
-    // A second down is a double press only after the key has come up. Two downs
-    // with no up between them are a missed release, not a double press.
-    const bool as_double =
-        event.kind == InputKind::button
-            ? event.clicks == 2
-            : !slot.down && second_press(slot, event, state_->timings.double_press_ms);
-    if (slot.down)
-        release_started(*state_, slot, fed);
-    slot.down = true;
-    slot.saw_up = false;
-    slot.down_modifiers = event.modifiers;
-    slot.down_ms = event.time_ms;
-    slot.started.clear();
-    slot.holds.clear();
-
-    std::vector<Candidate> winners;
-    if (as_double)
-        winners = choose(*state_, event, Gesture::double_press);
-    if (winners.empty())
-        winners = choose(*state_, event, Gesture::press);
-    const std::vector<Candidate> holds = choose(*state_, event, Gesture::hold);
-    for (const Candidate& item : holds) {
-        HoldArm arm;
-        arm.action_index = item.action_index;
-        arm.chord_index = item.chord_index;
-        arm.context = item.context;
-        arm.due_ms = event.time_ms + state_->timings.long_press_ms;
-        slot.holds.push_back(arm);
-    }
-    // A double that found no `:double` binding falls through to the plain chord.
-    const Phase down_phase =
-        !winners.empty() && winners.front().chord.gesture == Gesture::double_press
-            ? Phase::double_press
-            : Phase::pressed;
-    emit_winners(*state_, winners, down_phase, event, fed);
-    for (const Candidate& item : winners)
-        remember(slot, item);
-    slot.had_binding = !winners.empty() || !slot.holds.empty() || !fed.events.empty();
-    fed.bound = slot.had_binding;
+    accept_control(*state_, event, seen, fed);
+    if (!state_->contexts.text_entry)
+        note_accepted_down(state_->clocks, state_->timings, event);
     return fed;
 }
 
 Fed Dispatcher::advance(uint64_t now_ms) {
     Fed fed;
+    const std::vector<InputEvent> due = take_admissions(state_->clocks, now_ms);
+    for (const InputEvent& event : due) {
+        InputEvent seen = event;
+        if (helpers_engaged(*state_))
+            note_accepted_helpers(*state_, event, seen, fed);
+        else
+            apply_modifiers(*state_, event, fed);
+        accept_control(*state_, event, seen, fed);
+        note_accepted_down(state_->clocks, state_->timings, event);
+        fed.admitted.push_back(event);
+    }
     const auto fire = [this, &fed, now_ms](Slot& slot) {
         if (!slot.down)
             return;
@@ -1420,11 +1470,13 @@ Fed Dispatcher::advance(uint64_t now_ms) {
         fire(slot);
     for (Slot& slot : state_->buttons)
         fire(slot);
+    emit_custom_repeats(*state_, fed, now_ms);
     return fed;
 }
 
 Fed Dispatcher::release_all(uint64_t now_ms) {
     (void)now_ms;
+    clear_clocks(state_->clocks);
     Fed fed;
     const auto drop = [this, &fed](Slot& slot) {
         if (slot.down)
@@ -1528,6 +1580,25 @@ Timings Dispatcher::timings() const {
 
 void Dispatcher::consume_sticky() {
     state_->sticky.consume();
+}
+
+bool Dispatcher::chord_key_held(std::string_view action, const HeldKeys& keys_held) const {
+    const Bound* found = nullptr;
+    for (const Bound& bound : state_->resolved.actions) {
+        if (bound.id == action) {
+            found = &bound;
+            break;
+        }
+    }
+    if (found == nullptr)
+        return false;
+    for (const BoundChord& item : found->chords) {
+        if (item.chord.kind == TriggerKind::modifier_alone)
+            continue;
+        if (trigger_held(item.chord, keys_held, state_->keyboard))
+            return true;
+    }
+    return false;
 }
 
 } // namespace oa::ui::key_bindings

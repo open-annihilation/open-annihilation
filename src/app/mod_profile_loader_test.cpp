@@ -285,6 +285,7 @@ void test_layout(const fs::path& scratch) {
     OA_CHECK(layout.watcher_side_frame == 4);
     OA_CHECK(layout.skirmish_hidden_sides == ((1U << 3) | (1U << 1)));
     OA_CHECK(layout.battle_room_hidden_sides == (1U << 2));
+    OA_CHECK(layout.computer_player_sides == 0);
     const auto plan = discovery_plan_of(&profile);
     OA_CHECK(plan.revision_archive == "modrev.gp4" && plan.ufo_pattern == "*.SWX");
     OA_CHECK(plan.ccx_pattern == "*.CCX" && plan.hpi_pattern == "*.HPI");
@@ -305,6 +306,20 @@ void test_layout(const fs::path& scratch) {
         OA_CHECK(wide_layout.watcher_side_frame == 63);
         OA_CHECK(wide_layout.skirmish_hidden_sides == ((1U << 31) | (1U << 30)));
         OA_CHECK(wide_layout.battle_room_hidden_sides == (1U << 5));
+        OA_CHECK(wide_layout.computer_player_sides == 0);
+    }
+
+    const fs::path computers = scratch / "computer-sides.oamod";
+    write(
+        computers,
+        std::string{base_profile} + "limits: {sides: 7}\n"
+                                    "identity: {computer-player-sides: [0, 5]}\n"
+    );
+    const auto computer_result = load_mod_profile(computers, false);
+    OA_CHECK(computer_result.resolution.has_value());
+    if (computer_result.resolution) {
+        const auto computer_layout = data_layout_of(&computer_result.resolution->profile);
+        OA_CHECK(computer_layout.computer_player_sides == ((1U << 0) | (1U << 5)));
     }
 }
 

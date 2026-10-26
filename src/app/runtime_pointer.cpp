@@ -561,7 +561,8 @@ std::string_view Runtime::match_hud_action(std::string_view name) const {
                });
     };
     for (std::size_t side = 0; side < side_table_.count; ++side) {
-        const auto& field = side_table_.sides[side].name_prefix;
+        const auto& field =
+            oa::data::defs::side_at(side_table_, static_cast<uint32_t>(side))->name_prefix;
         const std::string_view prefix(field, strnlen(field, sizeof field));
         if (starts_with(prefix))
             return name.substr(prefix.size());

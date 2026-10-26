@@ -1597,6 +1597,14 @@ entries:
     scope: view
     key: battle-room-hidden-sides
     value: {type: list<int>, length: [0, 31], min: 0, max: 31, distinct: true, baseline: [], scope: view}
+  identity.computer-player-sides:
+    kind: identity
+    area: sides
+    summary: "SIDEDATA sides, by number, that computer players may take in the skirmish and the battle room; empty lets them take every side. Sides below the profile's limits.sides; a human player still chooses any side offered."
+    ownership: local-view
+    scope: view
+    key: computer-player-sides
+    value: {type: list<int>, length: [0, 31], min: 0, max: 31, distinct: true, baseline: [], scope: view}
   layout.archive-patterns.ccx:
     kind: layout
     area: paths

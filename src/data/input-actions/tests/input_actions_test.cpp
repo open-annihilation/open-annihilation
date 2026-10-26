@@ -155,7 +155,7 @@ int main() {
     const actions::Action* back = actions::find("game.back");
     OA_CHECK(back != nullptr);
     if (back != nullptr) {
-        const std::string_view want[]{"Escape"};
+        const std::string_view want[]{"Escape", "Ctrl+Escape"};
         OA_CHECK(same_chords(back->defaults, want));
         OA_CHECK(!back->fixed);
     }

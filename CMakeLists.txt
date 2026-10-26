@@ -1358,6 +1358,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_build_preview_check.cpp
   src/app/runtime_pointer_check.cpp src/app/runtime_key_table_check.cpp
   src/app/runtime_key_latches_check.cpp
+  src/app/runtime_key_timing_check.cpp
   src/app/runtime_dgun_check.cpp
   src/app/runtime_attack_command_check.cpp src/app/runtime_tracking_zoom_check.cpp
   src/app/runtime_zoom_memory_check.cpp
@@ -3166,6 +3167,29 @@ if(OA_BUILD_PLATFORM)
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED limits-fixture
         PASS_REGULAR_EXPRESSION "7 sides.*back yes")
+      # The same Side button when computer players may take only side 1.
+      set(oa_skirmish_sides_computer_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/native-checks/skirmish-sides-computer")
+      file(MAKE_DIRECTORY "${oa_skirmish_sides_computer_dir}")
+      file(WRITE "${oa_skirmish_sides_computer_dir}/computer-sides.oamod.yaml"
+        "oamod: 1\n"
+        "id: computer-sides\n"
+        "name: Computer sides\n"
+        "version: \"1.0\"\n"
+        "requires: {base: ta-3.1c, catalogue: 1}\n"
+        "author: {name: unknown}\n"
+        "packaging: {revision: 1, date: 2026-10-06, packager: Open Annihilation}\n"
+        "identity:\n"
+        "  computer-player-sides: [1]\n")
+      add_test(NAME native-skirmish-sides-computer COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-skirmish-sides
+        --mod "${oa_skirmish_sides_computer_dir}/computer-sides.oamod.yaml"
+        --preferences-file "${oa_skirmish_sides_computer_dir}/skirmish-sides-computer.conf")
+      set_tests_properties(native-skirmish-sides-computer PROPERTIES
+        TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_skirmish_sides_computer_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        PASS_REGULAR_EXPRESSION "computer 1 of")
       # Engine Limits' weapon-type and side rows: 256 and 5 with no profile,
       # at the menu and in a two-slot skirmish.
       set(oa_mod_limits_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/mod-limits")
@@ -3679,6 +3703,15 @@ endforeach()
         --preferences-file "${oa_key_table_dir}/key-table.conf")
       set_tests_properties(native-key-table PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_key_table_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
+      # Slow keys, bounce keys, the player's repeat and the drag threshold.
+      set(oa_key_timing_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-timing")
+      file(MAKE_DIRECTORY "${oa_key_timing_dir}")
+      add_test(NAME native-key-timing COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-timing --trace-input --resolution 640x480
+        --preferences-file "${oa_key_timing_dir}/key-timing.conf")
+      set_tests_properties(native-key-timing PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_timing_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # The same rows with the left and right mouse buttons exchanged, under
       # a layout that exchanges those roles.

@@ -343,6 +343,7 @@ void check_game_files_options(Options& options) {
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_key_latches, "--check-key-latches"},
+        {options.check_key_timing, "--check-key-timing"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -644,6 +645,7 @@ void check_director_options(Options& options) {
         {!options.check_unit_pages.empty(), "--check-unit-pages"},
         {!options.check_key_table.empty(), "--check-key-table"},
         {options.check_key_latches, "--check-key-latches"},
+        {options.check_key_timing, "--check-key-timing"},
         {options.check_kill_board, "--check-kill-board"},
         {options.check_paused_save, "--check-paused-save"},
         {options.check_saved_brains, "--check-saved-brains"},
@@ -755,6 +757,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {!options.check_unit_pages.empty(), "--check-unit-pages"},
             {!options.check_key_table.empty(), "--check-key-table"},
             {options.check_key_latches, "--check-key-latches"},
+            {options.check_key_timing, "--check-key-timing"},
             {options.check_kill_board, "--check-kill-board"},
             {options.check_paused_save, "--check-paused-save"},
             {options.check_saved_brains, "--check-saved-brains"},
@@ -1034,6 +1037,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-click-snap", &Options::check_click_snap},
     {"--check-build-preview", &Options::check_build_preview},
     {"--check-pointer-interfaces", &Options::check_pointer_interfaces},
+    {"--check-key-timing", &Options::check_key_timing},
     {"--check-megamap-clicks", &Options::check_megamap_clicks},
     {"--check-single-player-offers", &Options::check_single_player_offers},
     {"--check-radar-orders", &Options::check_radar_orders},
@@ -1699,7 +1703,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-megamap-clicks] [--check-single-player-offers] "
                      "[--check-radar-orders] "
                      "[--check-key-latches] "
-                     "[--check-key-table FILE] "
+                     "[--check-key-table FILE] [--check-key-timing] "
                      "[--check-pointer-interfaces] [--check-pad-controls] [--check-touch-controls] "
                      "[--check-game-files] [--check-content-copy PATH] "
                      "[--check-installer FILE] "
@@ -2019,7 +2023,8 @@ void write_startup_line(std::string_view text) {
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||
                            result.check_zoom_memory || result.check_multiplayer_menu ||
-                           result.check_briefing_narration || result.benchmark_frames;
+                           result.check_briefing_narration || result.check_key_timing ||
+                           result.benchmark_frames;
 #if OA_PROCESS_SPAWNING == 0
     // The capture and the director's encoder run the ffmpeg program, which a
     // build without OA_PROCESS_SPAWNING cannot start. A render with encoding
@@ -2050,8 +2055,8 @@ void write_startup_line(std::string_view text) {
         result.seed = kFixedRandomSeed;
     result.unattended = result.fixed_clock || result.check_navigation ||
                         result.check_multiplayer_menu || result.check_briefing_narration ||
-                        result.benchmark_frames || result.frame_limit || !result.snapshot.empty() ||
-                        result.showcase != Showcase::none;
+                        result.check_key_timing || result.benchmark_frames || result.frame_limit ||
+                        !result.snapshot.empty() || result.showcase != Showcase::none;
     if ((extension_effects & option_effect::unattended) != 0)
         result.unattended = true;
     if (result.check_game_files)

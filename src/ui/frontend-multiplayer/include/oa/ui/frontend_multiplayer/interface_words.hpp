@@ -14,6 +14,9 @@ namespace oa::ui::frontend_multiplayer {
 /// (oa/data/languages/interface_text.hpp). oa-tool sorts the modules'
 /// lists together and keeps one of each text.
 inline constexpr std::string_view interface_words[] = {
+    "*** The launch gives a computer player side {side}, which computer players cannot take in "
+    "this "
+    "game.",
     "*** The launch names side {side}, which this game does not have.",
     "*** This game is Open Annihilation only, and unranked.",
     "*** You do not have {names}.",

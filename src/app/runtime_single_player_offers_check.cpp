@@ -56,7 +56,18 @@ void Runtime::check_single_player_offers() {
     exercise_click(menu::resource_name(menu::Button::single_player));
     expect(screen_ == Screen::single_player, "SINGLE did not open SINGLE.GUI");
 
-    const bool campaigns = side_has_campaign(0) || side_has_campaign(1);
+    const bool arm = side_has_campaign(0);
+    const bool core = side_has_campaign(1);
+    // A remembered answer for another mount must not stand in for this one.
+    // A mod switch is that change: its folders are not this key.
+    side_campaign_arm_ = !arm;
+    side_campaign_core_ = !core;
+    side_campaign_key_ = "not-this-mount";
+    expect(
+        side_has_campaign(0) == arm && side_has_campaign(1) == core,
+        "a remembered campaign answer survived a change of mounted content"
+    );
+    const bool campaigns = arm || core;
     const bool new_greyed = grayed("NewCamp");
     const bool new_shown = shown("NewCamp");
     const bool any_shown = shown("AnyMsn");

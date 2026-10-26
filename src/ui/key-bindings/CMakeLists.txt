@@ -13,6 +13,7 @@ add_library(oa-ui-key-bindings
   src/clashes.cpp
   src/dispatcher.cpp
   src/latches.cpp
+  src/timing.cpp
   src/layout_file.cpp
   src/legacy_keys.cpp)
 add_library(oa::ui::key_bindings ALIAS oa-ui-key-bindings)
@@ -46,6 +47,13 @@ if(BUILD_TESTING)
     oa-options)
   add_test(NAME ui-key-bindings-latches COMMAND oa-ui-key-bindings-latches-exe)
   set_tests_properties(ui-key-bindings-latches PROPERTIES TIMEOUT 30)
+
+  # Slow keys, bounce keys, the player's times and the drag's tick limit.
+  add_executable(oa-ui-key-bindings-timing-exe tests/timing_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-timing-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-timing COMMAND oa-ui-key-bindings-timing-exe)
+  set_tests_properties(ui-key-bindings-timing PROPERTIES TIMEOUT 30)
   # A manifest's chords, warnings and the text form, against a layout.
   add_executable(oa-ui-key-bindings-files-exe tests/layout_file_test.cpp)
   target_link_libraries(oa-ui-key-bindings-files-exe PRIVATE oa-ui-key-bindings oa-test-support
