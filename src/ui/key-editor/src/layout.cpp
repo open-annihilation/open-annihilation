@@ -591,6 +591,10 @@ void add_nav(
 
 /// A chord chip's look.
 ///
+/// Every cap is a keycap, including one printed as a word (Ctrl, Shift, Esc).
+/// The gesture word is the last cap, and only when the chord is not a plain
+/// press, so Ctrl+D is "Ctrl" then "D" and a hold is "Ctrl + D hold".
+///
 /// @param editor the keyboard
 /// @param chord the chord
 /// @param mark the mark on its last key
@@ -599,14 +603,13 @@ kit::ChordChipLook chip_of(const Editor& editor, const keys::Chord& chord, kit::
     kit::ChordChipLook look;
     look.mark = mark;
     const std::vector<keys::KeyCap> caps = keys::keycaps(chord, editor.keyboard(), editor.platform());
-    for (const keys::KeyCap& cap : caps) {
-        if (cap.word) {
-            if (!look.gesture.empty())
-                look.gesture.push_back(' ');
-            look.gesture += cap.text;
-        } else {
-            look.keys.push_back(cap.text);
-        }
+    const bool gestured = chord.gesture != keys::Gesture::press;
+    for (std::size_t index = 0; index < caps.size(); ++index) {
+        const bool last_gesture = gestured && index + 1 == caps.size();
+        if (last_gesture)
+            look.gesture = caps[index].text;
+        else
+            look.keys.push_back(caps[index].text);
     }
     if (look.keys.empty() && look.gesture.empty())
         look.none_text = keys::display_text(chord, editor.keyboard(), editor.platform());
