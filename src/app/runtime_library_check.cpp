@@ -1252,8 +1252,8 @@ void Runtime::check_library() {
                 "the offered expansion's chip is not the download press" + on
             );
             require(
-                tactics.has_value() && tactics->text.find("ADD FROM") != std::string::npos,
-                "an expansion no registry offers does not read ADD FROM" + on
+                tactics.has_value() && tactics->text.find("Add from") != std::string::npos,
+                "an expansion no registry offers does not read Add from" + on
             );
             const std::size_t asked = fixture.enqueued.size();
             click_named("oa.library.active.expansion.cavedog-units");
@@ -1332,7 +1332,7 @@ void Runtime::check_library() {
                 named("oa.library.active.expansion.cavedog-units");
             require(
                 pill.has_value() && pill->checked &&
-                    pill->text.find("ADD FROM") == std::string::npos && host.model.content.edited &&
+                    pill->text.find("Add from") == std::string::npos && host.model.content.edited &&
                     !host.model.content.applied && !soft_restart_requested(),
                 "the expansion's pill did not turn on without mounting" + on
             );
