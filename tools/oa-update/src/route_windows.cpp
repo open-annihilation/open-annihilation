@@ -51,6 +51,17 @@ bool same_name(const fs::path& name, std::string_view expected) {
     return utf8_of(name) == expected;
 }
 
+/// True for this helper's own program file.
+///
+/// An undo must not replace it: the file is the program that is running.
+///
+/// @param path a kept or installed entry
+/// @return true for `oa-update` and `oa-update.exe`
+bool own_helper_file(const fs::path& path) {
+    const std::string name = utf8_of(path.filename());
+    return name == "oa-update" || name == "oa-update.exe";
+}
+
 bool list_children(const fs::path& folder, std::vector<fs::path>& children, std::string* why) {
     std::error_code io;
     fs::directory_iterator it(folder, io);
@@ -191,6 +202,9 @@ void remove_stage(const fs::path& stage) {
 #endif
 
 bool restore_entry(const fs::path& from, const fs::path& to, std::string* error) {
+    // The running helper cannot be replaced. Leaving it out lets the undo finish.
+    if (own_helper_file(from) || own_helper_file(to))
+        return true;
     std::error_code io;
     const fs::file_status status = fs::symlink_status(from, io);
     if (io || !fs::exists(status)) {
@@ -844,6 +858,8 @@ windows_installer_operations(const update::Plan& plan, const fs::path& staged, s
             continue;
         if (listed && same_name(name, uninstall_name))
             continue;
+        if (own_helper_file(name))
+            continue;
         const fs::path source = listed ? install / name : child;
         if (listed && (!fs::exists(source, io) || io))
             continue;
@@ -960,7 +976,7 @@ std::vector<Operation> windows_installer_restore(
         return {};
     std::vector<Operation> operations;
     for (const fs::path& child : kept_children) {
-        if (same_name(child.filename(), preferences_name))
+        if (same_name(child.filename(), preferences_name) || own_helper_file(child))
             continue;
         const fs::path destination = install / child.filename();
         if (fs::exists(fs::symlink_status(destination, io)) && !io) {
@@ -1065,7 +1081,7 @@ bool restore_kept_copy(const fs::path& previous, const fs::path& install, std::s
     if (!list_children(previous, children, error))
         return false;
     for (const fs::path& child : children) {
-        if (same_name(child.filename(), preferences_name))
+        if (same_name(child.filename(), preferences_name) || own_helper_file(child))
             continue;
         if (!restore_entry(child, install / child.filename(), error))
             return false;
@@ -1235,12 +1251,12 @@ int finish_windows_route(
         std::string error;
         if (apply_journal(updates, operations, hooks, &error) != JournalResult::finished) {
             log.line(error.empty() ? "a step failed" : error);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         if (!write_bytes(marker, plan.install, &error)) {
             log.line(error);
             undo_or_log(updates, hooks, log);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
 
         const uint32_t version = current_windows_version();
@@ -1279,7 +1295,7 @@ int finish_windows_route(
             else
                 log.line("the setup did not replace the game");
             static_cast<void>(put_back());
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
 
         fs::remove(marker, io);
@@ -1289,7 +1305,7 @@ int finish_windows_route(
             if (watched < 0) {
                 log.line(error.empty() ? "the game could not be started" : error);
                 static_cast<void>(put_back());
-                return failed(could_not_check, exit_undone);
+                return failed(line_after_failed_change(updates), exit_undone);
             }
             drop_journal_files(updates);
             return watched;
@@ -1329,7 +1345,7 @@ int finish_windows_route(
                 log.line("the elevated swap did not finish");
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         std::string error;
         const int watched = watch_new_version(plan, plan_path, updates, log, window, hooks, error);
@@ -1337,7 +1353,7 @@ int finish_windows_route(
             log.line(error.empty() ? "the game could not be started" : error);
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         drop_journal_files(updates);
         remove_stage(stage);
@@ -1374,7 +1390,7 @@ int finish_windows_route(
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
         remove_stage(stage);
-        return failed(could_not_check, exit_undone);
+        return failed(line_after_failed_change(updates), exit_undone);
     }
     if (!moving.postponed.empty()) {
         if (elevated_swap || !commit_wininit(moving.postponed, verified.version, updates, &error)) {
@@ -1382,7 +1398,7 @@ int finish_windows_route(
                 log.line(error);
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         drop_journal_files(updates);
         fs::remove(updates / reboot_marker_name, io);
@@ -1396,7 +1412,7 @@ int finish_windows_route(
             log.line(error.empty() ? "the game could not be started" : error);
             undo_or_log(updates, hooks, log);
             remove_stage(stage);
-            return failed(could_not_check, exit_undone);
+            return failed(line_after_failed_change(updates), exit_undone);
         }
         drop_journal_files(updates);
         remove_stage(stage);

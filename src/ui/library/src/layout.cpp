@@ -952,6 +952,82 @@ kit::ChipLook state_chip(std::string text) {
     return chip;
 }
 
+/// Returns a chip in the filter colour.
+///
+/// @param text the chip's words, looked up
+/// @return the chip
+kit::ChipLook filter_chip(std::string text) {
+    kit::ChipLook chip;
+    chip.text = std::move(text);
+    chip.state = kit::ChipState::filter;
+    return chip;
+}
+
+/// Joins two pieces with a space. An empty piece is left out.
+///
+/// @param left the piece on the left
+/// @param right the piece on the right
+/// @return the joined text
+std::string joined_line(std::string_view left, std::string_view right) {
+    if (left.empty())
+        return std::string(right);
+    if (right.empty())
+        return std::string(left);
+    std::string text;
+    text.reserve(left.size() + right.size() + 1);
+    text.append(left);
+    text.push_back(' ');
+    text.append(right);
+    return text;
+}
+
+/// Returns a Compact key layout's one line under its name.
+///
+/// The summary stays. "Made for {mod}" and the own-changes count share that
+/// line. A tag's word follows only while the line still holds it, and the
+/// tags are the ones left off, as a chip line drops them.
+///
+/// @param building the layout
+/// @param summary the summary; empty when the row has none
+/// @param made "Made for {mod}"; empty when the layout is not made for this mod
+/// @param own the own-changes line; empty when the player has none
+/// @param tags the tag words, in the order they would be drawn
+/// @param room the columns the line may use
+/// @return the line
+std::string compact_key_line(
+    const Building& building,
+    std::string summary,
+    std::string_view made,
+    std::string_view own,
+    const std::vector<std::string>& tags,
+    int32_t room
+) {
+    const auto text_width = [&](std::string_view text) {
+        return width_of(building, kit::FontRole::small, text);
+    };
+    const std::string notes = joined_line(made, own);
+    std::string line = std::move(summary);
+    if (!notes.empty()) {
+        const int32_t notes_width = text_width(std::string(" ") + notes);
+        if (line.empty() || notes_width >= room) {
+            line = notes;
+        } else {
+            const int32_t head_room = room - notes_width;
+            if (text_width(line) > head_room)
+                line = cut(building, kit::FontRole::small, line, head_room);
+            const std::string both = joined_line(line, notes);
+            line = text_width(both) <= room ? both : notes;
+        }
+    }
+    for (const std::string& tag : tags) {
+        const std::string trial = joined_line(line, tag);
+        if (text_width(trial) > room)
+            break;
+        line = trial;
+    }
+    return line;
+}
+
 /// Returns what an entry's row shows.
 ///
 /// @param building the layout
@@ -1002,7 +1078,7 @@ kit::ListRowLook row_look(
                 }
             }
         }
-        if (named) {
+        if (named && entry.id.kind != Kind::key_layout) {
             look.lines.push_back(lines.row);
             return look;
         }
@@ -1025,14 +1101,29 @@ kit::ListRowLook row_look(
                 {{"line", line}, {"registry", entry.registry_name}}
             );
         if (entry.id.kind == Kind::key_layout) {
+            // One line under the name: the summary, then Made for and the
+            // own-changes count on that same line. The row is not tall
+            // enough for a chip line, so a tag's word follows only while
+            // the line holds it.
+            std::string about;
+            if (named)
+                about = lines.row;
+            else
+                about = std::string(entry_summary(entry));
+            if (about.empty())
+                about = line;
             const std::string made = layout_made_for_line(library, entry);
             const KeyLayoutFacts* facts = key_facts(entry);
             const std::string own =
                 own_changes_line(facts != nullptr ? facts->own_changes : 0, library.text);
-            if (!made.empty())
-                line = line.empty() ? made : line + " " + made;
-            if (!own.empty())
-                line = line.empty() ? own : line + " " + own;
+            std::vector<std::string> tag_words;
+            if (const std::vector<std::string>* tags = shown_tags(entry)) {
+                tag_words.reserve(tags->size());
+                for (const std::string& tag : *tags)
+                    tag_words.emplace_back(tag_caption(library, tag, true));
+            }
+            const int32_t room = chip_line_room(building, look, row_width, row_height);
+            line = compact_key_line(building, std::move(about), made, own, tag_words, room);
         }
         look.lines.push_back(std::move(line));
         return look;
@@ -1050,17 +1141,9 @@ kit::ListRowLook row_look(
         if (!about.empty())
             look.lines.push_back(std::string(about));
     }
-    if (entry.id.kind == Kind::key_layout) {
-        const std::string made = layout_made_for_line(library, entry);
-        if (!made.empty())
-            look.lines.push_back(made);
-        if (const KeyLayoutFacts* facts = key_facts(entry); facts != nullptr) {
-            const std::string own = own_changes_line(facts->own_changes, library.text);
-            if (!own.empty())
-                look.lines.push_back(own);
-        }
-    }
-    if (!version.empty())
+    // OA default's chip already says Built in, as a built-in language's
+    // does. The aside does not say it again.
+    if (!version.empty() && !is_built_in_layout(entry.id))
         look.aside.push_back(version);
     if (!size.empty())
         look.aside.push_back(size);
@@ -1107,25 +1190,39 @@ kit::ListRowLook row_look(
             look.tags.insert(look.tags.end(), unfit.begin(), unfit.end());
             look.tags.insert(look.tags.end(), labels.begin(), labels.end());
         }
+    } else if (form == RowForm::large && entry.id.kind == Kind::key_layout) {
+        // The summary is the line under the name. Made for and the
+        // own-changes count share the chip line under that, Made for as
+        // this chip and not as a line as well. The tags take the room that
+        // is left. When the line cannot hold them, the tags are the ones
+        // dropped, and the own-changes count stays ahead of a Made for that
+        // would leave it no room.
+        const std::string made = layout_made_for_line(library, entry);
+        std::string own;
+        if (const KeyLayoutFacts* facts = key_facts(entry))
+            own = own_changes_line(facts->own_changes, library.text);
+        std::vector<kit::ChipLook> kept;
+        if (!made.empty())
+            kept.push_back(filter_chip(made));
+        if (!own.empty())
+            kept.push_back(filter_chip(std::move(own)));
+        std::vector<kit::ChipLook> labels;
+        if (const std::vector<std::string>* tags = shown_tags(entry)) {
+            labels.reserve(tags->size());
+            for (const std::string& tag : *tags)
+                labels.push_back(filter_chip(std::string(tag_caption(library, tag, true))));
+        }
+        const int32_t room = chip_line_room(building, look, row_width, row_height);
+        if (kept.size() == 2 && !chips_fit(building, kept, room))
+            std::swap(kept[0], kept[1]);
+        kept.insert(kept.end(), labels.begin(), labels.end());
+        look.tags = std::move(kept);
     } else if (form == RowForm::large) {
         std::vector<kit::ChipLook> labels;
-        if (entry.id.kind == Kind::key_layout) {
-            const std::string made = layout_made_for_line(library, entry);
-            if (!made.empty()) {
-                kit::ChipLook chip;
-                chip.text = made;
-                chip.state = kit::ChipState::filter;
-                labels.push_back(std::move(chip));
-            }
-        }
         if (const std::vector<std::string>* tags = shown_tags(entry)) {
             for (const std::string& tag : *tags) {
                 kit::ChipLook chip;
-                chip.text = std::string(tag_caption(
-                    library,
-                    tag,
-                    entry.id.kind == Kind::mutator || entry.id.kind == Kind::key_layout
-                ));
+                chip.text = std::string(tag_caption(library, tag, entry.id.kind == Kind::mutator));
                 chip.state = kit::ChipState::filter;
                 labels.push_back(std::move(chip));
             }
