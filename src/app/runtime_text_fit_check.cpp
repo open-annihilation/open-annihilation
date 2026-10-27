@@ -226,6 +226,7 @@ bool choice_setting(settings::Setting setting) noexcept {
     case settings::Setting::pad_prompts:
     case settings::Setting::zoomed_out_after:
     case settings::Setting::interface_size:
+    case settings::Setting::window_size:
         return true;
     default:
         return false;
