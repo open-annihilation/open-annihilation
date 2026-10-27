@@ -105,8 +105,8 @@ int32_t apart(int32_t from, int32_t to) {
 /// @param id the control
 /// @return true for a menu item
 bool menu_item(kit::ControlId id) {
-    // Keyboard keys start at keyboard_first. A menu item stays below that.
-    return id >= controls::menu_first && id < controls::keyboard_first;
+    // Find by key's rows start at find_row_first. A menu item stays below that.
+    return id >= controls::menu_first && id < controls::find_row_first;
 }
 
 /// True when a control id removes one chord in the details.
@@ -1588,10 +1588,12 @@ EditorResult press_card_button(Editor& editor, ScreenState& state, bool use) {
     const acts::Action* action = acts::find(bound);
     const std::optional<keys::Chord> chord =
         chord_of_key(editor, state.layer, code, action != nullptr ? action->by : acts::By::letter);
-    std::optional<std::size_t> at;
-    if (chord)
-        at = index_of_chord(editor, bound, *chord);
     const Details details = editor.details(bound);
+    std::optional<std::size_t> at;
+    for (std::size_t index = 0; chord && index < details.chords.size() && !at; ++index) {
+        if (chords_match(details.chords[index].chord, *chord, editor.keyboard(), editor.platform()))
+            at = index;
+    }
     if (details.read_only || (at && details.chords[*at].fixed))
         return redrawn();
     if (!at && details.chords.size() >= 4)

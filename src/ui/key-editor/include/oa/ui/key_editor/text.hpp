@@ -559,6 +559,8 @@ inline constexpr std::string_view same_place = "Same place on every keyboard";
 inline constexpr std::string_view how_it_acts = "How it acts";
 /// The capture's primary button for a free chord. `{chord}` and `{action}`.
 inline constexpr std::string_view use_for = "Use {chord} for {action}";
+/// The capture's badge for a free chord. `{chord}` and `{context}`.
+inline constexpr std::string_view free_badge = "{chord} is free {context}";
 /// The capture's badge for a chord in use. `{chord}` and `{context}`.
 inline constexpr std::string_view in_use = "{chord} is in use {context}";
 /// Under that badge. `{name}` is every other action.

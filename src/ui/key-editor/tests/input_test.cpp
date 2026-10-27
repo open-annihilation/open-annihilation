@@ -107,6 +107,21 @@ struct Session {
             show();
         return result;
     }
+
+    /// A primary click on a named control: down, then up.
+    ///
+    /// @param name the control's automation name
+    /// @return what the release returned; nothing when the control is absent
+    editor::EditorResult click(std::string_view name) {
+        const kit::Control* control = kit::control_of(list, kit::control_named(list, name));
+        OA_CHECK(control != nullptr);
+        if (control == nullptr)
+            return {};
+        const kit::Rect area = press_area(*control);
+        const kit::Point at{area.x + area.width / 2, area.y + area.height / 2};
+        take(editor::editor_pointer(model, state, list, editor::PointerKind::down, 1, at, 0));
+        return take(editor::editor_pointer(model, state, list, editor::PointerKind::up, 1, at, 0));
+    }
 };
 
 /// Puts the focus on the list, laying out first so the control id is current.
@@ -188,6 +203,26 @@ void leave_and_save() {
         editor::editor_command(back.model, back.state, back.list, editor::EditorCommand::back)
     );
     OA_CHECK(leaving.action == editor::EditorAction::ask_leave);
+
+    // Cancel and the close mark ask too; with nothing unsaved they close.
+    Session asked(frame_for(1280, 720, 100));
+    OA_CHECK(asked.model.remove_chord("order.attack", 0));
+    asked.show();
+    OA_CHECK(asked.click(editor::name_close).action == editor::EditorAction::ask_leave);
+    asked.show();
+    OA_CHECK(asked.click(editor::name_cancel).action == editor::EditorAction::ask_leave);
+    // Undo takes the change back; then Cancel closes at once.
+    asked.show();
+    asked.click(editor::name_undo);
+    OA_CHECK(asked.model.unsaved() == 0);
+    asked.show();
+    OA_CHECK(asked.click(editor::name_cancel).action == editor::EditorAction::cancel);
+    // Primary+Z is Undo too.
+    OA_CHECK(asked.model.remove_chord("order.attack", 0));
+    asked.take(
+        editor::editor_command(asked.model, asked.state, asked.list, editor::EditorCommand::undo)
+    );
+    OA_CHECK(asked.model.unsaved() == 0);
 
     Session clean(frame_for(1280, 720, 100));
     if (!clean.model.can_save())

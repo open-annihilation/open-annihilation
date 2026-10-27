@@ -637,21 +637,17 @@ wrap_nav_title(std::string_view title, int32_t narrow, int32_t wide, const kit::
     return lines;
 }
 
-/// Plans one nav entry. "All" is the first entry's word. The count sits at
-/// the right of the first line, and a title that does not fit beside it wraps.
+/// Plans one nav entry. The count sits at the right of the first line, and a
+/// title that does not fit beside it wraps.
 ///
-/// @param editor the words
 /// @param fonts the fonts
 /// @param category the category
 /// @param inner the columns the title and the count share
 /// @return the plan
-NavPlan plan_nav_entry(
-    const Editor& editor, const kit::Fonts& fonts, const CategoryEntry& category, int32_t inner
-) {
+NavPlan plan_nav_entry(const kit::Fonts& fonts, const CategoryEntry& category, int32_t inner) {
     NavPlan plan;
     plan.heading = category.id.starts_with("heading.");
-    const std::string title =
-        category.id == "all" ? std::string(show(editor.text(), words::filter_all)) : category.title;
+    const std::string title = category.title;
     if (!plan.heading) {
         plan.count = "(" + std::to_string(category.count) + ")";
         plan.count_width = kit::text_width(fonts, kit::FontRole::small, plan.count);
@@ -726,7 +722,7 @@ void add_nav(
     plans.reserve(categories.size());
     int32_t total_h = 0;
     for (const CategoryEntry& category : categories) {
-        plans.push_back(plan_nav_entry(editor, fonts, category, inner));
+        plans.push_back(plan_nav_entry(fonts, category, inner));
         total_h += plans.back().height;
         if (category.id == "all")
             total_h += kRuleRoom;
@@ -1350,20 +1346,21 @@ std::vector<Piece> detail_pieces(
         pieces.push_back(well);
         const int32_t row = y + metrics.space;
         int32_t right = width - metrics.space;
-        if (chord.removable && right - control_h > metrics.space) {
+        const int32_t remove_side = std::min(control_h, metrics.button_height + 4);
+        if (chord.removable && right - remove_side > metrics.space) {
             Piece button;
             button.kind = Piece::Kind::button;
-            button.y = row;
-            button.height = control_h;
-            button.width = control_h;
-            button.x = right - control_h;
+            button.y = row + (control_h - remove_side) / 2;
+            button.height = remove_side;
+            button.width = remove_side;
+            button.x = right - remove_side;
             button.mark = kit::ButtonMark::close;
             button.style = kit::ButtonStyle::quiet;
             button.id =
                 controls::chord_first + static_cast<kit::ControlId>(static_cast<int32_t>(index));
             button.name = std::string(name_chord_prefix) + std::to_string(index + 1) + ".remove";
             pieces.push_back(std::move(button));
-            right -= control_h + metrics.space;
+            right -= remove_side + metrics.space;
         }
         // Change… opens the capture for this chord. Escape on a fixed action
         // stays as it is.
@@ -1719,6 +1716,13 @@ void add_footer(
     kit::FooterBandLook band;
     band.width = window.width;
     band.rule_row = window.footer_rule;
+    // The band reaches the window's foot whatever the kit's band paints.
+    add_item(
+        built.list,
+        kit::Role::fill,
+        {0, window.footer_rule, window.width, window.height - window.footer_rule}
+    )
+        .colour = kit::colour::band;
     add_item(
         built.list,
         kit::Role::footer_band,
@@ -2068,25 +2072,6 @@ bool letter_choice(const Editor& editor, const keys::Chord& chord) {
     if (trial.character == 0 && chord.scancode != 0)
         trial.character = editor.keyboard().printed(chord.scancode);
     return keys::on_keyboard(trial, editor.keyboard());
-}
-
-/// The chords an action would keep after one chord is dropped. A character's
-/// position and Primary's physical key are ignored, as a clash ignores them.
-///
-/// @param editor the keyboard
-/// @param id the action
-/// @param drop the chord
-/// @return the chords that would remain
-std::vector<keys::Chord>
-chords_kept(const Editor& editor, std::string_view id, const keys::Chord& drop) {
-    std::vector<keys::Chord> kept;
-    const Details shown = editor.details(id);
-    for (const ChordDetail& one : shown.chords) {
-        if (chords_match(one.chord, drop, editor.keyboard(), editor.platform()))
-            continue;
-        kept.push_back(one.chord);
-    }
-    return kept;
 }
 
 /// True when an action holds a chord, as a player would call it the same key.
@@ -3167,9 +3152,7 @@ kit::DisplayList prompt_layout(
             pill.text = kit::cut_to_width(fonts, kit::FontRole::small, pill.text, column_w - 16);
             width = std::min(kit::pill_width(fonts, pill), column_w);
         }
-        const kit::Rect rect{
-            column_x + std::max((column_w - width) / 2, int32_t{0}), y, width, kit::pill_height()
-        };
+        const kit::Rect rect{column_x, y, width, kit::pill_height()};
         kit::add_pill(list, rect, pill, kit::no_control, {});
         y += kit::pill_height();
     };
@@ -3213,7 +3196,6 @@ kit::DisplayList prompt_layout(
                 show(editor.text(), words::find_uses),
                 {{"chord", finding_words}, {"n", std::to_string(uses.size())}}
             );
-        const int32_t title_top = y;
         y += wrapped(column_x, y, column_w, title, kit::FontRole::regular, kit::colour::text);
         gap_after();
         const kit::Rect well = add_well(
@@ -3238,12 +3220,11 @@ kit::DisplayList prompt_layout(
         for (const ChordUse& use : uses)
             spoken += "\n" + use.name + " · " + use.context;
         area(
-            {column_x, title_top, column_w, std::max(y - title_top, metrics.small_line)},
+            {column_x, line_top, column_w, std::max(y - line_top, int32_t{1})},
             controls::find_title,
             name_find_prompt,
             std::move(spoken)
         );
-        static_cast<void>(line_top);
         gap_after();
         const int32_t row_h = metrics.row_height;
         const std::string open_words = show(editor.text(), words::open_action);
@@ -3337,12 +3318,18 @@ kit::DisplayList prompt_layout(
         };
 
         std::vector<Outcome> outcomes;
-        std::vector<keys::Chord> here_now;
-        for (const ChordDetail& one : here_details.chords)
-            here_now.push_back(one.chord);
-        std::vector<keys::Chord> there_now;
-        for (const ChordDetail& one : there_details.chords)
-            there_now.push_back(one.chord);
+        // Each outcome is worked out on a copy of the draft, so what it lists
+        // is what its confirm button would leave on both actions.
+        const auto chords_after = [&](const Editor& changed, const std::string& id) {
+            std::vector<keys::Chord> chords;
+            for (const ChordDetail& one : changed.details(id).chords)
+                chords.push_back(one.chord);
+            return chords;
+        };
+        const auto outcome_of = [&](Outcome& outcome, const Editor& changed) {
+            outcome.here_after = chords_after(changed, here);
+            outcome.there_after = chords_after(changed, there);
+        };
         if (state.settling) {
             Outcome keep_here;
             keep_here.id = controls::card_here;
@@ -3350,8 +3337,9 @@ kit::DisplayList prompt_layout(
             keep_here.title =
                 fill(show(editor.text(), words::keep_it_for), {{"action", here_name}});
             keep_here.confirm = keep_here.title;
-            keep_here.here_after = here_now;
-            keep_here.there_after = chords_kept(editor, there, clash_chord);
+            Editor kept_here = editor;
+            settle(kept_here, state.pending_clash, Settle::keep_here);
+            outcome_of(keep_here, kept_here);
             outcomes.push_back(std::move(keep_here));
             Outcome keep_there;
             keep_there.id = controls::card_there;
@@ -3359,35 +3347,31 @@ kit::DisplayList prompt_layout(
             keep_there.title =
                 fill(show(editor.text(), words::keep_it_for), {{"action", there_name}});
             keep_there.confirm = keep_there.title;
-            keep_there.here_after = chords_kept(editor, here, clash_chord);
-            keep_there.there_after = there_now;
+            Editor kept_there = editor;
+            settle(kept_there, state.pending_clash, Settle::keep_there);
+            outcome_of(keep_there, kept_there);
             outcomes.push_back(std::move(keep_there));
         } else {
-            std::vector<keys::Chord> here_after = here_now;
-            std::optional<keys::Chord> old_chord;
-            if (state.capture.replacing && *state.capture.replacing < here_after.size()) {
-                old_chord = here_after[*state.capture.replacing];
-                here_after[*state.capture.replacing] = clash_chord;
-            } else {
-                here_after.push_back(clash_chord);
-            }
+            Capture heard = state.capture;
+            heard.chord = clash_chord;
             Outcome move;
             move.id = controls::clash_replace;
             move.name = std::string(name_clash_replace);
             move.title = fill(show(editor.text(), words::move_it_to), {{"action", here_name}});
             move.confirm = fill(show(editor.text(), words::move_to), {{"action", here_name}});
-            move.here_after = here_after;
-            move.there_after = chords_kept(editor, there, clash_chord);
-            outcomes.push_back(move);
-            if (old_chord) {
+            Editor moved = editor;
+            static_cast<void>(apply_capture(moved, heard, ClashChoice::replace));
+            outcome_of(move, moved);
+            outcomes.push_back(std::move(move));
+            if (state.capture.replacing) {
                 Outcome swap;
                 swap.id = controls::clash_swap;
                 swap.name = std::string(name_clash_swap);
                 swap.title = show(editor.text(), words::swap_them);
                 swap.confirm = swap.title;
-                swap.here_after = here_after;
-                swap.there_after = move.there_after;
-                swap.there_after.insert(swap.there_after.begin(), *old_chord);
+                Editor swapped = editor;
+                static_cast<void>(apply_capture(swapped, heard, ClashChoice::swap));
+                outcome_of(swap, swapped);
                 outcomes.push_back(std::move(swap));
             }
         }
@@ -3653,6 +3637,7 @@ kit::DisplayList prompt_layout(
         }
         gap_after();
         // The outcome, as a badge, and a line under it.
+        const int32_t status_top = y;
         std::string under;
         if (state.capture.state == CaptureState::waiting) {
             under = show(editor.text(), words::hold_modifiers);
@@ -3683,14 +3668,13 @@ kit::DisplayList prompt_layout(
         } else {
             badge(
                 fill(
-                    show(editor.text(), words::chord_free),
+                    show(editor.text(), words::free_badge),
                     {{"chord", chord_words}, {"context", context}}
                 ),
                 kit::PillState::installed
             );
             under = show(editor.text(), words::try_another);
         }
-        const int32_t status_top = y;
         if (!under.empty()) {
             if (y > status_top)
                 y += metrics.space;
@@ -4315,44 +4299,6 @@ void fit_key_captions(kit::KeyboardLook& look, const kit::Fonts& fonts, int32_t 
     }
 }
 
-/// The legend under the keyboard: a letter and its area.
-///
-/// @param editor the words
-/// @return one line
-std::string legend_line(const Editor& editor) {
-    const std::string_view letters[] = {
-        words::letter_orders,
-        words::letter_selection,
-        words::letter_groups,
-        words::letter_camera,
-        words::letter_building,
-        words::letter_game,
-        words::letter_chat,
-        words::letter_hacks,
-        words::letter_mod,
-    };
-    const std::string_view titles[] = {
-        words::area_orders,
-        words::area_selection,
-        words::area_groups,
-        words::area_camera,
-        words::area_building,
-        words::legend_game_window,
-        words::area_chat,
-        words::legend_hacks,
-        words::legend_data,
-    };
-    std::string line;
-    for (int index = 0; index < 9; ++index) {
-        if (!line.empty())
-            line += " · ";
-        line += show(editor.text(), letters[index]);
-        line += ' ';
-        line += show(editor.text(), titles[index]);
-    }
-    return line;
-}
-
 /// Marks one key focused or hovered, adding it when the picture left it free.
 ///
 /// @param[in,out] look the picture
@@ -4411,9 +4357,12 @@ void add_keyboard_body(
     inputs.layer = state.layer;
     const Labels labels = key_labels(editor.text());
     kit::KeyboardLook look = keyboard_look(editor, inputs, labels);
-    // A key shows its legend; the action's name is the inspector's.
-    for (kit::KeyboardKey& key : look.keys)
+    // A key shows its legend and its category's tint; the action's name is
+    // the inspector's, and the legend under the picture names the tints.
+    for (kit::KeyboardKey& key : look.keys) {
         key.cap.sub.clear();
+        key.cap.letter.clear();
+    }
     std::string focus = state.focus_code;
     if (focus.empty()) {
         const std::span<const kit::KeyPlace> places = kit::keyboard_places(state.shape);
@@ -4442,14 +4391,79 @@ void add_keyboard_body(
 
     // The inspector's column, and the picture's.
     const bool beside = !compact && body.width >= 480;
-    const int32_t inspector_w = beside ? std::min(body.width * 3 / 10, int32_t{280}) : body.width;
+    const int32_t inspector_w =
+        beside ? std::clamp(body.width * 3 / 10, int32_t{200}, int32_t{260}) : body.width;
     const int32_t column_w =
         beside ? std::max(body.width - inspector_w - gap, int32_t{1}) : body.width;
     const kit::Measure measure = [&](std::string_view words_measured) {
         return kit::text_width(fonts, kit::FontRole::small, words_measured);
     };
-    const std::vector<std::string> legend_rows =
-        kit::wrap(legend_line(editor), std::max(column_w, int32_t{1}), measure);
+
+    // The legend: each tint's square and letter, then its area.
+    struct Swatch {
+        kit::KeyTint tint{kit::KeyTint::none};
+        std::string letter{};
+        std::string title{};
+        int32_t x{};
+        int32_t row{};
+        int32_t width{};
+    };
+
+    std::vector<Swatch> swatches;
+    {
+        const kit::KeyTint tints[] = {
+            kit::KeyTint::orders,
+            kit::KeyTint::selection,
+            kit::KeyTint::groups,
+            kit::KeyTint::camera,
+            kit::KeyTint::building,
+            kit::KeyTint::game,
+            kit::KeyTint::chat,
+            kit::KeyTint::hacks,
+            kit::KeyTint::mod,
+        };
+        const std::string_view letters[] = {
+            words::letter_orders,
+            words::letter_selection,
+            words::letter_groups,
+            words::letter_camera,
+            words::letter_building,
+            words::letter_game,
+            words::letter_chat,
+            words::letter_hacks,
+            words::letter_mod,
+        };
+        const std::string_view titles[] = {
+            words::area_orders,
+            words::area_selection,
+            words::area_groups,
+            words::area_camera,
+            words::area_building,
+            words::legend_game_window,
+            words::area_chat,
+            words::legend_hacks,
+            words::legend_data,
+        };
+        int32_t x = 0;
+        int32_t row = 0;
+        for (std::size_t index = 0; index < std::size(tints); ++index) {
+            Swatch one;
+            one.tint = tints[index];
+            one.letter = show(editor.text(), letters[index]);
+            one.title = show(editor.text(), titles[index]);
+            one.width = 12 + 4 + kit::text_width(fonts, kit::FontRole::small, one.title);
+            if (x > 0 && x + one.width > column_w) {
+                x = 0;
+                ++row;
+            }
+            one.x = x;
+            one.row = row;
+            x += one.width + metrics.space * 3;
+            swatches.push_back(std::move(one));
+        }
+    }
+    const int32_t legend_lines = swatches.empty() ? 0 : swatches.back().row + 1;
+    const std::vector<std::string> legend_rows(static_cast<std::size_t>(legend_lines));
     const std::vector<std::string> note_rows = kit::wrap(
         show(editor.text(), words::grey_keys_free), std::max(column_w, int32_t{1}), measure
     );
@@ -4458,7 +4472,7 @@ void add_keyboard_body(
     if (beside)
         under += gap + static_cast<int32_t>(legend_rows.size() + note_rows.size()) * line_h;
     // At Compact the inspector shares the column under the picture.
-    const int32_t inspector_least = compact ? line_h * 3 + button_row : 0;
+    const int32_t inspector_least = compact ? line_h * 2 : 0;
     int32_t room_h = body.height - under - gap - (beside ? 0 : inspector_least + gap);
     if (room_h < 25)
         room_h = std::max(body.height - button_row - gap, int32_t{25});
@@ -4553,84 +4567,14 @@ void add_keyboard_body(
         y += pic_h + gap;
     }
 
-    // Show as list, then the legend and the note.
-    {
-        const std::string caption =
-            show(editor.text(), state.keys_as_list ? words::show_keyboard : words::show_as_list);
-        const int32_t width = std::min(button_width(fonts, metrics, caption), column_w);
-        kit::ButtonLook button;
-        button.caption = kit::cut_to_width(fonts, kit::FontRole::small, caption, width);
-        button.style = kit::ButtonStyle::plain;
-        button.hovered = hot(state, controls::show_as_list);
-        button.held = held(state, controls::show_as_list);
-        if (y + button_row <= body.y + body.height)
-            place_button(
-                built,
-                {body.x, y, width, button_row},
-                button,
-                controls::show_as_list,
-                std::string(name_show_as_list),
-                true
-            );
-        // Compact keeps the note beside the button; the legend is the tints.
-        if (!beside && column_w - width - gap > 24)
-            add_line(
-                built,
-                fonts,
-                {body.x + width + gap, y, column_w - width - gap, button_row},
-                show(editor.text(), words::select_a_key),
-                kit::FontRole::small,
-                kit::colour::quiet
-            );
-        y += button_row + gap;
-    }
-    if (beside) {
-        for (const std::string& wrapped : legend_rows) {
-            if (y + line_h > body.y + body.height)
-                break;
-            add_line(
-                built,
-                fonts,
-                {body.x, y, column_w, line_h},
-                wrapped,
-                kit::FontRole::small,
-                kit::colour::hint
-            );
-            y += line_h;
-        }
-        for (const std::string& wrapped : note_rows) {
-            if (y + line_h > body.y + body.height)
-                break;
-            add_line(
-                built,
-                fonts,
-                {body.x, y, column_w, line_h},
-                wrapped,
-                kit::FontRole::small,
-                kit::colour::quiet
-            );
-            y += line_h;
-        }
-    }
-
-    // The inspector: the key, everything it does in each place, and the
-    // buttons that open the capture.
-    const kit::Rect pane =
-        beside ? kit::Rect{body.x + column_w + gap, body.y, inspector_w, body.height}
-               : kit::Rect{body.x, y, body.width, body.y + body.height - y};
-    if (!roomy(pane))
-        return;
-    add_item(built.list, kit::Role::fill, pane).colour = kit::colour::list;
-    const int32_t pad = metrics.space * 2;
-    const int32_t inner_w = std::max(pane.width - pad * 2, int32_t{1});
-    const int32_t bottom = pane.y + pane.height - pad;
-    int32_t at = pane.y + pad;
+    // What the inspector shows, and its buttons.
     const std::string key_label = label_of(shown);
-    std::string title = key_label;
+    // The key's name, with the layer's modifier held when there is one.
+    std::string title;
     if (state.layer != 0)
         title = layer_name(editor, state.layer) + " + " + key_label;
     const std::vector<CardLine> lines = key_card(editor, shown, state.layer);
-    std::string reading = title;
+    std::string reading = title.empty() ? key_label : title;
     // The buttons sit at the inspector's foot.
     const std::string face = [&]() -> std::string {
         const std::string playing = show(editor.text(), words::card_while_playing);
@@ -4671,11 +4615,122 @@ void add_keyboard_body(
             buttons.push_back(std::move(use));
         }
     }
+    // Show as list, then the legend and the note.
+    {
+        const std::string caption =
+            show(editor.text(), state.keys_as_list ? words::show_keyboard : words::show_as_list);
+        const int32_t width = std::min(button_width(fonts, metrics, caption), column_w);
+        kit::ButtonLook button;
+        button.caption = kit::cut_to_width(fonts, kit::FontRole::small, caption, width);
+        button.style = kit::ButtonStyle::plain;
+        button.hovered = hot(state, controls::show_as_list);
+        button.held = held(state, controls::show_as_list);
+        if (y + button_row <= body.y + body.height)
+            place_button(
+                built,
+                {body.x, y, width, button_row},
+                button,
+                controls::show_as_list,
+                std::string(name_show_as_list),
+                true
+            );
+        // Compact keeps the inspector's buttons beside it, or a note when the
+        // key has none.
+        if (!beside) {
+            int32_t right = body.x + column_w;
+            const int32_t least = body.x + width + gap;
+            for (auto one = buttons.rbegin(); one != buttons.rend(); ++one) {
+                const int32_t button_w = button_width(fonts, metrics, one->caption);
+                if (right - button_w < least)
+                    break;
+                kit::ButtonLook look_of;
+                look_of.caption = one->caption;
+                look_of.style = one->quiet ? kit::ButtonStyle::quiet : kit::ButtonStyle::plain;
+                look_of.enabled = one->enabled;
+                look_of.hovered = hot(state, one->id);
+                look_of.held = held(state, one->id);
+                place_button(
+                    built,
+                    {right - button_w, y, button_w, button_row},
+                    look_of,
+                    one->id,
+                    one->name,
+                    true
+                );
+                right -= button_w + gap;
+            }
+            if (buttons.empty() && column_w - width - gap > 24)
+                add_line(
+                    built,
+                    fonts,
+                    {least, y, column_w - width - gap, button_row},
+                    show(editor.text(), words::select_a_key),
+                    kit::FontRole::small,
+                    kit::colour::quiet
+                );
+            buttons.clear();
+        }
+        y += button_row + gap;
+    }
+    if (beside) {
+        const int32_t legend_top = y;
+        for (const Swatch& one : swatches) {
+            const int32_t row_y = legend_top + one.row * line_h;
+            if (row_y + line_h > body.y + body.height)
+                break;
+            kit::KeycapLook square;
+            square.label = one.letter;
+            square.tint = one.tint;
+            square.small = true;
+            kit::add_keycap(
+                built.list,
+                {body.x + one.x, row_y + std::max((line_h - 12) / 2, int32_t{0}), 12, 12},
+                square,
+                kit::no_control,
+                {}
+            );
+            add_line(
+                built,
+                fonts,
+                {body.x + one.x + 16, row_y, one.width - 16, line_h},
+                one.title,
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+        }
+        y = legend_top + static_cast<int32_t>(legend_rows.size()) * line_h + metrics.space;
+        for (const std::string& wrapped : note_rows) {
+            if (y + line_h > body.y + body.height)
+                break;
+            add_line(
+                built,
+                fonts,
+                {body.x, y, column_w, line_h},
+                wrapped,
+                kit::FontRole::small,
+                kit::colour::quiet
+            );
+            y += line_h;
+        }
+    }
+
+    // The inspector: the key, everything it does in each place, and the
+    // buttons that open the capture.
+    const kit::Rect pane =
+        beside ? kit::Rect{body.x + column_w + gap, body.y, inspector_w, body.height}
+               : kit::Rect{body.x, y, body.width, body.y + body.height - y};
+    if (!roomy(pane))
+        return;
+    add_item(built.list, kit::Role::fill, pane).colour = kit::colour::list;
+    const int32_t pad = metrics.space * 2;
+    const int32_t inner_w = std::max(pane.width - pad * 2, int32_t{1});
+    const int32_t bottom = pane.y + pane.height - pad;
+    int32_t at = pane.y + pad;
     const int32_t buttons_h =
         static_cast<int32_t>(buttons.size()) * (metrics.control_height + metrics.space);
     const int32_t lines_stop = bottom - buttons_h;
     const int32_t cap_side = std::min(metrics.control_height + 6, int32_t{44});
-    if (at + cap_side <= lines_stop) {
+    if (beside && at + cap_side <= lines_stop) {
         kit::KeycapLook cap;
         cap.label = key_label;
         cap.modifier = key_label.size() > 1;
@@ -4683,14 +4738,15 @@ void add_keyboard_body(
         const int32_t cap_w =
             std::min(std::max(kit::keycap_width(fonts, measured), cap_side), inner_w / 2);
         kit::add_keycap(built.list, {pane.x + pad, at, cap_w, cap_side}, cap, kit::no_control, {});
-        add_line(
-            built,
-            fonts,
-            {pane.x + pad + cap_w + pad, at, inner_w - cap_w - pad, cap_side},
-            title,
-            kit::FontRole::regular,
-            kit::colour::text
-        );
+        if (!title.empty())
+            add_line(
+                built,
+                fonts,
+                {pane.x + pad + cap_w + pad, at, inner_w - cap_w - pad, cap_side},
+                title,
+                kit::FontRole::regular,
+                kit::colour::text
+            );
         at += cap_side + pad;
     }
     if (at + line_h <= lines_stop) {
@@ -4723,6 +4779,20 @@ void add_keyboard_body(
             row += " · " + line.note;
         reading += '\n';
         reading += row;
+        if (!beside) {
+            // Compact's inspector is one line a place.
+            if (at + line_h <= lines_stop)
+                add_line(
+                    built,
+                    fonts,
+                    {pane.x + pad, at, inner_w, line_h},
+                    row,
+                    kit::FontRole::small,
+                    line.fixed ? kit::colour::quiet : kit::colour::text
+                );
+            at += line_h;
+            continue;
+        }
         const int32_t box_h = line_h * 2 + metrics.space * 2;
         if (at + box_h > lines_stop)
             continue;
@@ -4751,7 +4821,7 @@ void add_keyboard_body(
     }
     kit::Control control;
     control.id = controls::key_card;
-    control.rect = {pane.x, pane.y, pane.width, std::max(at - pane.y, line_h)};
+    control.rect = {pane.x, pane.y, pane.width, std::clamp(at - pane.y, int32_t{1}, pane.height)};
     control.enabled = true;
     control.focusable = false;
     control.name = std::string(name_key_card);

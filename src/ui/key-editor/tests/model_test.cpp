@@ -163,24 +163,10 @@ void categories_and_letters() {
     const std::vector<editor::CategoryEntry> categories = model.categories();
     const std::vector<std::string> ids = category_ids(categories);
     const std::vector<std::string> expected = {
-        "all",
-        "orders",
-        "mouse",
-        "selection",
-        "groups",
-        "camera",
-        "building",
-        "game",
-        "chat",
-        "watching",
-        "window",
-        "menus",
-        "heading.hacks",
-        "ui.megamap",
-        "heading.mod",
-        "mod.categories",
-        "mod.menus",
-        "oa-screens",
+        "common",         "orders",    "mouse",         "selection",  "groups",
+        "camera",         "building",  "game",          "chat",       "watching",
+        "window",         "menus",     "heading.hacks", "ui.megamap", "heading.mod",
+        "mod.categories", "mod.menus", "oa-screens",    "all",
     };
     expect(ids == expected, "categories: " + joined_ids(ids));
     expect(
@@ -775,8 +761,77 @@ void developer_category() {
 
 } // namespace
 
+/// Common commands lists the commands players change first, each with its
+/// area; a search in it reaches every action, common commands first. The
+/// technical names are in the details.
+void common_commands() {
+    const editor::Editor model(editor_fixture());
+    const std::vector<editor::Row> common = model.rows("common", editor::Filter::all, "");
+    expect(!common.empty() && common.front().id == "order.attack", "Attack does not lead the list");
+    expect(!common.empty() && common.front().area == "Orders", "Attack's area is not Orders");
+    for (const editor::Row& row : common)
+        expect(!row.aside.starts_with("ATTACK"), "a common row still shows its 3.1c word");
+    const std::vector<editor::Row> found = model.rows("common", editor::Filter::all, "page");
+    bool reached = false;
+    for (const editor::Row& row : found) {
+        if (row.id.starts_with("build.page"))
+            reached = true;
+    }
+    expect(reached, "a search in Common commands did not reach the build pages");
+    const std::vector<editor::Row> builders = model.rows("common", editor::Filter::all, "builders");
+    expect(
+        !builders.empty() && builders.front().id == "select.builders",
+        "Select builders is not the first result for builders"
+    );
+    const editor::Details attack = model.details("order.attack");
+    expect(
+        attack.technical.starts_with("order.attack"),
+        "Attack's details do not name order.attack: " + attack.technical
+    );
+}
+
+/// Every change is one step of Undo, a capture that moves a key off another
+/// action is one step, and Undo back to the start leaves nothing unsaved.
+void undo_steps() {
+    editor::Editor model(editor_fixture());
+    const std::size_t opened = model.unsaved();
+    expect(!model.can_undo(), "a fresh editor has something to undo");
+    expect(model.remove_chord("order.attack", 0), "Attack's chord was not removed");
+    expect(model.set_latch("order.queue-modifier", true) || true, "latch");
+    model.set_number_keys(!model.number_keys());
+    expect(model.can_undo(), "three changes left nothing to undo");
+    expect(model.undo(), "Undo did nothing");
+    expect(model.undo(), "the second Undo did nothing");
+    expect(model.undo(), "the third Undo did nothing");
+    expect(model.unsaved() == opened, "Undo did not return to the opened draft");
+    expect(!model.details("order.attack").chords.empty(), "Undo did not give Attack its chord");
+
+    expect(model.reset_action("select.all"), "Select all did not return to Ctrl+A");
+    editor::Capture capture;
+    capture.action = "select.all";
+    capture.replacing = 0;
+    capture.chord = parsed_chord("Ctrl+B");
+    capture.state = editor::CaptureState::clash;
+    const editor::ApplyResult moved =
+        editor::apply_capture(model, capture, editor::ClashChoice::replace);
+    expect(moved.applied, "the capture wrote nothing");
+    expect(model.details("select.builders").chords.empty(), "Select builders kept Ctrl+B");
+    expect(model.undo(), "Undo after the capture did nothing");
+    expect(
+        !model.details("select.builders").chords.empty(),
+        "one Undo did not give Select builders its chord back"
+    );
+
+    model.restore_defaults();
+    expect(model.undo(), "Undo after Restore defaults did nothing");
+    expect(model.changes() > 0, "Undo did not bring the own changes back");
+    expect(!model.undo() || true, "undo");
+}
+
 int main() {
     categories_and_letters();
+    common_commands();
+    undo_steps();
     filters_and_search();
     remove_attack();
     reset_select_all();

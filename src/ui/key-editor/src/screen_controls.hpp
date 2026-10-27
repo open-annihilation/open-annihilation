@@ -181,7 +181,7 @@ inline constexpr kit::ControlId chord_first = 2000;
 /// chord's place, from 0, is added. This stays below the menu.
 inline constexpr kit::ControlId chord_row_first = 2500;
 /// One item of the open menu. The item's place, from 0, is added.
-/// Keyboard keys start at keyboard_first, so a menu item stays below that.
+/// Find by key's rows start at find_row_first, so a menu item stays below that.
 inline constexpr kit::ControlId menu_first = 3000;
 /// One row of Find by key's list. The row's place, from 0, is added.
 inline constexpr kit::ControlId find_row_first = 5800;

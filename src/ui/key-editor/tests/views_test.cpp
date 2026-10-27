@@ -295,7 +295,10 @@ void labels_and_layers() {
     OA_CHECK(azerty_a != nullptr && azerty_a->cap.label == "Q" && azerty_a->cap.sub != "Attack");
 }
 
-/// A click on a bound key selects it. A click on a free key fills the prompt.
+/// A click on a key only inspects it: the inspector names what it does and
+/// nothing changes. Change {action}'s key… opens the capture for that chord;
+/// Use {key} for {action}… fills the capture for the action chosen in the
+/// list, which waits for its button.
 void clicks() {
     {
         Board board(stock_inputs());
@@ -303,18 +306,31 @@ void clicks() {
         board.state.layer = keys::ctrl;
         board.show();
         board.click(key_name("Comma"));
-        if (board.state.selected != "ui.settings")
-            std::fprintf(stderr, "comma selected %s\n", board.state.selected.c_str());
-        OA_CHECK(board.state.selected == "ui.settings");
+        OA_CHECK(board.state.card_code == "Comma");
         OA_CHECK(board.state.prompt == editor::Prompt::none);
+        board.show();
+        const kit::Control* card =
+            kit::control_of(board.list, kit::control_named(board.list, editor::name_key_card));
+        OA_CHECK(card != nullptr && card->text.find("Settings") != std::string::npos);
+        const kit::Control* change =
+            kit::control_of(board.list, kit::control_named(board.list, editor::name_card_change));
+        OA_CHECK(change != nullptr && change->text == "Change Settings's key…");
     }
     {
         Board board(stock_inputs());
         board.state.view = editor::View::keyboard;
         board.show();
         board.click(key_name("KeyA"));
-        OA_CHECK(board.state.selected == "order.attack");
+        OA_CHECK(board.state.selected.empty());
         OA_CHECK(board.state.prompt == editor::Prompt::none);
+        board.show();
+        board.click(editor::name_card_change);
+        if (board.state.selected != "order.attack")
+            std::fprintf(stderr, "A's inspector chose %s\n", board.state.selected.c_str());
+        OA_CHECK(board.state.selected == "order.attack");
+        OA_CHECK(board.state.prompt == editor::Prompt::capture);
+        OA_CHECK(board.state.capture.replacing.has_value());
+        OA_CHECK(board.model.changes() == 0);
     }
     {
         Board board(stock_inputs());
@@ -324,6 +340,9 @@ void clicks() {
         board.show();
         const std::string before = oakeys::write_bindings_text(board.model.result().manifest);
         board.click(key_name("KeyA"));
+        OA_CHECK(board.state.prompt == editor::Prompt::none);
+        board.show();
+        board.click(editor::name_card_use);
         const keys::Chord* chord =
             board.state.capture.chord ? &*board.state.capture.chord : nullptr;
         if (chord == nullptr || chord->kind != keys::TriggerKind::character ||
@@ -347,6 +366,9 @@ void clicks() {
         board.show();
         const std::string before = oakeys::write_bindings_text(board.model.result().manifest);
         board.click(key_name("F9"));
+        OA_CHECK(board.state.prompt == editor::Prompt::none);
+        board.show();
+        board.click(editor::name_card_use);
         const keys::Chord* chord =
             board.state.capture.chord ? &*board.state.capture.chord : nullptr;
         OA_CHECK(board.state.prompt == editor::Prompt::capture);
@@ -394,6 +416,7 @@ void mouse_schemes() {
 void find_outlines_attack() {
     Board board(stock_inputs());
     board.state.selected = "order.attack";
+    board.state.details_more = true;
     board.show();
     const std::vector<std::string> codes = editor::keys_of(board.model, "order.attack");
     bool key_a = false;

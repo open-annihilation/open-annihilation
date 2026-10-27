@@ -85,6 +85,10 @@ enum class Shown : uint8_t {
     share,     ///< Share your keys
     pasted,    ///< Paste keys
     importing, ///< Import keys from an older setup
+    found,     ///< Find by key, with Ctrl+B heard
+    settling,  ///< the clash question settling the draft clash
+    draft,     ///< the list with an unsaved edit and Undo
+    more,      ///< the capture with More options open
 };
 
 /// One picture.
@@ -105,6 +109,7 @@ struct Scene {
     bool overlay{false};
     /// The class the overlay is laid out at.
     kit::SizeClass overlay_class{kit::SizeClass::compact};
+    bool as_list{false}; ///< the keyboard view shows every key as a list
 };
 
 /// A drawing of a scene.
@@ -292,6 +297,29 @@ std::vector<Scene> all_scenes() {
             editor::View::keyboard,
             kit::KeyboardShape::jis
         ),
+        picture("find-compact", 640, 480, 100, compact, false, false, Shown::found),
+        picture("find-regular", 1920, 1080, 200, regular, false, false, Shown::found),
+        picture("find-large", 1280, 720, 100, large, false, false, Shown::found),
+        picture("settle-compact", 640, 480, 100, compact, false, false, Shown::settling),
+        picture("settle-regular", 1920, 1080, 200, regular, false, false, Shown::settling),
+        picture("settle-large", 1280, 720, 100, large, false, false, Shown::settling),
+        picture("draft-compact", 640, 480, 100, compact, false, false, Shown::draft),
+        picture("draft-regular", 1920, 1080, 200, regular, false, false, Shown::draft),
+        picture("draft-large", 1280, 720, 100, large, false, false, Shown::draft),
+        picture("capture-more-large", 1280, 720, 100, large, false, false, Shown::more),
+        [&] {
+            Scene scene = shaped(
+                "keyboard-list-large",
+                1280,
+                720,
+                100,
+                large,
+                editor::View::keyboard,
+                kit::KeyboardShape::ansi
+            );
+            scene.as_list = true;
+            return scene;
+        }(),
         overlay_picture("keys-overlay-compact", kit::SizeClass::compact),
         overlay_picture("keys-overlay-regular", kit::SizeClass::regular),
         overlay_picture("keys-overlay-large", kit::SizeClass::large),
@@ -350,8 +378,39 @@ void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& s
     state.capture.action = "order.attack";
     state.capture.means = oa::data::input_actions::By::letter;
     state.capture.starts = keys::Gesture::press;
+    state.keys_as_list = scene.as_list;
     if (scene.shown == Shown::list)
         return;
+    if (scene.shown == Shown::found) {
+        state.prompt = editor::Prompt::find;
+        state.finding.chord = primary_letter(U'B');
+        state.finding.state = editor::CaptureState::complete;
+        return;
+    }
+    if (scene.shown == Shown::settling) {
+        state.selected = "select.all";
+        state.category = "all";
+        state.filter = editor::Filter::clashes;
+        if (const std::optional<keys::Clash> clash = model.draft_clash("select.all")) {
+            state.prompt = editor::Prompt::clash;
+            state.settling = true;
+            state.pending_clash = *clash;
+        }
+        return;
+    }
+    if (scene.shown == Shown::draft) {
+        model.remove_chord("order.stop", 0);
+        model.set_number_keys(!model.number_keys());
+        state.selected = "order.stop";
+        return;
+    }
+    if (scene.shown == Shown::more) {
+        state.prompt = editor::Prompt::capture;
+        state.capture.chord = primary_letter(U'Q');
+        state.capture.state = editor::CaptureState::complete;
+        state.capture_more = true;
+        return;
+    }
     if (scene.shown == Shown::card) {
         state.selected = "select.all";
         state.filter = editor::Filter::clashes;

@@ -567,24 +567,42 @@ void capture_prompt_shape() {
         expect(!full_fill, "the capture prompt fills the window");
         const kit::Control* well =
             kit::control_of(list, kit::control_named(list, editor::name_capture_well));
-        expect(well != nullptr && well->rect.height == 64, "the well is not 64 points high");
+        expect(well != nullptr && well->rect.height == 76, "the well is not 76 points high");
         expect(
             well != nullptr && well->rect.width > well->rect.height,
             "the well does not span the prompt"
         );
-        const kit::Item* means = prompt_item(list, kit::Role::text, "Means");
-        const kit::Control* letter =
-            kit::control_of(list, kit::control_named(list, editor::name_capture_letter));
         expect(
-            means != nullptr && letter != nullptr && shares_row(means->rect, letter->rect),
-            "Means is not on the strip's row"
+            prompt_item(list, kit::Role::text, "Same place on every keyboard") == nullptr,
+            "More options are open before they are asked for"
         );
-        const kit::Item* starts = prompt_item(list, kit::Role::text, "Starts on");
+        const kit::Control* said =
+            kit::control_of(list, kit::control_named(list, editor::name_capture_status));
+        expect(
+            said != nullptr && said->text == "Ctrl+Q is free while playing.",
+            "the capture does not say Ctrl+Q is free while playing"
+        );
+        const kit::Control* use =
+            kit::control_of(list, kit::control_named(list, editor::name_capture_ok));
+        expect(
+            use != nullptr && use->text == "Use Ctrl+Q for Attack",
+            "the capture's button is not Use Ctrl+Q for Attack"
+        );
+        state.capture_more = true;
+        const kit::DisplayList more = editor::editor_layout(model, state, frame, fonts());
+        const kit::Item* means = prompt_item(more, kit::Role::text, "Same place on every keyboard");
+        const kit::Control* place =
+            kit::control_of(more, kit::control_named(more, editor::name_capture_means));
+        expect(
+            means != nullptr && place != nullptr && shares_row(means->rect, place->rect),
+            "Same place on every keyboard is not on its switch's row"
+        );
+        const kit::Item* starts = prompt_item(more, kit::Role::text, "How it acts");
         const kit::Control* press =
-            kit::control_of(list, kit::control_named(list, editor::name_capture_press));
+            kit::control_of(more, kit::control_named(more, editor::name_capture_press));
         expect(
             starts != nullptr && press != nullptr && shares_row(starts->rect, press->rect),
-            "Starts on is not on the strip's row"
+            "How it acts is not on the strip's row"
         );
         const kit::Control* cancel =
             kit::control_of(list, kit::control_named(list, editor::name_capture_cancel));
@@ -602,7 +620,8 @@ void capture_prompt_shape() {
     }
 }
 
-/// REPLACE leaves the other action with nothing, and SWAP names both chords.
+/// The clash question lists each outcome's result on both actions: Move it
+/// leaves the other with no key, Swap them gives it the chord given up.
 void clash_row_words() {
     editor::Editor model(editor_fixture());
     expect(model.reset_action("select.all"), "Select all did not return to Ctrl+A for the row");
@@ -621,47 +640,40 @@ void clash_row_words() {
         state.pending_clash = *status.clash;
     const kit::Frame frame = frame_for(1280, 720, 100);
     const kit::DisplayList list = editor::editor_layout(model, state, frame, fonts());
-    const kit::Item* replace = prompt_item(list, kit::Role::text, "REPLACE");
-    const kit::Item* swap = prompt_item(list, kit::Role::text, "SWAP");
-    const kit::Item* unbound = prompt_item(list, kit::Role::text, "nothing: unbound");
-    expect(replace != nullptr, "REPLACE is not a row");
-    expect(swap != nullptr, "SWAP is not a row");
-    expect(unbound != nullptr, "REPLACE does not leave the other action unbound");
-    expect(prompt_chips(list, "Ctrl+B") == 2, "the rows do not show Ctrl+B twice");
-    expect(prompt_chips(list, "Ctrl+A") == 1, "SWAP does not show Ctrl+A");
-    bool replace_chord = false;
-    bool swap_taken = false;
-    bool swap_old = false;
-    bool prompt = false;
-    for (const kit::Item& item : list.items) {
-        if (item.role == kit::Role::blend)
-            prompt = true;
-        if (!prompt || item.role != kit::Role::chord_chip)
-            continue;
-        if (replace != nullptr && unbound != nullptr && item.text == "Ctrl+B" &&
-            shares_row(item.rect, replace->rect) && item.rect.x > replace->rect.x &&
-            item.rect.x < unbound->rect.x && shares_row(unbound->rect, replace->rect))
-            replace_chord = true;
-        if (swap != nullptr && item.text == "Ctrl+B" && shares_row(item.rect, swap->rect) &&
-            item.rect.x > swap->rect.x)
-            swap_taken = true;
-        if (swap != nullptr && item.text == "Ctrl+A" && shares_row(item.rect, swap->rect) &&
-            item.rect.x > swap->rect.x)
-            swap_old = true;
-    }
-    expect(replace_chord, "REPLACE does not show Ctrl+B beside nothing: unbound");
-    expect(swap_taken && swap_old, "SWAP does not show Ctrl+B and Ctrl+A");
+    expect(
+        prompt_item(list, kit::Role::text, "Ctrl+B is already in use") != nullptr,
+        "the question is not Ctrl+B is already in use"
+    );
+    const kit::Control* move =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_replace));
+    const kit::Control* swap =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_swap));
+    expect(move != nullptr && move->checked, "Move it is not the marked outcome");
+    expect(swap != nullptr && !swap->checked, "Swap them is missing or marked");
+    expect(
+        move != nullptr && move->text.find("Select builders: no key") != std::string::npos,
+        "Move it does not leave Select builders with no key"
+    );
+    expect(
+        swap != nullptr && swap->text.find("Select builders: Ctrl+A") != std::string::npos,
+        "Swap them does not give Select builders Ctrl+A"
+    );
+    expect(prompt_chips(list, "Ctrl+B") == 2, "the outcomes do not show Ctrl+B twice");
+    expect(prompt_chips(list, "Ctrl+A") == 1, "Swap them does not show Ctrl+A");
     const kit::Control* cancel =
         kit::control_of(list, kit::control_named(list, editor::name_clash_cancel));
-    const kit::Control* replacing =
-        kit::control_of(list, kit::control_named(list, editor::name_clash_replace));
-    const kit::Control* swapping =
-        kit::control_of(list, kit::control_named(list, editor::name_clash_swap));
-    expect(cancel != nullptr && replacing != nullptr && swapping != nullptr, "a choice is missing");
+    const kit::Control* confirm =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_confirm));
+    const kit::Control* another =
+        kit::control_of(list, kit::control_named(list, editor::name_clash_another));
     expect(
-        cancel != nullptr && replacing != nullptr && swapping != nullptr &&
-            cancel->rect.x < replacing->rect.x && replacing->rect.x < swapping->rect.x,
-        "the footer is not CANCEL, REPLACE, SWAP"
+        confirm != nullptr && confirm->text == "Move to Select all",
+        "the confirm button is not Move to Select all"
+    );
+    expect(
+        another != nullptr && cancel != nullptr && confirm != nullptr &&
+            another->rect.x < cancel->rect.x && cancel->rect.x < confirm->rect.x,
+        "the footer is not Choose another key, Cancel, Move to Select all"
     );
 
     editor::Editor adding(editor_fixture());
@@ -677,22 +689,93 @@ void clash_row_words() {
         add_status.clash)
         add_state.pending_clash = *add_status.clash;
     const kit::DisplayList add_list = editor::editor_layout(adding, add_state, frame, fonts());
-    expect(prompt_item(add_list, kit::Role::text, "SWAP") == nullptr, "+ ADD KEY shows a SWAP row");
-    expect(
-        prompt_item(add_list, kit::Role::text, "nothing: unbound") != nullptr,
-        "+ ADD KEY does not leave the other action unbound"
-    );
-    const kit::Control* add_cancel =
-        kit::control_of(add_list, kit::control_named(add_list, editor::name_clash_cancel));
-    const kit::Control* add_replace =
-        kit::control_of(add_list, kit::control_named(add_list, editor::name_clash_replace));
-    expect(
-        add_cancel != nullptr && add_replace != nullptr && add_cancel->rect.x < add_replace->rect.x,
-        "+ ADD KEY's footer is not CANCEL, REPLACE"
-    );
     expect(
         kit::control_of(add_list, kit::control_named(add_list, editor::name_clash_swap)) == nullptr,
-        "+ ADD KEY's footer shows SWAP"
+        "+ Add a key offers Swap them"
+    );
+    expect(
+        prompt_item(add_list, kit::Role::text, "no key") != nullptr,
+        "+ Add a key does not leave the other action with no key"
+    );
+}
+
+/// The clash question changes nothing until its confirm button: choosing an
+/// outcome only marks it, Cancel and Choose another key leave every chord.
+void outcomes_wait_for_confirm() {
+    const kit::Frame frame = frame_for(1280, 720, 100);
+    editor::Editor model(editor_fixture());
+    expect(model.reset_action("select.all"), "Select all did not return to Ctrl+A");
+    const std::size_t opened = model.unsaved();
+    editor::ScreenState state;
+    state.selected = "select.all";
+    state.prompt = editor::Prompt::capture;
+    state.capture = begin("select.all", 0);
+    editor::capture_key(
+        state.capture, model, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 90, true)
+    );
+    kit::DisplayList list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> ok = centre_named(list, editor::name_capture_ok))
+        click_at(model, state, list, *ok);
+    expect(state.prompt == editor::Prompt::clash, "Choose what happens did not ask");
+    expect(
+        shows_chord(model, "select.all", "Ctrl+A") &&
+            shows_chord(model, "select.builders", "Ctrl+B"),
+        "opening the question changed a chord"
+    );
+    list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> swap = centre_named(list, editor::name_clash_swap))
+        click_at(model, state, list, *swap);
+    expect(state.outcome == 1, "Swap them was not marked");
+    expect(
+        shows_chord(model, "select.all", "Ctrl+A") &&
+            shows_chord(model, "select.builders", "Ctrl+B"),
+        "marking Swap them changed a chord"
+    );
+    list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> another = centre_named(list, editor::name_clash_another))
+        click_at(model, state, list, *another);
+    expect(state.prompt == editor::Prompt::capture, "Choose another key did not listen again");
+    expect(!state.capture.chord.has_value(), "Choose another key kept the chord");
+    expect(model.unsaved() == opened, "Choose another key changed the draft");
+
+    editor::capture_key(
+        state.capture, model, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 95, true)
+    );
+    list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> ok = centre_named(list, editor::name_capture_ok))
+        click_at(model, state, list, *ok);
+    list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> cancel = centre_named(list, editor::name_clash_cancel))
+        click_at(model, state, list, *cancel);
+    expect(state.prompt == editor::Prompt::none, "Cancel did not close the question");
+    expect(model.unsaved() == opened, "Cancel changed the draft");
+
+    state.prompt = editor::Prompt::capture;
+    state.capture = begin("select.all", 0);
+    editor::capture_key(
+        state.capture, model, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 99, true)
+    );
+    list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> ok = centre_named(list, editor::name_capture_ok))
+        click_at(model, state, list, *ok);
+    list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> swap = centre_named(list, editor::name_clash_swap))
+        click_at(model, state, list, *swap);
+    list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> confirm = centre_named(list, editor::name_clash_confirm))
+        click_at(model, state, list, *confirm);
+    expect(state.prompt == editor::Prompt::none, "Swap them did not close the question");
+    expect(
+        shows_chord(model, "select.all", "Ctrl+B") &&
+            shows_chord(model, "select.builders", "Ctrl+A"),
+        "Swap them did not trade the chords"
+    );
+    expect(model.can_undo(), "Swap them left nothing to undo");
+    expect(model.undo(), "Undo did nothing");
+    expect(
+        shows_chord(model, "select.all", "Ctrl+A") &&
+            shows_chord(model, "select.builders", "Ctrl+B"),
+        "Undo did not put both chords back in one step"
     );
 }
 
@@ -775,71 +858,85 @@ void card_choices() {
         "KEEP IT FOR left Select builders as " + chord_line(there, "select.builders")
     );
 
+    // In the details a draft clash shows Settle…, which opens the one clash
+    // question with Keep it for each side as its outcomes.
     const kit::Frame frame = frame_for(1280, 720, 100);
     editor::Editor choosing(editor_fixture());
     editor::ScreenState state;
     state.selected = "select.all";
     state.filter = editor::Filter::clashes;
-    const kit::DisplayList list = editor::editor_layout(choosing, state, frame, fonts());
-    const std::optional<kit::Point> choose = centre_named(list, editor::name_card_choose);
-    const std::optional<kit::Point> keep_here = centre_named(list, editor::name_card_here);
-    const std::optional<kit::Point> keep_there = centre_named(list, editor::name_card_there);
-    expect(choose.has_value(), "CHOOSE ANOTHER KEY is not shown");
-    expect(keep_here.has_value(), "KEEP IT HERE is not shown");
-    expect(keep_there.has_value(), "KEEP IT FOR is not shown");
-    if (choose) {
-        click_at(choosing, state, list, *choose);
-        expect(
-            state.prompt == editor::Prompt::capture, "CHOOSE ANOTHER KEY did not open the capture"
-        );
-        expect(state.capture.replacing.has_value(), "CHOOSE ANOTHER KEY did not name the chord");
-        expect(
-            state.capture.action == "select.all",
-            "CHOOSE ANOTHER KEY captured " + state.capture.action
-        );
-    }
+    state.category = "all";
+    kit::DisplayList list = editor::editor_layout(choosing, state, frame, fonts());
+    const std::optional<kit::Point> settle_at = centre_named(list, editor::name_card_settle);
+    expect(settle_at.has_value(), "Settle… is not shown");
+    if (settle_at)
+        click_at(choosing, state, list, *settle_at);
+    expect(state.prompt == editor::Prompt::clash && state.settling, "Settle… did not ask");
+    list = editor::editor_layout(choosing, state, frame, fonts());
+    const kit::Control* keep_here =
+        kit::control_of(list, kit::control_named(list, editor::name_card_here));
+    const kit::Control* keep_there =
+        kit::control_of(list, kit::control_named(list, editor::name_card_there));
+    expect(keep_here != nullptr && keep_here->checked, "Keep it for Select all is not marked");
+    expect(keep_there != nullptr, "Keep it for Select builders is not shown");
+    expect(
+        keep_here != nullptr &&
+            keep_here->text.find("Select builders: no key") != std::string::npos,
+        "Keep it for Select all does not leave Select builders with no key"
+    );
+    if (const std::optional<kit::Point> there_at = centre_named(list, editor::name_card_there))
+        click_at(choosing, state, list, *there_at);
+    expect(state.outcome == 1, "Keep it for Select builders was not marked");
+    expect(
+        shows_chord(choosing, "select.all", "Ctrl+B"),
+        "marking an outcome changed Select all to " + chord_line(choosing, "select.all")
+    );
+    list = editor::editor_layout(choosing, state, frame, fonts());
+    if (const std::optional<kit::Point> confirm = centre_named(list, editor::name_clash_confirm))
+        click_at(choosing, state, list, *confirm);
+    expect(state.prompt == editor::Prompt::none, "the confirm button left the question open");
+    expect(choosing.can_save(), "Keep it for Select builders left Save changes disabled");
+    expect(
+        shows_chord(choosing, "select.all", "Ctrl+A"),
+        "Keep it for Select builders left Select all as " + chord_line(choosing, "select.all")
+    );
 
-    editor::Editor clicked_here(editor_fixture());
-    editor::ScreenState here_state;
-    here_state.selected = "select.all";
-    here_state.filter = editor::Filter::clashes;
-    const kit::DisplayList here_list =
-        editor::editor_layout(clicked_here, here_state, frame, fonts());
-    if (const std::optional<kit::Point> at = centre_named(here_list, editor::name_card_here)) {
-        click_at(clicked_here, here_state, here_list, *at);
-        expect(here_state.prompt == editor::Prompt::none, "KEEP IT HERE opened a prompt");
-        expect(clicked_here.can_save(), "clicking KEEP IT HERE left SAVE disabled");
-        expect(
-            clicked_here.details("select.builders").chords.empty(),
-            "clicking KEEP IT HERE left the clash"
-        );
-    }
-
-    editor::Editor clicked_there(editor_fixture());
-    editor::ScreenState there_state;
-    there_state.selected = "select.all";
-    there_state.filter = editor::Filter::clashes;
-    const kit::DisplayList there_list =
-        editor::editor_layout(clicked_there, there_state, frame, fonts());
-    if (const std::optional<kit::Point> at = centre_named(there_list, editor::name_card_there)) {
-        click_at(clicked_there, there_state, there_list, *at);
-        expect(there_state.prompt == editor::Prompt::none, "KEEP IT FOR opened a prompt");
-        expect(
-            shows_chord(clicked_there, "select.all", "Ctrl+A"),
-            "clicking KEEP IT FOR left Select all as " + chord_line(clicked_there, "select.all")
-        );
-    }
+    editor::Editor another(editor_fixture());
+    editor::ScreenState again;
+    again.selected = "select.all";
+    again.filter = editor::Filter::clashes;
+    again.category = "all";
+    list = editor::editor_layout(another, again, frame, fonts());
+    if (const std::optional<kit::Point> at = centre_named(list, editor::name_card_settle))
+        click_at(another, again, list, *at);
+    list = editor::editor_layout(another, again, frame, fonts());
+    if (const std::optional<kit::Point> at = centre_named(list, editor::name_clash_another))
+        click_at(another, again, list, *at);
+    expect(again.prompt == editor::Prompt::capture, "Choose another key did not open the capture");
+    expect(again.capture.replacing.has_value(), "Choose another key did not name the chord");
+    expect(
+        again.capture.action == "select.all", "Choose another key captured " + again.capture.action
+    );
 }
 
-/// Ctrl+B lists every action on it. A plain B types into the search.
-void find_and_type() {
+/// Find by key listens for a chord apart from the search, lists every
+/// action on it and changes nothing; Open › chooses the action. Typing in
+/// the search only searches commands.
+void find_by_key() {
+    const kit::Frame frame = frame_for(1280, 720, 100);
     editor::Editor model(editor_fixture());
-    const std::optional<keys::Chord> found = editor::chord_to_find(
-        model, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 100, true)
+    editor::ScreenState state;
+    kit::DisplayList list = editor::editor_layout(model, state, frame, fonts());
+    if (const std::optional<kit::Point> at = centre_named(list, editor::name_find))
+        click_at(model, state, list, *at);
+    expect(state.prompt == editor::Prompt::find, "Find by key did not open");
+    editor::editor_capture_input(
+        model, state, key_event("KeyB", static_cast<uint32_t>('b'), keys::ctrl, 100, true)
     );
-    expect(found.has_value(), "Ctrl+B was not a search");
-    if (found) {
-        const std::vector<editor::ChordUse> uses = editor::find_by_chord(model, *found);
+    expect(state.finding.chord.has_value(), "Find by key heard no chord");
+    if (state.finding.chord) {
+        const std::vector<editor::ChordUse> uses =
+            editor::find_by_chord(model, *state.finding.chord);
         bool all = false;
         bool builders = false;
         for (const editor::ChordUse& use : uses) {
@@ -851,24 +948,32 @@ void find_and_type() {
         expect(all, "Ctrl+B did not list Select all");
         expect(builders, "Ctrl+B did not list Select builders");
     }
+    expect(model.unsaved() == 0, "Find by key changed the draft");
+    list = editor::editor_layout(model, state, frame, fonts());
+    const kit::Control* line =
+        kit::control_of(list, kit::control_named(list, editor::name_find_prompt));
     expect(
-        !editor::chord_to_find(model, key_event("KeyB", static_cast<uint32_t>('b'), 0, 110, true))
-             .has_value(),
-        "a plain B was taken as a chord"
+        line != nullptr && line->text.find("Nothing is changed.") != std::string::npos,
+        "Find by key does not say nothing is changed"
     );
+    const std::string first_row = std::string(editor::name_find_row_prefix) + "1";
+    const kit::Control* row = kit::control_of(list, kit::control_named(list, first_row));
+    expect(row != nullptr, "Find by key lists no row");
+    if (const std::optional<kit::Point> at = centre_named(list, first_row))
+        click_at(model, state, list, *at);
+    expect(state.prompt == editor::Prompt::none, "Open › left Find by key open");
+    expect(
+        state.selected == "select.all" || state.selected == "select.builders",
+        "Open › chose " + state.selected
+    );
+    expect(model.unsaved() == 0, "Open › changed the draft");
 
-    keys::InputEvent side;
-    side.kind = keys::InputKind::button;
-    side.down = true;
-    side.button = 4;
-    expect(editor::chord_to_find(model, side).has_value(), "a side button was not a search");
-
-    editor::ScreenState state;
+    editor::ScreenState typing;
     const kit::DisplayList unused;
-    editor::editor_command(model, state, unused, editor::EditorCommand::find);
-    editor::editor_text(model, state, unused, "b");
-    expect(state.search.text == "b", "a plain B typed \"" + state.search.text + "\"");
-    expect(!state.search_chord.has_value(), "a plain B filled the search chord");
+    editor::editor_command(model, typing, unused, editor::EditorCommand::find);
+    editor::editor_text(model, typing, unused, "b");
+    expect(typing.search.text == "b", "a plain B typed \"" + typing.search.text + "\"");
+    expect(typing.prompt == editor::Prompt::none, "typing opened a prompt");
 }
 
 /// A fifth chord is refused, and the fixed Escape cannot be dropped.
@@ -961,9 +1066,10 @@ int main() {
     replace_swap_cancel();
     capture_prompt_shape();
     clash_row_words();
+    outcomes_wait_for_confirm();
     no_swap_for_add();
     card_choices();
-    find_and_type();
+    find_by_key();
     limits();
     well_not_the_buttons();
     return oa::test::failed_checks() == 0 ? 0 : 1;

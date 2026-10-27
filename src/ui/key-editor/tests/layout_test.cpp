@@ -365,24 +365,21 @@ void check_frame(
 /// @param english the English word
 /// @return the text to show
 std::string french_shown(void* /*context*/, std::string_view english) {
-    using editor::words::cancel;
+    using editor::words::cancel_title;
     using editor::words::layout;
-    using editor::words::restore;
-    using editor::words::save;
-    using editor::words::search_actions;
-    using editor::words::search_short;
+    using editor::words::restore_title;
+    using editor::words::save_changes;
+    using editor::words::search_commands;
     if (english == layout)
         return "DISPOSITION DES TOUCHES";
-    if (english == save)
-        return "ENREGISTRER";
-    if (english == cancel)
-        return "ANNULER LA SAISIE";
-    if (english == restore)
-        return "RETABLIR LES VALEURS PAR DEFAUT";
-    if (english == search_actions)
-        return "Rechercher des actions, ou appuyer sur une touche";
-    if (english == search_short)
-        return "Rechercher, ou appuyer sur une touche";
+    if (english == save_changes)
+        return "Enregistrer";
+    if (english == cancel_title)
+        return "Annuler la saisie";
+    if (english == restore_title)
+        return "Rétablir les valeurs par défaut";
+    if (english == search_commands)
+        return "Rechercher des commandes";
     return std::string(english);
 }
 
@@ -392,10 +389,10 @@ std::string french_shown(void* /*context*/, std::string_view english) {
 /// @param english the English word
 /// @return the text to show
 std::string german_shown(void* /*context*/, std::string_view english) {
-    if (english == editor::words::save)
-        return "SPEICHERN SIE BITTE DIESES LAYOUT";
-    if (english == editor::words::restore)
-        return "STANDARDWERTE WIEDERHERSTELLEN";
+    if (english == editor::words::save_changes)
+        return "Speichern Sie bitte dieses Layout";
+    if (english == editor::words::restore_title)
+        return "Standardwerte wiederherstellen";
     return std::string(english);
 }
 
@@ -422,13 +419,10 @@ void check_french(const kit::Frame& frame, const std::string& where) {
     expect_none(rects_outside(list, window), where + " control");
     expect_none(texts_not_fitting(list, fonts()), where + " text");
     const std::string save = caption_of(list, editor::name_save);
-    if (save != "ENREGISTRER")
+    if (save != "Enregistrer")
         std::fprintf(stderr, "%s: save shows \"%s\"\n", where.c_str(), save.c_str());
-    OA_CHECK(save == "ENREGISTRER");
-    const bool large = frame.size_class == kit::SizeClass::large;
-    const std::string want = large
-                                 ? std::string(french_shown(nullptr, editor::words::search_actions))
-                                 : std::string(french_shown(nullptr, editor::words::search_short));
+    OA_CHECK(save == "Enregistrer");
+    const std::string want = french_shown(nullptr, editor::words::search_commands);
     const std::string placeholder = placeholder_of(list);
     if (placeholder != want)
         std::fprintf(stderr, "%s: search shows \"%s\"\n", where.c_str(), placeholder.c_str());
@@ -469,15 +463,19 @@ void check_german(const kit::Frame& frame, const std::string& where) {
     }
     OA_CHECK(save_after > save_before);
     const std::string save = caption_of(after, editor::name_save);
-    OA_CHECK(save == "SPEICHERN SIE BITTE DIESES LAYOUT");
+    OA_CHECK(save == "Speichern Sie bitte dieses Layout");
 
-    const int32_t restore_before = control_width(before, editor::name_restore);
-    const int32_t restore_after = control_width(after, editor::name_restore);
-    const bool footer = frame.size_class != kit::SizeClass::compact;
-    if (footer && (restore_before < 0 || restore_after < 0))
-        std::fprintf(stderr, "%s: restore is missing\n", where.c_str());
-    if (footer)
-        OA_CHECK(restore_before >= 0 && restore_after >= 0);
+    // Restore defaults is an item of More: the menu grows for the German.
+    editor::ScreenState more;
+    more.menu = editor::Menu::more;
+    const kit::DisplayList more_before = laid_out(english, more, frame);
+    const kit::DisplayList more_after = laid_out(german, more, frame);
+    expect_none(texts_not_fitting(more_after, fonts()), where + " More text");
+    const int32_t restore_before = control_width(more_before, editor::name_restore);
+    const int32_t restore_after = control_width(more_after, editor::name_restore);
+    if (restore_before < 0 || restore_after < 0)
+        std::fprintf(stderr, "%s: restore is missing from More\n", where.c_str());
+    OA_CHECK(restore_before >= 0 && restore_after >= 0);
     if (restore_before >= 0 && restore_after >= 0) {
         if (restore_after <= restore_before) {
             std::fprintf(
@@ -489,7 +487,7 @@ void check_german(const kit::Frame& frame, const std::string& where) {
             );
         }
         OA_CHECK(restore_after > restore_before);
-        OA_CHECK(caption_of(after, editor::name_restore) == "STANDARDWERTE WIEDERHERSTELLEN");
+        OA_CHECK(caption_of(more_after, editor::name_restore) == "Standardwerte wiederherstellen");
     }
 }
 
@@ -578,17 +576,20 @@ void check_prompts(const kit::Frame& frame, const std::string& where) {
         check_list(list, where + " waiting");
         require_named(list, editor::name_capture, where + " waiting");
         require_named(list, editor::name_capture_well, where + " waiting");
-        require_named(list, editor::name_capture_letter, where + " waiting");
-        require_named(list, editor::name_capture_place, where + " waiting");
-        require_named(list, editor::name_capture_press, where + " waiting");
-        require_named(list, editor::name_capture_double, where + " waiting");
-        require_named(list, editor::name_capture_hold, where + " waiting");
+        require_named(list, editor::name_capture_more, where + " waiting");
         require_named(list, editor::name_capture_cancel, where + " waiting");
         require_named(list, editor::name_capture_ok, where + " waiting");
         OA_CHECK(!control_enabled(list, editor::name_capture_ok));
         if (!shows(list, "Press a key"))
             std::fprintf(stderr, "%s waiting: the well has no prompt\n", where.c_str());
         OA_CHECK(shows(list, "Press a key"));
+        state.capture_more = true;
+        const kit::DisplayList more = laid_out(model, state, frame);
+        check_list(more, where + " waiting, More options");
+        require_named(more, editor::name_capture_means, where + " More options");
+        require_named(more, editor::name_capture_press, where + " More options");
+        require_named(more, editor::name_capture_double, where + " More options");
+        require_named(more, editor::name_capture_hold, where + " More options");
     }
     {
         editor::ScreenState state;
@@ -658,6 +659,8 @@ void check_prompts(const kit::Frame& frame, const std::string& where) {
         require_named(list, editor::name_clash_replace, where + " question");
         require_named(list, editor::name_clash_swap, where + " question");
         require_named(list, editor::name_clash_cancel, where + " question");
+        require_named(list, editor::name_clash_confirm, where + " question");
+        require_named(list, editor::name_clash_another, where + " question");
         state.capture.replacing.reset();
         const kit::DisplayList added = laid_out(model, state, frame);
         check_list(added, where + " question add");
@@ -672,9 +675,28 @@ void check_prompts(const kit::Frame& frame, const std::string& where) {
         state.details_page = frame.size_class == kit::SizeClass::compact;
         const kit::DisplayList list = laid_out(model, state, frame);
         check_list(list, where + " card");
-        require_named(list, editor::name_card_here, where + " card");
-        require_named(list, editor::name_card_there, where + " card");
-        require_named(list, editor::name_card_choose, where + " card");
+        require_named(list, editor::name_card_settle, where + " card");
+        state.prompt = editor::Prompt::clash;
+        state.settling = true;
+        if (const std::optional<keys::Clash> clash = model.draft_clash("select.all"))
+            state.pending_clash = *clash;
+        const kit::DisplayList settling = laid_out(model, state, frame);
+        check_list(settling, where + " settle");
+        require_named(settling, editor::name_card_here, where + " settle");
+        require_named(settling, editor::name_card_there, where + " settle");
+        require_named(settling, editor::name_clash_confirm, where + " settle");
+    }
+    {
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::find;
+        state.finding.chord = primary_letter(U'B');
+        state.finding.state = editor::CaptureState::complete;
+        const kit::DisplayList list = laid_out(model, state, frame);
+        check_list(list, where + " find");
+        require_named(list, editor::name_find_prompt, where + " find");
+        require_named(list, editor::name_find_well, where + " find");
+        require_named(list, std::string(editor::name_find_row_prefix) + "1", where + " find");
+        require_named(list, editor::name_find_close, where + " find");
     }
 }
 
@@ -795,14 +817,23 @@ void check_view(
         if (keys == 0)
             std::fprintf(stderr, "%s: the keyboard has no keys\n", where.c_str());
         OA_CHECK(keys > 0);
+        // The inspector is a column at the right of the picture at Regular
+        // and Large, and under it at Compact.
         const kit::Control* card = find_named(list, editor::name_key_card);
-        if (card == nullptr || card->rect.y < lowest)
-            std::fprintf(stderr, "%s: the card is not under the keyboard\n", where.c_str());
-        OA_CHECK(card != nullptr && card->rect.y >= lowest);
-        if (window.x >= 720 && (card == nullptr || card->rect.x < window.x / 3))
-            std::fprintf(stderr, "%s: the card is not beside the legend\n", where.c_str());
-        if (window.x >= 720)
-            OA_CHECK(card != nullptr && card->rect.x >= window.x / 3);
+        int32_t rightmost = 0;
+        for (const kit::Control& control : list.controls) {
+            if (key_control(control.name) && control.clip.width > 0)
+                rightmost = std::max(rightmost, control.clip.x + control.clip.width);
+        }
+        const bool beside = window.x >= 720;
+        const bool placed =
+            card != nullptr && (beside ? card->rect.x >= rightmost : card->rect.y >= lowest);
+        if (!placed)
+            std::fprintf(
+                stderr, "%s: the inspector is not beside or under the keyboard\n", where.c_str()
+            );
+        OA_CHECK(placed);
+        OA_CHECK(find_named(list, editor::name_show_as_list) != nullptr);
         return;
     }
 
@@ -835,30 +866,35 @@ void check_view(
 
 } // namespace
 
-/// IMPORT…, SHARE… and PASTE… sit in the footer at Regular and Large.
-/// SHARE… shows the id a name folds to.
+/// Import…, Share… and Paste… are items of the footer's More at every class.
+/// Share… shows the id a name folds to.
 ///
 /// @param frame the frame
 /// @param where the case
 void check_exchange(const kit::Frame& frame, const std::string& where) {
     const editor::Editor model(editor_fixture());
-    const editor::ScreenState closed;
+    editor::ScreenState closed;
     const kit::DisplayList list = laid_out(model, closed, frame);
-    const bool footer = frame.size_class != kit::SizeClass::compact;
-    const bool import_shown = find_named(list, editor::name_import) != nullptr;
-    const bool share_shown = find_named(list, editor::name_share) != nullptr;
-    const bool paste_shown = find_named(list, editor::name_paste) != nullptr;
-    if (footer != import_shown || footer != share_shown || footer != paste_shown) {
+    OA_CHECK(find_named(list, editor::name_more) != nullptr);
+    OA_CHECK(find_named(list, editor::name_import) == nullptr);
+    closed.menu = editor::Menu::more;
+    const kit::DisplayList opened = laid_out(model, closed, frame);
+    const bool import_shown = find_named(opened, editor::name_import) != nullptr;
+    const bool share_shown = find_named(opened, editor::name_share) != nullptr;
+    const bool paste_shown = find_named(opened, editor::name_paste) != nullptr;
+    const bool restore_shown = find_named(opened, editor::name_restore) != nullptr;
+    if (!import_shown || !share_shown || !paste_shown || !restore_shown) {
         std::fprintf(
             stderr,
-            "%s: footer buttons import %d share %d paste %d\n",
+            "%s: More's items import %d share %d paste %d restore %d\n",
             where.c_str(),
             import_shown ? 1 : 0,
             share_shown ? 1 : 0,
-            paste_shown ? 1 : 0
+            paste_shown ? 1 : 0,
+            restore_shown ? 1 : 0
         );
     }
-    OA_CHECK(footer == import_shown && footer == share_shown && footer == paste_shown);
+    OA_CHECK(import_shown && share_shown && paste_shown && restore_shown);
 
     editor::Editor named(editor_fixture());
     named.set_share_name("Grid, left hand");

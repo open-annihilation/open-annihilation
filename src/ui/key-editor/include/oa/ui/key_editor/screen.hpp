@@ -249,7 +249,7 @@ inline constexpr int32_t regular_layout_width = 180;
 /// The search field and Find by key's least width at Regular, in points.
 inline constexpr int32_t regular_search_width = 300;
 /// The category drop-down's least width at Regular, in points.
-inline constexpr int32_t regular_category_width = 140;
+inline constexpr int32_t regular_category_width = 180;
 /// The details' width at Regular, in points.
 inline constexpr int32_t regular_details_width = 240;
 /// The category drop-down's least width at Compact, in points.
