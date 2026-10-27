@@ -717,8 +717,9 @@ FirstChords first_chords(const LayoutWithOwn& layout, bool left_click) {
     return firsts;
 }
 
-/// Lists the commands whose first chord differs between two resolutions, in
-/// the key editor's order, at most most_key_moves, and counts them all.
+/// Lists the commands whose first chord differs between two resolutions, and
+/// those whose chord afterwards is one of the player's own, in the key
+/// editor's order, at most most_key_moves, and counts them all.
 ///
 /// @param before the chords now
 /// @param after the chords afterwards
@@ -737,9 +738,12 @@ moves_between(const FirstChords& before, const FirstChords& after, uint32_t& tot
         const auto was = before.find(id);
         const std::optional<oa::ui::key_bindings::BoundChord> old =
             was != before.end() ? was->second : std::nullopt;
+        // A command on one of the player's own keys is listed whether or not
+        // its key changes, so the list shows that the change is kept.
         const bool same = old.has_value() == chord.has_value() &&
                           (!old.has_value() || old->chord == chord->chord);
-        if (same)
+        const bool own = chord.has_value() && chord->step == oa::ui::key_bindings::Step::own;
+        if (same && !own)
             continue;
         const oa::data::input_actions::Action* action = oa::data::input_actions::find(id);
         if (action == nullptr)

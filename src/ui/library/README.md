@@ -105,12 +105,26 @@ translator finds them together. Every word passes through `Library::text`
     layout in use it offers EDIT KEYS…, and while it is not it offers USE.
     Layouts made for the mod being played come next. A player's own
     changes are a line on the layout they sit on, not an entry. USE asks
-    first (`open_key_use`): keep or aside, one switch per helper, and
-    every game or only the mod being played. CANCEL writes nothing. The
-    question's controls are `library.use.keep`, `library.use.aside`,
-    `library.use.helper.<name>`, `library.use.for.game`,
-    `library.use.for.mod`, `library.use.block`, `prompt.use` and
-    `prompt.cancel`;
+    first (`open_key_use`), where first: every game or only the mod being
+    played; then, when the layout in use holds the player's own changes,
+    Keep them on top or Start clean, and that either way they stay saved
+    with that layout and come back when it is used again; then what moves,
+    each command's key now and afterwards (`KeyMoves`, which the question
+    asks of `Library::key_hooks` once as it opens, from the layout in use
+    to the one named: `kept` with the own changes on top, `clean` without,
+    a command on one of the player's own keys listed even when its key
+    stays, marked "yours"); then one switch per helper, under the note that
+    helpers act in every game. A layout that already holds the player's own
+    changes keeps them: the question says so in place of the choice, and
+    `key_use_keeps` is false, so USE never writes over them. USE's button
+    names the answer to Where (`key_use_button`: "Use for {mod}" or "Use
+    for every game"). CANCEL writes nothing. The question's controls are
+    `library.use.for.game`, `library.use.for.mod`, `library.use.keep`,
+    `library.use.aside`, `library.use.helper.<name>`, `library.use.block`,
+    `prompt.use` and `prompt.cancel`, and its labels `library.use.saved`
+    (where the own changes stay), `library.use.moves` (one line a command,
+    "Move: M → Z", "Patrol (yours): J → J", then "and {count} more") and
+    `library.use.helpers`;
   - Mods, Maps, Mutators, Brains, Keys and Languages show their kind and Updates every kind, under
     the tab's own filter (`Library::filters`, `shown_filter`) and, when that
     filter offers it, the tag. A tag left from another tab or filter is kept
@@ -246,7 +260,16 @@ translator finds them together. Every word passes through `Library::text`
     installed copy's verdict is set (the same words as a mutator's, a
     compatible one reading "it fits this game"), then Size and From. The
     built-in entry lists only Levels ("Easy, Medium and Hard") and Works
-    with ("Any mod");
+    with ("Any mod"). A key layout says what it does before which copy it
+    is: Changes ("12 commands"), Your changes (the player's own changes on
+    it, up to three by command and key, "Patrol on Q, Cloak on K and 2
+    more", from `KeyLayoutFacts::own_list`, or their count when the host
+    names none), Asks for (its helpers), Works with (its mods, then its
+    keyboards and the interface it was drawn for: "Any mod · any keyboard",
+    "Ridge · ISO keyboards · the left-click interface", marked when it does
+    not fit the mod being played), the engine's Needs and Not in this
+    version, then Installed, Latest, Author, Size and From. OA default
+    lists Works with alone;
   - the byline names the author, or the publisher when there is no author.
     A listing that names neither shows nothing more. The byline does not
     change an entry's state, order or search rank;
@@ -519,7 +542,7 @@ app removes the folder (`Runtime::library_uninstall`,
     drop-down (All, New, Installed and Updates with their counts, "All
     (11)", then "Tag: balance (3)" for each tag of the tab), on the
     Updates tab "{n} updates" and UPDATE ALL on a line over the list, the
-    list of 28-point rows (the name, then the version, size and an
+    list of Kit 2's 36-point rows (`Metrics::row_height`: the name, then the version, size and an
     added registry's name, and the state's icon: a download arrow for GET,
     a circled up-arrow for UPDATE, a circled check for INSTALLED and
     PLAYING, dimmed when GET or UPDATE cannot act), and the footer (the queue's short line with an
@@ -542,23 +565,43 @@ app removes the folder (`Runtime::library_uninstall`,
     the chosen one in the accent ground and the others in the muted ground,
     TAGS ▾ holding the rest; on Updates, "{n} updates" and UPDATE ALL on a
     line over the list), a 420-point list of
-    36-point rows (the name and byline, the summary, the version over the
+    Kit 2's 40-point rows (the name and byline, the summary, the version over the
     size, the state's icon), the details (a 40-point badge beside the
     name, its state's icon and the status line, the summary in at most six lines, the package's tags as inactive pills under it, the long facts, the
-    actions three to a line, the playing note), and the footer (both queue
+    actions three to a line at Kit 2's control height, 34 points, 38 at Large,
+    the playing note), and the footer (both queue
     lines, the 8-point bar under the first while a download runs, and CLOSE);
   - **Large** shows Regular's header, tabs and search, a 180-point filter
     pane (a nav list of All, New, Installed and Updates with their counts,
     the heading TAGS and the tab's tags with their counts) in place of the
-    pills, a 400-point list of rows of three lines (the tags as chips under
-    the summary), on Updates under "{n} updates" and UPDATE ALL, and the
-    details.
+    pills, a 400-point list of Kit 2's 44-point rows of three lines (the tags
+    as chips under the summary), on Updates under "{n} updates" and UPDATE
+    ALL, and the details.
+
+  A key layout's row says what it does: its name and author, its summary,
+  and one state in words where another kind shows an icon, In use (on the
+  accent), Built in, Installed, Update, or Get with its size ("Get · 1 KB",
+  which asks GET as a row's arrow does), with no version or size beside it.
+  At Regular and Large the player's own changes on it sit on the chip line
+  in the lock colour ("2 changes of your own"), with Made for and its tags;
+  Compact keeps them on the line under the name. Its details draw the
+  keyboard picture as wide as the details.
+
+  USE's question is a dialog a notice wide (the whole window at Compact,
+  inside half its padding), as tall as its parts: each section numbered
+  ("1 · Where"), its two choices filter chips at Kit 2's control height,
+  the marked one on the list's selected face with the accent border; What
+  moves, a command a line with its keys as chord chips either side of an
+  arrow, two columns at Compact; the helpers in a box of the lock colour's
+  tint; and Cancel and USE at the foot. Where the window is short, What
+  moves keeps fewer lines and counts the rest, then each note keeps one
+  line, then What moves is left out.
 
   A badge is the package's picture, or its letters (`badge_letters`: a
   word's first three, or the first of up to three words) in the kit's ink
   for the accent (`colour::on_accent`) on `colour::hint`, which reads at
-  every class, at 20 points in Compact's rows, 28 in Regular's
-  and Large's, and 40 in the details. A mutator's picture is its listing's
+  every class, at 28 points in every class's rows and 40 in the
+  details. A mutator's picture is its listing's
   badge, or the installed copy's icon when the listing has none. With no
   picture, the badge is the icon of its first tag on that same hint ground
   when the id is one of the eight, and its letters when the id is not or it
@@ -876,6 +919,12 @@ letters, Large's "Needs {name}" and "Not compatible with this mod" chips
 in the lock colour with the tag chips kept only while they fit, Compact's
 lock-coloured bylines, the tag icons on the pills and in the filter pane,
 and an incompatible row left bright with GET on;
+a key layout's facts in their order, what it changes, works with and asks
+for, and the player's own changes by command and key; USE's question
+asking its host what moves once, from the layout in use, the kept list
+while Keep is marked and the clean one otherwise, its button named by the
+answer to Where, and a layout that already holds own changes never written
+over;
 the Active tab's mod, language and maps in each case, ordered by folded
 title and then pack, with the From link when the pack holds several maps and the minimap when one is set;
 the order with
@@ -940,7 +989,8 @@ update of the built-in Ridge that changes the rules, a blocked update, the
 mod being played, a GET blocked by three missing hacks, and four queue
 items: downloading, waiting, failed, and an installed update that changed
 the rules), in a synthetic font, at Compact, Regular and Large and in the
-windows of 640x480 at 1x, 1920x1080 at 2x and 2560x1440 at 2x. At each it
+windows of 640x480 at 1x, 1920x1080 at 2x (Regular, 960 by 540 points;
+at Auto that window is Large at 1x) and 2560x1440 at 2x. At each it
 checks that every part lies inside the window; that no two controls or
 press areas meet; that every action of the selected entry is a control
 (at Compact on its details page, MORE ▾ open), UPDATE ALL over the list
@@ -976,8 +1026,12 @@ Tab follows the declared order and the
 arrows reach every control that takes the focus from the first tab, and
 no label; that the names are the screen's and unique; that every text
 fits by the kit's measure, and that the Rules and From facts read their
-whole values; and that a mod of the player's own shows its description in
-the details. Regular shows more rows than Compact, and Large has the
+whole values; that a mod of the player's own shows its description in
+the details; and that USE's question puts Where, the own changes, What
+moves and the helpers in that order above its buttons, its choices and
+buttons at Kit 2's control height, What moves naming each command's keys
+and the player's own, USE named by the answer to Where, and that it still
+fits every class with two helpers and the interface note. Regular shows more rows than Compact, and Large has the
 filter pane. It then drives the screens: Enter at Compact and at Regular,
 Escape's three cases, the tab commands both ways, the controller's X, Y
 and B, the list's keys, Tab's walk, presses, double presses and taps on
@@ -1050,8 +1104,11 @@ Built in. `library-languages-zh-compact.png` is the same window with
 `library-mutators-compact.png`, `library-mutators-regular.png`,
 `library-mutators-large.png`, `library-keys-compact.png`,
 `library-keys-regular.png`, `library-keys-large.png`,
-`library-keys-use-regular.png` and `library-active-keys-regular.png`
-for review. The Mutators pictures dress the fixture with made-up mutators
+`library-keys-use-compact.png`, `library-keys-use-regular.png`,
+`library-keys-use-large.png`, `library-keys-lefty-large.png` and
+`library-active-keys-regular.png` for review. The Keys pictures dress two
+made-up layouts described by what they do, the player's own changes on
+the one in use, and what USE would move from it to Lefty. The Mutators pictures dress the fixture with made-up mutators
 on that drawing only, so a picture, a tag icon, letters, "Needs Gatehouse"
 and "Not compatible with this mod" are on the list.
 

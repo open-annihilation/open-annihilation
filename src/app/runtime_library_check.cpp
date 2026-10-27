@@ -37,6 +37,8 @@
 #include "oa/app/package_install/oamod.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/app/user_folder.hpp"
+#include "oa/data/key_library/library.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
 #include "oa/ui/display_layout.hpp"
 #include "oa/ui/engine_settings/dialog.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
@@ -55,6 +57,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -71,6 +74,44 @@ namespace settings = oa::ui::engine_settings;
 namespace kit = oa::ui::kit;
 namespace layout = oa::ui::display_layout;
 namespace library = oa::ui::library;
+namespace oakeys = oa::formats::oakeys;
+
+/// A key layout the check writes into the player's Keys folder: one command
+/// on one key, over OA default.
+///
+/// @param id the layout's id
+/// @param name its name
+/// @param action the command it moves
+/// @param key the key it puts that command on
+/// @return the manifest
+oakeys::Manifest
+check_layout(std::string id, std::string name, std::string action, std::string key) {
+    oakeys::Manifest manifest;
+    manifest.format = oakeys::format_version;
+    manifest.id = std::move(id);
+    manifest.name = std::move(name);
+    manifest.version.major = 1;
+    manifest.version.parts = 1;
+    manifest.author.name = "Ada";
+    manifest.tags = {"grid"};
+    manifest.base = oakeys::Base::oa_default;
+    oakeys::BindingEntry binding;
+    binding.action = std::move(action);
+    binding.chords.push_back({std::move(key), 0, 0});
+    manifest.bindings.push_back(std::move(binding));
+    return manifest;
+}
+
+/// Reads a layout's manifest from the Keys folder.
+///
+/// @param file the manifest's file
+/// @return its text; empty when it is not there
+std::string manifest_text(const std::filesystem::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in)
+        return {};
+    return {std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>()};
+}
 
 /// The modifier the settings' shortcut takes on this platform.
 #ifdef SDL_PLATFORM_MACOS
@@ -1474,11 +1515,88 @@ void Runtime::check_library() {
                     fixture.enqueued.back().reason == content::DownloadReason::install,
                 "GET did not reach the feed for fixture-core's column-keys" + on
             );
+            // The Keys folder holds Grid Test (Attack on Z) with the
+            // player's own change (Patrol on J), and Lefty Test (Move on Z).
+            // Grid Test is the layout in use.
+            const fs::path keys_folder =
+                user_folder_ / std::string(data::key_library::keys_folder_name);
+            for (const std::string_view folder :
+                 {"grid-test", "lefty-test", "own-grid-test", "own-lefty-test"}) {
+                std::error_code removed;
+                fs::remove_all(keys_folder / std::string(folder), removed);
+            }
+            const auto write_layout = [&](const oakeys::Manifest& manifest) {
+                const fs::path folder = keys_folder / manifest.id;
+                std::error_code made;
+                fs::create_directories(folder, made);
+                std::ofstream out(
+                    folder / std::string(oakeys::manifest_file), std::ios::binary | std::ios::trunc
+                );
+                const std::string text = oakeys::write_manifest(manifest);
+                out.write(text.data(), static_cast<std::streamsize>(text.size()));
+                require(static_cast<bool>(out), "the check could not write " + manifest.id + on);
+            };
+            write_layout(check_layout("grid-test", "Grid Test", "order.attack", "Z"));
+            write_layout(check_layout("lefty-test", "Lefty Test", "order.move", "Z"));
+            std::string own_error;
+            require(
+                data::key_library::write_own(
+                    keys_folder,
+                    "grid-test",
+                    check_layout("own-grid-test", "Grid Test", "order.patrol", "J"),
+                    own_error
+                ),
+                "the check could not write the own changes on Grid Test: " + own_error + on
+            );
+            const fs::path grid_own =
+                keys_folder / "own-grid-test" / std::string(oakeys::manifest_file);
+            const fs::path lefty_own =
+                keys_folder / "own-lefty-test" / std::string(oakeys::manifest_file);
+            const std::string grid_own_before = manifest_text(grid_own);
+            preference_values_["open-annihilation.keys.layout"] = "grid-test";
+            // Compact keeps the own changes on top, the larger window starts clean.
+            const bool keep = width == kCanvasWidth;
+
             show_entry("oa.library.row.fixture-core.lefty-test");
             press_action("use");
             require(
                 named("oa.prompt.use").has_value() && named("oa.prompt.cancel").has_value(),
                 "USE did not ask before using Lefty Test" + on
+            );
+            // Where comes first, then the own changes, then what moves.
+            const std::optional<AutomationControl> keep_choice = named("oa.library.use.keep");
+            const std::optional<AutomationControl> clean_choice = named("oa.library.use.aside");
+            const std::optional<AutomationControl> saved = named("oa.library.use.saved");
+            require(
+                keep_choice.has_value() && clean_choice.has_value() && saved.has_value() &&
+                    saved->text.find("stay saved with Grid Test") != std::string::npos,
+                "USE does not offer to keep the own changes or say where they stay" + on
+            );
+            if (!keep) {
+                click_named("oa.library.use.aside");
+                run_frame(running);
+                require(running, "a frame ended the run");
+            }
+            const std::optional<AutomationControl> moves = named("oa.library.use.moves");
+            require(
+                moves.has_value() && moves->text.starts_with("Move: M \u2192 Z"),
+                "What moves does not begin Move: M \u2192 Z" + on +
+                    (moves.has_value() ? ": " + moves->text : std::string{})
+            );
+            if (width != kCanvasWidth) {
+                const std::string patrol =
+                    keep ? "Patrol (yours): J \u2192 J" : "Patrol: J \u2192 P";
+                require(
+                    moves->text.find(patrol) != std::string::npos &&
+                        moves->text.find("Attack: Z \u2192 A") != std::string::npos,
+                    "What moves does not list " + patrol + " and Attack: Z \u2192 A" + on + ": " +
+                        moves->text
+                );
+            }
+            const std::optional<AutomationControl> use_button = named("oa.prompt.use");
+            require(
+                use_button.has_value() && use_button->text.starts_with("Use for "),
+                "USE's button does not name where the layout is used" + on
             );
             click_named("oa.prompt.use");
             run_frame(running);
@@ -1488,6 +1606,20 @@ void Runtime::check_library() {
                 preference != preference_values_.end() && preference->second == "lefty-test",
                 "USE did not write the layout preference" + on
             );
+            // The own changes on Grid Test are never lost: they stay as they
+            // were, and Keep puts a copy of them on Lefty Test.
+            require(
+                !grid_own_before.empty() && manifest_text(grid_own) == grid_own_before,
+                "USE changed the own changes saved with Grid Test" + on
+            );
+            const std::string lefty_own_text = manifest_text(lefty_own);
+            if (keep)
+                require(
+                    lefty_own_text.find("order.patrol") != std::string::npos,
+                    "Keep them on top did not put the own changes on Lefty Test" + on
+                );
+            else
+                require(lefty_own_text.empty(), "Start clean put own changes on Lefty Test" + on);
             // Compact's details page has no tab strip. Back returns to the
             // list, whose tabs can then be scrolled to Active.
             if (named("oa.library.back"))
@@ -1514,7 +1646,8 @@ void Runtime::check_library() {
                     change.has_value(),
                 "the Active KEYS tile does not name Grid Test" + on
             );
-            std::cout << "library check: the Keys tab reads Keys (3) and USE writes the preference"
+            std::cout << "library check: the Keys tab reads Keys (3), USE asks where, lists what "
+                         "moves and writes the preference, and the own changes are kept"
                       << on << '\n';
         }
         show_tab("oa.library.tab.updates");
