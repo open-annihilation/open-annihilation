@@ -5372,17 +5372,17 @@ void the_kit_gallery_row_moves_only_developers_list() {
     // is printed, so that a change meant to move these parts can pin them
     // again.
     const std::array<std::pair<Page, uint64_t>, 11> kBefore{{
-        {Page::controls, 0x2ba5d6278322836c},
-        {Page::common_tweaks, 0xa17a9cb0e4a400c3},
-        {Page::language, 0x577159ca1f37a422},
-        {Page::graphics, 0x526da924adc6ca53},
-        {Page::user_interface, 0x8987493dca7e1b47},
-        {Page::touch, 0xc470c52fd3e4300f},
-        {Page::controller, 0xde16d33a43b12a4f},
-        {Page::game_files, 0x7b9651956e374f00},
-        {Page::downloads, 0x67e4b4022f9f95bf},
-        {Page::updates, 0x686d2ab48a43fd47},
-        {Page::game_content, 0x3d85800932b8107a},
+        {Page::controls, 0xa2006e6e423f1102},
+        {Page::common_tweaks, 0xfde9152e332ec59f},
+        {Page::language, 0x464c104d1108f9d2},
+        {Page::graphics, 0x927b5c1f0dac9b25},
+        {Page::user_interface, 0xa29af01ebedeef7e},
+        {Page::touch, 0xa89fdd222216bf0},
+        {Page::controller, 0xa7885afcb09dc987},
+        {Page::game_files, 0xba430fe740e325e8},
+        {Page::downloads, 0xbd01e53e2c184d7f},
+        {Page::updates, 0xbf1ec48e9b758057},
+        {Page::game_content, 0x4a86df05e34dc046},
     }};
     for (const auto& [page, before] : kBefore) {
         const settings::Dialog other = opened_with_controller(page, true, true, true);
@@ -8831,26 +8831,22 @@ void previous_version_offers_roll_back_and_locks_in_a_game() {
     if (locked != nullptr)
         CHECK(click(kept, centre(locked->rect)) == settings::DialogAction::none);
 
+    // The question names the kept version and what comes back and what
+    // stays, then Cancel, marked, and the roll back in the danger look.
     const oa::ui::kit::Question asked = settings::updates::roll_back_question("0.8.6", "0.8.7");
     CHECK(asked.word == "update-previous");
-    CHECK(asked.title == "Go back to 0.8.6?");
-    CHECK(asked.paragraphs.size() == 1);
-    if (!asked.paragraphs.empty()) {
-        CHECK(
-            asked.paragraphs.front().text ==
-            "OA restarts on 0.8.6, with the settings it had. 0.8.7 won't be offered again until "
-            "you choose it."
-        );
-    }
+    CHECK(asked.title == "Roll back to 0.8.6?");
+    CHECK(!asked.parts.empty() && asked.parts.front().kind == oa::ui::kit::PartKind::boxes);
     CHECK(asked.buttons.size() == 2);
     if (asked.buttons.size() == 2) {
-        CHECK(asked.buttons[0].caption == "CANCEL");
+        CHECK(asked.buttons[0].caption == "Cancel");
         CHECK(asked.buttons[0].id == "cancel");
-        CHECK(asked.buttons[1].caption == "ROLL BACK");
         CHECK(asked.buttons[1].id == "roll-back");
+        CHECK(asked.buttons[1].danger);
     }
     CHECK(asked.cancel_button == 0);
     CHECK(asked.primary_button == 1);
+    CHECK(asked.marked == 0);
 }
 
 void download_rows_sit_between_the_status_and_the_check() {
@@ -11056,6 +11052,337 @@ void game_content_lists_each_bundle_and_three_actions() {
     CHECK(press("Cancel") == DialogAction::cancel_content_copy);
 }
 
+/// Returns whether a part shows a text, its lines joined by single spaces.
+///
+/// @param parts the dialog's parts
+/// @param text the text
+/// @return true when consecutive parts give it back whole
+bool shows_joined(const std::vector<settings::LayoutPart>& parts, std::string_view text) {
+    for (std::size_t first = 0; first < parts.size(); ++first) {
+        std::string joined;
+        for (std::size_t at = first; at < parts.size() && joined.size() < text.size(); ++at) {
+            if (!joined.empty())
+                joined += ' ';
+            joined += parts[at].text;
+            if (joined == text)
+                return true;
+            if (!text.starts_with(joined))
+                break;
+        }
+    }
+    return false;
+}
+
+void the_key_layout_card_names_the_layout_where_it_applies_and_its_buttons() {
+    settings::Dialog dialog = opened(Page::controls);
+    dialog.key_layout_name = "Lefty";
+    dialog.key_layout_changes = 4;
+    dialog.played_mod = "Highland";
+    dialog.played_mod_id = "highland";
+    dialog.key_layout_mod_only = true;
+    auto parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "Key layout", settings::no_control) != nullptr);
+    CHECK(find_part(parts, "Lefty", settings::no_control) != nullptr);
+    CHECK(find_part(parts, "4 changes of your own", settings::no_control) != nullptr);
+    CHECK(shows_joined(parts, "Applies with Highland only. Ctrl+/ in a match shows the keys."));
+    // In a match, or wherever the Library cannot open, only Edit keys….
+    CHECK(find_part(parts, "Change layout…", settings::change_layout_control) == nullptr);
+    const auto edit = find_part(parts, "Edit keys…", settings::no_control);
+    CHECK(edit != nullptr && edit->control == settings::first_row_control);
+    if (edit != nullptr)
+        CHECK(click(dialog, centre(edit->rect)) == DialogAction::edit_keys);
+    CHECK(dialog.edit_keys_filter == settings::KeyEditorFilter::all);
+
+    // The game's own layout applies to every game; one change of your own.
+    dialog.key_layout_mod_only = false;
+    dialog.key_layout_changes = 1;
+    parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "1 change of your own", settings::no_control) != nullptr);
+    CHECK(shows_joined(parts, "Applies to every game. Ctrl+/ in a match shows the keys."));
+    // No changes: no badge.
+    dialog.key_layout_changes = 0;
+    parts = settings::dialog_layout(dialog);
+    for (const auto& part : parts)
+        CHECK(part.text.find("of your own") == std::string::npos);
+
+    // On the main menu Change layout… opens the Library on Keys.
+    dialog.library_link = true;
+    parts = settings::dialog_layout(dialog);
+    const auto change = find_part(parts, "Change layout…", settings::no_control);
+    CHECK(change != nullptr && change->control == settings::change_layout_control);
+    if (change != nullptr)
+        CHECK(click(dialog, centre(change->rect)) == DialogAction::open_library);
+    CHECK(dialog.library_tab == settings::LibraryTab::keys);
+    // Space on it does the same; it is named key-layout.change to automation.
+    dialog.focused = settings::change_layout_control;
+    dialog.library_tab = settings::LibraryTab::mods;
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::open_library);
+    CHECK(dialog.library_tab == settings::LibraryTab::keys);
+    const auto list = geometry::dialog_list(dialog, nullptr);
+    CHECK(
+        oa::ui::kit::control_named(list, "settings.key-layout.change") ==
+        settings::change_layout_control
+    );
+    CHECK(
+        oa::ui::kit::control_named(list, "settings.key-layout.edit") == settings::first_row_control
+    );
+}
+
+/// Returns a key the practice pad takes.
+settings::PracticeKey practice(settings::PracticeModifier modifier, std::string_view label) {
+    return {modifier, std::string(label)};
+}
+
+void the_practice_pad_tries_the_helpers_the_dialog_shows() {
+    using settings::PracticeModifier;
+    using settings::PracticeOutcome;
+    const auto shift = practice(PracticeModifier::shift, "Shift");
+    const auto ctrl = practice(PracticeModifier::ctrl, "Ctrl");
+    const auto a_key = practice(PracticeModifier::none, "A");
+    const auto d_key = practice(PracticeModifier::none, "D");
+    // On another section the pad takes nothing.
+    settings::Dialog elsewhere = opened(Page::controls);
+    CHECK(settings::dialog_practice_key(elsewhere, a_key, true, 0) == DialogAction::none);
+    CHECK(settings::dialog_practice_tick(elsewhere, 10) == DialogAction::none);
+
+    // Sticky modifiers: Shift tapped alone stays down for the next key, which
+    // counts with it, and then lets go; a second tap locks it, a third lets go.
+    // At Compact the pad follows the rows: the section is scrolled to its end.
+    settings::Dialog dialog = opened(Page::accessibility);
+    dialog.scroll[static_cast<std::size_t>(Page::accessibility)] = 100000;
+    dialog.chosen.sticky_modifiers = true;
+    CHECK(settings::dialog_practice_key(dialog, shift, true, 0) == DialogAction::redraw);
+    CHECK(settings::dialog_practice_key(dialog, shift, false, 50) == DialogAction::redraw);
+    CHECK(dialog.practice.outcome == PracticeOutcome::latched);
+    CHECK(shows_joined(settings::dialog_layout(dialog), "Shift stays down for the next key."));
+    CHECK(settings::dialog_practice_key(dialog, a_key, true, 100) == DialogAction::redraw);
+    CHECK(dialog.practice.outcome == PracticeOutcome::counted);
+    CHECK(dialog.practice.outcome_released == settings::practice_bit(PracticeModifier::shift));
+    CHECK(dialog.practice.latched == 0);
+    CHECK(shows_joined(settings::dialog_layout(dialog), "Shift + A counted, then Shift let go."));
+    CHECK(settings::dialog_practice_key(dialog, a_key, false, 150) == DialogAction::redraw);
+    for (const PracticeOutcome expected :
+         {PracticeOutcome::latched, PracticeOutcome::locked, PracticeOutcome::unlocked}) {
+        static_cast<void>(settings::dialog_practice_key(dialog, shift, true, 200));
+        static_cast<void>(settings::dialog_practice_key(dialog, shift, false, 250));
+        CHECK(dialog.practice.outcome == expected);
+    }
+    // Held down, Shift counts with the key and needs no tap.
+    dialog.chosen.sticky_modifiers = false;
+    static_cast<void>(settings::dialog_practice_key(dialog, shift, true, 300));
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, true, 310));
+    CHECK(dialog.practice.outcome == PracticeOutcome::counted);
+    CHECK(dialog.practice.outcome_released == 0);
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, false, 320));
+    static_cast<void>(settings::dialog_practice_key(dialog, shift, false, 330));
+
+    // Slow keys: a key counts once it is held 300 ms; let go sooner, it does not.
+    dialog.chosen.slow_keys_ms = 300;
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, true, 1000));
+    CHECK(settings::dialog_practice_tick(dialog, 1100) == DialogAction::redraw);
+    CHECK(shows_joined(settings::dialog_layout(dialog), "A held 0.1 of 0.3 s."));
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, false, 1150));
+    CHECK(dialog.practice.outcome == PracticeOutcome::too_short);
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, true, 2000));
+    CHECK(settings::dialog_practice_tick(dialog, 2300) == DialogAction::redraw);
+    CHECK(dialog.practice.outcome == PracticeOutcome::counted);
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, false, 2400));
+    CHECK(settings::dialog_practice_tick(dialog, 2500) == DialogAction::none);
+
+    // Bounce keys: the same key again within 200 ms of its release is ignored.
+    dialog.chosen.slow_keys_ms = 0;
+    dialog.chosen.bounce_keys_ms = 200;
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, true, 3000));
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, false, 3050));
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, true, 3100));
+    CHECK(dialog.practice.outcome == PracticeOutcome::bounced);
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, false, 3150));
+    CHECK(dialog.practice.outcome == PracticeOutcome::bounced);
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, true, 3600));
+    CHECK(dialog.practice.outcome == PracticeOutcome::counted);
+    static_cast<void>(settings::dialog_practice_key(dialog, a_key, false, 3650));
+
+    // Hold to confirm: Ctrl and D held fill the bar over the long press, and
+    // the order goes at its end; let go sooner, nothing happens.
+    dialog.chosen.bounce_keys_ms = 0;
+    dialog.chosen.hold_to_confirm = true;
+    dialog.chosen.long_press_ms = 500;
+    static_cast<void>(settings::dialog_practice_key(dialog, ctrl, true, 4000));
+    static_cast<void>(settings::dialog_practice_key(dialog, d_key, true, 4000));
+    CHECK(dialog.practice.holding);
+    CHECK(settings::dialog_practice_tick(dialog, 4200) == DialogAction::redraw);
+    CHECK(shows_joined(settings::dialog_layout(dialog), "0.2 of 0.5 s · let go to cancel"));
+    static_cast<void>(settings::dialog_practice_key(dialog, d_key, false, 4300));
+    CHECK(dialog.practice.outcome == PracticeOutcome::cancelled);
+    static_cast<void>(settings::dialog_practice_key(dialog, d_key, true, 5000));
+    CHECK(settings::dialog_practice_tick(dialog, 5600) == DialogAction::redraw);
+    CHECK(dialog.practice.outcome == PracticeOutcome::held);
+    static_cast<void>(settings::dialog_practice_key(dialog, d_key, false, 5700));
+    static_cast<void>(settings::dialog_practice_key(dialog, ctrl, false, 5700));
+    // Nothing the pad does changes a setting.
+    settings::EngineSettings tried = dialog.opened;
+    tried.sticky_modifiers = false;
+    tried.hold_to_confirm = true;
+    tried.long_press_ms = 500;
+    CHECK(dialog.chosen == tried);
+
+    // Turn every helper off: a press turns the helpers off and lets the pad go.
+    dialog.chosen.sticky_modifiers = true;
+    dialog.chosen.slow_keys_ms = 300;
+    // At Compact the pad follows the rows: scroll to it.
+    dialog.scroll[static_cast<std::size_t>(Page::accessibility)] = settings::scroll_limit(dialog);
+    const auto shown_off =
+        find_part(settings::dialog_layout(dialog), "Turn every helper off", settings::no_control);
+    CHECK(shown_off != nullptr && shown_off->control == settings::helpers_off_control);
+    if (shown_off != nullptr)
+        CHECK(click(dialog, centre(shown_off->rect)) == DialogAction::changed);
+    CHECK(!dialog.chosen.sticky_modifiers && !dialog.chosen.hold_to_confirm);
+    CHECK(dialog.chosen.slow_keys_ms == 0 && dialog.chosen.bounce_keys_ms == 0);
+    CHECK(dialog.chosen.long_press_ms == 500);
+    // With every helper off it takes no press and no focus.
+    const auto list = geometry::dialog_list(dialog, nullptr);
+    const auto* control = oa::ui::kit::control_of(list, settings::helpers_off_control);
+    CHECK(control != nullptr && !control->enabled);
+    CHECK(
+        std::find(list.tab_order.begin(), list.tab_order.end(), settings::helpers_off_control) ==
+        list.tab_order.end()
+    );
+}
+
+void the_pad_stands_beside_the_rows_where_the_section_is_wide() {
+    for (const auto size_class : kLargerClasses) {
+        settings::Dialog dialog = opened(Page::accessibility);
+        settings::set_dialog_size_class(dialog, size_class);
+        const auto open = geometry::open_rows(dialog);
+        const geometry::Sizes& sized = geometry::sizes_of(dialog);
+        CHECK(open.rows.pad.width > 0);
+        CHECK(open.rows.pad.x + open.rows.pad.width == sized.content_right);
+        CHECK(open.rows.pad.y > geometry::first_row_top);
+        for (const auto& row : open.rows.rows)
+            CHECK(row.control_area.x + row.control_area.width < open.rows.pad.x);
+        for (const auto& part : settings::dialog_layout(dialog))
+            CHECK(inside(part.rect, {0, 0, sized.dialog_width, sized.dialog_height}));
+    }
+    // At Compact it follows the rows, across the section.
+    settings::Dialog compact = opened(Page::accessibility);
+    const auto open = geometry::open_rows(compact);
+    CHECK(
+        open.rows.pad.x == geometry::content_left && open.rows.pad.width == geometry::content_width
+    );
+    CHECK(open.rows.pad.y > open.rows.rows.back().top);
+}
+
+void the_footer_counts_the_settings_changed() {
+    settings::Dialog dialog = opened(Page::user_interface);
+    const auto count_shown = [&dialog] {
+        for (const auto& part : settings::dialog_layout(dialog))
+            if (part.text.find("changed") != std::string::npos)
+                return part.text;
+        return std::string{};
+    };
+    CHECK(settings::changed_settings_count(dialog) == 0);
+    CHECK(count_shown().empty());
+    dialog.focused = settings::first_row_control + 6;
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(settings::changed_settings_count(dialog) == 1);
+    CHECK(count_shown() == "1 setting changed");
+    dialog.focused = settings::first_row_control + 2;
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(settings::changed_settings_count(dialog) == 2);
+    CHECK(count_shown() == "2 settings changed");
+    // The count stands between Restore defaults and Cancel, right against Cancel.
+    for (const auto& part : settings::dialog_layout(dialog))
+        if (part.text == "2 settings changed") {
+            CHECK(part.rect.x > geometry::restore_button.x + geometry::restore_button.width);
+            CHECK(part.rect.x + part.rect.width < geometry::cancel_button.x);
+            CHECK(part.rect.y >= geometry::footer_top);
+        }
+    // Show again and Skirmish players count too; a setting moved back does not.
+    dialog.welcome_again = true;
+    dialog.chosen.skirmish_players = dialog.opened.skirmish_players - 1;
+    CHECK(settings::changed_settings_count(dialog) == 4);
+    dialog.chosen = dialog.opened;
+    dialog.welcome_again = false;
+    CHECK(settings::changed_settings_count(dialog) == 0);
+}
+
+void window_size_and_reset_window_positions_sit_on_user_interface() {
+    // Scrolled so that the two rows show whole at Compact.
+    settings::Dialog dialog = opened(Page::user_interface);
+    dialog.scroll[static_cast<std::size_t>(Page::user_interface)] = 200;
+    const auto rows = geometry::open_rows(dialog).rows.rows;
+    CHECK(rows.size() == 7 && rows[4].setting == Setting::window_size);
+    CHECK(rows.size() == 7 && rows[5].setting == Setting::reset_window_positions);
+    auto parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "Window size", settings::no_control) != nullptr);
+    CHECK(find_part(parts, "Reset window positions", settings::no_control) != nullptr);
+    // The drop-down offers Auto, Compact, Regular and Large, by the words the
+    // preferences keep them as.
+    const auto list = geometry::dialog_list(dialog, nullptr);
+    const auto* size =
+        oa::ui::kit::control_named(list, "settings.window-size") != oa::ui::kit::no_control
+            ? oa::ui::kit::control_of(
+                  list, oa::ui::kit::control_named(list, "settings.window-size")
+              )
+            : nullptr;
+    CHECK(size != nullptr);
+    if (size != nullptr)
+        CHECK(size->parts == (std::vector<std::string>{"auto", "compact", "regular", "large"}));
+    dialog.focused = settings::first_row_control + 4;
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.window_size == settings::WindowSize::compact);
+    // Reset asks the host at once; the row then says each window is back.
+    dialog.focused = settings::first_row_control + 5;
+    CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
+    CHECK(dialog.window_reset_asked);
+    dialog.window_reset_asked = false;
+    dialog.window_places_reset = true;
+    parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "Every window is back in the middle.", settings::no_control) != nullptr);
+    CHECK(
+        oa::ui::kit::control_named(
+            geometry::dialog_list(dialog, nullptr), "settings.reset-window-positions.reset"
+        ) != oa::ui::kit::no_control
+    );
+    // Restore defaults puts Window size back to Auto; Cancel what it opened with.
+    CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+    CHECK(dialog.chosen.window_size == settings::WindowSize::automatic);
+}
+
+void the_section_list_draws_an_icon_before_each_entry() {
+    const auto fonts = block_fonts();
+    for (const auto size_class :
+         {kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large}) {
+        settings::Dialog dialog = opened(Page::graphics);
+        settings::set_dialog_size_class(dialog, size_class);
+        const geometry::Sizes& sized = geometry::sizes_of(dialog);
+        Canvas canvas = blank(
+            static_cast<uint32_t>(sized.dialog_width), static_cast<uint32_t>(sized.dialog_height)
+        );
+        settings::draw_dialog(canvas.surface, {0, 0, 1}, dialog, fonts, kNoIcon);
+        for (const Page page : kPages) {
+            const auto entry = geometry::dialog_list_item(dialog, page);
+            const renderer::SourceRect icon{
+                entry.x + sized.nav.icon_left,
+                entry.y + (entry.height - sized.nav.icon_side) / 2,
+                sized.nav.icon_side,
+                sized.nav.icon_side,
+            };
+            // The icon's lines stand out from the list's face and the open
+            // entry's ground.
+            bool drawn = false;
+            for (int32_t y = icon.y; y < icon.y + icon.height && !drawn; ++y)
+                for (int32_t x = icon.x; x < icon.x + icon.width && !drawn; ++x)
+                    drawn = canvas.at(x, y) != kList && canvas.at(x, y) != kOffSelected;
+            CHECK(drawn);
+            // The caption starts right of it.
+            const auto shown = settings::dialog_layout(dialog);
+            const auto* caption = find_part(shown, {}, settings::page_control(page));
+            CHECK(caption != nullptr && caption->rect.x >= icon.x + icon.width);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     if (oa::test::game_data_requested(argc, argv))
         fonts_load_and_every_text_fits_its_place();
@@ -11171,6 +11498,12 @@ int main(int argc, char** argv) {
         the_larger_classes_keep_hints_to_their_lines();
         the_larger_classes_show_more_graphics_rows();
         the_larger_classes_keep_the_footer_buttons();
+        the_key_layout_card_names_the_layout_where_it_applies_and_its_buttons();
+        the_practice_pad_tries_the_helpers_the_dialog_shows();
+        the_pad_stands_beside_the_rows_where_the_section_is_wide();
+        the_footer_counts_the_settings_changed();
+        window_size_and_reset_window_positions_sit_on_user_interface();
+        the_section_list_draws_an_icon_before_each_entry();
         the_larger_classes_press_each_control_where_it_is_drawn();
         registered_pages_list_under_their_owners_and_write_on_ok();
     }
