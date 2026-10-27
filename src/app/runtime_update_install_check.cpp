@@ -384,6 +384,8 @@ int Runtime::check_update_download() {
         ready.received = ready.total;
         update::CentreInputs scheduled = ready;
         scheduled.scheduled = 808;
+        update::CentreInputs skipped = offered;
+        skipped.skipped = 808;
         update::CentreInputs up_to_date;
         up_to_date.current_version = "0.8.7";
         up_to_date.kept_version = "0.8.6";
@@ -466,6 +468,11 @@ int Runtime::check_update_download() {
                 dialog->page = settings::Page::updates;
                 apply_update_download(*dialog);
                 capture("update-settings-" + state + "-" + size + ".png");
+                // The policy rows under the card, where the section scrolls.
+                if (settings::Dialog* shown = engine_settings_dialog()) {
+                    static_cast<void>(settings::dialog_key(*shown, kit::Key::end));
+                    capture("update-settings-" + state + "-end-" + size + ".png");
+                }
                 clear_screens();
             };
             const auto menu_picture = [&](const std::string& state) {
@@ -511,6 +518,9 @@ int Runtime::check_update_download() {
             }
             update_->held = {};
             settings_picture("offered");
+
+            update_->pictured = skipped;
+            settings_picture("skipped");
 
             update_->pictured = downloading;
             menu_picture("downloading");

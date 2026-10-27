@@ -32,6 +32,7 @@
 #include <string_view>
 #include <tuple>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -1595,6 +1596,219 @@ void the_work_dialog_has_no_buttons() {
 
 } // namespace
 
+/// A question like the recovery screen: a callout, a box of marked steps and
+/// a line under it, with a quiet button at the footer's left.
+///
+/// @return the question
+kit::Question parts_question() {
+    kit::Question asked = question_of({"Show the log", "Try again", "Continue"});
+    asked.title = "The update failed. 0.8.7 was put back.";
+    asked.paragraphs.clear();
+    asked.buttons[0].quiet = true;
+    kit::QuestionPart callout;
+    callout.kind = kit::PartKind::callout;
+    callout.tone = kit::CalloutTone::ok;
+    callout.text = "Your saved games, settings and mods stay as they are.";
+    kit::QuestionPart steps;
+    steps.kind = kit::PartKind::boxes;
+    kit::QuestionBox happened;
+    happened.heading = "What happened";
+    happened.lines.push_back({kit::LineMark::done, "Checked the package against the signed list"});
+    std::string reason = "Could not put the new files in place:";
+    for (int repeat = 0; repeat < 6; ++repeat)
+        reason += " open-annihilation.exe: another program had it open";
+    happened.lines.push_back({kit::LineMark::failed, reason});
+    happened.lines.push_back({kit::LineMark::done, "Put every changed file back"});
+    steps.boxes.push_back(std::move(happened));
+    kit::QuestionPart waits;
+    waits.kind = kit::PartKind::text;
+    waits.text = "0.8.8 waits until you choose to try again.";
+    asked.parts = {callout, steps, waits};
+    return asked;
+}
+
+/// A question's parts follow one another under its title, each whole: the
+/// callout with its mark, the box with its heading and its marked lines, a
+/// step too long for a line wrapping under itself, and the line under them.
+/// The quiet button stands alone at the footer's left.
+void question_parts_place_in_order() {
+    const kit::Question asked = parts_question();
+    const kit::PlacedQuestion placed = kit::place_question(asked, &fonts());
+    OA_CHECK(!placed.cut);
+    OA_CHECK(placed.parts.size() == 3);
+    if (placed.parts.size() != 3)
+        return;
+    for (std::size_t index = 1; index < placed.parts.size(); ++index)
+        OA_CHECK(
+            placed.parts[index - 1].rect.y + placed.parts[index - 1].rect.height <
+            placed.parts[index].rect.y
+        );
+    const kit::PlacedPart& callout = placed.parts[0];
+    OA_CHECK(callout.kind == kit::PartKind::callout);
+    OA_CHECK(callout.mark.width > 0);
+    OA_CHECK(callout.mark.y >= callout.rect.y);
+    OA_CHECK(callout.mark.y + callout.mark.height <= callout.rect.y + callout.rect.height);
+    const kit::PlacedPart& box = placed.parts[1];
+    OA_CHECK(box.boxes.size() == 1 && box.headings.size() == 1);
+    OA_CHECK(!box.headings.empty() && box.headings.front().first == "What happened");
+    // Four lines or more: the failed step wraps, its mark on its first line only.
+    OA_CHECK(box.lines.size() >= 4);
+    std::size_t failed = 0;
+    for (const kit::PlacedPartLine& line : box.lines) {
+        OA_CHECK(
+            line.rect.x >= box.rect.x &&
+            line.rect.x + line.rect.width <= box.rect.x + box.rect.width
+        );
+        if (line.mark == kit::LineMark::failed) {
+            ++failed;
+            OA_CHECK(line.mark_rect.width > 0 && line.mark_rect.x < line.rect.x);
+        }
+    }
+    OA_CHECK(failed == 1);
+    OA_CHECK(box.boxes.front().y + box.boxes.front().height > box.lines.back().rect.y);
+    // The parts take their room: the box is taller than the same question
+    // without them.
+    kit::Question bare = asked;
+    bare.parts.clear();
+    OA_CHECK(placed.height > kit::place_question(bare, &fonts()).height);
+    // The quiet button at the padding, the others at the right.
+    OA_CHECK(placed.buttons.size() == 3);
+    if (placed.buttons.size() == 3) {
+        OA_CHECK(placed.buttons[0].x == kit::compact_metrics.padding);
+        OA_CHECK(
+            placed.buttons[2].x + placed.buttons[2].width ==
+            kit::notice_width - kit::compact_metrics.padding
+        );
+        OA_CHECK(placed.buttons[0].x + placed.buttons[0].width < placed.buttons[1].x);
+    }
+    // The list names the parts' words in its text, its marks as icons and
+    // the box's heading as a heading; the buttons keep their looks.
+    const kit::DisplayList list = kit::question_list(asked, &fonts());
+    bool cross = false;
+    bool heading = false;
+    for (const kit::Item& item : list.items) {
+        if (item.role == kit::Role::icon && item.glyph == kit::Glyph::cross)
+            cross = true;
+        if (item.role == kit::Role::heading && item.text == "What happened")
+            heading = true;
+        if (item.role == kit::Role::button && item.control == 0)
+            if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
+                OA_CHECK(look->style == kit::ButtonStyle::quiet);
+    }
+    OA_CHECK(cross && heading);
+    for (const kit::Control& control : list.controls)
+        if (control.id == kit::notice_body) {
+            OA_CHECK(control.text.find("What happened") != std::string::npos);
+            OA_CHECK(control.text.find("Put every changed file back") != std::string::npos);
+            OA_CHECK(control.text.find("0.8.8 waits") != std::string::npos);
+        }
+}
+
+/// Two boxes stand side by side, as tall as each other; a danger button is
+/// drawn outlined in red; a part the height cuts is left out whole.
+void boxes_pair_and_parts_cut_whole() {
+    kit::Question asked = question_of({"Cancel", "Roll back and restart"});
+    asked.paragraphs.clear();
+    asked.buttons[1].accent = false;
+    asked.buttons[1].danger = true;
+    kit::QuestionPart scope;
+    scope.kind = kit::PartKind::boxes;
+    scope.boxes.push_back(
+        {"Comes back",
+         {{kit::LineMark::bullet, "Open Annihilation 0.8.6"},
+          {kit::LineMark::bullet, "Your settings from before you updated"}}}
+    );
+    scope.boxes.push_back({"Stays as it is", {{kit::LineMark::bullet, "Saved games and replays"}}});
+    asked.parts.push_back(scope);
+    const kit::PlacedQuestion placed = kit::place_question(asked, &fonts());
+    OA_CHECK(placed.parts.size() == 1);
+    if (placed.parts.size() == 1) {
+        const kit::PlacedPart& pair = placed.parts.front();
+        OA_CHECK(pair.boxes.size() == 2);
+        if (pair.boxes.size() == 2) {
+            OA_CHECK(pair.boxes[0].y == pair.boxes[1].y);
+            OA_CHECK(pair.boxes[0].height == pair.boxes[1].height);
+            OA_CHECK(pair.boxes[0].x + pair.boxes[0].width < pair.boxes[1].x);
+        }
+    }
+    const kit::DisplayList list = kit::question_list(asked, &fonts());
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::button && item.control == 1)
+            if (const auto* look = std::get_if<kit::ButtonLook>(&item.look))
+                OA_CHECK(look->style == kit::ButtonStyle::danger);
+
+    kit::Question long_one = four_question();
+    long_one.parts.push_back(scope);
+    const kit::PlacedQuestion cut = kit::place_question(long_one, &fonts());
+    OA_CHECK(cut.cut);
+    OA_CHECK(cut.parts.empty());
+}
+
+/// The update pill: the mark, the words and the bar, its button at the
+/// right, the button tested before the pill; a release over what the press
+/// held asks for it, and anywhere else asks nothing.
+void the_update_pill_takes_its_button_and_itself() {
+    kit::UpdatePill pill;
+    pill.icon = kit::UpdatePillIcon::download;
+    pill.text = "0.8.8 · 41%";
+    pill.percent = 41;
+    pill.caption = "Pause";
+    pill.button_id = "pause";
+    const kit::PlacedUpdatePill placed = kit::place_update_pill(pill, &fonts());
+    OA_CHECK(placed.width > 0 && placed.height > 0);
+    OA_CHECK(placed.icon.x < placed.text.x);
+    OA_CHECK(placed.bar.width > 0 && placed.bar.y > placed.text.y);
+    OA_CHECK(placed.button.x > placed.text.x + placed.text.width - 1);
+    OA_CHECK(placed.button.x + placed.button.width < placed.width);
+    const kit::DisplayList list = kit::update_pill_list(pill, &fonts());
+    OA_CHECK(list.controls.size() == 2);
+    if (list.controls.size() == 2) {
+        OA_CHECK(list.controls[0].name == "update-pill.pause");
+        OA_CHECK(list.controls[1].name == "update-pill.open");
+        OA_CHECK(list.controls[1].text == "0.8.8 · 41%");
+    }
+    const kit::Point on_button{
+        placed.button.x + placed.button.width / 2, placed.button.y + placed.button.height / 2
+    };
+    const kit::Point on_words{placed.text.x + 2, placed.height / 2};
+    kit::UpdatePill pressed = pill;
+    OA_CHECK(
+        kit::update_pill_pointer(pressed, kit::PillPointer::press, on_button, &fonts()) ==
+        kit::UpdatePillAction::redraw
+    );
+    OA_CHECK(
+        kit::update_pill_pointer(pressed, kit::PillPointer::release, on_button, &fonts()) ==
+        kit::UpdatePillAction::pressed
+    );
+    kit::UpdatePill opened = pill;
+    static_cast<void>(
+        kit::update_pill_pointer(opened, kit::PillPointer::press, on_words, &fonts())
+    );
+    OA_CHECK(
+        kit::update_pill_pointer(opened, kit::PillPointer::release, on_words, &fonts()) ==
+        kit::UpdatePillAction::opened
+    );
+    // A press on the button released over the words asks nothing.
+    kit::UpdatePill slid = pill;
+    static_cast<void>(kit::update_pill_pointer(slid, kit::PillPointer::press, on_button, &fonts()));
+    const kit::UpdatePillAction away =
+        kit::update_pill_pointer(slid, kit::PillPointer::release, on_words, &fonts());
+    OA_CHECK(away != kit::UpdatePillAction::pressed && away != kit::UpdatePillAction::opened);
+    // A pill with no button names only itself, and a paused bar is drawn paused.
+    kit::UpdatePill ready = pill;
+    ready.caption.clear();
+    ready.percent = -1;
+    OA_CHECK(kit::place_update_pill(ready, &fonts()).button.width == 0);
+    OA_CHECK(kit::update_pill_list(ready, &fonts()).controls.size() == 1);
+    kit::UpdatePill paused = pill;
+    paused.paused = true;
+    bool amber = false;
+    for (const kit::Item& item : kit::update_pill_list(paused, &fonts()).items)
+        if (const auto* look = std::get_if<kit::ProgressLook>(&item.look))
+            amber = look->paused;
+    OA_CHECK(amber);
+}
+
 int main() {
     notices_place_as_before();
     questions_place_as_before();
@@ -1614,5 +1828,8 @@ int main() {
     paint_draws_what_draw_question_draws();
     the_progress_bar_fills_as_far_as_it_came();
     the_work_dialog_has_no_buttons();
+    question_parts_place_in_order();
+    boxes_pair_and_parts_cut_whole();
+    the_update_pill_takes_its_button_and_itself();
     return oa::test::check_exit_status();
 }

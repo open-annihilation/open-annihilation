@@ -59,7 +59,10 @@ def run_case(native, game_dir, work, name, extra, needles, forbidden, status):
         str(install),
         *extra,
     ]
-    completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    # The case's own folder is its working folder: the pictures case writes there.
+    completed = subprocess.run(
+        command, cwd=str(folder), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
+    )
     sys.stdout.write(completed.stdout)
     sys.stdout.flush()
     missing = [needle for needle in needles if needle not in completed.stdout]
@@ -139,6 +142,24 @@ def main():
             ["no offer"],
             [helper],
             1,
+        ),
+        (
+            "cancel",
+            ["--update-download-case", "cancel"],
+            [
+                "pill paused and resumed",
+                "update centre paused and resumed",
+                "cancel download kept nothing",
+            ],
+            [helper],
+            0,
+        ),
+        (
+            "pictures",
+            ["--update-download-case", "pictures"],
+            ["update-settings-downloading-640x480.png", "pictures done"],
+            [helper],
+            0,
         ),
     ]
     failed = False
