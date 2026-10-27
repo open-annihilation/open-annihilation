@@ -136,6 +136,28 @@ card::Batch batch(const Inputs& in, std::size_t first) {
     return out;
 }
 
+/// Narrows a scissor to the part of the target that shows the map's picture
+/// (Inputs::shown), so that nothing drawn through it reaches past the map's
+/// edges into the black beyond them; each edge rounds to the nearest whole
+/// pixel, as the terrain's own edge falls.
+card::Rect within_shown_map(const Inputs& in, card::Rect scissor) {
+    if (!(in.shown[0] > 0) || !(in.shown[1] > 0))
+        return scissor;
+    const auto top_left = screen(in, 0, 0);
+    const auto bottom_right = screen(in, in.shown[0], in.shown[1]);
+    for (const float value : {top_left[0], top_left[1], bottom_right[0], bottom_right[1]})
+        if (!std::isfinite(value))
+            return scissor;
+    const auto edge = [](float value) {
+        return int32_t(std::clamp(std::lround(value), -(1L << 30), 1L << 30));
+    };
+    const int32_t left = std::max(scissor.x, edge(top_left[0]));
+    const int32_t top = std::max(scissor.y, edge(top_left[1]));
+    const int32_t right = std::min(scissor.x + scissor.width, edge(bottom_right[0]));
+    const int32_t bottom = std::min(scissor.y + scissor.height, edge(bottom_right[1]));
+    return {left, top, std::max(0, right - left), std::max(0, bottom - top)};
+}
+
 /// The sprite of a draw, where it is one: a feature, its shadow or an effect.
 const SpriteDraw* sprite_of(const WorldDrawList& draws, const WorldDraw& draw) {
     const bool sprite = draw.kind == WorldDrawKind::sprite ||
@@ -294,6 +316,9 @@ void surface(card::CardFrame& frame, const Inputs& in) {
     if (!std::isfinite(scale) || scale <= 0)
         return;
     auto out = batch(in, frame.indices.size());
+    out.scissor = within_shown_map(in, out.scissor);
+    if (out.scissor.width <= 0 || out.scissor.height <= 0)
+        return;
     const float sea = float(in.map->sea_level);
     const int left = std::max(0, int(in.view.camera_x / cell) - 1);
     const int top = std::max(0, int((in.view.camera_y + sea * 0.5F) / cell) - 1);
@@ -690,6 +715,9 @@ void objects(
         // on the software card's textured, non-axis-aligned triangles.
         copy.blend = card::Blend::alpha;
         copy.sampling = card::Sampling::linear;
+        // The reflection ends at the map's edges as the water does.
+        copy.scissor = within_shown_map(in, copy.scissored ? copy.scissor : batch(in, 0).scissor);
+        copy.scissored = true;
         for (auto i = begin; i + 2 < end; i += 3) {
             std::array<Corner, 3> triangle{};
             bool valid = true;

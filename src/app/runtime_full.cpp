@@ -1881,6 +1881,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 water.shimmer = levels.shimmer;
                 water.reflections = levels.reflections;
                 water.water_surface = water_surface();
+                // The water's effects end where the terrain does.
+                const auto shown_map = shown_map_size();
+                water.shown = {float(shown_map[0]), float(shown_map[1])};
                 water.disturbances = water_disturbances();
                 water.wind = water_wind();
                 water.art = &water_art;
