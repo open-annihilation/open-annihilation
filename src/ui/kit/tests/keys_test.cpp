@@ -19,6 +19,7 @@
 #include "oa/ui/kit/layout.hpp"
 #include "oa/ui/paint/painter.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -772,6 +773,89 @@ void main_block_draws_its_keys_alone() {
     }
 }
 
+/// Fonts whose regular glyphs are each wider than a key's legend box at
+/// four points a quarter, and whose small glyphs fit it.
+///
+/// @return the fonts
+const kit::Fonts& wide_regular_fonts() {
+    static const kit::Fonts loaded = [] {
+        const auto made = [](uint16_t width) {
+            renderer::TextFont font;
+            font.font.nominal_height = 8;
+            constexpr uint8_t ink_index = 1;
+            for (int byte = 0; byte < 256; ++byte) {
+                constexpr uint16_t height = 8;
+                const auto count = static_cast<std::size_t>(width) * height;
+                font.font.glyphs[static_cast<std::size_t>(byte)] = oa::formats::fnt::Glyph{
+                    width,
+                    height,
+                    0,
+                    0,
+                    std::vector<uint8_t>(count, ink_index),
+                    std::vector<uint8_t>(count, 1)
+                };
+            }
+            font.ink[ink_index] = static_cast<uint16_t>(renderer::blend_opaque);
+            return font;
+        };
+        return kit::Fonts{made(12), made(5), {}, {}};
+    }();
+    return loaded;
+}
+
+/// The main block keeps every one-letter legend, a changed key's among them,
+/// where the regular font is too wide for its key: it draws it in the small
+/// font, whole. The whole keyboard leaves those legends out, as before.
+void main_block_keeps_every_legend() {
+    kit::KeyboardLook look;
+    look.main_block = true;
+    for (const std::string_view code : {"KeyQ", "KeyW"}) {
+        kit::KeyboardKey key;
+        key.code = std::string(code);
+        key.cap.held = true;
+        look.keys.push_back(std::move(key));
+    }
+    // 240 points across is four points a quarter: a letter's key is 14
+    // points, its legend box 10, and a regular glyph 12.
+    const kit::Rect picture{0, 0, 240, 48};
+    renderer::Surface surface = black(picture.width, picture.height);
+    const kit::Canvas canvas{&surface, {0, 0, 1, {}}, &wide_regular_fonts(), {}};
+    kit::draw_keyboard(canvas, picture, look);
+    kit::DisplayList list;
+    kit::add_keyboard(list, picture, look, 1, "board");
+    // A key's legend is ink of its own colour inside it: the text colour on a
+    // free key, the ink for the accent on a changed one.
+    const auto inked = [](const renderer::Surface& drawn, const kit::Rect& key, kit::Colour ink) {
+        for (int32_t y = key.y; y < key.y + key.height; ++y)
+            for (int32_t x = key.x; x < key.x + key.width; ++x)
+                if (pixel_of(drawn, x, y) == ink)
+                    return true;
+        return false;
+    };
+    for (const kit::KeyPlace& place : kit::keyboard_places(look.shape)) {
+        if (!kit::keyboard_draws(place, look) || place.label.size() != 1)
+            continue;
+        const kit::Control* key = key_named(list, "board." + kit::code_word(place.code));
+        OA_CHECK(key != nullptr);
+        if (key == nullptr)
+            continue;
+        const bool changed = place.code == "KeyQ" || place.code == "KeyW";
+        OA_CHECK(inked(surface, key->rect, changed ? kit::colour::on_accent : kit::colour::text));
+    }
+
+    // The whole keyboard at the same size leaves a wide legend out, as before.
+    kit::KeyboardLook whole = look;
+    whole.main_block = false;
+    const kit::Rect board{0, 0, 91 * 4, 25 * 4};
+    renderer::Surface whole_surface = black(board.width, board.height);
+    const kit::Canvas whole_canvas{&whole_surface, {0, 0, 1, {}}, &wide_regular_fonts(), {}};
+    kit::draw_keyboard(whole_canvas, board, whole);
+    kit::DisplayList whole_list;
+    kit::add_keyboard(whole_list, board, whole, 1, "board");
+    const kit::Control* key_e = key_named(whole_list, "board." + kit::code_word("KeyE"));
+    OA_CHECK(key_e != nullptr && !inked(whole_surface, key_e->rect, kit::colour::text));
+}
+
 } // namespace
 
 int main() {
@@ -786,6 +870,7 @@ int main() {
     parts_stay_inside_at_every_scale();
     small_keyboard_keys_stay_apart();
     main_block_draws_its_keys_alone();
+    main_block_keeps_every_legend();
     paint_matches_the_draws();
     std::puts("ui-kit-keys passed");
     return oa::test::check_exit_status();

@@ -123,13 +123,15 @@ void draw_header(const Canvas& canvas, const HeaderLook& look) {
         return;
     const int32_t edge = compact_metrics.edge;
     const int32_t header_top = edge;
-    const int32_t header_height = compact_metrics.header_height;
+    const int32_t header_height = look.height > 0 ? look.height : compact_metrics.header_height;
     const int32_t inner = look.width - 2 * edge;
     fill_rect(canvas, {edge, header_top, inner, header_height}, colour::band);
     rule_rect(canvas, {edge, header_top + header_height, inner, 1}, colour::rule);
+    // A band of its own height keeps the mark in its middle.
     const Rect mark{
         compact_metrics.padding,
-        compact_metrics.mark_top,
+        look.height > 0 ? header_top + (header_height - compact_metrics.mark_side) / 2
+                        : compact_metrics.mark_top,
         compact_metrics.mark_side,
         compact_metrics.mark_side,
     };

@@ -895,8 +895,23 @@ int32_t keycap_width(const Fonts& fonts, const KeycapLook& look) {
     return std::max(least, text + pad + extra);
 }
 
-void draw_keycap(
-    const Canvas& canvas, const Rect& rect, const KeycapLook& look, bool fill_small_mark
+namespace {
+
+/// Draws a keycap as draw_keycap does. With small_legend, a legend the
+/// regular font cannot draw whole in its box is drawn in the small font
+/// when that one can, so a narrow key keeps its legend.
+///
+/// @param canvas where it is drawn
+/// @param rect the keycap, in points
+/// @param look what the keycap shows
+/// @param fill_small_mark fill a mark the corner glyph cannot show
+/// @param small_legend fall back to the small font for a legend too wide
+void draw_cap(
+    const Canvas& canvas,
+    const Rect& rect,
+    const KeycapLook& look,
+    bool fill_small_mark,
+    bool small_legend
 ) {
     if (!can_draw(canvas) || rect.width <= 0 || rect.height <= 0)
         return;
@@ -1000,7 +1015,12 @@ void draw_keycap(
         else if (!look.sub.empty())
             label_box.height = std::max((rect.height - edge_band) / 2, int32_t{1});
         const Align align = look.small ? Align::centre : Align::left;
-        draw_fitted(local, label_role(look), look.label, label_box, align, ink);
+        FontRole role = label_role(look);
+        if (small_legend && role == FontRole::regular &&
+            !line_is_whole(local, role, look.label, label_box) &&
+            line_is_whole(local, FontRole::small, look.label, label_box))
+            role = FontRole::small;
+        draw_fitted(local, role, look.label, label_box, align, ink);
     }
     if (!look.small && !look.sub.empty()) {
         const int32_t sub_top = rect.y + std::max((rect.height - edge_band) / 2, int32_t{1});
@@ -1035,6 +1055,14 @@ void draw_keycap(
         outline_corner_rect(local, rect, radius, colour::control_hover);
     if (look.focused)
         ring_corner_rect(local, rect, radius, compact_metrics.focus_ring, colour::focus);
+}
+
+} // namespace
+
+void draw_keycap(
+    const Canvas& canvas, const Rect& rect, const KeycapLook& look, bool fill_small_mark
+) {
+    draw_cap(canvas, rect, look, fill_small_mark, false);
 }
 
 void add_keycap(
@@ -1245,7 +1273,9 @@ void draw_keyboard(const Canvas& canvas, const Rect& rect, const KeyboardLook& l
     if (board.quarter < 4)
         settle_small_labels(local, places, rects, caps, look);
     for (std::size_t index = 0; index < places.size(); ++index) {
-        draw_keycap(local, rects[index], caps[index], board.quarter < 4);
+        // The main block keeps every legend: one too wide for the regular
+        // font is drawn in the small one.
+        draw_cap(local, rects[index], caps[index], board.quarter < 4, look.main_block);
         // A gap that would take the whole key is a one-point border in the
         // free key's edge colour instead. Real keys are wide enough to inset
         // once a quarter is a point, so this is the fallback.

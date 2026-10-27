@@ -46,6 +46,11 @@ struct HeaderLook {
     /// The mark at the left. Off, the title, or the second word when there
     /// is no title, starts at the padding.
     bool mark{true};
+    /// The band's height under the top edge, in points: Kit 2's window header
+    /// (Metrics::window_header_height), say. The mark, the title, the second
+    /// word, the version and the note sit in its middle, and its rule under
+    /// it. 0 is Compact's header_height, with the mark at mark_top.
+    int32_t height{};
 };
 
 /// One entry of a nav list.
@@ -107,7 +112,8 @@ void draw_window_edge(const Canvas& canvas, const Rect& whole);
 
 /// Draws the header over the window's full inner width: the band and its
 /// rule, the header mark, the title, the second word, the version at the
-/// right and the note before it.
+/// right and the note before it. The band is HeaderLook::height high, or
+/// Compact's header_height when that is 0.
 ///
 /// The modern fonts, when they stand in for the game's font wholly, draw
 /// the title at its measured width when that is wider than title_width, and
