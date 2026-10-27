@@ -459,6 +459,17 @@ build cost, build time, maximum health, armour and state flags, and the
 `Unit.economy` accumulator words; an accepted repair changes health and a
 positive resource gate changes the requested debit without accepting it.
 
+A repair order's step (`TickHost::nano_repair`) is paid by the repairer, as
+in 3.1c: the energy is requested in the repairing unit's own economy block,
+whose gate decides whether the step is afforded. A repair pad pays for the
+aircraft on it, and a builder pays for the unit it repairs, an ally's
+included, so its owner's economy carries the cost and the bottom bar shows
+it on the repairer. Up to 0.8.6 the step charged the repaired unit's block
+instead; games with a repair played with 0.8.6 or earlier, saved or
+recorded, do not play on exactly as they did. `missions_orders_test.cpp`
+(`repairs_charge_the_repairer`) and `missions_vtol_test.cpp` (the pad)
+check who pays and the short-energy gate.
+
 `update_player_economy` is the per-player economy tick: the activity gates,
 EnergyUse and make credits with the easy and medium computer scales, cloak
 upkeep with the cloak dropped when it goes unpaid, the merge of the unit

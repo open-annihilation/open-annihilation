@@ -8,6 +8,7 @@
 #include "oa/sim/ground_orders/goals.hpp"
 #include "oa/sim/match_runtime/command.hpp"
 #include "oa/sim/match_runtime/construction_orders.hpp"
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <iostream>
@@ -1441,6 +1442,77 @@ void repair_orders() {
     f.match->stop_orders(tank.unit_index);
 }
 
+void repairs_charge_the_repairer() {
+    Fixture f;
+    // Players 0 and 1 are allies.
+    std::array<uint8_t, 10> allies{};
+    allies[0] = allies[1] = 1;
+    f.match->configure_player_alliances(0, allies);
+    f.match->configure_player_alliances(1, allies);
+    auto& builder = f.spawn(0, builder_type, 100, 100);
+    const auto id = builder.unit_index;
+    auto& own = f.spawn(0, tank_type, 104, 100);
+    auto& ally = f.spawn(1, tank_type, 100, 104);
+    builder.record.state_flags |= OA_UNIT_STATE_ACTIVE;
+    own.record.health = ally.record.health = 40;
+    Fixture::fund(builder);
+    Fixture::fund(own);
+    Fixture::fund(ally);
+
+    // As in 3.1c the builder pays for its own unit's repair: under 3.1c's
+    // repair rate a step requests 1 energy in the builder's economy block
+    // and none in the patient's.
+    auto& mend_own = f.order(id, sim::match_runtime::repair_unit_no_move_kind, own.unit_index);
+    CHECK(step(*f.match, builder, mend_own) == 1);
+    CHECK(step(*f.match, builder, mend_own) == 2 && own.record.health == 41);
+    CHECK(builder.record.economy.energy.requested == 1.0F);
+    CHECK(builder.record.economy.energy.accepted == 1.0F);
+    CHECK(own.record.economy.energy.requested == 0.0F);
+    f.match->stop_orders(id);
+
+    // And for an ally's unit: the builder's owner pays, not the ally.
+    auto& mend = f.match->issue_repair(id, ally.unit_index, false);
+    CHECK(step(*f.match, builder, mend) == 1);
+    CHECK(step(*f.match, builder, mend) == 1);
+    CHECK(step(*f.match, builder, mend) == 1);
+    CHECK(step(*f.match, builder, mend) == 2 && ally.record.health == 41);
+    CHECK(builder.record.economy.energy.requested == 2.0F);
+    CHECK(builder.record.economy.energy.accepted == 2.0F);
+    CHECK(ally.record.economy.energy.requested == 0.0F);
+    f.match->update_player_economy(0);
+    f.match->update_player_economy(1);
+    const auto& players = f.match->state().game.players;
+    CHECK(players[0].energy_requested == 2.0F && players[0].energy == 998.0F);
+    CHECK(players[1].energy_requested == 0.0F && players[1].energy == 1000.0F);
+    // The bottom bar draws each unit's own block: the builder shows the two
+    // energy, the ally's unit none.
+    CHECK(builder.record.economy.energy.last_requested == 2.0F);
+    CHECK(ally.record.economy.energy.last_requested == 0.0F);
+
+    // Short of energy: with the store empty a step still goes ahead, but the
+    // next settlement cannot cover it and leaves the builder's block short
+    // (its gate above 0). The builder's gate then refuses the following
+    // step: it is requested, not afforded, and nothing is healed.
+    f.match->state().game.players[0].energy = 0.0F;
+    CHECK(step(*f.match, builder, mend) == 2 && ally.record.health == 42);
+    f.match->update_player_economy(0);
+    CHECK(builder.record.economy.energy.gate > 0.0F);
+    CHECK(step(*f.match, builder, mend) == 2 && ally.record.health == 42);
+    CHECK(builder.record.economy.energy.requested == 1.0F);
+    CHECK(builder.record.economy.energy.accepted == 0.0F);
+    CHECK(ally.record.economy.energy.requested == 0.0F);
+    // With energy again the builder's gate opens; a shortfall in the
+    // patient's own block does not stop the repair, since it does not pay.
+    f.match->state().game.players[0].energy = 1000.0F;
+    f.match->update_player_economy(0);
+    CHECK(builder.record.economy.energy.gate == 0.0F);
+    ally.record.economy.energy.gate = 1.0F;
+    CHECK(step(*f.match, builder, mend) == 2 && ally.record.health == 43);
+    CHECK(builder.record.economy.energy.accepted == 1.0F);
+    CHECK(ally.record.economy.energy.requested == 0.0F);
+    f.match->stop_orders(id);
+}
+
 void reclaim_and_capture() {
     Fixture f;
     auto& builder = f.spawn(0, builder_type, 100, 100);
@@ -1762,6 +1834,7 @@ int main() {
         new_units_name_their_builder();
         factory_move_hands_off();
         repair_orders();
+        repairs_charge_the_repairer();
         reclaim_and_capture();
         capture_without_maximum_health_is_at_once();
         factory_death_kills_the_unit_on_its_pad();
