@@ -10,14 +10,6 @@
 
 
 
-[+ ADD KEY]
-	{
-	de=+ TASTE HINZUFÜGEN;
-	fr=+ AJOUTER UNE TOUCHE;
-	es=+ AÑADIR TECLA;
-	it=+ AGGIUNGI TASTO;
-	}
-
 [A double press]
 	{
 	de=Ein Doppeldruck;
@@ -48,14 +40,6 @@
 	fr=Un relâchement;
 	es=Una suelta;
 	it=Un rilascio;
-	}
-
-[After Replace, {action} is chosen in the list so you can give it another key.]
-	{
-	de=Nach dem Ersetzen ist {action} in der Liste gewählt, damit du ihm eine andere Taste geben kannst.;
-	fr=Après le remplacement, {action} est choisi dans la liste pour que tu lui donnes une autre touche.;
-	es=Tras Reemplazar, {action} queda elegido en la lista para que le des otra tecla.;
-	it=Dopo Sostituisci, {action} è scelto nell'elenco così puoi dargli un altro tasto.;
 	}
 
 [Alt]
@@ -170,14 +154,6 @@
 	it=Cat.;
 	}
 
-[CHOOSE ANOTHER KEY…]
-	{
-	de=ANDERE TASTE WÄHLEN…;
-	fr=CHOISIR UNE AUTRE TOUCHE…;
-	es=ELEGIR OTRA TECLA…;
-	it=SCEGLI UN ALTRO TASTO…;
-	}
-
 [Clear]
 	{
 	de=Leeren;
@@ -266,14 +242,6 @@
 	it=Più veloce;
 	}
 
-[FIND ON KEYBOARD]
-	{
-	de=AUF DER TASTATUR FINDEN;
-	fr=TROUVER SUR LE CLAVIER;
-	es=BUSCAR EN EL TECLADO;
-	it=TROVA SULLA TASTIERA;
-	}
-
 [Fire]
 	{
 	de=Feuer;
@@ -322,28 +290,12 @@
 	it=Partita e finestra;
 	}
 
-[Grey keys are free while playing. Click a free key to give it the action chosen in the list. Hover a key to see everything on it.]
-	{
-	de=Graue Tasten sind beim Spielen frei. Klicke eine freie Taste an, um ihr die in der Liste gewählte Aktion zu geben. Fahre über eine Taste, um alles darauf zu sehen.;
-	fr=Les touches grises sont libres en jeu. Clique une touche libre pour lui donner l'action choisie dans la liste. Survole une touche pour voir tout ce qu'elle fait.;
-	es=Las teclas grises están libres mientras juegas. Haz clic en una tecla libre para darle la acción elegida en la lista. Pasa por una tecla para ver todo lo que hace.;
-	it=I tasti grigi sono liberi mentre giochi. Fai clic su un tasto libero per dargli l'azione scelta nell'elenco. Passa su un tasto per vedere tutto quello che fa.;
-	}
-
 [Group]
 	{
 	de=Gruppe;
 	fr=Groupe;
 	es=Grupo;
 	it=Gruppo;
-	}
-
-[Here, and in {name}. Both are read {context}.]
-	{
-	de=Hier und bei {name}. Beide gelten {context}.;
-	fr=Ici, et dans {name}. Les deux se lisent {context}.;
-	es=Aquí y en {name}. Las dos se leen {context}.;
-	it=Qui e in {name}. Entrambe valgono {context}.;
 	}
 
 [Hold the modifiers you want, then press a key or a mouse button, or turn the wheel.]
@@ -410,30 +362,6 @@
 	it=JIS;
 	}
 
-[KEEP IT FOR {name}]
-	{
-	de=FÜR {name} BEHALTEN;
-	fr=LE GARDER POUR {name};
-	es=CONSERVARLO PARA {name};
-	it=TIENILO PER {name};
-	}
-
-[KEEP IT HERE]
-	{
-	de=HIER BEHALTEN;
-	fr=LE GARDER ICI;
-	es=CONSERVARLO AQUÍ;
-	it=TIENILO QUI;
-	}
-
-[Keep it here leaves {name} with {chord}.]
-	{
-	de=Hier behalten lässt {name} mit {chord}.;
-	fr=Le garder ici laisse {name} avec {chord}.;
-	es=Conservarlo aquí deja a {name} con {chord}.;
-	it=Tenerlo qui lascia {name} con {chord}.;
-	}
-
 [Keyboard]
 	{
 	de=Tastatur;
@@ -466,14 +394,6 @@
 	it=Clic sinistro;
 	}
 
-[List]
-	{
-	de=Liste;
-	fr=Liste;
-	es=Lista;
-	it=Elenco;
-	}
-
 [Macro]
 	{
 	de=Makro;
@@ -488,14 +408,6 @@
 	fr=Marqueur;
 	es=Marca;
 	it=Segno;
-	}
-
-[Means]
-	{
-	de=Bedeutung;
-	fr=Sens;
-	es=Significa;
-	it=Significa;
 	}
 
 [Middle]
@@ -600,14 +512,6 @@
 	fr=Appuie sur une touche…;
 	es=Pulsa una tecla…;
 	it=Premi un tasto…;
-	}
-
-[Press the keys for {action}]
-	{
-	de=Tasten für {action} drücken;
-	fr=Appuie sur les touches pour {action};
-	es=Pulsa las teclas para {action};
-	it=Premi i tasti per {action};
 	}
 
 [Prev pg]
@@ -738,36 +642,12 @@
 	it=Tieni;
 	}
 
-[SWAP]
-	{
-	de=TAUSCHEN;
-	fr=ÉCHANGER;
-	es=INTERCAMBIAR;
-	it=SCAMBIA;
-	}
-
-[Starts on]
-	{
-	de=Beginnt mit;
-	fr=Commence par;
-	es=Empieza con;
-	it=Inizia con;
-	}
-
 [Tab]
 	{
 	de=Tabulator;
 	fr=Tabulation;
 	es=Tabulador;
 	it=Tabulazione;
-	}
-
-[The letter {key}]
-	{
-	de=Der Buchstabe {key};
-	fr=La lettre {key};
-	es=La letra {key};
-	it=La lettera {key};
 	}
 
 [The mod's data]
@@ -810,30 +690,6 @@
 	it=Lavagna tenuta;
 	}
 
-[You are giving {action} the chord {chord} in place of {old}.]
-	{
-	de=Du gibst {action} die Kombination {chord} statt {old}.;
-	fr=Tu donnes à {action} la combinaison {chord} à la place de {old}.;
-	es=Le das a {action} la combinación {chord} en lugar de {old}.;
-	it=Stai dando a {action} la combinazione {chord} al posto di {old}.;
-	}
-
-[You are giving {action} the chord {chord}.]
-	{
-	de=Du gibst {action} die Kombination {chord}.;
-	fr=Tu donnes à {action} la combinaison {chord}.;
-	es=Le das a {action} la combinación {chord}.;
-	it=Stai dando a {action} la combinazione {chord}.;
-	}
-
-[nothing: unbound]
-	{
-	de=nichts: ungebunden;
-	fr=rien : sans touche;
-	es=nada: sin tecla;
-	it=niente: senza tasto;
-	}
-
 [{chord} does two things]
 	{
 	de={chord} macht zwei Dinge;
@@ -850,14 +706,6 @@
 	it={chord} è libero {context}.;
 	}
 
-[{chord} is taken]
-	{
-	de={chord} ist belegt;
-	fr={chord} est pris;
-	es={chord} está ocupado;
-	it={chord} è occupato;
-	}
-
 [{name}: {description} {context}. OK asks what to do.]
 	{
 	de={name}: {description} {context}. OK fragt, was zu tun ist.;
@@ -872,14 +720,6 @@
 	fr={shape} · de ton système;
 	es={shape} · de tu sistema;
 	it={shape} · dal tuo sistema;
-	}
-
-[{where}, {chord} already does what {other} does.]
-	{
-	de={where}, {chord} macht schon, was {other} macht.;
-	fr={where}, {chord} fait déjà ce que fait {other}.;
-	es={where}, {chord} ya hace lo que hace {other}.;
-	it={where}, {chord} fa già ciò che fa {other}.;
 	}
 
 [· 1 change of your own]
@@ -1228,6 +1068,10 @@
 
 [1 mutator on]
 	{
+	de=1 Mutator an;
+	fr=1 mutateur actif;
+	es=1 mutador activo;
+	it=1 mutatore attivo;
 	}
 
 [A]
@@ -1726,14 +1570,6 @@
 	it=Tutto;
 	}
 
-[All categories]
-	{
-	de=Alle Kategorien;
-	fr=Toutes les catégories;
-	es=Todas las categorías;
-	it=Tutte le categorie;
-	}
-
 [All files match]
 	{
 	de=Alle Dateien stimmen überein;
@@ -1868,14 +1704,6 @@
 	fr=N'importe;
 	es=Cualquiera;
 	it=Qualsiasi;
-	}
-
-[Any keyboard]
-	{
-	de=Jede Tastatur;
-	fr=N'importe quel clavier;
-	es=Cualquier teclado;
-	it=Qualsiasi tastiera;
 	}
 
 [Any mod]
@@ -2862,28 +2690,12 @@
 	it=Cambia;
 	}
 
-[Changes 1 action]
-	{
-	de=Ändert 1 Aktion;
-	fr=Modifie 1 action;
-	es=Cambia 1 acción;
-	it=Cambia 1 azione;
-	}
-
 [Changes the game: unranked on Core Prime]
 	{
 	de=Ändert das Spiel: ohne Wertung auf Core Prime;
 	fr=Change la partie : non classé sur Core Prime;
 	es=Cambia la partida: sin clasificación en Core Prime;
 	it=Cambia la partita: non classificata su Core Prime;
-	}
-
-[Changes {count} actions]
-	{
-	de=Ändert {count} Aktionen;
-	fr=Modifie {count} actions;
-	es=Cambia {count} acciones;
-	it=Cambia {count} azioni;
 	}
 
 [Chat]
@@ -3980,14 +3792,6 @@
 	fr=Télécharger et sélectionner;
 	es=Descargar y seleccionar;
 	it=Scarica e seleziona;
-	}
-
-[Download in the background]
-	{
-	de=Im Hintergrund herunterladen;
-	fr=Télécharger en arrière-plan;
-	es=Descargar en segundo plano;
-	it=Scarica in background;
 	}
 
 [Downloaded]
@@ -5124,14 +4928,6 @@
 	fr=Obtenir {name} ?;
 	es=¿Obtener {name}?;
 	it=Ottenere {name}?;
-	}
-
-[Gets it ready while you're in the menus, and stops during a match.]
-	{
-	de=Macht es fertig, während du in den Menüs bist, und hält während einer Partie an.;
-	fr=Le prépare pendant que tu es dans les menus, et s'arrête pendant une partie.;
-	es=Lo deja listo mientras estás en los menús, y se detiene durante una partida.;
-	it=Lo prepara mentre sei nei menu, e si ferma durante una partita.;
 	}
 
 [Getting {name} · {percent}%]
@@ -6678,14 +6474,6 @@
 	it=CONTINUA A COPIARE;
 	}
 
-[KEEP EDITING]
-	{
-	de=WEITER BEARBEITEN;
-	fr=CONTINUER;
-	es=SEGUIR EDITANDO;
-	it=CONTINUA A MODIFICARE;
-	}
-
 [KEEP IT]
 	{
 	de=BEHALTEN;
@@ -6740,22 +6528,6 @@
 	fr=Maintiens {chord} : l'anneau se remplit en {seconds} s. Lâche pour annuler.;
 	es=Sigue pulsando {chord}: el anillo se llena en {seconds} s. Suelta para cancelar.;
 	it=Tieni premuto {chord}: l'anello si riempie in {seconds} s. Lascia per annullare.;
-	}
-
-[Keep my 1 change on top]
-	{
-	de=Meine 1 Änderung oben behalten;
-	fr=Garder mon 1 changement par-dessus;
-	es=Conservar mi 1 cambio encima;
-	it=Tieni la mia 1 modifica sopra;
-	}
-
-[Keep my {count} changes on top]
-	{
-	de=Meine {count} Änderungen oben behalten;
-	fr=Garder mes {count} changements par-dessus;
-	es=Conservar mis {count} cambios encima;
-	it=Tieni le mie {count} modifiche sopra;
 	}
 
 [Keep your 1 change on top of {layout}?]
@@ -6926,14 +6698,6 @@
 	it=DISPOSIZIONE;
 	}
 
-[LEAVE]
-	{
-	de=VERLASSEN;
-	fr=PARTIR;
-	es=SALIR;
-	it=ESCI;
-	}
-
 [LOAD]
 	{
 	de=VERLADEN;
@@ -7092,22 +6856,6 @@
 	fr=Appris;
 	es=Aprendido;
 	it=Appreso;
-	}
-
-[Leave without saving 1 change?]
-	{
-	de=1 Änderung ohne Speichern verlassen?;
-	fr=Partir sans enregistrer 1 changement ?;
-	es=¿Sales sin guardar 1 cambio?;
-	it=Esci senza salvare 1 modifica?;
-	}
-
-[Leave without saving {n} changes?]
-	{
-	de={n} Änderungen ohne Speichern verlassen?;
-	fr=Partir sans enregistrer {n} changements ?;
-	es=¿Sales sin guardar {n} cambios?;
-	it=Esci senza salvare {n} modifiche?;
 	}
 
 [Left hand]
@@ -8710,14 +8458,6 @@
 	it=I tasti numerici selezionano i gruppi;
 	}
 
-[Number keys select groups: {state}]
-	{
-	de=Zifferntasten wählen Gruppen: {state};
-	fr=Les touches numériques sélectionnent les groupes : {state};
-	es=Las teclas numéricas seleccionan grupos: {state};
-	it=I tasti numerici selezionano i gruppi: {state};
-	}
-
 [O]
 	{
 	de=O;
@@ -9662,14 +9402,6 @@
 	it=Precedente;
 	}
 
-[Previous version]
-	{
-	de=Vorherige Version;
-	fr=Version précédente;
-	es=Versión anterior;
-	it=Versione precedente;
-	}
-
 [Program Files]
 	{
 	de=Program Files;
@@ -10462,14 +10194,6 @@
 	it=STESSO TIPO;
 	}
 
-[SAVE]
-	{
-	de=SPEICHERN;
-	fr=ENREGISTRER;
-	es=GUARDAR;
-	it=SALVA;
-	}
-
 [SAVED GAMES MOVED]
 	{
 	de=SPEICHERSTÄNDE VERSCHOBEN;
@@ -10798,14 +10522,6 @@
 	it=Scorri per zoomare il campo di battaglia avanti e indietro.;
 	}
 
-[Search actions, or press a key]
-	{
-	de=Aktionen suchen, oder eine Taste drücken;
-	fr=Chercher des actions, ou appuyer sur une touche;
-	es=Buscar acciones, o pulsar una tecla;
-	it=Cerca azioni, o premi un tasto;
-	}
-
 [Search key layouts]
 	{
 	de=Tastenbelegungen suchen;
@@ -10876,14 +10592,6 @@
 	fr=Chercher des mises à jour;
 	es=Buscar actualizaciones;
 	it=Cerca aggiornamenti;
-	}
-
-[Search, or press a key]
-	{
-	de=Suchen, oder eine Taste drücken;
-	fr=Chercher, ou appuyer sur une touche;
-	es=Buscar, o pulsar una tecla;
-	it=Cerca, o premi un tasto;
 	}
 
 [Seat {n}]
@@ -11028,14 +10736,6 @@
 	fr=Fixé sur la ligne de commande;
 	es=Fijado en la línea de órdenes;
 	it=Impostato sulla riga di comando;
-	}
-
-[Set them aside]
-	{
-	de=Zur Seite legen;
-	fr=Les mettre de côté;
-	es=Dejarlos aparte;
-	it=Mettili da parte;
 	}
 
 [Settings]
@@ -12814,14 +12514,6 @@
 	it=Restano tutti installati. Riaccendine uno e {name} torna con lui.;
 	}
 
-[They stay saved with {name}.]
-	{
-	de=Sie bleiben bei {name} gespeichert.;
-	fr=Ils restent enregistrés avec {name}.;
-	es=Siguen guardados con {name}.;
-	it=Restano salvati con {name}.;
-	}
-
 [This base game is used when the Library closes.]
 	{
 	de=Dieses Grundspiel wird verwendet, wenn die Bibliothek schließt.;
@@ -12948,14 +12640,6 @@
 	fr=Ce fichier de lancement utilise un autre contenu que le jeu en cours. Quitte Open Annihilation, puis ouvre de nouveau le fichier.;
 	es=Este archivo de lanzamiento usa otro contenido que el que se juega ahora. Sal de Open Annihilation y vuelve a abrir el archivo.;
 	it=Questo file di avvio usa contenuti diversi da quelli in gioco ora. Esci da Open Annihilation, poi apri di nuovo il file.;
-	}
-
-[This layout asks for]
-	{
-	de=Diese Tastenbelegung verlangt;
-	fr=Cette disposition demande;
-	es=Esta distribución pide;
-	it=Questa disposizione chiede;
 	}
 
 [This map is for the TA demo.]
@@ -13838,14 +13522,6 @@
 	it=Usa per ogni posto computer;
 	}
 
-[Use it for]
-	{
-	de=Dafür nutzen;
-	fr=L'utiliser pour;
-	es=Usarla para;
-	it=Usala per;
-	}
-
 [Use modern fonts for game text]
 	{
 	de=Moderne Schriften für den Spieltext;
@@ -14708,14 +14384,6 @@
 	fr=Ta dernière sélection d'escarmouche, prête à jouer. ANNULER joue sans mutateurs.;
 	es=Tu última selección de escaramuza, lista para jugar. CANCELAR juega sin mutadores.;
 	it=La tua ultima selezione di schermaglia, pronta da giocare. ANNULLA gioca senza mutatori.;
-	}
-
-[Your own changes]
-	{
-	de=Deine eigenen Änderungen;
-	fr=Tes propres changements;
-	es=Tus propios cambios;
-	it=Le tue modifiche;
 	}
 
 [Your own copy]
@@ -17926,14 +17594,6 @@
 	it={version} è pronto · {size} scaricati;
 	}
 
-[{version} kept]
-	{
-	de={version} behalten;
-	fr={version} conservée;
-	es={version} conservada;
-	it={version} conservata;
-	}
-
 [{version} ready]
 	{
 	de={version} bereit;
@@ -18448,6 +18108,10 @@
 
 [{count} mutators on]
 	{
+	de={count} Mutatoren an;
+	fr={count} mutateurs actifs;
+	es={count} mutadores activos;
+	it={count} mutatori attivi;
 	}
 
 [{name} · 1 change of your own]
@@ -18716,50 +18380,98 @@
 
 [and {count} more]
 	{
+	de=und {count} weitere;
+	fr=et {count} de plus;
+	es=y {count} más;
+	it=e altri {count};
 	}
 
 [Applied in this order.]
 	{
+	de=In dieser Reihenfolge angewandt.;
+	fr=Appliqués dans cet ordre.;
+	es=Se aplican en este orden.;
+	it=Applicati in questo ordine.;
 	}
 
 [Click to change.]
 	{
+	de=Klicken zum Ändern.;
+	fr=Clique pour changer.;
+	es=Haz clic para cambiar.;
+	it=Fai clic per cambiare.;
 	}
 
 [Click to read.]
 	{
+	de=Klicken zum Lesen.;
+	fr=Clique pour lire.;
+	es=Haz clic para leer.;
+	it=Fai clic per leggere.;
 	}
 
 [Computer player for this seat]
 	{
+	de=Computerspieler für diesen Platz;
+	fr=Joueur ordinateur pour cette place;
+	es=Jugador de ordenador para este puesto;
+	it=Giocatore computer per questo posto;
 	}
 
 [Computer player in the missions]
 	{
+	de=Computerspieler in den Missionen;
+	fr=Joueur ordinateur dans les missions;
+	es=Jugador de ordenador en las misiones;
+	it=Giocatore computer nelle missioni;
 	}
 
 [Get more brains...]
 	{
+	de=Mehr Gehirne holen...;
+	fr=Obtenir d'autres cerveaux...;
+	es=Conseguir más cerebros...;
+	it=Prendi altri cervelli...;
 	}
 
 [Mutators: off]
 	{
+	de=Mutatoren: keine;
+	fr=Mutateurs : aucun;
+	es=Mutadores: ninguno;
+	it=Mutatori: nessuno;
 	}
 
 [Mutators: {count} on]
 	{
+	de=Mutatoren: {count} an;
+	fr=Mutateurs : {count} actifs;
+	es=Mutadores: {count} activos;
+	it=Mutatori: {count} attivi;
 	}
 
 [No mutators on]
 	{
+	de=Keine Mutatoren an;
+	fr=Aucun mutateur actif;
+	es=Ningún mutador activo;
+	it=Nessun mutatore attivo;
 	}
 
 [not installed]
 	{
+	de=nicht installiert;
+	fr=pas installé;
+	es=no instalado;
+	it=non installato;
 	}
 
 [Options...]
 	{
+	de=Optionen...;
+	fr=Options...;
+	es=Opciones...;
+	it=Opzioni...;
 	}
 
 [px]
@@ -18768,30 +18480,6 @@
 	fr=px;
 	es=px;
 	it=px;
-	}
-
-[IMPORT…]
-	{
-	de=IMPORTIEREN…;
-	fr=IMPORTER…;
-	es=IMPORTAR…;
-	it=IMPORTA…;
-	}
-
-[SHARE…]
-	{
-	de=TEILEN…;
-	fr=PARTAGER…;
-	es=COMPARTIR…;
-	it=CONDIVIDI…;
-	}
-
-[PASTE…]
-	{
-	de=EINFÜGEN…;
-	fr=COLLER…;
-	es=PEGAR…;
-	it=INCOLLA…;
 	}
 
 [Share your keys]
@@ -19124,138 +18812,274 @@
 
 [Update]
 	{
+	de=Aktualisieren;
+	fr=Mettre à jour;
+	es=Actualizar;
+	it=Aggiorna;
 	}
 
 [Get · {size}]
 	{
+	de=Holen · {size};
+	fr=Obtenir · {size};
+	es=Obtener · {size};
+	it=Ottieni · {size};
 	}
 
 [1 change of your own]
 	{
+	de=1 eigene Änderung;
+	fr=1 changement à toi;
+	es=1 cambio tuyo;
+	it=1 modifica tua;
 	}
 
 [{count} changes of your own]
 	{
+	de={count} eigene Änderungen;
+	fr={count} changements à toi;
+	es={count} cambios tuyos;
+	it={count} modifiche tue;
 	}
 
 [Your changes]
 	{
+	de=Deine Änderungen;
+	fr=Tes changements;
+	es=Tus cambios;
+	it=Le tue modifiche;
 	}
 
 [1 command]
 	{
+	de=1 Kommando;
+	fr=1 commande;
+	es=1 comando;
+	it=1 comando;
 	}
 
 [{count} commands]
 	{
+	de={count} Kommandos;
+	fr={count} commandes;
+	es={count} comandos;
+	it={count} comandi;
 	}
 
 [{command} on {key}]
 	{
+	de={command} auf {key};
+	fr={command} sur {key};
+	es={command} en {key};
+	it={command} su {key};
 	}
 
 [{command} with no key]
 	{
+	de={command} ohne Taste;
+	fr={command} sans touche;
+	es={command} sin tecla;
+	it={command} senza tasto;
 	}
 
 [any keyboard]
 	{
+	de=jede Tastatur;
+	fr=n'importe quel clavier;
+	es=cualquier teclado;
+	it=qualsiasi tastiera;
 	}
 
 [ANSI keyboards]
 	{
+	de=ANSI-Tastaturen;
+	fr=claviers ANSI;
+	es=teclados ANSI;
+	it=tastiere ANSI;
 	}
 
 [ISO keyboards]
 	{
+	de=ISO-Tastaturen;
+	fr=claviers ISO;
+	es=teclados ISO;
+	it=tastiere ISO;
 	}
 
 [JIS keyboards]
 	{
+	de=JIS-Tastaturen;
+	fr=claviers JIS;
+	es=teclados JIS;
+	it=tastiere JIS;
 	}
 
 [the right-click interface]
 	{
+	de=die Rechtsklick-Oberfläche;
+	fr=l'interface clic droit;
+	es=la interfaz de clic derecho;
+	it=l'interfaccia a clic destro;
 	}
 
 [the left-click interface]
 	{
+	de=die Linksklick-Oberfläche;
+	fr=l'interface clic gauche;
+	es=la interfaz de clic izquierdo;
+	it=l'interfaccia a clic sinistro;
 	}
 
 [{number} · {heading}]
 	{
+	de={number} · {heading};
+	fr={number} · {heading};
+	es={number} · {heading};
+	it={number} · {heading};
 	}
 
 [Where]
 	{
+	de=Wo;
+	fr=Où;
+	es=Dónde;
+	it=Dove;
 	}
 
 [Your 1 change to {name}]
 	{
+	de=Deine 1 Änderung an {name};
+	fr=Ton 1 changement à {name};
+	es=Tu 1 cambio en {name};
+	it=La tua 1 modifica a {name};
 	}
 
 [Your {count} changes to {name}]
 	{
+	de=Deine {count} Änderungen an {name};
+	fr=Tes {count} changements à {name};
+	es=Tus {count} cambios en {name};
+	it=Le tue {count} modifiche a {name};
 	}
 
 [Keep it on top]
 	{
+	de=Oben behalten;
+	fr=Le garder par-dessus;
+	es=Conservarlo encima;
+	it=Tienila sopra;
 	}
 
 [Keep them on top]
 	{
+	de=Oben behalten;
+	fr=Les garder par-dessus;
+	es=Conservarlos encima;
+	it=Tienile sopra;
 	}
 
 [Start clean]
 	{
+	de=Sauber anfangen;
+	fr=Repartir de zéro;
+	es=Empezar de cero;
+	it=Riparti da zero;
 	}
 
 [Either way it stays saved with {name}, and comes back when you use {name} again.]
 	{
+	de=So oder so bleibt sie bei {name} gespeichert und kommt zurück, wenn du {name} wieder nutzt.;
+	fr=Dans tous les cas, il reste enregistré avec {name} et revient quand tu utilises de nouveau {name}.;
+	es=En cualquier caso sigue guardado con {name} y vuelve cuando uses {name} otra vez.;
+	it=In ogni caso resta salvata con {name} e torna quando usi di nuovo {name}.;
 	}
 
 [Either way they stay saved with {name}, and come back when you use {name} again.]
 	{
+	de=So oder so bleiben sie bei {name} gespeichert und kommen zurück, wenn du {name} wieder nutzt.;
+	fr=Dans tous les cas, ils restent enregistrés avec {name} et reviennent quand tu utilises de nouveau {name}.;
+	es=En cualquier caso siguen guardados con {name} y vuelven cuando uses {name} otra vez.;
+	it=In ogni caso restano salvate con {name} e tornano quando usi di nuovo {name}.;
 	}
 
 [What moves]
 	{
+	de=Was sich ändert;
+	fr=Ce qui bouge;
+	es=Qué cambia;
+	it=Cosa cambia;
 	}
 
 [No command changes its key.]
 	{
+	de=Kein Kommando ändert seine Taste.;
+	fr=Aucune commande ne change de touche.;
+	es=Ningún comando cambia de tecla.;
+	it=Nessun comando cambia tasto.;
 	}
 
 [yours]
 	{
+	de=deine;
+	fr=la tienne;
+	es=la tuya;
+	it=tuo;
 	}
 
 [No key]
 	{
+	de=Keine Taste;
+	fr=Aucune touche;
+	es=Sin tecla;
+	it=Nessun tasto;
 	}
 
 [Helpers act in every game.]
 	{
+	de=Helfer wirken in jeder Partie.;
+	fr=Les aides agissent dans chaque partie.;
+	es=Las ayudas actúan en cada partida.;
+	it=Gli aiuti agiscono in ogni partita.;
 	}
 
 [Helpers act in every game, not only with {mod}.]
 	{
+	de=Helfer wirken in jeder Partie, nicht nur mit {mod}.;
+	fr=Les aides agissent dans chaque partie, pas seulement avec {mod}.;
+	es=Las ayudas actúan en cada partida, no solo con {mod}.;
+	it=Gli aiuti agiscono in ogni partita, non solo con {mod}.;
 	}
 
 [Use for every game]
 	{
+	de=Für jede Partie nutzen;
+	fr=Utiliser pour chaque partie;
+	es=Usar en cada partida;
+	it=Usa per ogni partita;
 	}
 
 [Use for {mod}]
 	{
+	de=Für {mod} nutzen;
+	fr=Utiliser pour {mod};
+	es=Usar para {mod};
+	it=Usa per {mod};
 	}
 
 [In use for every game]
 	{
+	de=Genutzt in jeder Partie;
+	fr=Utilisée dans chaque partie;
+	es=En uso en cada partida;
+	it=In uso in ogni partita;
 	}
 
 [In use with {mod}]
 	{
+	de=Genutzt mit {mod};
+	fr=Utilisée avec {mod};
+	es=En uso con {mod};
+	it=In uso con {mod};
 	}
 
 [Keys while playing]
@@ -19364,16 +19188,1728 @@
 
 [Look]
 	{
+	de=Aussehen;
+	fr=Apparence;
+	es=Aspecto;
+	it=Aspetto;
 	}
 
 [Modern]
 	{
+	de=Modern;
+	fr=Moderne;
+	es=Moderno;
+	it=Moderno;
 	}
 
 [OA's screens in Barlow, a clear modern face.]
 	{
+	de=OA-Bildschirme in Barlow, einer klaren modernen Schrift.;
+	fr=Écrans d'OA en Barlow, une police moderne et claire.;
+	es=Pantallas de OA en Barlow, una letra moderna y clara.;
+	it=Schermate di OA in Barlow, un carattere moderno e chiaro.;
 	}
 
 [OA's screens in the game's own bitmap fonts.]
 	{
+	de=OA-Bildschirme in den Bitmap-Schriften des Spiels.;
+	fr=Écrans d'OA dans les polices bitmap du jeu.;
+	es=Pantallas de OA con las letras bitmap del juego.;
+	it=Schermate di OA nei caratteri bitmap del gioco.;
+	}
+
+[+ Add a key]
+	{
+	de=+ Taste hinzufügen;
+	fr=+ Ajouter une touche;
+	es=+ Añadir una tecla;
+	it=+ Aggiungi un tasto;
+	}
+
+[Add a key · {context}]
+	{
+	de=Taste hinzufügen · {context};
+	fr=Ajouter une touche · {context};
+	es=Añadir una tecla · {context};
+	it=Aggiungi un tasto · {context};
+	}
+
+[All actions]
+	{
+	de=Alle Aktionen;
+	fr=Toutes les actions;
+	es=Todas las acciones;
+	it=Tutte le azioni;
+	}
+
+[Change a key · {context}]
+	{
+	de=Taste ändern · {context};
+	fr=Changer une touche · {context};
+	es=Cambiar una tecla · {context};
+	it=Cambia un tasto · {context};
+	}
+
+[Change {action}'s key…]
+	{
+	de=Taste für {action} ändern…;
+	fr=Changer la touche de {action}…;
+	es=Cambiar la tecla de {action}…;
+	it=Cambia il tasto di {action}…;
+	}
+
+[Change…]
+	{
+	de=Ändern…;
+	fr=Changer…;
+	es=Cambiar…;
+	it=Cambia…;
+	}
+
+[Choose another key]
+	{
+	de=Andere Taste wählen;
+	fr=Choisir une autre touche;
+	es=Elegir otra tecla;
+	it=Scegli un altro tasto;
+	}
+
+[Choose what happens…]
+	{
+	de=Wählen, was passiert…;
+	fr=Choisir ce qui se passe…;
+	es=Elegir qué pasa…;
+	it=Scegli cosa succede…;
+	}
+
+[Click the key to try another.]
+	{
+	de=Klick auf die Taste, um eine andere zu probieren.;
+	fr=Clique sur la touche pour en essayer une autre.;
+	es=Haz clic en la tecla para probar otra.;
+	it=Fai clic sul tasto per provarne un altro.;
+	}
+
+[Click the key, then press another to look it up.]
+	{
+	de=Klick auf die Taste und drück dann eine andere, um sie nachzuschlagen.;
+	fr=Clique sur la touche, puis appuie sur une autre pour la chercher.;
+	es=Haz clic en la tecla y pulsa otra para buscarla.;
+	it=Fai clic sul tasto, poi premine un altro per cercarlo.;
+	}
+
+[Commands]
+	{
+	de=Kommandos;
+	fr=Commandes;
+	es=Comandos;
+	it=Comandi;
+	}
+
+[Common commands]
+	{
+	de=Häufige Kommandos;
+	fr=Commandes courantes;
+	es=Comandos habituales;
+	it=Comandi comuni;
+	}
+
+[Discard]
+	{
+	de=Verwerfen;
+	fr=Abandonner;
+	es=Descartar;
+	it=Scarta;
+	}
+
+[Escape closes · hold Escape to look it up]
+	{
+	de=Escape schließt · halte Escape, um Escape nachzuschlagen;
+	fr=Échap ferme · maintiens Échap pour chercher Échap;
+	es=Escape cierra · mantén Escape para buscar Escape;
+	it=Esc chiude · tieni premuto Esc per cercare Esc;
+	}
+
+[Find by key]
+	{
+	de=Nach Taste suchen;
+	fr=Chercher par touche;
+	es=Buscar por tecla;
+	it=Cerca per tasto;
+	}
+
+[Find on keyboard]
+	{
+	de=Auf der Tastatur finden;
+	fr=Trouver sur le clavier;
+	es=Buscar en el teclado;
+	it=Trova sulla tastiera;
+	}
+
+[From {layout}]
+	{
+	de=Aus {layout};
+	fr=De {layout};
+	es=De {layout};
+	it=Da {layout};
+	}
+
+[Grey keys are free while playing. Select a key to see what it does in each place.]
+	{
+	de=Graue Tasten sind beim Spielen frei. Wähl eine Taste, um zu sehen, was sie an jeder Stelle macht.;
+	fr=Les touches grises sont libres en jeu. Sélectionne une touche pour voir ce qu'elle fait à chaque endroit.;
+	es=Las teclas grises están libres mientras juegas. Selecciona una tecla para ver qué hace en cada lugar.;
+	it=I tasti grigi sono liberi mentre giochi. Seleziona un tasto per vedere cosa fa in ogni posto.;
+	}
+
+[Here and {name} both use it {context}.]
+	{
+	de=Hier und {name} nutzen sie beide {context}.;
+	fr=Ici et {name} l'utilisent tous les deux {context}.;
+	es=Aquí y {name} la usan los dos {context}.;
+	it=Qui e {name} la usano entrambi {context}.;
+	}
+
+[Here and {name} both use it {context}. Choose which keeps it; nothing changes until you confirm.]
+	{
+	de=Hier und {name} nutzen sie beide {context}. Wähl, wer sie behält. Nichts ändert sich, bis du bestätigst.;
+	fr=Ici et {name} l'utilisent tous les deux {context}. Choisis qui la garde. Rien ne change tant que tu ne confirmes pas.;
+	es=Aquí y {name} la usan los dos {context}. Elige quién la conserva. Nada cambia hasta que confirmes.;
+	it=Qui e {name} la usano entrambi {context}. Scegli chi la tiene. Non cambia nulla finché non confermi.;
+	}
+
+[How it acts]
+	{
+	de=Wie sie wirkt;
+	fr=Comment elle agit;
+	es=Cómo actúa;
+	it=Come agisce;
+	}
+
+[Import…]
+	{
+	de=Importieren…;
+	fr=Importer…;
+	es=Importar…;
+	it=Importa…;
+	}
+
+[Keep editing]
+	{
+	de=Weiter bearbeiten;
+	fr=Continuer;
+	es=Seguir editando;
+	it=Continua a modificare;
+	}
+
+[Keep it for {action}]
+	{
+	de=Für {action} behalten;
+	fr=La garder pour {action};
+	es=Conservarla para {action};
+	it=Tienila per {action};
+	}
+
+[Known as]
+	{
+	de=Bekannt als;
+	fr=Appelée aussi;
+	es=Conocida como;
+	it=Nota come;
+	}
+
+[More]
+	{
+	de=Mehr;
+	fr=Plus;
+	es=Más;
+	it=Altro;
+	}
+
+[More options]
+	{
+	de=Weitere Optionen;
+	fr=Plus d'options;
+	es=Más opciones;
+	it=Altre opzioni;
+	}
+
+[Move it to {action}]
+	{
+	de=Zu {action} verschieben;
+	fr=La déplacer vers {action};
+	es=Pasarla a {action};
+	it=Spostala su {action};
+	}
+
+[Move to {action}]
+	{
+	de=Zu {action} verschieben;
+	fr=Déplacer vers {action};
+	es=Pasar a {action};
+	it=Sposta su {action};
+	}
+
+[New key for {action}]
+	{
+	de=Neue Taste für {action};
+	fr=Nouvelle touche pour {action};
+	es=Nueva tecla para {action};
+	it=Nuovo tasto per {action};
+	}
+
+[No unsaved edits]
+	{
+	de=Keine ungespeicherten Änderungen;
+	fr=Aucune modification non enregistrée;
+	es=Ningún cambio sin guardar;
+	it=Nessuna modifica non salvata;
+	}
+
+[1 unsaved edit]
+	{
+	de=1 ungespeicherte Änderung;
+	fr=1 modification non enregistrée;
+	es=1 cambio sin guardar;
+	it=1 modifica non salvata;
+	}
+
+[{n} unsaved edits]
+	{
+	de={n} ungespeicherte Änderungen;
+	fr={n} modifications non enregistrées;
+	es={n} cambios sin guardar;
+	it={n} modifiche non salvate;
+	}
+
+[{n} unsaved]
+	{
+	de={n} ungespeichert;
+	fr={n} non enregistrées;
+	es={n} sin guardar;
+	it={n} non salvate;
+	}
+
+[Open ›]
+	{
+	de=Öffnen ›;
+	fr=Ouvrir ›;
+	es=Abrir ›;
+	it=Apri ›;
+	}
+
+[Paste…]
+	{
+	de=Einfügen…;
+	fr=Coller…;
+	es=Pegar…;
+	it=Incolla…;
+	}
+
+[Share…]
+	{
+	de=Teilen…;
+	fr=Partager…;
+	es=Compartir…;
+	it=Condividi…;
+	}
+
+[Press a key or a mouse button to see what it does. Nothing is changed.]
+	{
+	de=Drück eine Taste oder Maustaste, um zu sehen, was sie macht. Es wird nichts geändert.;
+	fr=Appuie sur une touche ou un bouton de souris pour voir son effet. Rien ne change.;
+	es=Pulsa una tecla o un botón del ratón para ver qué hace. No se cambia nada.;
+	it=Premi un tasto o un pulsante del mouse per vedere cosa fa. Non cambia nulla.;
+	}
+
+[Reset]
+	{
+	de=Zurücksetzen;
+	fr=Réinitialiser;
+	es=Restablecer;
+	it=Reimposta;
+	}
+
+[Restore defaults]
+	{
+	de=Standard wiederherstellen;
+	fr=Rétablir les valeurs par défaut;
+	es=Restaurar valores predeterminados;
+	it=Ripristina i predefiniti;
+	}
+
+[Same place on every keyboard]
+	{
+	de=Gleiche Stelle auf jeder Tastatur;
+	fr=Même place sur chaque clavier;
+	es=Mismo lugar en cada teclado;
+	it=Stesso posto su ogni tastiera;
+	}
+
+[Save]
+	{
+	de=Speichern;
+	fr=Enregistrer;
+	es=Guardar;
+	it=Salva;
+	}
+
+[Save changes]
+	{
+	de=Änderungen speichern;
+	fr=Enregistrer;
+	es=Guardar cambios;
+	it=Salva le modifiche;
+	}
+
+[Save your edit before closing?]
+	{
+	de=Deine Änderung vor dem Schließen speichern?;
+	fr=Enregistrer ta modification avant de fermer ?;
+	es=¿Guardas tu cambio antes de cerrar?;
+	it=Salvi la tua modifica prima di chiudere?;
+	}
+
+[Save your {n} edits before closing?]
+	{
+	de=Deine {n} Änderungen vor dem Schließen speichern?;
+	fr=Enregistrer tes {n} modifications avant de fermer ?;
+	es=¿Guardas tus {n} cambios antes de cerrar?;
+	it=Salvi le tue {n} modifiche prima di chiudere?;
+	}
+
+[Search commands]
+	{
+	de=Kommandos suchen;
+	fr=Chercher des commandes;
+	es=Buscar comandos;
+	it=Cerca comandi;
+	}
+
+[Select a key to see everything on it.]
+	{
+	de=Wähl eine Taste, um alles darauf zu sehen.;
+	fr=Sélectionne une touche pour voir tout ce qu'elle fait.;
+	es=Selecciona una tecla para ver todo lo que hace.;
+	it=Seleziona un tasto per vedere tutto quello che fa.;
+	}
+
+[Settle…]
+	{
+	de=Klären…;
+	fr=Régler…;
+	es=Resolver…;
+	it=Sistema…;
+	}
+
+[Show as list]
+	{
+	de=Als Liste zeigen;
+	fr=Afficher en liste;
+	es=Ver como lista;
+	it=Mostra come elenco;
+	}
+
+[Show keyboard]
+	{
+	de=Tastatur zeigen;
+	fr=Afficher le clavier;
+	es=Ver el teclado;
+	it=Mostra la tastiera;
+	}
+
+[Swap them]
+	{
+	de=Tauschen;
+	fr=Les échanger;
+	es=Intercambiarlas;
+	it=Scambiale;
+	}
+
+[Undo]
+	{
+	de=Rückgängig;
+	fr=Défaire;
+	es=Deshacer;
+	it=Disfa;
+	}
+
+[Use {chord} for {action}]
+	{
+	de={chord} für {action} nutzen;
+	fr=Utiliser {chord} pour {action};
+	es=Usar {chord} para {action};
+	it=Usa {chord} per {action};
+	}
+
+[Use {key} for {action}…]
+	{
+	de={key} für {action} nutzen…;
+	fr=Utiliser {key} pour {action}…;
+	es=Usar {key} para {action}…;
+	it=Usa {key} per {action}…;
+	}
+
+[Using {layout} for every game.]
+	{
+	de={layout} gilt jetzt für jede Partie.;
+	fr={layout} sert maintenant dans chaque partie.;
+	es={layout} se usa ahora en cada partida.;
+	it={layout} è ora in uso in ogni partita.;
+	}
+
+[Using {layout} with {mod}.]
+	{
+	de={layout} gilt jetzt mit {mod}.;
+	fr={layout} sert maintenant avec {mod}.;
+	es={layout} se usa ahora con {mod}.;
+	it={layout} è ora in uso con {mod}.;
+	}
+
+[What {key} does]
+	{
+	de=Was {key} macht;
+	fr=Ce que fait {key};
+	es=Qué hace {key};
+	it=Cosa fa {key};
+	}
+
+[Your change]
+	{
+	de=Deine Änderung;
+	fr=Ton changement;
+	es=Tu cambio;
+	it=La tua modifica;
+	}
+
+[Your change, over {layout}]
+	{
+	de=Deine Änderung, über {layout};
+	fr=Ton changement, par-dessus {layout};
+	es=Tu cambio, sobre {layout};
+	it=La tua modifica, sopra {layout};
+	}
+
+[{chord} also does {name} {context}. That never meets {where}, so it stays.]
+	{
+	de={chord} macht auch {name} {context}. Das trifft nie auf {where}, also bleibt es.;
+	fr={chord} fait aussi {name} {context}. Cela ne croise jamais {where}, donc ça reste.;
+	es={chord} también hace {name} {context}. Eso nunca coincide con {where}, así que se queda.;
+	it={chord} fa anche {name} {context}. Non si incrocia mai con {where}, quindi resta.;
+	}
+
+[{chord} is already in use]
+	{
+	de={chord} ist schon belegt;
+	fr={chord} est déjà utilisée;
+	es={chord} ya está en uso;
+	it={chord} è già in uso;
+	}
+
+[{chord} is free {context}]
+	{
+	de={chord} ist frei {context};
+	fr={chord} est libre {context};
+	es={chord} está libre {context};
+	it={chord} è libero {context};
+	}
+
+[{chord} is free: nothing uses it.]
+	{
+	de={chord} ist frei: nichts nutzt sie.;
+	fr={chord} est libre : rien ne l'utilise.;
+	es={chord} está libre: nada la usa.;
+	it={chord} è libero: niente lo usa.;
+	}
+
+[{chord} is in use {context}]
+	{
+	de={chord} ist belegt {context};
+	fr={chord} est utilisée {context};
+	es={chord} está en uso {context};
+	it={chord} è in uso {context};
+	}
+
+[{chord} is used in 1 place. Nothing is changed.]
+	{
+	de={chord} wird an 1 Stelle genutzt. Es wird nichts geändert.;
+	fr={chord} sert à 1 endroit. Rien ne change.;
+	es={chord} se usa en 1 lugar. No se cambia nada.;
+	it={chord} è usato in 1 posto. Non cambia nulla.;
+	}
+
+[{chord} is used in {n} places. Nothing is changed.]
+	{
+	de={chord} wird an {n} Stellen genutzt. Es wird nichts geändert.;
+	fr={chord} sert à {n} endroits. Rien ne change.;
+	es={chord} se usa en {n} lugares. No se cambia nada.;
+	it={chord} è usato in {n} posti. Non cambia nulla.;
+	}
+
+[{name} uses it {context}. Choose what happens; nothing changes until you confirm.]
+	{
+	de={name} nutzt sie {context}. Wähl, was passiert. Nichts ändert sich, bis du bestätigst.;
+	fr={name} l'utilise {context}. Choisis ce qui se passe. Rien ne change tant que tu ne confirmes pas.;
+	es={name} la usa {context}. Elige qué pasa. Nada cambia hasta que confirmes.;
+	it={name} la usa {context}. Scegli cosa succede. Non cambia nulla finché non confermi.;
+	}
+
+[{name} uses it. Nothing changes until you choose.]
+	{
+	de={name} nutzt sie. Nichts ändert sich, bis du wählst.;
+	fr={name} l'utilise. Rien ne change tant que tu ne choisis pas.;
+	es={name} la usa. Nada cambia hasta que elijas.;
+	it={name} la usa. Non cambia nulla finché non scegli.;
+	}
+
+[1 setting changed]
+	{
+	de=1 Einstellung geändert;
+	fr=1 réglage modifié;
+	es=1 ajuste cambiado;
+	it=1 impostazione modificata;
+	}
+
+[{count} settings changed]
+	{
+	de={count} Einstellungen geändert;
+	fr={count} réglages modifiés;
+	es={count} ajustes cambiados;
+	it={count} impostazioni modificate;
+	}
+
+[Applies to every game.]
+	{
+	de=Gilt für jede Partie.;
+	fr=S'applique à chaque partie.;
+	es=Se aplica a cada partida.;
+	it=Vale per ogni partita.;
+	}
+
+[Applies with {mod} only.]
+	{
+	de=Gilt nur mit {mod}.;
+	fr=S'applique avec {mod} seulement.;
+	es=Se aplica solo con {mod}.;
+	it=Vale solo con {mod}.;
+	}
+
+[Change layout…]
+	{
+	de=Belegung wechseln…;
+	fr=Changer de disposition…;
+	es=Cambiar distribución…;
+	it=Cambia disposizione…;
+	}
+
+[Edit keys…]
+	{
+	de=Tasten bearbeiten…;
+	fr=Modifier les touches…;
+	es=Editar teclas…;
+	it=Modifica i tasti…;
+	}
+
+[{primary}+/ in a match shows the keys.]
+	{
+	de={primary}+/ zeigt in einer Partie die Tasten.;
+	fr={primary}+/ montre les touches en partie.;
+	es={primary}+/ muestra las teclas en una partida.;
+	it={primary}+/ mostra i tasti in partita.;
+	}
+
+[Try it here]
+	{
+	de=Hier ausprobieren;
+	fr=Essaie ici;
+	es=Pruébalo aquí;
+	it=Provalo qui;
+	}
+
+[Turn every helper off]
+	{
+	de=Alle Helfer ausschalten;
+	fr=Éteindre toutes les aides;
+	es=Apagar todas las ayudas;
+	it=Spegni tutti gli aiuti;
+	}
+
+[Tap Shift, then press A.]
+	{
+	de=Tipp Shift, dann drück A.;
+	fr=Appuie brièvement sur Shift, puis sur A.;
+	es=Toca Shift y luego pulsa A.;
+	it=Tocca Shift, poi premi A.;
+	}
+
+[Hold a key until it counts.]
+	{
+	de=Halte eine Taste, bis sie zählt.;
+	fr=Maintiens une touche jusqu'à ce qu'elle compte.;
+	es=Mantén una tecla hasta que cuente.;
+	it=Tieni premuto un tasto finché non conta.;
+	}
+
+[Press a key twice, quickly.]
+	{
+	de=Drück eine Taste zweimal schnell hintereinander.;
+	fr=Appuie deux fois vite sur une touche.;
+	es=Pulsa una tecla dos veces, rápido.;
+	it=Premi un tasto due volte, in fretta.;
+	}
+
+[Press a key, alone or with Shift, Ctrl or Alt.]
+	{
+	de=Drück eine Taste, allein oder mit Shift, Ctrl oder Alt.;
+	fr=Appuie sur une touche, seule ou avec Shift, Ctrl ou Alt.;
+	es=Pulsa una tecla, sola o con Shift, Ctrl o Alt.;
+	it=Premi un tasto, da solo o con Shift, Ctrl o Alt.;
+	}
+
+[Keys pressed here never reach the game.]
+	{
+	de=Hier gedrückte Tasten erreichen das Spiel nie.;
+	fr=Les touches pressées ici n'atteignent jamais le jeu.;
+	es=Las teclas pulsadas aquí nunca llegan al juego.;
+	it=I tasti premuti qui non arrivano mai al gioco.;
+	}
+
+[{key} stays down for the next key.]
+	{
+	de={key} bleibt für die nächste Taste gedrückt.;
+	fr={key} reste enfoncée pour la touche suivante.;
+	es={key} sigue pulsada para la siguiente tecla.;
+	it={key} resta premuto per il tasto successivo.;
+	}
+
+[{key} stays down until you tap it again.]
+	{
+	de={key} bleibt gedrückt, bis du sie noch einmal tippst.;
+	fr={key} reste enfoncée jusqu'à ce que tu appuies encore dessus.;
+	es={key} sigue pulsada hasta que la vuelvas a tocar.;
+	it={key} resta premuto finché non lo tocchi di nuovo.;
+	}
+
+[{key} let go.]
+	{
+	de={key} losgelassen.;
+	fr={key} relâchée.;
+	es={key} soltada.;
+	it={key} rilasciato.;
+	}
+
+[{chord} counted.]
+	{
+	de={chord} zählte.;
+	fr={chord} a compté.;
+	es={chord} contó.;
+	it={chord} ha contato.;
+	}
+
+[{chord} counted, then {keys} let go.]
+	{
+	de={chord} zählte, dann wurde {keys} losgelassen.;
+	fr={chord} a compté, puis {keys} a été relâché.;
+	es={chord} contó y luego se soltó {keys}.;
+	it={chord} ha contato, poi {keys} è stato rilasciato.;
+	}
+
+[{key} held {held} of {wait} s.]
+	{
+	de={key} gehalten: {held} von {wait} s.;
+	fr={key} maintenue {held} sur {wait} s.;
+	es={key} mantenida {held} de {wait} s.;
+	it={key} tenuto {held} di {wait} s.;
+	}
+
+[{key} did not count: let go after {held} of {wait} s.]
+	{
+	de={key} zählte nicht: nach {held} von {wait} s losgelassen.;
+	fr={key} n'a pas compté : relâchée après {held} sur {wait} s.;
+	es={key} no contó: se soltó tras {held} de {wait} s.;
+	it={key} non ha contato: lasciato dopo {held} di {wait} s.;
+	}
+
+[{key} did not count: pressed again within {wait} s.]
+	{
+	de={key} zählte nicht: innerhalb von {wait} s erneut gedrückt.;
+	fr={key} n'a pas compté : pressée de nouveau en moins de {wait} s.;
+	es={key} no contó: se pulsó otra vez en menos de {wait} s.;
+	it={key} non ha contato: premuto di nuovo entro {wait} s.;
+	}
+
+[Held to the end: the order goes.]
+	{
+	de=Bis zum Ende gehalten: der Befehl geht raus.;
+	fr=Maintenue jusqu'au bout : l'ordre part.;
+	es=Mantenida hasta el final: la orden se da.;
+	it=Tenuto fino in fondo: l'ordine parte.;
+	}
+
+[Let go before the end: nothing happens.]
+	{
+	de=Vor dem Ende losgelassen: nichts passiert.;
+	fr=Lâchée avant la fin : rien ne se passe.;
+	es=Soltada antes del final: no pasa nada.;
+	it=Lasciato prima della fine: non succede nulla.;
+	}
+
+[Hold Ctrl + D to try Hold to confirm.]
+	{
+	de=Halte Ctrl + D, um Halten zum Bestätigen auszuprobieren.;
+	fr=Maintiens Ctrl + D pour essayer Maintenir pour confirmer.;
+	es=Mantén Ctrl + D para probar Mantener para confirmar.;
+	it=Tieni premuto Ctrl + D per provare Tieni premuto per confermare.;
+	}
+
+[{done} of {whole} s · let go to cancel]
+	{
+	de={done} von {whole} s · loslassen zum Abbrechen;
+	fr={done} sur {whole} s · lâche pour annuler;
+	es={done} de {whole} s · suelta para cancelar;
+	it={done} di {whole} s · lascia per annullare;
+	}
+
+[Window size]
+	{
+	de=Fenstergröße;
+	fr=Taille des fenêtres;
+	es=Tamaño de las ventanas;
+	it=Dimensione delle finestre;
+	}
+
+[The size Settings, the Library and the other OA windows take. Auto takes the largest that fits.]
+	{
+	de=Die Größe der Einstellungen, der Bibliothek und der anderen OA-Fenster. Auto nimmt die größte, die passt.;
+	fr=La taille des Réglages, de la Bibliothèque et des autres fenêtres d'OA. Auto prend la plus grande qui tient.;
+	es=El tamaño de Ajustes, la Biblioteca y las otras ventanas de OA. Auto usa el mayor que cabe.;
+	it=La dimensione di Impostazioni, della Biblioteca e delle altre finestre di OA. Auto prende la più grande che ci sta.;
+	}
+
+[Compact]
+	{
+	de=Kompakt;
+	fr=Compact;
+	es=Compacto;
+	it=Compatto;
+	}
+
+[Regular]
+	{
+	de=Normal;
+	fr=Normal;
+	es=Normal;
+	it=Normale;
+	}
+
+[Reset window positions]
+	{
+	de=Fensterpositionen zurücksetzen;
+	fr=Réinitialiser la place des fenêtres;
+	es=Restablecer la posición de las ventanas;
+	it=Reimposta la posizione delle finestre;
+	}
+
+[Puts every window you moved back in the middle.]
+	{
+	de=Setzt jedes Fenster, das du verschoben hast, wieder in die Mitte.;
+	fr=Remet au milieu chaque fenêtre que tu as déplacée.;
+	es=Vuelve a poner en el centro cada ventana que moviste.;
+	it=Rimette al centro ogni finestra che hai spostato.;
+	}
+
+[Every window is back in the middle.]
+	{
+	de=Jedes Fenster ist wieder in der Mitte.;
+	fr=Chaque fenêtre est revenue au milieu.;
+	es=Cada ventana ha vuelto al centro.;
+	it=Ogni finestra è tornata al centro.;
+	}
+
+[Ask each time]
+	{
+	de=Jedes Mal fragen;
+	fr=Demander à chaque fois;
+	es=Preguntar cada vez;
+	it=Chiedi ogni volta;
+	}
+
+[Ask each time, or install when I quit.]
+	{
+	de=Jedes Mal fragen oder beim Beenden installieren.;
+	fr=Demander à chaque fois, ou installer quand je quitte.;
+	es=Preguntar cada vez, o instalar al salir.;
+	it=Chiedi ogni volta, o installa quando esco.;
+	}
+
+[Change]
+	{
+	de=Ändern;
+	fr=Changer;
+	es=Cambiar;
+	it=Cambia;
+	}
+
+[Check now]
+	{
+	de=Jetzt prüfen;
+	fr=Vérifier maintenant;
+	es=Comprobar ahora;
+	it=Controlla ora;
+	}
+
+[Checked the package against the signed list]
+	{
+	de=Paket mit der signierten Liste abgeglichen;
+	fr=Paquet vérifié avec la liste signée;
+	es=Paquete comprobado con la lista firmada;
+	it=Pacchetto controllato con l'elenco firmato;
+	}
+
+[Checking for updates…]
+	{
+	de=Suche nach Updates…;
+	fr=Recherche de mises à jour…;
+	es=Buscando actualizaciones…;
+	it=Ricerca di aggiornamenti…;
+	}
+
+[Checking the download]
+	{
+	de=Download wird geprüft;
+	fr=Vérification du téléchargement;
+	es=Comprobando la descarga;
+	it=Controllo del download;
+	}
+
+[Close the game]
+	{
+	de=Spiel schließen;
+	fr=Fermer le jeu;
+	es=Cerrar el juego;
+	it=Chiudi il gioco;
+	}
+
+[Comes back]
+	{
+	de=Kommt zurück;
+	fr=Revient;
+	es=Vuelve;
+	it=Torna;
+	}
+
+[Could not connect. Try again later.]
+	{
+	de=Keine Verbindung. Versuch es später noch einmal.;
+	fr=Connexion impossible. Réessaie plus tard.;
+	es=No se pudo conectar. Inténtalo más tarde.;
+	it=Impossibile connettersi. Riprova più tardi.;
+	}
+
+[Could not put every file back: {detail}]
+	{
+	de=Nicht jede Datei ließ sich wiederherstellen: {detail};
+	fr=Impossible de remettre chaque fichier : {detail};
+	es=No se pudo devolver cada archivo: {detail};
+	it=Impossibile rimettere ogni file: {detail};
+	}
+
+[Could not put the new files in place: {detail}]
+	{
+	de=Die neuen Dateien ließen sich nicht ablegen: {detail};
+	fr=Impossible de mettre en place les nouveaux fichiers : {detail};
+	es=No se pudieron colocar los archivos nuevos: {detail};
+	it=Impossibile mettere a posto i nuovi file: {detail};
+	}
+
+[Could not put {version} back: {detail}]
+	{
+	de={version} ließ sich nicht wiederherstellen: {detail};
+	fr=Impossible de remettre {version} : {detail};
+	es=No se pudo devolver {version}: {detail};
+	it=Impossibile rimettere {version}: {detail};
+	}
+
+[Could not start the game: {detail}]
+	{
+	de=Das Spiel ließ sich nicht starten: {detail};
+	fr=Impossible de lancer le jeu : {detail};
+	es=No se pudo iniciar el juego: {detail};
+	it=Impossibile avviare il gioco: {detail};
+	}
+
+[Don't install when I quit]
+	{
+	de=Beim Beenden nicht installieren;
+	fr=Ne pas installer quand je quitte;
+	es=No instalar al salir;
+	it=Non installare quando esco;
+	}
+
+[Download automatically]
+	{
+	de=Automatisch herunterladen;
+	fr=Télécharger automatiquement;
+	es=Descargar automáticamente;
+	it=Scarica automaticamente;
+	}
+
+[Download paused]
+	{
+	de=Download pausiert;
+	fr=Téléchargement en pause;
+	es=Descarga en pausa;
+	it=Download in pausa;
+	}
+
+[Download update]
+	{
+	de=Update herunterladen;
+	fr=Télécharger la mise à jour;
+	es=Descargar actualización;
+	it=Scarica l'aggiornamento;
+	}
+
+[Downloaded and checked · {size}]
+	{
+	de=Heruntergeladen und geprüft · {size};
+	fr=Téléchargée et vérifiée · {size};
+	es=Descargada y comprobada · {size};
+	it=Scaricato e controllato · {size};
+	}
+
+[Downloading {version}]
+	{
+	de=Lade {version} herunter;
+	fr=Téléchargement de {version};
+	es=Descargando {version};
+	it=Download di {version};
+	}
+
+[Downloads pause during a match and carry on after it.]
+	{
+	de=Downloads pausieren während einer Partie und laufen danach weiter.;
+	fr=Les téléchargements se mettent en pause pendant une partie et reprennent après.;
+	es=Las descargas se pausan durante una partida y siguen después.;
+	it=I download si fermano durante una partita e riprendono dopo.;
+	}
+
+[Finishing the update to {version}]
+	{
+	de=Update auf {version} wird abgeschlossen;
+	fr=Fin de la mise à jour vers {version};
+	es=Terminando la actualización a {version};
+	it=Completamento dell'aggiornamento a {version};
+	}
+
+[Install and restart]
+	{
+	de=Installieren und neu starten;
+	fr=Installer et redémarrer;
+	es=Instalar y reiniciar;
+	it=Installa e riavvia;
+	}
+
+[Install updates]
+	{
+	de=Updates installieren;
+	fr=Installer les mises à jour;
+	es=Instalar actualizaciones;
+	it=Installa gli aggiornamenti;
+	}
+
+[Install when I quit]
+	{
+	de=Beim Beenden installieren;
+	fr=Installer quand je quitte;
+	es=Instalar al salir;
+	it=Installa quando esco;
+	}
+
+[Install {version} again from its page, over the copy you have.]
+	{
+	de=Installier {version} noch einmal von ihrer Seite, über die Kopie, die du hast.;
+	fr=Réinstalle {version} depuis sa page, par-dessus la copie que tu as.;
+	es=Vuelve a instalar {version} desde su página, sobre la copia que tienes.;
+	it=Installa di nuovo {version} dalla sua pagina, sopra la copia che hai.;
+	}
+
+[Installed {version}]
+	{
+	de=Installierte Version: {version};
+	fr=Version installée : {version};
+	es=Versión instalada: {version};
+	it=Versione installata: {version};
+	}
+
+[Install…]
+	{
+	de=Installieren…;
+	fr=Installer…;
+	es=Instalar…;
+	it=Installa…;
+	}
+
+[It installs as you quit. Change it any time in Settings › Updates.]
+	{
+	de=Es wird beim Beenden installiert. Ändern kannst du das jederzeit unter Einstellungen › Updates.;
+	fr=Elle s'installe quand tu quittes. Change-le quand tu veux dans Réglages › Mises à jour.;
+	es=Se instala al salir. Cámbialo cuando quieras en Ajustes › Actualizaciones.;
+	it=Si installa quando esci. Puoi cambiarlo quando vuoi in Impostazioni › Aggiornamenti.;
+	}
+
+[It stopped before any file moved.]
+	{
+	de=Es hielt an, bevor eine Datei verschoben wurde.;
+	fr=Elle s'est arrêtée avant qu'un fichier ne bouge.;
+	es=Se detuvo antes de mover ningún archivo.;
+	it=Si è fermato prima che un file si spostasse.;
+	}
+
+[It updates as it next starts.]
+	{
+	de=Es aktualisiert sich beim nächsten Start.;
+	fr=Il se met à jour au prochain lancement.;
+	es=Se actualiza en el próximo inicio.;
+	it=Si aggiorna al prossimo avvio.;
+	}
+
+[Its signature was refused. Nothing was downloaded or changed.]
+	{
+	de=Seine Signatur wurde abgelehnt. Nichts wurde heruntergeladen oder geändert.;
+	fr=Sa signature a été refusée. Rien n'a été téléchargé ni changé.;
+	es=Su firma fue rechazada. No se descargó ni cambió nada.;
+	it=La sua firma è stata rifiutata. Non è stato scaricato né cambiato nulla.;
+	}
+
+[Keep it ready]
+	{
+	de=Bereithalten;
+	fr=La garder prête;
+	es=Mantenerla lista;
+	it=Tienilo pronto;
+	}
+
+[Later]
+	{
+	de=Später;
+	fr=Plus tard;
+	es=Más tarde;
+	it=Più tardi;
+	}
+
+[Mods, maps and key layouts]
+	{
+	de=Mods, Karten und Tastenbelegungen;
+	fr=Mods, cartes et dispositions des touches;
+	es=Mods, mapas y distribuciones de teclas;
+	it=Mod, mappe e disposizioni dei tasti;
+	}
+
+[Not installed. {version} is unchanged.]
+	{
+	de=Nicht installiert. {version} bleibt, wie es ist.;
+	fr=Pas installée. {version} ne change pas.;
+	es=No se instaló. {version} no cambia.;
+	it=Non installato. {version} non cambia.;
+	}
+
+[Nothing is scheduled.]
+	{
+	de=Nichts ist geplant.;
+	fr=Rien n'est prévu.;
+	es=No hay nada programado.;
+	it=Non è programmato nulla.;
+	}
+
+[Off: OA asks before downloading.]
+	{
+	de=Aus: OA fragt vor dem Herunterladen.;
+	fr=Arrêt : OA demande avant de télécharger.;
+	es=Apagado: OA pregunta antes de descargar.;
+	it=Spento: OA chiede prima di scaricare.;
+	}
+
+[Open the installer]
+	{
+	de=Installer öffnen;
+	fr=Ouvrir l'installateur;
+	es=Abrir el instalador;
+	it=Apri l'installer;
+	}
+
+[Open the log to see which files were left.]
+	{
+	de=Öffne das Protokoll, um zu sehen, welche Dateien übrig sind.;
+	fr=Ouvre le journal pour voir quels fichiers sont restés.;
+	es=Abre el registro para ver qué archivos quedaron.;
+	it=Apri il registro per vedere quali file sono rimasti.;
+	}
+
+[Open the release page]
+	{
+	de=Versionsseite öffnen;
+	fr=Ouvrir la page de la version;
+	es=Abrir la página de la versión;
+	it=Apri la pagina della versione;
+	}
+
+[Paused during a match]
+	{
+	de=Während einer Partie pausiert;
+	fr=En pause pendant une partie;
+	es=En pausa durante una partida;
+	it=In pausa durante una partita;
+	}
+
+[Previous version · {version}]
+	{
+	de=Vorherige Version · {version};
+	fr=Version précédente · {version};
+	es=Versión anterior · {version};
+	it=Versione precedente · {version};
+	}
+
+[Put every changed file back]
+	{
+	de=Jede geänderte Datei wiederhergestellt;
+	fr=Chaque fichier modifié remis en place;
+	es=Cada archivo cambiado devuelto;
+	it=Ogni file modificato rimesso a posto;
+	}
+
+[Put {to} in place, keeping {from}]
+	{
+	de={to} abgelegt, {from} behalten;
+	fr={to} mis en place, {from} gardé;
+	es={to} colocado, conservando {from};
+	it={to} messo a posto, tenendo {from};
+	}
+
+[Put {version} back]
+	{
+	de={version} wiederhergestellt;
+	fr={version} remis en place;
+	es={version} devuelto;
+	it={version} rimesso a posto;
+	}
+
+[Ran the installer]
+	{
+	de=Installer ausgeführt;
+	fr=Installateur lancé;
+	es=Instalador ejecutado;
+	it=Installer eseguito;
+	}
+
+[Recovery could not finish.]
+	{
+	de=Die Wiederherstellung wurde nicht fertig.;
+	fr=La récupération n'a pas pu finir.;
+	es=La recuperación no pudo terminar.;
+	it=Il recupero non è riuscito a finire.;
+	}
+
+[Resume]
+	{
+	de=Fortsetzen;
+	fr=Reprendre;
+	es=Reanudar;
+	it=Riprendi;
+	}
+
+[Roll back and restart]
+	{
+	de=Zurückrollen und neu starten;
+	fr=Restaurer et redémarrer;
+	es=Revertir y reiniciar;
+	it=Ripristina e riavvia;
+	}
+
+[Roll back restores {version} and the settings you had before updating.]
+	{
+	de=Zurückrollen holt {version} und die Einstellungen von vor dem Update zurück.;
+	fr=Restaurer remet {version} et les réglages que tu avais avant la mise à jour.;
+	es=Revertir devuelve {version} y los ajustes que tenías antes de actualizar.;
+	it=Ripristina riporta {version} e le impostazioni che avevi prima dell'aggiornamento.;
+	}
+
+[Roll back to {version}?]
+	{
+	de=Auf {version} zurückrollen?;
+	fr=Restaurer {version} ?;
+	es=¿Revertir a {version}?;
+	it=Ripristinare {version}?;
+	}
+
+[Roll back…]
+	{
+	de=Zurückrollen…;
+	fr=Restaurer…;
+	es=Revertir…;
+	it=Ripristina…;
+	}
+
+[Saved games and replays]
+	{
+	de=Gespeicherte Spiele und Wiederholungen;
+	fr=Parties sauvegardées et replays;
+	es=Partidas guardadas y repeticiones;
+	it=Partite salvate e replay;
+	}
+
+[Settings you changed after updating are replaced by the ones you had then.]
+	{
+	de=Einstellungen, die du nach dem Update geändert hast, werden durch die von damals ersetzt.;
+	fr=Les réglages changés après la mise à jour sont remplacés par ceux que tu avais alors.;
+	es=Los ajustes que cambiaste tras actualizar se sustituyen por los que tenías entonces.;
+	it=Le impostazioni cambiate dopo l'aggiornamento sono sostituite da quelle che avevi allora.;
+	}
+
+[Show details]
+	{
+	de=Details zeigen;
+	fr=Voir les détails;
+	es=Ver detalles;
+	it=Mostra dettagli;
+	}
+
+[Show the log]
+	{
+	de=Protokoll zeigen;
+	fr=Afficher le journal;
+	es=Mostrar el registro;
+	it=Mostra il registro;
+	}
+
+[Skip this version]
+	{
+	de=Diese Version überspringen;
+	fr=Ignorer cette version;
+	es=Omitir esta versión;
+	it=Salta questa versione;
+	}
+
+[Some files were left half-moved.]
+	{
+	de=Einige Dateien wurden nur halb verschoben.;
+	fr=Certains fichiers sont restés à moitié déplacés.;
+	es=Algunos archivos quedaron a medio mover.;
+	it=Alcuni file sono rimasti spostati a metà.;
+	}
+
+[Some files were left half-moved. Show details lists the steps that put the game right.]
+	{
+	de=Einige Dateien wurden nur halb verschoben. Details zeigen listet die Schritte, die das Spiel in Ordnung bringen.;
+	fr=Certains fichiers sont restés à moitié déplacés. Voir les détails liste les étapes qui remettent le jeu en ordre.;
+	es=Algunos archivos quedaron a medio mover. Ver detalles lista los pasos que arreglan el juego.;
+	it=Alcuni file sono rimasti spostati a metà. Mostra dettagli elenca i passi che sistemano il gioco.;
+	}
+
+[Start Open Annihilation from Applications afterwards.]
+	{
+	de=Starte Open Annihilation danach aus Programme.;
+	fr=Lance ensuite Open Annihilation depuis Applications.;
+	es=Después abre Open Annihilation desde Aplicaciones.;
+	it=Poi avvia Open Annihilation da Applicazioni.;
+	}
+
+[Started {version}]
+	{
+	de={version} gestartet;
+	fr={version} lancé;
+	es={version} iniciado;
+	it={version} avviato;
+	}
+
+[Stays as it is]
+	{
+	de=Bleibt, wie es ist;
+	fr=Reste tel quel;
+	es=Se queda como está;
+	it=Resta com'è;
+	}
+
+[The download stopped]
+	{
+	de=Der Download hat angehalten;
+	fr=Le téléchargement s'est arrêté;
+	es=La descarga se detuvo;
+	it=Il download si è fermato;
+	}
+
+[The download was not the file the signed list names, so it was deleted.]
+	{
+	de=Der Download war nicht die Datei, die die signierte Liste nennt, also wurde er gelöscht.;
+	fr=Le téléchargement n'était pas le fichier que nomme la liste signée, il a donc été supprimé.;
+	es=La descarga no era el archivo que nombra la lista firmada, así que se borró.;
+	it=Il download non era il file indicato dall'elenco firmato, quindi è stato eliminato.;
+	}
+
+[The game closes, installs it and starts again.]
+	{
+	de=Das Spiel schließt sich, installiert es und startet neu.;
+	fr=Le jeu se ferme, l'installe et redémarre.;
+	es=El juego se cierra, la instala y vuelve a arrancar.;
+	it=Il gioco si chiude, lo installa e riparte.;
+	}
+
+[The game closes, puts {version} back and starts again. {current} is not offered again until a newer release.]
+	{
+	de=Das Spiel schließt sich, stellt {version} wieder her und startet neu. {current} wird erst mit einer neueren Version wieder angeboten.;
+	fr=Le jeu se ferme, remet {version} et redémarre. {current} ne sera plus proposé avant une version plus récente.;
+	es=El juego se cierra, devuelve {version} y vuelve a arrancar. {current} no se vuelve a ofrecer hasta una versión más nueva.;
+	it=Il gioco si chiude, rimette {version} e riparte. {current} non viene più offerto fino a una versione più nuova.;
+	}
+
+[The game did not close: {detail}]
+	{
+	de=Das Spiel hat sich nicht geschlossen: {detail};
+	fr=Le jeu ne s'est pas fermé : {detail};
+	es=El juego no se cerró: {detail};
+	it=Il gioco non si è chiuso: {detail};
+	}
+
+[The installer did not finish: {detail}]
+	{
+	de=Der Installer wurde nicht fertig: {detail};
+	fr=L'installateur n'a pas fini : {detail};
+	es=El instalador no terminó: {detail};
+	it=L'installer non ha finito: {detail};
+	}
+
+[The package could not be checked: {detail}]
+	{
+	de=Das Paket ließ sich nicht prüfen: {detail};
+	fr=Le paquet n'a pas pu être vérifié : {detail};
+	es=No se pudo comprobar el paquete: {detail};
+	it=Impossibile controllare il pacchetto: {detail};
+	}
+
+[The package could not be unpacked: {detail}]
+	{
+	de=Das Paket ließ sich nicht entpacken: {detail};
+	fr=Le paquet n'a pas pu être décompressé : {detail};
+	es=No se pudo desempaquetar el paquete: {detail};
+	it=Impossibile scompattare il pacchetto: {detail};
+	}
+
+[The roll back failed. Nothing was changed.]
+	{
+	de=Das Zurückrollen ist fehlgeschlagen. Es wurde nichts geändert.;
+	fr=La restauration a échoué. Rien n'a été changé.;
+	es=La reversión falló. No se cambió nada.;
+	it=Il ripristino non è riuscito. Non è stato cambiato nulla.;
+	}
+
+[The roll back failed. The game could not be put back.]
+	{
+	de=Das Zurückrollen ist fehlgeschlagen. Das Spiel ließ sich nicht wiederherstellen.;
+	fr=La restauration a échoué. Le jeu n'a pas pu être remis en place.;
+	es=La reversión falló. No se pudo devolver el juego a su estado.;
+	it=Il ripristino non è riuscito. Il gioco non è stato rimesso a posto.;
+	}
+
+[The update could not be verified.]
+	{
+	de=Das Update ließ sich nicht verifizieren.;
+	fr=La mise à jour n'a pas pu être vérifiée.;
+	es=No se pudo verificar la actualización.;
+	it=Impossibile verificare l'aggiornamento.;
+	}
+
+[The update failed. {version} was put back.]
+	{
+	de=Das Update ist fehlgeschlagen. {version} wurde wiederhergestellt.;
+	fr=La mise à jour a échoué. {version} a été remis en place.;
+	es=La actualización falló. Se devolvió {version}.;
+	it=L'aggiornamento non è riuscito. {version} è stato rimesso a posto.;
+	}
+
+[To put the game right]
+	{
+	de=So bringst du das Spiel in Ordnung;
+	fr=Pour remettre le jeu en ordre;
+	es=Para arreglar el juego;
+	it=Per sistemare il gioco;
+	}
+
+[Try this version]
+	{
+	de=Diese Version probieren;
+	fr=Essayer cette version;
+	es=Probar esta versión;
+	it=Prova questa versione;
+	}
+
+[Unpacked the package]
+	{
+	de=Paket entpackt;
+	fr=Paquet décompressé;
+	es=Paquete desempaquetado;
+	it=Pacchetto scompattato;
+	}
+
+[Up to date]
+	{
+	de=Aktuell;
+	fr=À jour;
+	es=Actualizado;
+	it=Aggiornato;
+	}
+
+[Updated from {from}]
+	{
+	de=Aktualisiert von {from} aus;
+	fr=Mise à jour depuis {from};
+	es=Actualizado desde {from};
+	it=Aggiornato da {from};
+	}
+
+[Waited for the game to close]
+	{
+	de=Gewartet, bis sich das Spiel schließt;
+	fr=Attendu que le jeu se ferme;
+	es=Se esperó a que el juego se cerrara;
+	it=Atteso che il gioco si chiudesse;
+	}
+
+[What happened]
+	{
+	de=Was passiert ist;
+	fr=Ce qui s'est passé;
+	es=Qué pasó;
+	it=Cosa è successo;
+	}
+
+[What's new]
+	{
+	de=Neuigkeiten;
+	fr=Nouveautés;
+	es=Novedades;
+	it=Novità;
+	}
+
+[When I quit]
+	{
+	de=Beim Beenden;
+	fr=Quand je quitte;
+	es=Al salir;
+	it=Quando esco;
+	}
+
+[When should it go in?]
+	{
+	de=Wann soll es installiert werden?;
+	fr=Quand doit-elle être installée ?;
+	es=¿Cuándo debe instalarse?;
+	it=Quando va installato?;
+	}
+
+[Windows asks for permission.]
+	{
+	de=Windows fragt nach der Erlaubnis.;
+	fr=Windows demande la permission.;
+	es=Windows pide permiso.;
+	it=Windows chiede il permesso.;
+	}
+
+[Your saved games, settings and mods are not touched by this.]
+	{
+	de=Deine gespeicherten Spiele, Einstellungen und Mods bleiben davon unberührt.;
+	fr=Tes parties sauvegardées, tes réglages et tes mods n'en sont pas touchés.;
+	es=Esto no toca tus partidas guardadas, ajustes ni mods.;
+	it=Le tue partite salvate, le impostazioni e le mod non vengono toccate.;
+	}
+
+[Your settings from before you updated]
+	{
+	de=Deine Einstellungen von vor dem Update;
+	fr=Tes réglages d'avant la mise à jour;
+	es=Tus ajustes de antes de actualizar;
+	it=Le tue impostazioni di prima dell'aggiornamento;
+	}
+
+[about {minutes} minutes left]
+	{
+	de=noch etwa {minutes} Minuten;
+	fr=environ {minutes} minutes restantes;
+	es=quedan unos {minutes} minutos;
+	it=circa {minutes} minuti rimasti;
+	}
+
+[less than a minute left]
+	{
+	de=noch weniger als eine Minute;
+	fr=moins d'une minute restante;
+	es=queda menos de un minuto;
+	it=meno di un minuto rimasto;
+	}
+
+[more than an hour left]
+	{
+	de=noch mehr als eine Stunde;
+	fr=plus d'une heure restante;
+	es=queda más de una hora;
+	it=più di un'ora rimasta;
+	}
+
+[ready]
+	{
+	de=bereit;
+	fr=prête;
+	es=lista;
+	it=pronto;
+	}
+
+[{done} of {size} · {percent}%]
+	{
+	de={done} von {size} · {percent}%;
+	fr={done} sur {size} · {percent}%;
+	es={done} de {size} · {percent}%;
+	it={done} di {size} · {percent}%;
+	}
+
+[{version} closed twice before the main menu]
+	{
+	de={version} wurde vor dem Hauptmenü zweimal geschlossen;
+	fr={version} s'est fermé deux fois avant le menu principal;
+	es={version} se cerró dos veces antes del menú principal;
+	it={version} si è chiuso due volte prima del menu principale;
+	}
+
+[{version} installs when you quit]
+	{
+	de={version} wird beim Beenden installiert;
+	fr={version} s'installe quand tu quittes;
+	es={version} se instala al salir;
+	it={version} si installa quando esci;
+	}
+
+[{version} is kept. Roll back from Settings › Updates.]
+	{
+	de={version} bleibt erhalten. Zurückrollen geht unter Einstellungen › Updates.;
+	fr={version} est conservée. Restaure-la depuis Réglages › Mises à jour.;
+	es={version} se conserva. Revierte desde Ajustes › Actualizaciones.;
+	it={version} è conservata. Ripristinala da Impostazioni › Aggiornamenti.;
+	}
+
+[{version} is not offered again until a newer release.]
+	{
+	de={version} wird erst mit einer neueren Version wieder angeboten.;
+	fr={version} ne sera plus proposé avant une version plus récente.;
+	es={version} no se vuelve a ofrecer hasta una versión más nueva.;
+	it={version} non viene più offerto fino a una versione più nuova.;
+	}
+
+[{version} is ready]
+	{
+	de={version} ist bereit;
+	fr={version} est prêt;
+	es={version} está listo;
+	it={version} è pronto;
+	}
+
+[{version} is skipped]
+	{
+	de={version} wird übersprungen;
+	fr={version} est ignoré;
+	es={version} se omite;
+	it={version} è saltato;
+	}
+
+[{version} reached the main menu]
+	{
+	de={version} hat das Hauptmenü erreicht;
+	fr={version} a atteint le menu principal;
+	es={version} llegó al menú principal;
+	it={version} ha raggiunto il menu principale;
+	}
+
+[{version} waits until you choose to try again.]
+	{
+	de={version} wartet, bis du es noch einmal versuchen willst.;
+	fr={version} attend que tu choisisses de réessayer.;
+	es={version} espera a que elijas volver a intentarlo.;
+	it={version} aspetta finché non scegli di riprovare.;
+	}
+
+[{version} · checking]
+	{
+	de={version} · wird geprüft;
+	fr={version} · vérification;
+	es={version} · comprobando;
+	it={version} · controllo;
+	}
+
+[{version} · paused]
+	{
+	de={version} · pausiert;
+	fr={version} · en pause;
+	es={version} · en pausa;
+	it={version} · in pausa;
+	}
+
+[{version} · {percent}%]
+	{
+	de={version} · {percent}%;
+	fr={version} · {percent}%;
+	es={version} · {percent}%;
+	it={version} · {percent}%;
+	}
+
+[Arrange Overlays]
+	{
+	de=Overlays anordnen;
+	fr=Disposer les surcouches;
+	es=Colocar las capas;
+	it=Disponi gli overlay;
+	}
+
+[Chat Line]
+	{
+	de=Chatzeile;
+	fr=Ligne de discussion;
+	es=Línea de chat;
+	it=Riga di chat;
+	}
+
+[Keys Overlay]
+	{
+	de=Tasten-Overlay;
+	fr=Surcouche des touches;
+	es=Capa de teclas;
+	it=Overlay dei tasti;
+	}
+
+[Latch Chips]
+	{
+	de=Einrast-Chips;
+	fr=Pastilles de verrou;
+	es=Fichas de fijado;
+	it=Chip di blocco;
+	}
+
+[Overlays]
+	{
+	de=Overlays;
+	fr=Surcouches;
+	es=Capas;
+	it=Overlay;
+	}
+
+[Drag an overlay where it suits you. Each screen size keeps its own places.]
+	{
+	de=Zieh ein Overlay dorthin, wo es dir passt. Jede Bildschirmgröße behält ihre eigenen Plätze.;
+	fr=Fais glisser une surcouche là où elle te convient. Chaque taille d'écran garde ses propres places.;
+	es=Arrastra una capa adonde te venga bien. Cada tamaño de pantalla guarda sus propios lugares.;
+	it=Trascina un overlay dove ti è comodo. Ogni dimensione dello schermo tiene i suoi posti.;
+	}
+
+[Done]
+	{
+	de=Fertig;
+	fr=Terminé;
+	es=Hecho;
+	it=Fatto;
 	}
