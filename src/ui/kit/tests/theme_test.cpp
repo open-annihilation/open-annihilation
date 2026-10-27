@@ -288,13 +288,14 @@ struct ClassSteps {
     int32_t field{};               ///< a text field's height
     int32_t chip{};                ///< a filter chip's height
     int32_t tabs{};                ///< a strip of tabs' height
+    int32_t window_title{};        ///< a window's title's size
 };
 
 /// Kit 2's scales: Compact, Regular and Large.
 const ClassSteps kClassSteps[] = {
-    {&kit::compact_metrics, 17, 14, 13, 12, 4, 5, 6, 8, 10, 12, 28, 36, 30, 24, 32},
-    {&kit::regular_metrics, 20, 15, 14, 12, 6, 6, 7, 9, 11, 13, 34, 40, 36, 26, 38},
-    {&kit::large_metrics, 24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38, 44, 40, 28, 44},
+    {&kit::compact_metrics, 17, 14, 13, 12, 4, 5, 6, 8, 10, 12, 28, 36, 30, 24, 32, 14},
+    {&kit::regular_metrics, 20, 15, 14, 12, 6, 6, 7, 9, 11, 13, 34, 40, 36, 26, 38, 16},
+    {&kit::large_metrics, 24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38, 44, 40, 28, 44, 17},
 };
 
 /// Checks each class's steps on the type, spacing and shape scales and its
@@ -303,6 +304,11 @@ void each_class_has_its_steps() {
     for (const ClassSteps& steps : kClassSteps) {
         const kit::Metrics& metrics = *steps.metrics;
         OA_CHECK(metrics.title_size == steps.title);
+        OA_CHECK(metrics.window_title_size == steps.window_title);
+        // A window's title stands in its header band: no larger than a label
+        // and a point, and smaller than a page's title.
+        OA_CHECK(metrics.window_title_size <= metrics.label_size + 1);
+        OA_CHECK(metrics.window_title_size < metrics.title_size);
         OA_CHECK(metrics.label_size == steps.label);
         OA_CHECK(metrics.body_size == steps.body);
         OA_CHECK(metrics.small_size == steps.small);

@@ -143,11 +143,22 @@ struct ButtonMarkParts {
 /// check has been showing, the arrow eases into a check in the accent, then
 /// the arrow returns.
 /// A close mark draws an × the same way, in the text colour, on that same face.
+/// A caption with a refresh arrow (ButtonLook::refresh_icon) draws the arrow
+/// and the caption side by side, centred together, in the caption's colour.
 ///
 /// @param canvas where it is drawn
 /// @param area the button
 /// @param look its caption, style and state
 void draw_button(const Canvas& canvas, const Rect& area, const ButtonLook& look);
+
+/// Returns the points a refresh arrow adds before a button's caption
+/// (ButtonLook::refresh_icon): the arrow, as tall as the button less two
+/// points above and below and at most a state icon's side, and the gap
+/// after it. A layout widens the button by it.
+///
+/// @param height the button's height, in points
+/// @return the points; 0 for a button too short to hold an arrow
+[[nodiscard]] int32_t refresh_icon_room(int32_t height) noexcept;
 
 /// How long one full turn of a refresh mark, or of the OA button's spinner,
 /// takes, in milliseconds. The place on the turn comes from this time, so it

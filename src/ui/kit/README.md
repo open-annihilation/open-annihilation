@@ -54,8 +54,10 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     the regular font's as a label, Barlow SemiBold at 14, 15 and 16
     points at Compact, Regular and Large, the small font's as small text,
     Barlow Regular at 12, 12 and 13, and a tracked line in Barlow
-    Condensed, the regular font's Bold at the title's 17, 20 and 24 and the
-    small font's SemiBold at the small text's size (`modern_type`). The
+    Condensed, the regular font's Bold at a window title's 14, 16 and 17
+    (`window_title_size`, in proportion with the 26-point Compact header
+    band and the 36-point window header) and the small font's SemiBold at
+    the small text's size (`modern_type`). The
     classic look's fonts keep one size at every class.
   - The spacing scale: a base of 4, 6 and 8 points (`space`), the window
     padding three of it (`window_padding`), rows a space and a half apart
@@ -264,8 +266,11 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     with "...", an aside, a chip and tags;
   - chips in seven states, each a pill: get (outlined), installed, update,
     online and a problem (their colour's tinted fill under words in that
-    colour), playing (the accent filled) and a filter (outlined, on the
-    selected surface with the accent's edge while it is on), each
+    colour), playing (the accent filled) and a filter, a label such as a
+    row's tag (a flat tint, `chip_face`, inside the strong edge,
+    `chip_border`, so it stands apart from the text over it and stays
+    flatter than any button; the selected surface with the accent's edge
+    while it is on), each
     selectable, hovered and disabled, and `chip_width`. A chip with a state icon (`ChipLook::icon`) draws only
     the icon, `state_icon_side` (14) points square, in its state's colour
     (the hint for get, the accent for installed and playing, the lock
@@ -747,12 +752,24 @@ the carousel slides flat and the call to action holds a steady ring.
   events hit and reach through `hit` and `reach` over the same controls
   their display lists hold: a notice's OK before its open button, a
   question's buttons left to right.
-- One button, six looks, and the disabled look: accent, the primary
-  button, lime under the dark ink; plain, the secondary button, the hover
-  surface inside the strong edge, the selected surface under the pointer;
-  quiet, a lime caption alone at rest and the hover surface under the
-  pointer; inset, the list's face; danger, outlined and written in the
-  red, its tint under the pointer; and filled. A button that is not
+- One button, six looks, and the disabled look, in one hierarchy for
+  every OA screen: accent, the primary button, lime under the dark ink,
+  once in a view for the way forward (OK, Save changes, Close); plain, the
+  secondary button for every other action, a raised face (`raised`,
+  30362b) a step above the selected surface inside a clear border
+  (`raised_border`), lighter under the pointer (`raised_hover`,
+  `raised_border_hover`) and pressed in to the hover surface while held
+  (`raised_held`), at a control's height in a footer or a bar and at a
+  row's smaller height beside a row (a settings row's buttons, a
+  registry's Refresh); danger, outlined and written in the red, its tint
+  under the pointer, for a risky action (`RowSpec::danger` gives a row's
+  button it: Roll back…); quiet, a lime caption alone at rest and the
+  hover surface under the pointer, only for a low-emphasis text link
+  (Show the log, Discard, Skip this version) and the header's close and
+  refresh marks; inset, the list's face, a card's ground; and filled.
+  No button is pill-shaped: a pill is a label. A caption may have a
+  refresh arrow before it (`ButtonLook::refresh_icon`; a layout widens
+  the button by `refresh_icon_room`). A button that is not
   enabled draws no face, the control border and the idle caption. Every
   look but filled has the control radius of its height
   (`control_radius_for`). Filled is a deep green face (`colour::filled`, 3e5218,

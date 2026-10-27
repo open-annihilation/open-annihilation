@@ -324,8 +324,8 @@ void a_blank_badge_and_tags() {
     expect(surface, 46, 148, kit::colour::text);
     expect(surface, 47, 160, kit::colour::list_text);
     expect(surface, 46, 171, kBlack);
-    expect(surface, 46, 177, kit::colour::control_border);
-    expect(surface, 55, 182, kit::colour::control_border);
+    expect(surface, 46, 177, kit::colour::chip_border);
+    expect(surface, 55, 182, kit::colour::chip_border);
     expect(surface, 69, 177, kit::colour::accent);
     expect(surface, 70, 177, kit::colour::list_selected);
     // The badge stays 28 in a taller row, centred down it.
@@ -368,11 +368,15 @@ void chips_take_every_state() {
         colour::information
     );
     pin_chip({"GET", State::problem}, colour::danger_tint, colour::danger_tint, colour::danger);
-    pin_chip({"GET", State::filter}, colour::control_border, kBlack, colour::text_secondary);
+    // A label chip: a flat tint inside the strong edge, so it stands apart
+    // from the text over it; the pointer lightens only its edge.
+    pin_chip(
+        {"GET", State::filter}, colour::chip_border, colour::chip_face, colour::text_secondary
+    );
     pin_chip(
         {"GET", State::filter, false, true},
         colour::control_hover,
-        colour::hover,
+        colour::chip_face,
         colour::text_secondary
     );
     pin_chip({"GET", State::filter, true}, colour::accent, colour::list_selected, colour::text);

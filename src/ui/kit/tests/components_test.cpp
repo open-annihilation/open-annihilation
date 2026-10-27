@@ -184,23 +184,24 @@ void buttons_match_the_six_looks() {
         colour::accent_held,
         colour::on_accent
     );
-    // The secondary button: raised, with the strong edge.
+    // The secondary button: a raised face a step above the surfaces, a
+    // clear border, lighter under the pointer, pressed in while held.
     pin_button(
         button("A", kit::ButtonStyle::plain, false, false),
-        colour::strong_edge,
-        colour::hover,
+        colour::raised_border,
+        colour::raised,
         colour::text
     );
     pin_button(
         button("A", kit::ButtonStyle::plain, true, false),
-        colour::control_hover,
-        colour::list_selected,
+        colour::raised_border_hover,
+        colour::raised_hover,
         colour::text
     );
     pin_button(
         button("A", kit::ButtonStyle::plain, false, true),
-        colour::strong_edge,
-        colour::panel,
+        colour::raised_border,
+        colour::raised_held,
         colour::text
     );
     pin_button(

@@ -114,8 +114,9 @@ struct ModernType {
 /// points at Compact, Regular and Large); the small font's is small text,
 /// Barlow Regular at small_size (12, 12 and 13). A tracked line, a
 /// window's title or a section's heading in capitals, is Barlow Condensed:
-/// the regular font's Bold at title_size (17, 20 and 24), the small font's
-/// SemiBold at small_size.
+/// the regular font's Bold at window_title_size (14, 16 and 17), in
+/// proportion with the header band it stands in, the small font's SemiBold
+/// at small_size.
 ///
 /// @param role which font
 /// @param tracked the line has tracking
@@ -128,7 +129,7 @@ modern_type(FontRole role, bool tracked, SizeClass size_class = SizeClass::compa
     const Metrics& steps = metrics_of(size_class);
     if (tracked)
         return role == FontRole::regular
-                   ? ModernType{steps.title_size, Weight::bold, Family::interface_condensed}
+                   ? ModernType{steps.window_title_size, Weight::bold, Family::interface_condensed}
                    : ModernType{steps.small_size, Weight::semibold, Family::interface_condensed};
     return role == FontRole::regular
                ? ModernType{steps.label_size, Weight::semibold, Family::interface}

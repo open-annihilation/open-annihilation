@@ -178,6 +178,10 @@ struct RowSpec {
     std::array<std::string_view, 3> button_ids{};
     /// What each button, or the link, asks its screen to do.
     std::array<ActionId, 3> actions{};
+    /// A value_and_button row's button is a risky action, such as Roll
+    /// back… or emptying a folder: drawn in the danger look. Off draws the
+    /// secondary look every row's button takes.
+    bool danger{};
     /// Tells whether the row's control can be pressed now, such as a RESET
     /// with nothing to reset: a value_and_button's or a buttons row's buttons
     /// draw the disabled look, a link its idle colour, and neither a press nor
@@ -874,6 +878,7 @@ struct RowView {
     /// and the control the line under the lock.
     bool lock_below{};
     bool enabled{true}; ///< its control can be pressed now
+    bool danger{};      ///< its button is a risky action: the danger look
 };
 
 /// Reads a row's view from its spec and the model.
@@ -923,6 +928,7 @@ view_of(const RowSpec<Model>& spec, const Model& model, const ShownText& shown) 
     view.hint_is_status = spec.hint_is_status;
     view.control_width = spec.control_width;
     view.enabled = row_enabled(spec, model);
+    view.danger = spec.danger;
     switch (spec.kind) {
     case RowKind::toggle:
         view.on = row_on(spec, model);

@@ -392,9 +392,12 @@ void push_control(
             break;
         ButtonLook look;
         look.caption = view.buttons.front();
-        // A locked accent button loses its accent and is drawn plain, under
-        // the row's fade. A button the row itself disables is plain too.
-        look.style = view.enabled && view.lock.empty() ? ButtonStyle::accent : ButtonStyle::plain;
+        // A row's button is a secondary action at the row's height; the
+        // dialog's own OK is its one primary button. A risky one takes the
+        // danger look, and loses it while locked, under the row's fade, or
+        // while the row disables it.
+        look.style = view.danger && view.enabled && view.lock.empty() ? ButtonStyle::danger
+                                                                      : ButtonStyle::plain;
         look.hovered = hovered;
         look.held = held;
         look.enabled = view.enabled;
@@ -411,7 +414,7 @@ void push_control(
             const bool button_held = button_hovered && state.pressed == control;
             ButtonLook look;
             look.caption = view.buttons[at];
-            look.style = view.enabled ? ButtonStyle::quiet : ButtonStyle::plain;
+            look.style = ButtonStyle::plain;
             look.hovered = button_hovered;
             look.held = button_held;
             look.enabled = view.enabled;

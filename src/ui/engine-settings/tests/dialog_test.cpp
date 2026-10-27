@@ -6343,8 +6343,19 @@ void manage_draws_in_the_game_font_inside_its_button(const settings::DialogFonts
     std::cout << "'MANAGE…' is " << width << " columns in " << geometry::manage_button_width
               << '\n';
 
-    constexpr renderer::Rgb kAccentLight{0xb6, 0xe0, 0x5a};
-    constexpr renderer::Rgb kOnAccent{0x10, 0x12, 0x0d};
+    // A row's button is the secondary look: its raised face inside its
+    // border, the caption in the text colour.
+    constexpr renderer::Rgb kFace{
+        oa::ui::kit::colour::raised.r, oa::ui::kit::colour::raised.g, oa::ui::kit::colour::raised.b
+    };
+    constexpr renderer::Rgb kEdge{
+        oa::ui::kit::colour::raised_border.r,
+        oa::ui::kit::colour::raised_border.g,
+        oa::ui::kit::colour::raised_border.b,
+    };
+    constexpr renderer::Rgb kCaption{
+        oa::ui::kit::colour::text.r, oa::ui::kit::colour::text.g, oa::ui::kit::colour::text.b
+    };
     for (const bool touch : {false, true}) {
         const settings::Dialog dialog = opened_with_game_files(Page::game_files, touch);
         const auto rows = geometry::open_rows(dialog).rows;
@@ -6370,7 +6381,7 @@ void manage_draws_in_the_game_font_inside_its_button(const settings::DialogFonts
                 for (int32_t x = 0; x < button.width * scale; ++x) {
                     const renderer::Rgb seen =
                         canvas.at(button.x * scale + x, button.y * scale + y);
-                    if (seen == kAccent || seen == kAccentLight)
+                    if (seen == kFace || seen == kEdge)
                         continue;
                     // The rounded corners show what lies under the button.
                     const int32_t corner = oa::ui::kit::control_radius_for(button.height) * scale;
@@ -6383,8 +6394,7 @@ void manage_draws_in_the_game_font_inside_its_button(const settings::DialogFonts
                     top = std::min(top, y);
                     bottom = std::max(bottom, y);
                     for (std::size_t channel = 0; channel < seen.size(); ++channel)
-                        if (seen[channel] < kOnAccent[channel] ||
-                            seen[channel] > kAccent[channel]) {
+                        if (seen[channel] < kFace[channel] || seen[channel] > kCaption[channel]) {
                             if (clean)
                                 std::cerr << "MANAGE… at scale " << scale << ": colour "
                                           << int{seen[0]} << ',' << int{seen[1]} << ','
@@ -6406,7 +6416,7 @@ void manage_draws_in_the_game_font_inside_its_button(const settings::DialogFonts
                 for (int32_t x = 0; x < 4 * scale; ++x) {
                     const int32_t column = (button.x + button.width) * scale + x;
                     if (column < static_cast<int32_t>(canvas.surface.width))
-                        CHECK(canvas.at(column, button.y * scale + y) != kOnAccent);
+                        CHECK(canvas.at(column, button.y * scale + y) != kCaption);
                 }
             if (!clean || before < 3 * scale || after < 3 * scale ||
                 std::abs(before - after) > 2 * scale)

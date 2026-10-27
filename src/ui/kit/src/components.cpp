@@ -222,10 +222,12 @@ struct ButtonColours {
 };
 
 /// Returns a button's colours: the primary button lime with dark text, the
-/// secondary raised with the strong edge, the quiet one a lime caption with
-/// no face at rest, the inset one the list's face, the filled one deep green
-/// with white text, and the danger one outlined in red. A button that is not
-/// enabled has no face, the control border and the idle caption.
+/// secondary raised a step above the surfaces with a clear border, lighter
+/// under the pointer and pressed in to the hover surface while held, the
+/// quiet one a lime caption with no face at rest, the inset one the list's
+/// face, the filled one deep green with white text, and the danger one
+/// outlined in red. A button that is not enabled has no face, the control
+/// border and the idle caption.
 ///
 /// @param look the button
 /// @return its face, when it has one, its border and its caption
@@ -279,12 +281,12 @@ ButtonColours button_colours(const ButtonLook& look) noexcept {
     case ButtonStyle::plain:
         break;
     }
-    Colour face = colour::hover;
+    Colour face = colour::raised;
     if (held)
-        face = colour::panel;
+        face = colour::raised_held;
     else if (hovered)
-        face = colour::list_selected;
-    return {face, hovered ? colour::control_hover : colour::strong_edge, colour::text};
+        face = colour::raised_hover;
+    return {face, hovered ? colour::raised_border_hover : colour::raised_border, colour::text};
 }
 
 /// Draws a control's rounded ground: its face, when it has one, inside a
@@ -1561,6 +1563,39 @@ void draw_close_button(const Canvas& canvas, const Rect& area, const ButtonLook&
     blend_coverage(canvas, icon, close_icon_coverage(pixels.x, pixels.y), ink);
 }
 
+/// Draws a button's refresh arrow and its caption side by side, centred
+/// together in the button: the arrow as tall as the button less two points
+/// above and below, at most the state icon's side, then a gap and the words.
+///
+/// @param canvas where it is drawn
+/// @param area the button
+/// @param look the caption and its font
+/// @param ink the caption's colour, which the arrow takes too
+void draw_refresh_caption(
+    const Canvas& canvas, const Rect& area, const ButtonLook& look, Colour ink
+) {
+    const int32_t room = refresh_icon_room(area.height);
+    const int32_t side = room > 0 ? room - compact_metrics.chip_padding : 0;
+    const int32_t words = measure_text(canvas, look.font, look.caption);
+    const int32_t whole = room + words;
+    const int32_t left = area.x + std::max((area.width - whole) / 2, int32_t{0});
+    if (side > 0) {
+        const Rect icon{left, area.y + (area.height - side) / 2, side, side};
+        const Point pixels = covered_pixels(canvas, icon);
+        if (pixels.x > 0 && pixels.y > 0 && pixels.x <= kMostIconPixels &&
+            pixels.y <= kMostIconPixels)
+            blend_coverage(canvas, icon, refresh_icon_coverage(pixels.x, pixels.y, 0), ink);
+    }
+    const int32_t words_left = left + room;
+    const Rect box{
+        words_left,
+        area.y,
+        std::max(area.x + area.width - words_left, int32_t{0}),
+        area.height,
+    };
+    paint_text(clipped(canvas, area), look.font, look.caption, box, Align::left, ink);
+}
+
 void draw_button(const Canvas& canvas, const Rect& area, const ButtonLook& look) {
     if (!drawable(canvas))
         return;
@@ -1589,7 +1624,18 @@ void draw_button(const Canvas& canvas, const Rect& area, const ButtonLook& look)
             );
         return;
     }
+    if (look.refresh_icon) {
+        draw_refresh_caption(canvas, area, look, colours.caption);
+        return;
+    }
     paint_text(canvas, look.font, look.caption, area, Align::centre, colours.caption);
+}
+
+int32_t refresh_icon_room(int32_t height) noexcept {
+    constexpr int32_t inset = 2;
+    const int32_t side =
+        std::clamp(height - 2 * inset, int32_t{0}, compact_metrics.state_icon_side);
+    return side > 0 ? side + compact_metrics.chip_padding : 0;
 }
 
 int32_t filled_radius(const Rect& area) noexcept {

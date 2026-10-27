@@ -41,15 +41,26 @@ enum class Mark : uint8_t {
 };
 
 /// Which of the button looks a button is drawn in. Every look has rounded
-/// corners, their radius the control radius of the button's height.
+/// corners, their radius the control radius of the button's height, so a
+/// button is never pill-shaped: a pill is a label (PillLook, ChipLook). One
+/// hierarchy serves every OA screen: the primary button once in a view, for
+/// the way forward; the secondary for every other action, at a control's
+/// height in a footer or a toolbar and at a row's smaller height beside a
+/// row; the danger look for a risky one; the quiet look only for a
+/// low-emphasis text link.
 enum class ButtonStyle : uint8_t {
-    accent, ///< the primary button, lime with dark text: OK, SWITCH, a notice's OK, MANAGE…
-    plain,  ///< the secondary button, raised with the strong edge: Restore defaults, Cancel
-    quiet,  ///< a text button in lime, with no face at rest: Your files, OPEN MODS FOLDER
-    inset,  ///< the list's face at rest: a mod row's ROLL BACK
+    accent, ///< the primary button, lime with dark text: OK, Save changes, Close
+    /// the secondary button: a raised face a step lighter than the surfaces
+    /// it sits on, a clear one-point border, lighter under the pointer and
+    /// pressed in while held: Add registry…, Cancel, More, Uninstall, a row's Choose…
+    plain,
+    /// a text link in lime, with no face at rest: Show the log, Discard,
+    /// Skip this version, and a header's close and refresh marks
+    quiet,
+    inset, ///< the list's face at rest: a card's ground, not an action
     /// the deep green face with white text, over a picture: Mutators
     filled,
-    danger, ///< outlined in the danger red, its caption red: Uninstall
+    danger, ///< outlined in the danger red, its caption red: Uninstall, Roll back…
 };
 
 /// What a button draws in place of its caption.
@@ -85,6 +96,9 @@ struct ButtonLook {
     bool oa_mark{false};
     /// The caption's font: the small font unless the caller picks the regular one.
     FontRole font{FontRole::small};
+    /// A refresh arrow before the caption, in the caption's colour, the two
+    /// centred together: a row's small Refresh. Off draws the caption alone.
+    bool refresh_icon{false};
 };
 
 /// An Off/On switch. The captions are already looked up.

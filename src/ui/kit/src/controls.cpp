@@ -214,8 +214,9 @@ struct ChipColours {
 };
 
 /// Returns a chip's colours: a state's tinted fill and its colour's words,
-/// the accent filled while playing, and a filter outlined, on the selected
-/// surface with the accent's edge while it is on.
+/// the accent filled while playing, and a filter a label's flat tint inside
+/// the strong edge, or the selected surface with the accent's edge while it
+/// is on.
 ///
 /// @param look the chip
 /// @return its face, border and text
@@ -247,8 +248,8 @@ ChipColours chip_colours(const ChipLook& look) noexcept {
             colours = {colour::list_selected, colour::accent, colour::text};
         else
             colours = {
-                std::nullopt,
-                look.hovered ? colour::control_hover : colour::control_border,
+                colour::chip_face,
+                look.hovered ? colour::control_hover : colour::chip_border,
                 colour::text_secondary
             };
         break;

@@ -496,6 +496,8 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
         spec.hint_text = previous_hint;
         spec.control_width = geometry::manage_button_width;
         spec.lock = previous_lock;
+        // Rolling back is the page's risky action.
+        spec.danger = true;
         return spec;
     }
     kit::Stepper<RowModel> stepper;

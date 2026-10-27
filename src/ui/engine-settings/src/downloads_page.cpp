@@ -501,6 +501,8 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
         "empty",
         empty_downloads_action
     );
+    // Emptying the folder deletes its files: the danger look.
+    spec.danger = true;
     spec.control_width = geometry::manage_button_width;
     spec.enabled = files_enabled;
     spec.lock = game_lock;

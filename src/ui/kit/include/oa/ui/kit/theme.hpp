@@ -118,6 +118,22 @@ inline constexpr Colour off_selected = list_selected;
 inline constexpr Colour switch_idle{0x7d, 0x84, 0x74};
 /// A raised button's and a level's caption.
 inline constexpr Colour button_text = text_secondary;
+/// A secondary button's raised face: a step lighter than the selected
+/// surface, so it reads as a button on a band, a list or the panel alike.
+inline constexpr Colour raised{0x30, 0x36, 0x2b};
+/// A secondary button's face under the pointer.
+inline constexpr Colour raised_hover{0x39, 0x40, 0x33};
+/// A secondary button's face while it is held: pressed in, the hover surface.
+inline constexpr Colour raised_held = hover;
+/// A secondary button's border, clear against its face and every surface.
+inline constexpr Colour raised_border = control_hover;
+/// A secondary button's border under the pointer.
+inline constexpr Colour raised_border_hover{0x6f, 0x78, 0x64};
+/// A label chip's flat tint: a tag or a fact on a row, never a control.
+/// Flatter and darker than a secondary button's face.
+inline constexpr Colour chip_face{0x27, 0x2c, 0x23};
+/// A label chip's border, stronger than a field's.
+inline constexpr Colour chip_border = strong_edge;
 /// Caution and locks: the padlock, the lock's text and the shared game's note.
 inline constexpr Colour lock{0xe0, 0xb0, 0x4f};
 /// The colour the screen under the dialog is darkened with.
@@ -255,7 +271,7 @@ inline constexpr uint32_t selected_tint = 15;
 /// regular font and body text and small text in the small one
 /// (classic_font in oa/ui/kit/text.hpp).
 enum class TextLevel : uint8_t {
-    title, ///< a window's or a page's title
+    title, ///< a page's title; a window's title has a step of its own (Metrics::window_title_size)
     label, ///< a row's label, a button's and a tab's caption
     body,  ///< a paragraph, a hint
     small, ///< an aside, a count, an eyebrow
@@ -271,8 +287,11 @@ enum class TextLevel : uint8_t {
 /// Regular and Large giving the dialog, its notices and its prompts more
 /// room and keeping every other size Compact's.
 struct Metrics {
-    /// A title's size in the modern look: a window's or a page's title.
+    /// A page's title's size in the modern look.
     int32_t title_size{};
+    /// A window's title's size in the modern look: the title and its second
+    /// word in the window's header band, in proportion with that band.
+    int32_t window_title_size{};
     /// A label's size in the modern look: a row's label, a button's caption.
     int32_t label_size{};
     /// Body text's size in the modern look: a paragraph, a hint.
@@ -544,7 +563,7 @@ struct Metrics {
 };
 
 /// One size class's steps on Kit 2's scales: its type sizes, its spacing
-/// base, its radii and its controls' sizes.
+/// base, its radii, its controls' sizes and its window title's size.
 struct ClassScale {
     int32_t title_size{};         ///< a title's size
     int32_t label_size{};         ///< a label's size
@@ -561,14 +580,24 @@ struct ClassScale {
     int32_t text_field_height{};  ///< a text field's height
     int32_t filter_chip_height{}; ///< a filter chip's height
     int32_t tab_strip_height{};   ///< a tab strip's height
+    int32_t window_title_size{};  ///< a window's title's size
 };
 
-/// Compact's steps on Kit 2's scales.
-inline constexpr ClassScale compact_scale{17, 14, 13, 12, 4, 5, 6, 8, 10, 12, 28, 36, 30, 24, 32};
-/// Regular's steps on Kit 2's scales.
-inline constexpr ClassScale regular_scale{20, 15, 14, 12, 6, 6, 7, 9, 11, 13, 34, 40, 36, 26, 38};
-/// Large's steps on Kit 2's scales.
-inline constexpr ClassScale large_scale{24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38, 44, 40, 28, 44};
+/// Compact's steps on Kit 2's scales. A window's title is 14 points in
+/// Compact's 26-point header band.
+inline constexpr ClassScale compact_scale{
+    17, 14, 13, 12, 4, 5, 6, 8, 10, 12, 28, 36, 30, 24, 32, 14
+};
+/// Regular's steps on Kit 2's scales. A window's title is 16 points in the
+/// 36-point window header.
+inline constexpr ClassScale regular_scale{
+    20, 15, 14, 12, 6, 6, 7, 9, 11, 13, 34, 40, 36, 26, 38, 16
+};
+/// Large's steps on Kit 2's scales. A window's title is 17 points in the
+/// 36-point window header.
+inline constexpr ClassScale large_scale{
+    24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38, 44, 40, 28, 44, 17
+};
 
 /// Returns metrics with a class's steps on Kit 2's scales and what follows
 /// from them: the window padding three spaces, rows a space and a half
@@ -579,6 +608,7 @@ inline constexpr ClassScale large_scale{24, 16, 15, 13, 8, 6, 8, 10, 12, 14, 38,
 /// @return the metrics
 [[nodiscard]] constexpr Metrics scaled(Metrics base, const ClassScale& scale) noexcept {
     base.title_size = scale.title_size;
+    base.window_title_size = scale.window_title_size;
     base.label_size = scale.label_size;
     base.body_size = scale.body_size;
     base.small_size = scale.small_size;

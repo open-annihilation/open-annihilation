@@ -1082,7 +1082,7 @@ void the_modern_look_draws_in_barlow() {
     OA_CHECK(label.family == Family::interface);
     OA_CHECK(small.points == 12 && small.weight == Weight::regular);
     OA_CHECK(small.family == Family::interface);
-    OA_CHECK(title.points == 17 && title.weight == Weight::bold);
+    OA_CHECK(title.points == 14 && title.weight == Weight::bold);
     OA_CHECK(title.family == Family::interface_condensed);
     OA_CHECK(heading.points == 12 && heading.weight == Weight::semibold);
     OA_CHECK(heading.family == Family::interface_condensed);
@@ -1186,7 +1186,7 @@ void the_modern_look_draws_in_barlow() {
 void the_modern_look_takes_the_class_steps() {
     using text_font::Family;
     using text_font::Weight;
-    // Regular: label 15, small 12, title 20. Large: 16, 13, 24.
+    // Regular: label 15, small 12, window title 16. Large: 16, 13, 17.
     constexpr kit::ModernType regular_label =
         kit::modern_type(kit::FontRole::regular, false, kit::SizeClass::regular);
     static_assert(regular_label.points == 15 && regular_label.weight == Weight::semibold);
@@ -1194,14 +1194,14 @@ void the_modern_look_takes_the_class_steps() {
         kit::modern_type(kit::FontRole::small, false, kit::SizeClass::regular).points == 12
     );
     static_assert(
-        kit::modern_type(kit::FontRole::regular, true, kit::SizeClass::regular).points == 20
+        kit::modern_type(kit::FontRole::regular, true, kit::SizeClass::regular).points == 16
     );
     static_assert(
         kit::modern_type(kit::FontRole::small, true, kit::SizeClass::regular).points == 12
     );
     constexpr kit::ModernType large_title =
         kit::modern_type(kit::FontRole::regular, true, kit::SizeClass::large);
-    static_assert(large_title.points == 24 && large_title.weight == Weight::bold);
+    static_assert(large_title.points == 17 && large_title.weight == Weight::bold);
     static_assert(large_title.family == Family::interface_condensed);
     static_assert(
         kit::modern_type(kit::FontRole::regular, false, kit::SizeClass::large).points == 16
@@ -1293,8 +1293,8 @@ void the_modern_look_takes_the_class_steps() {
 
 /// Checks that a window's header in the modern look gives its title and its
 /// second word their tracked width at the fonts' class: at Large both are
-/// wider than the columns a screen keeps for the classic look, and neither
-/// is drawn wider than its box nor across the other.
+/// wider than the columns a screen keeps, and neither is drawn wider than
+/// its box nor across the other.
 void the_modern_header_takes_its_words_width() {
     auto stack = text_font::FontStack::open(text_font::bundled_font_directory());
     OA_CHECK(stack != nullptr);
@@ -1306,10 +1306,10 @@ void the_modern_header_takes_its_words_width() {
     kit::HeaderLook look;
     look.width = 960;
     look.title = "OPEN ANNIHILATION";
-    look.title_width = 138;
+    look.title_width = 100;
     look.tracking = 1;
     look.second = "SETTINGS";
-    look.second_width = 68;
+    look.second_width = 40;
     look.height = 36;
     OA_CHECK(
         kit::tracked_width(large, kit::FontRole::regular, look.title, look.tracking) >

@@ -1128,7 +1128,8 @@ void the_display_list_names_and_orders_every_control() {
     OA_CHECK(list.items[10].text == "7f3a90d2" && list.items[10].align == kit::Align::left);
     const auto* reset = std::get_if<kit::ButtonLook>(&list.items[11].look);
     OA_CHECK(reset != nullptr && reset->caption == "RESET" && reset->enabled);
-    OA_CHECK(reset != nullptr && reset->style == kit::ButtonStyle::accent);
+    // A row's button is a secondary action; the dialog's OK is its primary.
+    OA_CHECK(reset != nullptr && reset->style == kit::ButtonStyle::plain);
     const auto* field = std::get_if<kit::SearchLook>(&list.items[18].look);
     OA_CHECK(field != nullptr && !field->magnifier && !field->focused);
     const auto* frame = std::get_if<kit::RowFrame>(&list.items[0].look);
