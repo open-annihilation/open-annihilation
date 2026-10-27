@@ -2666,7 +2666,7 @@ void Runtime::check_engine_settings_window_sizes() {
                 const auto never_parts = settings::dialog_layout(*engine_settings_dialog());
                 require(
                     !shows_text(never_parts, "Check now") &&
-                        !shows_text(never_parts, "UPDATE\u2026"),
+                        !shows_text(never_parts, "Update\u2026"),
                     "CHECK NOW was shown with Check for updates at Never" + on
                 );
             }
@@ -2949,7 +2949,7 @@ void Runtime::check_engine_settings_window_sizes() {
             );
             const int32_t choose = named_control("settings.latching.choose");
             focus_access(choose, "Choose…");
-            click_updates(choose, "CHOOSE\u2026", "oa.settings.latching.choose");
+            click_updates(choose, "Choose\u2026", "oa.settings.latching.choose");
             require(
                 oa_layer().find("key-editor") != nullptr,
                 "oa.settings.latching.choose did not open the key editor" + on
@@ -2991,7 +2991,7 @@ void Runtime::check_engine_settings_window_sizes() {
                 filters_in_menu = true;
             }
             require(latchable_on(), "the key editor did not open on its Latchable filter" + on);
-            std::cout << "engine settings check: Accessibility CHOOSE\u2026 opened the key editor "
+            std::cout << "engine settings check: Accessibility Choose\u2026 opened the key editor "
                          "on Latchable on the "
                       << size << " window\n";
             if (filters_in_menu)
