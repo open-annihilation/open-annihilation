@@ -2989,8 +2989,9 @@ kit::KeyboardShape keyboard_shape_of(std::string_view keyboard, std::string_view
 }
 
 /// Appends the keyboard picture of what a layout changes, and an area whose
-/// text names the keys it marks. Compact and the wide details both call this
-/// before the facts.
+/// text names the keys it marks: the main block alone while every key it
+/// changes lies in that block, else the whole keyboard. Compact and the wide
+/// details both call this before the facts.
 ///
 /// @param[in,out] building the layout
 /// @param entry the entry
@@ -3040,31 +3041,29 @@ int32_t add_key_picture(
             named_keys += code;
         }
     }
-    // Beside the list, the main block alone, as wide as the details, so its
-    // keys' legends can be read; the whole keyboard when a key the layout
-    // changes lies outside that block. Compact's page is wide enough for the
-    // whole keyboard.
-    if (building.size_class != kit::SizeClass::compact) {
-        bool inside = true;
-        for (const kit::KeyboardKey& key : look.keys) {
-            for (const kit::KeyPlace& place : kit::keyboard_places(shape)) {
-                if (place.code != key.code)
-                    continue;
-                kit::KeyboardLook block;
-                block.main_block = true;
-                inside = inside && kit::keyboard_draws(place, block);
-            }
+    // The main block alone, as wide as the details, so its keys' legends can
+    // be read, at every class: the layout's own keys are hardest to read
+    // where the screen is smallest. The whole keyboard when a key the layout
+    // changes lies outside that block.
+    bool inside = true;
+    for (const kit::KeyboardKey& key : look.keys) {
+        for (const kit::KeyPlace& place : kit::keyboard_places(shape)) {
+            if (place.code != key.code)
+                continue;
+            kit::KeyboardLook block;
+            block.main_block = true;
+            inside = inside && kit::keyboard_draws(place, block);
         }
-        look.main_block = inside;
-        // The main block's keys are large enough to read, so a changed key is
-        // filled with the accent under its legend, as the design marks it,
-        // rather than wearing a corner mark over the legend.
-        if (inside)
-            for (kit::KeyboardKey& key : look.keys) {
-                key.cap.mark = kit::KeyMark::none;
-                key.cap.held = true;
-            }
     }
+    look.main_block = inside;
+    // The main block's keys are large enough to read, so a changed key is
+    // filled with the accent under its legend, as the design marks it,
+    // rather than wearing a corner mark over the legend.
+    if (inside)
+        for (kit::KeyboardKey& key : look.keys) {
+            key.cap.mark = kit::KeyMark::none;
+            key.cap.held = true;
+        }
     const kit::Point unit = kit::keyboard_size(look);
     const int32_t picture_width = width;
     const int32_t picture_height =

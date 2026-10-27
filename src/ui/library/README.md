@@ -608,12 +608,12 @@ app removes the folder (`Runtime::library_uninstall`,
   At Regular and Large the player's own changes on it sit on the chip line
   in the lock colour ("2 changes of your own"), with Made for and its tags;
   Compact keeps them on the line under the name. Its details draw the
-  keyboard picture as wide as the details: beside the list the main block
-  alone (`KeyboardLook::main_block`), the changed keys filled with the
-  accent under their legends, every legend drawn (in the small font where
-  the regular one is too wide for its key), unless a changed key lies
-  outside that block;
-  Compact's page draws the whole keyboard. The details say the state once:
+  keyboard picture as wide as the details: beside the list and on
+  Compact's page alike the main block alone (`KeyboardLook::main_block`),
+  the changed keys filled with the accent under their legends, every
+  legend drawn (in the small font where the regular one is too wide for
+  its key), unless a changed key lies outside that block, when it draws
+  the whole keyboard with those keys marked. The details say the state once:
   the chip says it in words, "In use for every game" or "In use with {mod}"
   for the layout in use, and the status line under the name is left out
   when it would say the same (`library.status` then reads the chip's

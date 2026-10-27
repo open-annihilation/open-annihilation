@@ -6240,9 +6240,10 @@ void an_own_layouts_row_keeps_its_summary() {
     }
 }
 
-/// The details say the state once, and beside the list a layout's picture
-/// is the main block with the changed keys filled; Compact's page keeps the
-/// whole keyboard.
+/// The details say the state once, and a layout's picture is the main block
+/// with the changed keys filled, beside the list and on Compact's page alike;
+/// a layout that changes a key outside the main block shows the whole
+/// keyboard at every class.
 void details_say_the_state_once() {
     const lib::Library library = keys_library();
     for (const fixture::NamedFrame& named : fixture::frames()) {
@@ -6261,7 +6262,7 @@ void details_say_the_state_once() {
                 for (const kit::KeyboardKey& key : look->keys)
                     OA_CHECK(!look->main_block || key.cap.held);
             }
-        OA_CHECK(keyboard && main_block == !compact);
+        OA_CHECK(keyboard && main_block);
         if (compact)
             continue;
         // Grid is in use for every game: its chip says so, and no status
@@ -6270,6 +6271,30 @@ void details_say_the_state_once() {
         OA_CHECK(text_item(list, "In use for every game") == nullptr);
         // "Installed" is the Installed fact's label alone.
         OA_CHECK(text_count(list, "Installed") == 1);
+    }
+    // Grid changing F5 as well lies outside the main block: the whole
+    // keyboard, at every class, F5 marked rather than filled.
+    lib::Library wide = keys_library();
+    lib::Inputs inputs = wide.inputs;
+    for (lib::Installed& held : inputs.installed)
+        if (held.key == "grid" && held.keys.has_value())
+            held.keys->triggers.push_back("@F5");
+    lib::refresh(wide, std::move(inputs));
+    lib::set_tab(wide, lib::Tab::keys);
+    lib::select(wide, {std::string(fixture::core), lib::Kind::key_layout, "grid"});
+    lib::open_details(wide);
+    for (const fixture::NamedFrame& named : fixture::frames()) {
+        lib::ScreenState state;
+        state.details_page = named.frame.size_class == kit::SizeClass::compact;
+        const kit::DisplayList list = laid_out(wide, state, named.frame);
+        bool whole = false;
+        for (const kit::Item& item : list.items)
+            if (const auto* look = std::get_if<kit::KeyboardLook>(&item.look)) {
+                whole = !look->main_block;
+                for (const kit::KeyboardKey& key : look->keys)
+                    OA_CHECK(!key.cap.held && key.cap.mark == kit::KeyMark::changed);
+            }
+        OA_CHECK(whole);
     }
     // Lefty is installed and not in use: its chip says Installed, once.
     lib::Library lefty = keys_library();
