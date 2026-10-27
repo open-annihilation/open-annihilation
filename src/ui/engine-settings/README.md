@@ -18,7 +18,7 @@ the locks a running game puts on them (`settings_locks`).
 | | A mod folder chosen outside the folders the game finds, kept while it is the Mod | any folder | none | `open-annihilation.picked-mod-directory` (the folder's path; absent for none, erased once another mod or No Mod is stored) |
 | (the Library) | Base game | Total Annihilation, or the demo | Total Annihilation, with every copied expansion of it that can be on, when the key is absent | `open-annihilation.base-game` (`totala` or `totala-demo`) |
 | | Expansions of that base game | on or off for each expansion that is copied | every copied expansion that can be on, when the key is absent | `open-annihilation.expansions.<game>` (comma-separated ids; empty means none on) |
-| Controls | Key layout: the layout in use, and how many of its keys you changed, with EDIT KEYS…, which opens the key editor over Settings | the layout's name, or "{name} · N changes of your own" (one change says "1 change") | OA default, the layout in use | the layout in use is `open-annihilation.keys.layout`, or `open-annihilation.keys.layout.<mod id>` while that mod chooses one |
+| Controls | Key layout, a card at the section's top ([The key layout card](#the-key-layout-card)): the layout in use, how many of its keys you changed, where it applies, with Change layout… (the Library on Keys, on the main menu) and Edit keys…, which opens the key editor over Settings | the layout's name, whole; a badge "N changes of your own" ("1 change of your own"); "Applies to every game." or "Applies with {mod} only." | OA default, the layout in use | the layout in use is `open-annihilation.keys.layout`, or `open-annihilation.keys.layout.<mod id>` while that mod chooses one |
 | | Key layout with <mod>, a drop-down, only while a mod is played. Same as the game uses Key layout. Installed layouts follow, those made for the mod first and marked made for it | Same as the game, or a layout id | Same as the game | `open-annihilation.keys.layout.<mod id>` (`same`, or a layout id). A choice is written at once, and Cancel writes the choice the dialog opened with |
 | | Show keys on buttons: order buttons and build cells show their key in a corner | Off, On | On | `open-annihilation.keys.show-on-buttons` (`0` or `1`; absent reads as on) |
 | | Mouse wheel zoom | Off, On | On | `open-annihilation.wheel-zoom` |
@@ -67,8 +67,10 @@ the locks a running game puts on them (`settings_locks`).
 | | Window frame: whether a window shows its title bar and borders while a game is played; the game menu, a panel it opens and every other screen show them | Hidden in play, Always shown | Hidden in play | `open-annihilation.window-frame` (`hidden-in-play` or `always-shown`) |
 | | HUD scaling: whether a game's side column and bars grow with the window, up to twice the original game's size, or keep its size | Off, On | On | `open-annihilation.hud-scaling` |
 | | Interface size, a drop-down, when OK is pressed: how large Open Annihilation's own screens (Settings, its notices and its prompts) are drawn, held to the largest step at which Compact's dialog fits the window, and in a match Settings no larger than the side column's scale ([Sizes](#sizes)) | Auto (the window's own scale), 100%, 150% (offered only while the dialog shows Use modern fonts for game text On), 200%, 300%, 400% | Auto | `open-annihilation.interface-size` (`automatic`, `100`, `150`, `200`, `300` or `400`; `150` read with the modern fonts Off reads as 100%; any other text, `0` among them, reads as Auto) |
+| | Window size, a drop-down, when OK is pressed: the size class Settings, the Library, the key editor and the pickers take. Auto takes the largest class whose dialog fits the window with 24 points round it; a chosen class shows wherever its dialog fits whole, and is held to the largest that does elsewhere. The OA layer reads the same key (`src/app/window_placement.hpp`) | Auto, Compact, Regular, Large | Auto | `open-annihilation.ui.window-size` (`auto`, `compact`, `regular` or `large`; absent or any other text is Auto) |
+| | Reset window positions: Reset puts every window the player moved back in the middle, at once (`Dialog::window_reset_asked`); the row then says so (`Dialog::window_places_reset`). Cancel does not move them again | | | none. The host forgets every `open-annihilation.window.*` key |
 | | Escape opens the game menu | Off, On | On on macOS, Off elsewhere and with `--preferences-file` | `open-annihilation.escape-opens-menu` |
-| Accessibility, listed in every dialog of the engine's settings, after User Interface and before Touch | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and CHOOSE…, which opens the key editor on Latchable. EDIT KEYS… on Key layout still opens on All | the count, as "2 of 7", and CHOOSE… | | none. The count is the host's (`Dialog::latched_count`) |
+| Accessibility, listed in every dialog of the engine's settings, after Controls and before Touch, with its practice pad ([The practice pad](#the-practice-pad)) | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and CHOOSE…, which opens the key editor on Latchable. Edit keys… on the key layout card still opens on All | the count, as "2 of 7", and CHOOSE… | | none. The count is the host's (`Dialog::latched_count`) |
 | | Sticky modifiers: a tapped Shift, Ctrl or Alt holds for the next key or click; a second tap locks it | Off, On | Off | `open-annihilation.access.sticky-modifiers` |
 | | Hold to confirm: self-destruct, surrender and quitting need a long press, and a ring fills while it is held | Off, On | Off | `open-annihilation.access.hold-to-confirm` |
 | | Long press: how long a hold is, for Hold to confirm and for keys bound to a hold | 200 to 1000 ms, steps of 50 | 500 ms | `open-annihilation.access.long-press-ms` |
@@ -467,17 +469,23 @@ font lacks, as a Ukrainian line's Cyrillic, is drawn whole in the modern
 fonts, its digits, Latin words, marks and spaces with it, so that no word
 of it changes typeface part way.
 
-It is 480 by 324 source pixels, a dark gunmetal panel with a one-pixel raised
-edge and hairline rules, and one green accent for what is selected:
+At Compact it is 480 by 324 source pixels, a dark gunmetal panel with a
+one-pixel raised edge and hairline rules, and one green accent for what is
+selected, laid out on Kit 2 ([Sizes](#sizes)):
 
 - the header: the icon it was given, 20 by 20 source pixels, "OPEN
   ANNIHILATION SETTINGS" and the version, with "Shared game - still
   running" in amber while a shared game keeps running;
-- the sections down the left (Controls, Engine Limits, Language & Text,
-  Graphics, User Interface, Accessibility, Touch while the game has touch
-  controls, Controller once a gamepad has sent input, and Game files where
-  the host lists it, then Downloads, Updates, Game Content, then System),
-  Developer at the foot after a line, the open one marked;
+- the sections down the left in four groups, a hairline between two: what
+  the player plays with (Controls, Accessibility, Touch while the game has
+  touch controls, Controller once a gamepad has sent input), how the game
+  looks (Graphics, User Interface, Language & Text), what it holds and
+  fetches (Game files where the host lists it, Downloads, Updates, Game
+  Content), and the machine and the engine (Engine Limits, System,
+  Developer); each entry a line icon (`src/section_icons.cpp`) and its
+  name, the open one on the selected ground with the lime marker, Updates
+  with the update's progress at its right while the host gives one
+  (`Dialog::updates_badge`);
 - the open section's heading and rows: a label, a hint of one or two lines,
   and an Off/On switch, a level strip (Off, 2x, 4x, 8x, 16x for Enhanced
   anti-aliasing; Off, Basic, Full for Hardware acceleration; Automatic,
@@ -489,25 +497,24 @@ edge and hairline rules, and one green accent for what is selected:
   choice, and Button prompts): a field showing the choice, with an arrow at
   its right; a text row shows only text under its label (Where the files
   are, and Controller's Steam Input notice of up to four lines);
-- Restore defaults, Cancel and OK along the bottom.
+- the footer, Kit 2's band: RESTORE DEFAULTS at its left, in the small
+  font's tracked capitals as a window's own action keeps them, then how
+  many settings the dialog shows changed ("1 setting changed", "{count}
+  settings changed", `changed_settings_count`; nothing while none did),
+  right against Cancel and OK.
 
 A section holds any number of rows. They lie in a view under the section's
 heading, from the first row's line at pixel row 54 down to the pixel row
-above the footer's line, 236 pixels high; the header, the list, the heading
+above the footer's line, 220 pixels high at Compact; the header, the list, the heading
 and the footer never move. A section whose rows, with 8 clear pixels under
 the last row's line, are taller than the view scrolls by whole source
 pixels, and shows a scroll bar in the margin right of its rows: a well like
 a switch's, its thumb as tall as the view's share of the section and never
-under 16 pixels. Graphics, with twenty-one rows, is taller than its view by
-972 pixels, Language & Text, with the Language drop-down, four switches and
-the Text size slider, by 129, User Interface, with its three switches, Menu
-scaling's strip and Interface size's drop-down, by 88, Touch, with its
-three strips, the Hold delay slider and two switches, by 121, and Controls,
-with Key layout, Show keys on buttons, Mouse wheel zoom, the two zoom
-drop-downs, View past the map's edge, Middle-click pans, Window edge and
-Edge stickiness, by 326; Engine Limits fits, its three sliders
-in 216 pixels, and draws as if there were no scrolling,
-with no bar. While the dialog's words are drawn in the modern fonts, as in
+under 16 pixels. At Compact, Graphics is taller than its view by 988
+pixels, Controls, with the key layout card, by 383, User Interface, with
+Window size and Reset window positions, by 230, Language & Text by 204,
+Engine Limits by 149 and Touch by 137; a section that fits draws as if
+there were no scrolling, with no bar. While the dialog's words are drawn in the modern fonts, as in
 Simplified Chinese, whose ideographs stand as tall as a hint line, the
 lines of a hint or a notice lie three pixels further apart
 (`tall_hint_line_gap`), clear of each other: each row with such lines is
@@ -542,11 +549,16 @@ their numbers in every dialog (a mod's options' 0 to 4). Restore defaults
 is 14, Cancel 15, OK 16, the scroll bar 17, and the open section's rows
 from 18, with no upper end. The list draws its entries by their place in
 the list it shows, and the focus walks that list. Downloads, Updates, Game
-Content, System and Accessibility are always in that list. At Compact, the
-list of fourteen sections (Touch, Controller and Game files all listed)
-scrolls, the open entry kept in view and Developer pinned under the
-divider. A shorter list keeps gaps while the gapped entries fit, and no
-gaps once they would pass the divider.
+Content, System and Accessibility are always in that list. The list
+stands in four groups, a hairline between each: Controls, Accessibility,
+Touch and Controller; Graphics, User Interface and Language & Text; Game
+files, Downloads, Updates and Game Content; Engine Limits, System and
+Developer (`geometry::nav_group`, `nav_layout`). Each entry draws its icon
+(`section_icons.cpp`) left of its name, lit while the entry is open or
+under the pointer. Updates shows `Dialog::updates_badge`, the host's short
+word for an update under way, at its right where the name still fits
+whole. At Compact a list of twelve entries or more is taller than the rail
+and scrolls by the wheel, the open entry (or the focused one) kept in view.
 
 The Touch section is listed only while the game has touch controls:
 `Dialog::touch`, which the host gives `open_dialog` and keeps with
@@ -773,6 +785,52 @@ never show or move it. A key that moves the focus onto a row, or acts on a
 focused row, first scrolls the least that shows the row whole; a key that
 moves it to a button or a section's entry does not scroll.
 
+### The key layout card
+
+Controls' first row is a card (`cards::key_card`, `src/cards.cpp`), across
+the section under the row's line. It shows the keyboard tile, the eyebrow
+"Key layout", the layout's name (`Dialog::key_layout_name`, wrapped, never
+cut), a badge counting the player's own changes to it
+(`Dialog::key_layout_changes`: "1 change of your own", "{count} changes of
+your own"; none while there are none), where it applies ("Applies to every
+game.", or "Applies with {mod} only." while the mod played chooses its own,
+`Dialog::key_layout_mod_only`) and how a match shows the keys ("Ctrl+/ in a
+match shows the keys.", Cmd on a Mac). Its buttons, Change layout… and Edit
+keys…, stand right of the words while the words keep at least 120 points,
+and under them where they do not. Change layout… shows only where the
+Library opens over the dialog (`Dialog::library_link`) and opens it on Keys
+(`change_layout_control`); Edit keys… is the row's own control and returns
+`DialogAction::edit_keys`. The host fills the name, the count and where it
+applies each time the dialog opens and after the key editor or the Library
+closes.
+
+### The practice pad
+
+Accessibility shows a pad (`cards::practice_pad`) where the player tries
+the helpers the section shows: in a column right of the rows at Regular and
+Large (200 and 260 points), and under the last row at Compact. It has the
+eyebrow "Try it here", what to try with the helpers that are on (Sticky
+modifiers: "Tap Shift, then press A."), a well with the keys held, latched
+or locked as keycaps, what the last key did (latched, locked, let go,
+counted, too short for Slow keys, bounced, held long enough or let go too
+soon for Hold to confirm), Hold to confirm's bar while that helper is on,
+and Turn every helper off (`helpers_off_control`), which turns Sticky
+modifiers, Hold to confirm, Slow keys, Bounce keys, the Order wheel and
+Pointer keys off and lets go of the pad's keys; it is greyed while all of
+them are off. The host hands the pad keys with `dialog_practice_key` and
+time with `dialog_practice_tick`; both do nothing outside Accessibility.
+Keys pressed on the pad never reach the game.
+
+### The footer's count
+
+The footer counts the settings the dialog shows changed from what it
+opened with (`changed_settings_count`): each setting it would store
+differently, the install IDs' switches, Welcome setup's Show again and the
+registered pages' own writes; on a mod's options page, each option whose
+value reads differently. It shows "1 setting changed" or "{count} settings
+changed" right against Cancel, wrapping to two lines in the small font
+where one does not fit, and nothing while none changed.
+
 ## Sizes
 
 The dialog, its notices and its prompts are laid out in points, one point a
@@ -788,15 +846,21 @@ the UI kit's metrics (`kit::compact_metrics`, `kit::regular_metrics`,
 |---|---|---|---|
 | Used for room of | below 960 by 540 points | from 960 by 540 | from 1280 by 720 |
 | Settings dialog | 480 by 324 | 720 by 486 | 960 by 600 |
-| Padding | 12 | 16 | 20 |
+| Padding | 12 | 18 | 24 |
 | Section list's width | 144 | 176 | 208 |
+| Section entry's height | 19 | 25 | 32 |
+| Footer's buttons' height | 28 | 34 | 38 |
+| Footer's height | 48 | 48 | 48 |
 | Characters a line of a host's text under a row | 50 | 82 | 114 |
 | Notice's and prompt's width | 400 | 520 | 600 |
 | Notice's and prompt's greatest height | 440 | 500 | 640 |
 | Notice's and prompt's least height | 150 | 150 | 150 |
 
-Compact is 0.7.3's dialog exactly: `src/geometry.hpp`'s constants are its
-values, and the pixel pins (`ui-engine-settings-pixels`) hold it. Every other
+The sizes are Kit 2's metrics (`kit::Metrics::window_padding`,
+`nav_width`, `control_height`, `window_footer_height`, `space`); the
+section list's own entry heights and icon places are
+`geometry::nav_metrics`. The pixel pins (`ui-engine-settings-pixels`) hold
+Compact. The window's header stays the kit's 26 rows at every class. Every other
 size is the same in all three classes: rows keep their height, and text,
 switches, strips, drop-down fields, buttons and the slider's line keep
 theirs, so a larger dialog shows more rows and scrolls less
@@ -805,8 +869,8 @@ ends the padding short of the right edge; a section's rows and Developer's
 list take its width, a slider's track running across it, and
 the body between the header's and the footer's rules. The header's mark,
 title and version keep their Compact distances from the dialog's edges,
-the footer's buttons keep their sizes and order, Restore defaults at the
-padding from the left. A hint keeps its lines; the host's own texts
+the footer's buttons keep their order, Restore defaults at the
+padding from the left, each at least as wide as its caption needs. A hint keeps its lines; the host's own texts
 under a row (Controller's Steam Input notice, where the game files are)
 break at the class's characters. A drop-down's open list opens over its
 field when it would pass the class's footer line. A notice's or a prompt's
@@ -1379,7 +1443,7 @@ lock, and lists that scroll or open over their field;
 the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
 locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
-the requests to try the graphics card afresh; User Interface's five rows, Menu scaling, Window frame, HUD scaling, Interface size and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's thirteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while EDIT KEYS… stays on All, and each change applying at once; Interface size's drop-down
+the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's thirteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×
 with every pixel painted whole; on sections of the test's own taller than the
@@ -1490,6 +1554,15 @@ dialog's own; listing them to automation, with
 `oa.` before each and the parts of a switch, a strip, an open drop-down and
 Your files' buttons, is U11's, which also gives a drop-down's items ids of
 their own in place of their numbers.
+
+The practice pad answers keys only where the host hands them over
+(`dialog_practice_key`, `dialog_practice_tick`); the OA layer's settings
+screen does not yet, so on screen the pad shows its words and Turn every
+helper off works, but a key pressed there does nothing. The window's header
+is the kit's 26 rows, not Kit 2's 36, until the kit's header takes a
+height. The rows' older buttons (CHOOSE…, MANAGE…, SHOW, RESET and the
+like) keep their capitals until their words and translations change
+together.
 
 ## The missing-language notice
 
