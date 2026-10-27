@@ -83,6 +83,8 @@ struct Runtime::UpdateState {
     /// that each update screen can be drawn in each state. Only the pictures
     /// case of --check-update-download sets it.
     std::optional<update::CentreInputs> pictured;
+    /// The ready prompt was queued for this release. A match clears it.
+    std::optional<int64_t> ready_prompt_release;
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
     /// The package download. Empty until one is started.
     std::unique_ptr<update::PackageDownload> download;
@@ -104,8 +106,6 @@ struct Runtime::UpdateState {
     bool logged_route = false;
     /// The version that is running, for the plan's kept-version line.
     std::string from_version;
-    /// The ready prompt was queued for this release. A match clears it.
-    std::optional<int64_t> ready_prompt_release;
     /// Starts the helper. Null records the start instead of making it.
     bool (*start_helper)(
         void* context,

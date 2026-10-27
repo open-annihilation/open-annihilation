@@ -91,12 +91,12 @@ namespace update = oa::app::update;
 /// The ready prompt's word, so it is not the update question.
 constexpr std::string_view kReadyWord = "ready-update";
 /// Keep it ready, the button Escape answers: nothing is scheduled.
-constexpr int32_t kKeepReady = 0;
+[[maybe_unused]] constexpr int32_t kKeepReady = 0;
 /// The install-now button, named for the route.
-constexpr int32_t kInstallNow = 1;
+[[maybe_unused]] constexpr int32_t kInstallNow = 1;
 /// Install when I quit, the primary button: the release installs the next
 /// time the game quits.
-constexpr int32_t kWhenIQuit = 2;
+[[maybe_unused]] constexpr int32_t kWhenIQuit = 2;
 /// The receipt notice's word on the layer.
 constexpr std::string_view kReceiptWord = "update-receipt";
 /// The heading of the box that lists the receipt's steps.
@@ -118,7 +118,7 @@ constexpr std::string_view kNeverChecks = "OA never checks";
 /// The badge beside Updates in Settings' section list while a release is ready.
 constexpr std::string_view kReadyBadge = "ready";
 /// The ready prompt's heading over its three answers.
-constexpr std::string_view kWhenShouldItGoIn = "When should it go in?";
+[[maybe_unused]] constexpr std::string_view kWhenShouldItGoIn = "When should it go in?";
 /// A receipt left running this long was cut short, in seconds. A younger one
 /// may belong to a helper that is still at work.
 constexpr int64_t kReceiptCutShortSeconds = 600;
@@ -126,15 +126,15 @@ constexpr int64_t kReceiptCutShortSeconds = 600;
 constexpr std::string_view kUpdatedNotice = "updated-notice";
 
 /// The title of the ready prompt.
-constexpr std::string_view kReadyTitle = "Open Annihilation {version} is ready";
+[[maybe_unused]] constexpr std::string_view kReadyTitle = "Open Annihilation {version} is ready";
 /// The helper's window title. {version} is the release being installed.
-constexpr std::string_view kInstalling = "Installing {version}";
+[[maybe_unused]] constexpr std::string_view kInstalling = "Installing {version}";
 /// The helper's window line. {version} is the version that is running.
-constexpr std::string_view kKept =
+[[maybe_unused]] constexpr std::string_view kKept =
     "{version} is kept, in case you want it back. The game starts again by itself.";
 /// The helper's window line when Installer will put the app in Applications.
 /// {version} is the release being installed.
-constexpr std::string_view kInstallerWill =
+[[maybe_unused]] constexpr std::string_view kInstallerWill =
     "Installer will put {version} in Applications. Start it from there when it finishes.";
 /// The Updated notice's title. {version} is this build.
 constexpr std::string_view kUpdatedTo = "Updated to {version}";
@@ -157,7 +157,7 @@ constexpr std::string_view kYouWentBack = "You went back to {old}, with the sett
 constexpr std::string_view kNewWont =
     "{new} won't be offered again until a newer release, or choose it in Settings › Updates.";
 /// The helper's title for a roll back. {version} is the one being restored.
-constexpr std::string_view kGoingBack = "Going back to {version}";
+[[maybe_unused]] constexpr std::string_view kGoingBack = "Going back to {version}";
 /// SHOW THE LOG, and the button that leaves the question up.
 constexpr int32_t kShowTheLog = 0;
 /// OK, the button Escape answers.
@@ -185,7 +185,7 @@ std::string_view english_word(void* /*context*/, std::string_view english) {
 /// True when this machine is a Steam Deck or this run is in Steam Game Mode.
 ///
 /// @return true when the update installs at the next start
-bool installs_at_next_start() {
+[[maybe_unused]] bool installs_at_next_start() {
     return oa::platform::running_steam_deck_model() != oa::platform::SteamDeckModel::none ||
            oa::platform::running_in_steam_game_mode();
 }
@@ -203,7 +203,7 @@ library::TextHooks shown_hooks() {
 /// language stays English: the helper draws with the fonts the game ships.
 ///
 /// @return the hooks
-library::TextHooks plan_hooks() {
+[[maybe_unused]] library::TextHooks plan_hooks() {
     const languages::Language& shown = languages::interface_language();
     if (shown.source == languages::Source::built_in || shown.tag == "en")
         return shown_hooks();
@@ -220,7 +220,7 @@ update::ThisBuild running_build() {
 }
 
 /// The folder that holds this program. Empty when it cannot be named.
-fs::path program_folder() {
+[[maybe_unused]] fs::path program_folder() {
     const char* const base = SDL_GetBasePath();
     if (base == nullptr)
         return {};
@@ -241,7 +241,7 @@ std::optional<fs::path> updates_folder(const Options& options, std::string& fail
 
 /// An absolute path as UTF-8. A path the system cannot make absolute is
 /// returned as it was given.
-std::string absolute_utf8(const fs::path& path) {
+[[maybe_unused]] std::string absolute_utf8(const fs::path& path) {
     std::error_code error;
     const fs::path full = fs::absolute(path, error);
     if (error || full.empty())
@@ -250,7 +250,7 @@ std::string absolute_utf8(const fs::path& path) {
 }
 
 /// This process's id, for the plan's wait.
-int64_t own_process() noexcept {
+[[maybe_unused]] int64_t own_process() noexcept {
 #ifdef _WIN32
     return static_cast<int64_t>(GetCurrentProcessId());
 #else
@@ -743,7 +743,7 @@ class UpdatePillScreen final : public LayerScreen {
 };
 
 /// The ready prompt, up or waiting.
-bool ready_question_queued(OaLayer& layer) {
+[[maybe_unused]] bool ready_question_queued(OaLayer& layer) {
     return is_ready_question(layer.find(QuestionScreen::screen_name)) ||
            is_ready_question(layer.waiting(QuestionScreen::screen_name));
 }

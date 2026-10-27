@@ -60,7 +60,7 @@ namespace feed = oa::data::engine_feed;
 namespace {
 
 constexpr std::string_view kKeyId = "update-download-check";
-constexpr std::string_view kOfferedVersion = "9.9.9";
+[[maybe_unused]] constexpr std::string_view kOfferedVersion = "9.9.9";
 /// The second answer waits this long, so a skirmish can start before its body.
 constexpr uint32_t kHeadDelayMs = 18000;
 
@@ -71,7 +71,7 @@ void require(bool ok, std::string_view what) {
 }
 
 /// Bytes with a pattern a wrong file cannot share by accident.
-std::vector<uint8_t> patterned(std::size_t size, uint8_t seed) {
+[[maybe_unused]] std::vector<uint8_t> patterned(std::size_t size, uint8_t seed) {
     std::vector<uint8_t> bytes(size);
     for (std::size_t index = 0; index < size; ++index)
         bytes[index] = static_cast<uint8_t>(seed + static_cast<uint8_t>(index * 17U));
@@ -79,13 +79,13 @@ std::vector<uint8_t> patterned(std::size_t size, uint8_t seed) {
 }
 
 /// The hex SHA-256 of `bytes`.
-std::string sha256_hex(const std::vector<uint8_t>& bytes) {
+[[maybe_unused]] std::string sha256_hex(const std::vector<uint8_t>& bytes) {
     const auto hex = sha::to_hex(sha::digest_of(bytes));
     return std::string(hex.begin(), hex.end());
 }
 
 /// One release of the stable feed. `mirror` ends in a slash.
-std::string feed_json(
+[[maybe_unused]] std::string feed_json(
     int64_t release,
     std::string_view version,
     std::string_view package,
@@ -119,7 +119,7 @@ struct SignedFeed {
     std::string key_text;
 };
 
-SignedFeed sign_feed(std::string_view json, uint8_t fill) {
+[[maybe_unused]] SignedFeed sign_feed(std::string_view json, uint8_t fill) {
     std::array<uint8_t, 32> seed{};
     seed.fill(fill);
     signing::SecretKey secret{};
@@ -159,7 +159,7 @@ bool is_zip(const fixture::LoggedRequest& request) {
 }
 
 /// How many package requests the server has logged.
-int zip_count(const fixture::Server& server) {
+[[maybe_unused]] int zip_count(const fixture::Server& server) {
     int count = 0;
     for (const fixture::LoggedRequest& request : server.requests())
         if (is_zip(request))
@@ -168,7 +168,7 @@ int zip_count(const fixture::Server& server) {
 }
 
 /// True once a package request asked for a range.
-bool zip_ranged(const fixture::Server& server) {
+[[maybe_unused]] bool zip_ranged(const fixture::Server& server) {
     for (const fixture::LoggedRequest& request : server.requests()) {
         if (!is_zip(request))
             continue;
@@ -180,7 +180,7 @@ bool zip_ranged(const fixture::Server& server) {
 }
 
 /// One answer of a range, named by the first byte it sends.
-fixture::Reply partial_reply(const std::vector<uint8_t>& file, std::size_t first) {
+[[maybe_unused]] fixture::Reply partial_reply(const std::vector<uint8_t>& file, std::size_t first) {
     fixture::Reply reply;
     reply.status = 206;
     reply.head_delay_ms = kHeadDelayMs;
@@ -289,7 +289,7 @@ int Runtime::check_update_download() {
         pointer(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT);
         idle_tick();
     };
-    const auto press_escape = [&]() {
+    [[maybe_unused]] const auto press_escape = [&]() {
         SDL_Event event{};
         event.key.windowID = SDL_GetWindowID(sdl_.window);
         event.key.key = SDLK_ESCAPE;
