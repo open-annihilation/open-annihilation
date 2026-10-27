@@ -364,6 +364,21 @@ void the_failure_line_follows_the_journal() {
     );
 }
 
+void the_roll_back_failure_line_follows_the_journal() {
+    Scratch scratch("roll-back-failure-line");
+    const fs::path updates = scratch.path / "updates";
+    fs::create_directories(updates);
+    OA_CHECK(
+        std::string(helper::line_after_failed_roll_back(updates)) ==
+        "The roll back failed. Nothing was changed."
+    );
+    write_file(updates / "journal.json", "{}");
+    OA_CHECK(
+        std::string(helper::line_after_failed_roll_back(updates)) ==
+        "The roll back failed. The game could not be put back."
+    );
+}
+
 void a_failed_setup_leaves_the_helper_alone() {
     Scratch scratch("failed-setup");
     const fs::path install = scratch.path / "Open Annihilation";
@@ -566,6 +581,7 @@ void test_windows_routes() {
     installer_operations();
     folder_operations();
     the_failure_line_follows_the_journal();
+    the_roll_back_failure_line_follows_the_journal();
     a_failed_setup_leaves_the_helper_alone();
     restore_and_markers();
     journal_restores_the_folder_and_the_installer();

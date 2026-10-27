@@ -421,7 +421,7 @@ int restore_kept(
     const JournalResult applied = apply_journal(updates, operations, hooks, &error);
     if (applied != JournalResult::finished) {
         log.line(error.empty() ? "a step failed" : error);
-        window.show(title, could_not_check, 0, true);
+        window.show(title, line_after_failed_roll_back(updates), 0, true);
         start_old(plan, log, window, start_game);
         return exit_undone;
     }

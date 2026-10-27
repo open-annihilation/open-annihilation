@@ -134,7 +134,9 @@ version was swapped in. The bad release is not offered again. Saves, mods,
 the user folder and installed content stay where they are. The old version
 says "Back on {version}", with SHOW THE LOG and OK. Settings › Updates
 shows Previous version while one is kept, and ROLL BACK asks once, then
-restores the same way.
+restores the same way. A roll back that fails undoes what it had done and
+says "The roll back failed. Nothing was changed.", or, when that undo does
+not finish, "The roll back failed. The game could not be put back."
 
 ## Turning it off
 

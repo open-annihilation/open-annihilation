@@ -57,6 +57,29 @@ line_after_failed_change(const std::filesystem::path& updates) {
     return update_failed_put_back;
 }
 
+/// The sentence the window shows when a roll back fails and the steps it
+/// had finished were undone, so the version that was running stays.
+inline constexpr std::string_view roll_back_failed_kept =
+    "The roll back failed. Nothing was changed.";
+
+/// The sentence the window shows when a roll back fails and the steps it
+/// had finished could not be undone.
+inline constexpr std::string_view roll_back_failed_not_put_back =
+    "The roll back failed. The game could not be put back.";
+
+/// The window line after a roll back has started changing files and then
+/// failed, read from the journal as line_after_failed_change reads it.
+///
+/// @param updates the data folder's updates directory
+/// @return the sentence
+[[nodiscard]] inline std::string_view
+line_after_failed_roll_back(const std::filesystem::path& updates) {
+    std::error_code io;
+    if (std::filesystem::is_regular_file(updates / "journal.json", io) && !io)
+        return roll_back_failed_not_put_back;
+    return roll_back_failed_kept;
+}
+
 /// Replaces the kept preferences copy and records the kept version.
 ///
 /// An existing `updates/previous/preferences.conf` is moved aside before the
