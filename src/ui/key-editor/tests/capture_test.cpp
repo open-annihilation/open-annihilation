@@ -651,7 +651,7 @@ void clash_row_words() {
     expect(move != nullptr && move->checked, "Move it is not the marked outcome");
     expect(swap != nullptr && !swap->checked, "Swap them is missing or marked");
     expect(
-        move != nullptr && move->text.find("Select builders: no key") != std::string::npos,
+        move != nullptr && move->text.find("Select builders: No key") != std::string::npos,
         "Move it does not leave Select builders with no key"
     );
     expect(
@@ -881,7 +881,7 @@ void card_choices() {
     expect(keep_there != nullptr, "Keep it for Select builders is not shown");
     expect(
         keep_here != nullptr &&
-            keep_here->text.find("Select builders: no key") != std::string::npos,
+            keep_here->text.find("Select builders: No key") != std::string::npos,
         "Keep it for Select all does not leave Select builders with no key"
     );
     if (const std::optional<kit::Point> there_at = centre_named(list, editor::name_card_there))

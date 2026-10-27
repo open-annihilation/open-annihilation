@@ -380,8 +380,8 @@ void test_question() {
         if (asked.paragraphs.size() == 2) {
             OA_CHECK_TEXT(
                 asked.paragraphs[0].text,
-                "Uninstall Ridge? Its folder, Mods/ridge, is removed, and with it the copy ROLL "
-                "BACK keeps."
+                "Uninstall Ridge? Its folder, Mods/ridge, is removed, and with it the copy Roll "
+                "back keeps."
             );
             OA_CHECK_TEXT(asked.paragraphs[1].text, "Get installs it again.");
             OA_CHECK(!asked.paragraphs[0].path && !asked.paragraphs[1].path);

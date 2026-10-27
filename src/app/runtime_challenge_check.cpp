@@ -209,7 +209,7 @@ void Runtime::check_challenge() {
     const kit::DisplayList expired = screen->display_list();
     const kit::Control* try_again =
         kit::control_of(expired, kit::control_named(expired, "challenge.try-again"));
-    require(try_again != nullptr && try_again->text == "TRY AGAIN", "TRY AGAIN is not shown");
+    require(try_again != nullptr && try_again->text == "Try again", "Try again is not shown");
     require(
         kit::control_named(expired, "challenge.open") == kit::no_control,
         "OPEN THE CHECK is shown after the check ran out"
