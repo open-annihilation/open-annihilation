@@ -71,8 +71,8 @@ constexpr int kUltrawideHeight = 1080;
 
 /// A window the in-match dialog is checked on, with HUD scaling On or Off,
 /// and the size class and whole scale the dialog takes there: the points of
-/// the area right of the side column at the layer's scale, capped by the
-/// column's.
+/// the window's whole safe area at the layer's scale, capped by the
+/// column's (OaLayer::match_dialog).
 struct MatchWindow {
     int width{};                                        ///< the window's width, in pixels
     int height{};                                       ///< the window's height, in pixels
@@ -83,11 +83,15 @@ struct MatchWindow {
 
 /// The windows the in-match dialog is checked on: 640x480, 1280x720,
 /// 1920x1080 and 2560x1080 with HUD scaling On, and 1920x1080 with it Off.
+/// Only 640x480 is Compact; 1920x1080 and 2560x1080 would be Regular at 2x,
+/// so Auto steps down to Large at 1x. On each the dialog clears the side
+/// column: centred right of it at 640x480 and 1280x720, centred in the
+/// window on the wider ones.
 constexpr std::array<MatchWindow, 5> kMatchWindows{{
     {640, 480, true, kit::SizeClass::compact, 1},
-    {1280, 720, true, kit::SizeClass::regular, 1},
-    {kDefaultWindowWidth, kDefaultWindowHeight, true, kit::SizeClass::compact, 2},
-    {kUltrawideWidth, kUltrawideHeight, true, kit::SizeClass::regular, 2},
+    {1280, 720, true, kit::SizeClass::large, 1},
+    {kDefaultWindowWidth, kDefaultWindowHeight, true, kit::SizeClass::large, 1},
+    {kUltrawideWidth, kUltrawideHeight, true, kit::SizeClass::large, 1},
     {kDefaultWindowWidth, kDefaultWindowHeight, false, kit::SizeClass::large, 1},
 }};
 
@@ -516,7 +520,9 @@ void Runtime::check_engine_settings_in_match() {
         const auto& fonts = *engine_settings_fonts();
         const auto button = OaLayer::match_button_rect(match_layout_);
         // The dialog at its class and scale, its class's points at the scale
-        // centred right of the column.
+        // centred in the window, or centred right of the column where the
+        // window's centre would cover part of it and the area beside it
+        // holds the dialog.
         const auto in_match =
             OaLayer::match_dialog(match_layout_, oa_layer().view().interface_percent);
         const auto& dialog_at = in_match.shown;
@@ -531,11 +537,17 @@ void Runtime::check_engine_settings_in_match() {
                 std::string(size_class_name(checked.size_class)) + " at " +
                 std::to_string(checked.scale) + "x" + on
         );
+        const int beside_width = width - match_layout_.left;
+        const int centred_x = (width - face_width) / 2;
+        const int expected_x = centred_x < match_layout_.left && beside_width >= face_width
+                                   ? match_layout_.left + (beside_width - face_width) / 2
+                                   : centred_x;
         require(
             dialog_at.width == face_width && dialog_at.height == face_height &&
-                dialog_at.x == match_layout_.left + (width - match_layout_.left - face_width) / 2 &&
-                dialog_at.y == (height - face_height) / 2,
-            "the dialog is not its class's points at its scale centred right of the column" + on
+                dialog_at.x == expected_x && dialog_at.y == (height - face_height) / 2,
+            "the dialog is not its class's points at its scale centred in the window, or right "
+            "of the column" +
+                on
         );
         require(
             button.y + button.height <= match_layout_.hud_height && button.x >= 0 &&
@@ -545,7 +557,7 @@ void Runtime::check_engine_settings_in_match() {
         require(
             dialog_at.x >= match_layout_.left && dialog_at.y >= 0 &&
                 dialog_at.x + dialog_at.width <= width && dialog_at.y + dialog_at.height <= height,
-            "the dialog leaves the area right of the column" + on
+            "the dialog covers the side column" + on
         );
 
         // In play the column and the button are hidden, and a press on the
@@ -1172,22 +1184,24 @@ void Runtime::check_engine_settings_in_match() {
                   << "%, dialog " << started.shown.width << 'x' << started.shown.height << '\n';
         require(
             window_width == kWide && window_height == kTall && match_layout_.width == kWide &&
-                match_layout_.height == kTall && started.size_class == kit::SizeClass::compact &&
-                started.scale_percent == 200 && started.shown.width == 960 &&
-                started.shown.height == 648,
-            "Auto at the start of a 2103x1181 game is not Compact at 200%, dialog 960x648"
+                match_layout_.height == kTall && started.size_class == kit::SizeClass::large &&
+                started.scale_percent == 100 && started.shown.width == 960 &&
+                started.shown.height == 600,
+            "Auto at the start of a 2103x1181 game is not Large at 100%, dialog 960x600"
         );
         // The modern fonts are Off with the check's named preferences file, so
-        // the lines above are whole steps. On, 1181 lines is 150% and the room
-        // beside the column is Regular. Off again, the whole-step scale returns.
+        // the lines above are whole steps: 2x would leave 1051 by 590 points,
+        // Regular, and Auto steps down to Large at 1x. On, 1181 lines is 150%
+        // and the window's 1402 by 787 points Large. Off again, the
+        // whole-step scale returns.
         engine_settings_state().current.modern_fonts = true;
         require(oa_layer().smooth_fonts() != nullptr, "the modern fonts did not open");
         const auto fractional = read_dialog();
         require(
-            fractional.size_class == kit::SizeClass::regular && fractional.scale_percent == 150 &&
-                fractional.shown.width == 1080 && fractional.shown.height == 729,
-            "Auto with the modern fonts On at the start of a 2103x1181 game is not Regular at "
-            "150%, dialog 1080x729"
+            fractional.size_class == kit::SizeClass::large && fractional.scale_percent == 150 &&
+                fractional.shown.width == 1440 && fractional.shown.height == 900,
+            "Auto with the modern fonts On at the start of a 2103x1181 game is not Large at "
+            "150%, dialog 1440x900"
         );
         std::cout << "engine settings check: Interface size Auto with the modern fonts On is "
                   << size_class_name(fractional.size_class) << " at " << fractional.scale_percent
@@ -1200,7 +1214,7 @@ void Runtime::check_engine_settings_in_match() {
                 whole_again.scale_percent == started.scale_percent &&
                 whole_again.shown.width == started.shown.width &&
                 whole_again.shown.height == started.shown.height,
-            "Auto with the modern fonts Off is not Compact at 200% again"
+            "Auto with the modern fonts Off is not Large at 100% again"
         );
         // A different size, reported and not yet handled: the scale after
         // following the window equals the scale once the resize is handled.
@@ -1213,7 +1227,7 @@ void Runtime::check_engine_settings_in_match() {
         pump_resize();
         const auto pumped = read_dialog();
         require(
-            followed.size_class == kit::SizeClass::regular && followed.scale_percent == 100 &&
+            followed.size_class == kit::SizeClass::large && followed.scale_percent == 100 &&
                 followed.size_class == pumped.size_class &&
                 followed.scale_percent == pumped.scale_percent &&
                 followed.shown.width == pumped.shown.width &&
@@ -1241,9 +1255,10 @@ void Runtime::check_engine_settings_in_match() {
                   << 'x' << kTall << " is " << size_class_name(returned.size_class) << " at "
                   << returned.scale_percent << "%, dialog " << returned.shown.width << 'x'
                   << returned.shown.height << '\n';
-        // 100%, stepped onto from Auto, redraws the open dialog at once. The
-        // page, the focus and the scroll stay, and the preference is kept
-        // for OK. Escape puts Auto back.
+        // 200%, two steps on from Auto past 100% (150% is not offered with
+        // the modern fonts Off), redraws the open dialog at once: Regular at
+        // 2x, 1051 by 590 points. The page, the focus and the scroll stay,
+        // and the preference is kept for OK. Escape puts Auto back.
         const std::string preference_before = preference_of();
         open_engine_settings_in_match();
         require(engine_settings_dialog() != nullptr, "the settings did not open in the game");
@@ -1260,26 +1275,27 @@ void Runtime::check_engine_settings_in_match() {
         const auto scroll_index = static_cast<std::size_t>(settings::Page::user_interface);
         const int32_t scroll_before = dialog->scroll[scroll_index];
         tap_key(SDLK_RIGHT, SDL_KMOD_NONE);
+        tap_key(SDLK_RIGHT, SDL_KMOD_NONE);
         dialog = engine_settings_dialog();
         const auto chosen_place = read_dialog();
-        require(dialog != nullptr, "choosing Interface size 100% closed the dialog");
+        require(dialog != nullptr, "choosing Interface size 200% closed the dialog");
         const int32_t limit_now = settings::scroll_limit(*dialog);
         const int32_t shown_scroll =
             std::clamp(dialog->scroll[scroll_index], int32_t{0}, limit_now);
         require(
             dialog->page == settings::Page::user_interface && dialog->focused == size_row &&
-                dialog->chosen.interface_size == settings::InterfaceSize::size_100 &&
-                engine_settings().interface_size == settings::InterfaceSize::size_100 &&
-                dialog->size_class == kit::SizeClass::large &&
-                chosen_place.size_class == kit::SizeClass::large &&
-                chosen_place.scale_percent == 100 && chosen_place.shown.width == 960 &&
-                chosen_place.shown.height == 600 &&
+                dialog->chosen.interface_size == settings::InterfaceSize::size_200 &&
+                engine_settings().interface_size == settings::InterfaceSize::size_200 &&
+                dialog->size_class == kit::SizeClass::regular &&
+                chosen_place.size_class == kit::SizeClass::regular &&
+                chosen_place.scale_percent == 200 && chosen_place.shown.width == 1440 &&
+                chosen_place.shown.height == 972 &&
                 (dialog->scroll[scroll_index] == scroll_before ||
                  shown_scroll == std::min(scroll_before, limit_now)) &&
                 preference_of() == preference_before,
-            "Interface size 100% in a game did not take effect at once on its row"
+            "Interface size 200% in a game did not take effect at once on its row"
         );
-        std::cout << "engine settings check: Interface size 100% in a game takes effect at once, "
+        std::cout << "engine settings check: Interface size 200% in a game takes effect at once, "
                      "dialog "
                   << chosen_place.shown.width << 'x' << chosen_place.shown.height << '\n';
         tap_key(SDLK_ESCAPE, SDL_KMOD_NONE);

@@ -3,8 +3,9 @@
 
 // Helpers for the native checks of the OA layer's screens as the window
 // shows them (oa_layer_check.hpp), the checks' mark screen, and the layer's
-// own check of screens that are not opaque and of the information key
-// (OaLayer::check_clear_screens), which --check-engine-settings runs.
+// own check of screens that are not opaque, of the information key and of
+// Settings moved by its title (OaLayer::check_clear_screens), which
+// --check-engine-settings runs.
 
 #include "oa_layer_check.hpp"
 
@@ -333,8 +334,9 @@ struct CheckWindow {
     int32_t scale{};  ///< window pixels a point
 };
 
-/// The windows: the picture's own 640 by 480, and 1920 by 1080 at 2×.
-constexpr std::array<CheckWindow, 2> kCheckWindows{{{640, 480, 1}, {1920, 1080, 2}}};
+/// The windows: the picture's own 640 by 480, and 2560 by 1440 at 2×, where
+/// Auto stays at 2× for Large.
+constexpr std::array<CheckWindow, 2> kCheckWindows{{{640, 480, 1}, {2560, 1440, 2}}};
 
 /// The colour of the marks of the screens that are not opaque.
 constexpr artless::Rgb kClearColour{0xe0, 0x38, 0xb0};
@@ -1076,6 +1078,116 @@ void OaLayer::check_clear_screens() {
         runtime_.leave_match();
         std::cout << "OA layer check: in a match F1 goes on to the game, and a screen that is not "
                      "opaque changes only the pixels it draws\n";
+    }
+
+    // Settings moves by its title on the main menu of a 640 by 480 window,
+    // at 1x, so that its points are the window's pixels: a drag keeps its
+    // place for Compact in the preferences, a double-click on the title
+    // centres it again, Alt and the arrows move it 8 points (32 with Shift),
+    // and Reset window positions puts it back.
+    {
+        require(
+            SDL_SetWindowSize(runtime_.sdl_.window, kCanvasWidth, kCanvasHeight) &&
+                SDL_SyncWindow(runtime_.sdl_.window),
+            "the window did not take 640x480 to move Settings"
+        );
+        runtime_.load(Screen::main_menu);
+        static_cast<void>(reset_window_places());
+        runtime_.open_engine_settings_from_menu();
+        const LayerScreen* settings_screen = find("settings");
+        require(
+            settings_screen != nullptr && runtime_.engine_settings_dialog() != nullptr,
+            "Settings did not open to be moved"
+        );
+        const LayerPlacement centred = placement_of("settings");
+        require(
+            view().scale_percent == 100 && window_offset("settings").x == 0 &&
+                window_offset("settings").y == 0,
+            "Settings is not centred at 1x before it is moved"
+        );
+        // A point of the title that no control holds.
+        const kit::DisplayList list = settings_screen->display_list();
+        const auto header =
+            std::find_if(list.items.begin(), list.items.end(), [](const auto& item) {
+                return item.role == kit::Role::header;
+            });
+        require(header != list.items.end(), "Settings has no title to be moved by");
+        kit::Point grip{-1, -1};
+        for (int32_t x = header->rect.x + 2;
+             x < header->rect.x + header->rect.width - 2 && grip.x < 0;
+             ++x) {
+            const kit::Point at{x, header->rect.y + header->rect.height / 2};
+            if (kit::hit(list, at) == kit::no_control)
+                grip = at;
+        }
+        require(grip.x >= 0, "every point of Settings' title is a control");
+        const std::string key = window_placement::place_key("settings", kit::SizeClass::compact);
+        const auto stored = [this, &key]() -> std::string {
+            const auto found = runtime_.preference_values_.find(key);
+            return found == runtime_.preference_values_.end() ? std::string{} : found->second;
+        };
+        const auto shows_at = [this, &centred](int32_t across, int32_t down) {
+            const LayerPlacement now = placement_of("settings");
+            return now.shown.x == centred.shown.x + across &&
+                   now.shown.y == centred.shown.y + down &&
+                   now.shown.width == centred.shown.width &&
+                   now.shown.height == centred.shown.height;
+        };
+        const layout::Point pressed{centred.shown.x + grip.x, centred.shown.y + grip.y};
+        const layout::Point dropped{pressed.x + 60, pressed.y + 40};
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_MOTION, pressed, 0);
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_BUTTON_DOWN, pressed, SDL_BUTTON_LEFT);
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_MOTION, dropped, 0);
+        runtime_.send_check_pointer(SDL_EVENT_MOUSE_BUTTON_UP, dropped, SDL_BUTTON_LEFT);
+        require(
+            runtime_.engine_settings_dialog() != nullptr && shows_at(60, 40) && stored() == "60,40",
+            "a drag by its title did not move Settings 60 by 40 points and keep its place"
+        );
+        // A double-click on the title centres it again and forgets the place.
+        for (const uint8_t clicks : {uint8_t{1}, uint8_t{2}}) {
+            runtime_.send_check_pointer(
+                SDL_EVENT_MOUSE_BUTTON_DOWN, dropped, SDL_BUTTON_LEFT, clicks
+            );
+            runtime_.send_check_pointer(
+                SDL_EVENT_MOUSE_BUTTON_UP, dropped, SDL_BUTTON_LEFT, clicks
+            );
+        }
+        require(
+            runtime_.engine_settings_dialog() != nullptr && shows_at(0, 0) && stored().empty(),
+            "a double-click on its title did not centre Settings again"
+        );
+        // Alt and the arrows move the window that takes the keys.
+        const auto press = [this](SDL_Keycode code, SDL_Keymod modifiers) {
+            bool running = true;
+            for (const bool down : {true, false}) {
+                SDL_Event event{};
+                event.type = down ? SDL_EVENT_KEY_DOWN : SDL_EVENT_KEY_UP;
+                event.key.windowID = SDL_GetWindowID(runtime_.sdl_.window);
+                event.key.key = code;
+                event.key.scancode = SDL_GetScancodeFromKey(code, nullptr);
+                event.key.mod = modifiers;
+                event.key.down = down;
+                runtime_.dispatch_event(event, running);
+            }
+            require(running, "a key ended the run");
+        };
+        press(SDLK_RIGHT, SDL_KMOD_LALT);
+        press(SDLK_DOWN, static_cast<SDL_Keymod>(SDL_KMOD_LALT | SDL_KMOD_LSHIFT));
+        require(
+            runtime_.engine_settings_dialog() != nullptr && shows_at(8, 32) && stored() == "8,32",
+            "Alt and Right, then Alt, Shift and Down did not move Settings 8 and 32 points"
+        );
+        require(
+            reset_window_places() && shows_at(0, 0) && stored().empty(),
+            "Reset window positions did not centre Settings again"
+        );
+        press(SDLK_ESCAPE, SDL_KMOD_NONE);
+        require(
+            runtime_.engine_settings_dialog() == nullptr, "Escape did not close the moved Settings"
+        );
+        std::cout << "OA layer check: Settings moves by its title and keeps its place, a "
+                     "double-click centres it, Alt and the arrows move it, and a reset puts it "
+                     "back\n";
     }
 
     require(

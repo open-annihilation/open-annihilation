@@ -861,7 +861,7 @@ void Runtime::check_mod_install() {
             titled("UPDATE MOD") && says("revision 1, is installed. Replace it with revision 2"),
             "an update was not asked"
         );
-        // At 1280x720 and 1920x1080 the question is laid out at the window's
+        // At 800x600 and 2560x1440 the question is laid out at the window's
         // class and drawn at its scale, centred over the main menu darkened
         // over the whole window.
         oa_layer().read_whole_window(true);

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-kit-gallery: the UI kit gallery opened from Settings › Developer
-// over the main menu on 640x480, 1280x720 and 1920x1080 windows. At each it
-// is Compact at 1x, Large at 1x and Regular at 2x, covers the window, shows
+// over the main menu on 640x480, 1280x720 and 1920x1080 windows. It is
+// Compact at 1x on the first and Large at 1x on the others, where Auto steps
+// down from 2x at 1920x1080. At each it covers the window, shows
 // exactly the gallery drawn offscreen at that class and scale over the
 // darkened main menu, takes the focus to every control it declares once in
 // Tab's order, and Escape brings Settings › Developer back.
@@ -69,7 +70,7 @@ struct GalleryWindow {
 constexpr std::array<GalleryWindow, 3> kWindows{{
     {kCanvasWidth, kCanvasHeight, kit::SizeClass::compact, 1},
     {1280, 720, kit::SizeClass::large, 1},
-    {1920, 1080, kit::SizeClass::regular, 2},
+    {1920, 1080, kit::SizeClass::large, 1},
 }};
 
 /// Stops the check with a reason unless a condition holds.

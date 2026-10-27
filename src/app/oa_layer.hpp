@@ -1160,6 +1160,10 @@ class OaLayer {
     /// to the game, and such a screen changes no pixel of the match's
     /// picture but those it draws. The match's layer lays a pixel over its
     /// own by its opacity, its colours straight.
+    /// Settings, on a 640 by 480 main menu, moves 60 by 40 points by a drag
+    /// on its title and keeps that place in the preferences, a double-click
+    /// on the title centres it again, Alt and Right then Alt, Shift and Down
+    /// move it 8 and 32 points, and reset_window_places centres it.
     ///
     /// Throws std::runtime_error naming the first thing that failed.
     void check_clear_screens();

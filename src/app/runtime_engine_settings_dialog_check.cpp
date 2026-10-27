@@ -123,7 +123,7 @@ constexpr int32_t kCursorReach = 40;
 /// one, two 16:9 sizes and an ultrawide one.
 constexpr std::array<std::pair<int, int>, 5> kWindowSizes{{
     {640, 480},
-    {1024, 768},
+    {800, 600},
     {1280, 720},
     {1920, 1080},
     {2560, 1080},
@@ -137,14 +137,16 @@ struct WindowLayout {
 };
 
 /// The class and scale each of kWindowSizes gives, in its order: the
-/// design's table of windows. The check's preferences file leaves the
-/// modern fonts Off, so Auto keeps whole steps.
+/// resolution table, Compact only where nothing larger fits. The check's
+/// preferences file leaves the modern fonts Off, so Auto keeps whole steps:
+/// 1920 by 1080 and 2560 by 1080 would be Regular at 2x, so Auto takes the
+/// step down to Large at 1x.
 constexpr std::array<WindowLayout, 5> kWindowLayouts{{
     {oa::ui::kit::SizeClass::compact, 1},
     {oa::ui::kit::SizeClass::regular, 1},
     {oa::ui::kit::SizeClass::large, 1},
-    {oa::ui::kit::SizeClass::regular, 2},
-    {oa::ui::kit::SizeClass::regular, 2},
+    {oa::ui::kit::SizeClass::large, 1},
+    {oa::ui::kit::SizeClass::large, 1},
 }};
 static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each window size");
 
@@ -169,14 +171,14 @@ struct InterfaceSizeStep {
     int32_t scale{};                     ///< window pixels a point
 };
 
-/// The Interface sizes chosen in turn: 100% is Large at 1x; 400% is
-/// Compact at 3x, as 4x does not fit Compact's 480 by 324 points in 1080
-/// rows and 3x (1440 by 972) does; Auto, with the modern fonts Off, is the
-/// window's own Regular at 2x.
+/// The Interface sizes chosen in turn: 200% is Regular at 2x, 960 by 540
+/// points; 400% is Compact at 3x, as 4x does not fit Compact's 480 by 324
+/// points in 1080 rows and 3x (1440 by 972) does; Auto, with the modern
+/// fonts Off, steps down from 2x to the window's Large at 1x.
 constexpr std::array<InterfaceSizeStep, 3> kInterfaceSizeSteps{{
-    {settings::InterfaceSize::size_100, "100%", oa::ui::kit::SizeClass::large, 1},
+    {settings::InterfaceSize::size_200, "200%", oa::ui::kit::SizeClass::regular, 2},
     {settings::InterfaceSize::size_400, "400%", oa::ui::kit::SizeClass::compact, 3},
-    {settings::InterfaceSize::automatic, "Auto", oa::ui::kit::SizeClass::regular, 2},
+    {settings::InterfaceSize::automatic, "Auto", oa::ui::kit::SizeClass::large, 1},
 }};
 
 /// The preferences keys' common start: the keys of the Open Annihilation settings.

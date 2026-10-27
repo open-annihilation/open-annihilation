@@ -625,7 +625,7 @@ void Runtime::check_mod_warning() {
                 notice.paragraphs.back().text == hollow,
             "the warning does not name the mod, its first side's commander and its folder"
         );
-        // At 1280x720 and 1920x1080 the warning is laid out at the window's
+        // At 800x600 and 2560x1440 the warning is laid out at the window's
         // class and drawn at its scale, centred over the main menu darkened
         // over the whole window.
         oa_layer().read_whole_window(true);
