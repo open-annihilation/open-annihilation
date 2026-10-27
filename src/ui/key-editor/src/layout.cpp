@@ -3782,7 +3782,9 @@ void add_mouse_body(
             control.focusable = false;
             control.name = name;
             control.kind = kit::ControlKind::button;
-            control.text = row.role;
+            // The picture draws the role beside the chip. The control names the
+            // button as well, so a row reads as "Left · Command".
+            control.text = row.free ? row.role : row.button + " · " + row.role;
             built.rest.push_back(std::move(control));
             y += row_h + 2;
             ++row_index;

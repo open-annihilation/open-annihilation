@@ -817,6 +817,20 @@ void check_view(
     if (!table)
         std::fprintf(stderr, "%s: the mouse table has no row\n", where.c_str());
     OA_CHECK(table);
+    // At Regular and Large a row's control text names the button and the role.
+    if (window.x >= 720) {
+        bool labelled = false;
+        const std::string playing = std::string(editor::name_mouse_table_prefix) + "playing";
+        for (const kit::Control& control : list.controls) {
+            if (!starts(control.name, playing))
+                continue;
+            if (control.text.find(" · ") != std::string::npos)
+                labelled = true;
+        }
+        if (!labelled)
+            std::fprintf(stderr, "%s: a playing row does not name its button\n", where.c_str());
+        OA_CHECK(labelled);
+    }
 }
 
 } // namespace
