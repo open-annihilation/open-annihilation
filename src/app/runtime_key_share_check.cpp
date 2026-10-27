@@ -5,7 +5,8 @@
 // no key layout, importing one key from an older settings file, and
 // installing a dropped .oakeys. With --snapshot it writes
 // key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm, the refusal's
-// key-paste-refused-<w>x<h>.ppm, key-import-<w>x<h>.ppm, and the install
+// key-paste-refused-<w>x<h>.ppm, Import's sources'
+// key-import-sources-<w>x<h>.ppm, key-import-<w>x<h>.ppm, and the install
 // question's key-install-<w>x<h>.ppm and its refusal's
 // key-install-refused-<w>x<h>.ppm, at 640x480, 1280x720 and 1920x1080. The
 // check shows the install question, which a run nobody watches otherwise
@@ -537,6 +538,9 @@ void Runtime::check_key_share() {
         const std::string size = std::to_string(window.width) + 'x' + std::to_string(window.height);
         note(std::string("IMPORT picture ") + size);
         press_named("oa.key-editor.import");
+        // Its sources, each a row: the button and the line beside it.
+        require_named("oa.key-editor.import.from.tdraw", "IMPORT's sources are not shown");
+        snapshot("key-import-sources", window);
         click_named("oa.key-editor.import.from.tdraw");
         require(named("oa.key-editor.import.cancel").has_value(), "IMPORT did not open");
         snapshot("key-import", window);
