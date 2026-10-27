@@ -7755,6 +7755,21 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_key_capture();
 
+    /// Runs --check-key-share: SHARE…, PASTE… and IMPORT… at 640x480,
+    /// 1280x720 and 1920x1080, then a dropped layout that is refused and one
+    /// that is installed. Writes key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm
+    /// and key-import-<w>x<h>.ppm when --snapshot names a file.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_key_share();
+
+    /// Puts text on the clipboard. --check-key-share uses this so the paste
+    /// step can hand the editor a text. COPY AS TEXT is the other writer.
+    ///
+    /// @param text the text
+    /// @return true when the clipboard holds it
+    bool stage_clipboard_text(std::string_view text);
+
     /// Runs --check-key-views: the keyboard and the mouse at 640x480,
     /// 1280x720 and 1920x1080, each modifier layer, the shape drop-down,
     /// a free key through the capture prompt, the mouse's Forward, and
@@ -20789,6 +20804,12 @@ class Runtime final : public menu::Host,
     // The player's own folder for this run (start_user_folder); empty
     // before it is chosen.
     fs::path user_folder_;
+    /// Where --check-key-share writes the shared package. Empty asks the
+    /// player, or writes Keys/Shared when no dialog is offered.
+    fs::path key_share_save_path_{};
+    /// The folder --check-key-share reads Settings.ini and ddraw.ini from.
+    /// Empty uses the played mod's folder.
+    fs::path key_import_folder_{};
     // The opener of the player's folders and the main menu's notice of the
     // move; null until first used.
     std::unique_ptr<UserFolderState, void (*)(UserFolderState*) noexcept> user_folder_state_{

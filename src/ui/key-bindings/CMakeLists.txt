@@ -19,7 +19,8 @@ add_library(oa-ui-key-bindings
   src/order_wheel.cpp
   src/timing.cpp
   src/layout_file.cpp
-  src/legacy_keys.cpp)
+  src/legacy_keys.cpp
+  src/legacy_import.cpp)
 add_library(oa::ui::key_bindings ALIAS oa-ui-key-bindings)
 target_include_directories(oa-ui-key-bindings PUBLIC include)
 target_compile_features(oa-ui-key-bindings PUBLIC cxx_std_20)
@@ -89,4 +90,11 @@ if(BUILD_TESTING)
   target_link_libraries(oa-ui-key-bindings-sdl-exe PRIVATE oa-ui-key-bindings SDL3::SDL3
     oa-test-support oa-options)
   add_test(NAME ui-key-bindings-sdl COMMAND oa-ui-key-bindings-sdl-exe)
+
+  # Windows virtual-key numbers, tdraw's [Settings] keys and cnc-ddraw's hotkeys.
+  add_executable(oa-ui-key-bindings-legacy-exe tests/legacy_import_test.cpp)
+  target_link_libraries(oa-ui-key-bindings-legacy-exe PRIVATE oa-ui-key-bindings oa-test-support
+    oa-options)
+  add_test(NAME ui-key-bindings-legacy COMMAND oa-ui-key-bindings-legacy-exe)
+  set_tests_properties(ui-key-bindings-legacy PROPERTIES TIMEOUT 30)
 endif()

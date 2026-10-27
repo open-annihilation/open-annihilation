@@ -454,6 +454,8 @@ refused_prompt(std::string_view file_name, const Problem& problem, bool change_f
         text_of(fill("{file} cannot be installed.", {{"file", std::string(file_name)}}))
     );
     text.push_back(text_of(refusal_text(problem)));
+    if (problem.refusal == Refusal::manifest_errors)
+        text.push_back(text_of(tr("This layout has problems:")));
     for (std::size_t index = 0; index < problem.lines.size() && index < shown_diagnostics; ++index)
         text.push_back(text_of(problem.lines[index]));
     if (problem.lines.size() > shown_diagnostics)

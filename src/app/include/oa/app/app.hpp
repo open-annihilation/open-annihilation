@@ -797,6 +797,9 @@ struct Options {
     // Captures a chord over a paused skirmish, settles a clash, and opens a
     // draft clash on the Clashes filter. A scratch folder holds the layout.
     bool check_key_capture = false;
+    // Shares, pastes and imports a layout, and installs a dropped .oakeys,
+    // at 640x480, 1280x720 and 1920x1080. A scratch folder holds the files.
+    bool check_key_share = false;
     // The key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080,
     // each modifier layer, the shape drop-down, a free key, the mouse's
     // Forward and Left-click saved as Interface Type.

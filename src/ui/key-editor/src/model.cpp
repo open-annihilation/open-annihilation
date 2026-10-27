@@ -1547,8 +1547,25 @@ Details Editor::details(std::string_view id) const {
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     const Listed* row = find_listed(listed, id);
-    if (row == nullptr)
+    // A hack's actions stay out of the list until the hack is on. An import
+    // can still have written their chords, and those chords are what SAVE writes.
+    if (row == nullptr) {
+        for (const keys::LayoutBinding& binding : own_.bindings) {
+            if (binding.action != id)
+                continue;
+            shown.id = std::string(id);
+            if (const acts::Action* action = acts::find(id))
+                shown.name = std::string(action->words.name);
+            for (const keys::Chord& chord : binding.chords) {
+                ChordDetail detail;
+                detail.chord = chord;
+                detail.step = keys::Step::own;
+                shown.chords.push_back(std::move(detail));
+            }
+            return shown;
+        }
         return shown;
+    }
     shown.id = row->id;
     shown.name = row->name;
     shown.where = row->where;
@@ -1634,6 +1651,8 @@ void Editor::restore_defaults() {
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     keep_unknowns(listed, own_, helpers_);
     number_keys_ = inputs_.number_keys_select_groups;
+    held_clashes_.clear();
+    imported_from_.reset();
 }
 
 bool Editor::set_latch(std::string_view id, bool on) {
@@ -1717,6 +1736,8 @@ bool Editor::choose_layout(std::string_view id, KeepChanges keep) {
         const std::vector<Listed> listed =
             listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
         keep_unknowns(listed, own_, helpers_);
+        held_clashes_.clear();
+        imported_from_.reset();
     }
     return true;
 }
@@ -1758,6 +1779,8 @@ bool Editor::duplicate(std::string_view name) {
     chosen_ = std::move(made);
     own_.bindings = std::move(unknowns);
     helpers_ = {};
+    held_clashes_.clear();
+    imported_from_.reset();
     if (!listed_id(written_, chosen_.id))
         written_.push_back(chosen_.id);
     return true;
@@ -1840,6 +1863,7 @@ std::size_t Editor::draft_clashes() const {
         if (draft_names(own_, clash.a) || draft_names(own_, clash.b))
             ++count;
     }
+    count += held_clashes_.size();
     return count;
 }
 
@@ -1852,7 +1876,11 @@ SaveResult Editor::result() const {
     keys::Layout layout = own_;
     layout.id = std::string("own-") + layout_id();
     layout.base = keys::Base::oa_default;
-    saved.manifest = keys::manifest_from_layout(layout, own_rest(layout_id(), helpers_));
+    oa::formats::oakeys::Manifest rest = own_rest(layout_id(), helpers_);
+    if (imported_from_ && !imported_from_->tool.empty() && !imported_from_->file.empty() &&
+        !imported_from_->date.empty())
+        rest.imported_from = imported_from_;
+    saved.manifest = keys::manifest_from_layout(layout, rest);
     saved.number_keys = number_keys_;
     saved.layout_id = layout_id();
     for (const std::string& id : written_) {
@@ -1929,7 +1957,14 @@ bool Editor::set_chords(std::string_view id, std::vector<keys::Chord> chords) {
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     const Listed* row = find_listed(listed, id);
-    if (row == nullptr || row->read_only)
+    // The same hack-hidden actions: the binding is kept for when the hack is on.
+    if (row == nullptr) {
+        if (acts::find(id) == nullptr)
+            return false;
+        put_binding(own_, std::string(id), std::move(chords));
+        return true;
+    }
+    if (row->read_only)
         return false;
     for (const keys::Chord& had : row->chords) {
         if (!fixed_escape(*row, had, inputs_.keyboard))
@@ -2017,6 +2052,15 @@ std::vector<DraftTake> Editor::draft_takes() const {
 }
 
 std::optional<keys::Clash> Editor::draft_clash(std::string_view id) const {
+    for (const HeldClash& held : held_clashes_) {
+        if (held.pasted != id && held.holder != id)
+            continue;
+        keys::Clash oriented;
+        oriented.chord = held.chord;
+        oriented.a = std::string(id);
+        oriented.b = held.pasted == id ? held.holder : held.pasted;
+        return oriented;
+    }
     const keys::ResolveInput input = resolve_input();
     const keys::Resolved bound = keys::resolve(input);
     for (const keys::Clash& clash : keys::find_clashes(bound, input)) {
@@ -2044,6 +2088,60 @@ std::optional<keys::Clash> Editor::draft_clash(std::string_view id) const {
         return oriented;
     }
     return std::nullopt;
+}
+
+void Editor::set_share_name(std::string name) {
+    share_name_ = std::move(name);
+}
+
+const std::string& Editor::share_name() const noexcept {
+    return share_name_;
+}
+
+bool Editor::settle_paste_clash(const keys::Clash& clash, Settle which) {
+    for (std::size_t index = 0; index < held_clashes_.size(); ++index) {
+        const HeldClash& held = held_clashes_[index];
+        if (!keys::same_key(held.chord, clash.chord, &inputs_.keyboard))
+            continue;
+        const bool here_is_pasted = clash.a == held.pasted;
+        const bool here_is_holder = clash.a == held.holder;
+        if (!here_is_pasted && !here_is_holder)
+            continue;
+        const std::string& other = here_is_pasted ? held.holder : held.pasted;
+        if (!clash.b.empty() && clash.b != other)
+            continue;
+        const bool keep_pasted = (here_is_pasted && which == Settle::keep_here) ||
+                                 (here_is_holder && which == Settle::keep_there);
+        const HeldClash taken = held;
+        held_clashes_.erase(held_clashes_.begin() + static_cast<std::ptrdiff_t>(index));
+        if (!keep_pasted)
+            return true;
+        const Details holder = details(taken.holder);
+        std::vector<keys::Chord> remain;
+        remain.reserve(holder.chords.size());
+        for (const ChordDetail& one : holder.chords) {
+            if (!keys::same_key(one.chord, taken.chord, &inputs_.keyboard))
+                remain.push_back(one.chord);
+        }
+        if (!holder.id.empty() && !holder.read_only)
+            set_chords(taken.holder, std::move(remain));
+        const Details pasted = details(taken.pasted);
+        if (pasted.id.empty() || pasted.read_only)
+            return true;
+        std::vector<keys::Chord> next;
+        next.reserve(pasted.chords.size() + 1);
+        bool already = false;
+        for (const ChordDetail& one : pasted.chords) {
+            next.push_back(one.chord);
+            if (keys::same_key(one.chord, taken.chord, &inputs_.keyboard))
+                already = true;
+        }
+        if (!already && next.size() < 4)
+            next.push_back(taken.chord);
+        set_chords(taken.pasted, std::move(next));
+        return true;
+    }
+    return false;
 }
 
 } // namespace oa::ui::key_editor

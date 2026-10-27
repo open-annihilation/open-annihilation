@@ -198,6 +198,8 @@ ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice ch
 }
 
 bool settle(Editor& editor, const keys::Clash& clash, Settle which) {
+    if (editor.settle_paste_clash(clash, which))
+        return true;
     const std::string keeper = which == Settle::keep_here ? clash.a : clash.b;
     const std::string loser = which == Settle::keep_here ? clash.b : clash.a;
     static_cast<void>(keeper);

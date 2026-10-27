@@ -299,6 +299,7 @@ void check_game_files_options(Options& options) {
         {options.check_map_browser, "--check-map-browser"},
         {options.check_key_editor, "--check-key-editor"},
         {options.check_key_capture, "--check-key-capture"},
+        {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
@@ -698,6 +699,7 @@ void check_director_options(Options& options) {
         {options.check_map_browser, "--check-map-browser"},
         {options.check_key_editor, "--check-key-editor"},
         {options.check_key_capture, "--check-key-capture"},
+        {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
@@ -830,6 +832,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_map_browser, "--check-map-browser"},
             {options.check_key_editor, "--check-key-editor"},
             {options.check_key_capture, "--check-key-capture"},
+            {options.check_key_share, "--check-key-share"},
             {options.check_key_views, "--check-key-views"},
             {options.check_mutator_picker, "--check-mutator-picker"},
             {options.check_brain_picker, "--check-brain-picker"},
@@ -996,6 +999,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-map-browser", &Options::check_map_browser},
     {"--check-key-editor", &Options::check_key_editor},
     {"--check-key-capture", &Options::check_key_capture},
+    {"--check-key-share", &Options::check_key_share},
     {"--check-key-views", &Options::check_key_views},
     {"--check-mutator-button", &Options::check_mutator_button},
     {"--check-mutator-room", &Options::check_mutator_room},
@@ -2115,9 +2119,9 @@ void write_startup_line(std::string_view text) {
         result.check_director_render || result.check_interpolation || result.check_unit_playout ||
         result.check_paused_save || result.check_saved_brains || result.check_simulation_hash ||
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
-        result.check_key_editor || result.check_key_capture || result.check_key_views ||
-        result.check_mutator_button || result.check_mutator_room || result.check_brain_room ||
-        result.check_mutator_picker || result.check_brain_picker ||
+        result.check_key_editor || result.check_key_capture || result.check_key_share ||
+        result.check_key_views || result.check_mutator_button || result.check_mutator_room ||
+        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
         result.check_brain_seat_buttons || result.check_brain_campaign ||
         result.check_mutator_prompts || result.check_map_pack_lists ||
         result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
