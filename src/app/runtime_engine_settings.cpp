@@ -27,6 +27,7 @@
 #include "oa/app/runtime.hpp"
 #include "oa/app/update/checker.hpp"
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/centre.hpp"
 #include "oa/ui/engine_settings/file_types.hpp"
 #include "oa/ui/first_run/first_run.hpp"
 #include "oa/netgame/presence.hpp"
@@ -2572,8 +2573,8 @@ bool Runtime::take_engine_settings_action(settings::DialogAction action) {
             open_release_page();
         return false;
     case settings::DialogAction::restart_update:
-        quit_requested_ = true;
-        exit_status_ = 0;
+        // Installing now: the ready release is scheduled, and the quit hands it over.
+        take_update_action(oa::app::update::Act::install_now);
         return false;
     case settings::DialogAction::retry_update:
         retry_update_download();
