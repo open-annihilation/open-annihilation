@@ -106,16 +106,6 @@ bool update_question_queued(OaLayer& layer) {
 /// The button OPEN THE PAGE answers, when the notice offers it.
 constexpr int32_t kPageButton = 0;
 
-/// One bullet of the release's notes.
-///
-/// @param line the note, as the feed wrote it
-/// @return the line with a bullet
-std::string bullet(const std::string& line) {
-    std::string text = "• ";
-    text += line;
-    return text;
-}
-
 } // namespace
 
 void Runtime::offer_update() {
@@ -266,14 +256,9 @@ void Runtime::offer_update() {
     asked.title = told.title;
     asked.paragraphs.push_back({told.paragraphs[0], false});
     if (!told.notes.empty()) {
-        std::string notes = library::filled(
-            hooks, update::words::new_in, {{"version", held.offer.release->version_text}}
+        asked.paragraphs.push_back(
+            {update::notes_paragraph(held.offer.release->version_text, told.notes, hooks), false}
         );
-        for (const std::string& line : told.notes) {
-            notes += '\n';
-            notes += bullet(line);
-        }
-        asked.paragraphs.push_back({std::move(notes), false});
     }
     asked.paragraphs.push_back({told.paragraphs[1], false});
     asked.buttons.push_back(

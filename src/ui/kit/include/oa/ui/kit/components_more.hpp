@@ -68,10 +68,13 @@ inline constexpr Rect notice_mark{
 
 /// A paragraph of a notice's or a question's text.
 struct Paragraph {
-    std::string text{}; ///< UTF-8; wrapped between words, or for a path at its separators
+    /// UTF-8. A new line starts a line of its own, and the rest wraps
+    /// between words. A path ignores that and wraps at its separators.
+    std::string text{};
     /// A folder's path: drawn in the regular font and broken after a
     /// separator, a component too long for a line within it. Any other
-    /// paragraph is drawn in the small font, broken between words.
+    /// paragraph is drawn in the small font, a new line starting a line
+    /// and the rest broken between words.
     bool path{};
 };
 
@@ -80,7 +83,9 @@ struct Paragraph {
 struct Notice {
     std::string title{};                 ///< the header's title, in capitals
     std::vector<Paragraph> paragraphs{}; ///< its text, top to bottom
-    std::string open_caption{};          ///< the caption of the button that opens the folder
+    /// The caption of the button that opens the folder. Empty draws no
+    /// second button and offers no control for it, so keys and Tab stay on OK.
+    std::string open_caption{};
     /// Why the folder could not be opened, drawn in amber under the text;
     /// empty for none.
     std::string failure{};
@@ -219,11 +224,12 @@ struct PlacedQuestion {
 
 /// Places a notice at its size class (Notice::size_class): its text wrapped
 /// under the header at the class's width, paths in the regular font broken
-/// at their separators and the rest in the small font broken between words,
-/// paragraph_gap rows between paragraphs and the failure last; its height
-/// from its text, from the class's least to its greatest height, a line that
-/// height cuts left out; and OK at the footer's right with the open button
-/// before it.
+/// at their separators and the rest in the small font, a new line starting a
+/// line and the rest broken between words, paragraph_gap rows between
+/// paragraphs and the failure last; its height from its text, from the
+/// class's least to its greatest height, a line that height cuts left out;
+/// and OK at the footer's right, with the open button before it when the
+/// notice has an open caption.
 ///
 /// @param notice the notice
 /// @param regular a text's width in the regular font
@@ -309,9 +315,10 @@ using LookUp = std::function<std::string_view(std::string_view)>;
 /// Returns a notice's display list: its face, its header with the title, its
 /// lines, its footer band, the open button and OK each followed by the focus
 /// ring when the keys mark it, and its edge, in that order. Its controls are
-/// OK and the open button, tested in that order and named <word>.ok and
-/// <word>.open (its sound word, notice_word_of), then its text; Tab goes left
-/// to right, the open button then OK. Its text is the control notice_body,
+/// OK and, when open_caption is not empty, the open button, tested in that
+/// order and named <word>.ok and <word>.open (its sound word, notice_word_of),
+/// then its text. Tab goes left to right, the open button then OK, or OK
+/// alone when there is no open button. Its text is the control notice_body,
 /// named <word>.body, of kind area, neither enabled nor focusable, so that no
 /// press, finger or key reaches it: it lies over the title and the lines that
 /// fit, and its text is the title, the paragraphs and the failure, when there
@@ -383,7 +390,8 @@ notice_finger_down(Notice& notice, Point finger, int32_t height, int32_t reach);
 
 /// Takes a key on a notice: Enter and Escape close it, Space presses the
 /// marked button, and Left, Right, Up, Down, Tab and Shift+Tab move the mark
-/// to the other button. Any other key does nothing.
+/// to the other button. With no open caption the mark stays on OK, and those
+/// keys do nothing. Any other key does nothing.
 ///
 /// @param[in,out] notice the notice
 /// @param key the key

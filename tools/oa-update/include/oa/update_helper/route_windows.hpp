@@ -146,11 +146,14 @@ struct MoveAttempt {
 /// the setup run.
 ///
 /// When `staged` is one folder, the names are that folder's top entries that
-/// are also in the install, except `Uninstall.exe`, `previous` and the
-/// scratch file. When it is not a folder, the names are the install's top
-/// entries except `previous` and the scratch file: the downloaded file is
-/// the setup program, which has no zip listing. The last step runs the
-/// setup. The caller runs that step itself and does not journal it.
+/// are also in the install, except `Uninstall.exe`, `previous`, the scratch
+/// file and this helper's own file (`oa-update.exe`). When it is not a
+/// folder, the names are the install's top entries except `previous`, the
+/// scratch file and that same helper file: the downloaded file is the setup
+/// program, which has no zip listing. The helper is left out of the kept
+/// set so an undo never has to replace the program that is running. The
+/// last step runs the setup. The caller runs that step itself and does not
+/// journal it.
 ///
 /// @param plan the plan; its route is the installer
 /// @param staged the staging folder, or an empty path when there is no zip
@@ -217,7 +220,8 @@ struct FolderPlan {
 ///
 /// The version step's program is `oa-display-version`. A test runs that step
 /// itself. The helper's own runner writes the uninstall key on Windows and
-/// succeeds without writing it elsewhere.
+/// succeeds without writing it elsewhere. `oa-update.exe` is not copied
+/// back: that file is the program doing the undo.
 ///
 /// @param state the record; its kept path is `<updates>/previous`
 /// @param install the install folder
@@ -269,10 +273,12 @@ struct ElevatedRelaunch {
     std::string* error
 );
 
-/// Puts kept program files back onto an install. `preferences.conf` is left.
+/// Puts kept program files back onto an install. `preferences.conf` is left,
+/// and so is this helper's own file.
 ///
 /// A file is copied over the one in the install. A directory is copied over
-/// entry by entry. Nothing the kept copy does not name is removed.
+/// entry by entry. Nothing the kept copy does not name is removed. The
+/// helper is not replaced, because the undo is that program.
 ///
 /// @param previous the kept program files
 /// @param install the install folder
@@ -311,9 +317,11 @@ struct UpdatesGateResult {
 ///
 /// The installer keeps program files under `<updates>/previous`, runs the
 /// setup, and starts the game only when the setup exits 0 and
-/// `open-annihilation.exe` changed. Declining the prompt changes nothing.
-/// A folder is swapped in place. Elevation starts a second copy and this
-/// copy starts the game. Windows 9x writes `WININIT.INI` and starts nothing.
+/// `open-annihilation.exe` changed. The helper's own file is not kept and
+/// not put back. Declining the prompt changes nothing. A setup that fails
+/// after files were changed puts the other files back and says so. A folder
+/// is swapped in place. Elevation starts a second copy and this copy starts
+/// the game. Windows 9x writes `WININIT.INI` and starts nothing.
 /// `elevated_swap` never starts the game.
 ///
 /// On a system that is not Windows, the route is refused.
