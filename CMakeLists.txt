@@ -2431,11 +2431,17 @@ if(OA_BUILD_PLATFORM)
         "${oa_keys_overlay_dir}/arrange-overlays-640x480.ppm"
         "${oa_keys_overlay_dir}/arrange-overlays-800x600.ppm"
         "${oa_keys_overlay_dir}/arrange-overlays-1280x720.ppm"
-        "${oa_keys_overlay_dir}/arrange-overlays-1920x1080.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-modern-640x480.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-modern-800x600.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-modern-1280x720.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-match-1280x720.ppm"
+        "${oa_keys_overlay_dir}/overlays-placed-640x480.ppm"
+        "${oa_keys_overlay_dir}/overlays-placed-1280x720.ppm"
+        "${oa_keys_overlay_dir}/overlays-default-1280x720.ppm"
+        "${oa_keys_overlay_dir}/ingame-menu-640x480.ppm"
+        "${oa_keys_overlay_dir}/ingame-menu-1280x720.ppm"
         "${oa_keys_overlay_dir}/rounded-settings-640x480.ppm"
-        "${oa_keys_overlay_dir}/rounded-settings-800x600.ppm"
         "${oa_keys_overlay_dir}/rounded-settings-1280x720.ppm"
-        "${oa_keys_overlay_dir}/rounded-settings-1920x1080.ppm"
         "${oa_keys_overlay_dir}/mod/units")
       set_tests_properties(keys-overlay-clean PROPERTIES FIXTURES_SETUP keys-overlay-clean)
       add_test(NAME native-keys-overlay COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -2448,8 +2454,9 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_keys_overlay_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED keys-overlay-clean FIXTURES_SETUP keys-overlay-arranged)
-      # The game started again on the places native-keys-overlay arranged:
-      # the keys overlay and the chat line show where they were left.
+      # The game started again on the places native-keys-overlay arranged,
+      # Move overlays on: the keys overlay and the chat line show where they
+      # were left.
       add_test(NAME native-keys-overlay-restart COMMAND oa-game --game-dir "${OA_GAME_DIR}"
         --skip-intro --mute --check-keys-overlay
         --mod-dir "${oa_keys_overlay_dir}/mod"

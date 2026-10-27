@@ -2156,6 +2156,23 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         dialog.edit_keys_filter = KeyEditorFilter::latchable;
         return DialogAction::edit_keys;
     }
+    static_assert(
+        layout::arrange_overlays_action != layout::choose_latch_action &&
+            layout::arrange_overlays_action != layout::edit_keys_action &&
+            layout::arrange_overlays_action != layout::show_welcome_action &&
+            layout::arrange_overlays_action != updates::check_updates_action &&
+            layout::arrange_overlays_action != updates::open_release_action &&
+            layout::arrange_overlays_action != updates::restart_update_action &&
+            layout::arrange_overlays_action != updates::retry_update_action &&
+            layout::arrange_overlays_action != updates::roll_back_action &&
+            updates::first_card_action > layout::arrange_overlays_action &&
+            (layout::arrange_overlays_action < layout::first_folder_action ||
+             layout::arrange_overlays_action >=
+                 layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
+        "ARRANGE… asks for an action no other row's button asks for"
+    );
+    if (action == layout::arrange_overlays_action)
+        return DialogAction::arrange_overlays;
     if (action == layout::show_welcome_action) {
         // The preference stays until OK. Cancel drops the dialog, and the
         // flag with it.

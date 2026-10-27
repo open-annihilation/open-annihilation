@@ -947,7 +947,7 @@ void accessibility_choose_opens_latchable_and_edit_keys_stays_on_all() {
     CHECK(keys.edit_keys_filter == settings::KeyEditorFilter::all);
 
     const auto rows = settings::page_settings(Page::accessibility);
-    CHECK(rows.size() == 13);
+    CHECK(rows.size() == 15);
     CHECK(rows[0] == Setting::latching);
     CHECK(rows[1] == Setting::sticky_modifiers);
     CHECK(rows[2] == Setting::hold_to_confirm);
@@ -961,10 +961,12 @@ void accessibility_choose_opens_latchable_and_edit_keys_stays_on_all() {
     CHECK(rows[10] == Setting::repeat_rate);
     CHECK(rows[11] == Setting::drag_threshold);
     CHECK(rows[12] == Setting::edge_scroll);
+    CHECK(rows[13] == Setting::move_overlays);
+    CHECK(rows[14] == Setting::arrange_overlays);
 
     settings::Dialog dialog = opened(Page::accessibility);
     const auto placed = geometry::place_rows(Page::accessibility, {});
-    CHECK(placed.rows.size() == 13);
+    CHECK(placed.rows.size() == 15);
     CHECK(click(dialog, centre(placed.rows[0].control_area)) == DialogAction::edit_keys);
     CHECK(dialog.edit_keys_filter == settings::KeyEditorFilter::latchable);
 

@@ -370,6 +370,14 @@ enum class Setting : uint8_t {
     drag_threshold, ///< Drag threshold: a slider of pixels
     /// Edge scrolling: a switch. Off stops the view scrolling at the window's edge.
     edge_scroll,
+    /// Move overlays: a switch. On, the keys overlay, the chat line and the
+    /// latch chips show where the player put them; off, where they lay
+    /// themselves out.
+    move_overlays,
+    /// Overlay places: ARRANGE… opens a picture of the match where the
+    /// overlays are placed (DialogAction::arrange_overlays), pressable while
+    /// Move overlays is on. It keeps no setting.
+    arrange_overlays,
     /// Window size: a drop-down of Auto, Compact, Regular and Large, on User
     /// Interface under Interface size
     window_size,
@@ -674,6 +682,9 @@ enum class DialogAction : uint8_t {
     /// One of the update card's buttons on Updates: the host carries out the
     /// update centre's action Dialog::update_act names. The dialog stays open.
     update_action,
+    /// ARRANGE… on Overlay places: the host opens a picture of the match over
+    /// the dialog, which stays open under it, where the overlays are placed
+    arrange_overlays,
 };
 
 /// Which list EDIT KEYS… or CHOOSE… opens the key editor on.

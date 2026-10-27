@@ -698,6 +698,8 @@ EngineSettings read_settings(
         settings.hold_to_confirm = *number > 0;
     if (const auto number = stored_number(values, key::edge_scroll))
         settings.edge_scroll = *number > 0;
+    if (const auto number = stored_number(values, key::move_overlays))
+        settings.move_overlays = *number > 0;
     read_word(values, key::order_wheel, order_wheel_words, settings.order_wheel);
     read_word(values, key::max_zoom_out, zoom_out_words, settings.max_zoom_out);
     read_word(values, key::max_zoom_in, zoom_in_words, settings.max_zoom_in);
@@ -955,6 +957,14 @@ void write_settings(
         switch_text(chosen.edge_scroll),
         chosen.edge_scroll != opened.edge_scroll,
         chosen.edge_scroll == defaults.edge_scroll,
+        restored
+    );
+    store(
+        values,
+        key::move_overlays,
+        switch_text(chosen.move_overlays),
+        chosen.move_overlays != opened.move_overlays,
+        chosen.move_overlays == defaults.move_overlays,
         restored
     );
     store_word(

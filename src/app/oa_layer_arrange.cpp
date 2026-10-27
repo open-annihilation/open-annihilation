@@ -2,20 +2,27 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // Arrange overlays: where OA's overlays over a running match show, and the
-// screen that moves them. It opens from the in-game menu's Overlays button,
-// drawn in the menu's own art, over the overlays' area: a veil and a grid
-// over the battlefield, a handle on the keys overlay, the chat line and the
-// latch chips, each where the overlay shows, and a card with Reset and Done
-// where no handle lies, stepping aside as one is dragged under it. A handle
-// drags on an 8-point grid (overlay_placement), an arrow moves the focused
-// one, a double-click puts one back where it lays itself out, and Reset puts
-// every one back. Each place is kept for the size class in effect.
+// screen that places them. While Settings' Move overlays is on, the keys
+// overlay, the chat line and the latch chips show at the places the player
+// gave them; while it is off they show where they lay themselves out, and
+// the places stay kept. Accessibility's Arrange… opens the screen over
+// Settings: a picture of the match in the kit's look at the window's
+// proportions (the side panel, the top bar, the bottom bar and the
+// battlefield), the three overlays drawn with sample content where each
+// shows, a handle on each, and a card with Reset, Cancel and Done where no
+// handle lies, stepping aside as one is dragged under it. A handle drags on
+// an 8-point grid (overlay_placement), an arrow moves the focused one, a
+// double-click puts one back where it lays itself out, and Reset puts every
+// one back. Each place is kept for the size class a match in the window
+// takes; Cancel puts every place back as it was when the screen opened.
 
 #include "oa_layer.hpp"
 
 #include "oa/app/runtime.hpp"
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/formats/fnt.hpp"
+#include "oa/ui/key_editor/overlay.hpp"
 #include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/controls.hpp"
@@ -31,6 +38,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -56,8 +64,21 @@ constexpr std::string_view kHintWords =
     "Drag an overlay where it suits you. Each screen size keeps its own places.";
 /// The button that puts every overlay back.
 constexpr std::string_view kResetWords = "Reset";
-/// The button that closes the screen.
+/// The button that closes the screen and keeps the places.
 constexpr std::string_view kDoneWords = "Done";
+/// The button that closes the screen and puts the places back.
+constexpr std::string_view kCancelWords = "Cancel";
+/// The picture's parts' words.
+constexpr std::string_view kSidePanelWords = "Side panel";
+constexpr std::string_view kTopBarWords = "Top bar";
+constexpr std::string_view kBottomBarWords = "Bottom bar";
+/// The chat line's sample: a line being typed.
+constexpr std::string_view kChatSampleWords = "Ready when you are";
+/// The latch chip's sample: Queue latched, as the match's chip reads it.
+constexpr std::string_view kLatchedWords = "{name} · latched";
+constexpr std::string_view kQueueWords = "Queue";
+/// The keys overlay's sample: its first lines while playing.
+constexpr std::size_t kSampleLines = 4;
 /// Each overlay's handle's words, in overlay_placement::overlays' order.
 constexpr std::array<std::string_view, 3> kHandleWords{"Keys Overlay", "Chat Line", "Latch Chips"};
 
@@ -70,9 +91,11 @@ constexpr kit::ControlId kFirstHandle = 1;
 constexpr kit::ControlId kResetId = 10;
 /// Done's control number.
 constexpr kit::ControlId kDoneId = 11;
+/// Cancel's control number.
+constexpr kit::ControlId kCancelId = 12;
 
-/// The share of each pixel of the overlays' area the veil darkens, in 256ths.
-constexpr uint32_t kVeilOpacity = 96;
+/// The share of the chat line's sample the band behind its words covers, in 256ths.
+constexpr uint32_t kChatBandOpacity = 160;
 /// The grid's lines are this many points apart: every second grid step.
 constexpr int32_t kGridLinePoints = 2 * places::grid_points;
 /// The share of each pixel a grid line lightens, in 256ths.
@@ -144,6 +167,34 @@ points_in(const OaLayer::OverlayRoom& room, const layout::Rect& pixels) noexcept
 /// @return its translation, or the English
 [[nodiscard]] std::string shown(std::string_view english) {
     return std::string(oa::data::languages::interface_text(english));
+}
+
+/// Returns the latch chip's sample words: Queue latched, as the match's
+/// chip reads it.
+///
+/// @return the words, in the language shown
+[[nodiscard]] std::string sample_chip_words() {
+    std::string words = shown(kLatchedWords);
+    std::string name = shown(kQueueWords);
+    for (char& letter : name)
+        if (letter >= 'a' && letter <= 'z')
+            letter = static_cast<char>(letter - 'a' + 'A');
+    constexpr std::string_view holder = "{name}";
+    if (const std::size_t at = words.find(holder); at != std::string::npos)
+        words.replace(at, holder.size(), name);
+    return words;
+}
+
+/// Returns the bit of a key context, or 0 when the registry has none of that name.
+///
+/// @param name the context's id
+/// @return the bit
+[[nodiscard]] uint32_t context_bit(std::string_view name) {
+    const auto table = oa::data::input_actions::contexts();
+    for (std::size_t index = 0; index < table.size() && index < 32; ++index)
+        if (table[index].name == name)
+            return uint32_t{1} << static_cast<uint32_t>(index);
+    return 0;
 }
 
 /// Draws a rectangle's rounded outline in dashes: whole quarter circles at
@@ -267,6 +318,7 @@ std::optional<OaLayer::OverlayRoom> OaLayer::overlay_room() const {
         *seen.match_layout, seen.interface_percent, seen.fit_safe_area, seen.window_size
     );
     OverlayRoom room;
+    room.window = {0, 0, seen.match_layout->width, seen.match_layout->height};
     room.area = runtime_.overlay_area();
     room.scale_percent = place.scale_percent > 0 ? place.scale_percent : 100;
     room.size_class = place.size_class;
@@ -275,8 +327,41 @@ std::optional<OaLayer::OverlayRoom> OaLayer::overlay_room() const {
     return room;
 }
 
+std::optional<OaLayer::OverlayRoom> OaLayer::arranging_room() const {
+    if (runtime_.screen_ == Screen::match)
+        return overlay_room();
+    // A match laid out at the window's canvas: its battlefield, and the
+    // in-match windows' class and scale there.
+    const SDL_Point canvas = runtime_.match_canvas_point();
+    if (canvas.x <= 0 || canvas.y <= 0)
+        return std::nullopt;
+    const layout::MatchLayout laid =
+        layout::make_match_layout(canvas.x, canvas.y, runtime_.match_chrome_most_scale());
+    const LayerView seen = view();
+    const MatchDialogPlace place =
+        match_dialog(laid, seen.interface_percent, false, seen.window_size);
+    OverlayRoom room;
+    room.window = {0, 0, laid.width, laid.height};
+    room.area = {
+        laid.battlefield_x(),
+        laid.battlefield_y(),
+        laid.battlefield_width(),
+        laid.battlefield_height()
+    };
+    room.scale_percent = place.scale_percent > 0 ? place.scale_percent : 100;
+    room.size_class = place.size_class;
+    if (room.area.width <= 0 || room.area.height <= 0 || room.window.width <= 0 ||
+        room.window.height <= 0)
+        return std::nullopt;
+    return room;
+}
+
+bool OaLayer::overlays_move() const {
+    return runtime_.engine_settings().move_overlays;
+}
+
 layout::Rect OaLayer::overlay_shown(std::string_view overlay, const layout::Rect& unplaced) const {
-    if (unplaced.width <= 0 || unplaced.height <= 0)
+    if (unplaced.width <= 0 || unplaced.height <= 0 || !overlays_move())
         return unplaced;
     const auto room = overlay_room();
     if (!room)
@@ -301,14 +386,32 @@ layout::Rect OaLayer::overlay_shown(std::string_view overlay, const layout::Rect
 }
 
 std::vector<OaLayer::ArrangedOverlay> OaLayer::arranged_overlays() const {
-    std::vector<ArrangedOverlay> arranged;
     const auto room = overlay_room();
     if (!room)
-        return arranged;
-    const layout::Rect& area = room->area;
+        return {};
+    return arranged_overlays_in(*room, false);
+}
+
+std::vector<OaLayer::ArrangedOverlay>
+OaLayer::arranged_overlays_in(const OverlayRoom& room, bool samples) const {
+    std::vector<ArrangedOverlay> arranged;
+    const layout::Rect& area = room.area;
     const int scale = std::max(1, runtime_.hud_text_scale());
-    // The keys overlay's panel, as it lays itself out.
-    arranged.push_back({places::keys_overlay, keys_overlay_unplaced()});
+    // The keys overlay's panel, as it lays itself out: the sample's, or the
+    // match's own.
+    if (samples) {
+        const oa::ui::key_editor::OverlayLayout sample = keys_overlay_sample(room);
+        const int32_t percent = room.scale_percent;
+        arranged.push_back(
+            {places::keys_overlay,
+             {area.x + window_placement::pixels_of(sample.panel.x, percent),
+              area.y + window_placement::pixels_of(sample.panel.y, percent),
+              window_placement::pixels_of(sample.panel.width, percent),
+              window_placement::pixels_of(sample.panel.height, percent)}}
+        );
+    } else {
+        arranged.push_back({places::keys_overlay, keys_overlay_unplaced()});
+    }
     // The chat line across the area, standing on its bottom edge, as tall as
     // a line of the battlefield's text and the rows round it.
     {
@@ -321,11 +424,18 @@ std::vector<OaLayer::ArrangedOverlay> OaLayer::arranged_overlays() const {
         );
     }
     // The latch chips centred under the area's top, as wide as the chips on
-    // now, or about one chip while none is.
+    // now (the sample's one chip), or about one chip while none is.
     {
         const kit::Fonts* fonts = runtime_.engine_settings_fonts();
         std::vector<Runtime::KeyLatchChip> chips;
-        runtime_.gather_key_latch_chips(chips);
+        if (samples) {
+            Runtime::KeyLatchChip chip;
+            chip.text = sample_chip_words();
+            chip.filled = true;
+            chips.push_back(std::move(chip));
+        } else {
+            runtime_.gather_key_latch_chips(chips);
+        }
         int32_t total = 0;
         for (const Runtime::KeyLatchChip& chip : chips) {
             kit::ChipLook look;
@@ -348,19 +458,61 @@ std::vector<OaLayer::ArrangedOverlay> OaLayer::arranged_overlays() const {
     return arranged;
 }
 
-std::optional<places::OverlayPlace> OaLayer::overlay_place(std::string_view overlay) const {
-    const auto room = overlay_room();
-    if (!room)
-        return std::nullopt;
-    return places::stored_place(runtime_.preference_values_, overlay, room->size_class);
+oa::ui::key_editor::OverlayLayout OaLayer::keys_overlay_sample(const OverlayRoom& room) const {
+    namespace editor = oa::ui::key_editor;
+    const kit::Fonts* fonts = screen_fonts();
+    if (fonts == nullptr)
+        return {};
+    // The keys of a match being played, the first few of them.
+    editor::OverlayInputs inputs;
+    runtime_.fill_keys_overlay(inputs);
+    inputs.contexts = {};
+    inputs.contexts.active = context_bit("global") | context_bit("match") | context_bit("play");
+    inputs.on.clear();
+    std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
+    std::size_t left = kSampleLines;
+    std::vector<editor::OverlayGroup> kept;
+    for (editor::OverlayGroup& group : groups) {
+        if (left == 0)
+            break;
+        if (group.lines.size() > left)
+            group.lines.resize(left);
+        left -= group.lines.size();
+        kept.push_back(std::move(group));
+    }
+    // Beside the side column, at the in-match windows' scale, as the match
+    // lays the panel out.
+    const int32_t percent = room.scale_percent > 0 ? room.scale_percent : 100;
+    editor::OverlayRoom placed;
+    const int32_t left_edge = points_down(room.area.x, percent);
+    const int32_t top_edge = points_down(room.area.y, percent);
+    placed.battlefield = {
+        left_edge,
+        top_edge,
+        points_down(room.area.x + room.area.width, percent) - left_edge,
+        points_down(room.area.y + room.area.height, percent) - top_edge
+    };
+    placed.column_right = left_edge;
+    placed.size_class = room.size_class;
+    editor::OverlayLayout laid = editor::overlay_layout(inputs, kept, placed, *fonts, 0);
+    // From the area's top left corner.
+    laid.panel.x -= left_edge;
+    laid.panel.y -= top_edge;
+    return laid;
 }
 
-bool OaLayer::place_overlay(std::string_view overlay, const places::OverlayPlace& place) {
-    const auto room = overlay_room();
-    if (!room || !places::arranged(overlay))
+std::optional<places::OverlayPlace>
+OaLayer::overlay_place(std::string_view overlay, kit::SizeClass size_class) const {
+    return places::stored_place(runtime_.preference_values_, overlay, size_class);
+}
+
+bool OaLayer::place_overlay(
+    std::string_view overlay, kit::SizeClass size_class, const places::OverlayPlace& place
+) {
+    if (!places::arranged(overlay))
         return false;
     const bool changed =
-        places::store_place(runtime_.preference_values_, overlay, room->size_class, place);
+        places::store_place(runtime_.preference_values_, overlay, size_class, place);
     if (changed)
         write_window_preferences();
     ++revision_;
@@ -368,12 +520,8 @@ bool OaLayer::place_overlay(std::string_view overlay, const places::OverlayPlace
     return changed;
 }
 
-bool OaLayer::forget_overlay_place(std::string_view overlay) {
-    const auto room = overlay_room();
-    if (!room)
-        return false;
-    const bool forgotten =
-        places::forget_place(runtime_.preference_values_, overlay, room->size_class);
+bool OaLayer::forget_overlay_place(std::string_view overlay, kit::SizeClass size_class) {
+    const bool forgotten = places::forget_place(runtime_.preference_values_, overlay, size_class);
     if (forgotten)
         write_window_preferences();
     ++revision_;
@@ -390,39 +538,68 @@ bool OaLayer::reset_overlay_places() {
     return forgotten;
 }
 
+std::map<std::string, std::string> OaLayer::kept_overlay_places() const {
+    std::map<std::string, std::string> kept;
+    for (const auto& [key, value] : runtime_.preference_values_)
+        if (key.starts_with(places::place_key_start))
+            kept.emplace(key, value);
+    return kept;
+}
+
+void OaLayer::restore_overlay_places(const std::map<std::string, std::string>& kept) {
+    const bool forgotten = places::forget_places(runtime_.preference_values_);
+    for (const auto& [key, value] : kept)
+        runtime_.preference_values_[key] = value;
+    if (forgotten || !kept.empty())
+        write_window_preferences();
+    ++revision_;
+    lay_out_screens();
+}
+
 namespace {
 
-/// Arrange overlays as a screen of the OA layer: modal over the overlays'
-/// area, not opaque, with no backdrop of the layer's own (it veils the area
-/// itself), its points the overlays' places' points (OaLayer::overlay_room).
+/// Arrange overlays as a screen of the OA layer: modal over Settings, a
+/// picture of the match as large as the window, its points the places'
+/// points (OaLayer::arranging_room). The overlays' area, the handles and the
+/// card are laid out in points from the area's top left corner; the screen
+/// moves them to the area's place when it draws and lists them.
 class ArrangeScreen final : public LayerScreen {
   public:
 
     /// Makes the screen.
     ///
     /// @param layer the layer it shows on, which keeps the places
-    explicit ArrangeScreen(OaLayer& layer) : layer_(layer) {}
+    /// @param kept every overlay's place as the screen opened, which Cancel
+    ///     puts back
+    ArrangeScreen(OaLayer& layer, std::map<std::string, std::string> kept)
+        : layer_(layer), kept_(std::move(kept)) {}
 
     /// Returns "arrange-overlays".
     ///
     /// @return the name
     [[nodiscard]] std::string_view name() const override { return kScreenName; }
 
-    /// Returns the overlays' area at the places' scale.
+    /// Returns the whole window at the places' scale: the match's canvas in
+    /// a match, the room on the front end.
     ///
     /// @param view what the screen is placed on
-    /// @return its place; empty off a match or before it is laid out
+    /// @return its place; empty before it is laid out
     [[nodiscard]] LayerPlacement placement(const LayerView& view) const override {
-        if (!laid_ || !view.match)
+        if (!laid_)
             return {};
-        const kit::Rect whole = room_.points();
-        const kit::Rect drawn = kit::to_canvas(whole, room_.scale_percent);
-        return {
-            {room_.area.x, room_.area.y, drawn.width, drawn.height},
-            whole.width,
-            whole.height,
-            room_.scale_percent
-        };
+        int32_t percent = room_.scale_percent;
+        layout::Rect into = room_.window;
+        if (!view.match && view.room.width > 0 && room_.window.width > 0) {
+            // The front end's window pixels for the match canvas's.
+            percent = static_cast<int32_t>(
+                (int64_t{room_.scale_percent} * view.room.width + room_.window.width / 2) /
+                room_.window.width
+            );
+            into = view.room;
+        }
+        percent = std::max(percent, int32_t{1});
+        const kit::Rect drawn = kit::to_canvas(whole_, percent);
+        return {{into.x, into.y, drawn.width, drawn.height}, whole_.width, whole_.height, percent};
     }
 
     /// Tells that the screen takes every input.
@@ -430,99 +607,89 @@ class ArrangeScreen final : public LayerScreen {
     /// @return true
     [[nodiscard]] bool modal() const override { return true; }
 
-    /// Tells that the layer darkens nothing under it: the screen veils the
-    /// overlays' area itself, and the side column stays as it is.
+    /// Tells that the layer darkens nothing under it: the screen covers it.
     ///
     /// @return false
     [[nodiscard]] bool backdrop() const override { return false; }
 
-    /// Tells that the screen is laid over the battlefield by its opacity.
+    /// Tells that the screen covers what lies under it.
     ///
-    /// @return false
-    [[nodiscard]] bool opaque() const override { return false; }
+    /// @return true
+    [[nodiscard]] bool opaque() const override { return true; }
 
     /// Tells that what the screen draws changes only with its revision.
     ///
     /// @return true
     [[nodiscard]] bool revision_covers_drawing() const override { return true; }
 
-    /// Lays the handles and the card out for the overlays' area now.
+    /// Lays the picture, the samples, the handles and the card out for the
+    /// window now.
     ///
     /// @param view what the screen is placed on
-    void lay_out(const LayerView& view) override {
-        const auto room = view.match ? layer_.overlay_room() : std::nullopt;
+    void lay_out(const LayerView& /*view*/) override {
+        const auto room = layer_.arranging_room();
         const kit::Fonts* fonts = layer_.screen_fonts();
         if (!room || fonts == nullptr) {
             laid_ = false;
             return;
         }
-        const bool moved =
-            !laid_ || room->area.x != room_.area.x || room->area.y != room_.area.y ||
-            room->area.width != room_.area.width || room->area.height != room_.area.height ||
-            room->scale_percent != room_.scale_percent || room->size_class != room_.size_class;
         room_ = *room;
-        if (moved || overlays_.empty())
-            overlays_ = layer_.arranged_overlays();
+        const int32_t percent = room_.scale_percent;
+        whole_ = {
+            0, 0, points_up(room_.window.width, percent), points_up(room_.window.height, percent)
+        };
+        const kit::Rect area = room_.points();
+        field_ = {
+            points_down(room_.area.x, percent),
+            points_down(room_.area.y, percent),
+            area.width,
+            area.height
+        };
+        overlays_ = layer_.arranged_overlays_in(room_, true);
+        keys_ = layer_.keys_overlay_sample(room_);
+        chat_words_ = shown(kChatSampleWords);
+        chip_words_ = sample_chip_words();
         place_handles(*fonts);
         laid_ = true;
+        ++revision_;
     }
 
-    /// Draws the veil and the grid over the overlays' area, the card, and a
-    /// handle on each overlay.
+    /// Draws the picture of the match, the overlays' samples where they
+    /// show, a handle on each and the card.
     ///
     /// @param canvas where it draws
     void draw(const kit::Canvas& canvas) const override {
         if (!laid_ || !kit::can_draw(canvas))
             return;
-        const kit::Metrics& metrics = kit::metrics_of(room_.size_class);
-        const kit::Rect whole = room_.points();
-        kit::blend_rect(canvas, whole, kit::colour::band, kVeilOpacity);
-        for (int32_t x = kGridLinePoints; x < whole.width; x += kGridLinePoints)
-            kit::blend_rect(canvas, {x, 0, 1, whole.height}, kit::colour::text, kGridOpacity);
-        for (int32_t y = kGridLinePoints; y < whole.height; y += kGridLinePoints)
-            kit::blend_rect(canvas, {0, y, whole.width, 1}, kit::colour::text, kGridOpacity);
-
+        draw_picture(canvas);
+        const kit::Canvas area = kit::placed_at(kit::clipped(canvas, field_), {field_.x, field_.y});
+        draw_samples(area);
         // A handle on each overlay, the one held over the rest.
         for (std::size_t index = 0; index < handles_.size(); ++index)
             if (!drag_ || drag_->index != index)
-                draw_handle(canvas, index);
+                draw_handle(area, index);
         if (drag_)
-            draw_handle(canvas, drag_->index);
-
-        // The card over them: its title, its hint, Reset and Done.
-        kit::fill_corner_rect(canvas, card_, metrics.card_radius, kit::colour::panel);
-        kit::outline_corner_rect(canvas, card_, metrics.card_radius, kit::colour::strong_edge);
-        kit::box_text(
-            canvas, kit::FontRole::regular, title_, title_box_, kit::Align::left, kit::colour::text
-        );
-        for (std::size_t line = 0; line < hint_lines_.size() && line < hint_boxes_.size(); ++line)
-            kit::box_text(
-                canvas,
-                kit::FontRole::small,
-                hint_lines_[line],
-                hint_boxes_[line],
-                kit::Align::left,
-                kit::colour::text_secondary
-            );
-        draw_card_button(canvas, kResetId, reset_box_, reset_words_, kit::ButtonStyle::plain);
-        draw_card_button(canvas, kDoneId, done_box_, done_words_, kit::ButtonStyle::accent);
+            draw_handle(area, drag_->index);
+        draw_card(area);
     }
 
     /// Takes a pointer: a press on a handle drags it, a double-click puts it
-    /// back where it lays itself out, and Reset and Done act on their
+    /// back where it lays itself out, and Reset, Cancel and Done act on their
     /// release.
     ///
     /// @param kind pointer_move, pointer_down or pointer_up
     /// @param button the pointer's button, 1 for the left
-    /// @param at the pointer, in the screen's points
+    /// @param point the pointer, in the screen's points
     /// @param finger_reach how far a finger may lie from a control; 0 for a mouse
     /// @param clicks how many presses landed as one
     /// @return what the screen did
     LayerAnswer pointer_with_clicks(
-        ScreenInputKind kind, uint8_t button, kit::Point at, int32_t finger_reach, uint8_t clicks
+        ScreenInputKind kind, uint8_t button, kit::Point point, int32_t finger_reach, uint8_t clicks
     ) override {
         if (!laid_)
             return LayerAnswer::none;
+        // In points from the overlays' area's top left corner.
+        const kit::Point at{point.x - field_.x, point.y - field_.y};
         if (kind == ScreenInputKind::pointer_move) {
             if (drag_) {
                 const kit::Point travel{at.x - drag_->grab.x, at.y - drag_->grab.y};
@@ -554,7 +721,7 @@ class ArrangeScreen final : public LayerScreen {
                     // A double-click puts the overlay back where it lays
                     // itself out.
                     drag_.reset();
-                    layer_.forget_overlay_place(handles_[*index].name);
+                    layer_.forget_overlay_place(handles_[*index].name, room_.size_class);
                     relay_out();
                     return changed();
                 }
@@ -579,7 +746,7 @@ class ArrangeScreen final : public LayerScreen {
             drag_.reset();
             interaction_.pressed = kit::no_control;
             if (ended.moved)
-                layer_.place_overlay(handles_[ended.index].name, ended.place);
+                layer_.place_overlay(handles_[ended.index].name, room_.size_class, ended.place);
             relay_out();
             return changed();
         }
@@ -601,17 +768,18 @@ class ArrangeScreen final : public LayerScreen {
         return pointer_with_clicks(kind, button, at, finger_reach, 1);
     }
 
-    /// Takes a key: Escape closes the screen, an arrow moves the focused
-    /// handle a grid step (Shift a larger one), Tab and Shift+Tab move the
-    /// focus, and Enter and Space press the focused button.
+    /// Takes a key: Escape puts the places back and closes the screen, an
+    /// arrow moves the focused handle a grid step (Shift a larger one), Tab
+    /// and Shift+Tab move the focus, and Enter and Space press the focused
+    /// button.
     ///
     /// @param pressed the key
     /// @return what the screen did
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
-        if (!laid_)
-            return pressed == kit::Key::escape ? LayerAnswer::close : LayerAnswer::none;
         if (pressed == kit::Key::escape)
-            return LayerAnswer::close;
+            return act(kCancelId);
+        if (!laid_)
+            return LayerAnswer::none;
         const auto focused = handle_of(interaction_.focused);
         if (focused && interaction_.focus_shown) {
             int32_t across = 0;
@@ -628,6 +796,7 @@ class ArrangeScreen final : public LayerScreen {
                 const bool large = (SDL_GetModState() & SDL_KMOD_SHIFT) != 0;
                 layer_.place_overlay(
                     handles_[*focused].name,
+                    room_.size_class,
                     places::moved_place(
                         room_.points(), handles_[*focused].shown, across, down, large
                     )
@@ -643,9 +812,9 @@ class ArrangeScreen final : public LayerScreen {
                 return act(outcome.control);
             return LayerAnswer::none;
         case kit::KeyResult::accept:
-            return LayerAnswer::close;
+            return act(kDoneId);
         case kit::KeyResult::cancel:
-            return LayerAnswer::close;
+            return act(kCancelId);
         case kit::KeyResult::redraw:
             return changed();
         default:
@@ -658,21 +827,30 @@ class ArrangeScreen final : public LayerScreen {
     /// @return none
     LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::none; }
 
-    /// Returns the handles, Reset and Done, as automation lists them.
+    /// Returns the handles, Reset, Cancel and Done, as automation lists
+    /// them, in the screen's points.
     ///
     /// @return the list
-    [[nodiscard]] kit::DisplayList display_list() const override { return list_; }
+    [[nodiscard]] kit::DisplayList display_list() const override {
+        kit::DisplayList moved = list_;
+        for (kit::Control& control : moved.controls) {
+            control.rect.x += field_.x;
+            control.rect.y += field_.y;
+        }
+        return moved;
+    }
 
     /// Returns the hover, the press and the focus.
     ///
     /// @return the interaction
     [[nodiscard]] kit::Interaction interaction() const override { return interaction_; }
 
-    /// Closes the screen once its match is no longer shown.
+    /// Closes the screen once no match can be pictured: the match it shows
+    /// over has ended.
     ///
     /// @return close then; otherwise none
     LayerAnswer tick() override {
-        return layer_.overlay_room() ? LayerAnswer::none : LayerAnswer::close;
+        return layer_.arranging_room() ? LayerAnswer::none : LayerAnswer::close;
     }
 
     /// Returns the revision.
@@ -689,13 +867,14 @@ class ArrangeScreen final : public LayerScreen {
     struct Handle {
         std::string_view name{}; ///< the overlay's name
         std::string words{};     ///< its words, in the language shown
-        kit::Rect shown{};       ///< the handle, in the screen's points
+        kit::Rect shown{};       ///< the handle, in the area's points
+        kit::Rect overlay{};     ///< where the overlay itself shows, in the area's points
     };
 
     /// A handle being dragged.
     struct Drag {
         std::size_t index{};          ///< the handle
-        kit::Point grab{};            ///< where the press landed, in the screen's points
+        kit::Point grab{};            ///< where the press landed, in the area's points
         kit::Rect start{};            ///< where the handle showed when pressed
         places::OverlayPlace place{}; ///< the place the drag gives the overlay now
         bool moved{};                 ///< the pointer has moved since the press
@@ -731,10 +910,15 @@ class ArrangeScreen final : public LayerScreen {
     /// Carries out a button's press.
     ///
     /// @param control the button
-    /// @return close for Done; redraw for Reset; otherwise none
+    /// @return close for Done and Cancel; redraw for Reset; otherwise none
     LayerAnswer act(kit::ControlId control) {
         if (control == kDoneId)
             return LayerAnswer::close;
+        if (control == kCancelId) {
+            drag_.reset();
+            layer_.restore_overlay_places(kept_);
+            return LayerAnswer::close;
+        }
         if (control == kResetId) {
             drag_.reset();
             layer_.reset_overlay_places();
@@ -771,17 +955,22 @@ class ArrangeScreen final : public LayerScreen {
             const kit::Point size{
                 std::max(unplaced.width, least.x), std::max(unplaced.height, least.y)
             };
-            std::optional<places::OverlayPlace> place = layer_.overlay_place(overlay.name);
+            std::optional<places::OverlayPlace> place =
+                layer_.overlay_place(overlay.name, room_.size_class);
             if (drag_ && drag_->index == index)
                 place = drag_->place;
             handle.shown = place ? places::rect_at(whole, size, *place)
                                  : places::handle_rect(whole, unplaced, least);
+            handle.overlay = place
+                                 ? places::rect_at(whole, {unplaced.width, unplaced.height}, *place)
+                                 : places::kept_in(whole, unplaced);
             handles_.push_back(std::move(handle));
         }
 
-        // The card: the title, the hint wrapped to the card, Reset and Done.
+        // The card: the title, the hint wrapped to the card, Reset, Cancel and Done.
         title_ = shown(kTitleWords);
         reset_words_ = shown(kResetWords);
+        cancel_words_ = shown(kCancelWords);
         done_words_ = shown(kDoneWords);
         const int32_t pad = metrics.padding;
         const int32_t gap = metrics.space * 2;
@@ -792,12 +981,13 @@ class ArrangeScreen final : public LayerScreen {
             );
         };
         const int32_t reset_width = button_width(reset_words_);
+        const int32_t cancel_width = button_width(cancel_words_);
         const int32_t done_width = button_width(done_words_);
         // Narrow, so that it finds room beside the handles: its title, its
         // buttons, and the hint wrapped to them.
         const int32_t widest = std::max(
             {kit::text_width(fonts, kit::FontRole::regular, title_),
-             reset_width + gap + done_width,
+             reset_width + gap + cancel_width + gap + done_width,
              kCardLeastPoints}
         );
         const int32_t inner = std::max(std::min(widest, whole.width - 2 * pad - 2 * gap), 1);
@@ -825,7 +1015,10 @@ class ArrangeScreen final : public LayerScreen {
         done_box_ = {
             card_.x + card_.width - pad - done_width, cursor, done_width, metrics.button_height
         };
-        reset_box_ = {done_box_.x - gap - reset_width, cursor, reset_width, metrics.button_height};
+        cancel_box_ = {
+            done_box_.x - gap - cancel_width, cursor, cancel_width, metrics.button_height
+        };
+        reset_box_ = {card_.x + pad, cursor, reset_width, metrics.button_height};
 
         // The controls: the card's buttons first, as the card lies over the
         // handles, then the handles, the last drawn first.
@@ -845,6 +1038,7 @@ class ArrangeScreen final : public LayerScreen {
             list_.controls.push_back(std::move(control));
         };
         add_button(kResetId, reset_box_, "reset", reset_words_);
+        add_button(kCancelId, cancel_box_, "cancel", cancel_words_);
         add_button(kDoneId, done_box_, "done", done_words_);
         for (std::size_t index = handles_.size(); index > 0; --index) {
             const Handle& handle = handles_[index - 1];
@@ -859,7 +1053,123 @@ class ArrangeScreen final : public LayerScreen {
         for (std::size_t index = 0; index < handles_.size(); ++index)
             list_.tab_order.push_back(kFirstHandle + static_cast<kit::ControlId>(index));
         list_.tab_order.push_back(kResetId);
+        list_.tab_order.push_back(kCancelId);
         list_.tab_order.push_back(kDoneId);
+    }
+
+    /// Draws the picture of the match in the kit's look: the side panel
+    /// down the window's left, the top bar and the bottom bar beside it,
+    /// each named, and the battlefield between them with the grid.
+    ///
+    /// @param canvas where it draws, in the screen's points
+    void draw_picture(const kit::Canvas& canvas) const {
+        kit::fill_rect(canvas, whole_, kit::colour::band);
+        const int32_t right = field_.x + field_.width;
+        const int32_t bottom = field_.y + field_.height;
+        const kit::Rect side{0, 0, field_.x, whole_.height};
+        const kit::Rect top{field_.x, 0, whole_.width - field_.x, field_.y};
+        const kit::Rect foot{field_.x, bottom, whole_.width - field_.x, whole_.height - bottom};
+        const kit::Rect beyond{right, field_.y, whole_.width - right, field_.height};
+        kit::fill_rect(canvas, side, kit::colour::panel);
+        kit::fill_rect(canvas, top, kit::colour::list);
+        kit::fill_rect(canvas, foot, kit::colour::list);
+        kit::fill_rect(canvas, beyond, kit::colour::list);
+        kit::fill_rect(canvas, field_, kit::colour::well);
+        for (int32_t x = kGridLinePoints; x < field_.width; x += kGridLinePoints)
+            kit::blend_rect(
+                canvas, {field_.x + x, field_.y, 1, field_.height}, kit::colour::text, kGridOpacity
+            );
+        for (int32_t y = kGridLinePoints; y < field_.height; y += kGridLinePoints)
+            kit::blend_rect(
+                canvas, {field_.x, field_.y + y, field_.width, 1}, kit::colour::text, kGridOpacity
+            );
+        // The rules between the parts.
+        kit::fill_rect(canvas, {field_.x - 1, 0, 1, whole_.height}, kit::colour::strong_edge);
+        kit::fill_rect(canvas, {field_.x, field_.y - 1, field_.width, 1}, kit::colour::rule);
+        kit::fill_rect(canvas, {field_.x, bottom, field_.width, 1}, kit::colour::rule);
+        // Each part's name, where it has the room.
+        const kit::Metrics& metrics = kit::metrics_of(room_.size_class);
+        const auto name = [&](const kit::Rect& part, std::string_view words, bool at_top) {
+            if (part.width <= 2 * metrics.space || part.height < metrics.small_line)
+                return;
+            const int32_t y =
+                at_top ? part.y + metrics.space : part.y + (part.height - metrics.small_line) / 2;
+            kit::box_text(
+                kit::clipped(canvas, part),
+                kit::FontRole::small,
+                shown(words),
+                {part.x + metrics.space, y, part.width - 2 * metrics.space, metrics.small_line},
+                kit::Align::centre,
+                kit::colour::text_tertiary
+            );
+        };
+        name(side, kSidePanelWords, true);
+        name(top, kTopBarWords, false);
+        name(foot, kBottomBarWords, false);
+    }
+
+    /// Draws each overlay's sample where it shows: the keys overlay's short
+    /// list, the chat line being typed and the latch chip.
+    ///
+    /// @param area where it draws, in the area's points
+    void draw_samples(const kit::Canvas& area) const {
+        const kit::Metrics& metrics = kit::metrics_of(room_.size_class);
+        for (const Handle& handle : handles_) {
+            const kit::Rect& at = handle.overlay;
+            if (handle.name == places::keys_overlay) {
+                oa::ui::key_editor::OverlayLayout drawn = keys_;
+                drawn.panel.x = 0;
+                drawn.panel.y = 0;
+                oa::ui::key_editor::draw_overlay(
+                    kit::placed_at(kit::clipped(area, at), {at.x, at.y}), drawn
+                );
+            } else if (handle.name == places::chat_line) {
+                kit::blend_rect(area, at, kit::colour::band, kChatBandOpacity);
+                kit::box_text(
+                    kit::clipped(area, at),
+                    kit::FontRole::small,
+                    chat_words_,
+                    {at.x + metrics.space,
+                     at.y + (at.height - metrics.small_line) / 2,
+                     std::max(at.width - 2 * metrics.space, int32_t{0}),
+                     metrics.small_line},
+                    kit::Align::left,
+                    kit::colour::text
+                );
+            } else if (handle.name == places::latch_chips) {
+                kit::ChipLook look;
+                look.text = chip_words_;
+                look.state = kit::ChipState::playing;
+                const int32_t height = kit::compact_metrics.chip_height;
+                kit::draw_chip(
+                    area, {at.x, at.y + (at.height - height) / 2, at.width, height}, look
+                );
+            }
+        }
+    }
+
+    /// Draws the card: its title, its hint, Reset, Cancel and Done.
+    ///
+    /// @param area where it draws, in the area's points
+    void draw_card(const kit::Canvas& area) const {
+        const kit::Metrics& metrics = kit::metrics_of(room_.size_class);
+        kit::fill_corner_rect(area, card_, metrics.card_radius, kit::colour::panel);
+        kit::outline_corner_rect(area, card_, metrics.card_radius, kit::colour::strong_edge);
+        kit::box_text(
+            area, kit::FontRole::regular, title_, title_box_, kit::Align::left, kit::colour::text
+        );
+        for (std::size_t line = 0; line < hint_lines_.size() && line < hint_boxes_.size(); ++line)
+            kit::box_text(
+                area,
+                kit::FontRole::small,
+                hint_lines_[line],
+                hint_boxes_[line],
+                kit::Align::left,
+                kit::colour::text_secondary
+            );
+        draw_card_button(area, kResetId, reset_box_, reset_words_, kit::ButtonStyle::plain);
+        draw_card_button(area, kCancelId, cancel_box_, cancel_words_, kit::ButtonStyle::plain);
+        draw_card_button(area, kDoneId, done_box_, done_words_, kit::ButtonStyle::accent);
     }
 
     /// Draws one of the card's buttons, its hover, press and focus.
@@ -937,32 +1247,41 @@ class ArrangeScreen final : public LayerScreen {
             kit::draw_focus_ring(canvas, box, false);
     }
 
-    OaLayer& layer_;                                   ///< the layer it shows on
-    OaLayer::OverlayRoom room_{};                      ///< the overlays' area as last laid out
-    std::vector<OaLayer::ArrangedOverlay> overlays_{}; ///< the overlays, as the room last gave them
-    std::vector<Handle> handles_{};                    ///< a handle on each overlay
-    std::optional<Drag> drag_{};            ///< the handle being dragged; none between drags
-    kit::Rect card_{};                      ///< the card
-    std::string title_{};                   ///< the card's title, in the language shown
-    kit::Rect title_box_{};                 ///< the title's box
-    std::vector<std::string> hint_lines_{}; ///< the hint's lines
-    std::vector<kit::Rect> hint_boxes_{};   ///< each hint line's box
-    std::string reset_words_{};             ///< Reset's caption
-    kit::Rect reset_box_{};                 ///< Reset
-    std::string done_words_{};              ///< Done's caption
-    kit::Rect done_box_{};                  ///< Done
-    kit::DisplayList list_{};               ///< the controls
-    kit::Interaction interaction_{};        ///< the hover, the press and the focus
-    uint64_t revision_{1};                  ///< changes with what the screen draws
-    bool laid_{};                           ///< laid out over a match
+    OaLayer& layer_;                            ///< the layer it shows on
+    std::map<std::string, std::string> kept_{}; ///< the places as the screen opened
+    OaLayer::OverlayRoom room_{};               ///< the room a match takes in the window
+    kit::Rect whole_{};                         ///< the window, in the screen's points
+    kit::Rect field_{};                         ///< the overlays' area, in the screen's points
+    std::vector<OaLayer::ArrangedOverlay>
+        overlays_{};                           ///< the samples where they lay themselves out
+    oa::ui::key_editor::OverlayLayout keys_{}; ///< the keys overlay's sample
+    std::string chat_words_{};                 ///< the chat line's sample
+    std::string chip_words_{};                 ///< the latch chip's sample
+    std::vector<Handle> handles_{};            ///< a handle on each overlay
+    std::optional<Drag> drag_{};               ///< the handle being dragged; none between drags
+    kit::Rect card_{};                         ///< the card
+    std::string title_{};                      ///< the card's title, in the language shown
+    kit::Rect title_box_{};                    ///< the title's box
+    std::vector<std::string> hint_lines_{};    ///< the hint's lines
+    std::vector<kit::Rect> hint_boxes_{};      ///< each hint line's box
+    std::string reset_words_{};                ///< Reset's caption
+    kit::Rect reset_box_{};                    ///< Reset
+    std::string cancel_words_{};               ///< Cancel's caption
+    kit::Rect cancel_box_{};                   ///< Cancel
+    std::string done_words_{};                 ///< Done's caption
+    kit::Rect done_box_{};                     ///< Done
+    kit::DisplayList list_{};                  ///< the controls, in the area's points
+    kit::Interaction interaction_{};           ///< the hover, the press and the focus
+    uint64_t revision_{1};                     ///< changes with what the screen draws
+    bool laid_{};                              ///< laid out for a room
 };
 
 } // namespace
 
 bool OaLayer::open_arrange_overlays() {
-    if (find(kScreenName) != nullptr || screen_fonts() == nullptr || !overlay_room())
+    if (find(kScreenName) != nullptr || screen_fonts() == nullptr || !arranging_room())
         return false;
-    push(std::make_unique<ArrangeScreen>(*this));
+    push(std::make_unique<ArrangeScreen>(*this, kept_overlay_places()));
     lay_out_screens();
     return true;
 }
