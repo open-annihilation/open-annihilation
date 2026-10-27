@@ -141,6 +141,8 @@ inline constexpr kit::ControlId share_id = 75;
 inline constexpr kit::ControlId paste_summary = 76;
 /// The import prompt's summary.
 inline constexpr kit::ControlId import_summary = 77;
+/// The scroll bar of a share, paste or import text block.
+inline constexpr kit::ControlId exchange_bar = 78;
 
 /// One nav entry. The category's place among the nav's entries, from 0, is added.
 inline constexpr kit::ControlId nav_first = 100;

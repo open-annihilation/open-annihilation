@@ -1956,6 +1956,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     void show_import(keys::LegacyRead read, std::string tool, std::string file) {
         state_.importing = editor::import_preview(editor_, read, tool, file);
         state_.import_chosen = 0;
+        state_.exchange_scroll = 0;
         state_.prompt = editor::Prompt::import;
     }
 
@@ -2088,6 +2089,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             SDL_free(clipboard);
         }
         state_.paste = editor::paste_preview(editor_, bytes);
+        state_.exchange_scroll = 0;
         state_.prompt = editor::Prompt::paste;
     }
 

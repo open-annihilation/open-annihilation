@@ -1188,6 +1188,7 @@ void close_prompt(ScreenState& state) {
     state.prompt = Prompt::none;
     state.capture = Capture{};
     state.pending_clash = {};
+    state.exchange_scroll = 0;
 }
 
 /// Opens SHARE… on an empty name. A built-in layout does not start named.
@@ -1197,6 +1198,7 @@ void close_prompt(ScreenState& state) {
 void open_share(Editor& editor, ScreenState& state) {
     state.menu = Menu::none;
     state.prompt = Prompt::share;
+    state.exchange_scroll = 0;
     state.share_field = {};
     state.share_place.clear();
     editor.set_share_name("");
@@ -1209,6 +1211,7 @@ void open_share(Editor& editor, ScreenState& state) {
 void open_import(ScreenState& state) {
     state.menu = Menu::none;
     state.prompt = Prompt::import;
+    state.exchange_scroll = 0;
     state.importing = {};
     state.import_chosen = -1;
     focus_on(state, controls::import_cancel);
@@ -2197,6 +2200,29 @@ EditorResult editor_wheel(
     Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::Point at, float notches
 ) {
     if (state.prompt != Prompt::none) {
+        if (state.prompt == Prompt::share || state.prompt == Prompt::paste ||
+            state.prompt == Prompt::import) {
+            const kit::Control* bar = kit::control_of(list, controls::exchange_bar);
+            kit::ControlId block_id = controls::share_text;
+            if (state.prompt == Prompt::paste)
+                block_id = controls::paste_list;
+            else if (state.prompt == Prompt::import)
+                block_id = controls::import_list;
+            const kit::Control* block = kit::control_of(list, block_id);
+            const bool over_block = block != nullptr && kit::contains(block->rect, at);
+            const bool over_bar = bar != nullptr && kit::contains(bar->rect, at);
+            if (bar != nullptr && block != nullptr && (over_block || over_bar)) {
+                const int32_t limit = std::max(bar->group - block->rect.height, int32_t{0});
+                const int32_t step =
+                    std::max(kit::metrics_of(size_of(list)).small_line, int32_t{1});
+                const int32_t delta = notches > 0.0F ? -step : step;
+                const int32_t next = std::clamp(state.exchange_scroll + delta, int32_t{0}, limit);
+                if (next != state.exchange_scroll) {
+                    state.exchange_scroll = next;
+                    return redrawn();
+                }
+            }
+        }
         const kit::Control* well = kit::control_of(list, controls::capture_well);
         if (state.prompt == Prompt::capture && state.capture.state == CaptureState::waiting &&
             well != nullptr && kit::contains(well->rect, at)) {

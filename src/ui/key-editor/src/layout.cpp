@@ -2068,7 +2068,9 @@ std::string hands_sentence(const Editor& editor, std::string_view note) {
     return fill(show(editor.text(), words::hands_are_one), {{"modifier", std::string(modifier)}});
 }
 
-/// Lays SHARE…, PASTE… or IMPORT…. The editor under it is laid out by the caller.
+/// Lays SHARE…, PASTE… or IMPORT… as a content-sized panel over the editor.
+///
+/// The text block scrolls when its lines do not fit above the buttons.
 ///
 /// @param editor the model
 /// @param state the prompt and its fields
@@ -2091,7 +2093,11 @@ kit::DisplayList exchange_prompt(
     const int32_t content_stop = std::max(button_row - kSectionGap, pad);
     int32_t y = pad;
 
-    auto text_at = [&](kit::Rect rect, std::string words, kit::FontRole font, kit::Colour ink) {
+    auto text_at = [&](kit::Rect rect,
+                       std::string words,
+                       kit::FontRole font,
+                       kit::Colour ink,
+                       kit::Rect clip = {}) {
         if (rect.width <= 0 || rect.height <= 0 || words.empty())
             return;
         words = kit::cut_to_width(fonts, font, std::move(words), rect.width);
@@ -2100,6 +2106,7 @@ kit::DisplayList exchange_prompt(
         kit::Item item;
         item.role = kit::Role::text;
         item.rect = rect;
+        item.clip = clip;
         item.text = std::move(words);
         item.font = font;
         item.colour = ink;
@@ -2215,6 +2222,145 @@ kit::DisplayList exchange_prompt(
         y += std::max(used, metrics.regular_line);
         y += metrics.paragraph_gap / 2;
     };
+    auto line_height = [&](kit::FontRole font) {
+        return font == kit::FontRole::regular ? metrics.regular_line : metrics.small_line;
+    };
+    auto block_height = [&](const std::string& words, kit::FontRole font, int32_t most_lines) {
+        const int32_t line_h = line_height(font);
+        if (column_w <= 0 || line_h <= 0 || words.empty() || most_lines <= 0)
+            return int32_t{0};
+        const auto measure = [&](std::string_view measured) {
+            return kit::text_width(fonts, font, measured);
+        };
+        const std::vector<std::string> lines = kit::wrap(words, column_w, measure);
+        const int32_t count = std::min(static_cast<int32_t>(lines.size()), most_lines);
+        return count * line_h;
+    };
+    /// Draws a block of lines in a well. A block taller than `room` scrolls,
+    /// and the bar sits in the panel's padding so the lines keep their width.
+    ///
+    /// @param words the lines, as the control names them
+    /// @param font which font
+    /// @param ink the colour
+    /// @param most_lines how many lines the block may hold
+    /// @param room how tall the block may be, in points
+    /// @param id the control
+    /// @param name the control's name
+    /// @return the height the block took
+    auto place_block = [&](const std::string& words,
+                           kit::FontRole font,
+                           kit::Colour ink,
+                           int32_t most_lines,
+                           int32_t room,
+                           kit::ControlId id,
+                           std::string_view name) -> int32_t {
+        const int32_t line_h = line_height(font);
+        if (column_w <= 0 || line_h <= 0 || room <= 0 || words.empty() || most_lines <= 0)
+            return 0;
+        const auto measure = [&](std::string_view measured) {
+            return kit::text_width(fonts, font, measured);
+        };
+        std::vector<std::string> lines = kit::wrap(words, column_w, measure);
+        if (static_cast<int32_t>(lines.size()) > most_lines)
+            lines.resize(static_cast<std::size_t>(most_lines));
+        if (lines.empty())
+            return 0;
+        const int32_t content_h = static_cast<int32_t>(lines.size()) * line_h;
+        int32_t view_h = std::min(content_h, room);
+        if (view_h >= line_h)
+            view_h = (view_h / line_h) * line_h;
+        if (view_h < 1)
+            return 0;
+        const bool scrolling = content_h > view_h;
+        const kit::Rect port{column_x, y, column_w, view_h};
+        add_item(list, kit::Role::fill, port).colour = kit::colour::well;
+        int32_t offset = 0;
+        if (scrolling) {
+            const int32_t limit = std::max(content_h - view_h, int32_t{0});
+            offset = std::clamp(state.exchange_scroll, int32_t{0}, limit);
+            if (line_h > 0)
+                offset = (offset / line_h) * line_h;
+        }
+        const kit::Rect clip = scrolling ? port : kit::Rect{};
+        for (std::size_t line_at = 0; line_at < lines.size(); ++line_at) {
+            const int32_t line_top = y + static_cast<int32_t>(line_at) * line_h - offset;
+            if (line_top + line_h <= y || line_top >= y + view_h)
+                continue;
+            text_at({column_x, line_top, column_w, line_h}, lines[line_at], font, ink, clip);
+        }
+        area(port, id, name, words);
+        if (!scrolling)
+            return view_h;
+        const int32_t bar_w = metrics.scroll_thumb_width + 2;
+        const int32_t bar_x = column_x + column_w + std::max((pad - bar_w) / 2, int32_t{1});
+        const kit::Rect bar_rect{bar_x, y, bar_w, view_h};
+        if (bar_rect.x + bar_rect.width > box_w)
+            return view_h;
+        kit::ScrollArea scrolled;
+        scrolled.view = port;
+        scrolled.well = bar_rect;
+        scrolled.content_height = content_h;
+        scrolled.limit = std::max(content_h - view_h, int32_t{0});
+        scrolled.offset = offset;
+        kit::ScrollBarLook bar;
+        bar.thumb = scrolled.thumb(metrics.least_thumb_height);
+        bar.hot = hot(state, controls::exchange_bar);
+        add_item(list, kit::Role::scroll_bar, bar_rect).look = bar;
+        kit::Control control;
+        control.id = controls::exchange_bar;
+        control.rect = bar_rect;
+        control.enabled = true;
+        control.focusable = false;
+        control.name = std::string(name_exchange_bar);
+        control.kind = kit::ControlKind::scroll_bar;
+        // The wheel reads the block's height back from the bar.
+        control.group = content_h;
+        list.controls.push_back(std::move(control));
+        return view_h;
+    };
+    /// Pins the buttons under the content and covers it with a centred panel.
+    auto place_footer = [&](const std::vector<ExchangeButton>& buttons) {
+        if (y > pad)
+            y += kSectionGap;
+        int32_t footer_y = y;
+        if (footer_y + metrics.button_height + pad > window.height)
+            footer_y = std::max(window.height - pad - metrics.button_height, int32_t{0});
+        place_row(footer_y, buttons);
+        const int32_t bottom = footer_y + metrics.button_height;
+        int32_t box_h = bottom + pad;
+        if (box_h > window.height)
+            box_h = window.height;
+        if (box_h < 1)
+            box_h = 1;
+        kit::Item edge;
+        edge.role = kit::Role::bevel;
+        edge.rect = {0, 0, box_w, box_h};
+        edge.colour = kit::colour::edge_light;
+        kit::Item face;
+        face.role = kit::Role::fill;
+        face.rect = {0, 0, box_w, box_h};
+        face.colour = kit::colour::panel;
+        list.items.insert(list.items.begin(), std::move(edge));
+        list.items.insert(list.items.begin(), std::move(face));
+        const int32_t origin_x = std::max((window.width - box_w) / 2, int32_t{0});
+        const int32_t origin_y = std::max((window.height - box_h) / 2, int32_t{0});
+        for (kit::Item& item : list.items) {
+            item.rect.x += origin_x;
+            item.rect.y += origin_y;
+            if (item.clip.width > 0 && item.clip.height > 0) {
+                item.clip.x += origin_x;
+                item.clip.y += origin_y;
+            }
+        }
+        for (kit::Control& control : list.controls) {
+            control.rect.x += origin_x;
+            control.rect.y += origin_y;
+            if (control.clip.width > 0 && control.clip.height > 0) {
+                control.clip.x += origin_x;
+                control.clip.y += origin_y;
+            }
+        }
+    };
 
     if (state.prompt == Prompt::share) {
         const ShareSummary summary = share_summary(editor);
@@ -2269,22 +2415,21 @@ kit::DisplayList exchange_prompt(
                 2
             );
         }
-        const int32_t text_top = y;
-        y += wrapped(y, summary.text, kit::FontRole::small, kit::colour::quiet, 6);
-        if (y > text_top)
-            area(
-                {column_x, text_top, column_w, y - text_top},
-                controls::share_text,
-                name_share_text,
-                summary.text
-            );
-        y += wrapped(
-            y,
-            show(editor.text(), words::share_file_note),
-            kit::FontRole::small,
-            kit::colour::hint,
-            4
+        const std::string note = show(editor.text(), words::share_file_note);
+        const int32_t note_h = block_height(note, kit::FontRole::small, 4);
+        const int32_t room = std::max(
+            window.height - y - note_h - kSectionGap - metrics.button_height - pad, int32_t{0}
         );
+        y += place_block(
+            summary.text,
+            kit::FontRole::small,
+            kit::colour::quiet,
+            6,
+            room,
+            controls::share_text,
+            name_share_text
+        );
+        y += wrapped(y, note, kit::FontRole::small, kit::colour::hint, 4);
         std::vector<ExchangeButton> buttons;
         buttons.push_back(
             make(controls::share_copy, name_share_copy, words::copy_as_text, false, true)
@@ -2300,7 +2445,7 @@ kit::DisplayList exchange_prompt(
         buttons.push_back(
             make(controls::share_close, name_share_close, words::close_word, false, true)
         );
-        place_row(button_row, buttons);
+        place_footer(buttons);
         return list;
     }
 
@@ -2354,49 +2499,46 @@ kit::DisplayList exchange_prompt(
             rows += ": ";
             rows += problem.message;
         }
-        const int32_t list_top = y;
-        y += wrapped(y, rows, kit::FontRole::small, kit::colour::text, 8);
-        const int32_t list_h = std::max(y - list_top, metrics.small_line);
-        if (list_top + list_h <= content_stop)
-            area(
-                {column_x, list_top, column_w, list_h}, controls::paste_list, name_paste_list, rows
-            );
+        std::string tail;
         for (const PasteRow& row : state.paste.rows) {
             if (!row.clash)
                 continue;
             const std::string chord =
                 row.after.empty() ? std::string{} : keys::chord_text(row.after.front());
             const std::string holder = row.holder.empty() ? row.action : row.holder;
-            y += wrapped(
-                y,
-                fill(
-                    show(editor.text(), words::paste_clash), {{"chord", chord}, {"action", holder}}
-                ),
-                kit::FontRole::small,
-                kit::colour::hint,
-                3
+            tail = fill(
+                show(editor.text(), words::paste_clash), {{"chord", chord}, {"action", holder}}
             );
             break;
         }
+        std::string kept;
         for (const PasteRow& row : state.paste.rows) {
             if (!row.unknown)
                 continue;
-            y += wrapped(
-                y,
-                fill(show(editor.text(), words::kept_for_later), {{"action", row.action}}),
-                kit::FontRole::small,
-                kit::colour::hint,
-                2
-            );
+            kept = fill(show(editor.text(), words::kept_for_later), {{"action", row.action}});
             break;
         }
-        y += wrapped(
-            y,
-            show(editor.text(), words::nothing_until_apply),
-            kit::FontRole::small,
-            kit::colour::hint,
-            2
+        const std::string until = show(editor.text(), words::nothing_until_apply);
+        const int32_t tail_h = block_height(tail, kit::FontRole::small, 3) +
+                               block_height(kept, kit::FontRole::small, 2) +
+                               block_height(until, kit::FontRole::small, 2);
+        const int32_t room = std::max(
+            window.height - y - tail_h - kSectionGap - metrics.button_height - pad, int32_t{0}
         );
+        y += place_block(
+            rows,
+            kit::FontRole::small,
+            kit::colour::text,
+            8,
+            room,
+            controls::paste_list,
+            name_paste_list
+        );
+        if (!tail.empty())
+            y += wrapped(y, tail, kit::FontRole::small, kit::colour::hint, 3);
+        if (!kept.empty())
+            y += wrapped(y, kept, kit::FontRole::small, kit::colour::hint, 2);
+        y += wrapped(y, until, kit::FontRole::small, kit::colour::hint, 2);
         std::vector<ExchangeButton> buttons;
         buttons.push_back(make(
             controls::paste_apply,
@@ -2413,7 +2555,7 @@ kit::DisplayList exchange_prompt(
         buttons.push_back(
             make(controls::paste_cancel, name_paste_cancel, words::cancel, false, true)
         );
-        place_row(button_row, buttons);
+        place_footer(buttons);
         return list;
     }
 
@@ -2480,11 +2622,12 @@ kit::DisplayList exchange_prompt(
             controls::import_choose, name_import_choose, words::choose_another_file, false, true
         ));
         place_row(y, sources);
+        y += metrics.button_height;
         std::vector<ExchangeButton> buttons;
         buttons.push_back(
             make(controls::import_cancel, name_import_cancel, words::cancel, false, true)
         );
-        place_row(button_row, buttons);
+        place_footer(buttons);
         return list;
     }
 
@@ -2546,35 +2689,32 @@ kit::DisplayList exchange_prompt(
         rows += ": ";
         rows += problem.message;
     }
-    const int32_t list_top = y;
-    y += wrapped(y, rows, kit::FontRole::small, kit::colour::text, 8);
-    const int32_t list_h = std::max(y - list_top, metrics.small_line);
-    if (list_top < content_stop)
-        area(
-            {column_x, list_top, column_w, std::min(list_h, content_stop - list_top)},
-            controls::import_list,
-            name_import_list,
-            rows
-        );
-    for (const ImportRow& row : state.importing.rows) {
-        if (row.loses.empty())
+    std::string moves;
+    for (const ImportRow& moved : state.importing.rows) {
+        if (moved.loses.empty())
             continue;
-        y += wrapped(
-            y,
-            fill(show(editor.text(), words::import_moves), {{"action", row.loses}}),
-            kit::FontRole::small,
-            kit::colour::hint,
-            3
-        );
+        moves = fill(show(editor.text(), words::import_moves), {{"action", moved.loses}});
         break;
     }
-    y += wrapped(
-        y,
-        fill(show(editor.text(), words::numbers_are_places), {{"file", file}}),
-        kit::FontRole::small,
-        kit::colour::hint,
-        4
+    const std::string numbers =
+        fill(show(editor.text(), words::numbers_are_places), {{"file", file}});
+    const int32_t tail_h = block_height(moves, kit::FontRole::small, 3) +
+                           block_height(numbers, kit::FontRole::small, 4);
+    const int32_t room = std::max(
+        window.height - y - tail_h - kSectionGap - metrics.button_height - pad, int32_t{0}
     );
+    y += place_block(
+        rows,
+        kit::FontRole::small,
+        kit::colour::text,
+        8,
+        room,
+        controls::import_list,
+        name_import_list
+    );
+    if (!moves.empty())
+        y += wrapped(y, moves, kit::FontRole::small, kit::colour::hint, 3);
+    y += wrapped(y, numbers, kit::FontRole::small, kit::colour::hint, 4);
     std::vector<ExchangeButton> buttons;
     buttons.push_back(make(
         controls::import_apply,
@@ -2590,7 +2730,7 @@ kit::DisplayList exchange_prompt(
     buttons.push_back(
         make(controls::import_cancel, name_import_cancel, words::cancel, false, true)
     );
-    place_row(button_row, buttons);
+    place_footer(buttons);
     return list;
 }
 

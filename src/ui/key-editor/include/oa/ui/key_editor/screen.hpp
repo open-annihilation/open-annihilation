@@ -178,6 +178,8 @@ inline constexpr std::string_view name_share_close = "key-editor.share.close";
 inline constexpr std::string_view name_share_id = "key-editor.share.id";
 /// The share prompt's text, so a check can read the text form.
 inline constexpr std::string_view name_share_text = "key-editor.share.text";
+/// The scroll bar of a share, paste or import text block, when that block scrolls.
+inline constexpr std::string_view name_exchange_bar = "key-editor.exchange.bar";
 /// The paste prompt's rows.
 inline constexpr std::string_view name_paste_list = "key-editor.paste.list";
 /// APPLY {n} CHANGES.
@@ -305,6 +307,7 @@ struct ScreenState {
     kit::Interaction interaction{};  ///< the hover, the press and the focus
     int32_t list_scroll{};           ///< how far the list is scrolled, in points
     int32_t details_scroll{};        ///< how far the details are scrolled, in points
+    int32_t exchange_scroll{};       ///< how far a share, paste or import text block is scrolled
     kit::WheelCarry list_wheel{};    ///< the wheel's turn the list has not scrolled yet
     kit::WheelCarry details_wheel{}; ///< the wheel's turn the details have not scrolled yet
     /// The search field's text and caret. The rows are filtered by its text.
