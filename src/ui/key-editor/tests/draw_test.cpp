@@ -407,7 +407,8 @@ void fill_untouched(renderer::Surface& surface) {
     }
 }
 
-/// Draws the keys overlay for the contexts active while playing.
+/// Draws the keys overlay for the contexts active while playing, with a
+/// latched QUEUE in its On line.
 ///
 /// Hacks are off. The panel sits in an 800 by 480 room, to the right of a
 /// 128-point column, and the canvas outside that panel stays untouched.
@@ -425,6 +426,7 @@ Drawing draw_overlay_scene(const Scene& scene, const kit::Fonts& measured) {
     inputs.contexts.active = context_bit("global") | context_bit("match") | context_bit("play");
     inputs.keyboard = keyboard;
     inputs.layout_name = "OA default";
+    inputs.on.push_back({"QUEUE · latched", true});
     const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
     const editor::OverlayRoom room{{0, 0, scene.width, scene.height}, 128, scene.overlay_class};
     const editor::OverlayLayout laid = editor::overlay_layout(inputs, groups, room, measured, 0);
@@ -443,7 +445,7 @@ Drawing draw_overlay_scene(const Scene& scene, const kit::Fonts& measured) {
     canvas.surface = &drawing.surface;
     canvas.placement = {laid.panel.x, laid.panel.y, drawing.scale, {}};
     canvas.fonts = &measured;
-    editor::draw_overlay(canvas, laid.list, {laid.panel.width, laid.panel.height});
+    editor::draw_overlay(canvas, laid);
     return drawing;
 }
 

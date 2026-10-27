@@ -88,7 +88,9 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 
 ## The keys overlay
 
-`overlay_groups` lists the keys of the contexts that are active now, from the resolved bindings it is given. An action is listed when one of its contexts is active, its conditions hold, and its first chord is a key. A numbered family whose chords run in order collapses into one range. Actions that exist only because a hack is on are grouped under "This mod". `overlay_layout` places one column of 240 points at Compact, and two columns of 420 at Regular and 520 at Large, inside the battlefield and to the right of the side column. `draw_overlay` blends the panel over the battlefield. The screen is `keys-overlay`; the button is `keys-overlay.edit`, the close mark `keys-overlay.close`, the list `keys-overlay.list` and the scroll bar `keys-overlay.bar`.
+`overlay_groups` lists the keys of the contexts that are active now, from the resolved bindings it is given: an action is listed when one of its contexts is active and every condition it names holds, with its first key chord. Pointer and wheel actions are left out. A numbered family whose keys run in order, with the same modifiers, collapses into one range (Ctrl+1…9); a broken run lists each member. Actions that exist only because a hack is on are grouped under "This mod", just before Game. `overlay_title` is "Keys while placing a building" while a building is placed, "Keys while watching" while only watching, and "Keys while playing" otherwise.
+
+`overlay_layout` places the panel right of the side column and below the battlefield's top: 240 points wide with one column of groups at Compact, 420 at Regular and 520 at Large with two, as tall as its content up to the battlefield less its margins, beyond which the groups scroll under a fixed header and footer. The header holds the title, EDIT KEYS… and the close mark, the layout's name and changes, and the "On:" line, whose chips are the latches and sticky modifiers that are on (filled while latched or locked). Each group is headed by its tinted letter keycap and its name; each line is the action's name, "held" for a hold or a modifier, and its chord chip. `draw_overlay` blends the HUD's panel colour over what lies under the panel, with rounded corners and a hairline edge, then draws the list. The screen is `keys-overlay`; the button is `keys-overlay.edit`, the close mark `keys-overlay.close`, the list `keys-overlay.list` (its text every word the panel shows, one line each) and the scroll bar `keys-overlay.bar`.
 
 ## Tests
 
@@ -96,7 +98,7 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 
 `ui-key-editor-layout` lays the screen out at Compact, Regular and Large, including the keyboard and the mouse, and the ISO and JIS keyboards at Large. It checks that every part lies in the window, that names are sound, that Tab's order is the one above, and that every text fits. A key scrolled past the well is clipped.
 
-`ui-key-editor-overlay` lists the keys of the contexts active while playing, while watching and while placing a building. A numbered family whose chords run in order collapses into one range, and a broken run does not. Hack actions sit under This mod. The On line carries the latches the caller names. The panel at each class sits inside the battlefield, to the right of a 128-point column. The automation names are sound.
+`ui-key-editor-overlay` lists the keys of the contexts active while playing, while watching and while placing a building. Assign group collapses into Ctrl+1…9, and with group 5 moved to Q it is Ctrl+1…4, Q and Ctrl+6…9. Hack actions sit under This mod, and a hack key whose condition does not hold is left out. The On line shows the latches the caller names as chips, and no On line shows without one. The panel at each class sits inside the battlefield, to the right of a 128-point column, every part inside it, with one column of groups at Compact and two above it; on a short battlefield the groups scroll. The automation names are sound.
 
 `ui-key-editor-input` drives the keys, the pad's commands, and a finger's scroll and tap.
 
@@ -104,7 +106,7 @@ A clash already in the draft shows a card on the chosen action: KEEP IT HERE, KE
 
 `ui-key-editor-views` checks the labels, the layers, Escape, Settings, an AZERTY map, a free key's click, the mouse in both schemes, and FIND ON KEYBOARD.
 
-`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the keyboard, the mouse, the capture, clash and card, and the keys overlay at each class, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large. The overlay pictures are `keys-overlay-<class>.png`.
+`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the keyboard, the mouse, the capture, clash and card, and the keys overlay at each class, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large. The overlay is drawn at each class on an 800 by 480 room beside a 128-point column, with a latched QUEUE in its On line; its pictures are `keys-overlay-<class>.png`.
 
 ## State
 

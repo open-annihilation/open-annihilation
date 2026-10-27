@@ -13,9 +13,12 @@
 #include "oa/ui/key_editor/overlay.hpp"
 #include "screen_fixture.hpp"
 
+#include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 namespace {
@@ -155,7 +158,7 @@ bool name_ok(std::string_view name) {
 /// @param list the display list
 /// @param name the automation name
 /// @return the control, or null
-const kit::Control* control_named(const kit::DisplayList& list, std::string_view name) {
+const kit::Control* find_control(const kit::DisplayList& list, std::string_view name) {
     for (const kit::Control& control : list.controls) {
         if (control.name == name)
             return &control;
@@ -163,27 +166,46 @@ const kit::Control* control_named(const kit::DisplayList& list, std::string_view
     return nullptr;
 }
 
-/// Playing lists Attack as A and collapses Assign group into one range.
+/// Playing lists Attack as A, collapses Assign group into one range, and
+/// lists neither a watching key nor a placing key.
 void test_playing() {
     const ResolvedFixture fixture;
     const uint32_t active = context_bit("global") | context_bit("match") | context_bit("play");
     const editor::OverlayInputs inputs = inputs_for(fixture.resolve({}, nullptr), active, 0);
     OA_CHECK(editor::overlay_title(inputs) == "Keys while playing");
     const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
+    OA_CHECK(!groups.empty());
+    if (!groups.empty()) {
+        OA_CHECK(groups.front().title == "Orders");
+        OA_CHECK(groups.front().tint == kit::KeyTint::orders);
+        OA_CHECK(groups.front().letter == "O");
+    }
     const editor::OverlayLine* attack = find_line(groups, "Attack");
     OA_CHECK(attack != nullptr);
-    if (attack != nullptr)
+    if (attack != nullptr) {
         OA_CHECK(attack->chord == "A");
+        OA_CHECK(attack->keys == std::vector<std::string>{"A"});
+        OA_CHECK(attack->aside.empty());
+    }
     const editor::OverlayLine* assign = find_line(groups, "Assign group");
     OA_CHECK(assign != nullptr);
     if (assign != nullptr) {
-        OA_CHECK(assign->chord.find("…") != std::string::npos);
-        OA_CHECK(assign->chord.find('1') != std::string::npos);
-        OA_CHECK(assign->chord.find('9') != std::string::npos);
+        OA_CHECK(assign->chord == "Ctrl+1…9");
+        OA_CHECK((assign->keys == std::vector<std::string>{"Ctrl", "1…9"}));
     }
+    OA_CHECK(find_line(groups, "Assign group 1") == nullptr);
+    const editor::OverlayLine* select = find_line(groups, "Select group");
+    OA_CHECK(select != nullptr);
+    if (select != nullptr)
+        OA_CHECK(select->chord == "Alt+1…9");
+    // Rotate is a placing key, and a hack's: neither is open here.
+    OA_CHECK(find_line(groups, "Rotate") == nullptr);
+    OA_CHECK(group_index(groups, "This mod") == groups.size());
 }
 
-/// A broken digit run does not collapse into one 1…9 line.
+/// A broken digit run does not collapse into one 1…9 line: the members
+/// before and after the moved one collapse on their own, and the moved one
+/// is listed with its own key.
 void test_broken_run() {
     keys::Layout own;
     own.base = keys::Base::oa_default;
@@ -192,20 +214,21 @@ void test_broken_run() {
     const uint32_t active = context_bit("global") | context_bit("match") | context_bit("play");
     const editor::OverlayInputs inputs = inputs_for(fixture.resolve({}, &own), active, 0);
     const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
-    bool full_range = false;
-    bool broken = false;
+    std::vector<std::string> assigned;
     for (const editor::OverlayGroup& group : groups) {
         for (const editor::OverlayLine& line : group.lines) {
-            if (line.chord.find('1') != std::string::npos &&
-                line.chord.find('9') != std::string::npos &&
-                line.chord.find("…") != std::string::npos)
-                full_range = true;
-            if (line.chord == "Q")
-                broken = true;
+            if (line.name.starts_with("Assign group"))
+                assigned.push_back(line.name + ": " + line.chord);
         }
     }
-    OA_CHECK(!full_range);
-    OA_CHECK(broken);
+    const std::vector<std::string> wanted{
+        "Assign group: Ctrl+1…4", "Assign group 5: Q", "Assign group: Ctrl+6…9"
+    };
+    OA_CHECK(assigned == wanted);
+    if (assigned != wanted) {
+        for (const std::string& line : assigned)
+            std::fprintf(stderr, "assigned: %s\n", line.c_str());
+    }
 }
 
 /// Watching lists Speed up and does not list Attack.
@@ -255,12 +278,18 @@ void test_this_mod() {
     OA_CHECK(game < groups.size());
     OA_CHECK(mod < game);
     if (mod < groups.size()) {
+        OA_CHECK(groups[mod].tint == kit::KeyTint::hacks);
+        OA_CHECK(groups[mod].letter == "L");
         OA_CHECK(find_line(groups, "Megamap") != nullptr);
         const editor::OverlayLine* draw = find_line(groups, "Draw");
         OA_CHECK(draw != nullptr);
         if (draw != nullptr)
             OA_CHECK(draw->aside == "held");
     }
+    // Without no-wheel-zoom the megamap's key does not fire, so it is not listed.
+    const editor::OverlayInputs zooming =
+        inputs_for(fixture.resolve({"ui.megamap", "ui.whiteboard"}, nullptr), active, 0);
+    OA_CHECK(find_line(editor::overlay_groups(zooming), "Megamap") == nullptr);
 }
 
 /// The On line carries the latches the caller already formatted.
@@ -268,20 +297,62 @@ void test_on_line() {
     const ResolvedFixture fixture;
     const uint32_t active = context_bit("global") | context_bit("match") | context_bit("play");
     editor::OverlayInputs inputs = inputs_for(fixture.resolve({}, nullptr), active, 0);
-    inputs.on.push_back("QUEUE · latched");
+    inputs.on.push_back({"QUEUE · latched", true});
+    inputs.on.push_back({"Shift · next key or click", false});
     const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
     const editor::OverlayRoom room{{0, 0, 640, 480}, 128, kit::SizeClass::compact};
     const editor::OverlayLayout laid = editor::overlay_layout(inputs, groups, room, fonts(), 0);
-    const kit::Control* list = control_named(laid.list, editor::name_keys_overlay_list);
+    const kit::Control* list = find_control(laid.list, editor::name_keys_overlay_list);
     OA_CHECK(list != nullptr);
     if (list != nullptr) {
         OA_CHECK(list->text.find("On:") != std::string::npos);
-        OA_CHECK(list->text.find("QUEUE · latched") != std::string::npos);
+        OA_CHECK(
+            list->text.find("On: QUEUE · latched Shift · next key or click") != std::string::npos
+        );
         OA_CHECK(list->text.find("Keys while playing") != std::string::npos);
+        OA_CHECK(list->text.find("Attack A") != std::string::npos);
     }
+    // One chip each: QUEUE filled, Shift outlined.
+    std::size_t chips = 0;
+    for (const kit::Item& item : laid.list.items) {
+        if (item.role != kit::Role::chip)
+            continue;
+        const auto* look = std::get_if<kit::ChipLook>(&item.look);
+        OA_CHECK(look != nullptr);
+        if (look == nullptr)
+            continue;
+        if (chips == 0) {
+            OA_CHECK(look->text == "QUEUE · latched");
+            OA_CHECK(look->state == kit::ChipState::playing);
+        } else {
+            OA_CHECK(look->text == "Shift · next key or click");
+            OA_CHECK(look->state == kit::ChipState::installed);
+        }
+        ++chips;
+    }
+    OA_CHECK(chips == 2);
+    // No latch on, no On line.
+    inputs.on.clear();
+    const editor::OverlayLayout quiet = editor::overlay_layout(inputs, groups, room, fonts(), 0);
+    const kit::Control* quiet_list = find_control(quiet.list, editor::name_keys_overlay_list);
+    OA_CHECK(quiet_list != nullptr);
+    if (quiet_list != nullptr)
+        OA_CHECK(quiet_list->text.find("On:") == std::string::npos);
 }
 
-/// The panel sits inside the battlefield, to the right of a 128-point column.
+/// Reports whether a rectangle lies inside another.
+///
+/// @param inner the rectangle
+/// @param outer the one it must lie in
+/// @return true when it does
+bool inside(const kit::Rect& inner, const kit::Rect& outer) {
+    return inner.x >= outer.x && inner.y >= outer.y &&
+           inner.x + inner.width <= outer.x + outer.width &&
+           inner.y + inner.height <= outer.y + outer.height;
+}
+
+/// The panel sits inside the battlefield, to the right of a 128-point
+/// column, every part inside it, in one column at Compact and two above.
 ///
 /// @param width the battlefield's width
 /// @param height the battlefield's height
@@ -290,19 +361,60 @@ void test_on_line() {
 void test_one_class(int32_t width, int32_t height, kit::SizeClass size_class, int32_t want_width) {
     const ResolvedFixture fixture;
     const uint32_t active = context_bit("global") | context_bit("match") | context_bit("play");
-    const editor::OverlayInputs inputs = inputs_for(fixture.resolve({}, nullptr), active, 0);
+    editor::OverlayInputs inputs = inputs_for(fixture.resolve({}, nullptr), active, 0);
+    inputs.on.push_back({"QUEUE · latched", true});
     const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
     const editor::OverlayRoom room{{0, 0, width, height}, 128, size_class};
     const editor::OverlayLayout laid = editor::overlay_layout(inputs, groups, room, fonts(), 0);
-    OA_CHECK(laid.panel.x >= 128);
+    OA_CHECK(laid.panel.x > 128);
+    OA_CHECK(laid.panel.y > 0);
     OA_CHECK(kit::wholly_in(laid.panel, room.battlefield));
     OA_CHECK(laid.panel.width == want_width);
-    OA_CHECK(control_named(laid.list, editor::name_keys_overlay_edit) != nullptr);
-    OA_CHECK(control_named(laid.list, editor::name_keys_overlay_close) != nullptr);
+    OA_CHECK(laid.radius == kit::metrics_of(size_class).card_radius);
+    const kit::Rect whole{0, 0, laid.panel.width, laid.panel.height};
+    for (const kit::Item& item : laid.list.items) {
+        const kit::Rect shown = item.clip.width > 0 ? item.clip : item.rect;
+        OA_CHECK(inside(shown, whole));
+    }
+    for (const kit::Control& control : laid.list.controls)
+        OA_CHECK(inside(control.rect, whole));
+    const kit::Control* edit = find_control(laid.list, editor::name_keys_overlay_edit);
+    const kit::Control* close = find_control(laid.list, editor::name_keys_overlay_close);
+    OA_CHECK(edit != nullptr);
+    OA_CHECK(close != nullptr);
+    if (edit != nullptr) {
+        OA_CHECK(edit->text == "EDIT KEYS…");
+        OA_CHECK(
+            kit::hit(laid.list, {edit->rect.x + 1, edit->rect.y + 1}) == editor::id_overlay_edit
+        );
+    }
+    // The groups' letter keycaps: one column at Compact, two above it.
+    std::vector<int32_t> columns;
+    for (const kit::Item& item : laid.list.items) {
+        if (item.role != kit::Role::keycap)
+            continue;
+        const auto* look = std::get_if<kit::KeycapLook>(&item.look);
+        if (look == nullptr || look->tint == kit::KeyTint::none)
+            continue;
+        if (std::find(columns.begin(), columns.end(), item.rect.x) == columns.end())
+            columns.push_back(item.rect.x);
+    }
+    OA_CHECK(columns.size() == (size_class == kit::SizeClass::compact ? 1U : 2U));
+    // Scrolled past its end, the list stops at its end.
     const editor::OverlayLayout scrolled =
         editor::overlay_layout(inputs, groups, room, fonts(), 100000);
     OA_CHECK(scrolled.scroll == scrolled.scroll_max);
     OA_CHECK(scrolled.scroll >= 0);
+    // A short battlefield keeps the panel inside it, and the groups scroll.
+    const editor::OverlayRoom short_room{{0, 0, width, 200}, 128, size_class};
+    const editor::OverlayLayout short_laid =
+        editor::overlay_layout(inputs, groups, short_room, fonts(), 0);
+    OA_CHECK(kit::wholly_in(short_laid.panel, short_room.battlefield));
+    OA_CHECK(short_laid.scroll_max > 0);
+    OA_CHECK(find_control(short_laid.list, editor::name_keys_overlay_bar) != nullptr);
+    OA_CHECK(
+        find_control(laid.list, editor::name_keys_overlay_bar) == nullptr || laid.scroll_max > 0
+    );
 }
 
 /// The names automation uses are the ones the screen publishes, and they are legal.
@@ -315,6 +427,7 @@ void test_names() {
     OA_CHECK(name_ok(editor::name_keys_overlay_edit));
     OA_CHECK(name_ok(editor::name_keys_overlay_close));
     OA_CHECK(name_ok(editor::name_keys_overlay_list));
+    OA_CHECK(name_ok(editor::name_keys_overlay_bar));
 }
 
 } // namespace
