@@ -36,7 +36,7 @@ namespace {
 constexpr std::size_t shown_diagnostics = 3;
 
 /// The Install button of a new brain the player opened.
-constexpr std::string_view install_caption = "INSTALL";
+constexpr std::string_view install_caption = "Install";
 
 /// Returns a paragraph that shows a folder's path.
 ///

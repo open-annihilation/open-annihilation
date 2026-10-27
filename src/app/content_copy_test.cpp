@@ -773,7 +773,7 @@ void test_content_difference(const fs::path& scratch) {
     shown.bundles.push_back(std::move(core));
     const oa::app::ContentNoticeCopy notice = oa::app::content_difference_notice(shown);
     OA_CHECK(notice.title == "Game content");
-    OA_CHECK(notice.details == "DETAILS…");
+    OA_CHECK(notice.details == "Details…");
     OA_CHECK(notice.ok == "OK");
     OA_CHECK(
         line_has(notice, "The following content for your game does not match our expected sizes:")

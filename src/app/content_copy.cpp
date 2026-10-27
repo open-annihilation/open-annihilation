@@ -2357,7 +2357,7 @@ ContentNoticeCopy content_difference_notice(const ContentCheck& check) {
             )
         )
     );
-    copy.details = std::string(oa::data::languages::interface_text("DETAILS…"));
+    copy.details = std::string(oa::data::languages::interface_text("Details…"));
     copy.ok = std::string(oa::data::languages::interface_text("OK"));
     return copy;
 }

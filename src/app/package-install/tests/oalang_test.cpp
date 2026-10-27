@@ -355,7 +355,7 @@ void test_installs(
         );
         bool replace_button = false;
         for (const auto& button : replace.prompt.buttons)
-            replace_button = replace_button || button.caption.find("REPLACE") != std::string::npos;
+            replace_button = replace_button || button.caption.find("Replace") != std::string::npos;
         OA_CHECK(replace_button);
     }
     const Change replace_change = Change::replace;

@@ -477,7 +477,7 @@ void test_unknown(const Scratch& scratch) {
     const install::PackagePrompt installed =
         layouts::installed_prompt(done.incoming, keys / std::string(kId), true);
     OA_CHECK(installed.prompt.title == "KEY LAYOUT INSTALLED");
-    OA_CHECK(lists(installed, "Choose USE in the Library's Keys tab"));
+    OA_CHECK(lists(installed, "Choose Use in the Library's Keys tab"));
     OA_CHECK(!offers_play(installed));
 }
 

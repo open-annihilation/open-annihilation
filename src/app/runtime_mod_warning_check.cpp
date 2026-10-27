@@ -407,7 +407,7 @@ void Runtime::check_mod_warning() {
         );
         const auto& notice = shown_warning().notice();
         require(
-            notice.title == "MOD FILES MISSING" && notice.open_caption == "OPEN MOD FOLDER" &&
+            notice.title == "MOD FILES MISSING" && notice.open_caption == "Open mod folder" &&
                 notice.paragraphs.size() == 5 &&
                 notice.paragraphs[0].text == std::string(name) + " is missing files." &&
                 notice.paragraphs[1].text == side_file_line(panels) &&
@@ -619,7 +619,7 @@ void Runtime::check_mod_warning() {
         );
         const auto& notice = shown_warning().notice();
         require(
-            notice.title == "MOD FILES MISSING" && notice.open_caption == "OPEN MOD FOLDER" &&
+            notice.title == "MOD FILES MISSING" && notice.open_caption == "Open mod folder" &&
                 notice.paragraphs.front().text == "Warning Check Hollow is missing files." &&
                 notice.paragraphs[2].text == commander_line() && notice.paragraphs.back().path &&
                 notice.paragraphs.back().text == hollow,

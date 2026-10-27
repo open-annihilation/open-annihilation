@@ -943,7 +943,7 @@ void Runtime::check_mod_install() {
         install::post_package_file(mod_package(packages, "1.0", 3));
         until_prompt("the third revision");
         require(
-            says("The folder kept for ROLL BACK (1.0 revision 1) is removed."),
+            says("The folder kept for Roll back (1.0 revision 1) is removed."),
             "the kept version's removal is not said"
         );
         require(
@@ -1107,7 +1107,7 @@ void Runtime::check_mod_install() {
         require(
             titled("MOD NOT ROLLED BACK") &&
                 says(
-                    "Broken Mod 1.0 revision 1, the version kept for ROLL BACK, cannot be "
+                    "Broken Mod 1.0 revision 1, the version kept for Roll back, cannot be "
                     "played."
                 ) &&
                 says("Nothing was changed."),

@@ -30,11 +30,11 @@ inline constexpr std::string_view new_in = "New in {version}:";
 /// The sentence under the notes.
 inline constexpr std::string_view stay = "Your saved games, settings and mods stay as they are.";
 /// Skip this version. Escape does not answer it.
-inline constexpr std::string_view skip = "SKIP THIS VERSION";
+inline constexpr std::string_view skip = "Skip this version";
 /// Later. Escape answers it, and nothing is written.
-inline constexpr std::string_view later = "LATER";
+inline constexpr std::string_view later = "Later";
 /// Update, the primary button. It opens the release's page.
-inline constexpr std::string_view update = "UPDATE";
+inline constexpr std::string_view update = "Update";
 /// What a Steam Deck in Game Mode shows instead of opening the page. `{page}` is the address.
 inline constexpr std::string_view game_mode =
     "Open {page} in a browser on another computer, or in Desktop Mode.";

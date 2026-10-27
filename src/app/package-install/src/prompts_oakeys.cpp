@@ -41,7 +41,7 @@ constexpr std::size_t shown_diagnostics = 3;
 constexpr std::string_view cannot_use_more = "and {n} more\n";
 
 /// The Install button of a new layout the player opened.
-constexpr std::string_view install_caption = "INSTALL";
+constexpr std::string_view install_caption = "Install";
 
 /// Returns a paragraph that shows a folder's path.
 ///
@@ -278,7 +278,7 @@ PackagePrompt installed_prompt(const Incoming& incoming, const fs::path& folder,
     made.prompt.title = tr("KEY LAYOUT INSTALLED");
     auto& text = made.prompt.paragraphs;
     text.push_back(text_of(fill(
-        "{name} is installed. Choose USE in the Library's Keys tab to play with it.",
+        "{name} is installed. Choose Use in the Library's Keys tab to play with it.",
         {{"name", incoming.name}}
     )));
     text.push_back(path_of(folder));

@@ -88,13 +88,13 @@ inline settings::NoticeParagraph shown_path(const fs::path& folder) {
 }
 
 /// The buttons' captions, the same English words the settings' own dialogs show.
-inline constexpr std::string_view cancel_caption = "CANCEL";
+inline constexpr std::string_view cancel_caption = "Cancel";
 inline constexpr std::string_view ok_caption = "OK";
-inline constexpr std::string_view open_folder_caption = "OPEN FOLDER";
-inline constexpr std::string_view replace_caption = "REPLACE";
-inline constexpr std::string_view alongside_caption = "INSTALL ALONGSIDE";
-inline constexpr std::string_view reinstall_caption = "REINSTALL";
-inline constexpr std::string_view play_now_caption = "PLAY NOW";
+inline constexpr std::string_view open_folder_caption = "Open folder";
+inline constexpr std::string_view replace_caption = "Replace";
+inline constexpr std::string_view alongside_caption = "Install alongside";
+inline constexpr std::string_view reinstall_caption = "Reinstall";
+inline constexpr std::string_view play_now_caption = "Play now";
 
 /// Adds a button.
 ///

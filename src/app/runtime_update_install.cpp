@@ -140,7 +140,7 @@ constexpr std::string_view kUpdatedNotice = "updated-notice";
 constexpr std::string_view kUpdatedTo = "Updated to {version}";
 /// The Updated notice's line while a version is kept. {version} is that one.
 constexpr std::string_view kKeptSentence =
-    "{version} is kept. To go back to it, open Settings › Updates and press ROLL BACK.";
+    "{version} is kept. To go back to it, press Roll back… in Settings › Updates.";
 /// The prompt's title. {version} is this build.
 constexpr std::string_view kBackOn = "Back on {version}";
 /// Failed starts: {version} is the one that closed, {old} is this build.
@@ -966,8 +966,8 @@ void Runtime::offer_move_to_applications() {
     if (!update_menu_settled())
         return;
     OaLayer& layer = oa_layer();
-    const std::string later{languages::interface_text("LATER")};
-    const std::string finder{languages::interface_text("SHOW IN FINDER")};
+    const std::string later{languages::interface_text("Later")};
+    const std::string finder{languages::interface_text("Show in Finder")};
     const std::string title{languages::interface_text("Move OA to Applications")};
     const std::string body{languages::interface_text(
         "macOS runs this copy from a protected place, so it can't update itself. Drag Open "
@@ -2429,7 +2429,7 @@ void Runtime::offer_roll_back_prompt() {
         );
     }
     asked.buttons.push_back(
-        {std::string(languages::interface_text("SHOW THE LOG")), false, "show-the-log"}
+        {std::string(languages::interface_text("Show the log")), false, "show-the-log"}
     );
     asked.buttons.push_back({std::string(languages::interface_text("OK")), true, "ok"});
     asked.cancel_button = kBackOk;

@@ -153,19 +153,19 @@ constexpr std::string_view kReplaceModTitle = "REPLACE MOD";
 /// What REPLACE MOD asks, with the mod's name and the registries' names.
 constexpr std::string_view kReplaceModText =
     "{name} from {installed} is installed. Replace it with {name} from {new}? The one from "
-    "{installed} is kept, and ROLL BACK brings it back.";
+    "{installed} is kept, and Roll back brings it back.";
 /// Why a built-in registry's mod is not installed where its folder name
 /// holds a folder of the player's own that is not the mod.
 constexpr std::string_view kOwnFolderText =
-    "{folder} is a folder of your own, not {name}. Move or rename it, then RETRY.";
+    "{folder} is a folder of your own, not {name}. Move or rename it, then Retry.";
 /// The title of the prompt that says a mod was not installed, the same
 /// English words as the installer's own, so one catalogue entry serves both.
 constexpr std::string_view kNotInstalledTitle = "MOD NOT INSTALLED";
 /// Its first sentence, with the package's name, as the installer's.
 constexpr std::string_view kNotInstalledText = "{file} cannot be installed.";
 /// The buttons' captions, as the settings' own dialogs show them.
-constexpr std::string_view kCancelCaption = "CANCEL";
-constexpr std::string_view kReplaceCaption = "REPLACE";
+constexpr std::string_view kCancelCaption = "Cancel";
+constexpr std::string_view kReplaceCaption = "Replace";
 constexpr std::string_view kOkCaption = "OK";
 
 /// Returns a template looked up in the language shown, with its places

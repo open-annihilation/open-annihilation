@@ -255,7 +255,7 @@ void Runtime::offer_update() {
         asked.title = notice.title;
         for (const std::string& paragraph : notice.paragraphs)
             asked.paragraphs.push_back({paragraph, false});
-        const std::string open_page{oa::data::languages::interface_text("OPEN THE PAGE")};
+        const std::string open_page{oa::data::languages::interface_text("Open the page")};
         const std::string ok{oa::data::languages::interface_text("OK")};
         if (notice.open_the_page) {
             asked.buttons.push_back({open_page, true, "page"});
