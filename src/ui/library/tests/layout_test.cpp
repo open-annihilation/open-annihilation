@@ -210,8 +210,9 @@ int declared_place(std::string_view name) {
         return 3;
     if (name == "library.action" || starts(name, "library.action.") ||
         name == "library.active.unload" || name == "library.active.search" ||
-        name == "library.active.change" || starts(name, "library.active.expansion.") ||
-        starts(name, "library.active.from.") || starts(name, "library.detail.tag."))
+        name == "library.active.change" || name == "library.active.keys.change" ||
+        starts(name, "library.active.expansion.") || starts(name, "library.active.from.") ||
+        starts(name, "library.detail.tag."))
         return 4;
     if (starts(name, "library.registry."))
         return 5;
@@ -292,20 +293,22 @@ std::vector<std::string> order_problems(const kit::DisplayList& list) {
 /// @return true when it is
 bool designed_name(const std::string& name) {
     static const std::regex pattern(
-        "library\\.(tab\\.(active|mods|maps|mutators|brains|languages|updates|registries|scroll-"
-        "left|"
-        "scroll-right)|"
+        "library\\.(tab\\.(active|mods|maps|mutators|brains|keys|languages|updates|registries|"
+        "scroll-left|scroll-right)|"
         "search|filter|"
         "filter\\.(all|new|installed|updates|tag-[a-z0-9-]+)|tag\\.[a-z0-9-]+|tags|tags\\.[a-z0-9-]"
         "+|detail\\.tag\\.[a-z0-9-]+|"
         "list|row\\.[a-z0-9-]+(\\.[a-z0-9-]+)?(\\.(get|update))?|action|"
         "action\\.(get|update|update-all|cancel|retry|roll-back|play-now|switch-off|"
-        "check-with-mod|use-by-default|uninstall|open-folder|homepage)|"
-        "details|back|refresh|close-x|close|status|queue|note|from|rules|"
-        "active\\.(mod|language|base|expansions|lock|unload|change|search|map\\.[1-9][0-9]*|"
-        "from\\.[1-9][0-9]*|expansion\\.[a-z0-9-]+(\\.(get|cancel|retry))?)|"
+        "check-with-mod|use-by-default|use|edit-keys|uninstall|open-folder|homepage)|"
+        "details|back|refresh|close-x|close|status|queue|note|from|rules|keys\\.picture|"
+        "use\\.(keep|aside|block|for\\.(game|mod)|helper\\.[a-z0-9.-]+)|"
+        "active\\.(mod|language|base|expansions|lock|keys\\.change|keys|unload|change|search|"
+        "map\\.[1-9][0-9]*|from\\.[1-9][0-9]*|"
+        "expansion\\.[a-z0-9-]+(\\.(get|cancel|retry))?)|"
         "add-registry|registries\\.(note|notice)|"
         "registry\\.[a-z0-9-]+(\\.(remove|add-mirror|key|refresh|address|refreshed))?)"
+        "|prompt\\.(use|cancel)"
     );
     return std::regex_match(name, pattern);
 }
@@ -353,6 +356,7 @@ std::vector<std::string> name_problems(const kit::DisplayList& list) {
     for (const kit::Control& control : list.controls)
         if (control.name != "library.active.unload" && control.name != "library.active.search" &&
             control.name != "library.active.change" &&
+            control.name != "library.active.keys.change" &&
             !starts(control.name, "library.active.from.") &&
             !starts(control.name, "library.active.expansion.") &&
             starts(control.name, "library.active.") &&
@@ -664,9 +668,9 @@ void check_frame(const fixture::NamedFrame& named) {
     OA_CHECK(updates_tab != nullptr && updates_tab->text == "Updates (" + updates_count + ")");
 
     // The Active tab: first, no catalogue search, no filters and no list.
-    // Its lines are labels. Tab reaches the tabs, UNLOAD MOD, the maps
-    // search, each map's From link while that link shows, and the footer's
-    // buttons.
+    // Its lines are labels. Tab reaches the tabs, UNLOAD MOD, CHANGE… on
+    // the layout in use, the maps search, each map's From link while that
+    // link shows, and the footer's buttons.
     lib::Library active = with_ridge();
     lib::set_tab(active, lib::Tab::active);
     const kit::DisplayList active_list = laid_out(active, state, frame);
@@ -694,7 +698,7 @@ void check_frame(const fixture::NamedFrame& named) {
             (starts(stop->name, "library.tab.") || stop->name == "library.close" ||
              stop->name == "library.close-x" || stop->name == "library.refresh" ||
              stop->name == "library.active.unload" || stop->name == "library.active.search" ||
-             stop->name == "library.active.change" ||
+             stop->name == "library.active.change" || stop->name == "library.active.keys.change" ||
              starts(stop->name, "library.active.expansion.") ||
              starts(stop->name, "library.active.from."))
         );
@@ -1295,6 +1299,7 @@ void tab_follows_the_declared_order() {
         "library.tab.maps",
         "library.tab.mutators",
         "library.tab.brains",
+        "library.tab.keys",
         "library.tab.languages",
         "library.tab.updates",
         "library.tab.registries",
@@ -1338,8 +1343,8 @@ void tab_follows_the_declared_order() {
     OA_CHECK(std::equal(regular_end.rbegin(), regular_end.rend(), regular.rbegin()));
     OA_CHECK(
         regular.size() > 12 && regular[0] == "library.tab.active" &&
-        regular[8] == "library.search" && regular[9] == "library.filter.all" &&
-        regular[10] == "library.filter.new"
+        regular[9] == "library.search" && regular[10] == "library.filter.all" &&
+        regular[11] == "library.filter.new"
     );
 }
 
@@ -4442,7 +4447,9 @@ kit::Rect pressed_area(const kit::Control& control) {
 /// and Large, the tabs take the whole row and the search a row under them:
 /// every tab is shown whole and none lies under the search, so a press on
 /// a tab, Registries among them, opens it. English fits beside the search
-/// at Large. At Regular the eight captions take the row.
+/// at Large. At Regular the captions take the row. Wordy captions can be
+/// wider than that row once Keys is among them; the strip then scrolls, and
+/// each tab is brought wholly into it before it is checked.
 void wordy_tabs_take_the_row_over_the_search() {
     for (const fixture::NamedFrame& named : fixture::frames()) {
         if (named.frame.size_class == kit::SizeClass::compact)
@@ -4452,15 +4459,25 @@ void wordy_tabs_take_the_row_over_the_search() {
             if (wordy)
                 library.text.shown = wordy_tabs;
             lib::set_tab(library, lib::Tab::mods);
-            const kit::DisplayList list = laid_out(library, {}, named.frame);
+            lib::ScreenState state;
+            state.tab_laid_out = library.tab;
+            state.tab_scrolled = true;
+            kit::DisplayList list = laid_out(library, state, named.frame);
             const kit::Item* strip = tab_strip(list);
             const kit::Control* search = fixture::named(list, "library.search");
             OA_CHECK(strip != nullptr && search != nullptr);
             if (strip == nullptr || search == nullptr)
                 continue;
             const auto* look = std::get_if<kit::TabsLook>(&strip->look);
-            OA_CHECK(look != nullptr && !kit::place_tabs(fonts(), strip->rect, *look).overflows);
+            const bool overflows =
+                look != nullptr && kit::place_tabs(fonts(), strip->rect, *look).overflows;
+            OA_CHECK(look != nullptr);
+            // English keeps every caption in the strip, with no scroll.
+            if (!wordy)
+                OA_CHECK(!overflows);
             const bool beside = search->rect.y < strip->rect.y + strip->rect.height;
+            const int32_t strip_bottom = strip->rect.y + strip->rect.height;
+            const int32_t search_top = search->rect.y;
             if (!wordy) {
                 if (named.frame.size_class == kit::SizeClass::large)
                     OA_CHECK(beside);
@@ -4473,12 +4490,28 @@ void wordy_tabs_take_the_row_over_the_search() {
                   "maps",
                   "mutators",
                   "brains",
+                  "keys",
                   "languages",
                   "updates",
                   "registries"}) {
+                for (int guard = 0; guard < 12; ++guard) {
+                    const kit::Control* shown =
+                        fixture::named(list, "library.tab." + std::string(word));
+                    strip = tab_strip(list);
+                    if (shown != nullptr && strip != nullptr &&
+                        kit::wholly_in(shown->rect, strip->rect))
+                        break;
+                    const int32_t next = kit::tab_scroll_step(list, 1);
+                    if (next == state.tab_scroll)
+                        break;
+                    state.tab_scroll = next;
+                    list = laid_out(library, state, named.frame);
+                }
                 const kit::Control* tab = fixture::named(list, "library.tab." + std::string(word));
+                strip = tab_strip(list);
+                search = fixture::named(list, "library.search");
                 OA_CHECK(tab != nullptr);
-                if (tab == nullptr)
+                if (tab == nullptr || strip == nullptr || search == nullptr)
                     continue;
                 const kit::Rect area = pressed_area(*tab);
                 OA_CHECK(kit::wholly_in(tab->rect, strip->rect));
@@ -4490,10 +4523,9 @@ void wordy_tabs_take_the_row_over_the_search() {
                 if (named.name == "regular")
                     OA_CHECK(!beside);
                 if (!beside)
-                    OA_CHECK(search->rect.y >= strip->rect.y + strip->rect.height);
+                    OA_CHECK(search_top >= strip_bottom);
             }
-            // Registries opens with a press at its centre.
-            lib::ScreenState state;
+            // Registries opens with a press at its centre, once it is in view.
             click(library, state, list, "library.tab.registries");
             OA_CHECK(library.tab == lib::Tab::registries);
         }
@@ -5586,8 +5618,9 @@ lib::Library keys_library() {
 }
 
 /// The Keys tab names its rows, its actions, the keyboard picture and the
-/// use question. Compact shows the picture on the details page. Regular and
-/// Large show it in the details. The Active tile names the layout in use.
+/// use question. Compact shows the rows and the tab on the list page, and
+/// the picture on the details page. Regular and Large show the picture in
+/// the details beside the list. The Active tile names the layout in use.
 void keys_tab_names_its_controls() {
     lib::Library library = keys_library();
     const lib::Entry* grid = lib::selected_entry(library);
@@ -5599,7 +5632,6 @@ void keys_tab_names_its_controls() {
     for (const fixture::NamedFrame& named : fixture::frames()) {
         const bool compact = named.frame.size_class == kit::SizeClass::compact;
         lib::ScreenState state;
-        state.details_page = compact;
         const kit::DisplayList list = laid_out(library, state, named.frame);
         const kit::Point window = lib::window_size(named.frame);
         OA_EXPECT_NONE(fixture::outside_window(list, window), named.name + " keys");
@@ -5608,11 +5640,23 @@ void keys_tab_names_its_controls() {
         OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " keys");
         OA_CHECK(fixture::named(list, "library.row.oa-default") != nullptr);
         OA_CHECK(fixture::named(list, "library.row.fixture-core.grid") != nullptr);
-        OA_CHECK(fixture::named(list, "library.action.edit-keys") != nullptr);
-        const kit::Control* picture = fixture::named(list, "library.keys.picture");
-        OA_CHECK(picture != nullptr && picture->text == "KeyQ KeyW");
         const kit::Control* tab = fixture::named(list, "library.tab.keys");
         OA_CHECK(tab != nullptr && tab->text.starts_with("Keys ("));
+        if (compact) {
+            state.details_page = true;
+            const kit::DisplayList page = laid_out(library, state, named.frame);
+            OA_EXPECT_NONE(fixture::outside_window(page, window), named.name + " keys details");
+            OA_EXPECT_NONE(meeting_controls(page), named.name + " keys details");
+            OA_EXPECT_NONE(name_problems(page), named.name + " keys details");
+            OA_EXPECT_NONE(fixture::texts_not_fitting(page, fonts()), named.name + " keys details");
+            OA_CHECK(fixture::named(page, "library.action.edit-keys") != nullptr);
+            const kit::Control* picture = fixture::named(page, "library.keys.picture");
+            OA_CHECK(picture != nullptr && picture->text == "KeyQ KeyW");
+        } else {
+            OA_CHECK(fixture::named(list, "library.action.edit-keys") != nullptr);
+            const kit::Control* picture = fixture::named(list, "library.keys.picture");
+            OA_CHECK(picture != nullptr && picture->text == "KeyQ KeyW");
+        }
     }
 
     const lib::Entry* lefty = nullptr;

@@ -109,7 +109,8 @@ translator finds them together. Every word passes through `Library::text`
     every game or only the mod being played. CANCEL writes nothing. The
     question's controls are `library.use.keep`, `library.use.aside`,
     `library.use.helper.<name>`, `library.use.for.game`,
-    `library.use.for.mod`, `prompt.use` and `prompt.cancel`;
+    `library.use.for.mod`, `library.use.block`, `prompt.use` and
+    `prompt.cancel`;
   - Mods, Maps, Mutators, Brains, Keys and Languages show their kind and Updates every kind, under
     the tab's own filter (`Library::filters`, `shown_filter`) and, when that
     filter offers it, the tag. A tag left from another tab or filter is kept
@@ -634,6 +635,7 @@ app removes the folder (`Runtime::library_uninstall`,
 - Every control is named for automation (the OA layer lists each as `oa.`
   and its name):
   - `library.tab.active`, `library.tab.mods`, `library.tab.maps`,
+    `library.tab.mutators`, `library.tab.brains`, `library.tab.keys`,
     `library.tab.languages`, `library.tab.updates` (every tab after Active
     reads its title and its count in brackets: "Updates (2)"; Active stays
     "Active"), `library.tab.registries`; `library.tab.scroll-left` and
@@ -662,8 +664,9 @@ app removes the folder (`Runtime::library_uninstall`,
     text "GET" or "UPDATE", listed disabled while it takes no press, and
     never in Tab's order;
   - `library.action.get`, `.update`, `.update-all`, `.cancel`, `.retry`,
-    `.roll-back`, `.play-now`, `.switch-off`, `.open-folder` and
-    `.homepage`; on Compact's
+    `.roll-back`, `.play-now`, `.switch-off`, `.use`, `.edit-keys`,
+    `.open-folder` and `.homepage`; `library.keys.picture` (kind `area`,
+    the keys the picture marks); on Compact's
     details page MORE ▾ is `library.action`, whose open items are the
     actions after the first three under those same names;
   - `library.refresh` (the header's icon, kind `button`, its text "Refresh",
@@ -685,7 +688,10 @@ app removes the folder (`Runtime::library_uninstall`,
     alone) for the same map, while a pill is locked the label
     `library.active.lock` (the lock's words whole), and while a mod is
     played the button `library.active.unload` ("UNLOAD MOD"), disabled
-    during a game and while the command line chose the mod. The mod label is the part of
+    during a game and while the command line chose the mod, the label
+    `library.active.keys` (the layout in use, its own-changes line and the
+    with-mod line) and the button `library.active.keys.change` ("CHANGE…").
+    The mod label is the part of
     the tile above that button, the language label the part of its tile that
     shows, and a map's the part of its title line that shows, or the
     players-and-size line when the title is the link, empty while
