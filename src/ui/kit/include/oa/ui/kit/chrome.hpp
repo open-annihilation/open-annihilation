@@ -119,7 +119,9 @@ void draw_window_edge(const Canvas& canvas, const Rect& whole);
 /// the title at its measured width when that is wider than title_width, and
 /// the second word follows. A smooth canvas does the same from the width
 /// the modern face actually draws, game glyphs or not, so the second word
-/// keeps a gap. An empty string draws nothing.
+/// keeps a gap, and so does the modern look, whose title type grows with
+/// its fonts' size class: each word takes its tracked width at that type
+/// where it is wider than its columns. An empty string draws nothing.
 ///
 /// @param canvas where it is drawn; its icon is the header mark's
 /// @param look the words and the columns kept for them

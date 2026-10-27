@@ -10,6 +10,8 @@
 #include "oa/base/text/line_break.hpp"
 #include "oa/formats/fnt.hpp"
 #include "oa/test/check.hpp"
+#include "oa/ui/kit/canvas.hpp"
+#include "oa/ui/kit/chrome.hpp"
 #include "oa/ui/kit/text.hpp"
 #include "oa/ui/paint/painter.hpp"
 
@@ -1289,6 +1291,43 @@ void the_modern_look_takes_the_class_steps() {
     );
 }
 
+/// Checks that a window's header in the modern look gives its title and its
+/// second word their tracked width at the fonts' class: at Large both are
+/// wider than the columns a screen keeps for the classic look, and neither
+/// is drawn wider than its box nor across the other.
+void the_modern_header_takes_its_words_width() {
+    auto stack = text_font::FontStack::open(text_font::bundled_font_directory());
+    OA_CHECK(stack != nullptr);
+    if (!stack)
+        return;
+    kit::Fonts large;
+    large.modern = stack.get();
+    large.size_class = kit::SizeClass::large;
+    kit::HeaderLook look;
+    look.width = 960;
+    look.title = "OPEN ANNIHILATION";
+    look.title_width = 138;
+    look.tracking = 1;
+    look.second = "SETTINGS";
+    look.second_width = 68;
+    look.height = 36;
+    OA_CHECK(
+        kit::tracked_width(large, kit::FontRole::regular, look.title, look.tracking) >
+        look.title_width
+    );
+    oa::ui::frontend_renderer::Surface surface;
+    surface.width = 960;
+    surface.height = 40;
+    surface.rgb.assign(static_cast<std::size_t>(surface.width) * surface.height * 3U, 0);
+    const kit::Canvas canvas{&surface, {0, 0, 1, {}}, &large, {}};
+    kit::set_text_fit_screen("header");
+    kit::begin_text_fit_frame();
+    kit::text_fit_begin_paint();
+    kit::draw_header(canvas, look);
+    OA_CHECK(kit::text_fit_records().empty());
+    kit::begin_text_fit_frame();
+}
+
 /// Checks the modern fonts' measure: the hooks when they are set, an estimate when not, and
 /// an empty line measured as nothing without asking the hook.
 void the_measure_uses_its_hooks() {
@@ -1325,5 +1364,6 @@ int main() {
     a_text_wider_than_its_box_or_across_another_is_recorded();
     the_modern_look_draws_in_barlow();
     the_modern_look_takes_the_class_steps();
+    the_modern_header_takes_its_words_width();
     return oa::test::check_exit_status();
 }

@@ -142,17 +142,21 @@ void draw_header(const Canvas& canvas, const HeaderLook& look) {
     if (look.mark)
         draw_header_mark(canvas, mark);
     // On the smooth form the modern face is wider than the game font the
-    // columns were kept for. Measure that face, or the second word starts
-    // inside the title ("Open AnnihilationLibrary"). A crisp canvas keeps
-    // the columns it was given.
+    // columns were kept for, and in the modern look Barlow Condensed at a
+    // larger class's title size is too. Measure that face, or the second
+    // word starts inside the title ("Open AnnihilationLibrary"). A crisp
+    // canvas in the classic look keeps the columns it was given.
     const bool smooth = canvas.smooth.painter != nullptr;
+    const bool measured = smooth || (canvas.fonts != nullptr && modern_look(*canvas.fonts));
+    const auto drawn_width = [&canvas, &look](std::string_view text) {
+        if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
+            return tracked_width(*canvas.fonts, FontRole::regular, text, look.tracking);
+        return smooth_header_width(canvas, text, look.tracking);
+    };
     const int32_t title_span =
-        smooth ? std::max(look.title_width, smooth_header_width(canvas, look.title, look.tracking))
-               : look.title_width;
+        measured ? std::max(look.title_width, drawn_width(look.title)) : look.title_width;
     const int32_t second_span =
-        smooth
-            ? std::max(look.second_width, smooth_header_width(canvas, look.second, look.tracking))
-            : look.second_width;
+        measured ? std::max(look.second_width, drawn_width(look.second)) : look.second_width;
     const int32_t title_left =
         look.mark ? mark.x + mark.width + compact_metrics.header_gap : compact_metrics.padding;
     const Rect title{
@@ -164,7 +168,7 @@ void draw_header(const Canvas& canvas, const HeaderLook& look) {
     draw_line(
         canvas, FontRole::regular, look.title, title, Align::left, colour::text, look.tracking
     );
-    const int32_t drawn_right = smooth ? title.x + title.width : title_right(canvas, title, look);
+    const int32_t drawn_right = measured ? title.x + title.width : title_right(canvas, title, look);
     // With no mark and no title the second word takes the title's place.
     const bool second_first = !look.mark && look.title.empty();
     const Rect second{
