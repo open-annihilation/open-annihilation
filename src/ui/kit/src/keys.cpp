@@ -761,13 +761,13 @@ std::string_view leading_symbol(std::string_view legend) noexcept {
     return {};
 }
 
-/// Tells whether a key is a modifier: Shift, Control, Alt or Meta, either side.
+/// Tells whether a key is the command or Windows key, either side, whose
+/// geometry label (Win) names a PC's key.
 ///
 /// @param code the W3C code
-/// @return true for a modifier key
-bool modifier_key(std::string_view code) noexcept {
-    return code.starts_with("Shift") || code.starts_with("Control") || code.starts_with("Alt") ||
-           code.starts_with("Meta");
+/// @return true for MetaLeft and MetaRight
+bool meta_key(std::string_view code) noexcept {
+    return code.starts_with("Meta");
 }
 
 /// Returns a text as an automation control reads it: a Mac modifier's symbol
@@ -819,8 +819,8 @@ struct WholeLegend {
 /// legends, else none. Each is tried in the legend's box and then in the
 /// roomy one, so a longer legend that needs the roomy box wins over a
 /// shorter one. A printed mark is never swapped for the geometry's, which a
-/// keyboard map may print differently, and nor is a modifier the caller
-/// named for its platform (Cmd, Option): the geometry's is a PC keyboard's.
+/// keyboard map may print differently, and nor is a command key the caller
+/// named for its platform (Cmd): the geometry's Win is a PC keyboard's.
 ///
 /// @param canvas where the picture is drawn
 /// @param place the key
@@ -844,8 +844,8 @@ whole_legend(const Canvas& canvas, const KeyPlace& place, const KeycapLook& cap,
     };
     take(cap.label);
     take(leading_symbol(cap.label));
-    const bool named_modifier = modifier_key(place.code) && cap.label != place.label;
-    if (place.label.size() >= 2 && !named_modifier) {
+    const bool named_command = meta_key(place.code) && cap.label != place.label;
+    if (place.label.size() >= 2 && !named_command) {
         if (place.label != cap.label)
             take(place.label);
         for (const ShorterLegend& shorter : kShorterLegends) {

@@ -342,8 +342,8 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     takes its geometry's own label (Ent for a long Enter), then a shorter
     one (Cap for Caps, PU for PgUp, PS for Prt), or none. A Mac's modifier
     key that the look names with its symbol (⌘ Cmd, ⌥ Option) keeps the
-    symbol alone where the name does not fit, and a modifier the look names
-    for its platform never takes the geometry's PC label (Win, Alt). A
+    symbol alone where the name does not fit, and a command key the look
+    names for its platform (Cmd) never takes the geometry's Win. A
     keycap's, a chip's and a key's control text names a Mac modifier in
     words: ⌘ Cmd+A reads Cmd+A.
     `keyboard_size(look)` gives either picture's size and `keyboard_draws`

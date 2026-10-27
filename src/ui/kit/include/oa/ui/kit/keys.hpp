@@ -180,9 +180,9 @@ inline constexpr Rect keyboard_main_block{0, 9, 60, 12};
 /// needs that; a Mac modifier whose legend leads with its symbol (⌘ Cmd)
 /// keeps the symbol alone, at every scale; a named key whose legend still
 /// does not fit takes its geometry's own label (Ent for a long Enter), then
-/// a shorter one (Cap for Caps, PU for PgUp), or no legend. A modifier key
-/// the look names (Cmd, Option on a Mac) never takes the geometry's PC
-/// label. Nothing is drawn outside the rectangle.
+/// a shorter one (Cap for Caps, PU for PgUp), or no legend. A command key
+/// the look names (Cmd on a Mac) never takes the geometry's Win. Nothing is
+/// drawn outside the rectangle.
 ///
 /// @param canvas where it is drawn
 /// @param rect the picture, in points

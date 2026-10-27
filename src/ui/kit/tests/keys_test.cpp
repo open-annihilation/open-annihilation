@@ -921,8 +921,8 @@ void whole_keyboard_keeps_named_legends() {
     }
 }
 
-/// A Mac's modifier keys named for their platform keep those names: one too
-/// wide for its key shows no legend rather than the geometry's PC label, and
+/// A Mac's command key named for its platform keeps that name: one too wide
+/// for its key shows no legend rather than the geometry's Win, and
 /// automation reads every Mac modifier in words, without its symbol.
 void mac_modifiers_keep_their_names() {
     const kit::Fonts& wide = wide_regular_fonts();
@@ -937,6 +937,11 @@ void mac_modifiers_keep_their_names() {
     option.code = "AltLeft";
     option.cap.label = "⌥ Opt";
     look.keys.push_back(option);
+    // Option, too wide, takes the geometry's Alt, which a Mac's key prints too.
+    kit::KeyboardKey right_option;
+    right_option.code = "AltRight";
+    right_option.cap.label = "Option";
+    look.keys.push_back(right_option);
     const kit::Rect board{0, 0, 91 * 5, 25 * 5};
     renderer::Surface surface = black(board.width, board.height);
     const kit::Canvas canvas{&surface, {0, 0, 1, {}}, &wide, {}};
@@ -949,6 +954,13 @@ void mac_modifiers_keep_their_names() {
         OA_CHECK(ink_span(surface, command->rect, kit::colour::text) == 0);
     const kit::Control* alt = key_named(list, "board.alt-left");
     OA_CHECK(alt != nullptr && alt->text == "Opt");
+    const kit::Control* right_alt = key_named(list, "board.alt-right");
+    OA_CHECK(right_alt != nullptr);
+    if (right_alt != nullptr)
+        OA_CHECK(
+            ink_span(surface, right_alt->rect, kit::colour::text) ==
+            kit::text_width(wide, kit::FontRole::small, "Alt")
+        );
 
     kit::DisplayList chips;
     kit::ChordChipLook chord;
