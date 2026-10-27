@@ -11120,9 +11120,9 @@ class Runtime final : public menu::Host,
     /// @return true when ui.keys-overlay was pressed
     bool take_keys_overlay_action();
 
-    /// Opens the keys overlay in a match, or closes it when it is already open.
+    /// Closes the keys overlay when it is open; otherwise opens it over a
+    /// running match where no modal screen shows and the layer's fonts load.
     ///
-    /// A modal screen and a screen that is not a running match do nothing.
     /// [runtime_keys_overlay.cpp]
     void toggle_keys_overlay_screen();
 
