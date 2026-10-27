@@ -408,6 +408,11 @@ constexpr std::array<ChoiceWord<UpdateCheck>, 3> update_check_words{{
     {UpdateCheck::when_asked, "when-asked"},
     {UpdateCheck::never, "never"},
 }};
+/// Install updates' words, in the order the Updates page lists them.
+constexpr std::array<ChoiceWord<UpdateInstall>, 2> update_install_words{{
+    {UpdateInstall::ask, "ask"},
+    {UpdateInstall::when_i_quit, "when-i-quit"},
+}};
 
 } // namespace
 
@@ -835,6 +840,7 @@ EngineSettings read_settings(
     read_word(values, key::update_check, update_check_words, settings.update_check);
     if (const auto number = stored_number(values, key::update_download))
         settings.update_download = *number > 0;
+    read_word(values, key::update_install, update_install_words, settings.update_install);
     settings.file_type_oamod = file_type_on(values, key::file_type_oamod);
     settings.file_type_oamap = file_type_on(values, key::file_type_oamap);
     settings.file_type_oalang = file_type_on(values, key::file_type_oalang);
@@ -1482,6 +1488,15 @@ void write_settings(
         switch_text(chosen.update_download),
         chosen.update_download != opened.update_download,
         chosen.update_download == defaults.update_download,
+        restored
+    );
+    store_word(
+        values,
+        key::update_install,
+        update_install_words,
+        opened.update_install,
+        chosen.update_install,
+        defaults.update_install,
         restored
     );
     const auto store_file_type = [&](std::string_view key, bool EngineSettings::* member) {

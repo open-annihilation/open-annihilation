@@ -1,11 +1,12 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The two cards the settings dialog lays among a section's rows (cards.cpp):
+// The cards the settings dialog lays among a section's rows (cards.cpp):
 // Controls' key layout card, which names the layout in use, counts the
 // player's own changes and says where it applies, with Change layout… and
-// Edit keys…; and Accessibility's practice pad, where the player tries the
-// helpers the dialog shows before playing. The rows' placing
+// Edit keys…; Accessibility's practice pad, where the player tries the
+// helpers the dialog shows before playing; and Updates' card, the update
+// centre's one state with its actions. The rows' placing
 // (geometry::place_section), the drawing (dialog_draw.cpp) and the events
 // (dialog.cpp) all place them through here.
 #pragma once
@@ -141,6 +142,45 @@ struct Pad {
     int32_t left,
     int32_t top,
     int32_t width,
+    const TextWidth& regular,
+    const TextWidth& small
+);
+
+/// Updates' card, placed: the version installed, the update centre's
+/// heading and detail, a bar while a download is under way, the state's
+/// actions as buttons, left to right, the first in the accent, and its note.
+struct UpdateCard {
+    SourceRect card{};                 ///< the card's face
+    std::vector<Line> lines;           ///< every line of text, top to bottom
+    SourceRect bar{};                  ///< the bar; empty for none
+    int32_t bar_done{-1};              ///< how far the bar has filled, 0 to 100
+    bool bar_paused{};                 ///< the bar is drawn paused
+    std::vector<SourceRect> buttons;   ///< one for each action, left to right
+    std::vector<std::string> captions; ///< each button's caption, as shown
+    int32_t height{};                  ///< the card's height
+};
+
+/// Tells whether Updates shows its card: the host has filled the update
+/// centre's heading (UpdatesOffer::card_status).
+///
+/// @param dialog the dialog
+/// @return true while the card stands in place of the status row
+[[nodiscard]] bool update_card_shown(const Dialog& dialog) noexcept;
+
+/// Places Updates' card from a row: under the row's line, across the
+/// section's width. Every line wraps; nothing is cut. A button that does not
+/// fit after the one before it starts a line of its own.
+///
+/// @param dialog the dialog
+/// @param sized the dialog's sizes
+/// @param top the card's top row
+/// @param regular a text's width in the regular font
+/// @param small a text's width in the small font
+/// @return the card
+[[nodiscard]] UpdateCard update_card(
+    const Dialog& dialog,
+    const geometry::Sizes& sized,
+    int32_t top,
     const TextWidth& regular,
     const TextWidth& small
 );

@@ -1,12 +1,16 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Updates: this build's version and whether a release is out, and when
-// Open Annihilation looks for one. The rows are kit rows, built from the
-// host's offer each time the page is laid out or one of them is used.
-// CHECK NOW and UPDATE… ask the host at once. The check itself waits for OK.
+// Updates: the update centre's card, or the status row a host without the
+// card fills, and the policy rows: when Open Annihilation looks for a
+// release, whether it downloads one by itself, how it installs one, and the
+// version kept for a roll back. The rows are kit rows, built from the host's
+// offer each time the page is laid out or one of them is used. The card's
+// buttons, CHECK NOW and UPDATE… ask the host at once. The policies wait for OK.
 
 #include "updates_page.hpp"
+
+#include "cards.hpp"
 
 #include "oa/data/languages.hpp"
 #include "oa/data/languages/interface_text.hpp"
@@ -56,13 +60,33 @@ constexpr std::array<std::string_view, 3> kCaptions{
 /// The check's ids, in the same order.
 constexpr std::array<std::string_view, 3> kChoiceIds{"automatically", "when-asked", "never"};
 /// The background switch's hint.
-constexpr std::string_view kDownloadHint =
-    "Gets it ready while you're in the menus, and stops during a match.";
+constexpr std::string_view kDownloadHint = "Off: OA asks before downloading.";
+/// Install updates' hint.
+constexpr std::string_view kInstallHint = "Ask each time, or install when I quit.";
+/// Install updates' captions, in UpdateInstall's order.
+constexpr std::array<std::string_view, 2> kInstallCaptions{
+    "Ask each time",
+    "When I quit",
+};
+/// Install updates' ids, in the same order.
+constexpr std::array<std::string_view, 2> kInstallIds{"ask", "when-i-quit"};
+/// Previous version's label; {version} is the kept one.
+constexpr std::string_view kPreviousLabel = "Previous version \u00b7 {version}";
+/// Previous version's hint; {version} is the kept one.
+constexpr std::string_view kPreviousHint =
+    "Roll back restores {version} and the settings you had before updating.";
+/// The rows' places among the page's rows, by what each is.
+constexpr std::size_t kStatusRow = 0;
+constexpr std::size_t kCheckRow = 1;
+constexpr std::size_t kDownloadRow = 2;
+constexpr std::size_t kPreviousRow = 3;
+constexpr std::size_t kInstallRow = 4;
 
 /// One placed row: the dialog and the row's place.
 struct RowModel {
-    Dialog* dialog{};    ///< the dialog
-    std::size_t index{}; ///< 0 the status, 1 the check, 2 the background switch
+    Dialog* dialog{}; ///< the dialog
+    /// kStatusRow, kCheckRow, kDownloadRow, kPreviousRow or kInstallRow
+    std::size_t index{};
 };
 
 /// Tells whether the status row shows a button.
@@ -217,11 +241,107 @@ std::size_t download_hint_lines(const RowModel&) noexcept {
     return 1;
 }
 
-/// "{version} kept", already in the language shown.
-std::string kept_value(const RowModel& model) {
+/// "Previous version · {version}", already in the language shown.
+///
+/// @param model the row
+/// @return the label
+std::string previous_label(const RowModel& model) {
     if (model.dialog == nullptr)
         return {};
-    return geometry::filled("{version} kept", {{"version", model.dialog->updates.kept_version}});
+    return geometry::filled(kPreviousLabel, {{"version", model.dialog->updates.kept_version}});
+}
+
+/// Returns Previous version's hint, before it wraps.
+///
+/// @param model the row
+/// @param line the line, from 0
+/// @return the hint
+std::string previous_hint(const RowModel& model, std::size_t line) {
+    if (line != 0 || model.dialog == nullptr)
+        return {};
+    return geometry::filled(kPreviousHint, {{"version", model.dialog->updates.kept_version}});
+}
+
+/// Returns how many hint lines Previous version shows before they wrap.
+///
+/// @return 1
+std::size_t previous_hint_lines(const RowModel&) noexcept {
+    return 1;
+}
+
+/// Returns how many ways Install updates offers.
+///
+/// @return 2
+int32_t install_count(const RowModel&) noexcept {
+    return static_cast<int32_t>(kInstallCaptions.size());
+}
+
+/// Returns the way Install updates shows.
+///
+/// @param model the row
+/// @return its index
+int32_t install_get(const RowModel& model) noexcept {
+    if (model.dialog == nullptr)
+        return 0;
+    return static_cast<int32_t>(model.dialog->chosen.update_install);
+}
+
+/// Sets Install updates. The stored preference waits for OK.
+///
+/// @param[in,out] model the row
+/// @param index the way, from 0; past the last changes nothing
+void install_set(RowModel& model, int32_t index) {
+    if (model.dialog == nullptr || index < 0 ||
+        static_cast<std::size_t>(index) >= kInstallCaptions.size())
+        return;
+    model.dialog->chosen.update_install = static_cast<UpdateInstall>(index);
+}
+
+/// Returns an Install updates way's caption.
+///
+/// @param index the way
+/// @return its caption, in English
+std::string install_caption(const RowModel&, int32_t index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= kInstallCaptions.size())
+        return {};
+    return std::string(kInstallCaptions[static_cast<std::size_t>(index)]);
+}
+
+/// Returns an Install updates way's id.
+///
+/// @param index the way
+/// @return its id
+std::string install_choice_id(const RowModel&, int32_t index) {
+    if (index < 0 || static_cast<std::size_t>(index) >= kInstallIds.size())
+        return {};
+    return std::string(kInstallIds[static_cast<std::size_t>(index)]);
+}
+
+/// Returns Install updates' hint, before it wraps.
+///
+/// @param line the line, from 0
+/// @return the hint
+std::string install_hint(const RowModel&, std::size_t line) {
+    if (line != 0)
+        return {};
+    return std::string(kInstallHint);
+}
+
+/// Returns how many hint lines Install updates shows before they wrap.
+///
+/// @return 1
+std::size_t install_hint_lines(const RowModel&) noexcept {
+    return 1;
+}
+
+/// Returns the card's heading, the status row's label while the card shows.
+///
+/// @param model the row
+/// @return the heading, as the host gave it
+std::string card_label(const RowModel& model) {
+    if (model.dialog == nullptr)
+        return {};
+    return model.dialog->updates.card_status;
 }
 
 /// The lock ROLL BACK shows during a game. The page reads the same field
@@ -254,9 +374,10 @@ int32_t check_get(const RowModel& model) noexcept {
 /// @param[in,out] model the row
 /// @param index the way, from 0
 void check_set(RowModel& model, int32_t index) {
-    if (model.dialog == nullptr)
+    if (model.dialog == nullptr || index < 0 || static_cast<std::size_t>(index) >= kCaptions.size())
         return;
-    apply_choice(*model.dialog, index);
+    model.dialog->chosen.update_check = static_cast<UpdateCheck>(index);
+    follow_mode(*model.dialog);
 }
 
 /// Returns a way's caption.
@@ -264,7 +385,9 @@ void check_set(RowModel& model, int32_t index) {
 /// @param index the way
 /// @return its caption
 std::string check_caption(const RowModel&, int32_t index) {
-    return choice_caption(index);
+    if (index < 0 || static_cast<std::size_t>(index) >= kCaptions.size())
+        return {};
+    return std::string(kCaptions[static_cast<std::size_t>(index)]);
 }
 
 /// Returns a way's id.
@@ -272,7 +395,9 @@ std::string check_caption(const RowModel&, int32_t index) {
 /// @param index the way
 /// @return its id
 std::string check_choice_id(const RowModel&, int32_t index) {
-    return choice_id(index);
+    if (index < 0 || static_cast<std::size_t>(index) >= kChoiceIds.size())
+        return {};
+    return std::string(kChoiceIds[static_cast<std::size_t>(index)]);
 }
 
 /// Returns the spec of one row.
@@ -280,15 +405,50 @@ std::string check_choice_id(const RowModel&, int32_t index) {
 /// @param model the row
 /// @return the spec
 kit::RowSpec<RowModel> spec_for(const RowModel& model) {
-    if (model.index == 2) {
+    if (model.index == kDownloadRow) {
         kit::RowSpec<RowModel> spec = kit::toggle<RowModel>(
-            "update-download", "Download in the background", download_get, download_set
+            "update-download", "Download automatically", download_get, download_set
         );
         spec.hint_lines = download_hint_lines;
         spec.hint_text = download_hint;
         return spec;
     }
-    if (model.index == 0) {
+    if (model.index == kInstallRow) {
+        kit::Stepper<RowModel> stepper;
+        stepper.count = install_count;
+        stepper.get = install_get;
+        stepper.set = install_set;
+        stepper.caption = install_caption;
+        stepper.id = install_choice_id;
+        kit::RowSpec<RowModel> spec = kit::choice("update-install", "Install updates", stepper);
+        spec.control_width = geometry::wide_choice_width;
+        spec.hint_lines = install_hint_lines;
+        spec.hint_text = install_hint;
+        return spec;
+    }
+    if (model.index == kStatusRow && model.dialog != nullptr &&
+        cards::update_card_shown(*model.dialog)) {
+        // The card: its first button is the row's control; the page lays the
+        // card over the row (place).
+        const UpdatesOffer& offer = model.dialog->updates;
+        if (offer.actions.empty()) {
+            kit::RowSpec<RowModel> spec = kit::text<RowModel>("update-status", "", nullptr);
+            spec.label_text = card_label;
+            return spec;
+        }
+        kit::RowSpec<RowModel> spec = kit::value_and_button<RowModel>(
+            "update-status",
+            "",
+            nullptr,
+            offer.actions.front().caption,
+            kit::row_word(offer.actions.front().id) ? std::string_view(offer.actions.front().id)
+                                                    : std::string_view{},
+            first_card_action
+        );
+        spec.label_text = card_label;
+        return spec;
+    }
+    if (model.index == kStatusRow) {
         const UpdatesOffer& offer = model.dialog->updates;
         const bool restart = offer.show_download && offer.download == DownloadShown::ready;
         const bool retry = offer.show_download && offer.download == DownloadShown::stopped;
@@ -327,15 +487,13 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
         spec.hint_text = status_hint;
         return spec;
     }
-    if (model.index == 3) {
+    if (model.index == kPreviousRow) {
         kit::RowSpec<RowModel> spec = kit::value_and_button<RowModel>(
-            "update-previous",
-            "Previous version",
-            kept_value,
-            "ROLL BACK",
-            "roll-back",
-            roll_back_action
+            "update-previous", "", nullptr, "Roll back\u2026", "roll-back", roll_back_action
         );
+        spec.label_text = previous_label;
+        spec.hint_lines = previous_hint_lines;
+        spec.hint_text = previous_hint;
         spec.control_width = geometry::manage_button_width;
         spec.lock = previous_lock;
         return spec;
@@ -409,17 +567,20 @@ geometry::Rows place(
     const int32_t room = estimated ? static_cast<int32_t>(sized.hint_line_characters) *
                                          kit::estimated_character_width
                                    : sized.content_width;
-    // The switch sits between the status and the check when the host shows
-    // a download. Previous version follows the check, and only while a
-    // version is kept, so a page with nothing kept keeps the rows a picture
-    // was drawn with. The check keeps logical index 1, so it stays the choice.
+    // The card or the status row first. Where this copy installs releases
+    // (the host shows a download), Download automatically sits before the
+    // check and Install updates after it. Previous version follows, and only
+    // while a version is kept, so a page with nothing kept keeps the rows a
+    // picture was drawn with.
     std::vector<std::size_t> order;
-    order.push_back(0);
+    order.push_back(kStatusRow);
     if (dialog.updates.show_download)
-        order.push_back(2);
-    order.push_back(1);
+        order.push_back(kDownloadRow);
+    order.push_back(kCheckRow);
+    if (dialog.updates.show_download)
+        order.push_back(kInstallRow);
     if (!dialog.updates.kept_version.empty())
-        order.push_back(3);
+        order.push_back(kPreviousRow);
     const bool previous_locked = locks.path_search != Lock::none;
     std::vector<kit::RowView> row_views;
     row_views.reserve(order.size());
@@ -436,12 +597,45 @@ geometry::Rows place(
     kit::RowPlacement placement;
     placement.left = sized.content_left;
     placement.right = sized.content_right;
-    placement.first_top = geometry::first_row_top;
+    placement.first_top = sized.first_row_top;
     placement.row_padding = geometry::row_padding;
     placement.tall = oa::data::languages::interface_language().needs !=
                      oa::data::languages::TextNeeds::game_fonts;
     placement.first_control = first_row_control;
     kit::PlacedRows kit_rows = kit::place_rows(row_views, placement);
+    // The card stands over the first row: the row takes the card's height,
+    // the rows under it move down by as much, and its control is the card's
+    // first button.
+    if (cards::update_card_shown(dialog) && !kit_rows.rows.empty()) {
+        const geometry::TextWidth regular_measure =
+            regular != nullptr && static_cast<bool>(*regular) ? *regular : measure;
+        kit::PlacedRow& card_row = kit_rows.rows.front();
+        const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
+        const cards::UpdateCard card =
+            cards::update_card(dialog, sized, card_row.top + margin, regular_measure, measure);
+        const int32_t height = card.height + 2 * margin;
+        const int32_t moved = height - card_row.height;
+        card_row.height = height;
+        card_row.label = card.lines.empty() ? kit::Rect{} : card.lines.front().rect;
+        card_row.lock_area = {};
+        card_row.hints.clear();
+        card_row.value = {};
+        card_row.control_area = card.buttons.empty() ? kit::Rect{} : card.buttons.front();
+        for (std::size_t later = 1; later < kit_rows.rows.size(); ++later) {
+            kit::PlacedRow& following = kit_rows.rows[later];
+            following.top += moved;
+            for (kit::Rect* rect :
+                 {&following.label,
+                  &following.lock_area,
+                  &following.control_area,
+                  &following.value})
+                if (rect->width > 0 && rect->height > 0)
+                    rect->y += moved;
+            for (kit::Rect& hint : following.hints)
+                hint.y += moved;
+        }
+        kit_rows.bottom += moved;
+    }
 
     geometry::Rows rows;
     rows.bottom = kit_rows.bottom;
@@ -451,7 +645,7 @@ geometry::Rows place(
         geometry::Row& row = rows.rows.emplace_back();
         const std::size_t logical = order[index];
         row.updates = static_cast<int16_t>(logical);
-        row.lock = logical == 3 && previous_locked ? Lock::in_game : Lock::none;
+        row.lock = logical == kPreviousRow && previous_locked ? Lock::in_game : Lock::none;
         row.control = placed_row.control;
         row.hint_is_status = placed_row.view.hint_is_status;
         row.top = placed_row.top;
@@ -475,27 +669,36 @@ kit::RowKind kind(const Dialog& dialog, const geometry::Row& row) {
 }
 
 bool is_choice(const geometry::Row& row) noexcept {
-    return row.updates == 1;
+    return row.updates == static_cast<int16_t>(kCheckRow) ||
+           row.updates == static_cast<int16_t>(kInstallRow);
 }
 
-int32_t choice_count() noexcept {
-    return static_cast<int32_t>(kCaptions.size());
+int32_t choice_count(const geometry::Row& row) noexcept {
+    return row.updates == static_cast<int16_t>(kInstallRow)
+               ? static_cast<int32_t>(kInstallCaptions.size())
+               : static_cast<int32_t>(kCaptions.size());
 }
 
-int32_t choice_index(const Dialog& dialog) noexcept {
+int32_t choice_index(const Dialog& dialog, const geometry::Row& row) noexcept {
+    if (row.updates == static_cast<int16_t>(kInstallRow))
+        return static_cast<int32_t>(dialog.chosen.update_install);
     return static_cast<int32_t>(dialog.chosen.update_check);
 }
 
-std::string choice_caption(int32_t index) {
-    if (index < 0 || static_cast<std::size_t>(index) >= kCaptions.size())
-        return {};
-    return std::string(kCaptions[static_cast<std::size_t>(index)]);
+std::string choice_caption(const geometry::Row& row, int32_t index) {
+    if (row.updates == static_cast<int16_t>(kInstallRow))
+        return install_caption({}, index);
+    return check_caption({}, index);
 }
 
-std::string choice_id(int32_t index) {
-    if (index < 0 || static_cast<std::size_t>(index) >= kChoiceIds.size())
-        return {};
-    return std::string(kChoiceIds[static_cast<std::size_t>(index)]);
+std::string choice_id(const geometry::Row& row, int32_t index) {
+    if (row.updates == static_cast<int16_t>(kInstallRow))
+        return install_choice_id({}, index);
+    return check_choice_id({}, index);
+}
+
+std::string_view choice_word(const geometry::Row& row) noexcept {
+    return row.updates == static_cast<int16_t>(kInstallRow) ? "update-install" : "update-check";
 }
 
 void follow_mode(Dialog& dialog) noexcept {
@@ -508,11 +711,49 @@ void follow_mode(Dialog& dialog) noexcept {
         dialog.updates.can_check = true;
 }
 
-void apply_choice(Dialog& dialog, int32_t index) {
-    if (index < 0 || static_cast<std::size_t>(index) >= kCaptions.size())
-        return;
-    dialog.chosen.update_check = static_cast<UpdateCheck>(index);
-    follow_mode(dialog);
+void apply_choice(Dialog& dialog, const geometry::Row& row, int32_t index) {
+    RowModel model{
+        &dialog, row.updates == static_cast<int16_t>(kInstallRow) ? kInstallRow : kCheckRow
+    };
+    if (model.index == kInstallRow)
+        install_set(model, index);
+    else
+        check_set(model, index);
+}
+
+DialogAction take_card(Dialog& dialog, std::size_t index) {
+    const std::vector<UpdateCardAction>& actions = dialog.updates.actions;
+    if (index >= actions.size() || index >= most_update_card_actions)
+        return DialogAction::none;
+    // Check now is the check CHECK NOW asks for, which lends the way the
+    // dialog shows to the preference for that one check.
+    if (actions[index].id == check_now_id)
+        return DialogAction::check_updates;
+    dialog.update_act = actions[index].act;
+    return DialogAction::update_action;
+}
+
+std::optional<DialogAction> card_action(Dialog& dialog, kit::ActionId action) {
+    if (action < first_card_action ||
+        action >= first_card_action + static_cast<kit::ActionId>(most_update_card_actions))
+        return std::nullopt;
+    return take_card(dialog, static_cast<std::size_t>(action - first_card_action));
+}
+
+std::optional<std::size_t> card_button(int32_t control) noexcept {
+    if (control == update_second_control)
+        return 1;
+    if (control == update_third_control)
+        return 2;
+    return std::nullopt;
+}
+
+int32_t card_control(std::size_t index, int32_t row_control) noexcept {
+    if (index == 1)
+        return update_second_control;
+    if (index == 2)
+        return update_third_control;
+    return row_control;
 }
 
 kit::RowResult activate(Dialog& dialog, const geometry::Row& row) {

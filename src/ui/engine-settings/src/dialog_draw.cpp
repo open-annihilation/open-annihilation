@@ -51,6 +51,9 @@ using renderer::SourceRect;
 
 /// The word each of the dialog's controls' names starts with.
 constexpr std::string_view kNamePrefix = "settings";
+/// The columns the header keeps between its note and the version, as the
+/// kit's header draws them.
+constexpr int32_t kHeaderNoteGap = 8;
 
 /// Returns a control's name: the dialog's word, then the words given.
 ///
@@ -903,6 +906,50 @@ void add_key_card(
     tab.push_back(row.control);
 }
 
+/// Adds Updates' card: its face, its lines, the bar while a download is
+/// under way, and the state's actions as buttons, the first in the accent.
+/// The first is the card's row control; the others have controls of their own.
+///
+/// @param[in,out] building the list
+/// @param dialog the dialog
+/// @param row the card's row, placed
+/// @param[in,out] tab the section's tab stops, which take the card's buttons
+void add_update_card(
+    Building& building,
+    const Dialog& dialog,
+    const kit::PlacedRow& row,
+    std::vector<kit::ControlId>& tab
+) {
+    const layout::Sizes& sized = dialog_sizes(building, dialog);
+    const auto regular = width_in(building.fonts, DialogFont::regular);
+    const auto small = width_in(building.fonts, DialogFont::small);
+    const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
+    const cards::UpdateCard card =
+        cards::update_card(dialog, sized, row.top + margin, regular, small);
+    card_face(building.list, card.card, sized.view_clip);
+    card_lines(building.list, card.lines, sized.view_clip);
+    if (card.bar.width > 0) {
+        kit::add_progress(building.list, card.bar, card.bar_done, 100, card.bar_paused);
+        building.list.items.back().clip = sized.view_clip;
+    }
+    for (std::size_t index = 0; index < card.buttons.size(); ++index) {
+        const int32_t control = updates::card_control(index, row.control);
+        const std::string& id = dialog.updates.actions[index].id;
+        card_button(
+            building,
+            dialog,
+            card.buttons[index],
+            card.captions[index],
+            index == 0 ? kit::ButtonStyle::accent : kit::ButtonStyle::plain,
+            control,
+            named("update-status." + (id.empty() ? std::to_string(index + 1) : id)),
+            true,
+            {card.buttons[index].x, card.card.y, card.buttons[index].width, card.card.height}
+        );
+        tab.push_back(control);
+    }
+}
+
 /// Adds Accessibility's practice pad: the eyebrow and what to try, the
 /// keycaps held or latched in their well, what the last key did, Hold to
 /// confirm's bar while that helper is on, and Turn every helper off.
@@ -1001,7 +1048,8 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
     state.hovered_button = dialog.folder_hovered;
     state.group = layout::section_group;
     state.clip = sized.view_clip;
-    // Key layout's row is its card: the kit draws every other row.
+    // Key layout's row is its card, and so is Updates' first row while the
+    // update card shows: the kit draws every other row.
     kit::PlacedRows drawn_rows = placed;
     std::optional<kit::PlacedRow> key_row;
     for (auto at = drawn_rows.rows.begin(); at != drawn_rows.rows.end(); ++at) {
@@ -1011,6 +1059,12 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
         drawn_rows.rows.erase(at);
         break;
     }
+    std::optional<kit::PlacedRow> update_row;
+    if (dialog.page == Page::updates && cards::update_card_shown(dialog) &&
+        !drawn_rows.rows.empty()) {
+        update_row = drawn_rows.rows.front();
+        drawn_rows.rows.erase(drawn_rows.rows.begin());
+    }
     kit::DisplayList rows;
     kit::add_rows(rows, drawn_rows, state);
     for (kit::Item& added : rows.items)
@@ -1018,6 +1072,8 @@ void add_section(Building& building, const Dialog& dialog, const layout::Scrolle
     std::vector<kit::ControlId> card_tab;
     if (key_row.has_value())
         add_key_card(building, dialog, *key_row, card_tab);
+    if (update_row.has_value())
+        add_update_card(building, dialog, *update_row, card_tab);
     if (open.rows.pad.width > 0)
         add_practice_pad(building, dialog, open.rows.pad);
     // A bundle being copied draws its bar in the row's own padding, so the
@@ -1212,7 +1268,7 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
             page_choice ? layout::row_spec(Setting::language) : layout::row_spec(row.setting);
         const layout::SettingsModel model = layout::reading(dialog.chosen, dialog);
         const int32_t choices = downloads_choice ? downloads::choice_count()
-                                : updates_choice ? updates::choice_count()
+                                : updates_choice ? updates::choice_count(row)
                                                  : kit::row_count(spec, model);
         const SourceRect menu = layout::choice_list(
             row.control_area, static_cast<std::size_t>(choices), dialog.size_class
@@ -1222,7 +1278,7 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
         look.first = dialog.list_first;
         look.total = choices;
         look.chosen = downloads_choice ? downloads::choice_index(dialog)
-                      : updates_choice ? updates::choice_index(dialog)
+                      : updates_choice ? updates::choice_index(dialog, row)
                                        : kit::row_index(spec, model);
         look.marked = dialog.list_marked;
         look.focus_shown = dialog.focused != no_control;
@@ -1234,10 +1290,10 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
             const std::string caption =
                 downloads_choice ? downloads::choice_caption(choice)
                 : updates_choice
-                    ? updates::choice_caption(choice)
+                    ? updates::choice_caption(row, choice)
                     : std::string(layout::shown_text(kit::row_caption(spec, model, choice)));
             const std::string word = downloads_choice ? downloads::choice_id(choice)
-                                     : updates_choice ? updates::choice_id(choice)
+                                     : updates_choice ? updates::choice_id(row, choice)
                                                       : layout::choice_word(spec, model, choice);
             look.shown.push_back(page_choice ? std::string(layout::shown_text(caption)) : caption);
             // A divider is a heading: it is not a control and has no name.
@@ -1246,7 +1302,7 @@ void add_open_menu(Building& building, const Dialog& dialog, const layout::Scrol
                 continue;
             const std::string stem = downloads_choice ? std::string("content-updates")
                                      : updates_choice
-                                         ? std::string("update-check")
+                                         ? std::string(updates::choice_word(row))
                                          : std::string(layout::setting_name(row.setting));
             kit::Control added = control_of(
                 layout::menu_item_control(choice),
@@ -1283,6 +1339,22 @@ kit::DisplayList dialog_list(const Dialog& dialog, const DialogFonts* fonts) {
             kit::tracked_width(*fonts, kit::FontRole::regular, header.second, header.tracking);
         if (tracked > header.second_width)
             header.second_width = tracked;
+        // The note stands between the second word and the version. One that
+        // does not fit there is left out: the update badge beside Updates'
+        // entry and the page say the same.
+        if (!header.note.empty()) {
+            const int32_t title_right =
+                oa::ui::kit::compact_metrics.padding + oa::ui::kit::compact_metrics.mark_side +
+                oa::ui::kit::compact_metrics.header_gap +
+                kit::tracked_width(*fonts, kit::FontRole::regular, header.title, header.tracking);
+            const int32_t note_left = title_right + oa::ui::kit::compact_metrics.header_gap +
+                                      header.second_width + oa::ui::kit::compact_metrics.header_gap;
+            const int32_t version_left = header.width - oa::ui::kit::compact_metrics.edge -
+                                         oa::ui::kit::compact_metrics.padding - header.right_inset -
+                                         (header.version.empty() ? 0 : small(header.version));
+            if (small(header.note) > version_left - kHeaderNoteGap - note_left)
+                header.note.clear();
+        }
     }
     item(building.list, kit::Role::header, {0, 0, sized.dialog_width, sized.body_top}, {}).look =
         std::move(header);

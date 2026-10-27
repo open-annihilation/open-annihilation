@@ -408,6 +408,11 @@ inline constexpr int32_t close_x_control = -9000;
 inline constexpr int32_t change_layout_control = close_x_control - 1;
 /// Turn every helper off, on Accessibility's practice pad.
 inline constexpr int32_t helpers_off_control = close_x_control - 2;
+/// The update card's second button on Updates (UpdatesOffer::actions); its
+/// first is the card's row control.
+inline constexpr int32_t update_second_control = close_x_control - 3;
+/// The update card's third button.
+inline constexpr int32_t update_third_control = close_x_control - 4;
 /// The first section's entry in the list; each section's entry is its
 /// place among its kind of dialog's sections with Touch and Controller
 /// (page_control), whether or not the dialog lists them.
@@ -664,6 +669,9 @@ enum class DialogAction : uint8_t {
     /// opens the key editor over the dialog, which stays open under it, in
     /// the menus and in a match. Dialog::edit_keys_filter says which list.
     edit_keys,
+    /// One of the update card's buttons on Updates: the host carries out the
+    /// update centre's action Dialog::update_act names. The dialog stays open.
+    update_action,
 };
 
 /// Which list EDIT KEYS… or CHOOSE… opens the key editor on.
@@ -878,6 +886,16 @@ enum class DownloadShown : uint8_t {
     stopped,     ///< "The download stopped: {reason}", RETRY
 };
 
+/// One of the update centre's actions, as Updates' card shows it.
+struct UpdateCardAction {
+    int32_t act{};         ///< the host's number for it; Dialog::update_act carries it back
+    std::string id{};      ///< the button's word to automation: a-z, 0-9 and hyphens
+    std::string caption{}; ///< already as shown, in title case
+};
+
+/// The most buttons Updates' card shows.
+inline constexpr std::size_t most_update_card_actions = 3;
+
 /// What Updates shows besides the check, which the host fills. The check the
 /// player moves lives on the dialog, as its chosen settings do, and takes
 /// effect at OK. CHECK NOW, UPDATE…, RESTART TO UPDATE and RETRY act at once.
@@ -903,6 +921,18 @@ struct UpdatesOffer {
     /// The version kept beside this one. Empty hides Previous version, so the
     /// page keeps the two rows a picture of it was drawn with.
     std::string kept_version;
+    /// The update centre's state, as the card at the page's top shows it,
+    /// filled by the host. An empty heading leaves the status row as it was,
+    /// with its one button.
+    std::string card_status;
+    std::string card_installed; ///< "Installed {version}", already filled; empty for none
+    std::string card_detail;    ///< the line under the heading; empty for none
+    std::string card_note;      ///< guidance under the buttons; empty for none
+    int32_t percent{-1};        ///< the card's bar, 0 to 100; -1 draws none
+    bool paused{};              ///< the bar is drawn paused, in the lock colour
+    /// The state's actions, at most most_update_card_actions, the first in
+    /// the accent. Roll back… stays Previous version's.
+    std::vector<UpdateCardAction> actions{};
 };
 
 namespace updates {
@@ -1276,6 +1306,9 @@ struct Dialog {
     /// What Updates shows, which the host fills after the dialog has opened.
     /// open_dialog clears it, and sets mode from the check in effect.
     UpdatesOffer updates{};
+    /// The update centre's action the card's button asked for
+    /// (DialogAction::update_action), as UpdateCardAction::act; -1 for none.
+    int32_t update_act{-1};
     /// A short word at the right of Updates' entry in the section list, in
     /// the accent: how far a download has come ("41%") or that a release is
     /// ready, as the update centre's pill says it. Empty shows none. The host

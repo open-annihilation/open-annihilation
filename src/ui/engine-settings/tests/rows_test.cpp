@@ -738,13 +738,45 @@ void tab_follows_the_dialogs_focus_order() {
 }
 
 void updates_names_its_ways() {
-    OA_CHECK(settings::updates::choice_count() == 3);
-    OA_CHECK(settings::updates::choice_id(0) == "automatically");
-    OA_CHECK(settings::updates::choice_id(1) == "when-asked");
-    OA_CHECK(settings::updates::choice_id(2) == "never");
-    OA_CHECK(settings::updates::choice_caption(0) == "Automatically");
-    OA_CHECK(settings::updates::choice_caption(1) == "Only when I ask");
-    OA_CHECK(settings::updates::choice_caption(2) == "Never");
+    geometry::Row check_row;
+    check_row.updates = 1;
+    OA_CHECK(settings::updates::choice_count(check_row) == 3);
+    OA_CHECK(settings::updates::choice_id(check_row, 0) == "automatically");
+    OA_CHECK(settings::updates::choice_id(check_row, 1) == "when-asked");
+    OA_CHECK(settings::updates::choice_id(check_row, 2) == "never");
+    OA_CHECK(settings::updates::choice_caption(check_row, 0) == "Automatically");
+    OA_CHECK(settings::updates::choice_caption(check_row, 1) == "Only when I ask");
+    OA_CHECK(settings::updates::choice_caption(check_row, 2) == "Never");
+    OA_CHECK(settings::updates::choice_word(check_row) == "update-check");
+    // Install updates: Ask each time or When I quit, stored as the update
+    // centre reads them.
+    geometry::Row install_row;
+    install_row.updates = 4;
+    OA_CHECK(settings::updates::is_choice(install_row));
+    OA_CHECK(settings::updates::choice_count(install_row) == 2);
+    OA_CHECK(settings::updates::choice_id(install_row, 0) == "ask");
+    OA_CHECK(settings::updates::choice_id(install_row, 1) == "when-i-quit");
+    OA_CHECK(settings::updates::choice_caption(install_row, 0) == "Ask each time");
+    OA_CHECK(settings::updates::choice_caption(install_row, 1) == "When I quit");
+    OA_CHECK(settings::updates::choice_word(install_row) == "update-install");
+    {
+        settings::EngineSettings before;
+        settings::EngineSettings after;
+        after.update_install = settings::UpdateInstall::when_i_quit;
+        oa::platform::preferences::Values stored;
+        settings::write_settings(stored, before, after, before, false);
+        const auto install = stored.find(std::string(settings::key::update_install));
+        OA_CHECK(install != stored.end() && install->second == "when-i-quit");
+        OA_CHECK(
+            settings::read_settings(stored, settings::Inputs{}, false).update_install ==
+            settings::UpdateInstall::when_i_quit
+        );
+        stored[std::string(settings::key::update_install)] = "sometimes";
+        OA_CHECK(
+            settings::read_settings(stored, settings::Inputs{}, false).update_install ==
+            settings::UpdateInstall::ask
+        );
+    }
 
     settings::EngineSettings opened;
     settings::EngineSettings chosen;

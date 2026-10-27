@@ -246,6 +246,9 @@ inline constexpr std::string_view update_skipped = "open-annihilation.update-ski
 /// 1 or 0 (EngineSettings::update_download). Absent reads as 0: a found
 /// release is not downloaded until the player asks.
 inline constexpr std::string_view update_download = "open-annihilation.update-download";
+/// "ask" or "when-i-quit" (EngineSettings::update_install): how a downloaded
+/// release is installed. Absent, or any other text, reads as "ask".
+inline constexpr std::string_view update_install = "open-annihilation.update-install";
 /// "on" or "off" (EngineSettings::file_type_oamod). Absent, or any text
 /// other than off, the game opens mod packages.
 inline constexpr std::string_view file_type_oamod = "open-annihilation.file-types.oamod";
@@ -315,6 +318,8 @@ static_assert(update_checked.find('|') == std::string_view::npos);
 static_assert(update_checked.find('\\') == std::string_view::npos);
 static_assert(update_download.find('|') == std::string_view::npos);
 static_assert(update_download.find('\\') == std::string_view::npos);
+static_assert(update_install.find('|') == std::string_view::npos);
+static_assert(update_install.find('\\') == std::string_view::npos);
 static_assert(mutators_skirmish.find('|') == std::string_view::npos);
 static_assert(mutators_multiplayer.find('|') == std::string_view::npos);
 static_assert(mutators_campaign.find('|') == std::string_view::npos);
@@ -1142,6 +1147,13 @@ enum class UpdateCheck : uint8_t {
     never,         ///< the player asks, and CHECK NOW is not offered
 };
 
+/// How a downloaded release is installed. The stored words are the update
+/// centre's own: ask, when-i-quit.
+enum class UpdateInstall : uint8_t {
+    ask,         ///< the ready prompt asks each time
+    when_i_quit, ///< a ready release installs the next time the game quits
+};
+
 /// Coloured weapon lighting's percent with Hardware acceleration Full where
 /// the preferences store none (default_effect_intensity).
 inline constexpr uint32_t default_weapon_lighting = 20;
@@ -1379,6 +1391,9 @@ struct EngineSettings {
     /// stops during a match. Off unless the preference is 1. It takes
     /// effect when OK is pressed.
     bool update_download{};
+    /// How a downloaded release is installed: the ready prompt asks, or it
+    /// installs when the game quits. It takes effect when OK is pressed.
+    UpdateInstall update_install{UpdateInstall::ask};
     /// The game opens mod packages (.oamod). On unless the preference is the
     /// word off. Windows and Linux register it when OK is pressed. On macOS
     /// the switch shows whether this copy is the default opener, and OK

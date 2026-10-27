@@ -534,19 +534,8 @@ Rows place_section(
     const Sizes& sized_here = sizes != nullptr ? *sizes : sizes_of(dialog);
     if (page == Page::downloads)
         return downloads::place(dialog, locks, small_width, placed, &sized_here, regular_width);
-    if (page == Page::updates) {
-        // Rows the Updates page lays out from Compact's first row move down
-        // with the heading at a class whose header is taller; rows it lays
-        // out from the class's own first row stay.
-        Rows rows = updates::place(dialog, locks, small_width, placed, &sized_here, regular_width);
-        const int32_t lower = sized_here.first_row_top - first_row_top;
-        if (lower != 0 && !rows.rows.empty() && rows.rows.front().top == first_row_top) {
-            scroll_rows(rows, -lower);
-            if (placed != nullptr)
-                kit::scroll(*placed, -lower);
-        }
-        return rows;
-    }
+    if (page == Page::updates)
+        return updates::place(dialog, locks, small_width, placed, &sized_here, regular_width);
     if (page == Page::game_content)
         return content::place(dialog, locks, small_width, placed, &sized_here);
     const auto settings = section_settings(page, section, row_context(dialog));
@@ -1523,8 +1512,10 @@ DialogAction scroll_to(Dialog& dialog, layout::ScrolledRows& open, int32_t offse
 DialogAction show_row(Dialog& dialog, layout::ScrolledRows& open, int32_t control) {
     if (dialog.pressed != no_control)
         return DialogAction::none;
-    // Change layout… is the key layout card's, the section's first row.
-    if (control == change_layout_control && !open.rows.rows.empty())
+    // Change layout… is the key layout card's, the section's first row; the
+    // update card's other buttons are Updates' first row's.
+    if ((control == change_layout_control || updates::card_button(control).has_value()) &&
+        !open.rows.rows.empty())
         return scroll_to(dialog, open, layout::scroll_showing(open, 0));
     // The practice pad's button shows the pad's foot.
     if (control == helpers_off_control && open.rows.pad.width > 0) {
@@ -1752,7 +1743,7 @@ std::optional<OpenList> open_list(const Dialog& dialog, const layout::ScrolledRo
     const auto choices =
         row->downloads >= 0 ? static_cast<std::size_t>(downloads::choice_count())
         : row->updates >= 0
-            ? static_cast<std::size_t>(updates::choice_count())
+            ? static_cast<std::size_t>(updates::choice_count(*row))
             : static_cast<std::size_t>(kit::row_count(
                   layout::row_spec(row->setting), layout::reading(dialog.chosen, dialog)
               ));
@@ -1812,7 +1803,7 @@ DialogAction open_choices(Dialog& dialog, const layout::Row& row) {
                                                           : layout::row_spec(row.setting);
     const layout::SettingsModel model = layout::reading(dialog.chosen, dialog);
     const auto choices = downloads_choice ? static_cast<std::size_t>(downloads::choice_count())
-                         : updates_choice ? static_cast<std::size_t>(updates::choice_count())
+                         : updates_choice ? static_cast<std::size_t>(updates::choice_count(row))
                                           : static_cast<std::size_t>(kit::row_count(spec, model));
     const OpenList list{
         &row,
@@ -1824,7 +1815,7 @@ DialogAction open_choices(Dialog& dialog, const layout::Row& row) {
     dialog.list_pressed = -1;
     dialog.list_first = 0;
     dialog.list_marked = downloads_choice ? downloads::choice_index(dialog)
-                         : updates_choice ? updates::choice_index(dialog)
+                         : updates_choice ? updates::choice_index(dialog, row)
                                           : kit::row_index(spec, model);
     show_list_item(dialog, list, dialog.list_marked);
     return DialogAction::redraw;
@@ -1846,7 +1837,7 @@ DialogAction choose(Dialog& dialog, const OpenList& list, int32_t item) {
     if (list.row->updates >= 0) {
         close_list(dialog);
         const EngineSettings before = dialog.chosen;
-        updates::apply_choice(dialog, item);
+        updates::apply_choice(dialog, *list.row, item);
         return changed_or_redraw(dialog, before);
     }
     const Setting setting = list.row->setting;
@@ -2146,6 +2137,12 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
                  layout::first_folder_action + static_cast<kit::ActionId>(folder_button_count)),
         "CHOOSE… asks for an action no other row's button asks for"
     );
+    static_assert(
+        updates::first_card_action > layout::choose_latch_action &&
+            updates::first_card_action + static_cast<kit::ActionId>(most_update_card_actions) <=
+                layout::reset_windows_action,
+        "the update card's buttons ask for actions no other row's button asks for"
+    );
     if (action == layout::edit_keys_action) {
         dialog.edit_keys_filter = KeyEditorFilter::all;
         return DialogAction::edit_keys;
@@ -2181,6 +2178,8 @@ DialogAction row_action(Dialog& dialog, kit::ActionId action) noexcept {
         dialog.library_tab = LibraryTab::registries;
         return DialogAction::open_library;
     }
+    if (const std::optional<DialogAction> card = updates::card_action(dialog, action))
+        return *card;
     if (action == updates::check_updates_action)
         return DialogAction::check_updates;
     if (action == updates::open_release_action)
@@ -2233,6 +2232,10 @@ DialogAction activate(Dialog& dialog, const layout::ScrolledRows& open, int32_t 
         dialog.library_tab = LibraryTab::keys;
         return DialogAction::open_library;
     }
+    // Updates' card's second and third buttons ask the host for their actions.
+    if (const std::optional<std::size_t> button = updates::card_button(control);
+        button.has_value() && dialog.page == Page::updates && cards::update_card_shown(dialog))
+        return updates::take_card(dialog, *button);
     if (control == helpers_off_control && open.rows.pad.width > 0 &&
         cards::any_helper_on(dialog.chosen)) {
         const EngineSettings before = dialog.chosen;
@@ -3321,6 +3324,28 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
         const oa::ui::kit::RowView& view = placed.rows[index].view;
         // A locked row's control is drawn but takes no press.
         const int32_t control = row.lock == Lock::none ? row.control : no_control;
+        // Updates' card: its lines, its bar and its buttons.
+        if (row.updates == 0 && cards::update_card_shown(dialog)) {
+            const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
+            const cards::UpdateCard card = cards::update_card(
+                dialog, sized, placed.rows[index].top + margin, text_width, small_text_width
+            );
+            for (const cards::Line& line : card.lines)
+                row_part(LayoutPart{line.rect, line.text, line.font, 0, no_control});
+            if (card.bar.width > 0)
+                row_part(LayoutPart{card.bar, {}, DialogFont::regular, 0, no_control});
+            for (std::size_t button = 0; button < card.buttons.size(); ++button)
+                row_part(
+                    LayoutPart{
+                        card.buttons[button],
+                        card.captions[button],
+                        DialogFont::regular,
+                        0,
+                        updates::card_control(button, control),
+                    }
+                );
+            continue;
+        }
         // Key layout is its card: its lines, its badge and its buttons.
         if (row.setting == Setting::key_layout) {
             const int32_t margin = kit::metrics_of(sized.size_class).space * 2;
@@ -3460,7 +3485,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
             if (row.downloads >= 0)
                 caption = downloads::choice_caption(downloads::choice_index(dialog));
             if (row.updates >= 0)
-                caption = updates::choice_caption(updates::choice_index(dialog));
+                caption = updates::choice_caption(row, updates::choice_index(dialog, row));
             row_part(
                 LayoutPart{row.control_area, std::move(caption), DialogFont::regular, 0, control}
             );
@@ -3603,7 +3628,7 @@ std::vector<LayoutPart> dialog_layout(const Dialog& dialog, const DialogFonts* f
                 parts.push_back(
                     LayoutPart{
                         box,
-                        updates::choice_caption(item),
+                        updates::choice_caption(*list->row, item),
                         DialogFont::regular,
                         0,
                         no_control,

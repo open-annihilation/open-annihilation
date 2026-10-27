@@ -1,8 +1,9 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Controls' key layout card and Accessibility's practice pad: where their
-// parts lie, and what the pad does with the keys the player tries there.
+// Controls' key layout card, Accessibility's practice pad and Updates' card:
+// where their parts lie, and what the pad does with the keys the player tries
+// there.
 
 #include "cards.hpp"
 
@@ -332,6 +333,108 @@ KeyCard key_card(
     card.edit = {right - edit_width, button_top, edit_width, button_height};
     if (change_width > 0)
         card.change = {card.edit.x - gap - change_width, button_top, change_width, button_height};
+    return card;
+}
+
+bool update_card_shown(const Dialog& dialog) noexcept {
+    return !dialog.updates.card_status.empty();
+}
+
+UpdateCard update_card(
+    const Dialog& dialog,
+    const geometry::Sizes& sized,
+    int32_t top,
+    const TextWidth& regular,
+    const TextWidth& small
+) {
+    const kit::Metrics& metrics = kit::metrics_of(sized.size_class);
+    const int32_t inset = metrics.space * 2;
+    const int32_t gap = metrics.space * 2;
+    const UpdatesOffer& offer = dialog.updates;
+    UpdateCard card;
+    card.card = {sized.content_left, top, sized.content_width, 0};
+    const int32_t left = card.card.x + inset;
+    const int32_t width = std::max(card.card.width - 2 * inset, int32_t{1});
+    int32_t y = top + inset;
+    if (!offer.card_installed.empty()) {
+        add_wrapped(
+            card.lines,
+            offer.card_installed,
+            DialogFont::small,
+            kit::colour::text_tertiary,
+            small,
+            left,
+            width,
+            y
+        );
+        y += kLineGap;
+    }
+    add_wrapped(
+        card.lines,
+        offer.card_status,
+        DialogFont::regular,
+        kit::colour::text,
+        regular,
+        left,
+        width,
+        y
+    );
+    if (!offer.card_detail.empty()) {
+        y += kLineGap;
+        add_wrapped(
+            card.lines,
+            offer.card_detail,
+            DialogFont::small,
+            kit::colour::text_secondary,
+            small,
+            left,
+            width,
+            y
+        );
+    }
+    if (offer.percent >= 0) {
+        y += gap / 2;
+        card.bar = {left, y, width, kit::compact_metrics.progress_bar_height};
+        card.bar_done = std::clamp(offer.percent, int32_t{0}, int32_t{100});
+        card.bar_paused = offer.paused;
+        y += card.bar.height;
+    }
+    // The buttons, left to right; one that does not fit starts a line.
+    const int32_t button_height = metrics.control_height;
+    const std::size_t count = std::min(offer.actions.size(), most_update_card_actions);
+    if (count > 0) {
+        y += gap;
+        int32_t x = left;
+        for (std::size_t index = 0; index < count; ++index) {
+            std::string caption = offer.actions[index].caption;
+            const int32_t wanted =
+                std::max(regular(caption) + 4 * metrics.space, 2 * metrics.control_height);
+            const int32_t button_width = std::min(wanted, width);
+            if (index > 0 && x + button_width > left + width) {
+                x = left;
+                y += button_height + metrics.space;
+            }
+            card.buttons.push_back({x, y, button_width, button_height});
+            card.captions.push_back(std::move(caption));
+            x += button_width + gap;
+        }
+        y += button_height;
+    }
+    if (!offer.card_note.empty()) {
+        y += gap;
+        add_wrapped(
+            card.lines,
+            offer.card_note,
+            DialogFont::small,
+            kit::colour::text_secondary,
+            small,
+            left,
+            width,
+            y
+        );
+    }
+    card.height = y + inset - top;
+    card.card.height = card.height;
     return card;
 }
 

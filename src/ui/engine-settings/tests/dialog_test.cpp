@@ -8850,6 +8850,202 @@ settings::Dialog updates_dialog(settings::UpdatesOffer offer) {
     return dialog;
 }
 
+/// An offer as the runtime fills it from the update centre, downloading.
+///
+/// @return the offer, with the card, a bar and two actions
+settings::UpdatesOffer downloading_card() {
+    settings::UpdatesOffer offer;
+    offer.show_download = true;
+    offer.version_line = "Open Annihilation 0.8.7";
+    offer.status = "Downloading 0.8.8 · 10.1 MB of 24.5 MB · 41%";
+    offer.card_status = "Downloading 0.8.8";
+    offer.card_installed = "Installed 0.8.7";
+    offer.card_detail = "10.1 MB of 24.5 MB · 41% · about a minute left";
+    offer.card_note = "Downloads pause during a match and carry on after it.";
+    offer.percent = 41;
+    offer.actions.push_back({2, "pause", "Pause"});
+    offer.actions.push_back({4, "cancel-download", "Cancel download"});
+    offer.kept_version = "0.8.6";
+    return offer;
+}
+
+/// Updates' card: the update centre's heading, detail, bar, buttons and
+/// note at the page's top, the policy rows under it, at every class. The
+/// first button is the card's row control, the others controls of their
+/// own; each asks the host for its action, and Check now for the check.
+void updates_card_shows_the_centres_state_and_its_actions() {
+    for (const auto size_class :
+         {kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large}) {
+        settings::Dialog dialog = updates_dialog(downloading_card());
+        settings::set_dialog_size_class(dialog, size_class);
+        const geometry::Sizes& sized = geometry::sizes_of(dialog);
+        const auto parts = settings::dialog_layout(dialog);
+        const settings::LayoutPart* heading =
+            find_part(parts, "Downloading 0.8.8", settings::no_control);
+        const settings::LayoutPart* installed =
+            find_part(parts, "Installed 0.8.7", settings::no_control);
+        const settings::LayoutPart* pause = find_part(parts, "Pause", settings::first_row_control);
+        const settings::LayoutPart* cancel =
+            find_part(parts, "Cancel download", settings::update_second_control);
+        CHECK(heading != nullptr && installed != nullptr && pause != nullptr && cancel != nullptr);
+        if (heading == nullptr || installed == nullptr || pause == nullptr || cancel == nullptr)
+            continue;
+        // The rows under the card: Download automatically, the check,
+        // Install updates and Previous version, below the card's buttons.
+        const geometry::Rows rows = geometry::open_rows(dialog).rows;
+        CHECK(rows.rows.size() == 5);
+        if (rows.rows.size() != 5)
+            continue;
+        CHECK(rows.rows[0].top == sized.first_row_top);
+        CHECK(rows.rows[1].updates == 2 && rows.rows[2].updates == 1);
+        CHECK(rows.rows[3].updates == 4 && rows.rows[4].updates == 3);
+        CHECK(pause->rect.y + pause->rect.height < rows.rows[1].top);
+        // The card starts at the class's first row, its lines in order, its
+        // buttons inside the section, and the rows follow it.
+        CHECK(installed->rect.y >= sized.first_row_top);
+        CHECK(installed->rect.y < heading->rect.y);
+        CHECK(heading->rect.y < pause->rect.y);
+        CHECK(pause->rect.x >= sized.content_left);
+        CHECK(cancel->rect.x + cancel->rect.width <= sized.content_right);
+        // The detail and the note wrap to the card's width, nothing cut.
+        std::string said;
+        for (const settings::LayoutPart& part : parts)
+            if (part.control == settings::no_control && !part.text.empty())
+                said += part.text + " ";
+        CHECK(said.find("10.1 MB of 24.5 MB · 41% · about a minute left") != std::string::npos);
+        CHECK(
+            said.find("Downloads pause during a match and carry on after it.") != std::string::npos
+        );
+
+        // The buttons are named by their actions' words, and each asks the
+        // host for its action.
+        const kit::DisplayList list = geometry::dialog_list(dialog, nullptr);
+        CHECK(
+            kit::control_named(list, "settings.update-status.pause") == settings::first_row_control
+        );
+        CHECK(
+            kit::control_named(list, "settings.update-status.cancel-download") ==
+            settings::update_second_control
+        );
+        settings::Dialog paused = dialog;
+        CHECK(click(paused, centre(pause->rect)) == DialogAction::update_action);
+        CHECK(paused.update_act == 2);
+        settings::Dialog cancelled = dialog;
+        CHECK(click(cancelled, centre(cancel->rect)) == DialogAction::update_action);
+        CHECK(cancelled.update_act == 4);
+        // Space on a button the keys mark asks the same.
+        settings::Dialog keyed = dialog;
+        keyed.focused = settings::update_second_control;
+        CHECK(
+            settings::dialog_key(keyed, settings::DialogKey::space) == DialogAction::update_action
+        );
+        CHECK(keyed.update_act == 4);
+    }
+
+    // Check now is the check CHECK NOW asks for; a third button has its own control.
+    settings::UpdatesOffer resting = downloading_card();
+    resting.card_status = "0.8.8 is skipped";
+    resting.card_detail.clear();
+    resting.card_note.clear();
+    resting.percent = -1;
+    resting.actions = {{11, "try-version", "Try this version"}, {0, "check-now", "Check now"}};
+    settings::Dialog skipped = updates_dialog(resting);
+    const auto skipped_parts = settings::dialog_layout(skipped);
+    CHECK(find_part(skipped_parts, "0.8.8 is skipped", settings::no_control) != nullptr);
+    const settings::LayoutPart* try_version =
+        find_part(skipped_parts, "Try this version", settings::first_row_control);
+    const settings::LayoutPart* check_now =
+        find_part(skipped_parts, "Check now", settings::update_second_control);
+    CHECK(try_version != nullptr && check_now != nullptr);
+    if (try_version != nullptr && check_now != nullptr) {
+        settings::Dialog tried = skipped;
+        CHECK(click(tried, centre(try_version->rect)) == DialogAction::update_action);
+        CHECK(tried.update_act == 11);
+        settings::Dialog checked = skipped;
+        CHECK(click(checked, centre(check_now->rect)) == DialogAction::check_updates);
+    }
+    resting.actions.push_back({5, "when-i-quit", "Install when I quit"});
+    settings::Dialog three = updates_dialog(resting);
+    const auto three_parts = settings::dialog_layout(three);
+    const settings::LayoutPart* third =
+        find_part(three_parts, "Install when I quit", settings::update_third_control);
+    CHECK(third != nullptr);
+    if (third != nullptr) {
+        CHECK(click(three, centre(third->rect)) == DialogAction::update_action);
+        CHECK(three.update_act == 5);
+    }
+
+    // Without the card the status row stands, with its one button.
+    settings::UpdatesOffer plain = downloading_card();
+    plain.card_status.clear();
+    settings::Dialog row = updates_dialog(plain);
+    CHECK(find_part(settings::dialog_layout(row), "Pause", settings::no_control) == nullptr);
+}
+
+/// Install updates: Ask each time or When I quit, a drop-down under the
+/// check where this copy installs releases. It moves the dialog's choice at
+/// once and is stored at OK.
+void install_updates_chooses_ask_or_when_i_quit() {
+    settings::Dialog dialog = updates_dialog(downloading_card());
+    // Large shows every row under the card.
+    settings::set_dialog_size_class(dialog, kit::SizeClass::large);
+    const auto parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "Install updates", settings::no_control) != nullptr);
+    // The drop-down's field shows the way the dialog holds.
+    int32_t control = settings::no_control;
+    for (const settings::LayoutPart& part : parts)
+        if (part.text == "Ask each time" && part.control != settings::no_control)
+            control = part.control;
+    CHECK(control != settings::no_control);
+    if (control == settings::no_control)
+        return;
+    const settings::LayoutPart* opener = find_part(parts, "Ask each time", control);
+    CHECK(opener != nullptr);
+    if (opener == nullptr)
+        return;
+    CHECK(click(dialog, centre(opener->rect)) == DialogAction::redraw);
+    CHECK(dialog.open_list == control);
+    const kit::DisplayList open = geometry::dialog_list(dialog, nullptr);
+    CHECK(
+        kit::control_named(open, "settings.update-install.when-i-quit") ==
+        geometry::menu_item_control(1)
+    );
+    const auto open_parts = settings::dialog_layout(dialog);
+    const settings::LayoutPart* when = find_part(open_parts, "When I quit", settings::no_control);
+    CHECK(when != nullptr);
+    if (when != nullptr)
+        CHECK(click(dialog, centre(when->rect)) == DialogAction::changed);
+    CHECK(dialog.chosen.update_install == settings::UpdateInstall::when_i_quit);
+    CHECK(dialog.opened.update_install == settings::UpdateInstall::ask);
+    CHECK(settings::changed_settings_count(dialog) == 1);
+}
+
+/// The header's note stands between the title and the version where it
+/// fits, and is left out where it would run into the title.
+void a_header_note_that_does_not_fit_is_left_out() {
+    const auto fonts = block_fonts();
+    for (const auto size_class :
+         {kit::SizeClass::compact, kit::SizeClass::regular, kit::SizeClass::large}) {
+        settings::Dialog dialog = updates_dialog(downloading_card());
+        settings::set_dialog_size_class(dialog, size_class);
+        dialog.header_note = "0.8.8 · 41%";
+        const auto header_of = [&](const settings::Dialog& shown) {
+            const kit::DisplayList list = geometry::dialog_list(shown, &fonts);
+            for (const kit::Item& item : list.items)
+                if (item.role == kit::Role::header)
+                    if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
+                        return *look;
+            return kit::HeaderLook{};
+        };
+        CHECK(header_of(dialog).note == "0.8.8 · 41%");
+        std::string long_note;
+        for (int repeat = 0; repeat < 12; ++repeat)
+            long_note += "0.8.8 installs when you quit ";
+        dialog.header_note = long_note;
+        CHECK(header_of(dialog).note.empty());
+    }
+}
+
 void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
     // Eleven sections fit Compact's list: Downloads, then Updates.
     CHECK(geometry::list_item(Page::downloads).y == 143);
@@ -8999,23 +9195,26 @@ void previous_version_offers_roll_back_and_locks_in_a_game() {
     plain.can_check = true;
     settings::Dialog absent = updates_dialog(plain);
     const auto absent_parts = settings::dialog_layout(absent);
-    CHECK(find_part(absent_parts, "Previous version", settings::no_control) == nullptr);
-    CHECK(find_part(absent_parts, "ROLL BACK", settings::no_control) == nullptr);
+    CHECK(find_part(absent_parts, "Previous version · 0.8.6", settings::no_control) == nullptr);
+    CHECK(find_part(absent_parts, "Roll back…", settings::no_control) == nullptr);
 
     settings::UpdatesOffer offer = plain;
     offer.kept_version = "0.8.6";
     settings::Dialog kept = updates_dialog(offer);
     const auto parts = settings::dialog_layout(kept);
-    CHECK(find_part(parts, "Previous version", settings::no_control) != nullptr);
-    CHECK(find_part(parts, "0.8.6 kept", settings::no_control) != nullptr);
-    const settings::LayoutPart* button = find_part(parts, "ROLL BACK", settings::no_control);
+    CHECK(find_part(parts, "Previous version · 0.8.6", settings::no_control) != nullptr);
+    CHECK(shows_wrapped(
+        parts, "Roll back restores 0.8.6 and the settings you had before updating.", kept
+    ));
+    const settings::LayoutPart* button = find_part(parts, "Roll back…", settings::no_control);
     CHECK(button != nullptr);
     if (button != nullptr)
         CHECK(click(kept, centre(button->rect)) == settings::DialogAction::roll_back);
 
     kept.locks.path_search = settings::Lock::in_game;
     const auto locked_parts = settings::dialog_layout(kept);
-    const settings::LayoutPart* locked = find_part(locked_parts, "ROLL BACK", settings::no_control);
+    const settings::LayoutPart* locked =
+        find_part(locked_parts, "Roll back…", settings::no_control);
     CHECK(locked != nullptr);
     if (locked != nullptr)
         CHECK(click(kept, centre(locked->rect)) == settings::DialogAction::none);
@@ -9066,7 +9265,8 @@ void download_rows_sit_between_the_status_and_the_check() {
     plain.can_check = true;
     settings::Dialog closed = updates_dialog(plain);
     const auto closed_parts = settings::dialog_layout(closed);
-    CHECK(find_part(closed_parts, "Download in the background", settings::no_control) == nullptr);
+    CHECK(find_part(closed_parts, "Download automatically", settings::no_control) == nullptr);
+    CHECK(find_part(closed_parts, "Install updates", settings::no_control) == nullptr);
 
     settings::UpdatesOffer offer;
     offer.show_download = true;
@@ -9079,13 +9279,15 @@ void download_rows_sit_between_the_status_and_the_check() {
     const settings::LayoutPart* status =
         find_part(order, "Open Annihilation 0.8.6", settings::no_control);
     const settings::LayoutPart* background =
-        find_part(order, "Download in the background", settings::no_control);
+        find_part(order, "Download automatically", settings::no_control);
     const settings::LayoutPart* check_now =
         find_part(order, "Check for updates", settings::no_control);
-    CHECK(status != nullptr && background != nullptr && check_now != nullptr);
-    if (status != nullptr && background != nullptr && check_now != nullptr) {
+    const settings::LayoutPart* install = find_part(order, "Install updates", settings::no_control);
+    CHECK(status != nullptr && background != nullptr && check_now != nullptr && install != nullptr);
+    if (status != nullptr && background != nullptr && check_now != nullptr && install != nullptr) {
         CHECK(status->rect.y < background->rect.y);
         CHECK(background->rect.y < check_now->rect.y);
+        CHECK(check_now->rect.y < install->rect.y);
     }
 
     CHECK(settings::update_size_text(24539136) == "23.4 MB");
@@ -11815,6 +12017,9 @@ int main(int argc, char** argv) {
         updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls();
         previous_version_offers_roll_back_and_locks_in_a_game();
         download_rows_sit_between_the_status_and_the_check();
+        updates_card_shows_the_centres_state_and_its_actions();
+        install_updates_chooses_ask_or_when_i_quit();
+        a_header_note_that_does_not_fit_is_left_out();
         controller_is_listed_only_once_a_gamepad_sent_input();
         controller_shows_its_rows_and_their_values();
         the_steam_input_notice_shows_while_it_applies();
