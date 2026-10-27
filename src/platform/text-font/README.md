@@ -27,12 +27,12 @@ the first open font of the stack's chain that has it:
 
 The interface faces open with the stack from the same folder,
 `interface_face_files`, each when its file is there: a missing one leaves
-its family to the sans faces. They come after the pack faces' values,
-from `first_interface_face`.
+its family to the sans faces. They are the `Face` values after the pack
+faces' (`interface_face`), each named by a constant.
 
 | Face | File | Draws |
 |---|---|---|
-| `barlow`, `barlow_medium`, `barlow_semibold`, `barlow_bold` | `Barlow-Regular.ttf`, `Barlow-Medium.ttf`, `Barlow-SemiBold.ttf`, `Barlow-Bold.ttf` | the interface family's Latin letters, digits and marks at each weight |
+| `barlow_regular`, `barlow_medium`, `barlow_semibold`, `barlow_bold` | `Barlow-Regular.ttf`, `Barlow-Medium.ttf`, `Barlow-SemiBold.ttf`, `Barlow-Bold.ttf` | the interface family's Latin letters, digits and marks at each weight |
 | `barlow_condensed_semibold`, `barlow_condensed_bold` | `BarlowCondensed-SemiBold.ttf`, `BarlowCondensed-Bold.ttf` | the condensed interface family: SemiBold for a regular, medium or semibold line, Bold for a bold one |
 
 The full Simplified Chinese face travels with that language's pack, not

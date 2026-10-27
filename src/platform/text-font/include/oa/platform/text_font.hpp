@@ -27,23 +27,14 @@
 
 namespace oa::platform::text_font {
 
-/// The fonts of the stack. The base faces come first. Values from
-/// face_count up are pack faces (pack_face), added while the stack is open,
-/// up to most_pack_faces of them. The interface faces follow, from
-/// first_interface_face.
+/// The fonts of the stack. These are the base faces. Values from face_count
+/// up are pack faces (pack_face), added while the stack is open, up to
+/// most_pack_faces of them; the interface faces follow (interface_face).
 enum class Face : uint8_t {
     dejavu_sans_bold, ///< Latin, Greek, Cyrillic and symbols, bold
     dejavu_sans,      ///< the same scripts with more characters, regular
     endonyms,         ///< languages' own names and the notice before a pack is installed
     noto_emoji,       ///< emoji, drawn in one colour like any character
-    /// Barlow Regular, the interface family's regular weight; the values
-    /// before it are the pack faces'
-    barlow = 8,
-    barlow_medium,             ///< Barlow Medium
-    barlow_semibold,           ///< Barlow SemiBold
-    barlow_bold,               ///< Barlow Bold
-    barlow_condensed_semibold, ///< Barlow Condensed SemiBold, the condensed family's lighter weight
-    barlow_condensed_bold,     ///< Barlow Condensed Bold
 };
 
 /// How many base fonts the stack holds. Pack faces are counted apart.
@@ -52,15 +43,31 @@ inline constexpr std::size_t face_count = 4;
 /// The most font faces a language pack may add to an open stack.
 inline constexpr std::size_t most_pack_faces = 4;
 
-/// The first interface face: the one after the last pack face.
-inline constexpr Face first_interface_face = Face::barlow;
-static_assert(
-    static_cast<std::size_t>(first_interface_face) == face_count + most_pack_faces,
-    "the interface faces follow the pack faces"
-);
-
 /// How many interface faces the stack may hold.
 inline constexpr std::size_t interface_face_count = 6;
+
+/// Returns the interface face at a place among them: the faces after the
+/// last pack face.
+///
+/// @param index the face's place among the interface faces, from 0 to
+///     interface_face_count - 1
+/// @return the face
+[[nodiscard]] constexpr Face interface_face(std::size_t index) noexcept {
+    return static_cast<Face>(face_count + most_pack_faces + index);
+}
+
+/// Barlow Regular, the interface family's regular weight.
+inline constexpr Face barlow_regular = interface_face(0);
+/// Barlow Medium.
+inline constexpr Face barlow_medium = interface_face(1);
+/// Barlow SemiBold.
+inline constexpr Face barlow_semibold = interface_face(2);
+/// Barlow Bold.
+inline constexpr Face barlow_bold = interface_face(3);
+/// Barlow Condensed SemiBold, the condensed family's lighter weight.
+inline constexpr Face barlow_condensed_semibold = interface_face(4);
+/// Barlow Condensed Bold.
+inline constexpr Face barlow_condensed_bold = interface_face(5);
 
 /// How a pack's face is drawn.
 enum class FaceRole : uint8_t {
@@ -97,8 +104,8 @@ inline constexpr std::array<std::string_view, face_count> face_files{
     "NotoEmoji.ttf",
 };
 
-/// The file of each interface face in the fonts folder, from
-/// first_interface_face on, in Face order.
+/// The file of each interface face in the fonts folder, in the order of
+/// interface_face.
 inline constexpr std::array<std::string_view, interface_face_count> interface_face_files{
     "Barlow-Regular.ttf",
     "Barlow-Medium.ttf",
@@ -108,22 +115,13 @@ inline constexpr std::array<std::string_view, interface_face_count> interface_fa
     "BarlowCondensed-Bold.ttf",
 };
 
-/// Returns the interface face at a place among them.
-///
-/// @param index the face's place among the interface faces, from 0 to
-///     interface_face_count - 1
-/// @return the face
-[[nodiscard]] constexpr Face interface_face(std::size_t index) noexcept {
-    return static_cast<Face>(static_cast<std::size_t>(first_interface_face) + index);
-}
-
 /// Tells whether a face is one of the interface faces.
 ///
 /// @param face a face
-/// @return true from first_interface_face to the last interface face
+/// @return true from barlow_regular to the last interface face
 [[nodiscard]] constexpr bool is_interface_face(Face face) noexcept {
     const auto index = static_cast<std::size_t>(face);
-    const auto first = static_cast<std::size_t>(first_interface_face);
+    const auto first = static_cast<std::size_t>(interface_face(0));
     return index >= first && index < first + interface_face_count;
 }
 

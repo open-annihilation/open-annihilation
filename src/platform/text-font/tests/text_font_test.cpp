@@ -642,23 +642,23 @@ void interface_faces_go_first() {
     // the sans faces of the weight.
     const std::vector<Face> semibold = stack->chain(Weight::semibold, Family::interface);
     const std::vector<Face> semibold_chain{
-        Face::barlow_semibold,
+        text_font::barlow_semibold,
         Face::dejavu_sans_bold,
         Face::dejavu_sans,
         Face::endonyms,
         Face::noto_emoji,
     };
     OA_CHECK(semibold == semibold_chain);
-    OA_CHECK(stack->chain(Weight::regular, Family::interface).front() == Face::barlow);
-    OA_CHECK(stack->chain(Weight::medium, Family::interface).front() == Face::barlow_medium);
-    OA_CHECK(stack->chain(Weight::bold, Family::interface).front() == Face::barlow_bold);
+    OA_CHECK(stack->chain(Weight::regular, Family::interface).front() == text_font::barlow_regular);
+    OA_CHECK(stack->chain(Weight::medium, Family::interface).front() == text_font::barlow_medium);
+    OA_CHECK(stack->chain(Weight::bold, Family::interface).front() == text_font::barlow_bold);
     OA_CHECK(
         stack->chain(Weight::bold, Family::interface_condensed).front() ==
-        Face::barlow_condensed_bold
+        text_font::barlow_condensed_bold
     );
     OA_CHECK(
         stack->chain(Weight::regular, Family::interface_condensed).front() ==
-        Face::barlow_condensed_semibold
+        text_font::barlow_condensed_semibold
     );
     // The sans family draws medium as regular and semibold as bold.
     OA_CHECK(stack->face_for(U'A', Weight::medium) == Face::dejavu_sans);
@@ -666,7 +666,9 @@ void interface_faces_go_first() {
     OA_CHECK(stack->chain(Weight::semibold) == stack->chain(Weight::bold));
     // What Barlow lacks comes from the sans faces, the endonym face and the
     // emoji face.
-    OA_CHECK(stack->face_for(U'A', Weight::regular, Family::interface) == Face::barlow);
+    OA_CHECK(
+        stack->face_for(U'A', Weight::regular, Family::interface) == text_font::barlow_regular
+    );
     OA_CHECK(
         stack->face_for(0x0416, Weight::regular, Family::interface) == Face::dejavu_sans
     ); // Cyrillic Zhe
@@ -687,9 +689,9 @@ void interface_faces_go_first() {
     OA_CHECK(std::all_of(cyrillic.begin(), cyrillic.end(), [](Face face) {
         return face == Face::dejavu_sans_bold;
     }));
-    OA_CHECK(faces_of(*stack, "Ab 1", label) == std::vector<Face>(4, Face::barlow_semibold));
+    OA_CHECK(faces_of(*stack, "Ab 1", label) == std::vector<Face>(4, text_font::barlow_semibold));
     const std::vector<Face> with_ideograph{
-        Face::barlow_semibold, Face::barlow_semibold, Face::endonyms
+        text_font::barlow_semibold, text_font::barlow_semibold, Face::endonyms
     };
     OA_CHECK(faces_of(*stack, "Ab\xE4\xB8\xAD", label) == with_ideograph);
     // Barlow is narrower than DejaVu Sans at a size, and its condensed face
@@ -703,8 +705,9 @@ void interface_faces_go_first() {
     const int32_t barlow = width(Family::interface, Weight::semibold);
     const int32_t condensed = width(Family::interface_condensed, Weight::bold);
     OA_CHECK(condensed > 0 && condensed < barlow && barlow < sans);
-    const auto rows =
-        stack->face_metrics(Face::barlow, family_style(14, Weight::regular, Family::interface));
+    const auto rows = stack->face_metrics(
+        text_font::barlow_regular, family_style(14, Weight::regular, Family::interface)
+    );
     OA_CHECK(rows && rows->pixel_size == 14);
     const auto line = stack->metrics(label);
     const auto plain = stack->metrics(family_style(14, Weight::semibold, Family::sans));
@@ -721,7 +724,7 @@ void interface_faces_go_first() {
     auto bare = text_font::FontStack::open(fonts.directory);
     OA_CHECK(bare != nullptr);
     if (bare) {
-        OA_CHECK(!bare->has_face(Face::barlow));
+        OA_CHECK(!bare->has_face(text_font::barlow_regular));
         OA_CHECK(
             bare->face_for(U'A', Weight::semibold, Family::interface) == Face::dejavu_sans_bold
         );

@@ -71,18 +71,17 @@ std::optional<Face> family_face(Family family, Weight weight) noexcept {
     case Family::interface:
         switch (weight) {
         case Weight::regular:
-            return Face::barlow;
+            return barlow_regular;
         case Weight::medium:
-            return Face::barlow_medium;
+            return barlow_medium;
         case Weight::semibold:
-            return Face::barlow_semibold;
+            return barlow_semibold;
         case Weight::bold:
-            return Face::barlow_bold;
+            return barlow_bold;
         }
-        return Face::barlow;
+        return barlow_regular;
     case Family::interface_condensed:
-        return weight == Weight::bold ? Face::barlow_condensed_bold
-                                      : Face::barlow_condensed_semibold;
+        return weight == Weight::bold ? barlow_condensed_bold : barlow_condensed_semibold;
     }
     return std::nullopt;
 }
