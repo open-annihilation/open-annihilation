@@ -19,7 +19,9 @@ the one licenses/ holds, and builds:
   local/deps/text-fonts
       the fonts the build copies beside the game: DejaVu Sans Bold and
       DejaVu Sans 2.37, the endonym face cut from Noto Sans CJK SC Bold,
-      and Noto Emoji
+      Noto Emoji, and the interface faces of the modern look: Barlow 1.422
+      Regular, Medium, SemiBold and Bold, and Barlow Condensed SemiBold and
+      Bold
 
 The full Simplified Chinese face travels with the language pack from
 open-annihilation/languages, not with the engine. Cuts are made with the
@@ -38,7 +40,7 @@ cut to the characters of the Simplified Chinese test fixture
 holds. It is written under local/deps/text-fonts-tests, never beside the
 game and never inside local/deps/text-fonts. Its SHA-256 is pinned.
 
-Records for the four shipped fonts and the fixture face are entries of
+Records for the shipped fonts and the fixture face are entries of
 local/deps/text-fonts.records.json, beside the fonts folder.
 
 The fonts folder is shared by every version of the engine, so this script
@@ -82,6 +84,8 @@ FREETYPE_OPTIONS = [
 # What a FreeType install prefix holds once complete.
 FREETYPE_INSTALLED = "lib/cmake/freetype/freetype-config.cmake"
 
+# Barlow's release tag 1.422 on the project's own repository.
+BARLOW_RELEASE = "https://github.com/jpt/barlow/raw/1.422"
 # The downloads: each file's name in local/deps, where it comes from and its
 # SHA-256.
 DOWNLOADS = {
@@ -103,12 +107,46 @@ DOWNLOADS = {
                            "https://raw.githubusercontent.com/google/fonts/b979dba422e445492b0eb9951ac52ee0b4d648c3/"
                            "ofl/notoemoji/OFL.txt",
                            "500bb1ccf43df7bbb522112f9133a52b16e1c35e809632f5d8609b179152de5b"),
+    # Barlow and Barlow Condensed, the static faces of the project's release
+    # tag 1.422, each file as the tag holds it.
+    "barlow-regular": ("Barlow-Regular-1.422.ttf",
+                       f"{BARLOW_RELEASE}/fonts/ttf/Barlow-Regular.ttf",
+                       "a72240db047b468c957834cdbd607f013da32edee62d096f5fe0a4c2dc8433ce"),
+    "barlow-medium": ("Barlow-Medium-1.422.ttf",
+                      f"{BARLOW_RELEASE}/fonts/ttf/Barlow-Medium.ttf",
+                      "5a26763b11d11a437ab9f1c46281d3615ab1f6b93c90b8fa181e03978971b9e9"),
+    "barlow-semibold": ("Barlow-SemiBold-1.422.ttf",
+                        f"{BARLOW_RELEASE}/fonts/ttf/Barlow-SemiBold.ttf",
+                        "cafab6a24fc131fd2dbbe56b9cf8daa616db3d5929fa89c35acba690e620585e"),
+    "barlow-bold": ("Barlow-Bold-1.422.ttf",
+                    f"{BARLOW_RELEASE}/fonts/ttf/Barlow-Bold.ttf",
+                    "b5af7fa4dd961a259b075cd23094cd4e961afb6a0b5ac5cf0e3395fc54b7a4b5"),
+    "barlow-condensed-semibold": ("BarlowCondensed-SemiBold-1.422.ttf",
+                                  f"{BARLOW_RELEASE}/fonts/ttf/BarlowCondensed-SemiBold.ttf",
+                                  "0dae49e31a5dd598184b8ed18ed877f9280e07c4cc3fa7c2cad25a5e7d8a3ad4"),
+    "barlow-condensed-bold": ("BarlowCondensed-Bold-1.422.ttf",
+                              f"{BARLOW_RELEASE}/fonts/ttf/BarlowCondensed-Bold.ttf",
+                              "e4fd0ebbc8b4346229f5c409f34e052b5e0d7fbcb7a7c4c30f7c5d334b4953b2"),
+    "barlow-licence": ("Barlow-1.422-OFL.txt",
+                       f"{BARLOW_RELEASE}/OFL.txt",
+                       "186d750eb496a4c17a76385f82be6aea2ac1cf2de074a811d63786cf374ea73f"),
 }
-# The fonts the game ships. The names are the engine's face_files
-# (oa/platform/text_font.hpp) and cmake/OaTextFonts.cmake's OA_TEXT_FONT_FILES.
-# The three lists name the same files, in the order of the Face values.
+# The interface faces: each file in the fonts folder and its download. The
+# names are the engine's interface_face_files (oa/platform/text_font.hpp),
+# in the order of their Face values.
+INTERFACE_FONTS = (
+    ("Barlow-Regular.ttf", "barlow-regular"),
+    ("Barlow-Medium.ttf", "barlow-medium"),
+    ("Barlow-SemiBold.ttf", "barlow-semibold"),
+    ("Barlow-Bold.ttf", "barlow-bold"),
+    ("BarlowCondensed-SemiBold.ttf", "barlow-condensed-semibold"),
+    ("BarlowCondensed-Bold.ttf", "barlow-condensed-bold"),
+)
+# The fonts the game ships: the engine's face_files, then its
+# interface_face_files (oa/platform/text_font.hpp). cmake/OaTextFonts.cmake's
+# OA_TEXT_FONT_FILES names the same files in the same order.
 FONT_FILES = ("DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "NotoSansCJKsc-Bold-Endonyms.otf",
-              "NotoEmoji.ttf")
+              "NotoEmoji.ttf") + tuple(name for name, _ in INTERFACE_FONTS)
 # The face of the CJK collection the cuts are taken from: Noto Sans CJK SC
 # Bold, whose character map gives the Simplified Chinese forms.
 CJK_FACE_INDEX = 2
@@ -137,6 +175,7 @@ LICENCES = {
     "licenses/DejaVu-LICENSE.txt": ("dejavu", "dejavu-fonts-ttf-2.37/LICENSE"),
     "licenses/NotoSansCJK-OFL.txt": ("noto-cjk-licence", None),
     "licenses/NotoEmoji-OFL.txt": ("noto-emoji-licence", None),
+    "licenses/Barlow-OFL.txt": ("barlow-licence", None),
 }
 FONTTOOLS_REQUIREMENTS = ROOT / "tools" / "text-fonts" / "requirements.txt"
 SETTINGS_FILE = "build-settings.json"
@@ -497,6 +536,8 @@ def make_fonts(deps):
     make_copied_font(deps, fonts, "DejaVuSans.ttf", "dejavu",
                      "dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf")
     make_copied_font(deps, fonts, "NotoEmoji.ttf", "noto-emoji")
+    for name, key in INTERFACE_FONTS:
+        make_copied_font(deps, fonts, name, key)
     make_endonym_font(deps, fonts)
     make_fixture_font(deps)
     return fonts
@@ -516,6 +557,11 @@ def self_test():
                         (FIXTURE_SUBSET_CHARACTERS, "fixture")):
         if not isinstance(count, int) or isinstance(count, bool) or count < 1:
             failures.append(f"the {what} character count is not a positive integer")
+    for name, key in INTERFACE_FONTS:
+        if key not in DOWNLOADS:
+            failures.append(f"{name} names no download")
+    if len(set(FONT_FILES)) != len(FONT_FILES):
+        failures.append("a font is named twice")
     for notice, (key, _) in LICENCES.items():
         if key != "freetype" and key not in DOWNLOADS:
             failures.append(f"{notice} names no download")
