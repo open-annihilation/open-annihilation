@@ -2380,10 +2380,12 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_key_editor_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-editor-clean)
-      # The keys overlay beside the side column, the order badges and the
-      # rotate hint, on a skirmish whose mod turns buildings. --snapshot
-      # writes keys-overlay-<w>x<h>.ppm and key-badges-<w>x<h>.ppm. Each run
-      # starts from a clean folder. The mod's profile stays.
+      # The keys overlay beside the side column, the order and build cell
+      # badges, the help lines, the rotate hint and the latch chips, on a
+      # skirmish whose mod turns buildings: the check gives the mod's folder
+      # a light laser tower with four facings. --snapshot writes
+      # keys-overlay-<w>x<h>.ppm and key-badges-<w>x<h>.ppm. Each run starts
+      # from a clean folder. The mod's profile stays.
       set(oa_keys_overlay_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/keys-overlay")
       file(MAKE_DIRECTORY "${oa_keys_overlay_dir}/mod")
       file(WRITE "${oa_keys_overlay_dir}/mod/oamod.yaml"
@@ -2394,6 +2396,9 @@ if(OA_BUILD_PLATFORM)
         "requires: {base: ta-3.1c, catalogue: 1}\n"
         "author: {name: unknown}\n"
         "packaging: {revision: 1, date: 2026-10-27, packager: Open Annihilation}\n"
+        "data-keys:\n"
+        "  unit:\n"
+        "    Rotations: units.build-facings\n"
         "hacks:\n"
         "  ui.build-preview: true\n"
         "  units.build-rotation: true\n")
