@@ -1232,9 +1232,10 @@ struct EngineSettings {
     /// open-annihilation.keys.layout.<mod id> as the choice moves. With no
     /// mod it stays `same` and nothing is written.
     std::string key_layout_for_mod{"same"};
-    /// Order buttons and build cells show their key. Absent in the
-    /// preferences is on.
-    bool show_keys_on_buttons{true};
+    /// Order buttons and build cells show their key. Off until the player
+    /// turns it on: the badges are drawn on the 3.1c game's own panel.
+    /// Absent in the preferences is off.
+    bool show_keys_on_buttons{false};
     /// Whether a window keeps the pointer while a match's battlefield
     /// shows. Full screen holds the pointer either way.
     WindowEdge window_edge{WindowEdge::capture};

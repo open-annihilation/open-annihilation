@@ -981,18 +981,18 @@ void switches_take_a_click_on_either_half_and_keys() {
     settings::Dialog dialog = opened(Page::controls);
     const auto rows = geometry::place_rows(Page::controls, {});
     // EDIT KEYS… is the first row's button. Show keys on buttons is the
-    // switch under it, On until a click on its Off half.
+    // switch under it, Off until a click on its On half.
     CHECK(click(dialog, centre(rows.rows[0].control_area)) == DialogAction::edit_keys);
     const auto& keys = rows.rows[1].control_area;
     const Point off{keys.x + 4, keys.y + keys.height / 2};
     const Point on{keys.x + keys.width - 4, keys.y + keys.height / 2};
-    CHECK(dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, off) == DialogAction::changed);
-    CHECK(!dialog.chosen.show_keys_on_buttons);
-    CHECK(click(dialog, off) == DialogAction::redraw);
     CHECK(!dialog.chosen.show_keys_on_buttons);
     CHECK(click(dialog, on) == DialogAction::changed);
     CHECK(dialog.chosen.show_keys_on_buttons);
+    CHECK(click(dialog, on) == DialogAction::redraw);
+    CHECK(dialog.chosen.show_keys_on_buttons);
+    CHECK(click(dialog, off) == DialogAction::changed);
+    CHECK(!dialog.chosen.show_keys_on_buttons);
 
     // Keys: the first moves the focus to Key layout; Space opens the editor.
     // Down reaches Show keys on buttons, then the wheel, then the limits.
@@ -1004,7 +1004,7 @@ void switches_take_a_click_on_either_half_and_keys() {
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 1);
     CHECK(settings::dialog_key(dialog, DialogKey::space) == DialogAction::changed);
-    CHECK(!dialog.chosen.show_keys_on_buttons);
+    CHECK(dialog.chosen.show_keys_on_buttons);
     CHECK(settings::dialog_key(dialog, DialogKey::down) == DialogAction::redraw);
     CHECK(dialog.focused == settings::first_row_control + 2);
     CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
@@ -4434,13 +4434,14 @@ void the_dialog_draws_its_faces_and_accents(const settings::DialogFonts& fonts) 
     CHECK(canvas.at(geometry::ok_button.x + 2, geometry::ok_button.y + 2) == kAccent);
     const auto rows = rows_as_drawn(dialog, fonts).rows;
     const auto& keys_on = rows.rows[1].control_area;
+    // Show keys on buttons is Off until the player turns it on.
+    CHECK(rect_has(canvas, keys_on, kOffSelected) && !rect_has(canvas, keys_on, kAccent)); // Off
     // The switch's track is the area's right 42 points: lime while On.
-    CHECK(rect_has(canvas, keys_on, kAccent)); // On
-    Canvas off = blank(settings::dialog_width, settings::dialog_height);
-    settings::Dialog zoom_off = dialog;
-    zoom_off.chosen.show_keys_on_buttons = false;
-    settings::draw_dialog(off.surface, {0, 0, 1}, zoom_off, fonts, kNoIcon);
-    CHECK(rect_has(off, keys_on, kOffSelected) && !rect_has(off, keys_on, kAccent)); // Off
+    Canvas on = blank(settings::dialog_width, settings::dialog_height);
+    settings::Dialog keys_shown = dialog;
+    keys_shown.chosen.show_keys_on_buttons = true;
+    settings::draw_dialog(on.surface, {0, 0, 1}, keys_shown, fonts, kNoIcon);
+    CHECK(rect_has(on, keys_on, kAccent)); // On
 
     // At twice the size, offset into a larger surface.
     Canvas larger = blank(1200, 800);
