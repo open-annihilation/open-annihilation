@@ -442,9 +442,10 @@ void notices_place_as_before() {
          {336, 414, 52, 17},
          small_rows("A line of the notice's text that takes a row.", 20)}
     );
+    // No open caption, so no open button.
     check_notice(
         kit::place_notice(kit::Notice{}, estimated, estimated),
-        {150, {38, 1, 350, 26}, 116, {235, 124, 96, 17}, {336, 124, 52, 17}, {}}
+        {150, {38, 1, 350, 26}, 116, {0, 0, 0, 0}, {336, 124, 52, 17}, {}}
     );
     // Without fonts, the estimated widths.
     check_notice(
