@@ -841,7 +841,9 @@ void Runtime::check_engine_settings_in_match() {
 
         // The wheel over the dialog reaches it and not the battlefield: given
         // a section taller than its view, a notch scrolls it, the zoom stays
-        // and the dialog is drawn again; Home scrolls it back.
+        // and the dialog is drawn again; Home scrolls it back. Large's taller
+        // view holds the nine rows whole, so there the notch scrolls nothing
+        // and still leaves the zoom.
         {
             namespace tall = engine_settings_check;
 
@@ -867,6 +869,7 @@ void Runtime::check_engine_settings_in_match() {
                 const auto* open = engine_settings_dialog();
                 return open->scroll[static_cast<std::size_t>(open->page)];
             };
+            const bool scrolls = settings::scroll_limit(*engine_settings_dialog()) > 0;
             const float zoom = match_zoom_target_;
             const uint64_t revision = settings_revision();
             const auto over = centre(dialog_at);
@@ -875,13 +878,17 @@ void Runtime::check_engine_settings_in_match() {
             dispatch_event(wheel, running);
             require(running, "the wheel in the dialog ended the run" + on);
             require(
-                offset() == tall::kWheelStepPixels,
-                "a notch of the wheel did not scroll the dialog" + on
+                offset() == (scrolls ? tall::kWheelStepPixels : 0),
+                scrolls ? "a notch of the wheel did not scroll the dialog" + on
+                        : "a notch of the wheel scrolled a section that fits its view" + on
             );
             require(
                 match_zoom_target_ == zoom, "the wheel over the dialog zoomed the battlefield" + on
             );
-            require(settings_revision() != revision, "a scroll did not draw the dialog again" + on);
+            require(
+                !scrolls || settings_revision() != revision,
+                "a scroll did not draw the dialog again" + on
+            );
             tap_key(SDLK_HOME, SDL_KMOD_NONE);
             require(offset() == 0, "Home did not scroll the dialog back to its top" + on);
         }
