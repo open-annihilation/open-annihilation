@@ -71,10 +71,13 @@ refused, waits a day before the next automatic check.
 ## The prompt
 
 When a check has verified a release this build has not skipped, the main
-menu asks. The question names the release, the version you have, the size
-of this build's package, and the release's notes in the language the game
-is showing. Notes the language does not have are shown in English. It says
-your saved games, settings and mods stay as they are.
+menu asks. The question names the release, the version you have, and the
+size of this build's package. That size is the Library's size, in binary
+KB and MB, and Settings › Updates uses the same figure on its download
+lines. The release's notes are in the language the game is showing. Notes
+the language does not have are shown in English. Under "New in {version}:"
+each note has its own line and its own bullet. The question says your
+saved games, settings and mods stay as they are.
 
 The buttons are SKIP THIS VERSION, LATER and UPDATE. UPDATE opens the
 release's page from the signed feed. On a Steam Deck in Game Mode, where
@@ -112,10 +115,11 @@ Annihilation, and the helper does not start the game. Where this copy has
 no route, UPDATE opens the release page as before.
 
 The first settled main menu of a start that names `--updated-from` with an
-older version shows "Updated to {version}" once, with the notes from the
-saved feed when it has them. While a version is kept, that notice also
-says "{version} is kept. To go back to it, open Settings › Updates and
-press ROLL BACK."
+older version shows "Updated to {version}" once. When the saved feed has
+notes for that version, they are listed the same way, under "New in
+{version}:", one note a line with its bullet. While a version is kept, that
+notice also says "{version} is kept. To go back to it, open Settings ›
+Updates and press ROLL BACK."
 
 ## Rolling back
 

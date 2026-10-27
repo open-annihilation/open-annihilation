@@ -119,6 +119,28 @@ void notes_follow_the_language() {
     OA_CHECK(none.title == "Open Annihilation 9.9.9 is out");
 }
 
+void the_package_size_is_the_library_size() {
+    OA_CHECK(library::size_text(24539136) == "23.4 MB");
+    Sample held = sample(true);
+    held.catalog.releases.front().packages.front().zip.size = 24539136;
+    const update::OfferText text =
+        update::offer_text(held.offer, held.build, "en", library::TextHooks{});
+    OA_CHECK(text.paragraphs.size() == 2);
+    OA_CHECK(text.paragraphs[0] == "You have 0.8.6. The update is 23.4 MB.");
+}
+
+void notes_are_one_line_each() {
+    const std::vector<std::string> lines = {"Wider bars", "A second English line"};
+    const std::string prompt = update::notes_paragraph("9.9.9", lines, library::TextHooks{});
+    OA_CHECK(prompt == "New in 9.9.9:\n• Wider bars\n• A second English line");
+    const std::string updated = update::notes_paragraph("0.8.7", lines, library::TextHooks{});
+    OA_CHECK(updated == "New in 0.8.7:\n• Wider bars\n• A second English line");
+    OA_CHECK(update::notes_paragraph("9.9.9", {}, library::TextHooks{}).empty());
+    const library::TextHooks hooks{nullptr, mark_word};
+    const std::string marked = update::notes_paragraph("9.9.9", lines, hooks);
+    OA_CHECK(marked == "«New in 9.9.9:»\n• Wider bars\n• A second English line");
+}
+
 void wanted_against_the_skip() {
     const Sample held = sample(true);
     OA_CHECK(update::offer_wanted(held.offer, std::nullopt));
@@ -152,6 +174,8 @@ int main() {
     english_text();
     marked_words_leave_the_notes();
     notes_follow_the_language();
+    the_package_size_is_the_library_size();
+    notes_are_one_line_each();
     wanted_against_the_skip();
     skipped_round_trip();
     return oa::test::check_exit_status();

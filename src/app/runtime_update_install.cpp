@@ -1052,8 +1052,11 @@ void Runtime::offer_updated_notice() {
         if (notes_release != nullptr) {
             const feed::Notes* notes = feed::notes_for(*notes_release, shown_language().tag);
             if (notes != nullptr) {
-                for (const std::string& line : notes->lines)
-                    told.paragraphs.push_back({line, false});
+                const std::string listed = update::notes_paragraph(
+                    notes_release->version_text, notes->lines, shown_hooks()
+                );
+                if (!listed.empty())
+                    told.paragraphs.push_back({listed, false});
             }
         }
         const std::optional<update::State> state = read_installed_state(*folder);
@@ -1126,8 +1129,8 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
             break;
         }
         if (shown != settings::DownloadShown::none) {
-            done_text = settings::download_size_text(shot.received);
-            size_text = settings::download_size_text(shot.total);
+            done_text = settings::update_size_text(shot.received);
+            size_text = settings::update_size_text(shot.total);
         }
     }
 #else

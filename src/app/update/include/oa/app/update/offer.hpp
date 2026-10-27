@@ -72,6 +72,22 @@ struct OfferText {
     const oa::ui::library::TextHooks& text
 );
 
+/// Writes the notes the prompt and the Updated notice list.
+///
+/// Empty lines write nothing. Otherwise the heading is "New in {version}:",
+/// looked up and filled, and each line follows on its own line with a bullet.
+/// The bullet and the lines are not looked up.
+///
+/// @param version the release's version, which the heading names
+/// @param lines the release's notes, as the feed wrote them
+/// @param text how the heading is looked up
+/// @return the heading and the lines, or empty
+[[nodiscard]] std::string notes_paragraph(
+    std::string_view version,
+    const std::vector<std::string>& lines,
+    const oa::ui::library::TextHooks& text
+);
+
 /// Tells whether the question should be asked.
 ///
 /// Nothing is asked when the offer's way is none or it names no release.

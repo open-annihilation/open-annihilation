@@ -1080,6 +1080,88 @@ void every_key_on_a_notice() {
         }
 }
 
+void a_notice_with_no_open_caption_offers_ok_alone() {
+    kit::Notice folder = short_notice();
+    const kit::PlacedNotice with_open = kit::place_notice(folder, nullptr);
+    OA_CHECK(with_open.open_button.width > 0 && with_open.open_button.height > 0);
+    const kit::DisplayList folder_list = kit::notice_list(folder, nullptr);
+    OA_CHECK(folder_list.controls.size() == 3);
+    check_control(folder_list, 1, kit::notice_open, "notice.open", "Open folder");
+
+    kit::Notice told = short_notice();
+    told.open_caption.clear();
+    told.word = "updated-notice";
+    const kit::PlacedNotice placed = kit::place_notice(told, nullptr);
+    OA_CHECK(placed.open_button.width == 0 && placed.open_button.height == 0);
+    OA_CHECK(same_rect(placed.ok_button, with_open.ok_button));
+    const kit::DisplayList list = kit::notice_list(told, nullptr);
+    OA_CHECK(list.controls.size() == 2);
+    check_control(list, 0, kit::notice_ok, "updated-notice.ok", "OK");
+    check_body(list, 1, "updated-notice.body", "SAVED\nThe game was saved.");
+    OA_CHECK((list.tab_order == std::vector<kit::ControlId>{kit::notice_ok}));
+    for (const kit::Control& control : list.controls)
+        OA_CHECK(control.name.find(".open") == std::string::npos);
+    int32_t buttons = 0;
+    for (const kit::Item& item : list.items)
+        if (item.role == kit::Role::button)
+            ++buttons;
+    OA_CHECK(buttons == 1);
+
+    const kit::Point on_open{
+        with_open.open_button.x + with_open.open_button.width / 2,
+        with_open.open_button.y + with_open.open_button.height / 2,
+    };
+    OA_CHECK(kit::notice_pointer_down(told, on_open, placed.height) == kit::NoticeAction::none);
+    OA_CHECK(told.pressed == kit::no_control);
+    OA_CHECK(kit::notice_pointer_up(told, on_open, placed.height) == kit::NoticeAction::none);
+
+    for (const kit::Key key : every_key) {
+        kit::Notice keyed = told;
+        keyed.marked = kit::notice_open;
+        const kit::NoticeAction action = kit::notice_key(keyed, key);
+        OA_CHECK(keyed.marked == kit::notice_ok);
+        if (key == kit::Key::enter || key == kit::Key::escape || key == kit::Key::space)
+            OA_CHECK(action == kit::NoticeAction::closed);
+        else
+            OA_CHECK(action == kit::NoticeAction::none);
+    }
+}
+
+void notes_keep_a_line_each() {
+    const std::array<std::string, 3> lines{
+        "New in 9.9.9:",
+        "• Wider bars",
+        "• A second English line",
+    };
+    const std::string notes = lines[0] + "\n" + lines[1] + "\n" + lines[2];
+    const int32_t width = kit::compact_metrics.notice_width - 2 * kit::compact_metrics.padding;
+    kit::Notice notice;
+    notice.open_caption.clear();
+    notice.paragraphs.push_back({notes, false});
+    const kit::PlacedNotice placed = kit::place_notice(notice, nullptr);
+    OA_CHECK(placed.lines.size() == 3);
+    for (int32_t index = 0; index < 3; ++index) {
+        OA_CHECK(
+            placed.lines[static_cast<std::size_t>(index)].text ==
+            lines[static_cast<std::size_t>(index)]
+        );
+        OA_CHECK(same_rect(
+            placed.lines[static_cast<std::size_t>(index)].rect,
+            {kit::compact_metrics.padding,
+             kit::compact_metrics.text_top + kit::compact_metrics.small_line * index,
+             width,
+             kit::compact_metrics.small_line}
+        ));
+    }
+
+    kit::Question question = question_of({"LATER"});
+    question.paragraphs = {{notes, false}};
+    const kit::PlacedQuestion asked = kit::place_question(question, nullptr);
+    OA_CHECK(asked.lines.size() == 3);
+    for (std::size_t index = 0; index < lines.size(); ++index)
+        OA_CHECK(asked.lines[index].text == lines[index]);
+}
+
 void every_key_on_a_question() {
     using kit::QuestionAction;
 
@@ -1510,6 +1592,8 @@ int main() {
     a_finger_lands_as_before();
     the_pointer_presses_buttons();
     every_key_on_a_notice();
+    a_notice_with_no_open_caption_offers_ok_alone();
+    notes_keep_a_line_each();
     every_key_on_a_question();
     paint_draws_what_draw_notice_draws();
     a_question_title_is_cut_to_its_header();

@@ -8860,9 +8860,27 @@ void download_rows_sit_between_the_status_and_the_check() {
         CHECK(background->rect.y < check_now->rect.y);
     }
 
+    CHECK(settings::update_size_text(24539136) == "23.4 MB");
+    CHECK(settings::update_size_text(0) == "1 KB");
+
+    offer.download = settings::DownloadShown::downloading;
+    offer.download_version = "0.8.8";
+    offer.download_done = settings::update_size_text(0);
+    offer.download_size = settings::update_size_text(24539136);
+    settings::Dialog fetching = updates_dialog(offer);
+    const auto fetching_parts = settings::dialog_layout(fetching);
+    CHECK(shows_wrapped(fetching_parts, "Downloading 0.8.8 \u00b7 1 KB of 23.4 MB", fetching));
+
+    offer.download = settings::DownloadShown::ready;
+    offer.download_version = "0.8.8";
+    offer.download_size = settings::update_size_text(24539136);
+    settings::Dialog sized = updates_dialog(offer);
+    const auto sized_parts = settings::dialog_layout(sized);
+    CHECK(shows_wrapped(sized_parts, "0.8.8 is ready \u00b7 23.4 MB downloaded", sized));
+
     offer.download = settings::DownloadShown::ready;
     offer.download_version = "0.8.7";
-    offer.download_size = "4.0 MB";
+    offer.download_size = settings::update_size_text(24539136);
     settings::Dialog ready = updates_dialog(offer);
     const auto ready_parts = settings::dialog_layout(ready);
     const settings::LayoutPart* restart =
