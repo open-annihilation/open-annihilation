@@ -9518,10 +9518,6 @@ class Runtime final : public menu::Host,
     /// @return true when the feature is not drawn
     bool feature_hidden_by_fog(uint16_t feature_index, int32_t cell_x, int32_t cell_z);
 
-    /// Marks the cells the viewer has mapped or covers as explored for the radar, while mapping is
-    /// on.
-    void absorb_radar_exploration();
-
     /// Blits the radar picture into the HUD's radar well.
     ///
     /// The radar picture fills the 0x7e-pixel square at the top left of the
@@ -10903,13 +10899,9 @@ class Runtime final : public menu::Host,
 
     /// Shows a sight rebuild in the view.
     ///
-    /// The runtime's copy of the viewer's explored terrain is dropped when the
-    /// mapped grid is refilled, and the radar, which every rebuild refills and
-    /// composes, is at its next frame. Fog is drawn from the match's sight grids
-    /// every frame.
-    ///
-    /// @param refill_mapped true when the mapped grid was refilled too
-    void reset_sight_presentation(bool refill_mapped);
+    /// The radar refills and composes its picture from the match's sight grids
+    /// at its next frame. Fog is drawn from them every frame.
+    void reset_sight_presentation();
 
     /// Rebuilds the match's sight grids, as a launch, a console visibility command or a respawn
     /// does; nothing while altitude sight is blocked.
@@ -19304,7 +19296,6 @@ class Runtime final : public menu::Host,
     SideHud side_hud_{};
     HudRect radar_picture_{};
     int radar_map_w_ = 0;
-    std::vector<uint8_t> radar_explored_{};
 
     // Radar surfaces over the match's Game block, built by the radar
     // picture set-up when a match is first drawn, and the 0x7e-square well
@@ -19355,12 +19346,14 @@ class Runtime final : public menu::Host,
     /// up by name when a game loads; the file is read once.
     void load_radar_sprites();
 
-    /// Refreshes the mapped radar image from the viewer's explored cells and current coverage
+    /// Refreshes the mapped radar image from the view player's mapped cells and current coverage
     /// through the radar fill.
     ///
     /// The radar fill walks a 32-pixel cell grid; the match sight grid is
-    /// resampled onto it. Disabled mapping or line of sight reads as fully
-    /// explored or seen.
+    /// resampled onto it and read as the battlefield's fog reads it
+    /// (radar_read_sight), so that the radar and the battlefield agree on the
+    /// ground explored and in sight. Disabled mapping or line of sight reads
+    /// as fully explored or seen.
     void refresh_radar_mapped();
 
     /// Composes the final radar image over the match, with the viewer's sight answering for shots.

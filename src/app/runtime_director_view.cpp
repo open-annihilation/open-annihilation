@@ -685,7 +685,7 @@ void Runtime::check_director_view() {
         visibility = static_cast<uint8_t>(
             visibility & ~(visibility_flag::mapping | visibility_flag::line_of_sight)
         );
-        reset_sight_presentation(false);
+        reset_sight_presentation();
         enter_director_mode({kStillWidth, kStillHeight, false, true}, {});
         std::vector<uint8_t> picture(static_cast<size_t>(kStillWidth) * kStillHeight * kPixelBytes);
         const auto& game = match_->state().game;

@@ -2,18 +2,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 #include "oa/present/world_renderer/world_camera.hpp"
+#include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/present/world_renderer/world_radar.hpp"
 #include "oa/present/palette_tables.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/formats/tnt.hpp"
+#include "oa/sim/visibility_state.hpp"
 #include "oa/test/game_assets.hpp"
 #include "oa/test/check.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <initializer_list>
 #include <memory>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace wr = oa::present::world_renderer;
@@ -545,6 +553,288 @@ void draw_final_image() {
     OA_CHECK(screen[13 * 126 + 50] == 0);
 }
 
+namespace vs = oa::sim::visibility_state;
+
+constexpr int32_t sight_side = 16; // sight cells across and down
+constexpr uint8_t sight_viewer = 0;
+constexpr uint8_t sight_ally = 1;  // a computer player simulated on this machine
+constexpr uint8_t sight_enemy = 2; // allies nobody
+constexpr int32_t sight_cell_pixels = 32;
+constexpr uint8_t radar_unexplored = 7;
+constexpr uint8_t radar_ground = 200;
+constexpr uint8_t radar_grayed = 100;
+
+// The line-of-sight rules a game can be set to: True, Circular, and
+// Permanent with either sight algorithm, which keeps no sight and only maps.
+struct SightRule {
+    const char* name{};
+    uint16_t flags{};
+};
+
+constexpr std::array<SightRule, 4> sight_rules{
+    {{"True", vs::update_sight_grid | vs::altitude_sight_algorithm},
+     {"Circular", vs::update_sight_grid},
+     {"Permanent, True", vs::altitude_sight_algorithm},
+     {"Permanent, Circular", 0}}
+};
+
+// The sight stamp of a unit standing at the middle of a sight cell, one
+// unit above flat ground, with a sight of 64.
+vs::SightStamp stamp_at(uint8_t owner, int32_t x, int32_t z) {
+    vs::SightStamp stamp{};
+    stamp.owner = owner;
+    stamp.sight_distance = 64;
+    stamp.model_height = 2;
+    stamp.position_x = (x * sight_cell_pixels + sight_cell_pixels / 2) << 16;
+    stamp.position_y = 1 << 16;
+    stamp.position_z = (z * sight_cell_pixels + sight_cell_pixels / 2) << 16;
+    return stamp;
+}
+
+// Walks a unit's stamp a cell at a time to (x, z), along X first, as a
+// unit exploring the map moves its sight.
+void walk_stamp(vs::SightStamp& stamp, int32_t x, int32_t z, vs::SightContext& context) {
+    auto at_x = (stamp.position_x >> 16) / sight_cell_pixels;
+    auto at_z = (stamp.position_z >> 16) / sight_cell_pixels;
+    // Under permanent sight a fresh stamp maps nothing; its first move maps.
+    vs::update_area_coverage(stamp, context);
+    while (at_x != x || at_z != z) {
+        if (at_x != x)
+            at_x += at_x < x ? 1 : -1;
+        else
+            at_z += at_z < z ? 1 : -1;
+        const auto moved = stamp_at(stamp.owner, at_x, at_z);
+        stamp.position_x = moved.position_x;
+        stamp.position_z = moved.position_z;
+        vs::update_area_coverage(stamp, context);
+    }
+}
+
+// What the battlefield and the radar show of one sight cell.
+enum class CellShown : uint8_t { black, gray, clear };
+
+// An allied computer explores while the viewer's own unit leaves its start,
+// under every line-of-sight rule, with mapping on and off and allied vision
+// (intel.allied-los-sharing) on and off. The radar reads the sight grid as
+// the battlefield's fog does: each cell the fog leaves black is unexplored
+// on the radar, each it grays is grayed there, and each it leaves clear is
+// clear. As in 3.1c, ground only the ally has explored stays unexplored on
+// both, with or without allied vision: the ally's stamps map ground for the
+// ally alone. Under allied vision the ally's sight lifts the gray over
+// ground the viewer has mapped, on both.
+void allied_exploration_agrees() {
+    // A 5x5 round mask for Circular, centred on the stamp's cell.
+    const vs::SightMask masks[1]{{5, 5, 2, 2, 0, {0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1,
+                                                  1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 0}}};
+    // Rays two cells out on the axes and diagonals and the knight's moves
+    // between, for True over flat ground; a sight of 64 reads the second table.
+    const std::array<std::string_view, 4> ray_lines{
+        "2, 0, 1, 0, 2", "2, 1, 1, 2, 2", "1, 1, 2", "1, 2, 1"
+    };
+    const std::vector<vs::AltitudeSightPattern> patterns{
+        vs::AltitudeSightPattern{},
+        vs::build_altitude_pattern(ray_lines),
+        vs::AltitudeSightPattern{}
+    };
+    const std::vector<vs::AltitudeCell> flat(
+        static_cast<std::size_t>(sight_side * sight_side), vs::AltitudeCell{0, 0}
+    );
+    const vs::AltitudeSightData altitude{sight_side, sight_side, flat, patterns};
+    OA_CHECK(patterns[1].error == nullptr && patterns[1].rays.size() == 16);
+    const auto cell_count = static_cast<std::size_t>(sight_side * sight_side);
+    const auto cell = [](int32_t x, int32_t z) {
+        return static_cast<std::size_t>(z * sight_side + x);
+    };
+    // Cells the checks name: the viewer's last position; ground the viewer
+    // mapped at its start that the ally now sees; ground the ally sees now
+    // and the viewer never mapped; and ground on the ally's way that only
+    // the ally has seen.
+    const auto own = cell(3, 9);
+    const auto lifted = cell(5, 3);
+    const auto ally_sees = cell(9, 3);
+    const auto ally_only = cell(12, 8);
+    int32_t cases = 0;
+    for (const auto& rule : sight_rules)
+        for (const bool mapping : {true, false})
+            for (const bool allied_vision : {false, true}) {
+                const auto game = std::make_unique<oa::Game>();
+                for (uint8_t player = 0; player <= sight_enemy; ++player) {
+                    auto& record = game->players[player];
+                    record.index = player;
+                    record.in_use = 1;
+                    record.status = OA_PLAYER_STATUS_LOCAL;
+                    record.alliance[player] = 1;
+                }
+                game->players[sight_ally].alliance[sight_viewer] = 1;
+                game->players[sight_viewer].alliance[sight_ally] = 1;
+                game->viewpoint_player = sight_viewer;
+                vs::PlayerSightGrid sight;
+                sight.width = sight_side;
+                sight.height = sight_side;
+                sight.coverage.assign(cell_count, 0);
+                sight.player_bits.assign(cell_count, 0);
+                sight.viewpoint_player = sight_viewer;
+                sight.game = game.get();
+                std::vector<std::vector<uint16_t>> others(
+                    OA_PLAYER_COUNT, std::vector<uint16_t>(cell_count)
+                );
+                vs::SightContext context;
+                context.grid = &sight;
+                for (std::size_t player = 0; player < OA_PLAYER_COUNT; ++player)
+                    context.coverage[player] = player == sight_viewer
+                                                   ? std::span<uint16_t>(sight.coverage)
+                                                   : std::span<uint16_t>(others[player]);
+                context.masks = masks;
+                context.altitude = &altitude;
+                context.visibility_flags =
+                    static_cast<uint16_t>(rule.flags | (mapping ? vs::terrain_mapping : 0));
+                context.allied_vision = allied_vision;
+                OA_CHECK(vs::sight_context_error(context) == nullptr);
+
+                // The viewer's unit leaves its start at (3, 3) for (3, 9); the
+                // ally's starts at (12, 12), explores up to (12, 3) and comes
+                // to (7, 3); the enemy's stays at (12, 1).
+                auto viewer_unit = stamp_at(sight_viewer, 3, 3);
+                auto ally_unit = stamp_at(sight_ally, 12, 12);
+                auto enemy_unit = stamp_at(sight_enemy, 12, 1);
+                for (auto* unit : {&viewer_unit, &ally_unit, &enemy_unit})
+                    vs::refresh_area_coverage(*unit, context);
+                walk_stamp(viewer_unit, 3, 9, context);
+                walk_stamp(ally_unit, 12, 3, context);
+                walk_stamp(ally_unit, 7, 3, context);
+                walk_stamp(enemy_unit, 12, 1, context);
+                const bool line_of_sight = (rule.flags & vs::update_sight_grid) != 0;
+                const wr::FogOptions options{line_of_sight, mapping};
+
+                // The battlefield: the fog grid over the whole map. Tile
+                // (x + 1, z + 1)'s top-left corner is the centre of cell (x, z).
+                const auto fog = wr::build_fog_grid(
+                    sight,
+                    sight_viewer,
+                    sight.coverage,
+                    options,
+                    0,
+                    0,
+                    sight_side * sight_cell_pixels,
+                    sight_side * sight_cell_pixels
+                );
+                OA_CHECK(fog.first_cell_x == -1 && fog.first_cell_z == -1);
+                const auto battlefield = [&](std::size_t index) {
+                    const auto x = static_cast<int32_t>(index % sight_side);
+                    const auto z = static_cast<int32_t>(index / sight_side);
+                    const auto& tile = fog.at(x + 1, z + 1);
+                    if ((tile.unmapped & wr::fog_corner_top_left) != 0)
+                        return CellShown::black;
+                    return (tile.unseen & wr::fog_corner_top_left) != 0 ? CellShown::gray
+                                                                        : CellShown::clear;
+                };
+
+                // The radar: its cells read from the same grid, then filled.
+                game->map_width = sight_side * 2;
+                game->map_height = sight_side * 2;
+                game->radar_width = sight_side;
+                game->radar_height = sight_side;
+                game->ui_colors[wr::ui_color_unexplored] = radar_unexplored;
+                game->radar_blink_flags = wr::radar_flag_mapped_dirty;
+                std::vector<uint16_t> sight_bits;
+                std::vector<uint8_t> covered;
+                const auto explored_bit = static_cast<uint16_t>(1U << game->viewpoint_player);
+                wr::radar_read_sight(
+                    sight,
+                    sight_viewer,
+                    sight.coverage,
+                    options,
+                    explored_bit,
+                    sight_side,
+                    sight_side,
+                    sight_bits,
+                    covered
+                );
+                OA_CHECK(sight_bits.size() == cell_count && covered.size() == cell_count);
+                SurfacePool pool;
+                const auto host = make_host(pool);
+                wr::RadarSurfaces surfaces;
+                surfaces.picture = host.create_surface(&pool, "", sight_side, sight_side);
+                surfaces.mapped = host.create_surface(&pool, "", sight_side, sight_side);
+                std::fill_n(surfaces.picture->pixels, cell_count, radar_ground);
+                std::array<uint8_t, OA_PALETTE_COLORS> gray{};
+                for (std::size_t index = 0; index < gray.size(); ++index)
+                    gray[index] = static_cast<uint8_t>(index);
+                gray[radar_ground] = radar_grayed;
+                wr::radar_fill_mapped(
+                    *game, surfaces, {sight_bits.data(), covered.data(), gray.data()}
+                );
+                const auto radar = [&](std::size_t index) {
+                    const auto pixel = surfaces.mapped->pixels[index];
+                    if (pixel == radar_unexplored)
+                        return CellShown::black;
+                    return pixel == radar_grayed ? CellShown::gray : CellShown::clear;
+                };
+
+                // Every cell: the radar shows what the battlefield shows.
+                int32_t differing = 0;
+                for (std::size_t index = 0; index < cell_count; ++index)
+                    if (radar(index) != battlefield(index)) {
+                        if (differing == 0)
+                            std::fprintf(
+                                stderr,
+                                "%s, mapping %s, allied vision %s: cell %zu differs\n",
+                                rule.name,
+                                mapping ? "on" : "off",
+                                allied_vision ? "on" : "off",
+                                index
+                            );
+                        ++differing;
+                    }
+                OA_CHECK(differing == 0);
+
+                // The ally's ground as 3.1c shows it. The ally mapped its way
+                // for itself alone, and the enemy's ground is no one else's.
+                const auto viewer_bit = static_cast<uint16_t>(1U << sight_viewer);
+                const auto ally_bit = static_cast<uint16_t>(1U << sight_ally);
+                OA_CHECK(!mapping || (sight.player_bits[ally_only] & ally_bit) != 0);
+                OA_CHECK((sight.player_bits[ally_only] & viewer_bit) == 0);
+                OA_CHECK((sight.player_bits[ally_sees] & viewer_bit) == 0);
+                OA_CHECK((sight.player_bits[cell(12, 1)] & viewer_bit) == 0);
+                const auto shown_on_both = [&](std::size_t index, CellShown shown) {
+                    return battlefield(index) == shown && radar(index) == shown;
+                };
+                const auto out_of_sight = mapping         ? CellShown::black
+                                          : line_of_sight ? CellShown::gray
+                                                          : CellShown::clear;
+                // Only the ally explored it: black with mapping, and out of
+                // the viewer's sight, allied vision or not.
+                OA_CHECK(shown_on_both(ally_only, out_of_sight));
+                OA_CHECK(shown_on_both(cell(12, 1), out_of_sight));
+                // The ally sees it now: in the viewer's sight under allied
+                // vision, yet black with mapping, for the viewer never mapped it.
+                const bool shared_sight = allied_vision && line_of_sight;
+                OA_CHECK(shown_on_both(
+                    ally_sees,
+                    mapping                          ? CellShown::black
+                    : shared_sight || !line_of_sight ? CellShown::clear
+                                                     : CellShown::gray
+                ));
+                OA_CHECK(
+                    vs::count_in_sight(sight.coverage[ally_sees], vs::SightReading::player) ==
+                    shared_sight
+                );
+                // Mapped by the viewer and seen now by the ally alone: clear
+                // under allied vision, gray without it.
+                OA_CHECK(shown_on_both(
+                    lifted, shared_sight || !line_of_sight ? CellShown::clear : CellShown::gray
+                ));
+                // The viewer's own unit: clear on both.
+                OA_CHECK(shown_on_both(own, CellShown::clear));
+                ++cases;
+            }
+    OA_CHECK(cases == 16);
+    std::puts(
+        "the radar shows an allied computer's exploration as the battlefield does, under "
+        "every line-of-sight rule"
+    );
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -565,5 +855,6 @@ int main(int argc, char** argv) {
     compose_rings();
     compose_projectiles();
     draw_final_image();
+    allied_exploration_agrees();
     return oa::test::check_exit_status();
 }

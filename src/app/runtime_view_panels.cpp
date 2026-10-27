@@ -480,7 +480,7 @@ void Runtime::switch_watched_view(oa::ui::hud::ViewSwitch change) {
     // The selection is dropped and the panels and sight drawn again.
     clear_local_selection();
     apply_match_hud_for_selection();
-    reset_sight_presentation(true);
+    reset_sight_presentation();
 }
 
 } // namespace oa::app

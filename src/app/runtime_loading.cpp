@@ -332,7 +332,6 @@ void Runtime::leave_match() {
     match_outcome_ = sim::scenario::Outcome::ongoing;
     campaign_mission_ = false;
     stop_match_tracking();
-    radar_explored_.clear();
     unit_info_panel_.reset();
     chat_composing_ = false;
     chat_buffer_.clear();

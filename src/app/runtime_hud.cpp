@@ -17,7 +17,6 @@
 #include "oa/ui/hud/kill_board.hpp"
 #include "oa/ui/hud/status_panel.hpp"
 #include "oa/present/world_renderer/world_fog.hpp"
-#include "oa/sim/visibility_state.hpp"
 #include "oa/present/world_renderer/world_camera.hpp"
 #include "oa/present/surface.hpp"
 #include "oa/present/game_text.hpp"
@@ -1419,34 +1418,6 @@ oa::present::world_renderer::OverlayRaster Runtime::source_overlay_raster() {
         self.draw_hud_label(x, y, text, self.ui_colors_[kUiColorText]);
     };
     return raster;
-}
-
-void Runtime::absorb_radar_exploration() {
-    if (!match_ || !match_mapping_on())
-        return;
-    const auto& sight = match_->sight();
-    const auto cells = static_cast<std::size_t>(std::max(0, sight.width)) *
-                       static_cast<std::size_t>(std::max(0, sight.height));
-    if (cells == 0)
-        return;
-    if (radar_explored_.size() != cells)
-        radar_explored_.assign(cells, 0);
-    const uint8_t viewer = match_view_player();
-    const auto bit = static_cast<uint16_t>(1u << (viewer & 0x1fu));
-    // A viewer outside the player table has no live coverage.
-    const std::span<const uint16_t> coverage =
-        viewer < OA_PLAYER_COUNT ? match_->player_coverage(viewer) : std::span<const uint16_t>{};
-    for (std::size_t i = 0; i < cells; ++i) {
-        if (radar_explored_[i] != 0)
-            continue;
-        const bool mapped = i < sight.player_bits.size() && (sight.player_bits[i] & bit) != 0;
-        const bool live =
-            i < coverage.size() && oa::sim::visibility_state::count_in_sight(
-                                       coverage[i], oa::sim::visibility_state::SightReading::player
-                                   );
-        if (mapped || live)
-            radar_explored_[i] = 1;
-    }
 }
 
 void Runtime::blit_match_minimap() {
