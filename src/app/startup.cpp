@@ -1795,7 +1795,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-user-folder] [--check-mod-switch] [--check-map-packs] "
                      "[--check-map-pack-lists] [--check-mod-map-settings] "
                      "[--check-map-browser] [--check-key-editor] [--check-key-capture] "
-                     "[--check-mutator-button] [--check-mutator-picker] "
+                     "[--check-key-views] [--check-mutator-button] [--check-mutator-picker] "
                      "[--check-brain-picker] "
                      "[--check-brain-seat-buttons] "
                      "[--check-brain-campaign] "
