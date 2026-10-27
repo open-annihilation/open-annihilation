@@ -4,7 +4,8 @@
 // --check-key-editor: the key editor over Settings at 640x480, 1280x720 and
 // 1920x1080, then the list's edits, the save, a paused skirmish and Developer
 // Mode. With --snapshot it writes key-editor-<w>x<h>.ppm for the three menu
-// windows and key-editor-match-<w>x<h>.ppm for the three match windows.
+// windows, key-editor-match-<w>x<h>.ppm for the three match windows, and
+// key-editor-draft.ppm and key-editor-close-question.ppm at 1280x720.
 
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
@@ -448,6 +449,7 @@ void Runtime::check_key_editor() {
             "1 unsaved edit",
         "the draft line does not say 1 unsaved edit"
     );
+    snapshot("draft");
     click_named("oa.key-editor.cancel");
     require(
         require_named("oa.prompt.body", "Cancel did not ask before closing")
@@ -458,6 +460,7 @@ void Runtime::check_key_editor() {
     require(named("oa.prompt.discard").has_value(), "Discard is not shown");
     require(named("oa.prompt.keep-editing").has_value(), "Keep editing is not shown");
     std::cout << "key editor check: close question\n";
+    snapshot("close-question");
     click_named("oa.prompt.keep-editing");
     require(oa_layer().find(editor::screen_name) != nullptr, "Keep editing closed the editor");
     click_named("oa.key-editor.undo");
