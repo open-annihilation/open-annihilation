@@ -37,7 +37,24 @@ inline constexpr uint32_t fog_zoom_one = 65536u;
 struct FogOptions {
     bool line_of_sight{}; // gray tiles are built only with LOS enabled
     bool mapping{true};   // without mapping every cell counts as mapped
+    /// Further players, as bits of the sight grid's mapped words, whose
+    /// mapped cells show as explored besides the viewer's own: under allied
+    /// vision (intel.allied-los-sharing) the players who ally the viewer
+    /// (allied_mapped_players); 0 for the viewer's own alone, as in 3.1c.
+    uint16_t shared_mapped{};
 };
+
+/// Returns the players whose explored ground a viewer is shown under allied
+/// vision (intel.allied-los-sharing): each player in use, other than the
+/// viewer, whose alliance row names the viewer, in the hack's direction
+/// (a player who allies the viewer grants it its sight). Read from the
+/// alliance rows as they stand, so that an alliance ended takes the
+/// player's ground off the views.
+///
+/// @param game game block holding the players and their alliance rows
+/// @param viewer the player whose view is drawn, 0..9; another gives none
+/// @return a bit for each such player, as the sight grid's mapped words hold them
+[[nodiscard]] uint16_t allied_mapped_players(const Game& game, uint8_t viewer) noexcept;
 
 struct FogTile {
     uint8_t unmapped{}; // black FOG.GAF mask
@@ -162,7 +179,8 @@ struct FogView {
 /// the border only when the view is a whole number of tiles wide.
 ///
 /// @param sight the match's sight grid, whose cells hold a mapped bit for each player
-/// @param viewer the player whose view the fog shows: its mapped bit is read
+/// @param viewer the player whose view the fog shows: its mapped bit is read, with the bits
+///        options.shared_mapped names
 /// @param coverage the viewer's per-cell count of the stamps seeing it, read as the player is
 ///        shown it (sim::visibility_state::SightReading::player)
 /// @param options line-of-sight and mapping rules

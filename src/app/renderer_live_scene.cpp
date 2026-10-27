@@ -58,7 +58,7 @@ Fog fog_at(const full::SightView& sight, int32_t x, int32_t z) {
         return sight.mapping ? Fog::black : Fog::seen;
     const std::size_t index = static_cast<std::size_t>(row) * sight.width + column;
     if (sight.mapping &&
-        (index >= sight.player_bits.size() || (sight.player_bits[index] & sight.viewer_bit) == 0))
+        (index >= sight.player_bits.size() || (sight.player_bits[index] & sight.mapped_bits) == 0))
         return Fog::black;
     const bool visible = index < sight.coverage.size() &&
                          sim::visibility_state::count_in_sight(

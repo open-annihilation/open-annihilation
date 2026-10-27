@@ -161,9 +161,12 @@ struct SightView {
     std::span<const uint16_t> player_bits{}; ///< the players that have mapped each cell
     int32_t width{};                         ///< cells across
     int32_t height{};                        ///< cells down
-    uint16_t viewer_bit{};                   ///< the viewer's bit in player_bits
-    bool line_of_sight{};                    ///< the line-of-sight rule is on
-    bool mapping{true};                      ///< the mapping rule is on
+    /// The bits of player_bits that show a cell as explored: the viewer's,
+    /// and under allied vision those of the players who ally it
+    /// (Runtime::allied_mapped_bits).
+    uint16_t mapped_bits{};
+    bool line_of_sight{}; ///< the line-of-sight rule is on
+    bool mapping{true};   ///< the mapping rule is on
     /// The dithered option: the fog dithers the cells out of sight instead
     /// of greying them, so a sprite under one is drawn in colour.
     bool dithered{};

@@ -265,7 +265,8 @@ void radar_read_sight(
     covered.assign(cells, options.line_of_sight ? uint8_t{0} : uint8_t{1});
     if ((!options.mapping && !options.line_of_sight) || sight.width <= 0 || sight.height <= 0)
         return;
-    const auto viewer_bit = static_cast<uint16_t>(1U << (viewer & 0x1fU));
+    // The viewer's mapped bit, and those of the players whose ground it is shown.
+    const auto viewer_bit = static_cast<uint16_t>((1U << (viewer & 0x1fU)) | options.shared_mapped);
     for (int32_t row = 0; row < grid_height; ++row) {
         const auto sight_row =
             static_cast<std::size_t>(static_cast<int64_t>(row) * sight.height / grid_height);

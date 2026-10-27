@@ -19356,6 +19356,18 @@ class Runtime final : public menu::Host,
     /// as fully explored or seen.
     void refresh_radar_mapped();
 
+    /// Returns the players whose explored ground the view is shown besides its
+    /// own: under allied vision (intel.allied-los-sharing), each player who
+    /// allies the view player now (oa::present::world_renderer::allied_mapped_players);
+    /// none without it, as in 3.1c. Presentation alone reads it: every view
+    /// that tells explored ground by the mapped words (the fog in every tier,
+    /// the radar, features and wrecks, effects, the water and the live scene)
+    /// counts these players' bits beside the view player's own, and the
+    /// sight records are left as they are.
+    ///
+    /// @return a bit for each such player, as the sight grid's mapped words hold them
+    [[nodiscard]] uint16_t allied_mapped_bits() const;
+
     /// Composes the final radar image over the match, with the viewer's sight answering for shots.
     void compose_radar_final();
 

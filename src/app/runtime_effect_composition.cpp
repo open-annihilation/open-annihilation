@@ -233,7 +233,10 @@ void Runtime::compose_match_effect_pixels(
     } else {
         const auto& sight = match_->sight();
         const auto coverage = match_->player_coverage(match_view_player());
-        const auto bit = static_cast<uint16_t>(1U << (match_view_player() & 0x1fU));
+        // The view player's mapped bit, and those of the players whose ground
+        // it is shown under allied vision.
+        const auto bit =
+            static_cast<uint16_t>((1U << (match_view_player() & 0x1fU)) | allied_mapped_bits());
         constexpr float cell = present::world_renderer::fog_cell_pixels;
         const bool mapping = match_mapping_on();
         const bool los = match_line_of_sight_on();

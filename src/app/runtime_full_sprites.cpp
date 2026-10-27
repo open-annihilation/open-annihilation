@@ -256,7 +256,7 @@ CellFog cell_fog(const SightView& sight, int32_t map_x, int32_t map_z) noexcept 
     if (!in_sight && sight.line_of_sight)
         return CellFog::unseen;
     const bool mapped = !sight.mapping || (index < sight.player_bits.size() &&
-                                           (sight.player_bits[index] & sight.viewer_bit) != 0);
+                                           (sight.player_bits[index] & sight.mapped_bits) != 0);
     return mapped ? CellFog::seen : CellFog::unmapped;
 }
 

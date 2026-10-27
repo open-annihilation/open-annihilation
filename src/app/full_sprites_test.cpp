@@ -1262,7 +1262,7 @@ void test_fog_states() {
     sight.player_bits = player_bits;
     sight.width = cells;
     sight.height = cells;
-    sight.viewer_bit = 1U << 3;
+    sight.mapped_bits = 1U << 3;
     sight.line_of_sight = true;
     sight.mapping = true;
     constexpr int32_t cell = wr::fog_cell_pixels;
@@ -1281,6 +1281,16 @@ void test_fog_states() {
     OA_CHECK(full::cell_fog(no_sight, 5, cell + 5) == full::CellFog::seen);
     OA_CHECK(full::cell_fog(no_sight, 2 * cell + 1, 2 * cell + 1) == full::CellFog::unmapped);
     OA_CHECK(full::cell_fog(no_sight, cell + 5, cell + 5) == full::CellFog::seen);
+    // Ground only an ally mapped: never mapped to the viewer's own bit, and
+    // explored where the view counts the ally's bit beside it, as it does
+    // under allied vision.
+    player_bits[3 * cells + 3] = 1U << 5;
+    OA_CHECK(full::cell_fog(no_sight, 3 * cell + 1, 3 * cell + 1) == full::CellFog::unmapped);
+    full::SightView shared = no_sight;
+    shared.mapped_bits = static_cast<uint16_t>((1U << 3) | (1U << 5));
+    OA_CHECK(full::cell_fog(shared, 3 * cell + 1, 3 * cell + 1) == full::CellFog::seen);
+    OA_CHECK(full::cell_fog(shared, 2 * cell + 1, 2 * cell + 1) == full::CellFog::unmapped);
+    player_bits[3 * cells + 3] = 1U << 3;
     full::SightView no_mapping = sight;
     no_mapping.mapping = false;
     OA_CHECK(full::cell_fog(no_mapping, 2 * cell + 1, 2 * cell + 1) == full::CellFog::unseen);

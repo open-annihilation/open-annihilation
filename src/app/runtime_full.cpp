@@ -1829,8 +1829,9 @@ bool Runtime::present_full_match_layers(bool dialogs) {
             sprite_inputs.sight.player_bits = sight.player_bits;
             sprite_inputs.sight.width = sight.width;
             sprite_inputs.sight.height = sight.height;
-            sprite_inputs.sight.viewer_bit =
-                static_cast<uint16_t>(1U << (sight.viewpoint_player & 0x1fU));
+            sprite_inputs.sight.mapped_bits = static_cast<uint16_t>(
+                (1U << (sight.viewpoint_player & 0x1fU)) | allied_mapped_bits()
+            );
             sprite_inputs.sight.line_of_sight = match_line_of_sight_on();
             sprite_inputs.sight.mapping = match_mapping_on();
             sprite_inputs.sight.dithered = fog.dithered;
@@ -1893,7 +1894,8 @@ bool Runtime::present_full_match_layers(bool dialogs) {
                 model_inputs.water_seconds = water.seconds;
                 const auto water_coverage = match_->player_coverage(match_view_player());
                 const auto& water_sight = match_->sight();
-                const auto water_bit = uint16_t(1U << (match_view_player() & 0x1fU));
+                const auto water_bit =
+                    uint16_t((1U << (match_view_player() & 0x1fU)) | allied_mapped_bits());
                 const bool water_mapping = match_mapping_on();
                 const bool water_los = match_line_of_sight_on();
                 water.visible = [&](float x, float y) {
