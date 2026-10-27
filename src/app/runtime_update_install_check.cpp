@@ -190,6 +190,12 @@ fixture::Reply partial_reply(const std::vector<uint8_t>& file, std::size_t first
 
 int Runtime::check_update_download() {
     require(options_.data_dir.has_value(), "the run has no --data-dir");
+    // A feed and a package an earlier run of this case stored would be found
+    // again at the first menu; this run starts with none.
+    {
+        std::error_code cleared;
+        fs::remove_all(*options_.data_dir / "updates", cleared);
+    }
     preference_values_.erase(std::string(settings::key::update_skipped));
     preference_values_.erase(std::string(settings::key::update_checked));
     preference_values_[std::string(settings::key::language)] = "en";
