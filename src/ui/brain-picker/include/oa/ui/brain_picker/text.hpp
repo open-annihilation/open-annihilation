@@ -51,20 +51,20 @@ inline constexpr std::string_view sees_every_unit = "Sees every unit on the map"
 /// on the built-in player. `{name}` is the brain's name, or its id.
 inline constexpr std::string_view left_out =
     "{name} cannot play this seat now, so it starts on the built-in player.";
-/// CANCEL.
-inline constexpr std::string_view cancel = "CANCEL";
-/// USE THIS.
-inline constexpr std::string_view use_this = "USE THIS";
-/// Compact's DETAILS.
-inline constexpr std::string_view details = "DETAILS";
-/// The details page's BACK.
-inline constexpr std::string_view back = "BACK";
+/// Cancel.
+inline constexpr std::string_view cancel = "Cancel";
+/// Use this.
+inline constexpr std::string_view use_this = "Use this";
+/// Compact's Details.
+inline constexpr std::string_view details = "Details";
+/// The details page's Back.
+inline constexpr std::string_view back = "Back";
 /// The header's close mark, read by automation.
-inline constexpr std::string_view close_button = "CLOSE";
+inline constexpr std::string_view close_button = "Close";
 /// A switch's Off half.
-inline constexpr std::string_view switch_off = "OFF";
+inline constexpr std::string_view switch_off = "Off";
 /// A switch's On half.
-inline constexpr std::string_view switch_on = "ON";
+inline constexpr std::string_view switch_on = "On";
 /// Under the built-in row when it is the only brain the list can show.
 inline constexpr std::string_view empty_brains =
     "No brains here yet. The Library on the main menu gets them.";
@@ -75,10 +75,10 @@ inline constexpr std::string_view saved_with_missing =
     "This game was saved with {name} {version} playing seat {n}, which is not installed here.";
 /// What the built-in player does on the seats a missing brain left.
 inline constexpr std::string_view built_in_takes_seats =
-    "The built-in player takes those seats from the units as they stand. GET the brain in the "
+    "The built-in player takes those seats from the units as they stand. Get the brain in the "
     "Library to load the game as it was saved.";
-/// LOAD WITH THE BUILT-IN PLAYER. The primary button.
-inline constexpr std::string_view load_built_in_button = "LOAD WITH THE BUILT-IN PLAYER";
+/// Load with the built-in player. The primary button.
+inline constexpr std::string_view load_built_in_button = "Load with the built-in player";
 
 } // namespace words
 

@@ -614,7 +614,7 @@ void check_frame(const fixture::NamedFrame& named) {
         page_state.details_page = true;
         const kit::DisplayList page = laid_out(library, page_state, frame);
         const kit::Control* back = fixture::named(page, "library.back");
-        OA_CHECK(back != nullptr && back->text == "BACK");
+        OA_CHECK(back != nullptr && back->text == "Back");
         OA_CHECK(fixture::named(page, "library.close") == nullptr);
         for (const kit::Control& control : page.controls)
             OA_CHECK(control.text.find("‹") == std::string::npos);
@@ -800,7 +800,7 @@ void check_frame(const fixture::NamedFrame& named) {
     OA_CHECK(shows_pill(active_list, "Playing"));
     OA_CHECK(!shows_chip(active_list, "Playing"));
     const kit::Control* unload = fixture::named(active_list, "library.active.unload");
-    OA_CHECK(unload != nullptr && unload->enabled && unload->text == "UNLOAD MOD");
+    OA_CHECK(unload != nullptr && unload->enabled && unload->text == "Unload mod");
     if (mod_line != nullptr && unload != nullptr)
         OA_CHECK(unload->rect.y >= mod_line->rect.y + mod_line->rect.height);
     const kit::Item* mod_title = text_item(active_list, "Highland");
@@ -978,7 +978,7 @@ void built_in_languages_show_on_the_list() {
     lib::select(library, lib::built_in_language_id("de"));
     const kit::DisplayList details = laid_out(library, {}, fixture::frames()[1].frame);
     const kit::Control* use_now = fixture::named(details, "library.action.use-now");
-    OA_CHECK(use_now != nullptr && use_now->text == "USE NOW" && use_now->enabled);
+    OA_CHECK(use_now != nullptr && use_now->text == "Use now" && use_now->enabled);
     if (use_now != nullptr)
         OA_CHECK(
             std::find(details.tab_order.begin(), details.tab_order.end(), use_now->id) !=
@@ -1496,7 +1496,7 @@ void row_icons_are_get_and_update() {
         if (row == nullptr || update == nullptr)
             continue;
         OA_CHECK(update->kind == kit::ControlKind::button && update->enabled);
-        OA_CHECK(update->text == "UPDATE" && !update->focusable);
+        OA_CHECK(update->text == "Update" && !update->focusable);
         OA_CHECK(kit::wholly_in(update->rect, row->rect));
         OA_CHECK(update->rect.width == kit::compact_metrics.state_icon_side);
         OA_CHECK(kit::hit(list, centre_of(*update)) == update->id);
@@ -1516,7 +1516,7 @@ void row_icons_are_get_and_update() {
     const lib::EntryId ironclad{std::string(fixture::core), lib::Kind::mod, "ironclad"};
     list = laid_out(library, state, regular);
     const kit::Control* blocked = fixture::named(list, "library.row.fixture-core.ironclad.update");
-    OA_CHECK(blocked != nullptr && !blocked->enabled && blocked->text == "UPDATE");
+    OA_CHECK(blocked != nullptr && !blocked->enabled && blocked->text == "Update");
     if (blocked != nullptr) {
         const kit::Point at = centre_of(*blocked);
         static_cast<void>(
@@ -1531,7 +1531,7 @@ void row_icons_are_get_and_update() {
     lib::set_query(library, "quarry");
     list = laid_out(library, state, regular);
     const kit::Control* get = fixture::named(list, "library.row.fixture-core.quarry.get");
-    OA_CHECK(get != nullptr && get->enabled && get->text == "GET");
+    OA_CHECK(get != nullptr && get->enabled && get->text == "Get");
     const lib::EntryId quarry{std::string(fixture::core), lib::Kind::mod, "quarry"};
     result = click(library, state, list, "library.row.fixture-core.quarry.get");
     OA_CHECK(result.action == lib::Action::get && result.entry == quarry);
@@ -1991,12 +1991,12 @@ void active_base_game_is_a_tile() {
         OA_CHECK(text_item(list, "All files match") != nullptr);
         OA_CHECK(text_starts(list, "3.1c"));
         const kit::Control* change = fixture::named(list, "library.active.change");
-        OA_CHECK(change != nullptr && change->enabled && change->text == "CHANGE…");
+        OA_CHECK(change != nullptr && change->enabled && change->text == "Change…");
         const kit::Control* expansions = fixture::named(list, "library.active.expansions");
         OA_CHECK(expansions != nullptr && expansions->text == "EXPANSIONS · 0 OF 6 ON");
         OA_CHECK(text_starts(list, "Core Contingency needs"));
         const kit::Control* add = fixture::named(list, "library.active.expansion.campaign");
-        OA_CHECK(add != nullptr && add->text.find("ADD FROM…") != std::string::npos);
+        OA_CHECK(add != nullptr && add->text.find("Add from…") != std::string::npos);
         OA_CHECK(!shows_pill(list, "Playing"));
         OA_CHECK(!shows_chip(list, "Playing"));
         OA_CHECK(!shows_chip(list, "Built in"));
@@ -2032,8 +2032,8 @@ void the_base_chooser_names_its_rows() {
     const kit::Control* cancel = fixture::named(list, "library.base.cancel");
     const kit::Control* use = fixture::named(list, "library.base.use");
     OA_CHECK(demo != nullptr && demo->enabled);
-    OA_CHECK(cancel != nullptr && cancel->text == "CANCEL");
-    OA_CHECK(use != nullptr && use->text == "USE THIS GAME");
+    OA_CHECK(cancel != nullptr && cancel->text == "Cancel");
+    OA_CHECK(use != nullptr && use->text == "Use this game");
     OA_CHECK(text_item(list, "Base game") != nullptr);
     OA_CHECK(text_item(list, "Not added") != nullptr || shows_pill(list, "Not added"));
     lib::mark_base_game(library, "totala-demo");
@@ -2320,7 +2320,7 @@ void compact_back_returns_to_the_same_list() {
     kit::DisplayList page = laid_out(library, state, compact);
     OA_CHECK(fixture::named(page, "library.close") == nullptr);
     const kit::Control* back = fixture::named(page, "library.back");
-    OA_CHECK(back != nullptr && back->text == "BACK");
+    OA_CHECK(back != nullptr && back->text == "Back");
     for (const kit::Item& item : page.items)
         OA_CHECK(item.text.find("‹") == std::string::npos);
     lib::ScreenResult result = click(library, state, page, "library.back");
@@ -2332,7 +2332,7 @@ void compact_back_returns_to_the_same_list() {
 
     kit::DisplayList list = laid_out(library, state, compact);
     const kit::Control* close = fixture::named(list, "library.close");
-    OA_CHECK(close != nullptr && close->text == "CLOSE");
+    OA_CHECK(close != nullptr && close->text == "Close");
     OA_CHECK(fixture::named(list, "library.back") == nullptr);
     result = lib::library_key(library, state, list, kit::Key::escape);
     OA_CHECK(result.action == lib::Action::close);
@@ -2354,7 +2354,7 @@ void compact_back_returns_to_the_same_list() {
         wide_state.details_page = true;
         const kit::DisplayList laid = laid_out(wide, wide_state, named.frame);
         const kit::Control* wide_close = fixture::named(laid, "library.close");
-        OA_CHECK(wide_close != nullptr && wide_close->text == "CLOSE");
+        OA_CHECK(wide_close != nullptr && wide_close->text == "Close");
         OA_CHECK(fixture::named(laid, "library.back") == nullptr);
         result = lib::library_key(wide, wide_state, laid, kit::Key::escape);
         OA_CHECK(result.action == lib::Action::close && wide.details_open);
@@ -3991,9 +3991,9 @@ void expansion_download_arrow_sits_inside_the_pill() {
         fixture::named(list, "library.active.expansion.cavedog-units.get");
     const kit::Control* add = fixture::named(list, "library.active.expansion.campaign");
     OA_CHECK(pill != nullptr && separate == nullptr && add != nullptr);
-    OA_CHECK(pill != nullptr && pill->text.find("ADD FROM") == std::string::npos);
+    OA_CHECK(pill != nullptr && pill->text.find("Add from") == std::string::npos);
     OA_CHECK(pill != nullptr && pill->enabled && pill->focusable);
-    OA_CHECK(add != nullptr && add->text.find("ADD FROM") != std::string::npos);
+    OA_CHECK(add != nullptr && add->text.find("Add from") != std::string::npos);
     const kit::Item* pill_item = nullptr;
     if (pill != nullptr) {
         for (const kit::Item& item : list.items) {
@@ -5822,7 +5822,7 @@ void keys_tab_names_its_controls() {
         OA_CHECK(
             tile != nullptr && tile->text.find("· 2 changes of your own") != std::string::npos
         );
-        OA_CHECK(change != nullptr && change->text == "CHANGE…");
+        OA_CHECK(change != nullptr && change->text == "Change…");
         OA_EXPECT_NONE(fixture::texts_not_fitting(list, fonts()), named.name + " active keys");
     }
 }

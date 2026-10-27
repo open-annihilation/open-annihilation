@@ -219,10 +219,10 @@ void test_button() {
                                                 {Action::open_folder, true}}
                                            )
         );
-        OA_CHECK_TEXT(lib::entry_actions(library, *ridge)[2].text, "UNINSTALL");
+        OA_CHECK_TEXT(lib::entry_actions(library, *ridge)[2].text, "Uninstall");
         OA_CHECK(lib::uninstall_off_reason(library, *ridge).empty());
     }
-    OA_CHECK_TEXT(lib::action_text(Action::uninstall), "UNINSTALL");
+    OA_CHECK_TEXT(lib::action_text(Action::uninstall), "Uninstall");
     // The player's own mod, a map pack and a language pack show it too.
     const lib::Entry* own = at(library, "", Kind::mod, "own-mod");
     if (own != nullptr)
@@ -322,7 +322,7 @@ void test_off() {
         OA_CHECK(shown);
         OA_CHECK_TEXT(
             lib::uninstall_off_reason(library, *ridge),
-            queue_holds ? "It is in the download queue: CANCEL it before you uninstall it." : ""
+            queue_holds ? "It is in the download queue: Cancel it before you uninstall it." : ""
         );
         OA_CHECK(
             lib::uninstall_step(library, *ridge) ==
@@ -337,7 +337,7 @@ void test_off() {
         lib::select(library, {std::string(core), Kind::mod, "cinder"});
         OA_CHECK_TEXT(
             lib::details_note(library),
-            "Finishes when you leave Cinder. It is in the download queue: CANCEL it before you "
+            "Finishes when you leave Cinder. It is in the download queue: Cancel it before you "
             "uninstall it."
         );
         lib::select(library, {std::string(core), Kind::mod, "ridge"});
@@ -383,15 +383,15 @@ void test_question() {
                 "Uninstall Ridge? Its folder, Mods/ridge, is removed, and with it the copy ROLL "
                 "BACK keeps."
             );
-            OA_CHECK_TEXT(asked.paragraphs[1].text, "GET installs it again.");
+            OA_CHECK_TEXT(asked.paragraphs[1].text, "Get installs it again.");
             OA_CHECK(!asked.paragraphs[0].path && !asked.paragraphs[1].path);
         }
         OA_CHECK(asked.buttons.size() == 2);
         if (asked.buttons.size() == 2) {
-            OA_CHECK_TEXT(asked.buttons[0].caption, "CANCEL");
+            OA_CHECK_TEXT(asked.buttons[0].caption, "Cancel");
             OA_CHECK_TEXT(asked.buttons[0].id, lib::uninstall_cancel_button_id);
             OA_CHECK(!asked.buttons[0].accent);
-            OA_CHECK_TEXT(asked.buttons[1].caption, "UNINSTALL");
+            OA_CHECK_TEXT(asked.buttons[1].caption, "Uninstall");
             OA_CHECK_TEXT(asked.buttons[1].id, lib::uninstall_button_id);
             OA_CHECK(asked.buttons[1].accent);
         }
@@ -437,7 +437,7 @@ void test_notices() {
         if (told.paragraphs.size() == 1)
             OA_CHECK_TEXT(
                 told.paragraphs[0].text,
-                "You are playing Cinder. Switch it off first with SWITCH OFF, then uninstall it."
+                "You are playing Cinder. Switch it off first with Switch off, then uninstall it."
             );
     }
     const lib::Entry* pseudo = at(library, core, Kind::language, "en-XA");
@@ -460,7 +460,7 @@ void test_notices() {
         {lib::UninstallProblem::changed,
          "Its folder changed since the Library listed it. Try again."},
         {lib::UninstallProblem::link,
-         "Its folder is a link, and OA never removes what a link leads to. OPEN FOLDER shows it."},
+         "Its folder is a link, and OA never removes what a link leads to. Open folder shows it."},
         {lib::UninstallProblem::outside,
          "Its folder is not in your own Open Annihilation folder, and OA removes nothing outside "
          "it."},
@@ -550,7 +550,7 @@ void test_default_brain() {
                 "It is your default computer player: new computer seats go back to the built-in "
                 "player."
             );
-            OA_CHECK_TEXT(asked.paragraphs[2].text, "GET installs it again.");
+            OA_CHECK_TEXT(asked.paragraphs[2].text, "Get installs it again.");
         }
     }
     const lib::Entry* picky_row = at(library, core, Kind::brain, "picky-planner");

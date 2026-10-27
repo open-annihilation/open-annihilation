@@ -55,46 +55,46 @@ inline constexpr std::string_view filter_updates = "Updates";
 inline constexpr std::string_view filter_with_count = "{filter} ({count})";
 
 // A row's state.
-inline constexpr std::string_view state_get = "GET";
-inline constexpr std::string_view state_installed = "INSTALLED";
-inline constexpr std::string_view state_update = "UPDATE";
-inline constexpr std::string_view state_playing = "PLAYING";
-/// The chip on the language the game is showing, in place of USE NOW.
+inline constexpr std::string_view state_get = "Get";
+inline constexpr std::string_view state_installed = "Installed";
+inline constexpr std::string_view state_update = "Update";
+inline constexpr std::string_view state_playing = "Playing";
+/// The chip on the language the game is showing, in place of Use now.
 inline constexpr std::string_view chip_in_use = "In use";
 
 // Buttons.
-inline constexpr std::string_view action_get = "GET";
-inline constexpr std::string_view action_update = "UPDATE";
-inline constexpr std::string_view action_update_all = "UPDATE ALL";
-inline constexpr std::string_view action_cancel = "CANCEL";
-inline constexpr std::string_view action_retry = "RETRY";
-inline constexpr std::string_view action_roll_back = "ROLL BACK";
-inline constexpr std::string_view action_play_now = "PLAY NOW";
+inline constexpr std::string_view action_get = "Get";
+inline constexpr std::string_view action_update = "Update";
+inline constexpr std::string_view action_update_all = "Update all";
+inline constexpr std::string_view action_cancel = "Cancel";
+inline constexpr std::string_view action_retry = "Retry";
+inline constexpr std::string_view action_roll_back = "Roll back";
+inline constexpr std::string_view action_play_now = "Play now";
 /// On a built-in language, or an installed language pack, that is not the
 /// one the game shows. It switches as Settings › Language does.
-inline constexpr std::string_view action_use_now = "USE NOW";
-inline constexpr std::string_view action_switch_off = "SWITCH OFF";
-/// UNLOAD MOD on the Active tab. It asks what SWITCH OFF asks.
-inline constexpr std::string_view action_unload_mod = "UNLOAD MOD";
-inline constexpr std::string_view action_open_folder = "OPEN FOLDER";
-inline constexpr std::string_view action_homepage = "HOMEPAGE";
+inline constexpr std::string_view action_use_now = "Use now";
+inline constexpr std::string_view action_switch_off = "Switch off";
+/// Unload mod on the Active tab. It asks what Switch off asks.
+inline constexpr std::string_view action_unload_mod = "Unload mod";
+inline constexpr std::string_view action_open_folder = "Open folder";
+inline constexpr std::string_view action_homepage = "Homepage";
 /// On an installed mutator whose verdict is set, or an installed brain whose
 /// verdict is set. It checks that copy against the mod being played.
-inline constexpr std::string_view action_check_with_mod = "CHECK WITH THIS MOD";
+inline constexpr std::string_view action_check_with_mod = "Check with this mod";
 /// On an installed brain that is not the default, and on the built-in
 /// computer player while it is not. It makes that player the default.
-inline constexpr std::string_view action_use_by_default = "USE BY DEFAULT";
-/// USE on a key layout. The question's button uses the same word.
-inline constexpr std::string_view action_use = "USE";
-/// EDIT KEYS… on the layout in use.
-inline constexpr std::string_view action_edit_keys = "EDIT KEYS…";
+inline constexpr std::string_view action_use_by_default = "Use by default";
+/// Use on a key layout. The question's button uses the same word.
+inline constexpr std::string_view action_use = "Use";
+/// Edit keys… on the layout in use.
+inline constexpr std::string_view action_edit_keys = "Edit keys…";
 /// The chip on the layout in use.
-inline constexpr std::string_view chip_using = "USING";
-/// GET's place when one prerequisite is missing. `{name}` is that prerequisite.
-inline constexpr std::string_view action_get_with = "GET WITH {name}";
-/// GET's place when more than one package besides the mutator will download.
-inline constexpr std::string_view action_get_with_more = "GET WITH {count} MORE";
-/// The question GET WITH asks.
+inline constexpr std::string_view chip_using = "Using";
+/// Get's place when one prerequisite is missing. `{name}` is that prerequisite.
+inline constexpr std::string_view action_get_with = "Get with {name}";
+/// Get's place when more than one package besides the mutator will download.
+inline constexpr std::string_view action_get_with_more = "Get with {count} more";
+/// The question Get with asks.
 inline constexpr std::string_view get_with_title = "Get {name}?";
 /// The question's paragraph when one prerequisite is missing. `{prerequisite}`
 /// is its name and range; `{short}` is the name alone.
@@ -111,25 +111,25 @@ inline constexpr std::string_view get_with_body_many =
 /// space: the reader trims it, and the four languages then have no translation.
 inline constexpr std::string_view get_with_from = "· from {registry}";
 /// The question's button when two packages download.
-inline constexpr std::string_view action_get_both = "GET BOTH";
+inline constexpr std::string_view action_get_both = "Get both";
 /// The question's button when three or more packages download.
-inline constexpr std::string_view action_get_all = "GET ALL";
+inline constexpr std::string_view action_get_all = "Get all";
 /// The details note when one prerequisite downloads first. `{names}` is its name.
 inline constexpr std::string_view note_downloads_first =
     "{names} downloads first, then sits above {name} in every list.";
 /// The details note when several prerequisites download first. `{names}` joins them.
 inline constexpr std::string_view note_download_first =
     "{names} download first, then sit above {name} in every list.";
-/// Why GET WITH is off: no listing offers the prerequisite inside its range.
+/// Why Get with is off: no listing offers the prerequisite inside its range.
 /// A prerequisite that names no range uses `blocked_prerequisite_any`, so
 /// the sentence does not keep a blank before the comma.
 inline constexpr std::string_view blocked_prerequisite =
     "Needs {name} {range}, which no registry offers";
-/// Why GET WITH is off, and why a picker row is locked, when the
+/// Why Get with is off, and why a picker row is locked, when the
 /// prerequisite names no version range.
 inline constexpr std::string_view blocked_prerequisite_any =
     "Needs {name}, which no registry offers";
-/// Why GET WITH is off: the mutators name each other. `{ids}` joins the ids in the loop.
+/// Why Get with is off: the mutators name each other. `{ids}` joins the ids in the loop.
 inline constexpr std::string_view blocked_cycle = "These mutators need each other: {ids}";
 /// The uninstall question, before its last paragraph, when one other installed
 /// mutator needs this one.
@@ -138,17 +138,17 @@ inline constexpr std::string_view uninstall_needed_by_one =
 /// The same paragraph when several other installed mutators need this one.
 inline constexpr std::string_view uninstall_needed_by_many =
     "{names} need it: they stay installed, and cannot be switched on until this is back.";
-inline constexpr std::string_view action_details = "DETAILS";
-/// BACK on Compact's details page. It returns to the list, which keeps its place.
-inline constexpr std::string_view action_back = "BACK";
+inline constexpr std::string_view action_details = "Details";
+/// Back on Compact's details page. It returns to the list, which keeps its place.
+inline constexpr std::string_view action_back = "Back";
 /// The header's refresh icon, and the same words while it is turning.
 inline constexpr std::string_view action_refresh = "Refresh";
 inline constexpr std::string_view action_refreshing = "Refreshing";
-inline constexpr std::string_view action_settings = "SETTINGS…";
-inline constexpr std::string_view action_close = "CLOSE";
-/// The header's close mark. The footer's CLOSE keeps its own word.
+inline constexpr std::string_view action_settings = "Settings…";
+inline constexpr std::string_view action_close = "Close";
+/// The header's close mark. The footer's Close uses the same word.
 inline constexpr std::string_view action_close_x = "Close";
-inline constexpr std::string_view action_uninstall = "UNINSTALL";
+inline constexpr std::string_view action_uninstall = "Uninstall";
 
 // The Registries tab. The words are the ones Downloads' Registries part used.
 inline constexpr std::string_view registry_built_in = "Built in";
@@ -156,16 +156,16 @@ inline constexpr std::string_view registry_built_in = "Built in";
 inline constexpr std::string_view built_in_brain_name = "Built-in computer player";
 inline constexpr std::string_view built_in_brain_summary =
     "Open Annihilation's own computer player. It plays as Total Annihilation's does.";
-inline constexpr std::string_view registry_add = "ADD REGISTRY…";
-inline constexpr std::string_view registry_add_mirror = "ADD MIRROR…";
-inline constexpr std::string_view registry_remove = "REMOVE";
+inline constexpr std::string_view registry_add = "Add registry…";
+inline constexpr std::string_view registry_add_mirror = "Add mirror…";
+inline constexpr std::string_view registry_remove = "Remove";
 inline constexpr std::string_view registry_game_lock = "Choose from the main menu.";
-inline constexpr std::string_view registry_off = "OFF";
-inline constexpr std::string_view registry_on = "ON";
+inline constexpr std::string_view registry_off = "Off";
+inline constexpr std::string_view registry_on = "On";
 inline constexpr std::string_view registry_unreachable = "couldn't reach";
 inline constexpr std::string_view registry_not_reviewed = "not reviewed";
-/// REFRESH on a registry's card. The header's icon keeps action_refresh.
-inline constexpr std::string_view registry_refresh = "REFRESH";
+/// Refresh on a registry's card, the same word as the header's icon.
+inline constexpr std::string_view registry_refresh = "Refresh";
 /// When a refresh last read the registry, with the age in its place.
 inline constexpr std::string_view registry_refreshed = "refreshed {age}";
 /// A registry no refresh has read yet.
@@ -192,7 +192,7 @@ inline constexpr std::string_view registry_note_unnamed =
     "Content from these registries isn't reviewed by the OA team. OA still checks "
     "every package before using it.";
 
-// Why GET or UPDATE is off.
+// Why Get or Update is off.
 inline constexpr std::string_view blocked_in_match = "Not during a game";
 inline constexpr std::string_view blocked_downloads_off =
     "Downloads from {registry} are off (Settings › Downloads)";
@@ -205,13 +205,13 @@ inline constexpr std::string_view hacks_and_more = "{hacks} · {count} more";
 /// after the lookup, so the looked-up text can be a catalogue section.
 inline constexpr std::string_view list_separator = ",";
 
-// UNINSTALL (uninstall.hpp): why it is off, its question and its notices.
-/// Why UNINSTALL is off for a map pack while a game is played.
+// Uninstall (uninstall.hpp): why it is off, its question and its notices.
+/// Why Uninstall is off for a map pack while a game is played.
 inline constexpr std::string_view uninstall_off_in_game =
     "Map packs can't be uninstalled during a game.";
-/// Why UNINSTALL is off while the package is in the download queue.
+/// Why Uninstall is off while the package is in the download queue.
 inline constexpr std::string_view uninstall_off_queued =
-    "It is in the download queue: CANCEL it before you uninstall it.";
+    "It is in the download queue: Cancel it before you uninstall it.";
 /// The question's title, and the notices'.
 inline constexpr std::string_view uninstall_title = "Uninstall {name}";
 /// What the question asks, with the folder under the player's folder, as
@@ -219,14 +219,14 @@ inline constexpr std::string_view uninstall_title = "Uninstall {name}";
 inline constexpr std::string_view uninstall_ask =
     "Uninstall {name}? Its folder, {folder}, is removed.";
 inline constexpr std::string_view uninstall_ask_kept =
-    "Uninstall {name}? Its folder, {folder}, is removed, and with it the copy ROLL BACK keeps.";
+    "Uninstall {name}? Its folder, {folder}, is removed, and with it the copy Roll back keeps.";
 /// After the question: for a package a registry lists, and for the player's own.
-inline constexpr std::string_view uninstall_listed = "GET installs it again.";
+inline constexpr std::string_view uninstall_listed = "Get installs it again.";
 inline constexpr std::string_view uninstall_own =
     "No registry lists it, so the Library cannot get it again.";
 /// The notice for the mod being played.
 inline constexpr std::string_view uninstall_playing =
-    "You are playing {name}. Switch it off first with SWITCH OFF, then uninstall it.";
+    "You are playing {name}. Switch it off first with Switch off, then uninstall it.";
 /// The notice for the language pack in use.
 inline constexpr std::string_view uninstall_language =
     "The game is shown in {name}. Choose another language in Settings › Language first, then "
@@ -239,7 +239,7 @@ inline constexpr std::string_view uninstall_failed_busy =
 inline constexpr std::string_view uninstall_failed_changed =
     "Its folder changed since the Library listed it. Try again.";
 inline constexpr std::string_view uninstall_failed_link =
-    "Its folder is a link, and OA never removes what a link leads to. OPEN FOLDER shows it.";
+    "Its folder is a link, and OA never removes what a link leads to. Open folder shows it.";
 inline constexpr std::string_view uninstall_failed_outside =
     "Its folder is not in your own Open Annihilation folder, and OA removes nothing outside it.";
 inline constexpr std::string_view uninstall_failed_not_moved =
@@ -595,10 +595,10 @@ inline constexpr std::string_view queue_installing = "Installing {name}";
 inline constexpr std::string_view queue_held = "Waiting · finishes when you leave {name}";
 inline constexpr std::string_view queue_installed = "Installed {name}";
 inline constexpr std::string_view queue_updated_changes =
-    "Updated {name} · {new} changes the game's rules · ROLL BACK restores {old}";
+    "Updated {name} · {new} changes the game's rules · Roll back restores {old}";
 inline constexpr std::string_view queue_updated_unknown =
-    "Updated {name} · {new} may change the game's rules · ROLL BACK restores {old}";
-inline constexpr std::string_view queue_failed_retry = "{problem} · RETRY";
+    "Updated {name} · {new} may change the game's rules · Roll back restores {old}";
+inline constexpr std::string_view queue_failed_retry = "{problem} · Retry";
 inline constexpr std::string_view queue_then = "Then {package} · {phase}";
 inline constexpr std::string_view queue_more = "{line} · {count} more";
 inline constexpr std::string_view queue_percent = "{name} {percent}%";
@@ -666,7 +666,7 @@ inline constexpr std::string_view tag_tournament = "Tournament";
 inline constexpr std::string_view tag_mod = "Mod";
 inline constexpr std::string_view tag_legacy = "Legacy";
 /// The Compact details page's drop-down holding the actions after the first three.
-inline constexpr std::string_view more_menu = "MORE";
+inline constexpr std::string_view more_menu = "More";
 /// How many updates the Updates tab shows.
 inline constexpr std::string_view update_count_one = "{count} update";
 inline constexpr std::string_view update_count_many = "{count} updates";
@@ -685,8 +685,8 @@ inline constexpr std::string_view active_heading_expansions = "EXPANSIONS";
 inline constexpr std::string_view active_expansions_count = "EXPANSIONS · {on} OF {count} ON";
 inline constexpr std::string_view active_heading_maps = "MAPS";
 inline constexpr std::string_view active_heading_keys = "KEYS";
-inline constexpr std::string_view active_change = "CHANGE…";
-inline constexpr std::string_view active_add_from = "{name} · ADD FROM…";
+inline constexpr std::string_view active_change = "Change…";
+inline constexpr std::string_view active_add_from = "{name} · Add from…";
 inline constexpr std::string_view active_files_match = "All files match";
 inline constexpr std::string_view active_file_differs = "{count} file differs";
 inline constexpr std::string_view active_files_differ = "{count} files differ";
@@ -733,7 +733,7 @@ inline constexpr std::string_view base_note_plain =
     "Choosing another base game turns on all of its expansions. The change applies when the "
     "Library closes.";
 /// The chooser's accent button.
-inline constexpr std::string_view base_use = "USE THIS GAME";
+inline constexpr std::string_view base_use = "Use this game";
 /// The Active tab, after another base game was chosen.
 inline constexpr std::string_view base_applies = "This base game is used when the Library closes.";
 /// A copy the host could not finish.
@@ -797,19 +797,19 @@ inline constexpr std::string_view question_heading_same = "{name} {version}";
 /// "4.9"); `{To}` and `{From}` are the same with a capital first letter.
 inline constexpr std::string_view question_changes =
     "{To} changes the game's rules. Saved games from {from} won't load under {to}. {From} is "
-    "kept, and ROLL BACK brings it back.";
+    "kept, and Roll back brings it back.";
 inline constexpr std::string_view question_unknown =
     "OA can't tell whether {to} changes the game's rules. If it does, saved games from {from} "
-    "won't load under it. {From} is kept, and ROLL BACK brings it back.";
+    "won't load under it. {From} is kept, and Roll back brings it back.";
 /// After the body, for the mod being played.
 inline constexpr std::string_view question_finishes = "It finishes when you leave {name}.";
 /// UPDATE ALL's body for one update whose rules change, and for several.
 inline constexpr std::string_view question_all_one =
     "1 update changes the game's rules: {names}. Saved games from its current version won't "
-    "load under the new one. It is kept, and ROLL BACK brings it back.";
+    "load under the new one. It is kept, and Roll back brings it back.";
 inline constexpr std::string_view question_all_many =
     "{count} updates change the game's rules: {names}. Saved games from their current versions "
-    "won't load under the new ones. Each is kept, and ROLL BACK brings it back.";
+    "won't load under the new ones. Each is kept, and Roll back brings it back.";
 /// The names UPDATE ALL's body lists, then how many more it does not.
 inline constexpr std::string_view question_names_more = "{names} and {count} more";
 /// The question's Rules fact: the rules hashes before and after.
@@ -818,7 +818,7 @@ inline constexpr std::string_view question_rules_unknown = "unknown";
 inline constexpr std::string_view fact_download = "Download";
 /// One fact of the question, as a line of its text.
 inline constexpr std::string_view question_fact = "{label}: {value}";
-inline constexpr std::string_view action_not_now = "NOT NOW";
+inline constexpr std::string_view action_not_now = "Not now";
 
 // The questions about the mod played (mod_questions.hpp): SWITCH OFF's
 // Switch Mod question, the note that PLAY NOW could not switch, and ROLL
@@ -836,13 +836,13 @@ inline constexpr std::string_view expansion_off_mod =
     "{mod} needs {name}, so it is unloaded and the game plays with No Mod.";
 inline constexpr std::string_view expansion_off_maps =
     "{name}'s maps and campaigns leave the lists until you turn it on again. Nothing is deleted.";
-inline constexpr std::string_view action_turn_off = "TURN OFF";
-inline constexpr std::string_view action_switch = "SWITCH";
+inline constexpr std::string_view action_turn_off = "Turn off";
+inline constexpr std::string_view action_switch = "Switch";
 inline constexpr std::string_view action_ok = "OK";
 inline constexpr std::string_view roll_back_title = "ROLL BACK MOD";
 /// What the Roll Back Mod question asks, with the mod's title and the versions.
 inline constexpr std::string_view roll_back_ask =
-    "Roll back {title} to {to}? {from} is kept in its place, and ROLL BACK again brings it back.";
+    "Roll back {title} to {to}? {from} is kept in its place, and Roll back again brings it back.";
 /// What the Roll Back Mod question adds for the mod the game plays.
 inline constexpr std::string_view roll_back_reload =
     "The game reloads its data for the mod and returns to the main menu.";
@@ -862,15 +862,15 @@ inline constexpr std::string_view needs_which_on = "Needs {name} · on";
 inline constexpr std::string_view needs_which_are_on = "Needs {names} · on";
 inline constexpr std::string_view for_demo_only = "For the Total Annihilation demo only";
 inline constexpr std::string_view for_game_only = "For {name} only";
-inline constexpr std::string_view action_turn_on = "TURN ON {name}";
+inline constexpr std::string_view action_turn_on = "Turn on {name}";
 inline constexpr std::string_view turn_on_then_play =
-    "Turning it on applies when the Library closes, and then PLAY NOW works.";
+    "Turning it on applies when the Library closes, and then Play now works.";
 inline constexpr std::string_view turn_on_then_use =
-    "Turning it on applies when the Library closes, and then USE NOW works.";
+    "Turning it on applies when the Library closes, and then Use now works.";
 inline constexpr std::string_view turn_on_several_play =
-    "Turning them on applies when the Library closes, and then PLAY NOW works.";
+    "Turning them on applies when the Library closes, and then Play now works.";
 inline constexpr std::string_view turn_on_several_use =
-    "Turning them on applies when the Library closes, and then USE NOW works.";
+    "Turning them on applies when the Library closes, and then Use now works.";
 inline constexpr std::string_view turn_on_applies =
     "Turning it on applies when the Library closes.";
 inline constexpr std::string_view turn_on_several_applies =

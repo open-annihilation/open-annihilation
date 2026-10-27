@@ -736,7 +736,7 @@ void test_tabs_filters_tags() {
     OA_CHECK_TEXT(lib::tab_text(lib::Tab::active, false), "Active");
     OA_CHECK_TEXT(lib::filter_text(lib::Filter::installed), "Installed");
     OA_CHECK_TEXT(lib::filter_text(lib::Filter::newest), "New");
-    OA_CHECK_TEXT(lib::state_text(State::playing), "PLAYING");
+    OA_CHECK_TEXT(lib::state_text(State::playing), "Playing");
 }
 
 void test_opens_on_active() {
@@ -1113,8 +1113,8 @@ void test_entry_actions() {
             Buttons({{Action::get, true}, {Action::homepage, true}})
         );
         const std::vector<lib::ActionButton> buttons = lib::entry_actions(library, *get_entry);
-        OA_CHECK_TEXT(buttons.front().text, "GET");
-        OA_CHECK_TEXT(buttons.back().text, "HOMEPAGE");
+        OA_CHECK_TEXT(buttons.front().text, "Get");
+        OA_CHECK_TEXT(buttons.back().text, "Homepage");
     }
     const lib::Entry* update_entry = at(library, core, Kind::mod, "fixture-mod");
     if (update_entry != nullptr) {
@@ -1127,7 +1127,7 @@ void test_entry_actions() {
                                                        {Action::open_folder, true}}
                                                   )
         );
-        OA_CHECK_TEXT(lib::entry_actions(library, *update_entry)[2].text, "ROLL BACK");
+        OA_CHECK_TEXT(lib::entry_actions(library, *update_entry)[2].text, "Roll back");
     }
     const lib::Entry* own = at(library, "", Kind::mod, "own-mod");
     if (own != nullptr)
@@ -1160,12 +1160,12 @@ void test_entry_actions() {
                                                         {Action::open_folder, true}}
                                                    )
         );
-    OA_CHECK_TEXT(lib::action_text(Action::update_all), "UPDATE ALL");
-    OA_CHECK_TEXT(lib::action_text(Action::play_now), "PLAY NOW");
-    OA_CHECK_TEXT(lib::action_text(Action::switch_off), "SWITCH OFF");
+    OA_CHECK_TEXT(lib::action_text(Action::update_all), "Update all");
+    OA_CHECK_TEXT(lib::action_text(Action::play_now), "Play now");
+    OA_CHECK_TEXT(lib::action_text(Action::switch_off), "Switch off");
     OA_CHECK_TEXT(lib::action_text(Action::check_now), "Refresh");
-    OA_CHECK_TEXT(lib::action_text(Action::settings), "SETTINGS…");
-    OA_CHECK_TEXT(lib::action_text(Action::close), "CLOSE");
+    OA_CHECK_TEXT(lib::action_text(Action::settings), "Settings…");
+    OA_CHECK_TEXT(lib::action_text(Action::close), "Close");
 }
 
 void test_switch_off() {
@@ -1196,7 +1196,7 @@ void test_switch_off() {
                               )
     );
     if (const lib::Entry* entry = lib::find_entry(library, played); entry != nullptr)
-        OA_CHECK_TEXT(lib::entry_actions(library, *entry)[0].text, "SWITCH OFF");
+        OA_CHECK_TEXT(lib::entry_actions(library, *entry)[0].text, "Switch off");
     OA_CHECK(
         buttons_of(own) ==
         Buttons({{Action::play_now, true}, {Action::uninstall, true}, {Action::open_folder, true}})
@@ -1695,7 +1695,7 @@ void test_queue_lines() {
     failed.problem = "Couldn't reach Example Maps";
     failed.retryable = true;
     lines = first_line(failed);
-    OA_CHECK_TEXT(lines.first, "Couldn't reach Example Maps · RETRY");
+    OA_CHECK_TEXT(lines.first, "Couldn't reach Example Maps · Retry");
     OA_CHECK_TEXT(lines.compact, "Example Pack · failed");
     failed.retryable = false;
     OA_CHECK_TEXT(first_line(failed).first, "Couldn't reach Example Maps");
@@ -1708,7 +1708,7 @@ void test_queue_lines() {
     lines = first_line(updated);
     OA_CHECK_TEXT(
         lines.first,
-        "Updated Fixture Mod · revision 4 changes the game's rules · ROLL BACK restores revision 3"
+        "Updated Fixture Mod · revision 4 changes the game's rules · Roll back restores revision 3"
     );
     OA_CHECK_TEXT(lines.compact, "Fixture Mod · rules changed");
     updated.update_rules = lib::UpdateNote::Rules::unknown;
@@ -1717,7 +1717,7 @@ void test_queue_lines() {
     lines = first_line(updated);
     OA_CHECK_TEXT(
         lines.first,
-        "Updated Fixture Mod · 4.9 may change the game's rules · ROLL BACK restores 4.8"
+        "Updated Fixture Mod · 4.9 may change the game's rules · Roll back restores 4.8"
     );
     OA_CHECK_TEXT(lines.compact, "Fixture Mod · rules changed");
     updated.update_rules = lib::UpdateNote::Rules::same;
@@ -2034,7 +2034,7 @@ void test_base_game() {
     OA_CHECK(entry != nullptr && entry->state == State::installed);
     if (entry != nullptr) {
         OA_CHECK(actions_of(library, *entry) == Buttons({{Action::play_now, true}}));
-        OA_CHECK_TEXT(lib::entry_actions(library, *entry).front().text, "PLAY NOW");
+        OA_CHECK_TEXT(lib::entry_actions(library, *entry).front().text, "Play now");
         OA_CHECK(lib::facts(library, *entry).empty());
     }
     lib::select(library, lib::base_game_id());
@@ -2193,7 +2193,7 @@ void test_built_in_languages() {
         OA_CHECK_TEXT(lib::status_line(library, *german), "Built into the game");
         OA_CHECK(lib::facts(library, *german).empty());
         OA_CHECK(actions_of(library, *german) == Buttons({{Action::use_now, true}}));
-        OA_CHECK_TEXT(lib::entry_actions(library, *german).front().text, "USE NOW");
+        OA_CHECK_TEXT(lib::entry_actions(library, *german).front().text, "Use now");
     }
 
     // New and Updates do not list them. Mods does not either.
@@ -2284,7 +2284,7 @@ void test_built_in_languages() {
             )
         );
     OA_CHECK(lib::tab_count(library, lib::Tab::languages) == 2);
-    OA_CHECK_TEXT(lib::action_text(Action::use_now), "USE NOW");
+    OA_CHECK_TEXT(lib::action_text(Action::use_now), "Use now");
 }
 
 void test_tab_counts() {
@@ -2532,7 +2532,7 @@ void test_rolled_back_update_returns() {
     OA_CHECK(lib::update_count(library) == 1);
     OA_CHECK(lib::tab_count(library, lib::Tab::updates) == 1);
     if (row != nullptr) {
-        OA_CHECK_TEXT(lib::entry_actions(library, *row).front().text, "UPDATE");
+        OA_CHECK_TEXT(lib::entry_actions(library, *row).front().text, "Update");
         OA_CHECK(lib::entry_actions(library, *row).front().action == Action::update);
         OA_CHECK(lib::entry_actions(library, *row).front().enabled);
     }
@@ -2561,7 +2561,7 @@ void test_rolled_back_update_returns() {
     OA_CHECK(lib::update_count(library) == 1);
     OA_CHECK(lib::tab_count(library, lib::Tab::updates) == 1);
     if (row != nullptr) {
-        OA_CHECK_TEXT(lib::entry_actions(library, *row).front().text, "UPDATE");
+        OA_CHECK_TEXT(lib::entry_actions(library, *row).front().text, "Update");
         OA_CHECK(lib::entry_actions(library, *row).front().enabled);
     }
 }
@@ -2646,7 +2646,7 @@ void test_expansion_pills() {
     OA_CHECK(question.buttons.size() == 2);
     OA_CHECK(question.buttons[0].id == lib::cancel_button_id);
     OA_CHECK(question.buttons[1].id == lib::turn_off_button_id);
-    OA_CHECK(question.buttons[1].caption == "TURN OFF");
+    OA_CHECK(question.buttons[1].caption == "Turn off");
     OA_CHECK(question.paragraphs.size() == 2);
     if (question.paragraphs.size() == 2) {
         OA_CHECK(
@@ -2818,7 +2818,7 @@ void test_expansion_download() {
     OA_CHECK(units_pill != nullptr && units_pill->arrow_enabled);
     OA_CHECK(units_pill != nullptr && units_pill->download_registry == core);
     OA_CHECK(tactics != nullptr && tactics->face == lib::ExpansionFace::add);
-    OA_CHECK(tactics != nullptr && tactics->text.find("ADD FROM") != std::string::npos);
+    OA_CHECK(tactics != nullptr && tactics->text.find("Add from") != std::string::npos);
     OA_CHECK(tactics != nullptr && !tactics->arrow);
 
     const lib::ContentPress add = lib::press_expansion(library, "battle-tactics");
@@ -3307,12 +3307,12 @@ void test_package_needs() {
     const lib::ActionButton* play = button_of(before, Action::play_now);
     OA_CHECK(turn != nullptr && turn == &before.front() && turn->enabled);
     if (turn != nullptr)
-        OA_CHECK_TEXT(turn->text, "TURN ON Battle Tactics");
+        OA_CHECK_TEXT(turn->text, "Turn on Battle Tactics");
     OA_CHECK(play != nullptr && !play->enabled);
     lib::select(library, entry->id);
     OA_CHECK_TEXT(
         lib::details_note(library),
-        "Turning it on applies when the Library closes, and then PLAY NOW works."
+        "Turning it on applies when the Library closes, and then Play now works."
     );
     OA_CHECK(lib::turn_on_required(library, *entry));
     OA_CHECK(holds_id(library.content.expansions, "battle-tactics"));
@@ -3474,7 +3474,7 @@ void test_package_needs() {
         lib::select(pack_library, language_entry->id);
         OA_CHECK_TEXT(
             lib::details_note(pack_library),
-            "Turning it on applies when the Library closes, and then USE NOW works."
+            "Turning it on applies when the Library closes, and then Use now works."
         );
         OA_CHECK(lib::turn_on_required(pack_library, *language_entry));
         const std::vector<lib::ActionButton> used_buttons =
@@ -5231,7 +5231,7 @@ void test_keys() {
     lib::refresh(library, inputs);
     playing = lib::active_setup(library);
     OA_CHECK_TEXT(playing.keys_name, "Grid Test");
-    OA_CHECK_TEXT(playing.keys_badge, "USING");
+    OA_CHECK_TEXT(playing.keys_badge, "Using");
     OA_CHECK_TEXT(playing.keys_line, "· 2 changes of your own");
 
     inputs.keys_layout.clear();
@@ -5240,7 +5240,7 @@ void test_keys() {
     lib::refresh(library, inputs);
     playing = lib::active_setup(library);
     OA_CHECK_TEXT(playing.keys_name, "Grid Test");
-    OA_CHECK_TEXT(playing.keys_badge, "USING");
+    OA_CHECK_TEXT(playing.keys_badge, "Using");
     OA_CHECK_TEXT(playing.keys_with, "With Ridge: Grid Test");
     OA_CHECK_TEXT(playing.keys_line, "· 2 changes of your own");
     // The layout in use says where it is used.

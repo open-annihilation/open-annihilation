@@ -1247,7 +1247,7 @@ void Runtime::check_library_install() {
                     question.buttons[1].id == "replace" && question.marked == 0 &&
                     says(
                         "Ridge from Check Added is installed. Replace it with Ridge from Check "
-                        "Added Two? The one from Check Added is kept, and ROLL BACK brings it back."
+                        "Added Two? The one from Check Added is kept, and Roll back brings it back."
                     ),
                 "REPLACE MOD does not name both registries with CANCEL marked and REPLACE"
             );
@@ -1316,7 +1316,7 @@ void Runtime::check_library_install() {
                     question.marked == 0 && question.paragraphs.size() == 1 &&
                     question.paragraphs[0].text ==
                         "Roll back Ridge to 1.0 revision 3? 1.0 revision 4 is kept in its place, "
-                        "and ROLL BACK again brings it back.",
+                        "and Roll back again brings it back.",
                 "ROLL BACK's question is not the Roll Back Mod question for Ridge"
             );
         }
@@ -1377,7 +1377,7 @@ void Runtime::check_library_install() {
         const fs::path cinder = packages / "cinder.oamod";
         write_package(cinder, profile_text(kCinder, "Cinder", "1.0", 1), 1);
         const std::string own_reason =
-            "Mods/cinder is a folder of your own, not Cinder. Move or rename it, then RETRY.";
+            "Mods/cinder is a folder of your own, not Cinder. Move or rename it, then Retry.";
         {
             const uint32_t shown = state.prompts_shown;
             post_catalogue(cinder, kBuiltIn, kCinder, "Cinder", 1);
@@ -2024,7 +2024,7 @@ void Runtime::check_library_install() {
         require(
             notice_says(
                 "Uninstall Lattice",
-                "You are playing Lattice. Switch it off first with SWITCH OFF, then uninstall it."
+                "You are playing Lattice. Switch it off first with Switch off, then uninstall it."
             ),
             "UNINSTALL of the mod being played did not say to switch it off first"
         );
@@ -2103,9 +2103,9 @@ void Runtime::check_library_install() {
         press_action("uninstall");
         asks_uninstall(
             "Uninstall Basalt",
-            "Uninstall Basalt? Its folder, Mods/basalt, is removed, and with it the copy ROLL BACK "
+            "Uninstall Basalt? Its folder, Mods/basalt, is removed, and with it the copy Roll back "
             "keeps.",
-            "GET installs it again."
+            "Get installs it again."
         );
         tap(SDLK_ESCAPE);
         require(
@@ -2335,7 +2335,7 @@ void Runtime::check_library_install() {
                         shown.paragraphs[1].text ==
                             "Gatehouse Keep needs it: it stays installed, and cannot be switched "
                             "on until this is back." &&
-                        shown.paragraphs[2].text == "GET installs it again.",
+                        shown.paragraphs[2].text == "Get installs it again.",
                     "uninstalling Gatehouse did not say Gatehouse Keep needs it"
                 );
             }
@@ -2589,7 +2589,7 @@ void Runtime::check_library_install() {
                 shown.paragraphs.size() == 2 &&
                     shown.paragraphs[0].text == "Uninstall Fast Builders? Its folder, "
                                                 "Mutators/fast-builders, is removed." &&
-                    shown.paragraphs[1].text == "GET installs it again.",
+                    shown.paragraphs[1].text == "Get installs it again.",
                 "the question does not say what it removes"
             );
             require(
@@ -3041,7 +3041,7 @@ void Runtime::check_library_install() {
                     shown.paragraphs[1].text ==
                         "It is your default computer player: new computer seats go back to the "
                         "built-in player." &&
-                    shown.paragraphs[2].text == "GET installs it again.",
+                    shown.paragraphs[2].text == "Get installs it again.",
                 "the question does not name the default brain"
             );
         }
