@@ -1001,7 +1001,7 @@ void draw_cap(
         letter_side > 0
             ? std::min(
                   std::max(letter_side, measure_text(local, FontRole::small, look.letter)),
-                  rect.width / 2
+                  rect.width - 2
               )
             : 0;
     if (letter_side > 0) {
