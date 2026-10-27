@@ -39,8 +39,9 @@ using oa::ui::frontend_renderer::SourceRect;
 
 /// The width of the dialog's raised edge.
 inline constexpr int32_t edge = oa::ui::kit::compact_metrics.edge;
-/// The header's height, under the top edge.
-inline constexpr int32_t header_height = oa::ui::kit::compact_metrics.header_height;
+/// The header's height, under the top edge: Kit 2's window header, the same
+/// in every size class.
+inline constexpr int32_t header_height = oa::ui::kit::compact_metrics.window_header_height;
 /// The footer's height, over the bottom edge.
 inline constexpr int32_t footer_height = oa::ui::kit::compact_metrics.footer_height;
 /// The header's first row.
@@ -55,7 +56,7 @@ inline constexpr int32_t body_top = header_rule_row + 1;
 /// Compact's place from the dialog's left edge in every size class.
 inline constexpr SourceRect header_mark{
     oa::ui::kit::compact_metrics.padding,
-    oa::ui::kit::compact_metrics.mark_top,
+    header_top + (header_height - oa::ui::kit::compact_metrics.mark_side) / 2,
     oa::ui::kit::compact_metrics.mark_side,
     oa::ui::kit::compact_metrics.mark_side
 };
@@ -101,8 +102,8 @@ struct NavMetrics {
 /// kit::SizeClass. Compact's list of eleven sections fits its room; Regular's
 /// and Large's fit every section the engine lists.
 inline constexpr std::array<NavMetrics, 3> nav_metrics{{
-    {19, 0, 3, 6, 7, 9, 19, 0},
-    {25, 1, 4, 8, 12, 14, 33, 0},
+    {18, 0, 3, 6, 7, 9, 19, 0},
+    {25, 1, 3, 6, 12, 14, 33, 0},
     {32, 1, 5, 10, 14, 16, 38, 0},
 }};
 

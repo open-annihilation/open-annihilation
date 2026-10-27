@@ -473,8 +473,8 @@ At Compact it is 480 by 324 source pixels, a dark gunmetal panel with a
 one-pixel raised edge and hairline rules, and one green accent for what is
 selected, laid out on Kit 2 ([Sizes](#sizes)):
 
-- the header: the icon it was given, 20 by 20 source pixels, "OPEN
-  ANNIHILATION SETTINGS" and the version, with "Shared game - still
+- the header, 36 pixels high: the icon it was given, 20 by 20 source
+  pixels, "OPEN ANNIHILATION SETTINGS" and the version, with "Shared game - still
   running" in amber while a shared game keeps running;
 - the sections down the left in four groups, a hairline between two: what
   the player plays with (Controls, Accessibility, Touch while the game has
@@ -504,16 +504,16 @@ selected, laid out on Kit 2 ([Sizes](#sizes)):
   right against Cancel and OK.
 
 A section holds any number of rows. They lie in a view under the section's
-heading, from the first row's line at pixel row 54 down to the pixel row
-above the footer's line, 220 pixels high at Compact; the header, the list, the heading
+heading, from the first row's line at pixel row 64 down to the pixel row
+above the footer's line, 210 pixels high at Compact; the header, the list, the heading
 and the footer never move. A section whose rows, with 8 clear pixels under
 the last row's line, are taller than the view scrolls by whole source
 pixels, and shows a scroll bar in the margin right of its rows: a well like
 a switch's, its thumb as tall as the view's share of the section and never
-under 16 pixels. At Compact, Graphics is taller than its view by 988
-pixels, Controls, with the key layout card, by 383, User Interface, with
-Window size and Reset window positions, by 230, Language & Text by 204,
-Engine Limits by 149 and Touch by 137; a section that fits draws as if
+under 16 pixels. At Compact, Graphics is taller than its view by 998
+pixels, Controls, with the key layout card, by 393, User Interface, with
+Window size and Reset window positions, by 240, Language & Text by 214,
+Engine Limits by 159 and Touch by 147; a section that fits draws as if
 there were no scrolling, with no bar. While the dialog's words are drawn in the modern fonts, as in
 Simplified Chinese, whose ideographs stand as tall as a hint line, the
 lines of a hint or a notice lie three pixels further apart
@@ -755,7 +755,7 @@ notices and its prompts.
 | Up, Down | the focus to the control above or below |
 | Left, Right | a switch Off or On, a slider, a level strip or a drop-down one step, Your files' mark along its buttons, a row of Developer's list, Show Active Only; from any other control, the focus to the control on that side |
 | Space | flips a switch, presses a button, opens a section or a drop-down's list |
-| Page Down, Page Up | scroll the section 200 pixels down or up |
+| Page Down, Page Up | scroll the section a view less three hint lines down or up: 174 pixels at Compact |
 | End, Home | scroll the section to its end or its top |
 
 While a drop-down's list is open, the keys work the list: Up and Down mark
@@ -848,7 +848,8 @@ the UI kit's metrics (`kit::compact_metrics`, `kit::regular_metrics`,
 | Settings dialog | 480 by 324 | 720 by 486 | 960 by 600 |
 | Padding | 12 | 18 | 24 |
 | Section list's width | 144 | 176 | 208 |
-| Section entry's height | 19 | 25 | 32 |
+| Section entry's height | 18 | 25 | 32 |
+| Header's height | 36 | 36 | 36 |
 | Footer's buttons' height | 28 | 34 | 38 |
 | Footer's height | 48 | 48 | 48 |
 | Characters a line of a host's text under a row | 50 | 82 | 114 |
@@ -860,7 +861,8 @@ The sizes are Kit 2's metrics (`kit::Metrics::window_padding`,
 `nav_width`, `control_height`, `window_footer_height`, `space`); the
 section list's own entry heights and icon places are
 `geometry::nav_metrics`. The pixel pins (`ui-engine-settings-pixels`) hold
-Compact. The window's header stays the kit's 26 rows at every class. Every other
+Compact. The window's header is Kit 2's 36 points at every class
+(`window_header_height`, given to the kit as `HeaderLook::height`). Every other
 size is the same in all three classes: rows keep their height, and text,
 switches, strips, drop-down fields, buttons and the slider's line keep
 theirs, so a larger dialog shows more rows and scrolls less
@@ -1558,9 +1560,9 @@ their own in place of their numbers.
 The practice pad answers keys only where the host hands them over
 (`dialog_practice_key`, `dialog_practice_tick`); the OA layer's settings
 screen does not yet, so on screen the pad shows its words and Turn every
-helper off works, but a key pressed there does nothing. The window's header
-is the kit's 26 rows, not Kit 2's 36, until the kit's header takes a
-height. The rows' older buttons (CHOOSE…, MANAGE…, SHOW, RESET and the
+helper off works, but a key pressed there does nothing. At Compact,
+Developer's list keeps a view of 37 pixels between its line and Show
+Active Only, about two of its rows. The rows' older buttons (CHOOSE…, MANAGE…, SHOW, RESET and the
 like) keep their capitals until their words and translations change
 together.
 

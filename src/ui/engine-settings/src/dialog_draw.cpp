@@ -254,6 +254,7 @@ kit::HeaderLook dialog_header(const Dialog& dialog) {
     header.second = std::string(layout::shown_text(layout::title_suffix_text));
     header.second_width = layout::title_suffix_width;
     header.right_inset = oa::ui::kit::compact_metrics.button_height + layout::header_gap;
+    header.height = layout::header_height;
     // The close mark keeps the header's right. While a shared game is still
     // running, that note is the line the player needs, and the version gives
     // way so the note is not cut.

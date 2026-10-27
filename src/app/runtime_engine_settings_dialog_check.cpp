@@ -153,9 +153,9 @@ static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each
 /// Graphics' scroll limit at Compact: its twenty-one rows, Smooth motion and
 /// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
 /// Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 988;
+constexpr int32_t kGraphicsScrollLimit = 998;
 /// Graphics' scroll limit at Large, whose taller view holds more of its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 616;
+constexpr int32_t kGraphicsLargeScrollLimit = 626;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -1208,7 +1208,7 @@ void Runtime::check_engine_settings_dialog() {
         require(!renderer_waits(sdl_.renderer), "the renderer waits for the display at Off");
         focus(settings::first_row_control + 4, "Vertical sync");
         require(
-            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 88,
+            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 98,
             "the focus on Vertical sync did not scroll Graphics to show it"
         );
         require(
@@ -1850,7 +1850,9 @@ void Runtime::check_engine_settings_dialog() {
         };
         click_at(beside.x - placement().x, beside.y - placement().y);
         require(engine_settings().touch_haptics, "a mouse press beside Haptics' switch took it");
-        finger_click({beside.x - reach, beside.y});
+        // A finger the reach farther left, and half of it higher so that
+        // Cancel under the row stays out of reach too, takes nothing.
+        finger_click({beside.x - reach, beside.y - reach / 2});
         require(engine_settings().touch_haptics, "a finger's press out of reach took Haptics");
         finger_click(beside);
         require(
@@ -3022,7 +3024,8 @@ void Runtime::check_engine_settings_window_sizes() {
                 sized->page == settings::Page::user_interface,
                 "a click on User Interface's entry did not show it" + on
             );
-            tap(SDLK_END);
+            // A page down shows Interface size's row whole at every class.
+            tap(SDLK_PAGEDOWN);
             const int32_t row_control = settings::first_row_control + kInterfaceSizeRow;
             click_control(row_control, {}, "Interface size's field");
             require(
@@ -3172,13 +3175,13 @@ void Runtime::check_engine_settings_window_sizes() {
         // Large, 1x; then Auto goes back.
         const std::string fractional = "Interface size 150%" + on;
         const int32_t size_row = settings::first_row_control + kInterfaceSizeRow;
-        // Opens Interface size's drop-down on User Interface, at its end,
+        // Opens Interface size's drop-down on User Interface, a page down,
         // where the field shows whole.
         const auto open_sizes = [&](settings::Dialog& shown_dialog) {
             click_control(
                 settings::page_control(settings::Page::user_interface), {}, "User Interface's entry"
             );
-            tap(SDLK_END);
+            tap(SDLK_PAGEDOWN);
             click_control(size_row, {}, "Interface size's field");
             require(
                 shown_dialog.open_list == size_row,
