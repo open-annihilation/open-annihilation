@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The layout, category and MORE menus. The layout builds them and the input
+// The layout, category and More menus. The layout builds them and the input
 // walks the same entries, so a key and a press agree on which item is which.
 #pragma once
 
@@ -37,7 +37,7 @@ struct MenuEntry {
 };
 
 /// The items of the menu that is open. Compact's category menu also holds
-/// the filters. No menu is open for `Menu::none`, which gives nothing.
+/// the filters, and Compact's More the layouts. No menu is open for `Menu::none`, which gives nothing.
 ///
 /// @param editor the editor
 /// @param menu which menu

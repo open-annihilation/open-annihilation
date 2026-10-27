@@ -98,6 +98,9 @@ struct Row {
     std::vector<oa::ui::key_bindings::Chord> chords{}; ///< the chords in use, at most four
     bool read_only{false};                             ///< an action this version does not know
     std::string category{};                            ///< the category id the row belongs to
+    /// The category's title, for a row listed outside its own category, as
+    /// Common commands lists it; empty in the row's own category.
+    std::string area{};
 };
 
 /// One chord in the details, and why it is bound.
@@ -128,6 +131,9 @@ struct Details {
     bool read_only{false};                 ///< nothing here can be changed
     kit::KeyTint tint{kit::KeyTint::none}; ///< the category tint
     std::string letter{};                  ///< the category letter
+    /// The action's id and, for an order, the word on its 3.1c order button,
+    /// as "order.attack · ATTACK": the names a player may know it by.
+    std::string technical{};
 };
 
 /// How many actions each filter keeps, across every category.
@@ -272,6 +278,37 @@ struct ImportPreview {
     std::string tool{};                                          ///< imported-from tool
     std::string file{};                                          ///< imported-from file
     std::string date{}; ///< imported-from date; the host sets it
+};
+
+/// The most changes Undo keeps. An older change can no longer be undone.
+inline constexpr std::size_t undo_limit = 100;
+
+class Editor;
+
+/// Makes every change to the draft while it lives one step of Undo.
+///
+/// Each of the editor's own changes is a step. A caller that makes several
+/// changes for one choice of the player, such as a capture that moves a key
+/// off another action, holds one of these around them, so that Undo takes
+/// them back together. Steps nest: only the outermost one counts. A step
+/// that changed nothing leaves nothing for Undo.
+class EditStep {
+  public:
+
+    /// Starts a step: remembers the draft as it is, unless a step is already open.
+    ///
+    /// @param editor the editor whose draft changes
+    explicit EditStep(Editor& editor);
+
+    /// Ends the step: forgets the remembered draft when nothing changed.
+    ~EditStep();
+
+    EditStep(const EditStep&) = delete;
+    EditStep& operator=(const EditStep&) = delete;
+
+  private:
+
+    Editor& editor_;
 };
 
 /// The editor. Rows are what resolution would put in use. Nothing is written
@@ -552,7 +589,37 @@ class Editor {
     /// @return true when this was a paste clash
     bool settle_paste_clash(const oa::ui::key_bindings::Clash& clash, Settle which);
 
+    /// Takes back the last step of changes: the draft, the helpers, the
+    /// number-keys switch, the scheme and the layout return to what they were
+    /// before it. Nothing is written.
+    ///
+    /// @return true when a step was taken back
+    bool undo();
+
+    /// True when Undo has a step to take back.
+    ///
+    /// @return true when undo() would change the draft
+    [[nodiscard]] bool can_undo() const noexcept;
+
   private:
+
+    friend class EditStep;
+
+    /// Everything one step of Undo puts back.
+    struct Draft {
+        oa::ui::key_bindings::Layout own{};
+        oa::formats::oakeys::Helpers helpers{};
+        bool number_keys{false};
+        bool has_chosen{false};
+        LayoutSummary chosen{};
+        std::vector<LayoutSummary> installed{};
+        std::vector<std::string> written{};
+        std::vector<HeldClash> held_clashes{};
+        std::optional<oa::formats::oakeys::ImportedFrom> imported_from{};
+        oa::ui::key_bindings::PointerScheme scheme{
+            oa::ui::key_bindings::PointerScheme::right_click
+        };
+    };
 
     struct Snapshot {
         std::string layout_id{};
@@ -576,7 +643,21 @@ class Editor {
     Snapshot opened_{};
     std::vector<HeldClash> held_clashes_{}; ///< paste clashes SAVE is waiting on
     std::optional<oa::formats::oakeys::ImportedFrom> imported_from_{}; ///< what an import recorded
-    std::string share_name_{}; ///< the name SHARE… is packing
+    std::string share_name_{};  ///< the name SHARE… is packing
+    std::vector<Draft> undo_{}; ///< the draft before each step, the latest last
+    uint32_t step_depth_{0};    ///< how many EditStep are open
+
+    /// The draft as it is now.
+    ///
+    /// @return a copy of everything Undo puts back
+    [[nodiscard]] Draft draft_now() const;
+
+    /// A text that differs whenever two drafts differ, so a step that changed
+    /// nothing is forgotten.
+    ///
+    /// @param draft the draft
+    /// @return the text
+    [[nodiscard]] static std::string draft_print(const Draft& draft);
 
     /// Resolves the base, the chosen layout, the mod's data and the draft.
     ///
@@ -955,18 +1036,5 @@ bool settle(Editor& editor, const oa::ui::key_bindings::Clash& clash, Settle whi
 /// @return one row per action
 [[nodiscard]] std::vector<ChordUse>
 find_by_chord(const Editor& editor, const oa::ui::key_bindings::Chord& chord);
-
-/// The chord a focused, empty search should list, or nothing when the key types.
-///
-/// A chord with Ctrl, Alt, Meta or Primary, a function key, Print Screen,
-/// Pause, Insert, Page Up, Page Down, Home, End, a numpad key, or a mouse
-/// side button is a search. A plain letter, digit or punctuation mark is not,
-/// and neither is a lock or a modifier key on its own.
-///
-/// @param editor the platform and the keyboard
-/// @param event the key or the button
-/// @return the chord, or nothing when the search should take the key as text
-[[nodiscard]] std::optional<oa::ui::key_bindings::Chord>
-chord_to_find(const Editor& editor, const oa::ui::key_bindings::InputEvent& event);
 
 } // namespace oa::ui::key_editor

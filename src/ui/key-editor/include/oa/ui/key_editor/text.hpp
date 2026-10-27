@@ -309,7 +309,7 @@ inline constexpr std::string_view choose_another = "CHOOSE ANOTHER KEY…";
 inline constexpr std::string_view keep_leaves = "Keep it here leaves {name} with {chord}.";
 
 /// The view tabs.
-inline constexpr std::string_view view_list = "List";
+inline constexpr std::string_view view_list = "Commands";
 inline constexpr std::string_view view_keyboard = "Keyboard";
 inline constexpr std::string_view view_mouse = "Mouse";
 /// The layer strip. Nothing is the catalogue's word.
@@ -514,6 +514,151 @@ inline constexpr std::string_view import_moves =
 inline constexpr std::string_view numbers_are_places =
     "Numbers are Windows key codes, read as key places. The changes go on top of your layout as "
     "\"Imported from {file}\". Nothing else changes.";
+
+// Commands first: the list, Find by key, the capture's outcomes, the one way
+// a clash is settled, the draft and its Undo, and the keyboard inspector.
+
+/// The category the editor opens on: the commands most players change.
+inline constexpr std::string_view common_commands = "Common commands";
+/// The last category: every action, the registry's whole list.
+inline constexpr std::string_view all_actions = "All actions";
+/// The search field, while it is empty. Typing searches commands only.
+inline constexpr std::string_view search_commands = "Search commands";
+/// The button that listens for a key and lists what uses it.
+inline constexpr std::string_view find_by_key = "Find by key";
+/// Find by key's line before a key is pressed.
+inline constexpr std::string_view find_press =
+    "Press a key or a mouse button to see what it does. Nothing is changed.";
+/// Find by key's line for a chord in use. `{chord}` is the chord and `{n}` a number.
+inline constexpr std::string_view find_uses = "{chord} is used in {n} places. Nothing is changed.";
+/// The same line for a chord used once.
+inline constexpr std::string_view find_uses_one = "{chord} is used in 1 place. Nothing is changed.";
+/// Find by key's line for a chord nothing uses.
+inline constexpr std::string_view find_free = "{chord} is free: nothing uses it.";
+/// Under Find by key's list: how to look up another chord.
+inline constexpr std::string_view find_again = "Click the key, then press another to look it up.";
+/// Find by key's footer.
+inline constexpr std::string_view find_escape = "Escape closes · hold Escape to look it up";
+/// A Find by key row's link: choose that action in the list.
+inline constexpr std::string_view open_action = "Open ›";
+/// Closes Find by key.
+inline constexpr std::string_view close_title = "Close";
+/// The capture's eyebrow while a chord is changed. `{context}` is where it is read.
+inline constexpr std::string_view change_eyebrow = "Change a key · {context}";
+/// The capture's eyebrow while a key is added.
+inline constexpr std::string_view add_eyebrow = "Add a key · {context}";
+/// The capture's title. `{action}` is the action.
+inline constexpr std::string_view new_key_for = "New key for {action}";
+/// Under a finished chord: the well takes a press to listen again.
+inline constexpr std::string_view try_another = "Click the key to try another.";
+/// The capture's and the details' disclosure.
+inline constexpr std::string_view more_options = "More options";
+/// The capture's switch: the key's place rather than its letter.
+inline constexpr std::string_view same_place = "Same place on every keyboard";
+/// The capture's gesture label.
+inline constexpr std::string_view how_it_acts = "How it acts";
+/// The capture's primary button for a free chord. `{chord}` and `{action}`.
+inline constexpr std::string_view use_for = "Use {chord} for {action}";
+/// The capture's badge for a chord in use. `{chord}` and `{context}`.
+inline constexpr std::string_view in_use = "{chord} is in use {context}";
+/// Under that badge. `{name}` is every other action.
+inline constexpr std::string_view in_use_by = "{name} uses it. Nothing changes until you choose.";
+/// The capture's primary button for a chord in use.
+inline constexpr std::string_view choose_outcome = "Choose what happens…";
+/// The clash question's title. `{chord}` is the chord.
+inline constexpr std::string_view already_in_use = "{chord} is already in use";
+/// The clash question's sentence. `{name}` and `{context}`.
+inline constexpr std::string_view uses_it =
+    "{name} uses it {context}. Choose what happens; nothing changes until you confirm.";
+/// The draft clash's sentence. `{name}` is the other action and `{context}` where both are read.
+inline constexpr std::string_view both_use =
+    "Here and {name} both use it {context}. Choose which keeps it; nothing changes until you "
+    "confirm.";
+/// An outcome: the chord leaves the other action. `{action}` takes it.
+inline constexpr std::string_view move_it_to = "Move it to {action}";
+/// An outcome: the two actions trade chords.
+inline constexpr std::string_view swap_them = "Swap them";
+/// An outcome: one action keeps the shared chord. `{action}` keeps it.
+inline constexpr std::string_view keep_it_for = "Keep it for {action}";
+/// The confirm button of Move it. `{action}` takes the chord.
+inline constexpr std::string_view move_to = "Move to {action}";
+/// What an action is left with when it gives up its only chord.
+inline constexpr std::string_view no_key = "no key";
+/// Back to the capture from the clash question.
+inline constexpr std::string_view choose_another_key = "Choose another key";
+/// A use of the chord that never meets this action's. `{chord}`, `{name}`,
+/// `{context}` (where that one is read) and `{where}` (where this one is).
+inline constexpr std::string_view also_used =
+    "{chord} also does {name} {context}. That never meets {where}, so it stays.";
+/// The details' button that opens the clash question for a draft clash.
+inline constexpr std::string_view settle_button = "Settle…";
+/// A chord's button in the details: capture another for it.
+inline constexpr std::string_view change_button = "Change…";
+/// The details' button that adds a chord.
+inline constexpr std::string_view add_a_key = "+ Add a key";
+/// The details' foot while the action has no change of the player's. `{layout}`.
+inline constexpr std::string_view from_layout = "From {layout}";
+/// The details' foot while the player changed the action.
+inline constexpr std::string_view your_change_on = "Your change, over {layout}";
+/// The details' button that drops the player's change.
+inline constexpr std::string_view reset_title = "Reset";
+/// The details' fact that names the action's id and its 3.1c word.
+inline constexpr std::string_view known_as = "Known as";
+/// The footer's draft line. `{n}` is a number.
+inline constexpr std::string_view unsaved_edits = "{n} unsaved edits";
+/// The same line for one edit.
+inline constexpr std::string_view unsaved_edit_one = "1 unsaved edit";
+/// The footer's draft line while nothing is unsaved.
+inline constexpr std::string_view no_unsaved = "No unsaved edits";
+/// Compact's draft line. `{n}` is a number.
+inline constexpr std::string_view unsaved_short = "{n} unsaved";
+/// The footer's button that takes back the last change.
+inline constexpr std::string_view undo = "Undo";
+/// The footer's menu of the rarer layout actions.
+inline constexpr std::string_view more_title = "More";
+/// The footer's button that closes without saving.
+inline constexpr std::string_view cancel_title = "Cancel";
+/// The footer's primary button.
+inline constexpr std::string_view save_changes = "Save changes";
+/// More's items.
+inline constexpr std::string_view restore_title = "Restore defaults";
+inline constexpr std::string_view import_button = "Import…";
+inline constexpr std::string_view share_button = "Share…";
+inline constexpr std::string_view paste_button = "Paste…";
+/// The close question. `{n}` is a number.
+inline constexpr std::string_view close_question = "Save your {n} edits before closing?";
+/// The same question for one edit.
+inline constexpr std::string_view close_question_one = "Save your edit before closing?";
+/// The close question's buttons.
+inline constexpr std::string_view save_word = "Save";
+inline constexpr std::string_view discard = "Discard";
+inline constexpr std::string_view keep_editing_title = "Keep editing";
+/// The keyboard's switch to the list of every key, and back.
+inline constexpr std::string_view show_as_list = "Show as list";
+inline constexpr std::string_view show_keyboard = "Show keyboard";
+/// The inspector's heading. `{key}` is the key.
+inline constexpr std::string_view what_key_does = "What {key} does";
+/// The inspector's line for a context the key does nothing in.
+inline constexpr std::string_view does_nothing = "Nothing";
+/// The inspector's button for the key's action while playing. `{action}`.
+inline constexpr std::string_view change_action_key = "Change {action}'s key…";
+/// The inspector's button for the action chosen in the list. `{key}`, `{action}`.
+inline constexpr std::string_view use_key_for = "Use {key} for {action}…";
+/// The inspector while no key is chosen.
+inline constexpr std::string_view select_a_key = "Select a key to see everything on it.";
+/// Under the keyboard.
+inline constexpr std::string_view grey_keys_free =
+    "Grey keys are free while playing. Select a key to see what it does in each place.";
+/// A keycap's mark for the player's own change, in the legend.
+inline constexpr std::string_view your_change_mark = "Your change";
+/// The details' button, under More options, that outlines the action's keys.
+inline constexpr std::string_view find_on_keyboard_title = "Find on keyboard";
+/// The Library's notice after USE, for every game. `{layout}` is the layout.
+inline constexpr std::string_view using_everywhere = "Using {layout} for every game.";
+/// The same notice for one mod. `{layout}` and `{mod}`.
+inline constexpr std::string_view using_with_mod = "Using {layout} with {mod}.";
+/// The details' draft clash, beside Settle…. `{name}` and `{context}`.
+inline constexpr std::string_view here_and_there = "Here and {name} both use it {context}.";
 
 /// The keys overlay's title while a match is being played.
 inline constexpr std::string_view keys_while_playing = "Keys while playing";

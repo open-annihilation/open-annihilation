@@ -2376,17 +2376,12 @@ void Runtime::replay_order_wheel(bool& running) {
 }
 
 bool Runtime::feed_input_actions(const SDL_Event& event) {
-    // A capture or a clash prompt takes the key itself. Nothing is fed, so no
-    // action fires, and a key-up still reaches the prompt (Escape cancels).
+    // A capture, a clash question or Find by key takes the key itself.
+    // Nothing is fed, so no action fires, and a key-up still reaches the
+    // prompt (Escape cancels).
     if (key_editor_capturing()) {
         if (event.type == SDL_EVENT_KEY_UP)
             key_editor_capture_event(event);
-        return false;
-    }
-    // An empty, focused search lists a chord and does not do what it names.
-    // The screen still sees the key. A stale action from the last feed must
-    // not fire in its place.
-    if (key_editor_find_swallows(event)) {
         if (key_bindings_state_ != nullptr)
             key_bindings_state_->events.clear();
         return false;
@@ -3257,7 +3252,7 @@ uint32_t Runtime::latched_action_count() const {
     return count;
 }
 
-void Runtime::apply_library_key_use(
+Runtime::LibraryKeyUseUndo Runtime::apply_library_key_use(
     const oa::ui::library::KeyUseResult& used,
     const oa::ui::library::KeyUse& question,
     std::string_view played_mod_id
@@ -3266,6 +3261,26 @@ void Runtime::apply_library_key_use(
                                       ? std::string("oa-default")
                                       : used.layout.key;
     const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+    LibraryKeyUseUndo undo;
+    undo.mod_id = std::string(played_mod_id);
+    {
+        const auto shared = preference_values_.find(std::string(layout_preference));
+        if (shared != preference_values_.end())
+            undo.layout_before = shared->second;
+        if (!played_mod_id.empty()) {
+            const auto per = preference_values_.find(
+                std::string(layout_preference) + "." + std::string(played_mod_id)
+            );
+            if (per != preference_values_.end())
+                undo.mod_layout_before = per->second;
+        }
+    }
+    undo.settings_before = engine_settings();
+    if (key_bindings_state_ != nullptr) {
+        undo.toggle_before = key_bindings_state_->toggle;
+        undo.hold_before = key_bindings_state_->hold_to_confirm;
+    }
+    undo.applied = true;
 
     // Keep copies the own file of the layout in use onto the new one. Aside,
     // and a new layout that already has its own file, write nothing. The old
@@ -3288,12 +3303,19 @@ void Runtime::apply_library_key_use(
             const fs::path own_file =
                 keys_folder / library::own_folder_name(source) / std::string(oakeys::manifest_file);
             const ReadLayout read = read_layout_file(own_file);
+            const fs::path made = keys_folder / library::own_folder_name(layout_id);
+            std::error_code there;
+            const bool existed = fs::exists(made, there);
             if (read.ok) {
                 oakeys::Manifest manifest = read.manifest;
                 manifest.id = std::string("own-") + layout_id;
                 std::string error;
-                if (!library::write_own(keys_folder, layout_id, manifest, error) && !error.empty())
+                if (library::write_own(keys_folder, layout_id, manifest, error)) {
+                    if (!existed)
+                        undo.created_own = layout_id;
+                } else if (!error.empty()) {
                     std::cerr << "open-annihilation: library: " << error << '\n';
+                }
             }
         }
     }
@@ -3342,6 +3364,7 @@ void Runtime::apply_library_key_use(
             }
         }
         if (changed) {
+            undo.settings_changed = true;
             apply_engine_settings(chosen);
             if (const std::optional<std::string> problem =
                     save_engine_settings(opened, chosen, false))
@@ -3381,7 +3404,7 @@ void Runtime::apply_library_key_use(
     }
     load_key_bindings();
     if (key_bindings_state_ == nullptr)
-        return;
+        return undo;
 
     const auto listed = [](const std::vector<std::string>& ids, std::string_view id) {
         for (const std::string& have : ids)
@@ -3440,6 +3463,69 @@ void Runtime::apply_library_key_use(
         }
         refresh_settings_key_layout_summary(*open);
     }
+    return undo;
+}
+
+void Runtime::undo_library_key_use(const LibraryKeyUseUndo& undo) {
+    if (!undo.applied)
+        return;
+    const auto put_back = [this](const std::string& key, const std::optional<std::string>& before) {
+        const auto found = preference_values_.find(key);
+        if (before) {
+            if (found == preference_values_.end() || found->second != *before) {
+                preference_values_[key] = *before;
+                preferences_dirty_ = true;
+            }
+        } else if (found != preference_values_.end()) {
+            preference_values_.erase(found);
+            preferences_dirty_ = true;
+        }
+    };
+    put_back(std::string(layout_preference), undo.layout_before);
+    if (!undo.mod_id.empty())
+        put_back(std::string(layout_preference) + "." + undo.mod_id, undo.mod_layout_before);
+    if (preferences_dirty_)
+        save_preferences();
+
+    if (undo.settings_changed) {
+        const oa::ui::engine_settings::EngineSettings now = engine_settings();
+        apply_engine_settings(undo.settings_before);
+        if (const std::optional<std::string> problem =
+                save_engine_settings(now, undo.settings_before, false))
+            std::cerr << "open-annihilation: library: " << *problem << '\n';
+    }
+
+    // Only a folder USE made goes; the player's own changes anywhere else stay.
+    if (!undo.created_own.empty() && safe_layout_id(undo.created_own) && !user_folder_.empty()) {
+        const fs::path keys_folder = user_folder_ / std::string(library::keys_folder_name);
+        std::error_code failed;
+        fs::remove_all(keys_folder / library::own_folder_name(undo.created_own), failed);
+        if (failed)
+            std::cerr << "open-annihilation: library: " << failed.message() << '\n';
+    }
+
+    if (key_bindings_state_ != nullptr)
+        key_bindings_state_->signature.clear();
+    load_key_bindings();
+    if (key_bindings_state_ != nullptr) {
+        key_bindings_state_->toggle = undo.toggle_before;
+        key_bindings_state_->hold_to_confirm = undo.hold_before;
+        ensure_key_bindings(false);
+    }
+    if (oa::ui::engine_settings::Dialog* open = engine_settings_dialog())
+        refresh_settings_key_layout_summary(*open);
+}
+
+oa::ui::key_bindings::KeyboardMap Runtime::key_map() const {
+    if (key_bindings_state_ == nullptr)
+        return oa::ui::key_bindings::KeyboardMap::us();
+    return key_bindings_state_->dispatcher.keyboard();
+}
+
+oa::ui::key_bindings::ModData Runtime::key_mod_data() const {
+    if (key_bindings_state_ == nullptr)
+        return {};
+    return gui_mod_data(key_bindings_state_->order_stem);
 }
 
 namespace {

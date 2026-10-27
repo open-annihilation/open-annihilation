@@ -74,6 +74,7 @@
 #include "oa/ui/library/prerequisites.hpp"
 #include "oa/ui/library/screen.hpp"
 #include "oa/ui/library/text.hpp"
+#include "oa/ui/key_editor/text.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -106,6 +107,8 @@ namespace oa::app {
 namespace settings = oa::ui::engine_settings;
 namespace kit = oa::ui::kit;
 namespace library = oa::ui::library;
+namespace key_editor = oa::ui::key_editor;
+namespace key_words = oa::ui::key_editor::words;
 namespace mutators = oa::data::mutators;
 
 namespace {
@@ -598,16 +601,21 @@ oa::ui::key_bindings::Platform shown_key_platform() noexcept {
 }
 
 /// Returns a chord as the Library's lists show it: its keycaps, and its
-/// gesture apart. The keyboard is the US one, so a key written by its place
-/// shows the letter it prints there.
+/// gesture apart. A key written by its place shows the letter the keyboard
+/// prints there.
 ///
 /// @param chord the chord
+/// @param map the keyboard the keycaps are read on; the US one when not given
 /// @return the keycaps and the gesture
-library::KeyChord shown_chord(const oa::ui::key_bindings::Chord& chord) {
-    static const oa::ui::key_bindings::KeyboardMap map = oa::ui::key_bindings::KeyboardMap::us();
+library::KeyChord shown_chord(
+    const oa::ui::key_bindings::Chord& chord, const oa::ui::key_bindings::KeyboardMap* map = nullptr
+) {
+    static const oa::ui::key_bindings::KeyboardMap us = oa::ui::key_bindings::KeyboardMap::us();
+    if (map == nullptr)
+        map = &us;
     library::KeyChord shown;
     std::vector<oa::ui::key_bindings::KeyCap> caps =
-        oa::ui::key_bindings::keycaps(chord, map, shown_key_platform());
+        oa::ui::key_bindings::keycaps(chord, *map, shown_key_platform());
     if (chord.gesture != oa::ui::key_bindings::Gesture::press && !caps.empty()) {
         shown.gesture = std::move(caps.back().text);
         caps.pop_back();
@@ -689,13 +697,23 @@ read_key_layout(const data::key_library::Listing& listing, std::string_view id) 
 using FirstChords =
     std::map<std::string, std::optional<oa::ui::key_bindings::BoundChord>, std::less<>>;
 
+/// How the player's keys are read: their keyboard, the played mod's letters
+/// and the interface.
+struct KeyReading {
+    /// The keyboard the bindings read keys on.
+    oa::ui::key_bindings::KeyboardMap map{oa::ui::key_bindings::KeyboardMap::us()};
+    oa::ui::key_bindings::ModData mod{}; ///< the played mod's button keys and letters
+    bool left_click{false};              ///< the player uses the left-click interface
+};
+
 /// Resolves a layout with its own changes and keeps each command's first chord.
 ///
 /// @param layout the layout and the own changes on it
-/// @param left_click the player uses the left-click interface
+/// @param reading the player's keyboard, the mod's letters and the interface
 /// @return each command's first chord, none for a command with no chord
-FirstChords first_chords(const LayoutWithOwn& layout, bool left_click) {
-    static const oa::ui::key_bindings::KeyboardMap map = oa::ui::key_bindings::KeyboardMap::us();
+FirstChords first_chords(const LayoutWithOwn& layout, const KeyReading& reading) {
+    const bool left_click = reading.left_click;
+    const oa::ui::key_bindings::KeyboardMap& map = reading.map;
     oa::ui::key_bindings::ResolveInput input;
     input.base = layout.base;
     input.chosen = layout.layout ? &*layout.layout : nullptr;
@@ -704,6 +722,7 @@ FirstChords first_chords(const LayoutWithOwn& layout, bool left_click) {
                               : oa::ui::key_bindings::PointerScheme::right_click;
     input.platform = shown_key_platform();
     input.keyboard = &map;
+    input.mod = &reading.mod;
     const oa::ui::key_bindings::Resolved resolved = oa::ui::key_bindings::resolve(input);
     FirstChords firsts;
     for (const oa::ui::key_bindings::Bound& bound : resolved.actions) {
@@ -723,10 +742,15 @@ FirstChords first_chords(const LayoutWithOwn& layout, bool left_click) {
 ///
 /// @param before the chords now
 /// @param after the chords afterwards
+/// @param map the keyboard the keycaps are read on
 /// @param[out] total how many commands differ
 /// @return the moves
-std::vector<library::KeyMove>
-moves_between(const FirstChords& before, const FirstChords& after, uint32_t& total) {
+std::vector<library::KeyMove> moves_between(
+    const FirstChords& before,
+    const FirstChords& after,
+    const oa::ui::key_bindings::KeyboardMap& map,
+    uint32_t& total
+) {
     struct Listed {
         std::size_t area{};
         uint16_t order{};
@@ -753,9 +777,9 @@ moves_between(const FirstChords& before, const FirstChords& after, uint32_t& tot
         one.order = action->order;
         one.move.command = std::string(action->words.name);
         if (old)
-            one.move.before = shown_chord(old->chord);
+            one.move.before = shown_chord(old->chord, &map);
         if (chord) {
-            one.move.after = shown_chord(chord->chord);
+            one.move.after = shown_chord(chord->chord, &map);
             one.move.own = chord->step == oa::ui::key_bindings::Step::own;
         }
         listed.push_back(std::move(one));
@@ -782,13 +806,13 @@ moves_between(const FirstChords& before, const FirstChords& after, uint32_t& tot
 /// @param keys_folder the player's Keys folder
 /// @param from the layout in use: a package key, or "oa-default"
 /// @param to the layout USE names: a package key, or "oa-default"
-/// @param left_click the player uses the left-click interface
+/// @param reading the player's keyboard, the mod's letters and the interface
 /// @return the moves; not known when either layout cannot be read
 library::KeyMoves key_moves_between(
     const std::filesystem::path& keys_folder,
     std::string_view from,
     std::string_view to,
-    bool left_click
+    const KeyReading& reading
 ) {
     library::KeyMoves moves;
     if (keys_folder.empty())
@@ -822,9 +846,10 @@ library::KeyMoves key_moves_between(
     LayoutWithOwn kept = clean;
     if (!kept.own)
         kept.own = now.own;
-    const FirstChords before = first_chords(now, left_click);
-    moves.kept = moves_between(before, first_chords(kept, left_click), moves.kept_total);
-    moves.clean = moves_between(before, first_chords(clean, left_click), moves.clean_total);
+    const FirstChords before = first_chords(now, reading);
+    moves.kept = moves_between(before, first_chords(kept, reading), reading.map, moves.kept_total);
+    moves.clean =
+        moves_between(before, first_chords(clean, reading), reading.map, moves.clean_total);
     moves.known = true;
     return moves;
 }
@@ -2242,7 +2267,11 @@ Runtime::LibraryHost& Runtime::library_host() {
                 user_folder_.empty()
                     ? std::filesystem::path{}
                     : user_folder_ / std::string(data::key_library::keys_folder_name);
-            return key_moves_between(keys_folder, from, to, pointer_interface_is_left_click());
+            KeyReading reading;
+            reading.map = key_map();
+            reading.mod = key_mod_data();
+            reading.left_click = pointer_interface_is_left_click();
+            return key_moves_between(keys_folder, from, to, reading);
         };
         // The pictures are kept beside the cached catalogues.
         const std::filesystem::path content_folder = content_service().content_folder();
@@ -4342,9 +4371,51 @@ struct Runtime::LibraryScreen final : LayerScreen {
             const std::optional<library::KeyUseResult> used = library::key_use_result(host.model);
             if (!used)
                 return false;
-            runtime_.apply_library_key_use(*used, host.model.key_use, host.model.inputs.played.id);
+            const library::Entry* named = library::find_entry(host.model, used->layout);
+            const std::string layout_name =
+                named != nullptr ? std::string(library::entry_name(*named)) : used->layout.key;
+            const std::string mod_name = host.model.key_use.mod_name;
+            Runtime::LibraryKeyUseUndo undo = runtime_.apply_library_key_use(
+                *used, host.model.key_use, host.model.inputs.played.id
+            );
             library::close_key_use(host.model);
             host.rebuild(runtime_);
+            // A notice says where the layout is now used, and Undo puts back
+            // everything USE changed.
+            oa::ui::kit::Question told;
+            told.title = std::string(shown_word(nullptr, key_words::keys));
+            oa::ui::kit::Paragraph line;
+            line.text = key_editor::fill(
+                shown_word(
+                    nullptr, used->for_mod ? key_words::using_with_mod : key_words::using_everywhere
+                ),
+                {{"layout", layout_name}, {"mod", mod_name}}
+            );
+            told.paragraphs.push_back(std::move(line));
+            oa::ui::kit::QuestionButton ok;
+            ok.caption = std::string(shown_word(nullptr, key_words::ok));
+            ok.accent = true;
+            ok.id = "ok";
+            told.buttons.push_back(std::move(ok));
+            oa::ui::kit::QuestionButton take_back;
+            take_back.caption = std::string(shown_word(nullptr, key_words::undo));
+            take_back.id = "undo";
+            told.buttons.push_back(std::move(take_back));
+            told.primary_button = 0;
+            told.cancel_button = 0;
+            QuestionScreen::Host answers;
+            answers.answer = [&runtime = runtime_, &host, undo = std::move(undo)](int32_t button) {
+                if (button == 1) {
+                    runtime.undo_library_key_use(undo);
+                    host.rebuild(runtime);
+                }
+                return true;
+            };
+            answers.tick = [&runtime = runtime_] { return runtime.screen_ != Screen::main_menu; };
+            OaLayer& layer = runtime_.oa_layer();
+            layer.push(
+                std::make_unique<QuestionScreen>(layer, Screen::main_menu, std::move(told), answers)
+            );
             return false;
         }
         case library::Action::edit_keys:

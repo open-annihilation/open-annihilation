@@ -128,12 +128,12 @@ bool chord_row(kit::ControlId id) {
 /// True when a control id is one of the details' own controls.
 ///
 /// @param id the control
-/// @return true for Latch, Hold, Reset, a chord, + ADD KEY or the clash card
+/// @return true for Latch, Hold, Reset, a chord, + Add a key, More options or Settle…
 bool detail_control(kit::ControlId id) {
     return id == controls::detail_latch || id == controls::detail_confirm ||
            id == controls::detail_reset || id == controls::detail_add ||
-           id == controls::detail_find || id == controls::card_here || id == controls::card_there ||
-           id == controls::card_choose || chord_remove(id) || chord_row(id);
+           id == controls::detail_find || id == controls::detail_more ||
+           id == controls::card_settle || chord_remove(id) || chord_row(id);
 }
 
 void close_prompt(ScreenState& state);
@@ -141,9 +141,14 @@ void open_share(Editor& editor, ScreenState& state);
 void open_import(ScreenState& state);
 void focus_finished(const Editor& editor, ScreenState& state);
 void start_capture(const Editor& editor, ScreenState& state, std::optional<std::size_t> replacing);
+void start_finding(ScreenState& state);
+EditorResult confirm_clash(Editor& editor, ScreenState& state);
+EditorResult open_settle(Editor& editor, ScreenState& state);
+EditorResult choose_found(Editor& editor, ScreenState& state, std::size_t index);
 void show_view(Editor& editor, ScreenState& state, View shown);
 void find_on_keyboard(const Editor& editor, ScreenState& state);
 EditorResult press_picture_key(Editor& editor, ScreenState& state, std::string code);
+EditorResult press_card_button(Editor& editor, ScreenState& state, bool use);
 EditorResult press_mouse_button(Editor& editor, ScreenState& state, int index);
 EditorResult press_mouse_row(Editor& editor, ScreenState& state, int index);
 EditorResult move_key(ScreenState& state, const kit::DisplayList& list, kit::Key pressed);
@@ -682,6 +687,38 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         find_on_keyboard(editor, state);
         return redrawn();
     }
+    if (id == controls::find) {
+        start_finding(state);
+        return redrawn();
+    }
+    if (id == controls::find_close) {
+        close_prompt(state);
+        return redrawn();
+    }
+    if (id >= controls::find_row_first && id < controls::keyboard_first)
+        return choose_found(editor, state, static_cast<std::size_t>(id - controls::find_row_first));
+    if (id == controls::undo) {
+        if (!editor.undo())
+            return {};
+        state.details_scroll = 0;
+        return redrawn();
+    }
+    if (id == controls::detail_more) {
+        state.details_more = !state.details_more;
+        return redrawn();
+    }
+    if (id == controls::capture_more) {
+        state.capture_more = !state.capture_more;
+        return redrawn();
+    }
+    if (id == controls::show_as_list) {
+        state.keys_as_list = !state.keys_as_list;
+        state.key_list_scroll = 0;
+        focus_on(state, controls::show_as_list);
+        return redrawn();
+    }
+    if (id == controls::card_change || id == controls::card_use)
+        return press_card_button(editor, state, id == controls::card_use);
     if (id >= controls::keyboard_first && id < controls::mouse_first) {
         const std::string code = code_of_key(state, id);
         if (code.empty())
@@ -857,17 +894,49 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
     }
     if (id == controls::capture_ok)
         return press_ok(editor, state);
-    if (id == controls::clash_replace)
-        return finish_apply(editor, state, ClashChoice::replace);
-    if (id == controls::clash_swap)
-        return finish_apply(editor, state, ClashChoice::swap);
-    if (id == controls::capture_letter || id == controls::capture_place) {
+    // An outcome is only marked. The confirm button applies it.
+    if (id == controls::clash_replace || id == controls::card_here) {
+        state.outcome = 0;
+        focus_on(state, id);
+        return redrawn();
+    }
+    if (id == controls::clash_swap || id == controls::card_there) {
+        state.outcome = 1;
+        focus_on(state, id);
+        return redrawn();
+    }
+    if (id == controls::clash_confirm)
+        return confirm_clash(editor, state);
+    if (id == controls::clash_another) {
+        if (state.settling) {
+            const std::string here = state.pending_clash.a;
+            const keys::Chord chord = state.pending_clash.chord;
+            close_prompt(state);
+            state.selected = here;
+            const std::optional<std::size_t> at = index_of_chord(editor, here, chord);
+            if (!at)
+                return redrawn();
+            start_capture(editor, state, at);
+            return redrawn();
+        }
+        // Back to the capture: the same action, listening again.
+        state.prompt = Prompt::capture;
+        state.pending_clash = {};
+        state.outcome = 0;
+        state.capture.chord.reset();
+        state.capture.state = CaptureState::waiting;
+        state.capture.escape_down_ms = 0;
+        state.capture.held_modifiers = 0;
+        focus_on(state, controls::capture_cancel);
+        return redrawn();
+    }
+    if (id == controls::capture_means) {
         set_means(
             state.capture,
             editor,
-            id == controls::capture_letter ? acts::By::letter : acts::By::place
+            state.capture.means == acts::By::place ? acts::By::letter : acts::By::place
         );
-        focus_finished(editor, state);
+        focus_on(state, controls::capture_means);
         return redrawn();
     }
     if (id == controls::capture_press || id == controls::capture_double ||
@@ -881,29 +950,8 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         focus_finished(editor, state);
         return redrawn();
     }
-    if (id == controls::card_here || id == controls::card_there) {
-        const std::optional<keys::Clash> clash = editor.draft_clash(state.selected);
-        if (!clash)
-            return {};
-        settle(editor, *clash, id == controls::card_here ? Settle::keep_here : Settle::keep_there);
-        state.details_scroll = 0;
-        return redrawn();
-    }
-    if (id == controls::card_choose) {
-        const std::optional<keys::Clash> clash = editor.draft_clash(state.selected);
-        if (!clash)
-            return {};
-        const std::optional<std::size_t> at = index_of_chord(editor, state.selected, clash->chord);
-        if (!at)
-            return {};
-        start_capture(editor, state, at);
-        return redrawn();
-    }
-    if (id == controls::search_chord) {
-        state.search_chord.reset();
-        state.list_scroll = 0;
-        return redrawn();
-    }
+    if (id == controls::card_settle)
+        return open_settle(editor, state);
     if (id == controls::search) {
         focus_on(state, controls::search);
         return redrawn();
@@ -999,11 +1047,6 @@ menu_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
 EditorResult escape_key(Editor& editor, ScreenState& state) {
     if (state.menu != Menu::none) {
         close_menu(state);
-        return redrawn();
-    }
-    if (state.search_chord) {
-        state.search_chord.reset();
-        state.list_scroll = 0;
         return redrawn();
     }
     if (!state.search.text.empty()) {
@@ -1188,6 +1231,10 @@ void close_prompt(ScreenState& state) {
     state.prompt = Prompt::none;
     state.capture = Capture{};
     state.pending_clash = {};
+    state.settling = false;
+    state.outcome = 0;
+    state.capture_more = false;
+    state.finding = Capture{};
     state.exchange_scroll = 0;
 }
 
@@ -1223,6 +1270,10 @@ void open_import(ScreenState& state) {
 /// @param[in,out] state the focus
 void focus_finished(const Editor& editor, ScreenState& state) {
     static_cast<void>(editor);
+    if (state.prompt == Prompt::find) {
+        focus_on(state, controls::find_close);
+        return;
+    }
     if (state.prompt != Prompt::capture)
         return;
     if (state.capture.state == CaptureState::complete || state.capture.state == CaptureState::clash)
@@ -1345,7 +1396,52 @@ std::string face_action(const Editor& editor, std::string_view code, uint8_t lay
     return {};
 }
 
-/// Fills a capture for a free key and leaves OK to bind it.
+/// The chord one key of the picture makes in a layer, for an action that
+/// reads a letter or a place.
+///
+/// @param editor the keyboard and the platform
+/// @param layer the layer's bit
+/// @param code the W3C code
+/// @param by whether the action reads the letter or the key's place
+/// @return the chord, or nothing for a key no chord can name
+std::optional<keys::Chord>
+chord_of_key(const Editor& editor, uint8_t layer, std::string_view code, acts::By by) {
+    const std::optional<uint16_t> scan = keys::scancode_of(code);
+    keys::Chord chord;
+    chord.modifiers = binding_modifiers(layer, editor.platform());
+    chord.gesture = keys::Gesture::press;
+    char32_t printed = 0;
+    if (scan)
+        printed = editor.keyboard().printed(*scan);
+    char32_t upper = printed;
+    if (upper >= U'a' && upper <= U'z')
+        upper = upper - U'a' + U'A';
+    const bool letter = by == acts::By::letter && upper >= U'A' && upper <= U'Z';
+    if (letter) {
+        chord.kind = keys::TriggerKind::character;
+        chord.character = upper;
+        if (scan)
+            chord.scancode = *scan;
+        return chord;
+    }
+    if (scan) {
+        for (const keys::NamedKeySpec& spec : keys::named_keys()) {
+            if (spec.scancode != *scan)
+                continue;
+            chord.kind = keys::TriggerKind::named;
+            chord.named = static_cast<uint8_t>(spec.id);
+            chord.scancode = spec.scancode;
+            return chord;
+        }
+        chord.kind = keys::TriggerKind::place;
+        chord.scancode = *scan;
+        return chord;
+    }
+    return std::nullopt;
+}
+
+/// Fills a capture for the action chosen in the list with one key of the
+/// picture, and leaves its primary button to bind it.
 ///
 /// @param[in,out] editor the draft
 /// @param[in,out] state the prompt
@@ -1357,49 +1453,12 @@ bool complete_key(Editor& editor, ScreenState& state, std::string_view code) {
     const acts::Action* action = acts::find(state.selected);
     if (action == nullptr)
         return false;
-    const std::optional<uint16_t> scan = keys::scancode_of(code);
-    start_capture(editor, state, std::nullopt);
-    keys::Chord chord;
-    chord.modifiers = binding_modifiers(state.layer, editor.platform());
-    chord.gesture = keys::Gesture::press;
-    char32_t printed = 0;
-    if (scan)
-        printed = editor.keyboard().printed(*scan);
-    char32_t upper = printed;
-    if (upper >= U'a' && upper <= U'z')
-        upper = upper - U'a' + U'A';
-    const bool letter = action->by == acts::By::letter && upper >= U'A' && upper <= U'Z';
-    bool named = false;
-    uint8_t named_id = 0;
-    uint16_t named_scan = 0;
-    if (scan) {
-        for (const keys::NamedKeySpec& spec : keys::named_keys()) {
-            if (spec.scancode != *scan)
-                continue;
-            named = true;
-            named_id = static_cast<uint8_t>(spec.id);
-            named_scan = spec.scancode;
-        }
-    }
-    if (letter) {
-        chord.kind = keys::TriggerKind::character;
-        chord.character = upper;
-        if (scan)
-            chord.scancode = *scan;
-        state.capture.means = acts::By::letter;
-    } else if (named) {
-        chord.kind = keys::TriggerKind::named;
-        chord.named = named_id;
-        chord.scancode = named_scan;
-        state.capture.means = acts::By::place;
-    } else if (scan) {
-        chord.kind = keys::TriggerKind::place;
-        chord.scancode = *scan;
-        state.capture.means = acts::By::place;
-    } else {
-        close_prompt(state);
+    std::optional<keys::Chord> chord = chord_of_key(editor, state.layer, code, action->by);
+    if (!chord)
         return false;
-    }
+    start_capture(editor, state, std::nullopt);
+    state.capture.means =
+        chord->kind == keys::TriggerKind::character ? acts::By::letter : acts::By::place;
     state.capture.chord = std::move(chord);
     state.capture.held_modifiers = state.capture.chord->modifiers;
     set_gesture(state.capture, editor, keys::Gesture::press);
@@ -1489,27 +1548,55 @@ std::string playing_role(const Editor& editor, std::string_view word) {
     return {};
 }
 
-/// Presses one key of the picture: a bound key is chosen, a free key is captured.
+/// Presses one key of the picture: the inspector shows everything on it.
+/// Nothing is changed; the inspector's buttons change a key.
 ///
 /// @param[in,out] editor the draft
 /// @param[in,out] state the screen's state
 /// @param code the W3C code
 /// @return what the host is to do
 EditorResult press_picture_key(Editor& editor, ScreenState& state, std::string code) {
+    static_cast<void>(editor);
     state.focus_code = code;
     state.card_code = code;
     state.finger_armed = false;
     const kit::ControlId id = key_control(state, code);
     if (id != kit::no_control)
         focus_on(state, id);
+    return redrawn();
+}
+
+/// The inspector's buttons. Change {action}'s key… opens the capture for the
+/// chord the key holds; Use {key} for {action}… fills the capture for the
+/// action chosen in the list with this key.
+///
+/// @param[in,out] editor the draft
+/// @param[in,out] state the screen's state
+/// @param use true for Use {key} for {action}…
+/// @return what the host is to do
+EditorResult press_card_button(Editor& editor, ScreenState& state, bool use) {
+    const std::string code = state.card_code.empty() ? state.focus_code : state.card_code;
+    if (code.empty())
+        return {};
+    if (use)
+        return complete_key(editor, state, code) ? redrawn() : EditorResult{};
     const std::string bound = face_action(editor, code, state.layer);
-    if (!bound.empty()) {
-        state.selected = bound;
-        state.details_scroll = 0;
+    if (bound.empty())
+        return {};
+    state.selected = bound;
+    state.details_scroll = 0;
+    const acts::Action* action = acts::find(bound);
+    const std::optional<keys::Chord> chord =
+        chord_of_key(editor, state.layer, code, action != nullptr ? action->by : acts::By::letter);
+    std::optional<std::size_t> at;
+    if (chord)
+        at = index_of_chord(editor, bound, *chord);
+    const Details details = editor.details(bound);
+    if (details.read_only || (at && details.chords[*at].fixed))
         return redrawn();
-    }
-    if (complete_key(editor, state, code))
+    if (!at && details.chords.size() >= 4)
         return redrawn();
+    start_capture(editor, state, at);
     return redrawn();
 }
 
@@ -1767,7 +1854,8 @@ EditorResult finish_apply(Editor& editor, ScreenState& state, ClashChoice choice
     return redrawn();
 }
 
-/// OK on the capture: a free chord is bound, a clash opens the question.
+/// The capture's primary button: a free chord is bound, a chord in use opens
+/// the clash question with its first outcome marked and nothing changed.
 ///
 /// @param[in,out] editor the draft
 /// @param[in,out] state the prompt
@@ -1782,15 +1870,97 @@ EditorResult press_ok(Editor& editor, ScreenState& state) {
             state.pending_clash.b == state.capture.action)
             std::swap(state.pending_clash.a, state.pending_clash.b);
         state.prompt = Prompt::clash;
-        if (state.capture.replacing)
-            focus_on(state, controls::clash_swap);
-        else
-            focus_on(state, controls::clash_replace);
+        state.settling = false;
+        state.outcome = 0;
+        focus_on(state, controls::clash_confirm);
         return redrawn();
     }
     if (state.capture.state != CaptureState::complete)
         return {};
     return finish_apply(editor, state, ClashChoice::replace);
+}
+
+/// The clash question's confirm button: applies the marked outcome.
+///
+/// @param[in,out] editor the draft
+/// @param[in,out] state the question
+/// @return what the host is to do
+EditorResult confirm_clash(Editor& editor, ScreenState& state) {
+    if (state.prompt != Prompt::clash)
+        return {};
+    if (state.settling) {
+        const keys::Clash clash = state.pending_clash;
+        if (!settle(editor, clash, state.outcome == 0 ? Settle::keep_here : Settle::keep_there))
+            return {};
+        state.selected = clash.a;
+        state.details_scroll = 0;
+        close_prompt(state);
+        return redrawn();
+    }
+    const bool swap = state.outcome == 1 && state.capture.replacing.has_value();
+    return finish_apply(editor, state, swap ? ClashChoice::swap : ClashChoice::replace);
+}
+
+/// Settle… on a draft clash: the clash question, its first outcome marked.
+///
+/// @param editor the draft clash
+/// @param[in,out] state the question
+/// @return what the host is to do
+EditorResult open_settle(Editor& editor, ScreenState& state) {
+    const std::optional<keys::Clash> clash = editor.draft_clash(state.selected);
+    if (!clash)
+        return {};
+    state.menu = Menu::none;
+    state.prompt = Prompt::clash;
+    state.pending_clash = *clash;
+    state.settling = true;
+    state.outcome = 0;
+    focus_on(state, controls::clash_confirm);
+    return redrawn();
+}
+
+/// Opens Find by key, listening for a chord.
+///
+/// @param[in,out] state the prompt
+void start_finding(ScreenState& state) {
+    state.menu = Menu::none;
+    state.prompt = Prompt::find;
+    state.finding = Capture{};
+    focus_on(state, controls::find_close);
+}
+
+/// A Find by key row's Open ›: chooses that action in the list and closes.
+/// The list shows the action's own category when the open one lacks it.
+///
+/// @param editor the rows
+/// @param[in,out] state the list
+/// @param index the row's place, from 0
+/// @return what the host is to do
+EditorResult choose_found(Editor& editor, ScreenState& state, std::size_t index) {
+    if (state.prompt != Prompt::find || !state.finding.chord)
+        return {};
+    const std::vector<ChordUse> uses = find_by_chord(editor, *state.finding.chord);
+    if (index >= uses.size())
+        return {};
+    const std::string id = uses[index].id;
+    close_prompt(state);
+    state.view = View::list;
+    state.details_page = false;
+    state.selected = id;
+    state.details_scroll = 0;
+    bool listed = false;
+    for (const Row& row : editor.rows(state.category, state.filter, state.search.text)) {
+        if (row.id == id)
+            listed = true;
+    }
+    if (!listed) {
+        state.category = "all";
+        state.filter = Filter::all;
+        state.search = {};
+    }
+    state.list_scroll = 0;
+    focus_on(state, controls::list);
+    return redrawn();
 }
 
 /// The place of a chord among an action's chords.
@@ -1854,6 +2024,23 @@ EditorResult prompt_pointer(
     }
     const kit::Control* well = kit::control_of(list, controls::capture_well);
     const bool in_well = well != nullptr && kit::contains(well->rect, at);
+    const kit::Control* find_well = kit::control_of(list, controls::find_well);
+    const bool in_find_well = find_well != nullptr && kit::contains(find_well->rect, at);
+    if (kind == PointerKind::down && state.prompt == Prompt::find && in_find_well && button >= 1 &&
+        button <= 8) {
+        // A button in the well is the chord looked up, or listens again once
+        // one is showing.
+        if (!state.finding.chord) {
+            keys::InputEvent event;
+            event.kind = keys::InputKind::button;
+            event.down = true;
+            event.button = stored_button(button);
+            capture_button(state.finding, editor, event);
+            return redrawn();
+        }
+        state.finding = Capture{};
+        return redrawn();
+    }
     if (kind == PointerKind::down) {
         if (state.prompt == Prompt::capture && in_well && button >= 1 && button <= 8) {
             if (state.capture.state == CaptureState::waiting) {
@@ -1957,24 +2144,6 @@ EditorResult editor_pointer(
         return {};
     }
     if (kind == PointerKind::down) {
-        const uint8_t numbered = stored_button(button);
-        if (numbered >= 4 && state.interaction.focused == controls::search &&
-            state.search.text.empty()) {
-            const kit::Control* field = kit::control_of(list, controls::search);
-            if (field != nullptr && kit::contains(field->rect, at)) {
-                keys::InputEvent event;
-                event.kind = keys::InputKind::button;
-                event.down = true;
-                event.button = numbered;
-                if (std::optional<keys::Chord> found = chord_to_find(editor, event)) {
-                    state.search_chord = std::move(*found);
-                    state.search.text.clear();
-                    state.search.caret = 0;
-                    state.list_scroll = 0;
-                    return redrawn();
-                }
-            }
-        }
         if (button != 1)
             return {};
         const kit::ControlId under = kit::hit(list, at);
@@ -2188,8 +2357,6 @@ EditorResult editor_text(
         return {};
     if (state.interaction.focused != controls::search)
         return {};
-    if (state.search_chord)
-        state.search_chord.reset();
     if (!kit::insert_text(state.search, utf8))
         return {};
     state.list_scroll = 0;
@@ -2237,6 +2404,22 @@ EditorResult editor_wheel(
             return redrawn();
         }
         return {};
+    }
+    if (state.view == View::keyboard && state.keys_as_list) {
+        const kit::Control* keys_list = kit::control_of(list, controls::key_list);
+        if (keys_list != nullptr && kit::contains(keys_list->rect, at)) {
+            const int32_t line = std::max(kit::metrics_of(size_of(list)).small_line, int32_t{1});
+            int32_t rows = 0;
+            for (const kit::KeyPlace& place : kit::keyboard_places(state.shape))
+                rows += static_cast<int32_t>(key_card(editor, place.code, state.layer).size());
+            const int32_t limit = std::max(rows * line - keys_list->rect.height / 2, int32_t{0});
+            const int32_t delta = notches > 0 ? -line * 3 : line * 3;
+            const int32_t next = std::clamp(state.key_list_scroll + delta, int32_t{0}, limit);
+            if (next == state.key_list_scroll)
+                return {};
+            state.key_list_scroll = next;
+            return redrawn();
+        }
     }
     if (state.view == View::keyboard && in_keyboard_well(list, at)) {
         const int32_t step = 24;
@@ -2294,6 +2477,12 @@ EditorResult editor_command(
             return {};
         return asked(EditorAction::save, {}, false);
     }
+    if (command == EditorCommand::undo) {
+        if (!editor.undo())
+            return {};
+        state.details_scroll = 0;
+        return redrawn();
+    }
     return {};
 }
 
@@ -2306,6 +2495,25 @@ editor_stick(Editor& editor, ScreenState& state, const kit::DisplayList& list, f
 
 EditorResult
 editor_capture_input(Editor& editor, ScreenState& state, const keys::InputEvent& event) {
+    if (state.prompt == Prompt::find) {
+        // Find by key listens as the capture does, for an action of its own.
+        // A finished chord is listed; a tap of Escape closes.
+        if (state.finding.chord)
+            return {};
+        if (event.kind == keys::InputKind::key) {
+            const CaptureEvent happened = capture_key(state.finding, editor, event);
+            if (happened == CaptureEvent::cancelled) {
+                close_prompt(state);
+                return redrawn();
+            }
+            return happened == CaptureEvent::changed ? redrawn() : EditorResult{};
+        }
+        if (event.kind == keys::InputKind::button)
+            capture_button(state.finding, editor, event);
+        else if (event.kind == keys::InputKind::wheel)
+            capture_wheel(state.finding, editor, event);
+        return state.finding.chord ? redrawn() : EditorResult{};
+    }
     if (state.prompt != Prompt::capture || state.capture.state != CaptureState::waiting)
         return {};
     if (event.kind == keys::InputKind::key) {
@@ -2342,6 +2550,12 @@ editor_capture_input(Editor& editor, ScreenState& state, const keys::InputEvent&
 }
 
 EditorResult editor_capture_tick(Editor& editor, ScreenState& state, uint64_t now_ms) {
+    if (state.prompt == Prompt::find) {
+        if (state.finding.chord || state.finding.escape_down_ms == 0)
+            return {};
+        capture_tick(state.finding, editor, now_ms);
+        return state.finding.chord ? redrawn() : EditorResult{};
+    }
     if (state.prompt != Prompt::capture || state.capture.state != CaptureState::waiting)
         return {};
     if (state.capture.escape_down_ms == 0)

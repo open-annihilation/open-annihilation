@@ -87,6 +87,21 @@ constexpr std::size_t kClipboardCap = 256 * 1024;
 /// One byte past the legacy reader's limit, so a longer file is reported.
 constexpr std::size_t kLegacyReadCap = 64 * 1024 + 1;
 
+/// True for Primary+Z, the editor's Undo: the command key on macOS, Ctrl elsewhere.
+///
+/// @param sdl_key the key code
+/// @param modifiers the SDL modifier bits
+/// @return true for that chord
+bool undo_key(uint32_t sdl_key, uint16_t modifiers) noexcept {
+    if (sdl_key != SDLK_Z || (modifiers & SDL_KMOD_SHIFT) != 0)
+        return false;
+#ifdef SDL_PLATFORM_MACOS
+    return (modifiers & SDL_KMOD_GUI) != 0;
+#else
+    return (modifiers & SDL_KMOD_CTRL) != 0;
+#endif
+}
+
 /// True when this run must not open a file dialog.
 ///
 /// @param unattended the command line asked for no questions
@@ -357,7 +372,9 @@ kit::Question keep_question(const editor::Editor& model, std::string_view id) {
     return question;
 }
 
-/// The question that asks before unsaved changes are left.
+/// The question that asks before unsaved edits are closed: Save, Discard or
+/// Keep editing. While a clash holds Save back, the question says so and
+/// offers Discard and Keep editing.
 ///
 /// @param model the editor
 /// @return the question, named prompt
@@ -365,18 +382,30 @@ kit::Question leave_question(const editor::Editor& model) {
     const editor::TextHooks& hooks = model.text();
     const std::string count = std::to_string(model.unsaved());
     const std::string_view pattern =
-        model.unsaved() == 1 ? editor::words::leave_question_one : editor::words::leave_question;
+        model.unsaved() == 1 ? editor::words::close_question_one : editor::words::close_question;
     kit::Question question;
     question.title = editor::show(hooks, editor::words::keys);
     kit::Paragraph body;
     body.text = editor::fill(editor::show(hooks, pattern), {{"n", count}});
     question.paragraphs.push_back(std::move(body));
-    question.buttons.push_back(question_button(hooks, editor::words::leave, true, "leave"));
+    const std::size_t clashes = model.draft_clashes();
+    if (clashes != 0) {
+        kit::Paragraph settle;
+        settle.text = clashes == 1 ? editor::show(hooks, editor::words::settle_one)
+                                   : editor::fill(
+                                         editor::show(hooks, editor::words::settle),
+                                         {{"n", std::to_string(clashes)}}
+                                     );
+        question.paragraphs.push_back(std::move(settle));
+    } else {
+        question.buttons.push_back(question_button(hooks, editor::words::save_word, true, "save"));
+    }
+    question.buttons.push_back(question_button(hooks, editor::words::discard, false, "discard"));
     question.buttons.push_back(
-        question_button(hooks, editor::words::keep_editing, false, "keep-editing")
+        question_button(hooks, editor::words::keep_editing_title, false, "keep-editing")
     );
     question.primary_button = 0;
-    question.cancel_button = 1;
+    question.cancel_button = static_cast<int32_t>(question.buttons.size()) - 1;
     question.marked = 0;
     return question;
 }
@@ -1229,6 +1258,8 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             state_.filter = *request.filter;
         else if (editor_.draft_clashes() != 0 || !editor_.draft_takes().empty())
             state_.filter = editor::Filter::clashes;
+        if (state_.filter != editor::Filter::all)
+            state_.category = "all";
         if (!request.select.empty())
             state_.selected = std::move(request.select);
         else if (state_.filter == editor::Filter::clashes && state_.selected.empty()) {
@@ -1330,43 +1361,36 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         return take(editor::editor_key(editor_, state_, list_, pressed));
     }
 
-    /// While a capture is waiting, every key is the chord's, including
-    /// Escape. Once the chord is finished the prompt is an ordinary dialog.
-    /// An empty, focused search takes a chord with a modifier, or a key that
-    /// types nothing, and lists what that chord does.
+    /// While a capture or Find by key is listening, every key is the
+    /// chord's, including Escape. Once the chord is finished the prompt is an
+    /// ordinary dialog.
     ///
     /// @param sdl_key the key code
     /// @param modifiers the SDL modifier bits
     /// @return what the editor did; pass when the key is ordinary text
     LayerAnswer shortcut(uint32_t sdl_key, uint16_t modifiers) override {
-        if (state_.prompt == editor::Prompt::capture &&
-            state_.capture.state == editor::CaptureState::waiting) {
+        const bool listening = (state_.prompt == editor::Prompt::capture &&
+                                state_.capture.state == editor::CaptureState::waiting) ||
+                               (state_.prompt == editor::Prompt::find && !state_.finding.chord);
+        if (listening) {
             const keys::InputEvent event =
                 capture_key_event(sdl_key, modifiers, true, false, capture_scancode(sdl_key));
             return take(editor::editor_capture_input(editor_, state_, event));
         }
         if (state_.prompt != editor::Prompt::none)
             return LayerAnswer::pass;
-        // Primary+V on the list reads the clipboard. A focused search keeps
-        // the layer's paste into that field.
+        // Primary+V on the list reads the clipboard, and Primary+Z takes the
+        // last change back. A focused search keeps the layer's own keys.
         if (layer_paste(sdl_key, modifiers)) {
             if (editor::focused_field(state_, list_))
                 return LayerAnswer::pass;
             return take({editor::EditorAction::read_clipboard, {}, true});
         }
-        if (!editor::focused_field(state_, list_) || !state_.search.text.empty())
-            return LayerAnswer::pass;
-        const keys::InputEvent event =
-            capture_key_event(sdl_key, modifiers, true, false, capture_scancode(sdl_key));
-        const std::optional<keys::Chord> found = editor::chord_to_find(editor_, event);
-        if (!found)
-            return LayerAnswer::pass;
-        state_.search_chord = *found;
-        state_.search.text.clear();
-        state_.search.caret = 0;
-        state_.list_scroll = 0;
-        relayout();
-        return LayerAnswer::redraw;
+        if (undo_key(sdl_key, modifiers) && !editor::focused_field(state_, list_))
+            return take(
+                editor::editor_command(editor_, state_, list_, editor::EditorCommand::undo)
+            );
+        return LayerAnswer::pass;
     }
 
     /// Y finds, B goes back, Menu saves, X adds a key, and the shoulders are Tab.
@@ -1458,39 +1482,16 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         } else if (over_settings_ && runtime_.oa_layer().find(kSettingsScreen) == nullptr) {
             return LayerAnswer::close;
         }
-        if (state_.prompt == editor::Prompt::capture)
+        if (state_.prompt == editor::Prompt::capture || state_.prompt == editor::Prompt::find)
             return take(editor::editor_capture_tick(editor_, state_, SDL_GetTicks()));
         return LayerAnswer::none;
     }
 
-    /// True while the capture prompt or the clash prompt covers the list.
+    /// True while a prompt covers the list: the capture, the clash question,
+    /// Find by key, or Share, Paste or Import.
     ///
     /// @return true while a prompt is open
     [[nodiscard]] bool capturing() const { return state_.prompt != editor::Prompt::none; }
-
-    /// True when this key is a chord the empty, focused search would list.
-    ///
-    /// A key-up and a repeat are asked as a fresh press: the search reads the
-    /// press, and the feed must skip the release and the repeat as well.
-    ///
-    /// @param event the event dispatch_event is given
-    /// @return true when the feed should not give the chord to the dispatcher
-    [[nodiscard]] bool find_swallows(const SDL_Event& event) const {
-        if (state_.prompt != editor::Prompt::none)
-            return false;
-        if (!editor::focused_field(state_, list_) || !state_.search.text.empty())
-            return false;
-        if (event.type != SDL_EVENT_KEY_DOWN && event.type != SDL_EVENT_KEY_UP)
-            return false;
-        const keys::InputEvent probe = capture_key_event(
-            static_cast<uint32_t>(event.key.key),
-            static_cast<uint16_t>(static_cast<uint32_t>(event.key.mod)),
-            true,
-            false,
-            capture_scancode(static_cast<uint32_t>(event.key.key))
-        );
-        return editor::chord_to_find(editor_, probe).has_value();
-    }
 
     /// Gives a key-up to the capture. The layer does not call the screen for
     /// a key-up, and a held Escape cancels when it is let go before a second.
@@ -1704,17 +1705,25 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         push_question(keep_question(editor_, id), std::move(answer), std::move(close_when));
     }
 
-    /// Asks before unsaved changes are left. Leaving closes the editor.
+    /// Asks before unsaved edits are closed. Save writes them and closes,
+    /// Discard closes without writing, Keep editing leaves the draft open.
     void ask_leave() {
         if (question_up(runtime_.oa_layer()))
             return;
         Runtime* runtime = &runtime_;
-        auto answer = [runtime](int32_t button) {
+        const bool offers_save = editor_.draft_clashes() == 0;
+        auto answer = [runtime, offers_save](int32_t button) {
             LayerScreen* found = runtime->oa_layer().find(editor::screen_name);
             if (found == nullptr)
                 return true;
-            if (button == 0)
+            const int32_t discard = offers_save ? 1 : 0;
+            if (offers_save && button == 0) {
+                auto* screen = static_cast<KeyEditorScreen*>(found);
+                if (screen->save_draft() == LayerAnswer::close)
+                    runtime->oa_layer().close(found);
+            } else if (button == discard) {
                 runtime->oa_layer().close(found);
+            }
             return true;
         };
         auto close_when = [runtime]() { return editor_gone(runtime->oa_layer()); };
@@ -2108,13 +2117,6 @@ bool Runtime::key_editor_capturing() {
     if (found == nullptr)
         return false;
     return static_cast<KeyEditorScreen*>(found)->capturing();
-}
-
-bool Runtime::key_editor_find_swallows(const SDL_Event& event) {
-    LayerScreen* found = oa_layer().find(editor::screen_name);
-    if (found == nullptr)
-        return false;
-    return static_cast<KeyEditorScreen*>(found)->find_swallows(event);
 }
 
 void Runtime::key_editor_capture_event(const SDL_Event& event) {

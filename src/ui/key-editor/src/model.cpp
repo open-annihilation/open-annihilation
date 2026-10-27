@@ -46,6 +46,29 @@ constexpr AreaRow kAreas[] = {
     {"whiteboard", words::area_whiteboard, kit::KeyTint::hacks, words::letter_hacks, false},
 };
 
+/// The commands most players change first, in the order Common commands
+/// lists them: the orders, then selecting, the camera, the game and chat.
+constexpr std::string_view kCommon[] = {
+    "order.attack",     "order.move",       "order.stop",       "order.patrol",
+    "order.guard",      "order.repair",     "order.reclaim",    "order.capture",
+    "order.dgun",       "order.cloak",      "order.load",       "order.unload",
+    "order.on-off",     "order.fire-state", "order.move-state", "order.self-destruct",
+    "select.all",       "select.builders",  "select.same-type", "select.idle-builders",
+    "select.commander", "camera.follow",    "game.pause",       "chat.open",
+};
+
+/// True when Common commands lists the action.
+///
+/// @param id the action id
+/// @return true for one of kCommon
+bool common_command(std::string_view id) {
+    for (const std::string_view common : kCommon) {
+        if (common == id)
+            return true;
+    }
+    return false;
+}
+
 /// One action as the list and the details read it.
 struct Listed {
     std::string id{};
@@ -678,7 +701,13 @@ void category_look(
     std::string& letter
 ) {
     if (id == "all") {
-        title = show(hooks, words::filter_all);
+        title = show(hooks, words::all_actions);
+        tint = kit::KeyTint::none;
+        letter.clear();
+        return;
+    }
+    if (id == "common") {
+        title = show(hooks, words::common_commands);
         tint = kit::KeyTint::none;
         letter.clear();
         return;
@@ -817,8 +846,6 @@ Listed list_bound(
         aside.push_back(show(hooks, words::aside_latches));
     if (listed.confirm_on)
         aside.push_back(show(hooks, words::aside_confirm));
-    if (!listed.gadget.empty())
-        aside.push_back(listed.gadget);
     for (const std::string& word : inputs.mod.tags) {
         const std::string action = keys::tag_action_id(word);
         if (action.empty() || action.starts_with("select.tag-"))
@@ -994,7 +1021,7 @@ std::vector<Listed> build_list(
 std::string haystack_of(const Listed& listed) {
     return folded(
         listed.name + " " + listed.description + " " + listed.aside + " " + listed.id + " " +
-        listed.category_title
+        listed.gadget + " " + listed.category_title
     );
 }
 
@@ -1458,7 +1485,12 @@ std::vector<CategoryEntry> Editor::categories() const {
         category_look(inputs_.text, entry.id, inputs_, entry.title, entry.tint, entry.letter);
         out.push_back(std::move(entry));
     };
-    add("all", listed.size(), false);
+    std::size_t common = 0;
+    for (const Listed& row : listed) {
+        if (common_command(row.id))
+            ++common;
+    }
+    add("common", common, false);
     for (const AreaRow& area : kAreas) {
         if (area.main)
             add(std::string(area.id), count_of(area.id), false);
@@ -1502,6 +1534,7 @@ std::vector<CategoryEntry> Editor::categories() const {
     add("oa-screens", count_of("oa-screens"), false);
     if (count_of("unknown") > 0)
         add("unknown", count_of("unknown"), true);
+    add("all", listed.size(), false);
     return out;
 }
 
@@ -1513,6 +1546,30 @@ Editor::rows(std::string_view category, Filter filter, std::string_view query) c
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     if (category == "mod.categories")
         return tag_group_rows(listed, inputs_, filter, query);
+    if (category == "common") {
+        // The common commands in their own order. A search reaches every
+        // action: the common commands that match come first, then the rest
+        // in the nav's order.
+        std::vector<Row> out;
+        for (const std::string_view id : kCommon) {
+            const Listed* row = find_listed(listed, id);
+            if (row == nullptr || !kept(*row, filter) || !matches(*row, query))
+                continue;
+            Row copy = row_of(*row);
+            copy.area = row->category_title;
+            out.push_back(std::move(copy));
+        }
+        if (query.empty())
+            return out;
+        for (Row& row : rows("all", filter, query)) {
+            if (common_command(row.id))
+                continue;
+            if (const Listed* one = find_listed(listed, row.id))
+                row.area = one->category_title;
+            out.push_back(std::move(row));
+        }
+        return out;
+    }
     const bool every = category.empty() || category == "all";
     std::vector<Row> out;
     for (const Listed& row : listed) {
@@ -1582,6 +1639,11 @@ Details Editor::details(std::string_view id) const {
     shown.read_only = row->read_only;
     shown.tint = row->tint;
     shown.letter = row->letter;
+    shown.technical = row->id;
+    if (!row->gadget.empty() && row->gadget != row->name) {
+        shown.technical += " · ";
+        shown.technical += row->gadget;
+    }
     shown.chords.reserve(row->chords.size());
     for (std::size_t index = 0; index < row->chords.size(); ++index) {
         ChordDetail chord;
@@ -1616,6 +1678,7 @@ FilterCounts Editor::counts() const {
 }
 
 bool Editor::remove_chord(std::string_view id, std::size_t index) {
+    const EditStep step(*this);
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     const Listed* row = find_listed(listed, id);
@@ -1633,6 +1696,7 @@ bool Editor::remove_chord(std::string_view id, std::size_t index) {
 }
 
 bool Editor::reset_action(std::string_view id) {
+    const EditStep step(*this);
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     const Listed* row = find_listed(listed, id);
@@ -1647,6 +1711,7 @@ bool Editor::reset_action(std::string_view id) {
 }
 
 void Editor::restore_defaults() {
+    const EditStep step(*this);
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     keep_unknowns(listed, own_, helpers_);
@@ -1656,6 +1721,7 @@ void Editor::restore_defaults() {
 }
 
 bool Editor::set_latch(std::string_view id, bool on) {
+    const EditStep step(*this);
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     const Listed* row = find_listed(listed, id);
@@ -1679,6 +1745,7 @@ bool Editor::set_latch(std::string_view id, bool on) {
 }
 
 bool Editor::set_confirm(std::string_view id, bool on) {
+    const EditStep step(*this);
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     const Listed* row = find_listed(listed, id);
@@ -1708,10 +1775,12 @@ bool Editor::set_confirm(std::string_view id, bool on) {
 }
 
 void Editor::set_number_keys(bool on) {
+    const EditStep step(*this);
     number_keys_ = on;
 }
 
 bool Editor::choose_layout(std::string_view id, KeepChanges keep) {
+    const EditStep step(*this);
     std::optional<LayoutSummary> next;
     if (id != "oa-default") {
         for (const LayoutSummary& layout : installed_) {
@@ -1743,6 +1812,7 @@ bool Editor::choose_layout(std::string_view id, KeepChanges keep) {
 }
 
 bool Editor::duplicate(std::string_view name) {
+    const EditStep step(*this);
     if (name.empty())
         return false;
     const std::vector<Listed> before =
@@ -1787,6 +1857,7 @@ bool Editor::duplicate(std::string_view name) {
 }
 
 bool Editor::rename(std::string_view name) {
+    const EditStep step(*this);
     if (!has_chosen_ || name.empty() || chosen_.name == name)
         return false;
     chosen_.name = std::string(name);
@@ -1943,6 +2014,7 @@ keys::PointerScheme Editor::scheme() const noexcept {
 }
 
 void Editor::set_scheme(keys::PointerScheme scheme) {
+    const EditStep step(*this);
     inputs_.scheme = scheme;
 }
 
@@ -1951,6 +2023,7 @@ const std::string& Editor::mod_name() const noexcept {
 }
 
 bool Editor::set_chords(std::string_view id, std::vector<keys::Chord> chords) {
+    const EditStep step(*this);
     constexpr std::size_t chord_limit = 4;
     if (chords.size() > chord_limit)
         return false;
@@ -1982,6 +2055,7 @@ bool Editor::set_chords(std::string_view id, std::vector<keys::Chord> chords) {
 }
 
 bool Editor::clear_chords(std::string_view id) {
+    const EditStep step(*this);
     const std::vector<Listed> listed =
         listed_of(inputs_, own_, has_chosen_, chosen_, helpers_, number_keys_);
     const Listed* row = find_listed(listed, id);
@@ -2099,6 +2173,7 @@ const std::string& Editor::share_name() const noexcept {
 }
 
 bool Editor::settle_paste_clash(const keys::Clash& clash, Settle which) {
+    const EditStep step(*this);
     for (std::size_t index = 0; index < held_clashes_.size(); ++index) {
         const HeldClash& held = held_clashes_[index];
         if (!keys::same_key(held.chord, clash.chord, &inputs_.keyboard))
@@ -2142,6 +2217,95 @@ bool Editor::settle_paste_clash(const keys::Clash& clash, Settle which) {
         return true;
     }
     return false;
+}
+
+EditStep::EditStep(Editor& editor) : editor_(editor) {
+    if (editor_.step_depth_ == 0)
+        editor_.undo_.push_back(editor_.draft_now());
+    ++editor_.step_depth_;
+}
+
+EditStep::~EditStep() {
+    --editor_.step_depth_;
+    if (editor_.step_depth_ != 0 || editor_.undo_.empty())
+        return;
+    if (Editor::draft_print(editor_.undo_.back()) == Editor::draft_print(editor_.draft_now())) {
+        editor_.undo_.pop_back();
+        return;
+    }
+    if (editor_.undo_.size() > undo_limit)
+        editor_.undo_.erase(editor_.undo_.begin());
+}
+
+Editor::Draft Editor::draft_now() const {
+    Draft draft;
+    draft.own = own_;
+    draft.helpers = helpers_;
+    draft.number_keys = number_keys_;
+    draft.has_chosen = has_chosen_;
+    draft.chosen = chosen_;
+    draft.installed = installed_;
+    draft.written = written_;
+    draft.held_clashes = held_clashes_;
+    draft.imported_from = imported_from_;
+    draft.scheme = inputs_.scheme;
+    return draft;
+}
+
+std::string Editor::draft_print(const Draft& draft) {
+    std::string print;
+    for (const keys::LayoutBinding& binding : draft.own.bindings) {
+        print += binding_line(binding);
+        print += '\n';
+    }
+    const auto list = [&](const std::optional<std::vector<std::string>>& ids) {
+        if (!ids) {
+            print += "-\n";
+            return;
+        }
+        for (const std::string& id : *ids) {
+            print += id;
+            print += ',';
+        }
+        print += '\n';
+    };
+    list(draft.helpers.toggle);
+    list(draft.helpers.hold_to_confirm);
+    print += draft.number_keys ? "n1" : "n0";
+    print += draft.has_chosen ? draft.chosen.id + "\t" + draft.chosen.name : std::string("-");
+    print += '\n';
+    for (const LayoutSummary& layout : draft.installed)
+        print += layout.id + "\t" + layout.name + "\n";
+    for (const std::string& id : draft.written)
+        print += id + ",";
+    print += '\n';
+    for (const HeldClash& held : draft.held_clashes)
+        print += held.pasted + "\t" + held.holder + "\n";
+    print += draft.imported_from ? "i1" : "i0";
+    print += draft.scheme == keys::PointerScheme::left_click ? "l" : "r";
+    return print;
+}
+
+bool Editor::undo() {
+    if (undo_.empty() || step_depth_ != 0)
+        return false;
+    Draft draft = std::move(undo_.back());
+    undo_.pop_back();
+    own_ = std::move(draft.own);
+    helpers_ = std::move(draft.helpers);
+    number_keys_ = draft.number_keys;
+    has_chosen_ = draft.has_chosen;
+    chosen_ = std::move(draft.chosen);
+    installed_ = std::move(draft.installed);
+    written_ = std::move(draft.written);
+    held_clashes_ = std::move(draft.held_clashes);
+    imported_from_ = std::move(draft.imported_from);
+    inputs_.scheme = draft.scheme;
+    return true;
+}
+
+bool Editor::can_undo() const noexcept {
+    return !undo_.empty();
 }
 
 } // namespace oa::ui::key_editor

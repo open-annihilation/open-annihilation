@@ -37,10 +37,10 @@ inline constexpr kit::ControlId details_bar = 23;
 inline constexpr kit::ControlId detail_add = 24;
 /// The capture prompt's well. A button or a wheel turn here is the chord.
 inline constexpr kit::ControlId capture_well = 25;
-/// Means: the letter.
-inline constexpr kit::ControlId capture_letter = 26;
-/// Means: the key's place.
-inline constexpr kit::ControlId capture_place = 27;
+/// Same place on every keyboard, under the capture's More options.
+inline constexpr kit::ControlId capture_means = 26;
+/// The capture's More options.
+inline constexpr kit::ControlId capture_more = 27;
 /// Starts on: a press.
 inline constexpr kit::ControlId capture_press = 28;
 /// Starts on: a double press.
@@ -61,10 +61,10 @@ inline constexpr kit::ControlId clash_cancel = 35;
 inline constexpr kit::ControlId card_here = 36;
 /// The draft card's KEEP IT FOR.
 inline constexpr kit::ControlId card_there = 37;
-/// The draft card's CHOOSE ANOTHER KEY.
-inline constexpr kit::ControlId card_choose = 38;
-/// The chord chip in the search, with its clear mark.
-inline constexpr kit::ControlId search_chord = 39;
+/// The details' Settle… on a draft clash.
+inline constexpr kit::ControlId card_settle = 38;
+/// The clash question's confirm button.
+inline constexpr kit::ControlId clash_confirm = 39;
 /// The capture prompt's title. Its text is the prompt, for automation.
 inline constexpr kit::ControlId capture_title = 40;
 /// The line under the well.
@@ -143,6 +143,32 @@ inline constexpr kit::ControlId paste_summary = 76;
 inline constexpr kit::ControlId import_summary = 77;
 /// The scroll bar of a share, paste or import text block.
 inline constexpr kit::ControlId exchange_bar = 78;
+/// Find by key, beside the search.
+inline constexpr kit::ControlId find = 79;
+/// Find by key's well.
+inline constexpr kit::ControlId find_well = 80;
+/// Find by key's Close.
+inline constexpr kit::ControlId find_close = 81;
+/// Find by key's line. Its text is the line, for automation.
+inline constexpr kit::ControlId find_title = 82;
+/// Undo, in the footer.
+inline constexpr kit::ControlId undo = 83;
+/// The footer's draft line.
+inline constexpr kit::ControlId draft = 84;
+/// The clash question's Choose another key.
+inline constexpr kit::ControlId clash_another = 85;
+/// The details' More options.
+inline constexpr kit::ControlId detail_more = 86;
+/// Show as list, on the keyboard view.
+inline constexpr kit::ControlId show_as_list = 87;
+/// The keyboard view's list of every key.
+inline constexpr kit::ControlId key_list = 88;
+/// The inspector's Change {action}'s key….
+inline constexpr kit::ControlId card_change = 89;
+/// The inspector's Use {key} for {action}….
+inline constexpr kit::ControlId card_use = 90;
+/// The key list's scroll bar.
+inline constexpr kit::ControlId key_list_bar = 91;
 
 /// One nav entry. The category's place among the nav's entries, from 0, is added.
 inline constexpr kit::ControlId nav_first = 100;
@@ -157,6 +183,8 @@ inline constexpr kit::ControlId chord_row_first = 2500;
 /// One item of the open menu. The item's place, from 0, is added.
 /// Keyboard keys start at keyboard_first, so a menu item stays below that.
 inline constexpr kit::ControlId menu_first = 3000;
+/// One row of Find by key's list. The row's place, from 0, is added.
+inline constexpr kit::ControlId find_row_first = 5800;
 /// One key of the keyboard picture. The key's place in keyboard_places, from 0, is added.
 inline constexpr kit::ControlId keyboard_first = 6000;
 /// One button of the mouse picture, in the order add_mouse numbers them.

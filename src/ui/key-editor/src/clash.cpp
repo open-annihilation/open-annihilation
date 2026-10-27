@@ -118,6 +118,7 @@ std::string other_of(const keys::Clash& clash, std::string_view action) {
 } // namespace
 
 ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice choice) {
+    const EditStep step(editor);
     ApplyResult result;
     if (!capture.chord)
         return result;
@@ -198,6 +199,7 @@ ApplyResult apply_capture(Editor& editor, const Capture& capture, ClashChoice ch
 }
 
 bool settle(Editor& editor, const keys::Clash& clash, Settle which) {
+    const EditStep step(editor);
     if (editor.settle_paste_clash(clash, which))
         return true;
     const std::string keeper = which == Settle::keep_here ? clash.a : clash.b;

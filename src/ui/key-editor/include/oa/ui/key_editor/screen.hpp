@@ -93,10 +93,11 @@ inline constexpr std::string_view name_detail_add = "key-editor.detail.add";
 inline constexpr std::string_view name_capture = "key-editor.capture";
 /// The capture prompt's well.
 inline constexpr std::string_view name_capture_well = "key-editor.capture.well";
-/// Means: the letter.
-inline constexpr std::string_view name_capture_letter = "key-editor.capture.means.letter";
-/// Means: the key's place.
-inline constexpr std::string_view name_capture_place = "key-editor.capture.means.place";
+/// Same place on every keyboard, under More options: a switch whose halves
+/// are the letter (off) and the key's place (on).
+inline constexpr std::string_view name_capture_means = "key-editor.capture.means";
+/// The capture's More options. It shows and hides the place and the gesture.
+inline constexpr std::string_view name_capture_more = "key-editor.capture.more";
 /// Starts on: a press.
 inline constexpr std::string_view name_capture_press = "key-editor.capture.starts.press";
 /// Starts on: a double press.
@@ -107,24 +108,52 @@ inline constexpr std::string_view name_capture_hold = "key-editor.capture.starts
 inline constexpr std::string_view name_capture_status = "key-editor.capture.status";
 /// The capture prompt's CANCEL.
 inline constexpr std::string_view name_capture_cancel = "key-editor.capture.cancel";
-/// The capture prompt's OK.
+/// The capture prompt's primary button: Use {chord} for {action}, or Choose
+/// what happens… for a chord in use.
 inline constexpr std::string_view name_capture_ok = "key-editor.capture.ok";
-/// The clash prompt. Its text is the question.
+/// The clash question. Its text is the question and every outcome.
 inline constexpr std::string_view name_clash = "key-editor.clash";
-/// REPLACE.
+/// The outcome Move it to {action}. Choosing it changes nothing yet.
 inline constexpr std::string_view name_clash_replace = "key-editor.clash.replace";
-/// SWAP. Absent when the capture is + ADD KEY.
+/// The outcome Swap them. Absent when the capture is + Add a key.
 inline constexpr std::string_view name_clash_swap = "key-editor.clash.swap";
-/// The clash prompt's CANCEL.
+/// The clash question's confirm button, named after the chosen outcome.
+inline constexpr std::string_view name_clash_confirm = "key-editor.clash.confirm";
+/// Choose another key: back to the capture, nothing changed.
+inline constexpr std::string_view name_clash_another = "key-editor.clash.another";
+/// The clash question's Cancel.
 inline constexpr std::string_view name_clash_cancel = "key-editor.clash.cancel";
-/// KEEP IT HERE, on the draft card.
+/// The outcome Keep it for this action, when a draft clash is settled.
 inline constexpr std::string_view name_card_here = "key-editor.card.keep-here";
-/// KEEP IT FOR the other action.
+/// The outcome Keep it for the other action.
 inline constexpr std::string_view name_card_there = "key-editor.card.keep-there";
-/// CHOOSE ANOTHER KEY, on the draft card.
-inline constexpr std::string_view name_card_choose = "key-editor.card.choose";
-/// The chord chip in the search, with its clear mark.
-inline constexpr std::string_view name_search_chord = "key-editor.search.chord";
+/// Settle…, on a draft clash in the details: opens the clash question.
+inline constexpr std::string_view name_card_settle = "key-editor.card.settle";
+/// Find by key, beside the search.
+inline constexpr std::string_view name_find = "key-editor.find";
+/// Find by key's prompt. Its text is the line that says what the chord does.
+inline constexpr std::string_view name_find_prompt = "key-editor.find-key";
+/// Find by key's well. A press there listens for another chord.
+inline constexpr std::string_view name_find_well = "key-editor.find-key.well";
+/// What a Find by key row's name starts with. The row's number, from 1,
+/// follows. Its text is the action and where it is read; a press chooses it.
+inline constexpr std::string_view name_find_row_prefix = "key-editor.find-key.row.";
+/// Find by key's Close.
+inline constexpr std::string_view name_find_close = "key-editor.find-key.close";
+/// Undo, in the footer.
+inline constexpr std::string_view name_undo = "key-editor.undo";
+/// The footer's draft line. Kind area: its text is the words shown.
+inline constexpr std::string_view name_draft = "key-editor.draft";
+/// The details' More options. It shows and hides the facts and the helpers.
+inline constexpr std::string_view name_detail_more = "key-editor.detail.more";
+/// Show as list and Show keyboard, on the keyboard view.
+inline constexpr std::string_view name_show_as_list = "key-editor.show-as-list";
+/// The keyboard view's list of every key. Its text is every line it shows.
+inline constexpr std::string_view name_key_list = "key-editor.key-list";
+/// The inspector's Change {action}'s key….
+inline constexpr std::string_view name_card_change = "key-editor.key-card.change";
+/// The inspector's Use {key} for {action}….
+inline constexpr std::string_view name_card_use = "key-editor.key-card.use";
 /// The List tab.
 inline constexpr std::string_view name_view_list = "key-editor.view.list";
 /// The Keyboard tab.
@@ -207,37 +236,37 @@ inline constexpr std::string_view name_import_summary = "key-editor.import.summa
 
 /// The layout drop-down's least width at Large, in points.
 inline constexpr int32_t large_layout_width = 240;
-/// The search field's least width at Large, in points.
-inline constexpr int32_t large_search_width = 280;
+/// The search field and Find by key's least width at Large, in points.
+inline constexpr int32_t large_search_width = 380;
 /// The nav's width at Large, in points.
-inline constexpr int32_t large_nav_width = 152;
+inline constexpr int32_t large_nav_width = 172;
 /// The chord column's width at Large, in points.
 inline constexpr int32_t large_chord_width = 240;
 /// The details' width at Large, in points.
 inline constexpr int32_t large_details_width = 270;
 /// The layout drop-down's least width at Regular, in points.
 inline constexpr int32_t regular_layout_width = 180;
-/// The search field's least width at Regular, in points.
-inline constexpr int32_t regular_search_width = 200;
+/// The search field and Find by key's least width at Regular, in points.
+inline constexpr int32_t regular_search_width = 300;
 /// The category drop-down's least width at Regular, in points.
 inline constexpr int32_t regular_category_width = 140;
 /// The details' width at Regular, in points.
 inline constexpr int32_t regular_details_width = 240;
 /// The category drop-down's least width at Compact, in points.
 inline constexpr int32_t compact_category_width = 147;
-/// A row's height at Compact, in points.
-inline constexpr int32_t compact_row_height = 22;
-/// A row's height at Regular, in points.
-inline constexpr int32_t regular_row_height = 24;
-/// A row's height at Large, in points.
-inline constexpr int32_t large_row_height = 26;
+/// A row's height at Compact, in points: Kit 2's Compact control height.
+inline constexpr int32_t compact_row_height = 28;
+/// A row's height at Regular, in points: Kit 2's Regular control height.
+inline constexpr int32_t regular_row_height = 34;
+/// A row's height at Large, in points: Kit 2's Large control height.
+inline constexpr int32_t large_row_height = 38;
 
 /// Which drop-down is open. One menu is open at a time.
 enum class Menu : uint8_t {
     none,     ///< no menu
     layout,   ///< LAYOUT
     category, ///< the category drop-down
-    more,     ///< Compact's MORE
+    more,     ///< the footer's More
     shape,    ///< the keyboard's shape
 };
 
@@ -281,13 +310,15 @@ enum class EditorCommand : uint8_t {
     back,    ///< the controller's B: leave the details page, else ask to leave
     save,    ///< the controller's Menu: save, when SAVE is enabled
     add_key, ///< the controller's X: + ADD KEY on the chosen row
+    undo,    ///< Primary+Z: take back the last change
 };
 
 /// Which prompt covers the editor. The list is not laid out while one is open.
 enum class Prompt : uint8_t {
     none,    ///< the list
-    capture, ///< Press the keys
-    clash,   ///< the chord is taken
+    capture, ///< New key for an action
+    clash,   ///< the chord is in use, or a draft clash is settled
+    find,    ///< Find by key
     share,   ///< Share your keys
     paste,   ///< Paste keys
     import,  ///< Import keys from an older setup
@@ -317,8 +348,9 @@ struct ScreenState {
     int32_t menu_marked{-1}; ///< the item the pointer or the keys mark; -1 is none
     /// Compact shows the chosen action's details on their own page.
     bool details_page{false};
-    /// The category the list shows. "all" is every category. A heading is not chosen.
-    std::string category{"all"};
+    /// The category the list shows. "common" is Common commands, where the
+    /// editor opens, and "all" every action. A heading is not chosen.
+    std::string category{"common"};
     Filter filter{Filter::all}; ///< which rows the list keeps
     std::string selected{};     ///< the chosen action; empty when none is
     /// The editor was opened over a match. The header says the game is paused.
@@ -344,10 +376,17 @@ struct ScreenState {
 
     Prompt prompt{Prompt::none}; ///< the capture or the clash question
     Capture capture{};           ///< the capture, while a prompt is open
-    /// The clash the question names. `a` is the action being bound.
+    /// The clash the question names. `a` is the action being bound, or the
+    /// action whose draft clash is settled.
     oa::ui::key_bindings::Clash pending_clash{};
-    /// A chord the empty search is listing. The list ignores the category.
-    std::optional<oa::ui::key_bindings::Chord> search_chord{};
+    /// The clash question settles a clash already in the draft, not a capture.
+    bool settling{false};
+    /// The clash question's chosen outcome: 0 the first, 1 the second.
+    uint8_t outcome{0};
+    bool capture_more{false}; ///< the capture's More options are open
+    bool details_more{false}; ///< the details' More options are open
+    /// Find by key's capture. Its action is empty; a finished chord is listed.
+    Capture finding{};
 
     View view{View::list}; ///< which picture is showing
     /// The keyboard the picture draws. The host sets this from the system or the preference.
@@ -364,6 +403,8 @@ struct ScreenState {
     std::string finger_key{};   ///< the key a finger is on
     bool finger_armed{false};   ///< the next tap on finger_key acts
     bool extra_buttons{false};  ///< buttons 6 to 8 have been pressed this run
+    bool keys_as_list{false};   ///< the keyboard view shows every key as a list
+    int32_t key_list_scroll{0}; ///< how far that list is scrolled, in points
 
     /// The share prompt's name. Typing calls set_share_name.
     kit::TextField share_field{};

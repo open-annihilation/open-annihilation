@@ -177,6 +177,7 @@ ImportPreview import_preview(
 }
 
 void apply_import(Editor& editor, const ImportPreview& preview) {
+    const EditStep step(editor);
     for (const ImportRow& row : preview.rows) {
         if (!row.differs || row.action.empty())
             continue;

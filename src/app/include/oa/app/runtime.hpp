@@ -2614,16 +2614,6 @@ class Runtime final : public menu::Host,
     /// @return true while a prompt covers the editor
     bool key_editor_capturing();
 
-    /// True when an empty, focused search would list this chord.
-    ///
-    /// feed_input_actions returns before the dispatcher while this is true, so
-    /// the chord finds and does not do what it names. A capture does the same.
-    /// [runtime_key_editor.cpp]
-    ///
-    /// @param event the event dispatch_event is given
-    /// @return true when the search takes the chord
-    bool key_editor_find_swallows(const SDL_Event& event);
-
     /// Gives a key-up to the key editor's capture. The layer does not hand a
     /// key-up to the screen. [runtime_key_editor.cpp]
     ///
@@ -2896,6 +2886,25 @@ class Runtime final : public menu::Host,
     /// logged and the built-in layout is used. [runtime_key_bindings.cpp]
     void load_key_bindings();
 
+    /// What USE in the Library changed, so that Undo can put it back.
+    struct LibraryKeyUseUndo {
+        /// The shared layout preference before USE; none when it was not set.
+        std::optional<std::string> layout_before{};
+        /// The played mod's layout preference before USE; none when it was not set.
+        std::optional<std::string> mod_layout_before{};
+        std::string mod_id{}; ///< the mod being played at USE; empty when none was
+        /// The engine settings before USE, which the helpers left on change.
+        oa::ui::engine_settings::EngineSettings settings_before{};
+        bool settings_changed{false}; ///< USE wrote the engine settings
+        /// The layout whose own folder USE created; empty when it created none.
+        /// Only that folder is ever removed; a folder that was there before stays.
+        std::string created_own{};
+        std::vector<std::string> toggle_before{}; ///< this run's latched actions before USE
+        /// This run's hold-to-confirm actions before USE; none means every confirmable one.
+        std::optional<std::vector<std::string>> hold_before{};
+        bool applied{false}; ///< USE changed something Undo can put back
+    };
+
     /// Applies USE from the Library's question: copies own changes when Keep
     /// is marked and the new layout has none, writes the helpers left on,
     /// writes the layout preference, and loads that layout. CANCEL never
@@ -2904,11 +2913,32 @@ class Runtime final : public menu::Host,
     /// @param used what USE applies
     /// @param question the question, still open, including helpers left off
     /// @param played_mod_id the mod being played; empty when none is
-    void apply_library_key_use(
+    /// @return what it changed, for undo_library_key_use
+    LibraryKeyUseUndo apply_library_key_use(
         const oa::ui::library::KeyUseResult& used,
         const oa::ui::library::KeyUse& question,
         std::string_view played_mod_id
     );
+
+    /// Undoes USE: the layout preferences and the engine settings return to
+    /// what they were, an own folder USE created is removed, the layout in
+    /// use is loaded again and this run's latch and hold lists return. The
+    /// player's own changes in any folder USE did not create are never touched.
+    ///
+    /// @param undo what apply_library_key_use returned
+    void undo_library_key_use(const LibraryKeyUseUndo& undo);
+
+    /// The keyboard map the bindings read keys on: the player's keyboard,
+    /// as the system reports it.
+    ///
+    /// @return the map; the US map before the bindings are first read
+    [[nodiscard]] oa::ui::key_bindings::KeyboardMap key_map() const;
+
+    /// The mod data the bindings resolve with: the played mod's button keys,
+    /// category letters and Category words.
+    ///
+    /// @return the data; empty with no mod
+    [[nodiscard]] oa::ui::key_bindings::ModData key_mod_data() const;
 
     /// Reads every GUI file's quick keys for the mod in use.
     ///

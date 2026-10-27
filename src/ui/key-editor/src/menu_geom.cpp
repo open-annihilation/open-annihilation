@@ -116,11 +116,16 @@ category_entries(const Editor& editor, const ScreenState& state, bool compact) {
             entry.kind = MenuKind::divider;
             entry.caption = category.title;
         } else {
+            if (category.id == "all") {
+                // All actions follows a rule, apart from the categories.
+                MenuEntry rule;
+                rule.kind = MenuKind::divider;
+                entries.push_back(std::move(rule));
+            }
             entry.kind = MenuKind::category;
             entry.id = category.id;
             const std::string count = std::to_string(category.count);
-            const std::string name_shown =
-                category.id == "all" ? show(editor.text(), words::all_categories) : category.title;
+            const std::string& name_shown = category.title;
             entry.caption = fill(
                 show(editor.text(), words::category_count), {{"name", name_shown}, {"count", count}}
             );
@@ -190,18 +195,15 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
         return entries;
     }
     if (menu == Menu::more) {
-        // Compact has no LAYOUT drop-down. The layout's choices sit in MORE,
-        // and Restore defaults follows them.
-        std::vector<MenuEntry> entries = layout_entries(editor);
-        MenuEntry rule;
-        rule.kind = MenuKind::divider;
-        entries.push_back(std::move(rule));
-        MenuEntry entry;
-        entry.kind = MenuKind::restore;
-        entry.id = "restore";
-        entry.caption = show(editor.text(), words::restore);
-        entry.name = std::string(name_restore);
-        entries.push_back(std::move(entry));
+        // More holds the rarer layout actions. Compact has no LAYOUT
+        // drop-down, so its layouts lead More there.
+        std::vector<MenuEntry> entries;
+        if (compact) {
+            entries = layout_entries(editor);
+            MenuEntry rule;
+            rule.kind = MenuKind::divider;
+            entries.push_back(std::move(rule));
+        }
         auto add_more =
             [&](MenuKind kind, std::string id, std::string_view word, std::string_view control) {
                 MenuEntry more;
@@ -211,9 +213,10 @@ menu_entries(const Editor& editor, Menu menu, const ScreenState& state, bool com
                 more.name = std::string(control);
                 entries.push_back(std::move(more));
             };
-        add_more(MenuKind::import, "import", words::import_keys, name_import);
-        add_more(MenuKind::share, "share", words::share_keys, name_share);
-        add_more(MenuKind::paste, "paste", words::paste_keys, name_paste);
+        add_more(MenuKind::restore, "restore", words::restore_title, name_restore);
+        add_more(MenuKind::import, "import", words::import_button, name_import);
+        add_more(MenuKind::share, "share", words::share_button, name_share);
+        add_more(MenuKind::paste, "paste", words::paste_button, name_paste);
         return entries;
     }
     return {};
@@ -258,7 +261,7 @@ int32_t menu_chosen(
             if (entries[index].kind == MenuKind::layout_id && entries[index].id == id)
                 return static_cast<int32_t>(index);
         }
-        return 0;
+        return -1;
     }
     return -1;
 }

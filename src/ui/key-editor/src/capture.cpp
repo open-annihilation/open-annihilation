@@ -248,66 +248,6 @@ uint32_t context_bits(std::string_view id) noexcept {
     return action->context;
 }
 
-/// True when this key is one the empty search lists.
-///
-/// @param named the named key
-/// @return true for a function key, Print Screen, Pause, Insert, the page
-///     keys, Home, End and the numpad
-bool search_named(const keys::NamedKeySpec& named) noexcept {
-    switch (named.id) {
-    case keys::NamedKey::f1:
-    case keys::NamedKey::f2:
-    case keys::NamedKey::f3:
-    case keys::NamedKey::f4:
-    case keys::NamedKey::f5:
-    case keys::NamedKey::f6:
-    case keys::NamedKey::f7:
-    case keys::NamedKey::f8:
-    case keys::NamedKey::f9:
-    case keys::NamedKey::f10:
-    case keys::NamedKey::f11:
-    case keys::NamedKey::f12:
-    case keys::NamedKey::f13:
-    case keys::NamedKey::f14:
-    case keys::NamedKey::f15:
-    case keys::NamedKey::f16:
-    case keys::NamedKey::f17:
-    case keys::NamedKey::f18:
-    case keys::NamedKey::f19:
-    case keys::NamedKey::f20:
-    case keys::NamedKey::f21:
-    case keys::NamedKey::f22:
-    case keys::NamedKey::f23:
-    case keys::NamedKey::f24:
-    case keys::NamedKey::print_screen:
-    case keys::NamedKey::pause:
-    case keys::NamedKey::insert:
-    case keys::NamedKey::page_up:
-    case keys::NamedKey::page_down:
-    case keys::NamedKey::home:
-    case keys::NamedKey::end:
-    case keys::NamedKey::numpad_0:
-    case keys::NamedKey::numpad_1:
-    case keys::NamedKey::numpad_2:
-    case keys::NamedKey::numpad_3:
-    case keys::NamedKey::numpad_4:
-    case keys::NamedKey::numpad_5:
-    case keys::NamedKey::numpad_6:
-    case keys::NamedKey::numpad_7:
-    case keys::NamedKey::numpad_8:
-    case keys::NamedKey::numpad_9:
-    case keys::NamedKey::numpad_add:
-    case keys::NamedKey::numpad_subtract:
-    case keys::NamedKey::numpad_multiply:
-    case keys::NamedKey::numpad_divide:
-    case keys::NamedKey::numpad_decimal:
-    case keys::NamedKey::numpad_enter:
-        return true;
-    default:
-        return false;
-    }
-}
-
 } // namespace
 
 uint8_t stored_modifiers(uint8_t physical, keys::Platform platform) noexcept {
@@ -611,35 +551,6 @@ CaptureStatus capture_status(const Editor& editor, const Capture& capture) {
     status.line =
         fill(show(editor.text(), words::chord_free), {{"chord", shown}, {"context", context}});
     return status;
-}
-
-std::optional<keys::Chord> chord_to_find(const Editor& editor, const keys::InputEvent& event) {
-    if (event.kind == keys::InputKind::button) {
-        if (!event.down || event.button < 4 || event.button > 8)
-            return std::nullopt;
-        keys::Chord chord;
-        chord.kind = keys::TriggerKind::mouse;
-        chord.button = event.button;
-        chord.modifiers = stored_modifiers(event.modifiers, editor.platform());
-        return chord;
-    }
-    if (event.kind != keys::InputKind::key || !event.down || event.repeat)
-        return std::nullopt;
-    const std::string_view code = keys::code_of(event.scancode);
-    if (!code.empty() && keys::position_refused(code))
-        return std::nullopt;
-    const uint8_t stored = stored_modifiers(event.modifiers, editor.platform());
-    const uint8_t searched =
-        static_cast<uint8_t>(keys::primary | keys::ctrl | keys::alt | keys::meta);
-    const bool with_modifier = (stored & searched) != 0;
-    const keys::NamedKeySpec* named = named_of(event);
-    const bool special = named != nullptr && search_named(*named);
-    if (!with_modifier && !special)
-        return std::nullopt;
-    Capture stand_in;
-    stand_in.action = "order.attack";
-    keys::Chord chord = chord_from_key(editor, stand_in, event, stored);
-    return comparable(chord);
 }
 
 } // namespace oa::ui::key_editor

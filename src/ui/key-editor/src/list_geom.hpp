@@ -31,8 +31,8 @@ struct Slot {
 ///
 /// While every category is shown, a category that has no row is left out,
 /// except Groups, which keeps its switch. While Groups is the category, the
-/// switch is the first slot. While the search holds a chord, the slots are
-/// one row per action on that chord, with no headings.
+/// switch is the first slot. Common commands, and a search in it, are rows
+/// with no headings.
 ///
 /// @param editor the editor
 /// @param state the category, the filter and the search

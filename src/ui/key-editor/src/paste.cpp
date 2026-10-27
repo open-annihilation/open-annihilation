@@ -293,6 +293,7 @@ PastePreview paste_preview(const Editor& editor, std::span<const uint8_t> bytes)
 }
 
 void apply_paste(Editor& editor, const PastePreview& preview) {
+    const EditStep step(editor);
     for (const PasteRow& row : preview.rows) {
         if (!row.apply)
             continue;
