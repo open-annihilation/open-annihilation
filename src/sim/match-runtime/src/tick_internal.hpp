@@ -680,6 +680,11 @@ class TickHost final : public sim::simulation_state::Host,
 
     /// Runs one natural repair step of a builder on a unit, paying energy for it.
     ///
+    /// The energy is requested in the repairer's economy block (Unit.economy),
+    /// so the repairer's owner pays and the repairer's gate decides whether the
+    /// step is afforded, whoever owns the patient. A repair pad pays for the
+    /// aircraft it repairs.
+    ///
     /// @param repairer_slot repairing unit
     /// @param patient repaired unit
     /// @return true when the step was paid for; false, which is noted, when either
