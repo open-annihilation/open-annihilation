@@ -600,9 +600,13 @@ dialog's field and scrolls a skirmish's camera with an arrow key the
 endpoint holds down; `native-automation-frame`
 (`tools/check_native_automation_frame.py`) asks the game on the main menu
 for the frames it presents, in a 640x480 window and in a 1280x720 one,
-and checks them against the frame it composed; and
-`native-automation-digest` (`tools/check_native_automation_digest.py`)
-plays a recorded network game back in the main loop with and without the
+and checks them against the frame it composed;
+`native-automation-hit-areas` (`tools/check_native_automation_hit_areas.py`)
+presses every control of Settings, and clicks a sample of the Library's
+and the key editor's, at the centre of where it is drawn, at each
+Interface size and Window size Settings offers in both looks, and
+requires each to answer there; and `native-automation-digest`
+(`tools/check_native_automation_digest.py`) plays a recorded network game back in the main loop with and without the
 endpoint, a client reading the match and every event at every frame, and
 requires the same trace stream.
 `native-automation-extension-windows`

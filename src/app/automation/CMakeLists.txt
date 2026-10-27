@@ -156,6 +156,15 @@ if(BUILD_TESTING AND TARGET oa-game AND IS_DIRECTORY "${OA_GAME_DIR}")
       --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
       --scratch-root "${oa_automation_checks}")
     set_tests_properties(native-automation-settings PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
+    # Each control of Settings, the Library and the key editor pressed at the
+    # centre of where it is drawn, at every Interface size and Window size
+    # Settings offers, in the classic look and the modern one: it takes the
+    # press there, a drop-down opens and a switch's half is chosen.
+    add_test(NAME native-automation-hit-areas COMMAND ${Python3_EXECUTABLE}
+      "${PROJECT_SOURCE_DIR}/tools/check_native_automation_hit_areas.py"
+      --native $<TARGET_FILE:oa-game> --game-dir "${OA_GAME_DIR}"
+      --scratch-root "${oa_automation_checks}")
+    set_tests_properties(native-automation-hit-areas PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT})
     # Input through the endpoint: a typed address reaching the TCP/IP
     # dialog's field, an arrow key the endpoint holds scrolling a
     # skirmish's camera, as the keyboard's does, and the match saved under a

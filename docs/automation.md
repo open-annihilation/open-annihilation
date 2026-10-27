@@ -595,10 +595,11 @@ it all.
 The engine's tests of the endpoint are `automation-protocol`,
 `automation-options`, `automation-input`, `automation-reports` and the
 native checks `native-automation-menus`, `native-automation-input`,
-`native-automation-frame`, `native-automation-settings` and
-`native-automation-digest`, which run the game with `--fark` on the dummy
-drivers over an installed game. `mcp-server-selftest` and
-`native-mcp-server` check the MCP server ([below](#through-mcp)).
+`native-automation-frame`, `native-automation-settings`,
+`native-automation-hit-areas` and `native-automation-digest`, which run
+the game with `--fark` on the dummy drivers over an installed game.
+`mcp-server-selftest` and `native-mcp-server` check the MCP server
+([below](#through-mcp)).
 [testing.md](development/testing.md#the-automation-endpoint) says how to run them,
 and [src/app/automation](../src/app/automation/README.md#tests) what each
 checks.

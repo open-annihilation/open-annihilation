@@ -411,6 +411,25 @@ system's sockets elsewhere.
   "Settings"), wheel zoom shows Off, and its On half and Cancel leave the
   value stored and go back to the main menu with no Library; every `oa.`
   control's window rectangle lies in the window hello reports.
+- `native-automation-hit-areas` (`tools/check_native_automation_hit_areas.py`)
+  starts the game in a 1920x1080 window, once in the classic look and once
+  in the modern one, with Use modern fonts for game text on. Through
+  Settings' own drop-downs and OK it chooses each Interface size (Auto,
+  100%, 150%, 200%, 300%, 400%) with each Window size (Auto, Compact,
+  Regular, Large); wherever Settings then lies at a place and size no
+  earlier pair gave, it presses every control at the centre of its window
+  rectangle: each section's entry shows its section; in each section, from
+  its top and down by the wheel to its end, every control that shows takes
+  the focus where it is pressed, and the press is let go away from it; each
+  drop-down opens and a press away from it closes it; each switch's other
+  half and each strip's other level is chosen and the first chosen again
+  (not for Look, Use modern fonts, Menu scaling, Native density, Window
+  frame, Hardware acceleration, Vertical sync, Frame stats, Unicode chat and
+  Download automatically, whose halves and levels only take the press).
+  Then the Library's tabs each show when clicked, and a few of each tab's
+  filters are chosen; the key editor, opened from Controls' Edit keys…,
+  shows each of its sections, filters and views when clicked. Each control
+  that answers elsewhere is named with its look and sizes.
 - `native-automation-input` (`tools/check_native_automation_input.py`)
   drives the game by input alone: input requests sent far faster than the
   game takes them, of which it reads no more than about a frame's worth
