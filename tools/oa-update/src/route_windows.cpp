@@ -3,6 +3,8 @@
 
 #include "oa/update_helper/route_windows.hpp"
 
+#include "oa/app/update/receipt.hpp"
+#include "oa/update_helper/log.hpp"
 #include "oa/update_helper/paths.hpp"
 #include "oa/update_helper/routes.hpp"
 #include "oa/update_helper/run.hpp"
@@ -1118,6 +1120,33 @@ UpdatesGateResult take_pending(const fs::path& updates) {
 
 namespace {
 
+/// The receipt's outcome for the line a refused or failed Windows install shows.
+///
+/// The failing step is the setup's or the swap's, with the last line the log
+/// wrote as its detail. A line that says files were put back, or were not,
+/// records the undo; a cancelled permission prompt changed nothing.
+void record_windows_outcome(const update::Plan& plan, Log& log, std::string_view line) {
+    if (!log.receipt_running())
+        return;
+    const update::Step failed = plan.route == update::Route::windows_installer
+                                    ? update::Step::installer
+                                    : update::Step::swap;
+    log.step(failed, update::StepResult::failed, log.last_line());
+    if (line == update_was_cancelled) {
+        log.finish(update::Outcome::cancelled);
+        return;
+    }
+    const bool put_back = line == update_failed_put_back;
+    if (put_back || line == update_failed_not_put_back) {
+        log.step(
+            update::Step::undo, put_back ? update::StepResult::done : update::StepResult::failed
+        );
+        log.finish(update::failure_outcome(update::Action::install, true, put_back));
+        return;
+    }
+    log.finish(update::Outcome::not_installed);
+}
+
 int refuse_windows(
     const update::Plan& plan,
     Log& log,
@@ -1126,6 +1155,7 @@ int refuse_windows(
     std::string_view line,
     int code
 ) {
+    record_windows_outcome(plan, log, line);
     log.line(line);
     window.show(plan.title, line, 0, true);
     if (!elevated_swap) {
@@ -1180,16 +1210,28 @@ int watch_new_version(
         start_process(path_from(plan.program), plan.arguments, true, plan.from_version, &error);
     if (process == nullptr)
         return -1;
+    // The new version is in place and starting; it reads the receipt only
+    // once its main menu is up.
     log.line("started the new version");
+    log.step(update::Step::start, update::StepResult::done);
+    log.finish(update::Outcome::installed);
     window.close();
     WatchAgain again{&plan};
     std::string restart_error;
     const WatchTwo watched =
         watch_two_starts(process, 0, updates / "state.json", start_again, &again, &restart_error);
-    if (watched == WatchTwo::confirmed)
+    if (watched == WatchTwo::confirmed) {
+        log.step(update::Step::watch, update::StepResult::done);
         return exit_swapped;
+    }
+    // A quit before the main menu, or a start the watch cannot see, is not a failed start.
+    if (watched == WatchTwo::quit || watched == WatchTwo::unobserved) {
+        log.line("the new version was not seen to fail");
+        return exit_swapped;
+    }
     if (!restart_error.empty())
         log.line(restart_error);
+    log.step(update::Step::watch, update::StepResult::failed, restart_error);
     return restore_kept(
         plan,
         updates,
@@ -1299,6 +1341,7 @@ int finish_windows_route(
         }
 
         fs::remove(marker, io);
+        log.step(update::Step::installer, update::StepResult::done);
         if (!elevated_swap) {
             const int watched =
                 watch_new_version(plan, plan_path, updates, log, window, hooks, error);
@@ -1347,6 +1390,7 @@ int finish_windows_route(
             remove_stage(stage);
             return failed(line_after_failed_change(updates), exit_undone);
         }
+        log.step(update::Step::swap, update::StepResult::done);
         std::string error;
         const int watched = watch_new_version(plan, plan_path, updates, log, window, hooks, error);
         if (watched < 0) {
@@ -1392,6 +1436,8 @@ int finish_windows_route(
         remove_stage(stage);
         return failed(line_after_failed_change(updates), exit_undone);
     }
+    if (moving.postponed.empty())
+        log.step(update::Step::swap, update::StepResult::done);
     if (!moving.postponed.empty()) {
         if (elevated_swap || !commit_wininit(moving.postponed, verified.version, updates, &error)) {
             if (!error.empty())
@@ -1402,6 +1448,8 @@ int finish_windows_route(
         }
         drop_journal_files(updates);
         fs::remove(updates / reboot_marker_name, io);
+        log.step(update::Step::swap, update::StepResult::done);
+        log.finish(update::Outcome::restart_windows);
         window.show(plan.title, restart_line(verified.version), 0, true);
         window.close();
         return exit_swapped;

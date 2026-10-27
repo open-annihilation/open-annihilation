@@ -88,18 +88,18 @@ enum class Act : uint8_t {
 
 /// What the runtime knows, gathered for centre_state.
 struct CentreInputs {
-    std::string current_version;               ///< this build, without a label
-    CheckMode mode{CheckMode::automatically};  ///< Check for updates
-    CheckState check{CheckState::idle};        ///< where the check stands
+    std::string current_version;                    ///< this build, without a label
+    CheckMode mode{CheckMode::automatically};       ///< Check for updates
+    CheckState check{CheckState::idle};             ///< where the check stands
     CheckFailure check_failure{CheckFailure::none}; ///< why a failed check failed
     /// The release that is out: its version. Empty when nothing is offered.
     std::string offer_version;
-    int64_t offer_release{};    ///< its release number
-    uint64_t offer_size{};      ///< the size of this build's package, in bytes
-    std::optional<int64_t> skipped; ///< the highest release number the player skipped
-    std::optional<int64_t> held;    ///< a release that did not install and waits for Try again
+    int64_t offer_release{};          ///< its release number
+    uint64_t offer_size{};            ///< the size of this build's package, in bytes
+    std::optional<int64_t> skipped;   ///< the highest release number the player skipped
+    std::optional<int64_t> held;      ///< a release that did not install and waits for Try again
     std::optional<int64_t> scheduled; ///< the release scheduled to install when the game quits
-    DownloadState download{DownloadState::waiting}; ///< where the download stands
+    DownloadState download{DownloadState::waiting};          ///< where the download stands
     DownloadFailure download_failure{DownloadFailure::none}; ///< why it stopped
     std::string download_reason;  ///< the download's own line, in English
     int64_t download_release{};   ///< the release being downloaded; 0 for none
@@ -109,8 +109,8 @@ struct CentreInputs {
     uint64_t bytes_per_second{};  ///< how fast it moves; 0 when unknown
     bool handing_over{};          ///< the player chose to install now and the game is closing
     InstallWay way{InstallWay::restart}; ///< how this copy puts a release in place
-    std::string manager;          ///< who updates this copy, for InstallWay::package_manager
-    std::string updated_from;     ///< this start replaced that version; empty otherwise
+    std::string manager;                 ///< who updates this copy, for InstallWay::package_manager
+    std::string updated_from;            ///< this start replaced that version; empty otherwise
     std::string rolled_back_from; ///< this start rolled back from that version; empty otherwise
     bool unconfirmed{};           ///< this build is installed and has not reached the main menu
     std::string kept_version;     ///< the version kept for a roll back; empty for none
@@ -121,26 +121,28 @@ struct CentreInputs {
 
 /// The update centre's state, as every screen reads it.
 struct Centre {
-    Stage stage{Stage::not_checked};       ///< where it stands
-    std::string current_version;           ///< this build
-    std::string target_version;            ///< the release this state is about; empty for none
-    int64_t target_release{};              ///< that release's number; 0 for none
+    Stage stage{Stage::not_checked}; ///< where it stands
+    std::string current_version;     ///< this build
+    std::string target_version;      ///< the release this state is about; empty for none
+    int64_t target_release{};        ///< that release's number; 0 for none
     /// The version this start came from (updated) or left (rolled back).
     std::string came_from;
-    std::string kept_version;              ///< the version a roll back would put back
-    uint64_t received{};                   ///< bytes downloaded so far
-    uint64_t total{};                      ///< bytes of the package
-    uint64_t bytes_per_second{};           ///< how fast the download moves; 0 when unknown
-    int32_t percent{-1};                   ///< 0 to 100 while bytes are known; -1 otherwise
-    std::optional<uint64_t> seconds_left;  ///< the time the download still needs, when known
-    InstallWay way{InstallWay::restart};   ///< how the release goes in
-    std::string manager;                   ///< who updates this copy
-    std::string reason;                    ///< a download's own line, in English, when it stopped
+    std::string kept_version;             ///< the version a roll back would put back
+    uint64_t received{};                  ///< bytes downloaded so far
+    uint64_t total{};                     ///< bytes of the package
+    uint64_t bytes_per_second{};          ///< how fast the download moves; 0 when unknown
+    int32_t percent{-1};                  ///< 0 to 100 while bytes are known; -1 otherwise
+    std::optional<uint64_t> seconds_left; ///< the time the download still needs, when known
+    InstallWay way{InstallWay::restart};  ///< how the release goes in
+    std::string manager;                  ///< who updates this copy
+    std::string reason;                   ///< a download's own line, in English, when it stopped
     /// The downloaded file was refused, rather than the feed's signature.
     bool refused_file{};
-    Action receipt_action{Action::install}; ///< whether a receipt's failure was an install or a roll back
-    std::vector<ReceiptStep> steps;        ///< the receipt's steps, for Show details
-    std::vector<Act> actions;              ///< in the order a screen shows them; the first leads
+    Action receipt_action{
+        Action::install
+    }; ///< whether a receipt's failure was an install or a roll back
+    std::vector<ReceiptStep> steps; ///< the receipt's steps, for Show details
+    std::vector<Act> actions;       ///< in the order a screen shows them; the first leads
 };
 
 /// Decides the update centre's state.
@@ -167,9 +169,10 @@ struct ActWords {
 /// The words one state shows.
 struct CentreWords {
     std::string status; ///< the heading, such as "Downloading 0.8.8"
-    std::string detail; ///< the line under it, such as "10.1 of 24.5 MB · 41% · about a minute left"
-    std::string pill;   ///< the short form the menu pill and a header show
-    std::string note;   ///< a line of guidance, such as the match pause; empty for none
+    std::string
+        detail;       ///< the line under it, such as "10.1 of 24.5 MB · 41% · about a minute left"
+    std::string pill; ///< the short form the menu pill and a header show
+    std::string note; ///< a line of guidance, such as the match pause; empty for none
     std::vector<ActWords> actions; ///< in the order of Centre::actions
 };
 
@@ -215,8 +218,7 @@ recovery_steps(std::string_view version, const oa::ui::library::TextHooks& text)
 /// @param seconds the time left
 /// @param text how the words are looked up
 /// @return the words
-[[nodiscard]] std::string
-time_left_words(uint64_t seconds, const oa::ui::library::TextHooks& text);
+[[nodiscard]] std::string time_left_words(uint64_t seconds, const oa::ui::library::TextHooks& text);
 
 /// How this copy puts a release in place.
 ///

@@ -34,14 +34,14 @@ inline constexpr std::size_t most_step_detail_bytes = 400;
 
 /// How a helper run ended.
 enum class Outcome : uint8_t {
-    running,              ///< the helper has not finished; left so, the run was cut short
-    installed,            ///< the new version is in place and was started
-    installs_next_start,  ///< the new version is in place and starts the next time the game does
-    opened_installer,     ///< the system's installer was opened; it puts the release in place
-    restart_windows,      ///< Windows finishes the install when it next starts
-    not_installed,        ///< stopped before any file moved; the version that was running is unchanged
-    cancelled,            ///< the player declined the system's permission prompt; nothing changed
-    failed_restored,      ///< a step failed after files changed, and every change was undone
+    running,             ///< the helper has not finished; left so, the run was cut short
+    installed,           ///< the new version is in place and was started
+    installs_next_start, ///< the new version is in place and starts the next time the game does
+    opened_installer,    ///< the system's installer was opened; it puts the release in place
+    restart_windows,     ///< Windows finishes the install when it next starts
+    not_installed,   ///< stopped before any file moved; the version that was running is unchanged
+    cancelled,       ///< the player declined the system's permission prompt; nothing changed
+    failed_restored, ///< a step failed after files changed, and every change was undone
     recovery_incomplete,  ///< a step failed, and undoing the changes did not finish
     rolled_back,          ///< the kept version was put back
     roll_back_failed,     ///< a roll back failed and the version that was running stayed
@@ -69,25 +69,25 @@ enum class StepResult : uint8_t {
 
 /// One step of a receipt.
 struct ReceiptStep {
-    Step step{Step::wait};                  ///< which step
-    StepResult result{StepResult::done};    ///< how it went
-    std::string detail;                     ///< what happened, in English; may be empty
+    Step step{Step::wait};               ///< which step
+    StepResult result{StepResult::done}; ///< how it went
+    std::string detail;                  ///< what happened, in English; may be empty
 };
 
 /// What the helper did, as the game shows it.
 struct Receipt {
-    int64_t receipt{receipt_format};          ///< the format, 1
-    Action action{Action::install};           ///< an install, or a roll back
+    int64_t receipt{receipt_format};             ///< the format, 1
+    Action action{Action::install};              ///< an install, or a roll back
     RollBackReason reason{RollBackReason::none}; ///< why a roll back ran; none for an install
-    Outcome outcome{Outcome::running};        ///< how the run ended
-    std::string from_version;                 ///< the version that was running
+    Outcome outcome{Outcome::running};           ///< how the run ended
+    std::string from_version;                    ///< the version that was running
     /// The version being put in place: the release for an install, the kept
     /// version for a roll back. Empty when it was never learned.
     std::string to_version;
-    int64_t release{};                        ///< the release number the run was for
-    int64_t started_at{};                     ///< seconds since 1970
-    int64_t finished_at{};                    ///< seconds since 1970; 0 while running
-    std::vector<ReceiptStep> steps;           ///< in the order they ran
+    int64_t release{};              ///< the release number the run was for
+    int64_t started_at{};           ///< seconds since 1970
+    int64_t finished_at{};          ///< seconds since 1970; 0 while running
+    std::vector<ReceiptStep> steps; ///< in the order they ran
     /// The game has shown this receipt. It shows a receipt once.
     bool shown{};
 };
@@ -152,7 +152,8 @@ failure_outcome(Action action, bool files_changed, bool undo_finished) noexcept;
 /// @param bytes the receipt's bytes
 /// @param[out] error why the bytes were refused; may be null
 /// @return the receipt, or nothing when the bytes are not one
-[[nodiscard]] std::optional<Receipt> read_receipt(std::span<const uint8_t> bytes, std::string* error);
+[[nodiscard]] std::optional<Receipt>
+read_receipt(std::span<const uint8_t> bytes, std::string* error);
 
 /// Writes a receipt in a compact form.
 ///

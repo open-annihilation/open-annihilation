@@ -31,17 +31,21 @@ constexpr uint32_t poll_ms = 250;
 /// process on POSIX is not the program, and SDL does not keep its pid.
 constexpr uint64_t unobservable_ms = 5000;
 
-bool state_is_confirmed(const fs::path& state_path) {
+std::optional<update::State> read_state_file(const fs::path& state_path) {
     std::ifstream input(state_path, std::ios::binary);
     if (!input)
-        return false;
+        return std::nullopt;
     const std::vector<uint8_t> bytes(
         (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
     );
     if (!input && !input.eof())
-        return false;
+        return std::nullopt;
     std::string error;
-    const std::optional<update::State> state = update::read_state(bytes, &error);
+    return update::read_state(bytes, &error);
+}
+
+bool state_is_confirmed(const fs::path& state_path) {
+    const std::optional<update::State> state = read_state_file(state_path);
     return state.has_value() && state->confirmed;
 }
 
@@ -93,6 +97,18 @@ void drop_process(SDL_Process* process) {
 
 } // namespace
 
+WatchEnd ended_watch(const std::optional<update::State>& state) noexcept {
+    switch (update::start_end(state)) {
+    case update::StartEnd::reached_menu:
+        return WatchEnd::confirmed;
+    case update::StartEnd::quit:
+        return WatchEnd::quit;
+    case update::StartEnd::failed:
+        return WatchEnd::ended;
+    }
+    return WatchEnd::ended;
+}
+
 WatchTwo watch_two_starts(
     SDL_Process* process,
     int pid,
@@ -104,6 +120,10 @@ WatchTwo watch_two_starts(
     const WatchEnd first = watch_until_settled(process, pid, state_path);
     if (first == WatchEnd::confirmed)
         return WatchTwo::confirmed;
+    if (first == WatchEnd::quit)
+        return WatchTwo::quit;
+    if (first == WatchEnd::unobserved)
+        return WatchTwo::unobserved;
     SDL_Process* restarted = nullptr;
     int restarted_pid = 0;
     if (again == nullptr || !again(context, &restarted, &restarted_pid, error))
@@ -111,6 +131,10 @@ WatchTwo watch_two_starts(
     const WatchEnd second = watch_until_settled(restarted, restarted_pid, state_path);
     if (second == WatchEnd::confirmed)
         return WatchTwo::confirmed;
+    if (second == WatchEnd::quit)
+        return WatchTwo::quit;
+    if (second == WatchEnd::unobserved)
+        return WatchTwo::unobserved;
     return WatchTwo::failed_twice;
 }
 
@@ -119,7 +143,7 @@ WatchEnd watch_until_settled(SDL_Process* process, int pid, const fs::path& stat
     const bool have_pid = pid > 0;
     if (!have_process && !have_pid) {
         drop_process(process);
-        return WatchEnd::ended;
+        return WatchEnd::unobserved;
     }
     const uint64_t began = SDL_GetTicks();
     for (;;) {
@@ -130,14 +154,14 @@ WatchEnd watch_until_settled(SDL_Process* process, int pid, const fs::path& stat
         const bool ended = process_ended(process) || (process == nullptr && pid_ended(pid));
         if (ended) {
             drop_process(process);
-            return WatchEnd::ended;
+            return ended_watch(read_state_file(state_path));
         }
         // A start SDL cannot see is not a game that is still running. Stop
         // after a short wait so a child that has already gone cannot hold
         // the helper. A pid, or a process SDL can wait on, has no such limit.
         if (!still_running(process, pid) && SDL_GetTicks() - began >= unobservable_ms) {
             drop_process(process);
-            return WatchEnd::ended;
+            return WatchEnd::unobserved;
         }
         SDL_Delay(poll_ms);
     }

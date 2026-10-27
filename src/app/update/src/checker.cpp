@@ -199,8 +199,7 @@ bool Checker::remember(const Source& source, const ThisBuild& build) {
     CheckSnapshot known;
     known.feed = checked.feed;
     known.offer = feed::choose(*checked.feed, asking);
-    known.state =
-        known.offer.way == feed::Way::none ? CheckState::up_to_date : CheckState::offered;
+    known.state = known.offer.way == feed::Way::none ? CheckState::up_to_date : CheckState::offered;
     known.remembered = true;
     base::threads::LockGuard guard(mutex_);
     if (busy_ || stop_ || snapshot_.state != CheckState::idle)

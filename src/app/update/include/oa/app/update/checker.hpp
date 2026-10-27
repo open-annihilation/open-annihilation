@@ -36,10 +36,10 @@ enum class CheckState : uint8_t {
 
 /// Why a check failed, as the player is told.
 enum class CheckFailure : uint8_t {
-    none,     ///< the check did not fail
-    connect,  ///< the server could not be reached, did not answer in time, or did not send the files
-    refused,  ///< the feed came back and its signature or contents were refused
-    storage,  ///< the verified feed could not be stored, or the check could not start
+    none,    ///< the check did not fail
+    connect, ///< the server could not be reached, did not answer in time, or did not send the files
+    refused, ///< the feed came back and its signature or contents were refused
+    storage, ///< the verified feed could not be stored, or the check could not start
 };
 
 /// One published result. The offer's pointers address `feed`.
@@ -53,7 +53,7 @@ struct CheckSnapshot {
     /// The result was read from the feed a check stored on an earlier start,
     /// not fetched: no request was made, and `checked_at` is empty.
     bool remembered{};
-    uint64_t generation{};                ///< moves on for each published snapshot
+    uint64_t generation{}; ///< moves on for each published snapshot
 };
 
 /// Fetches one feed on a worker thread and keeps the latest snapshot.
@@ -134,8 +134,7 @@ class Checker {
     /// @param kind why it failed, as the player is told
     /// @param failure the line
     /// @param checked when the server answered, if it did
-    void
-    publish_failed(CheckFailure kind, std::string failure, std::optional<int64_t> checked);
+    void publish_failed(CheckFailure kind, std::string failure, std::optional<int64_t> checked);
 
     /// Publishes a cancelled check, with no time and no offer.
     void publish_cancelled();

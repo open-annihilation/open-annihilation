@@ -33,10 +33,25 @@ From a build tree, `build/oa-update` is the program. It is built beside
 It reads the plan, the saved feed, the signature beside that feed, the
 downloaded package and the preferences file. It writes under the plan's
 `updates` directory: `oa-update.lock` while it runs, `oa-update.log` (one
-line a step, kept under 1 MiB), `journal.json` and `journal-held/` while a
-swap is in progress, `<release>/stage/` for the unpacked package,
-`previous/` for the version that was kept and the preferences copy, and
-`state.json` for what is installed and what was kept. The staging folder
+line a step, kept under 1 MiB), `receipt.json` for the game, `journal.json`
+and `journal-held/` while a swap is in progress, `<release>/stage/` for the
+unpacked package, `previous/` for the version that was kept and the
+preferences copy, and `state.json` for what is installed and what was kept.
+
+## The receipt
+
+`receipt.json` is begun with the outcome running as soon as the helper
+holds the lock, and rewritten after every step: waiting for the game,
+checking the package, unpacking, the swap or the installer, starting the
+new version, watching it reach the main menu, an undo, and a roll back's
+restore, each done or failed with the reason. The outcome is named before
+any version of the game starts: installed, installs at the next start,
+opened the installer, restart Windows, not installed (nothing moved),
+cancelled (the permission prompt was declined), failed and put back,
+recovery incomplete, rolled back, or a roll back that failed. A refusal
+that names no outcome of its own is not installed. An elevated copy that
+only swaps a folder leaves the receipt to the run that started it. The
+game shows the receipt once (`src/app/update`, `receipt.hpp`). The staging folder
 and the journal are removed after the new version has started.
 
 ## Invariants
@@ -51,13 +66,20 @@ and the journal are removed after the new version has started.
   does not finish, it says "The update failed. The game could not be put
   back." It does not say that nothing was changed.
 - The program makes no network request.
+- A start of the new version that ends before the main menu is told apart
+  by `state.json`: the game marks a quit there as it leaves. A quit ends
+  the watch and nothing is started again. A start that crashed is started
+  once more, and a second crash puts the kept version back. A start the
+  watch cannot see (no process and no pid) is never counted as failed.
 
 ## Tests
 
 `tools-oa-update` covers the plan and state texts, the refusals, a package
 that does not match the feed, zip-slip, the executable bit, a journal that
 fails at each step of a five-step list, a journal left on disk, the wait
-giving up, the window's text placed without fonts, the Windows route
+giving up, the window's text placed without fonts, the receipt beside the
+log and the outcomes a roll back records, how the watch reads a start's
+end (reached the menu, quit, failed, not seen), the Windows route
 decisions, the move retries, the `WININIT.INI` text and a postponed rename,
 the Linux versions folder, a second Linux update while the first kept copy
 is still there, a failed Windows setup whose undo leaves the helper's own

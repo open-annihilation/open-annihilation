@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-update-download: a package served on 127.0.0.1, then the ready
-// prompt and the recorded hand-off. The key is made from a fixed seed.
-// The published feed is not requested, and the helper is not started.
+// prompt and the recorded hand-off. Keep it ready, Escape's answer, schedules
+// nothing and a quit then installs nothing. The key is made from a fixed
+// seed. The published feed is not requested, and the helper is not started.
 
 #include "oa/app/runtime.hpp"
 
@@ -13,6 +14,7 @@
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/choices.hpp"
 #include "oa/base/sha256.hpp"
 #include "oa/base/signing/ed25519.hpp"
 #include "oa/data/catalogue/check.hpp"
@@ -395,6 +397,30 @@ int Runtime::check_update_download() {
         require(!saw_offer, "Download in the background still asked");
         say("no offer prompt");
         say("ready prompt first");
+        // Escape is Keep it ready: nothing is scheduled, and quitting installs nothing.
+        {
+            const auto deadline = deadline_from(std::chrono::seconds{10});
+            while (oa_layer().find("ready-update") == nullptr) {
+                require(
+                    std::chrono::steady_clock::now() < deadline, "the ready prompt did not show"
+                );
+                clear_blockers();
+                idle_tick();
+            }
+        }
+        press_escape();
+        for (int frame = 0; frame < 4; ++frame)
+            idle_tick();
+        require(!ready_visible(), "Escape left the ready prompt open");
+        require(
+            !update::read_scheduled(preference_values_).has_value(),
+            "Keep it ready scheduled the install"
+        );
+        require(!hand_off_requested(), "a quit after Keep it ready would install");
+        require(
+            update_header_note().find("ready") != std::string::npos, "the package is not kept ready"
+        );
+        say("keep it ready schedules nothing");
         return 0;
     }
 

@@ -1,19 +1,27 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// The download, the ready prompt, the Updated notice and the hand-off to
-// oa-update. A check records the helper instead of starting it. With
-// self-update left out, none of the download or the hand-off is compiled in.
+// The download, the ready prompt, the Updated notice, the receipt the
+// helper left, and the hand-off to oa-update. Download and install are
+// separate decisions: a ready package installs only when the player
+// scheduled it for the quit or chose to install now. A check records the
+// helper instead of starting it. With self-update left out, none of the
+// download or the hand-off is compiled in.
 #include "oa/app/runtime.hpp"
 
+#include "engine_settings_state.hpp"
 #include "oa_layer.hpp"
+#include "runtime_update_start.hpp"
 #include "update_state.hpp"
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/user_folder.hpp"
 #include "oa/app/update/build.hpp"
+#include "oa/app/update/centre.hpp"
+#include "oa/app/update/choices.hpp"
 #include "oa/app/update/offer.hpp"
 #include "oa/app/update/plan.hpp"
+#include "oa/app/update/receipt.hpp"
 #include "oa/app/update/route.hpp"
 #include "oa/platform/machine.hpp"
 #include "oa/data/engine_feed/feed.hpp"
@@ -29,6 +37,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <chrono>
 #include <cstdint>
 #include <exception>
 #include <filesystem>
@@ -79,10 +88,31 @@ namespace update = oa::app::update;
 
 /// The ready prompt's word, so it is not the update question.
 constexpr std::string_view kReadyWord = "ready-update";
-/// WHEN I QUIT, and the button Escape answers.
-constexpr int32_t kWhenIQuit = 0;
-/// RESTART NOW, the primary button.
-constexpr int32_t kRestartNow = 1;
+/// KEEP IT READY, the button Escape answers: nothing is scheduled.
+constexpr int32_t kKeepReady = 0;
+/// WHEN I QUIT: the release installs the next time the game quits.
+constexpr int32_t kWhenIQuit = 1;
+/// The install-now button, named for the route; the primary button.
+constexpr int32_t kInstallNow = 2;
+/// KEEP IT READY.
+constexpr std::string_view kKeepReadyCaption = "KEEP IT READY";
+/// The install-now button where Installer puts the release in place.
+constexpr std::string_view kOpenInstallerCaption = "OPEN THE INSTALLER";
+/// The install-now button on a Steam Deck, where the release goes in at the next start.
+constexpr std::string_view kCloseGameCaption = "CLOSE THE GAME";
+/// The line the Windows installer's prompt adds.
+constexpr std::string_view kWindowsAsks = "Windows asks for permission.";
+/// The receipt notice's word on the layer.
+constexpr std::string_view kReceiptWord = "update-receipt";
+/// The line above the steps the receipt lists.
+constexpr std::string_view kWhatHappened = "What happened:";
+/// The line above the steps that put an unfinished recovery right.
+constexpr std::string_view kPutRight = "To put the game right:";
+/// SHOW THE LOG on the receipt notice.
+constexpr int32_t kReceiptLog = 0;
+/// A receipt left running this long was cut short, in seconds. A younger one
+/// may belong to a helper that is still at work.
+constexpr int64_t kReceiptCutShortSeconds = 600;
 /// The Updated notice's name on the layer.
 constexpr std::string_view kUpdatedNotice = "updated-notice";
 
@@ -127,10 +157,6 @@ constexpr std::string_view kGoingBack = "Going back to {version}";
 constexpr int32_t kShowTheLog = 0;
 /// OK, the button Escape answers.
 constexpr int32_t kBackOk = 1;
-/// The header note while a verified package is waiting.
-constexpr std::string_view kHeaderReady = "{version} ready";
-/// The header note while a package is being fetched.
-constexpr std::string_view kHeaderFetching = "{version} downloading";
 
 /// Returns one of the interface's words in the language shown.
 ///
@@ -227,12 +253,36 @@ int64_t own_process() noexcept {
 #endif
 }
 
-/// The ready prompt, named by its WHEN I QUIT button.
+/// The ready prompt, named by its word.
 bool is_ready_question(const LayerScreen* screen) {
     if (screen == nullptr || screen->name() != QuestionScreen::screen_name)
         return false;
     const kit::Question& asked = static_cast<const QuestionScreen*>(screen)->question();
-    return !asked.buttons.empty() && asked.buttons.front().id == "when-i-quit";
+    return asked.word == kReadyWord;
+}
+
+/// Seconds since 1970.
+int64_t wall_seconds() {
+    const auto now = std::chrono::system_clock::now().time_since_epoch();
+    return std::chrono::duration_cast<std::chrono::seconds>(now).count();
+}
+
+/// Lines under a heading, one each, each with a bullet. The lines are given
+/// already in the language shown.
+///
+/// @param heading the heading, looked up
+/// @param lines the lines
+/// @return the paragraph; empty when there are no lines
+std::string bulleted(std::string_view heading, const std::vector<std::string>& lines) {
+    if (lines.empty())
+        return {};
+    std::string written(languages::interface_text(heading));
+    for (const std::string& line : lines) {
+        written += '\n';
+        written += "\u2022 ";
+        written += line;
+    }
+    return written;
 }
 
 /// The ready prompt, up or waiting.
@@ -411,28 +461,12 @@ fs::path live_preferences(const Options& options, const fs::path& preference_pat
 }
 
 /// The install folder's `update-starts`, removed once this build is confirmed.
-///
-/// The program sits in `versions/<version>` or behind the `current` link.
 /// Anything that is not that file is left alone.
 void remove_update_starts() {
-#if defined(__linux__)
-    fs::path folder{oa::platform::program_directory()};
-    if (!folder.empty() && folder.filename().empty())
-        folder = folder.parent_path();
-    fs::path install = folder;
-    if (folder.filename() == "current")
-        install = folder.parent_path();
-    else if (folder.parent_path().filename() == "versions")
-        install = folder.parent_path().parent_path();
-    else if (folder.parent_path().filename() == "current")
-        install = folder.parent_path().parent_path();
-    const fs::path counter = install / "update-starts";
+    const fs::path counter = update_starts_file();
     std::error_code error;
-    if (fs::is_regular_file(counter, error))
+    if (!counter.empty() && fs::is_regular_file(counter, error))
         fs::remove(counter, error);
-#else
-    return;
-#endif
 }
 
 /// Reads a whole file. Empty when it cannot be read.
@@ -524,7 +558,21 @@ bool Runtime::hand_off_requested() const {
 #else
     if (update_ == nullptr || update_->download == nullptr)
         return false;
-    return update_->download->snapshot().state == update::DownloadState::ready;
+    if (update_->download->snapshot().state != update::DownloadState::ready)
+        return false;
+    // Quitting installs only what the player scheduled, or chose to install
+    // now. A package kept ready stays ready, and a quit leaves it.
+    if (options_.update_and_quit ||
+        update::installs_at_quit(preference_values_, update_->download_release))
+        return true;
+    // Settings › Updates' RESTART TO UPDATE asks to install now and quits.
+    // It is the one way out of the game Settings offers on that page beside
+    // ROLL BACK; closing the window does not ask the game to exit.
+    if (!exit_requested_ || roll_back_requested_ || !engine_settings_ || !engine_settings_->dialog)
+        return false;
+    const settings::Dialog& dialog = *engine_settings_->dialog;
+    return dialog.page == settings::Page::updates &&
+           dialog.updates.download == settings::DownloadShown::ready;
 #endif
 }
 
@@ -655,12 +703,35 @@ void Runtime::hand_off_update() {
         return;
     }
     std::string start_why;
-    if (!update_->start_helper(update_->helper_context, helper, helper_arguments, start_why))
+    if (!update_->start_helper(update_->helper_context, helper, helper_arguments, start_why)) {
         std::cerr << "open-annihilation: update: " << start_why << '\n';
+        return;
+    }
+    // The helper has the release now, and its receipt tells how it went.
+    // The schedule is spent; a release that does not install is held instead.
+    if (update::read_scheduled(preference_values_).has_value()) {
+        update::clear_scheduled(preference_values_);
+        preferences_dirty_ = true;
+        try {
+            flush_preferences();
+        } catch (const std::exception& failure) {
+            std::cerr << "open-annihilation: update: " << failure.what() << '\n';
+        }
+    }
 #endif
 }
 
 bool Runtime::report_update_handoff() {
+    // A run that ends here ended through the game's own exit, not a crash.
+    // A start the player quit before the main menu takes back its count, so
+    // only a crash or an error that stops the game counts towards a roll back.
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+    const bool helper_started = update_ != nullptr && update_->handed;
+#else
+    const bool helper_started = false;
+#endif
+    if (exit_status_ == 0 && !helper_started)
+        release_quit_start(options_);
 #if !defined(OA_SELF_UPDATE) || !OA_SELF_UPDATE
     return true;
 #else
@@ -905,6 +976,11 @@ bool Runtime::start_update_download() {
         std::cerr << "open-annihilation: update download: " << failure << '\n';
         return false;
     }
+    // Asking for a held release is the player's Try again.
+    if (update::release_held(preference_values_, release.release)) {
+        update::clear_held(preference_values_);
+        preferences_dirty_ = true;
+    }
     if (update_->download == nullptr)
         update_->download = std::make_unique<update::PackageDownload>();
     update_->download_release = release.release;
@@ -923,6 +999,7 @@ void Runtime::retry_update_download() {
 #if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
     if (update_ != nullptr)
         update_->download_attempted = false;
+    // RETRY is the player's Try again, for a held release too.
     static_cast<void>(start_update_download());
 #endif
 }
@@ -965,6 +1042,20 @@ void Runtime::offer_ready() {
     if (shot.state != update::DownloadState::ready)
         return;
     const int64_t release_number = update_->download_release;
+    // A release already scheduled for the quit was chosen; it does not ask.
+    // Install updates set to install when I quit schedules it here.
+    if (update::installs_at_quit(preference_values_, release_number))
+        return;
+    if (update::read_install_policy(preference_values_) == update::InstallPolicy::when_i_quit) {
+        update::write_scheduled(preference_values_, release_number);
+        preferences_dirty_ = true;
+        try {
+            flush_preferences();
+        } catch (const std::exception& failure) {
+            std::cerr << "open-annihilation: update: " << failure.what() << '\n';
+        }
+        return;
+    }
     if (update_->ready_prompt_release.has_value() &&
         *update_->ready_prompt_release >= release_number)
         return;
@@ -972,28 +1063,72 @@ void Runtime::offer_ready() {
     if (ready_question_queued(layer))
         return;
     const std::string version = update_->download_version;
+    const update::Where where = route_for(options_, feed::Way::in_place);
+    const update::InstallWay way = update::install_way(
+        update::replaces_itself(),
+        update::packager_name(),
+        where.route,
+        where.installer,
+        false,
+        installs_at_next_start()
+    );
     kit::Question asked;
     asked.word = std::string(kReadyWord);
     asked.title = library::filled(shown_hooks(), kReadyTitle, {{"version", version}});
-    const std::string body =
-        installs_at_next_start()
-            ? library::filled(shown_hooks(), update::installs_next_start, {{"version", version}})
-            : std::string(languages::interface_text(kReadyBody));
-    asked.paragraphs.push_back({body, false});
+    std::string_view install_now = "RESTART NOW";
+    switch (way) {
+    case update::InstallWay::next_start:
+        asked.paragraphs.push_back(
+            {library::filled(shown_hooks(), update::installs_next_start, {{"version", version}}),
+             false}
+        );
+        install_now = kCloseGameCaption;
+        break;
+    case update::InstallWay::macos_installer:
+        asked.paragraphs.push_back(
+            {library::filled(shown_hooks(), kInstallerWill, {{"version", version}}), false}
+        );
+        install_now = kOpenInstallerCaption;
+        break;
+    case update::InstallWay::windows_installer:
+        asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
+        asked.paragraphs.push_back({std::string(languages::interface_text(kWindowsAsks)), false});
+        break;
+    case update::InstallWay::restart:
+    case update::InstallWay::package_manager:
+    case update::InstallWay::page_only:
+        asked.paragraphs.push_back({std::string(languages::interface_text(kReadyBody)), false});
+        break;
+    }
+    asked.buttons.push_back(
+        {std::string(languages::interface_text(kKeepReadyCaption)), false, "keep-ready"}
+    );
     asked.buttons.push_back(
         {std::string(languages::interface_text("WHEN I QUIT")), false, "when-i-quit"}
     );
     asked.buttons.push_back(
-        {std::string(languages::interface_text("RESTART NOW")), true, "restart-now"}
+        {std::string(languages::interface_text(install_now)), true, "restart-now"}
     );
-    asked.cancel_button = kWhenIQuit;
-    asked.primary_button = kRestartNow;
-    asked.marked = kRestartNow;
+    asked.cancel_button = kKeepReady;
+    asked.primary_button = kInstallNow;
+    asked.marked = kInstallNow;
     update_->ready_prompt_release = release_number;
     Runtime* runtime = this;
     QuestionScreen::Host host;
-    host.answer = [runtime](int32_t button) {
-        if (button == kRestartNow) {
+    // Keep it ready schedules nothing. When I quit is stored, so it holds
+    // across starts until it is taken back or the release installs. Installing
+    // now schedules the release and quits at once.
+    host.answer = [runtime, release_number](int32_t button) {
+        if (button != kWhenIQuit && button != kInstallNow)
+            return true;
+        update::write_scheduled(runtime->preference_values_, release_number);
+        runtime->preferences_dirty_ = true;
+        try {
+            runtime->flush_preferences();
+        } catch (const std::exception& failure) {
+            std::cerr << "open-annihilation: update: " << failure.what() << '\n';
+        }
+        if (button == kInstallNow) {
             runtime->quit_requested_ = true;
             runtime->exit_status_ = 0;
         }
@@ -1014,7 +1149,7 @@ void Runtime::offer_ready() {
 }
 
 void Runtime::offer_updated_notice() {
-    if (options_.update_and_quit || !options_.updated_from.has_value())
+    if (options_.update_and_quit)
         return;
     if (update_ == nullptr)
         update_.reset(new UpdateState());
@@ -1022,12 +1157,126 @@ void Runtime::offer_updated_notice() {
         return;
     if (match_ != nullptr || screen_ == Screen::match || !update_menu_settled())
         return;
+    // The helper's receipt is read once a start, at the settled menu, and
+    // shown once. A failure holds its release until the player tries again,
+    // and takes back the schedule, so a quit does not try it again by itself.
+    update_->updated_notice_shown = true;
+    {
+        std::string folder_failure;
+        const std::optional<fs::path> updates = updates_folder(options_, folder_failure);
+        const fs::path receipt_path =
+            updates ? *updates / std::string(update::receipt_file_name) : fs::path{};
+        std::optional<update::Receipt> receipt =
+            updates ? update::load_receipt(receipt_path) : std::nullopt;
+        // A receipt still running may belong to a helper at work; one left
+        // running long enough was cut short.
+        const bool finished = receipt.has_value() &&
+                              (receipt->outcome != update::Outcome::running ||
+                               wall_seconds() - receipt->started_at >= kReceiptCutShortSeconds);
+        if (finished && !receipt->shown) {
+            receipt->shown = true;
+            std::string why;
+            if (!update::write_receipt(receipt_path, *receipt, &why))
+                std::cerr << "open-annihilation: update: " << why << '\n';
+            if (update::failed_outcome(receipt->outcome)) {
+                if (update::holds_release(receipt->outcome) && receipt->release > 0) {
+                    update::write_held(preference_values_, receipt->release);
+                    update::clear_scheduled(preference_values_);
+                    preferences_dirty_ = true;
+                    try {
+                        flush_preferences();
+                    } catch (const std::exception& thrown) {
+                        std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+                    }
+                }
+                const update::ThisBuild running = running_build();
+                update::CentreInputs inputs;
+                inputs.current_version = running.version_text;
+                inputs.held = receipt->release;
+                inputs.receipt = *receipt;
+                const update::Centre centre = update::centre_state(inputs);
+                const update::CentreWords words = update::centre_words(centre, shown_hooks());
+                std::vector<std::string> steps;
+                for (const update::ReceiptStep& step : receipt->steps)
+                    steps.push_back(
+                        update::step_words(
+                            step, receipt->from_version, receipt->to_version, shown_hooks()
+                        )
+                    );
+                kit::Question asked;
+                asked.word = std::string(kReceiptWord);
+                asked.title = words.status;
+                if (!words.detail.empty())
+                    asked.paragraphs.push_back({words.detail, false});
+                const std::string listed = bulleted(kWhatHappened, steps);
+                if (!listed.empty())
+                    asked.paragraphs.push_back({listed, false});
+                if (centre.stage == update::Stage::recovery_incomplete) {
+                    const std::string version = receipt->from_version.empty()
+                                                    ? running.version_text
+                                                    : receipt->from_version;
+                    asked.paragraphs.push_back(
+                        {bulleted(kPutRight, update::recovery_steps(version, shown_hooks())), false}
+                    );
+                }
+                const bool retry = update::holds_release(receipt->outcome) &&
+                                   centre.stage != update::Stage::recovery_incomplete;
+                asked.buttons.push_back(
+                    {std::string(languages::interface_text("SHOW THE LOG")), false, "show-the-log"}
+                );
+                if (retry)
+                    asked.buttons.push_back(
+                        {std::string(languages::interface_text("TRY AGAIN")), false, "try-again"}
+                    );
+                asked.buttons.push_back({std::string(languages::interface_text("OK")), true, "ok"});
+                const int32_t ok_button = retry ? 2 : 1;
+                asked.cancel_button = ok_button;
+                asked.primary_button = ok_button;
+                asked.marked = ok_button;
+                Runtime* runtime = this;
+                const fs::path log_folder = updates ? *updates : fs::path{};
+                QuestionScreen::Host host;
+                host.answer = [runtime, log_folder, retry](int32_t button) {
+                    if (button == kReceiptLog) {
+                        std::ignore = runtime->open_player_folder(log_folder);
+                        return false;
+                    }
+                    if (retry && button == 1) {
+                        update::clear_held(runtime->preference_values_);
+                        runtime->preferences_dirty_ = true;
+                        try {
+                            runtime->flush_preferences();
+                        } catch (const std::exception& thrown) {
+                            std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+                        }
+#if defined(OA_SELF_UPDATE) && OA_SELF_UPDATE
+                        if (runtime->update_)
+                            runtime->update_->download_attempted = false;
+#endif
+                        static_cast<void>(runtime->start_update_download());
+                    }
+                    return true;
+                };
+                host.tick = [runtime]() {
+                    return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
+                };
+                OaLayer& layer = oa_layer();
+                auto question = std::make_unique<QuestionScreen>(
+                    layer, Screen::main_menu, std::move(asked), std::move(host)
+                );
+                question->show_on_any_menu();
+                layer.show_when_free(std::move(question));
+                return;
+            }
+        }
+    }
+    if (!options_.updated_from.has_value())
+        return;
     const std::optional<formats::oamod::EngineVersion> previous =
         formats::oamod::parse_engine_version(*options_.updated_from);
     const update::ThisBuild built = running_build();
     if (!previous.has_value() || !(built.version > *previous))
         return;
-    update_->updated_notice_shown = true;
     kit::Notice told;
     told.word = std::string(kUpdatedNotice);
     told.title = library::filled(shown_hooks(), kUpdatedTo, {{"version", built.version_text}});
@@ -1086,15 +1335,31 @@ std::string Runtime::update_header_note() const {
 #else
     if (update_ == nullptr || update_->download == nullptr || update_->download_version.empty())
         return {};
+    // The update centre's short form, the one the menu pill shows, while a
+    // package is downloading, paused, being checked, ready or scheduled.
     const update::DownloadSnapshot shot = update_->download->snapshot();
-    const bool ready = shot.state == update::DownloadState::ready;
-    const bool fetching = shot.state == update::DownloadState::downloading ||
-                          shot.state == update::DownloadState::paused_for_match ||
-                          shot.state == update::DownloadState::verifying;
-    if (!ready && !fetching)
+    update::CentreInputs inputs;
+    inputs.current_version = update_->from_version;
+    inputs.download = shot.state;
+    inputs.download_failure = shot.failure_kind;
+    inputs.download_release = update_->download_release;
+    inputs.download_version = update_->download_version;
+    inputs.received = shot.received;
+    inputs.total = shot.total;
+    inputs.bytes_per_second = shot.bytes_per_second;
+    inputs.scheduled = update::read_scheduled(preference_values_);
+    const update::Centre centre = update::centre_state(inputs);
+    switch (centre.stage) {
+    case update::Stage::downloading:
+    case update::Stage::paused_by_player:
+    case update::Stage::paused_by_match:
+    case update::Stage::verifying:
+    case update::Stage::ready:
+    case update::Stage::scheduled:
+        return update::centre_words(centre, shown_hooks()).pill;
+    default:
         return {};
-    const std::string_view pattern = ready ? kHeaderReady : kHeaderFetching;
-    return library::filled(shown_hooks(), pattern, {{"version", update_->download_version}});
+    }
 #endif
 }
 
@@ -1115,6 +1380,7 @@ bool Runtime::apply_update_download(settings::Dialog& dialog) {
             shown = settings::DownloadShown::downloading;
             break;
         case update::DownloadState::paused_for_match:
+        case update::DownloadState::paused_by_player:
             shown = settings::DownloadShown::paused;
             break;
         case update::DownloadState::ready:
@@ -1172,14 +1438,24 @@ void Runtime::consider_background_download() {
         return;
     if (match_ != nullptr || screen_ == Screen::match)
         return;
-    if (!background_switch_on(preference_values_))
-        return;
     const update::CheckSnapshot& held = update_->held;
     if (held.state != update::CheckState::offered || held.offer.way != feed::Way::in_place)
         return;
     if (!update::offer_wanted(held.offer, update::read_skipped(preference_values_)))
         return;
-    if (update_->download_attempted)
+    if (update_->download_attempted || held.offer.release == nullptr ||
+        held.offer.package == nullptr)
+        return;
+    // A release that did not install waits for Try again.
+    if (update::release_held(preference_values_, held.offer.release->release))
+        return;
+    // A package an earlier start downloaded is found again, checked and kept
+    // ready; nothing else downloads without Download in the background.
+    std::string failure;
+    const std::optional<fs::path> folder = updates_folder(options_, failure);
+    const bool downloaded =
+        folder && update::package_downloaded(*folder, *held.offer.release, *held.offer.package);
+    if (!downloaded && !background_switch_on(preference_values_))
         return;
     static_cast<void>(start_update_download());
 #endif
@@ -1302,7 +1578,10 @@ void Runtime::confirm_installed_version() {
         update_.reset(new UpdateState());
     if (update_->version_confirmed)
         return;
-    if (!update_menu_settled())
+    // Reaching the main menu is enough: a welcome, a message or Settings over
+    // it does not keep the start unconfirmed, however long it stays open.
+    if (screen_ != Screen::main_menu || frame_owned_by_package() ||
+        state_.state != frontend::state_id::main_menu)
         return;
     update_->version_confirmed = true;
     std::string failure;
@@ -1402,12 +1681,12 @@ void Runtime::tick_update_install() {
         update_->download->set_match_running(match_ != nullptr || screen_ == Screen::match);
 #endif
     // The skip is stored before a prompt can offer the bad release, and
-    // before the menu has settled. Confirming waits for that menu.
+    // before the menu has settled. Reaching the main menu confirms.
     settle_roll_back();
+    confirm_installed_version();
     offer_ready();
     if (!update_menu_settled())
         return;
-    confirm_installed_version();
     offer_roll_back_prompt();
     offer_updated_notice();
     consider_background_download();

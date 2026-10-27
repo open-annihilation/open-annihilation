@@ -486,7 +486,9 @@ void the_player_pauses_and_resumes() {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
     OA_CHECK(server.requests().empty());
     download.resume();
-    OA_CHECK(until([&] { return ready_file(download.snapshot(), updates / "16" / "small.zip"); }, 5000));
+    OA_CHECK(
+        until([&] { return ready_file(download.snapshot(), updates / "16" / "small.zip"); }, 5000)
+    );
 }
 
 void cancel_keeps_nothing_half_downloaded() {
@@ -562,6 +564,10 @@ void a_downloaded_package_is_used_again() {
         );
         OA_CHECK(until([&] { return ready_file(first.snapshot(), finished); }, 5000));
     }
+    const feed::Package downloaded =
+        package_on(file_for("pkg.zip", bytes), {must_url(server.url("/"))});
+    OA_CHECK(update::package_downloaded(updates, release_numbered(19), downloaded));
+    OA_CHECK(!update::package_downloaded(updates, release_numbered(20), downloaded));
     // The next start checks the file again and fetches nothing.
     server.clear_log();
     update::PackageDownload second;

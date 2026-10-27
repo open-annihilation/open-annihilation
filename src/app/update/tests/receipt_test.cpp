@@ -67,10 +67,14 @@ bool same(const update::Receipt& left, const update::Receipt& right) {
 }
 
 void names() {
-    OA_CHECK(std::string_view(update::outcome_name(update::Outcome::failed_restored)) ==
-             "failed-restored");
-    OA_CHECK(std::string_view(update::outcome_name(update::Outcome::installs_next_start)) ==
-             "installs-next-start");
+    OA_CHECK(
+        std::string_view(update::outcome_name(update::Outcome::failed_restored)) ==
+        "failed-restored"
+    );
+    OA_CHECK(
+        std::string_view(update::outcome_name(update::Outcome::installs_next_start)) ==
+        "installs-next-start"
+    );
     OA_CHECK(update::parse_outcome("recovery-incomplete") == update::Outcome::recovery_incomplete);
     OA_CHECK(update::parse_outcome("roll-back-failed") == update::Outcome::roll_back_failed);
     OA_CHECK(!update::parse_outcome("failed"));
@@ -80,18 +84,30 @@ void names() {
 }
 
 void outcomes_of_a_failed_run() {
-    OA_CHECK(update::failure_outcome(update::Action::install, false, true) ==
-             update::Outcome::not_installed);
-    OA_CHECK(update::failure_outcome(update::Action::install, true, true) ==
-             update::Outcome::failed_restored);
-    OA_CHECK(update::failure_outcome(update::Action::install, true, false) ==
-             update::Outcome::recovery_incomplete);
-    OA_CHECK(update::failure_outcome(update::Action::roll_back, false, true) ==
-             update::Outcome::roll_back_failed);
-    OA_CHECK(update::failure_outcome(update::Action::roll_back, true, true) ==
-             update::Outcome::roll_back_failed);
-    OA_CHECK(update::failure_outcome(update::Action::roll_back, true, false) ==
-             update::Outcome::roll_back_incomplete);
+    OA_CHECK(
+        update::failure_outcome(update::Action::install, false, true) ==
+        update::Outcome::not_installed
+    );
+    OA_CHECK(
+        update::failure_outcome(update::Action::install, true, true) ==
+        update::Outcome::failed_restored
+    );
+    OA_CHECK(
+        update::failure_outcome(update::Action::install, true, false) ==
+        update::Outcome::recovery_incomplete
+    );
+    OA_CHECK(
+        update::failure_outcome(update::Action::roll_back, false, true) ==
+        update::Outcome::roll_back_failed
+    );
+    OA_CHECK(
+        update::failure_outcome(update::Action::roll_back, true, true) ==
+        update::Outcome::roll_back_failed
+    );
+    OA_CHECK(
+        update::failure_outcome(update::Action::roll_back, true, false) ==
+        update::Outcome::roll_back_incomplete
+    );
 
     OA_CHECK(update::failed_outcome(update::Outcome::not_installed));
     OA_CHECK(update::failed_outcome(update::Outcome::cancelled));
@@ -151,7 +167,9 @@ void refuses(std::string_view name, std::string_view json, std::string_view snip
     std::string error;
     const std::optional<update::Receipt> read = update::read_receipt(bytes_of(json), &error);
     if (read.has_value() || error.find(snippet) == std::string::npos)
-        std::fprintf(stderr, "receipt case %.*s: %s\n", int(name.size()), name.data(), error.c_str());
+        std::fprintf(
+            stderr, "receipt case %.*s: %s\n", int(name.size()), name.data(), error.c_str()
+        );
     OA_CHECK(!read.has_value());
     OA_CHECK(error.find(snippet) != std::string::npos);
 }
@@ -159,7 +177,9 @@ void refuses(std::string_view name, std::string_view json, std::string_view snip
 void refusals() {
     const std::string tail =
         R"("from_version":"0.8.7","to_version":"0.8.8","release":12,"started_at":1,"finished_at":2,"steps":[],"shown":false})";
-    refuses("format", R"({"receipt":2,"action":"install","outcome":"installed",)" + tail, "receipt 1");
+    refuses(
+        "format", R"({"receipt":2,"action":"install","outcome":"installed",)" + tail, "receipt 1"
+    );
     refuses("action", R"({"receipt":1,"action":"undo","outcome":"installed",)" + tail, "action");
     refuses("outcome", R"({"receipt":1,"action":"install","outcome":"fine",)" + tail, "outcome");
     refuses(
@@ -187,7 +207,12 @@ void refusals() {
         R"({"receipt":1,"action":"install","outcome":"installed","from_version":"0.8.7","to_version":"","release":-1,"started_at":1,"finished_at":2,"steps":[],"shown":false})",
         "release"
     );
-    refuses("shown", R"({"receipt":1,"action":"install","outcome":"installed",)" + tail.substr(0, tail.find(",\"shown\"")) + "}", "shown");
+    refuses(
+        "shown",
+        R"({"receipt":1,"action":"install","outcome":"installed",)" +
+            tail.substr(0, tail.find(",\"shown\"")) + "}",
+        "shown"
+    );
     std::string many =
         R"({"receipt":1,"action":"install","outcome":"installed","from_version":"0.8.7","to_version":"","release":1,"started_at":1,"finished_at":2,"steps":[)";
     for (std::size_t index = 0; index <= update::most_receipt_steps; ++index) {

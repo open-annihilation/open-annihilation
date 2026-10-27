@@ -2,12 +2,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // One check for a new release. The main menu starts it when it is due, a
-// match stops it, and a result that reached the server is remembered.
+// match stops it, and a result that reached the server is remembered. The
+// feed an earlier check stored is read again at the first menu, so a
+// release out, or one already downloaded, is known without a request. The
+// guard counts an unconfirmed start before the game loads; a start the
+// player quits takes its count back.
 #include "oa/app/runtime.hpp"
 
 #include "oa/app/game_directory.hpp"
 #include "oa/app/update/build.hpp"
 #include "oa/app/update/plan.hpp"
+#include "runtime_update_start.hpp"
 #include "update_state.hpp"
 #include "oa/platform/files.hpp"
 #include "oa/platform/preferences.hpp"
@@ -106,6 +111,12 @@ std::optional<fs::path> updates_folder(const Options& options, std::string& fail
 
 /// One line for a finished check. Checking and idle say nothing.
 void log_result(int64_t release, const update::CheckSnapshot& latest) {
+    if (latest.remembered) {
+        if (latest.state == update::CheckState::offered && latest.offer.release != nullptr)
+            std::cerr << "open-annihilation: update check: the stored feed offers "
+                      << latest.offer.release->version_text << '\n';
+        return;
+    }
     if (latest.state == update::CheckState::up_to_date) {
         std::cerr << "open-annihilation: update check: up to date (release " << release << ")\n";
         return;
@@ -192,6 +203,27 @@ void Runtime::tick_update_check() {
         update_.reset(new UpdateState());
     if (match_ != nullptr || screen_ == Screen::match)
         cancel_update_check();
+    // The first menu reads the feed an earlier check stored, once, with no
+    // request: a release out is offered again (Later asks at the next
+    // start), and a package already downloaded is found. Never reads nothing.
+    if (update_->checker == nullptr && screen_ == Screen::main_menu) {
+        const auto found = preference_values_.find(std::string(oa::ui::first_run::preference_key));
+        const bool setup_done = found != preference_values_.end() &&
+                                oa::ui::engine_settings::language_notice_trim(found->second) ==
+                                    oa::ui::first_run::preference_done;
+        const bool quiet_run =
+            !options_.update_feed.has_value() && (options_.unattended || options_.headless_check);
+        if (setup_done && !quiet_run &&
+            update::read_check_mode(preference_values_) != update::CheckMode::never) {
+            std::string failure;
+            if (const std::optional<fs::path> folder = updates_folder(options_, failure)) {
+                update_->checker = std::make_unique<update::Checker>(*folder);
+                const update::ThisBuild built = program_build();
+                update_->release = built.release;
+                static_cast<void>(update_->checker->remember(source_for(options_), built));
+            }
+        }
+    }
     if (update_->checker != nullptr) {
         const update::CheckSnapshot latest = update_->checker->snapshot();
         if (latest.generation != update_->seen_generation) {
@@ -235,6 +267,33 @@ void Runtime::tick_update_check() {
 namespace {
 
 namespace fs = std::filesystem;
+
+/// The start the guard counted in this process, so a quit can take it back.
+struct CountedStart {
+    bool counted{};                ///< the guard counted this start
+    std::filesystem::path updates; ///< the data folder's updates directory
+};
+
+/// The process's counted start. The guard runs once, before any runtime.
+CountedStart& counted_start() {
+    static CountedStart counted;
+    return counted;
+}
+
+/// Reads a state file, capped at the plan's limit. Nothing when it cannot be read.
+std::optional<update::State> read_state_file(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input)
+        return std::nullopt;
+    std::vector<char> raw(
+        (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
+    );
+    if (raw.size() > update::max_plan_bytes)
+        return std::nullopt;
+    const std::vector<uint8_t> bytes(raw.begin(), raw.end());
+    std::string error;
+    return update::read_state(bytes, &error);
+}
 
 /// True when this start must not be counted.
 ///
@@ -300,21 +359,6 @@ std::string guard_absolute(const fs::path& path) {
     if (error || full.empty())
         return path_to_utf8(path);
     return path_to_utf8(full);
-}
-
-/// Reads a state file, capped at the plan's limit. Nothing when it cannot be read.
-std::optional<update::State> guard_read_state(const fs::path& path) {
-    std::ifstream input(path, std::ios::binary);
-    if (!input)
-        return std::nullopt;
-    std::vector<char> raw(
-        (std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>()
-    );
-    if (raw.size() > update::max_plan_bytes)
-        return std::nullopt;
-    const std::vector<uint8_t> bytes(raw.begin(), raw.end());
-    std::string error;
-    return update::read_state(bytes, &error);
 }
 
 /// One argument of the program the helper starts again, when this run named it.
@@ -427,7 +471,7 @@ int guard_unconfirmed_start(int argc, char** argv, const Options& options) {
         return -1;
     }
     const fs::path updates = data / "updates";
-    const std::optional<update::State> loaded = guard_read_state(updates / "state.json");
+    const std::optional<update::State> loaded = read_state_file(updates / "state.json");
     if (!loaded)
         return -1;
     update::State state = *loaded;
@@ -444,6 +488,8 @@ int guard_unconfirmed_start(int argc, char** argv, const Options& options) {
         std::cerr << "open-annihilation: update: " << write_error << '\n';
         return -1;
     }
+    counted_start().counted = true;
+    counted_start().updates = updates;
     if (counted < update::failed_starts_that_roll_back)
         return -1;
 
@@ -520,6 +566,76 @@ int guard_unconfirmed_start(int argc, char** argv, const Options& options) {
     std::cerr << "open-annihilation: update: going back to " << state.kept_version << '\n';
     return 0;
 #endif
+}
+
+fs::path update_starts_file() {
+#if defined(__linux__)
+    fs::path folder{oa::platform::program_directory()};
+    if (folder.empty())
+        return {};
+    if (folder.filename().empty())
+        folder = folder.parent_path();
+    fs::path install = folder;
+    if (folder.filename() == "current")
+        install = folder.parent_path();
+    else if (folder.parent_path().filename() == "versions")
+        install = folder.parent_path().parent_path();
+    else if (folder.parent_path().filename() == "current")
+        install = folder.parent_path().parent_path();
+    return install / "update-starts";
+#else
+    return {};
+#endif
+}
+
+void release_quit_start(const Options& options) {
+    fs::path updates = counted_start().updates;
+#if defined(__linux__)
+    // The launcher counted this start, whatever ran it.
+    if (updates.empty()) {
+        try {
+            const fs::path data =
+                options.data_dir ? *options.data_dir : oa::platform::preferences::data_directory();
+            updates = data / "updates";
+        } catch (const std::exception& thrown) {
+            std::cerr << "open-annihilation: update: " << thrown.what() << '\n';
+            return;
+        }
+    }
+#else
+    (void)options;
+    // On macOS and Windows only a start the guard counted is taken back.
+    if (!counted_start().counted)
+        return;
+#endif
+    if (updates.empty())
+        return;
+    std::optional<update::State> state = read_state_file(updates / "state.json");
+    if (!state || state->confirmed ||
+        state->installed_version != update::this_build({}).version_text)
+        return;
+    update::uncount_quit_start(*state);
+    std::string why;
+    if (!update::write_state(updates / "state.json", *state, &why)) {
+        std::cerr << "open-annihilation: update: " << why << '\n';
+        return;
+    }
+    counted_start().counted = false;
+    const fs::path starts = update_starts_file();
+    std::error_code error;
+    if (starts.empty() || !fs::is_regular_file(starts, error))
+        return;
+    std::ifstream input(starts);
+    long long count = 0;
+    if (!(input >> count) || count <= 0)
+        return;
+    input.close();
+    const std::string text = std::to_string(count - 1) + "\n";
+    const std::vector<uint8_t> bytes(text.begin(), text.end());
+    if (!oa::platform::replace_file(starts, bytes, &why))
+        std::cerr << "open-annihilation: update: " << why << '\n';
+    else
+        std::cerr << "open-annihilation: update: a quit before the main menu is not counted\n";
 }
 
 } // namespace oa::app

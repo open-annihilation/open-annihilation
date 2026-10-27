@@ -109,7 +109,9 @@ void check_failures_read_differently() {
     centre = update::centre_state(inputs);
     OA_CHECK(centre.stage == Stage::not_verified);
     OA_CHECK(english(centre).status == "The update could not be verified.");
-    OA_CHECK(english(centre).detail == "Its signature was refused. Nothing was downloaded or changed.");
+    OA_CHECK(
+        english(centre).detail == "Its signature was refused. Nothing was downloaded or changed."
+    );
     // Details only: there is no way past a refused signature.
     OA_CHECK(centre.actions == std::vector<Act>{Act::details});
 
@@ -209,9 +211,9 @@ void ready_is_three_choices_and_scheduling_is_revocable() {
     inputs.received = inputs.total;
     update::Centre centre = update::centre_state(inputs);
     OA_CHECK(centre.stage == Stage::ready);
-    OA_CHECK(
-        (centre.actions == std::vector<Act>{Act::install_on_quit, Act::install_now, Act::keep_ready})
-    );
+    OA_CHECK((
+        centre.actions == std::vector<Act>{Act::install_on_quit, Act::install_now, Act::keep_ready}
+    ));
     update::CentreWords words = english(centre);
     OA_CHECK(words.status == "0.8.8 is ready");
     OA_CHECK(words.detail == "Downloaded and checked · 24.5 MB");
@@ -307,24 +309,44 @@ void the_install_words_name_the_route() {
 void install_way_follows_the_route() {
     using update::InstallWay;
     using update::Route;
-    OA_CHECK(update::install_way(false, "Flathub", Route::linux_versions, false, false, false) ==
-             InstallWay::package_manager);
-    OA_CHECK(update::install_way(false, "", std::nullopt, false, false, false) == InstallWay::page_only);
-    OA_CHECK(update::install_way(true, "", std::nullopt, false, false, false) == InstallWay::page_only);
-    OA_CHECK(update::install_way(true, "", Route::windows_folder, false, true, false) ==
-             InstallWay::page_only);
-    OA_CHECK(update::install_way(true, "", Route::windows_installer, true, false, false) ==
-             InstallWay::windows_installer);
-    OA_CHECK(update::install_way(true, "", Route::windows_folder, false, false, false) ==
-             InstallWay::restart);
-    OA_CHECK(update::install_way(true, "", Route::macos_bundle, true, false, false) ==
-             InstallWay::macos_installer);
-    OA_CHECK(update::install_way(true, "", Route::macos_bundle, false, false, false) ==
-             InstallWay::restart);
-    OA_CHECK(update::install_way(true, "", Route::linux_versions, false, false, true) ==
-             InstallWay::next_start);
-    OA_CHECK(update::install_way(true, "", Route::linux_versions, false, false, false) ==
-             InstallWay::restart);
+    OA_CHECK(
+        update::install_way(false, "Flathub", Route::linux_versions, false, false, false) ==
+        InstallWay::package_manager
+    );
+    OA_CHECK(
+        update::install_way(false, "", std::nullopt, false, false, false) == InstallWay::page_only
+    );
+    OA_CHECK(
+        update::install_way(true, "", std::nullopt, false, false, false) == InstallWay::page_only
+    );
+    OA_CHECK(
+        update::install_way(true, "", Route::windows_folder, false, true, false) ==
+        InstallWay::page_only
+    );
+    OA_CHECK(
+        update::install_way(true, "", Route::windows_installer, true, false, false) ==
+        InstallWay::windows_installer
+    );
+    OA_CHECK(
+        update::install_way(true, "", Route::windows_folder, false, false, false) ==
+        InstallWay::restart
+    );
+    OA_CHECK(
+        update::install_way(true, "", Route::macos_bundle, true, false, false) ==
+        InstallWay::macos_installer
+    );
+    OA_CHECK(
+        update::install_way(true, "", Route::macos_bundle, false, false, false) ==
+        InstallWay::restart
+    );
+    OA_CHECK(
+        update::install_way(true, "", Route::linux_versions, false, false, true) ==
+        InstallWay::next_start
+    );
+    OA_CHECK(
+        update::install_way(true, "", Route::linux_versions, false, false, false) ==
+        InstallWay::restart
+    );
 }
 
 void download_failures_read_differently() {
@@ -518,7 +540,9 @@ void step_words_in_english() {
         "Could not put the new files in place: another program had it open"
     );
     const update::ReceiptStep swapped{update::Step::swap, update::StepResult::done, {}};
-    OA_CHECK(update::step_words(swapped, "0.8.7", "0.8.8", {}) == "Put 0.8.8 in place, keeping 0.8.7");
+    OA_CHECK(
+        update::step_words(swapped, "0.8.7", "0.8.8", {}) == "Put 0.8.8 in place, keeping 0.8.7"
+    );
     const update::ReceiptStep started{update::Step::start, update::StepResult::done, "0.8.7"};
     OA_CHECK(update::step_words(started, "0.8.7", "0.8.8", {}) == "Started 0.8.7");
     const update::ReceiptStep undo{update::Step::undo, update::StepResult::done, {}};

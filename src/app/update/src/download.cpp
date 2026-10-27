@@ -534,10 +534,26 @@ class PartSink final : public http::BodySink {
 /// @return the clock
 uint64_t steady_ms() noexcept {
     const auto now = std::chrono::steady_clock::now().time_since_epoch();
-    return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now).count());
+    return static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(now).count()
+    );
 }
 
 } // namespace
+
+bool package_downloaded(
+    const fs::path& folder,
+    const oa::data::engine_feed::Release& release,
+    const oa::data::engine_feed::Package& package
+) {
+    const fs::path directory = folder / std::to_string(release.release);
+    std::error_code error;
+    if (plain_file_name(package.zip.file) &&
+        fs::is_regular_file(directory / package.zip.file, error))
+        return true;
+    return package.installer.has_value() && plain_file_name(package.installer->file) &&
+           fs::is_regular_file(directory / package.installer->file, error);
+}
 
 PackageDownload::PackageDownload() = default;
 
@@ -826,7 +842,8 @@ void PackageDownload::run_job(const Job& job) {
     step_total_ = job.file.size;
     step_part_ = job.part;
 
-    const auto fail_ready = [this, &job](DownloadFailure kind, std::string failure, bool drop_file) {
+    const auto fail_ready = [this,
+                             &job](DownloadFailure kind, std::string failure, bool drop_file) {
         if (kind == DownloadFailure::cancelled && discard_files(job.part, job.final_path))
             return;
         if (drop_file)
@@ -964,9 +981,8 @@ void PackageDownload::run_job(const Job& job) {
             done = sink.done_;
 
             const bool held = match_.load() || held_.load();
-            if (sink.halt_ == Halt::paused ||
-                (held && sink.halt_ == Halt::none &&
-                 response.failure == http::Failure::sink_stopped)) {
+            if (sink.halt_ == Halt::paused || (held && sink.halt_ == Halt::none &&
+                                               response.failure == http::Failure::sink_stopped)) {
                 sink.release();
                 if (!wait_while_held(done, job.file.size, job.part)) {
                     cancelled();

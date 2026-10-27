@@ -101,12 +101,27 @@ inline constexpr std::string_view part_suffix = ".part";
 inline constexpr std::string_view wrong_file_failure =
     "the download was not the file the feed promised";
 
+/// Tells whether a release's package was already downloaded and kept.
+///
+/// Only a finished file counts, not a part. It is checked against the feed
+/// again before it is used.
+///
+/// @param folder `<data>/updates`
+/// @param release the release
+/// @param package the package for this build
+/// @return true when its zip or its installer is in `<folder>/<release>/`
+[[nodiscard]] bool package_downloaded(
+    const std::filesystem::path& folder,
+    const oa::data::engine_feed::Release& release,
+    const oa::data::engine_feed::Package& package
+);
+
 /// One published point in a download.
 struct DownloadSnapshot {
-    DownloadState state{DownloadState::waiting}; ///< where the download stands
-    uint64_t received{};                         ///< bytes committed to the part
-    uint64_t total{};                            ///< bytes the feed promised
-    std::string failure;                         ///< why a failed download failed
+    DownloadState state{DownloadState::waiting};         ///< where the download stands
+    uint64_t received{};                                 ///< bytes committed to the part
+    uint64_t total{};                                    ///< bytes the feed promised
+    std::string failure;                                 ///< why a failed download failed
     DownloadFailure failure_kind{DownloadFailure::none}; ///< why it failed, as the player is told
     uint64_t bytes_per_second{}; ///< how fast it moved over its last few seconds; 0 when unknown
     std::filesystem::path path;  ///< the part, or the file once it is ready

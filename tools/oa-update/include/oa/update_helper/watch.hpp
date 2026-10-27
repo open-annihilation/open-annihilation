@@ -3,13 +3,21 @@
 
 // Watching the version the helper just started. The watch ends when that
 // process does, or when state.json says the start reached the main menu.
+// A start the player quit before the main menu is told apart from one that
+// failed: the game marks its own quit in state.json as it leaves.
 // It does not time out while the process is still running. A start that
 // cannot be observed — no pid, and a background process whose pid SDL did
 // not keep — ends after a short wait, so a child that is already gone
-// cannot hold the helper.
+// cannot hold the helper. Such a start is not counted as failed: time alone
+// never decides that a start failed.
 #pragma once
 
+#include "oa/app/update/plan.hpp"
+
+#include <cstdint>
 #include <filesystem>
+#include <optional>
+#include <string>
 
 struct SDL_Process;
 
@@ -17,18 +25,29 @@ namespace oa::update_helper {
 
 /// How a watch ended.
 enum class WatchEnd : uint8_t {
-    confirmed, ///< state.json says the start reached the main menu
-    ended,     ///< the process ended without that
+    confirmed,  ///< state.json says the start reached the main menu
+    quit,       ///< the process ended, and state.json says the player quit before the main menu
+    ended,      ///< the process ended without either: a crash or an error
+    unobserved, ///< the start could not be seen, so how it ended is not known
 };
+
+/// How a watch that saw the process end reads the state file then.
+///
+/// @param state the state file after the process ended, or nothing when it could not be read
+/// @return confirmed, quit or ended
+[[nodiscard]] WatchEnd ended_watch(const std::optional<oa::app::update::State>& state) noexcept;
 
 /// Waits until `process` or `pid` has ended, or until `state_path` says confirmed.
 ///
 /// Both are polled every 250 ms. A confirmed state ends the watch even while
-/// the process is still running, and the process is not killed. Pass a
+/// the process is still running, and the process is not killed. When the
+/// process ends, the state file says whether it reached the main menu, was
+/// quit by the player before it, or neither. With neither a process nor a
+/// pid, or a background process the watch cannot see, it is unobserved. Pass a
 /// process from SDL, or a positive pid from Launch Services, or both. With
-/// neither, the watch ends at once as `ended`. A background process with no
+/// neither, the watch ends at once as `unobserved`. A background process with no
 /// pid is not a process the watch can see; that watch ends after a few
-/// seconds when the state stays unconfirmed.
+/// seconds as `unobserved` when the state stays unconfirmed.
 ///
 /// @param process the process SDL started; destroyed when the watch ends; may be null
 /// @param pid a process id to poll; 0 polls nothing
@@ -40,11 +59,16 @@ watch_until_settled(SDL_Process* process, int pid, const std::filesystem::path& 
 /// How two watched starts ended.
 enum class WatchTwo : uint8_t {
     confirmed,      ///< one of the starts reached the main menu
-    failed_twice,   ///< both ended without that
+    quit,           ///< the player quit a start before the main menu; nothing failed
+    unobserved,     ///< a start could not be seen; it is not counted as failed
+    failed_twice,   ///< both ended without either
     restart_failed, ///< the second start could not be launched
 };
 
-/// Watches one start, and on an unconfirmed end watches the start `again` makes.
+/// Watches one start, and on a failed end watches the start `again` makes.
+///
+/// A start the player quit ends the watch at once as `quit`, and one that
+/// could not be seen as `unobserved`; nothing is started again.
 ///
 /// `again` receives the context and fills a new process or pid. A null
 /// function, or one that returns false, is `restart_failed`. The processes

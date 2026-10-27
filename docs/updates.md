@@ -68,6 +68,49 @@ time, leaves the stored files as they were and tries again on a later
 start. A check that reached the server, including one whose feed was
 refused, waits a day before the next automatic check.
 
+The first main menu of each start reads the stored feed again, with no
+request, and checks its signature as a fetched feed is checked. A release
+it offers is offered again, so LATER asks again at the next start, and a
+package already downloaded for it is found. Check for updates at Never
+reads nothing.
+
+## Where an update stands
+
+The menu, Settings › Updates and the Library header read one state, and
+show the same words for it:
+
+| State | Words |
+|---|---|
+| Checking | Checking for updates… |
+| Up to date | Up to date |
+| A release is out | {version} is out |
+| Skipped | {version} is skipped |
+| Downloading | Downloading {version}, with the bytes, the share and the time left |
+| Paused by you | Download paused |
+| Paused by a match | Paused during a match. Downloads pause during a match and carry on after it. |
+| Checking the download | Checking the download |
+| Ready, nothing scheduled | {version} is ready |
+| Ready, installs when you quit | {version} installs when you quit |
+| Installing | Installing {version} |
+| Finishing | Finishing the update to {version} |
+| Updated | Updated to {version}, from the version before |
+| Back on the kept version | Back on {version} |
+
+A check, a download or an install that fails says which way it failed:
+
+| Outcome | Words |
+|---|---|
+| The server did not answer | Could not connect. Try again later. |
+| The signature, or the downloaded file, was refused | The update could not be verified. There is no way past this check. |
+| Stopped before any file moved | Not installed. {version} is unchanged. |
+| You declined Windows's permission prompt | The update was cancelled. |
+| A step failed and every change was undone | The update failed. {version} was put back. |
+| Putting the files back did not finish | Recovery could not finish. |
+
+The header beside the version shows the short form while a package is
+downloading, paused, being checked, ready or scheduled, such as "0.8.8 ·
+41%" or "0.8.8 installs when you quit".
+
 ## The prompt
 
 When a check has verified a release this build has not skipped, the main
@@ -94,25 +137,48 @@ release asks again. The number is `open-annihilation.update-skipped`. LATER
 writes nothing and asks again at the next start. The question is asked once
 a start, whether the check ran on its own or you asked.
 
+A release that did not install, as the receipt below says, does not ask.
+It waits until you choose to try it again. A release whose package is
+already downloaded asks with the ready prompt instead.
+
 Where this copy can install a release, UPDATE downloads the package into
-`updates/<release>/` under the data folder. A download that stops continues
-from the bytes already stored, and the game tries each mirror in the feed
-in order. It pauses while a match is being played and continues when you
-leave. The file is ready only when its size and SHA-256 match the feed.
+`updates/<release>/` under the data folder. Downloading and installing are
+separate choices: a downloaded package is never installed until you say
+when. A download that stops continues from the bytes already stored, and
+the game tries each mirror in the feed in order. It pauses while a match is
+being played and continues when you leave. The file is ready only when its
+size and SHA-256 match the feed. A package an earlier start downloaded is
+checked against the feed again and kept ready; one that no longer matches
+is fetched again. Cancelling a download deletes what it stored, so nothing
+half-downloaded is kept.
 
 Download in the background is off unless you turn it on in Settings ›
 Updates. While it is on, a release that can be installed here starts
 downloading by itself at the settled main menu, and the ready prompt is
-the first question. While a package is being fetched, Settings and the
-Library show "{version} downloading" beside the version. When it is ready
-they show "{version} ready".
+the first question.
 
-The prompt says "Open Annihilation {version} is ready". WHEN I QUIT leaves
-the file where it is. The next time you quit normally, or when you press
-RESTART NOW, the game writes the plan and starts `oa-update`. On a Steam
-Deck the prompt says the version installs the next time you start Open
-Annihilation, and the helper does not start the game. Where this copy has
-no route, UPDATE opens the release page as before.
+The prompt says "Open Annihilation {version} is ready". It offers three
+answers:
+
+- **KEEP IT READY**, which Escape answers, schedules nothing. The package
+  stays, quitting installs nothing, and the prompt asks again at the next
+  start.
+- **WHEN I QUIT** schedules this release. The choice is stored
+  (`open-annihilation.update-install-on-quit`), the header says "{version}
+  installs when you quit", and the next normal quit writes the plan and
+  starts `oa-update`, in this start or a later one. Taking it back leaves
+  the package ready.
+- The third button installs now. It names the way this copy installs:
+  RESTART NOW where the helper swaps the files and starts the game again
+  (the Windows installer adds "Windows asks for permission."), OPEN THE
+  INSTALLER where macOS Installer puts the release in Applications, and
+  CLOSE THE GAME on a Steam Deck, where the version installs the next time
+  you start Open Annihilation and the helper does not start the game.
+
+Quitting any other way never installs. RESTART TO UPDATE on Settings ›
+Updates installs now as well. Where this copy has no route, UPDATE opens
+the release page as before. With `open-annihilation.update-install` set to
+`when-i-quit`, a ready release is scheduled for the quit without asking.
 
 The first settled main menu of a start that names `--updated-from` with an
 older version shows "Updated to {version}" once. When the saved feed has
@@ -121,17 +187,46 @@ notes for that version, they are listed the same way, under "New in
 notice also says "{version} is kept. To go back to it, open Settings ›
 Updates and press ROLL BACK."
 
+## The receipt
+
+The helper writes `updates/receipt.json` as it works: each step, whether
+it finished or failed and why, the outcome, the versions and the times.
+It rewrites the file after every step, and names the outcome before it
+starts any version of the game, so a run that is cut short still leaves
+what it had done. The first settled main menu of the next start reads it
+and shows it once.
+
+An install that did not put the release in place says so in its own words
+(see [Where an update stands](#where-an-update-stands)) and lists what
+happened, step by step, with SHOW THE LOG, TRY AGAIN and OK. Recovery that
+could not finish lists the steps that put the game right instead of TRY
+AGAIN. The release is then held: it is not offered, downloaded or
+installed by itself, and a scheduled install is taken back, until you
+press TRY AGAIN, or UPDATE or RETRY in Settings › Updates
+(`open-annihilation.update-held`). A newer release is offered as usual. A
+receipt the helper left running for ten minutes was cut short and reads as
+recovery that could not finish.
+
 ## Rolling back
 
-A version marks itself good when it first reaches the main menu. Until
-then, a start that does not get there counts as failed. On macOS and
-Windows the game counts that start before it loads the game's files or a
-mod, and after two failed starts it hands the kept version to `oa-update`
-and leaves. On Linux and Steam Deck the launcher counts in
-`<install>/update-starts` and, at the same point, points `current` at the
-kept version and starts it. A run that only checks something, and a run
+A version marks itself good when it first reaches the main menu, whatever
+is open over it: the welcome, a message or Settings. Until then, a start
+that does not get there counts as failed only when it crashed or stopped
+with an error. A start you quit before the main menu takes its count back,
+and how long a start takes to load never counts. On macOS and Windows the
+game counts a start before it loads the game's files or a mod, and after
+two failed starts it hands the kept version to `oa-update` and leaves. On
+Linux and Steam Deck the launcher counts in `<install>/update-starts` and,
+at the same point, points `current` at the kept version and starts it; a
+quit takes one off that count. A run that only checks something, and a run
 you asked to leave unattended, is not counted as a start. A version that
 already reached the main menu is not put back by this.
+
+The helper watches the first start it makes of the new version. A start
+that reaches the main menu ends the watch. One you quit before the main
+menu ends it too, and nothing is started again. A start that crashed is
+started once more, and a second crash puts the kept version back. A start
+the helper cannot see is never taken for a failed one.
 
 The kept version comes back with the preferences file copied when the new
 version was swapped in. The bad release is not offered again. Saves, mods,
@@ -152,8 +247,9 @@ the [preferences](../src/platform/preferences/README.md).
 
 ## What happens when you update
 
-When a verified package is ready and you quit, or you press RESTART NOW,
-the game writes a plan and starts `oa-update`, then quits. The helper waits until the game has left. It
+When a verified package is scheduled for the quit and you quit, or you
+choose to install it now, the game writes a plan and starts `oa-update`,
+then quits. The helper waits until the game has left. It
 checks the saved feed's signature against the keys this build pins, and
 the downloaded package's name, size and SHA-256 against that feed. A
 package that does not match is not unpacked. The window says "The update

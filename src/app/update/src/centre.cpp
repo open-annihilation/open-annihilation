@@ -23,7 +23,7 @@ constexpr std::string_view checking_status = "Checking for updates…";
 constexpr std::string_view up_to_date_status = "Up to date";
 constexpr std::string_view is_out_status = "{version} is out";
 constexpr std::string_view skipped_status = "{version} is skipped";
-constexpr std::string_view updated_by_detail = "Updated by {manager}";
+constexpr std::string_view updated_by_detail = "Updated by {name}";
 constexpr std::string_view you_have_detail = "You have {current}. The update is {size}.";
 constexpr std::string_view stay_note = "Your saved games, settings and mods stay as they are.";
 constexpr std::string_view downloading_status = "Downloading {version}";
@@ -427,11 +427,10 @@ Centre centre_state(const CentreInputs& inputs) {
         centre.target_version = inputs.download_version;
         centre.target_release = inputs.download_release;
     };
-    const bool held_failure = inputs.held.has_value() &&
-                              (!offer_known || inputs.offer_release <= *inputs.held);
-    const bool download_current =
-        inputs.download_release > 0 &&
-        (!offer_known || inputs.download_release == inputs.offer_release);
+    const bool held_failure =
+        inputs.held.has_value() && (!offer_known || inputs.offer_release <= *inputs.held);
+    const bool download_current = inputs.download_release > 0 &&
+                                  (!offer_known || inputs.download_release == inputs.offer_release);
     const std::optional<Stage> downloaded =
         download_current ? download_stage(inputs) : std::optional<Stage>{};
 
@@ -522,9 +521,7 @@ std::string step_words(
                     : library::filled(text, step_installer_failed, {{"detail", detail}});
     case Step::start:
         return done ? library::filled(
-                          text,
-                          step_start_done,
-                          {{"version", detail.empty() ? to_version : detail}}
+                          text, step_start_done, {{"version", detail.empty() ? to_version : detail}}
                       )
                     : library::filled(text, step_start_failed, {{"detail", detail}});
     case Step::watch:
@@ -591,7 +588,7 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
         break;
     case Stage::managed:
         words.status = with_target(is_out_status);
-        words.detail = library::filled(text, updated_by_detail, {{"manager", centre.manager}});
+        words.detail = library::filled(text, updated_by_detail, {{"name", centre.manager}});
         break;
     case Stage::downloading:
         words.status = with_target(downloading_status);
@@ -616,8 +613,9 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
     case Stage::scheduled:
         words.status = with_target(centre.stage == Stage::ready ? ready_status : scheduled_status);
         if (centre.total > 0)
-            words.detail =
-                library::filled(text, ready_detail, {{"size", library::size_text(centre.total, text)}});
+            words.detail = library::filled(
+                text, ready_detail, {{"size", library::size_text(centre.total, text)}}
+            );
         break;
     case Stage::installing:
         words.status = with_target(installing_status);
@@ -635,7 +633,8 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
     case Stage::rolled_back:
         words.status = with_target(back_on_status);
         if (!centre.came_from.empty())
-            words.detail = library::filled(text, not_offered_detail, {{"version", centre.came_from}});
+            words.detail =
+                library::filled(text, not_offered_detail, {{"version", centre.came_from}});
         break;
     case Stage::could_not_connect:
         words.status = std::string(library::shown(text, could_not_connect_status));
@@ -683,7 +682,8 @@ CentreWords centre_words(const Centre& centre, const library::TextHooks& text) {
         words.pill = library::filled(
             text,
             moving_pill,
-            {{"version", target}, {"percent", std::to_string(centre.percent < 0 ? 0 : centre.percent)}}
+            {{"version", target},
+             {"percent", std::to_string(centre.percent < 0 ? 0 : centre.percent)}}
         );
         break;
     case Stage::paused_by_player:
