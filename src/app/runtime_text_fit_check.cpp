@@ -3,9 +3,10 @@
 
 // --check-text-fit: opens every Open Annihilation screen in English, German,
 // French, Spanish, Italian and Simplified Chinese, or in the languages
-// --check-language names, such as an installed pack's, at 640x480, 1280x720
-// and 1920x1080: Compact, Regular and Large, in the look its preferences
-// file holds (Classic, a named file's own, unless the file names Modern).
+// --check-language names, such as an installed pack's, at 640x480, 960x540
+// and 1280x720: Compact, Regular and Large at 1x, in the look its
+// preferences file holds (Classic, a named file's own, unless the file names
+// Modern).
 // The kit records a text drawn wider than its box or across another text.
 // The check fails naming the screen, the language and the text. The kit
 // records only while a text is drawn, so the layer draws every screen again
@@ -125,11 +126,12 @@ std::string joined_languages(const std::vector<std::string>& tags) {
     return joined;
 }
 
-/// Window sizes: 640x480 lays the screens out at Compact, 1280x720 at
-/// Regular and 1920x1080 at Large, where the modern look draws each class's
-/// type.
-constexpr int32_t kWidths[] = {640, 1280, 1920};
-constexpr int32_t kHeights[] = {480, 720, 1080};
+/// Window sizes: 640x480 lays the screens out at Compact, 960x540 at
+/// Regular and 1280x720 at Large, each at 1x, the room each class starts
+/// from; the modern look draws each class's type. 1920x1080 is Large at 1x
+/// too, with more room.
+constexpr int32_t kWidths[] = {640, 960, 1280};
+constexpr int32_t kHeights[] = {480, 540, 720};
 static_assert(std::size(kWidths) == std::size(kHeights));
 
 /// How far a settings page is scrolled, in source pixels. The dialog clamps
@@ -1968,7 +1970,7 @@ void Runtime::check_text_fit() {
     close_covering();
     if (failures.empty()) {
         std::cout << "text-fit check: every screen fits in " << joined_languages(languages)
-                  << " at 640x480, 1280x720 and 1920x1080\n";
+                  << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: mutator details fit in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: mutator-picker fits in " << joined_languages(languages)

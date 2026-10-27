@@ -3572,12 +3572,12 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_language_switch_check_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software")
       # Every Open Annihilation screen in English, German, French, Spanish,
-      # Italian and Simplified Chinese, at 640x480, 1280x720 and 1920x1080,
-      # in the classic look (the named file's own). A text wider than its
-      # box, or drawn across another text, fails the check and names the
-      # screen, the language and the text. The Chinese fixture installs
-      # first. --check-language TAG names another language, an installed
-      # pack's, to check in place of these.
+      # Italian and Simplified Chinese, at 640x480, 960x540 and 1280x720
+      # (Compact, Regular and Large at 1x), in the classic look (the named
+      # file's own). A text wider than its box, or drawn across another
+      # text, fails the check and names the screen, the language and the
+      # text. The Chinese fixture installs first. --check-language TAG names
+      # another language, an installed pack's, to check in place of these.
       set(oa_text_fit_check_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/text-fit")
       file(MAKE_DIRECTORY "${oa_text_fit_check_dir}")
       file(WRITE "${oa_text_fit_check_dir}/text-fit.conf"
