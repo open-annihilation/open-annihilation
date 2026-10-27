@@ -1628,7 +1628,7 @@ void Runtime::check_text_fit() {
                     require(static_cast<bool>(out), "the own layout was not written");
                 }
                 require(open_key_editor({}), "the key editor did not open on the clash");
-                if (!named("oa.key-editor.card.keep-here").has_value() && width <= 640) {
+                if (!named("oa.key-editor.card.settle").has_value() && width <= 640) {
                     std::optional<AutomationControl> clash_row;
                     std::vector<AutomationControl> clash_controls;
                     oa_layer().automation_controls(clash_controls);
@@ -1647,9 +1647,12 @@ void Runtime::check_text_fit() {
                     require(going, "opening the clash card ended the run");
                 }
                 require(
-                    named("oa.key-editor.card.keep-here").has_value(), "the clash card is not shown"
+                    named("oa.key-editor.card.settle").has_value(), "the clash card is not shown"
                 );
                 paint("key-editor/card");
+                // Settle… opens the one clash question: its outcomes and their words.
+                click_named("oa.key-editor.card.settle");
+                paint("key-editor/settle");
                 if (LayerScreen* keys_card = oa_layer().find("key-editor"))
                     oa_layer().close(keys_card);
                 std::error_code removed;
