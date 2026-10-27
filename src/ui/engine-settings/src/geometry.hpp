@@ -103,7 +103,7 @@ struct NavMetrics {
 /// and Large's fit every section the engine lists.
 inline constexpr std::array<NavMetrics, 3> nav_metrics{{
     {18, 0, 3, 6, 7, 9, 19, 0},
-    {25, 1, 4, 8, 12, 14, 33, 0},
+    {25, 1, 3, 6, 12, 14, 33, 0},
     {32, 1, 5, 10, 14, 16, 38, 0},
 }};
 

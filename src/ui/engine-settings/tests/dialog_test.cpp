@@ -9021,6 +9021,12 @@ void controller_is_listed_only_once_a_gamepad_sent_input() {
     CHECK(geometry::list_item(Page::developer, true, true, true).y == 299);
     settings::Dialog fullest = opened_with_controller(Page::controls, true, true, true);
     CHECK(geometry::nav_layout(fullest).limit == 49);
+    // Regular's and Large's lists hold every section without scrolling.
+    for (const auto size_class : {oa::ui::kit::SizeClass::regular, oa::ui::kit::SizeClass::large}) {
+        settings::Dialog roomy = opened_with_controller(Page::controls, true, true, true);
+        settings::set_dialog_size_class(roomy, size_class);
+        CHECK(geometry::nav_layout(roomy).limit == 0);
+    }
 
     // Each section's entry keeps its number with or without Controller
     // listed; a dialog without it has no entry numbered as Controller.
