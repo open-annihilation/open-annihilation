@@ -385,7 +385,7 @@ std::string with_stand_ins(const Fonts& fonts, FontRole role, std::string_view t
 
 int32_t text_width(const Fonts& fonts, FontRole role, std::string_view text) {
     if (modern_look(fonts))
-        return modern_width(*fonts.modern, text, modern_type(role, false), 0);
+        return modern_width(*fonts.modern, text, modern_type(role, false, fonts.size_class), 0);
     const std::string drawn = with_stand_ins(fonts, role, text);
     return width_of(face_of(fonts, role), drawn);
 }
@@ -394,7 +394,9 @@ int32_t tracked_width(const Fonts& fonts, FontRole role, std::string_view text, 
     if (text.empty())
         return 0;
     if (modern_look(fonts))
-        return modern_width(*fonts.modern, text, modern_type(role, tracking > 0), tracking);
+        return modern_width(
+            *fonts.modern, text, modern_type(role, tracking > 0, fonts.size_class), tracking
+        );
     int32_t characters = 0;
     for (std::size_t at = 0; at < text.size();) {
         const std::size_t bytes = character_bytes(text.substr(at));
@@ -431,7 +433,7 @@ int32_t modern_tracked_width(
 
 int32_t capitals(const Fonts& fonts, FontRole role) {
     if (modern_look(fonts))
-        return modern_capitals(*fonts.modern, modern_type(role, false), 100);
+        return modern_capitals(*fonts.modern, modern_type(role, false, fonts.size_class), 100);
     const FaceFont font = face_of(fonts, role);
     if (!font.modern_only)
         return font.font.font.nominal_height;
@@ -457,7 +459,7 @@ int32_t draw_text(
     std::array<uint8_t, 3> colour
 ) {
     if (modern_look(fonts)) {
-        const ModernType type = modern_type(role, false);
+        const ModernType type = modern_type(role, false, fonts.size_class);
         const int32_t scale = placement.scale;
         const ModernLine line = modern_line(*fonts.modern, text, type, 0, std::max(scale, 1) * 100);
         if (scale >= 1) {
@@ -551,7 +553,7 @@ void draw_boxed_text(
     else if (align == Align::right)
         pen = box.x + box.width - width;
     // The modern look's line takes the tracked type when it has tracking.
-    const ModernType type = modern_type(role, tracking > 0);
+    const ModernType type = modern_type(role, tracking > 0, fonts.size_class);
     // A game font's capitals start one row under the pen row. The ink is that
     // band, not the whole line box: a title's box and the line under it share
     // two rows, and their glyphs meet at the edge.

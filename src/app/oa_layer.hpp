@@ -727,8 +727,16 @@ class OaLayer {
     /// @return true while it is
     [[nodiscard]] bool holds(const LayerScreen* screen) const noexcept;
 
-    /// Returns the fonts the layer's screens are drawn in: the settings
-    /// dialog's (Runtime::engine_settings_fonts).
+    /// Returns the fonts the layer's screens are measured and drawn in: the
+    /// settings dialog's (Runtime::engine_settings_fonts), at the size class
+    /// the screens are laid out at now (kit::Fonts::size_class), so that in
+    /// the modern look each class's text takes that class's steps on the
+    /// type scale. The class is the view's when the layer last laid its
+    /// screens out (lay_out_screens): on the front end the class Settings,
+    /// the Library and the other screens take, and in a match Compact, the
+    /// class of the overlays and the notices there. The in-match Settings
+    /// and the gallery, which a match lays out at a class of their own, are
+    /// measured and drawn at Compact's type.
     ///
     /// @return the fonts; null when they cannot be loaded
     [[nodiscard]] const oa::ui::kit::Fonts* screen_fonts() const;
@@ -1606,7 +1614,8 @@ class OaLayer {
     void sync_text_input();
 
     /// Lays every screen out for the view now, and every one waiting
-    /// (LayerScreen::lay_out).
+    /// (LayerScreen::lay_out), first handing the screens' fonts the view's
+    /// size class (screen_fonts).
     void lay_out_screens();
 
     /// Draws a screen from its own top left corner at a scale, never drawn
@@ -1725,6 +1734,9 @@ class OaLayer {
     /// The fonts generation of the language's faces the modern fonts hold
     /// (Runtime::follow_language_fonts); empty before they took any.
     mutable std::optional<uint64_t> smooth_fonts_generation_{};
+    /// The size class the screens were last laid out at, which their fonts
+    /// take (screen_fonts).
+    oa::ui::kit::SizeClass fonts_class_{oa::ui::kit::SizeClass::compact};
     /// Settings pages registered for this runtime.
     SettingsRegistry settings_pages_{};
     /// The next id queue_notice and queue_prompt hand out. Never 0.

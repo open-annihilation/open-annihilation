@@ -50,11 +50,13 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     sizes, draws a title and a label in the regular font and body and
     small text in the small one (`classic_font`, in `text.hpp`). The
     modern look (`Fonts::modern`, below) draws each font's text at the
-    scale's Compact steps at every class, since one `Fonts` serves every
-    class's screens: the regular font's as a label, Barlow SemiBold at 14
-    points, the small font's as small text, Barlow Regular at 12, and a
-    tracked line in Barlow Condensed, the regular font's Bold at the
-    title's 17 and the small font's SemiBold at 12 (`modern_type`).
+    steps of the class its fonts are handed for (`Fonts::size_class`):
+    the regular font's as a label, Barlow SemiBold at 14, 15 and 16
+    points at Compact, Regular and Large, the small font's as small text,
+    Barlow Regular at 12, 12 and 13, and a tracked line in Barlow
+    Condensed, the regular font's Bold at the title's 17, 20 and 24 and the
+    small font's SemiBold at the small text's size (`modern_type`). The
+    classic look's fonts keep one size at every class.
   - The spacing scale: a base of 4, 6 and 8 points (`space`), the window
     padding three of it (`window_padding`), rows a space and a half apart
     (`row_gap`) and sections three apart (`section_gap`).
@@ -85,9 +87,12 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   measures with the bundled fonts) with `measured_width` and
   `measured_line`, which estimate what a null hook leaves out. The look:
   `Fonts::modern`, the bundled font stack, set by the host while the
-  player's Look is Modern and null in the classic look (`modern_look`).
-  In the modern look every text is measured and drawn in Barlow from that
-  stack at its role's type (`modern_type`), what Barlow lacks in the faces
+  player's Look is Modern and null in the classic look (`modern_look`),
+  and `Fonts::size_class`, the class of the screens the fonts are handed
+  to, which the host sets as it lays them out (the OA layer sets the
+  class its screens take; Compact unless set). In the modern look every
+  text is measured and drawn in Barlow from that stack at its role's type
+  at that class (`modern_type`), what Barlow lacks in the faces
   after it (DejaVu Sans for Greek and Cyrillic, drawn whole for a line in
   those alphabets, the endonym face and a language pack's face for
   ideographs, Noto Emoji): `modern_width` is a line's width in points, each
@@ -810,8 +815,11 @@ screen's copies, `path_break` at its separators and against the folder
 chooser's copy, the modern fonts' measure through its hooks and
 without them, and the modern look: each role's type, Barlow's measure the
 same at 1x and 2x with each character at twice its pen, a tracked line in
-the condensed type, Cyrillic and Chinese still drawn, no stand-ins, and a
-boxed line drawn inside its box and its clip at 2x. `ui-kit-layout` checks the Auto scale, the size classes'
+the condensed type, Cyrillic and Chinese still drawn, no stand-ins, a
+boxed line drawn inside its box and its clip at 2x, and each class's steps
+on the type scale (`Fonts::size_class`): the measure, a tracked line and a
+drawn line growing from Compact to Large, the classic look's alike at every
+class. `ui-kit-layout` checks the Auto scale, the size classes'
 edges and the resolution table they make (Compact only where nothing
 larger fits), a chosen class held to a room, the design's
 window sizes, the Interface size's examples and Auto at each window, 150%

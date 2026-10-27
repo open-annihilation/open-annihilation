@@ -1076,7 +1076,7 @@ struct Runtime::SettingsScreen final : LayerScreen {
         const auto* dialog = runtime_.engine_settings_dialog();
         if (dialog == nullptr)
             return {};
-        return settings::geometry::dialog_list(*dialog, runtime_.engine_settings_fonts());
+        return settings::geometry::dialog_list(*dialog, runtime_.oa_layer().screen_fonts());
     }
 
     /// Returns the dialog's hover, press and focus.
@@ -2080,7 +2080,14 @@ LayerScreen* OaLayer::waiting(std::string_view name) const noexcept {
 }
 
 const kit::Fonts* OaLayer::screen_fonts() const {
-    return runtime_.engine_settings_fonts();
+    if (runtime_.engine_settings_fonts() == nullptr)
+        return nullptr;
+    // One set of fonts serves every screen: it takes the class they are laid
+    // out at, as it takes the Look in effect. A match's overlays and notices
+    // are Compact from its first frame, before its screens are laid out.
+    auto& fonts = *runtime_.engine_settings_state().fonts;
+    fonts.size_class = runtime_.screen_ == Screen::match ? kit::SizeClass::compact : fonts_class_;
+    return &fonts;
 }
 
 text_font::FontStack* OaLayer::smooth_fonts() const {
@@ -2467,6 +2474,8 @@ bool OaLayer::take_window_move(const LayerView& seen, const ScreenInput& input) 
 
 void OaLayer::lay_out_screens() {
     const LayerView seen = view();
+    fonts_class_ = seen.frame.size_class;
+    std::ignore = screen_fonts();
     for (const auto& screen : screens_)
         screen->lay_out(seen);
     for (const auto& screen : queue_)
@@ -3463,7 +3472,7 @@ LayerDrawing OaLayer::draw_screen(
             placed.points_width,
             placed.points_height,
             scale_percent,
-            runtime_.engine_settings_fonts(),
+            screen_fonts(),
             modern,
             runtime_.engine_settings_icon(),
             draw
@@ -3473,7 +3482,7 @@ LayerDrawing OaLayer::draw_screen(
         placed.points_width,
         placed.points_height,
         scale_percent,
-        runtime_.engine_settings_fonts(),
+        screen_fonts(),
         modern,
         runtime_.engine_settings_icon(),
         draw
@@ -3787,7 +3796,7 @@ void OaLayer::present_front_end(const SDL_FRect& area) {
     uint32_t darkenings = 0;
     // What every screen is drawn in, besides its place and scale.
     DrawingInputs common{};
-    common.fonts = runtime_.engine_settings_fonts();
+    common.fonts = screen_fonts();
     const artless::RgbaPicture icon = runtime_.engine_settings_icon();
     common.icon = icon.pixels.data();
     common.icon_bytes = icon.pixels.size();

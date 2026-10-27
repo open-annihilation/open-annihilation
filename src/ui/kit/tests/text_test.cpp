@@ -1177,6 +1177,118 @@ void the_modern_look_draws_in_barlow() {
     );
 }
 
+/// Checks that the modern look takes its fonts' size class: each role's
+/// type at that class's steps on the type scale, the measure, the capitals
+/// and a drawn line growing with it, and the classic look the same at every
+/// class.
+void the_modern_look_takes_the_class_steps() {
+    using text_font::Family;
+    using text_font::Weight;
+    // Regular: label 15, small 12, title 20. Large: 16, 13, 24.
+    constexpr kit::ModernType regular_label =
+        kit::modern_type(kit::FontRole::regular, false, kit::SizeClass::regular);
+    static_assert(regular_label.points == 15 && regular_label.weight == Weight::semibold);
+    static_assert(
+        kit::modern_type(kit::FontRole::small, false, kit::SizeClass::regular).points == 12
+    );
+    static_assert(
+        kit::modern_type(kit::FontRole::regular, true, kit::SizeClass::regular).points == 20
+    );
+    static_assert(
+        kit::modern_type(kit::FontRole::small, true, kit::SizeClass::regular).points == 12
+    );
+    constexpr kit::ModernType large_title =
+        kit::modern_type(kit::FontRole::regular, true, kit::SizeClass::large);
+    static_assert(large_title.points == 24 && large_title.weight == Weight::bold);
+    static_assert(large_title.family == Family::interface_condensed);
+    static_assert(
+        kit::modern_type(kit::FontRole::regular, false, kit::SizeClass::large).points == 16
+    );
+    static_assert(
+        kit::modern_type(kit::FontRole::small, false, kit::SizeClass::large).points == 13
+    );
+    static_assert(kit::modern_type(kit::FontRole::small, true, kit::SizeClass::large).points == 13);
+    // Unnamed, the class is Compact's.
+    static_assert(kit::modern_type(kit::FontRole::regular, false).points == 14);
+    static_assert(kit::Fonts{}.size_class == kit::SizeClass::compact);
+
+    auto stack = text_font::FontStack::open(text_font::bundled_font_directory());
+    OA_CHECK(stack != nullptr);
+    if (!stack)
+        return;
+    kit::Fonts compact;
+    compact.modern = stack.get();
+    kit::Fonts regular = compact;
+    regular.size_class = kit::SizeClass::regular;
+    kit::Fonts large = compact;
+    large.size_class = kit::SizeClass::large;
+    constexpr std::string_view words = "Restore defaults";
+    constexpr std::string_view caps = "SETTINGS";
+    for (const kit::Fonts* fonts : {&compact, &regular, &large}) {
+        for (const kit::FontRole role : {kit::FontRole::regular, kit::FontRole::small}) {
+            OA_CHECK(
+                kit::text_width(*fonts, role, words) ==
+                kit::modern_width(
+                    *stack, words, kit::modern_type(role, false, fonts->size_class), 0
+                )
+            );
+            OA_CHECK(
+                kit::tracked_width(*fonts, role, caps, 1) ==
+                kit::modern_width(*stack, caps, kit::modern_type(role, true, fonts->size_class), 1)
+            );
+        }
+    }
+    const auto regular_width = [&](const kit::Fonts& fonts) {
+        return kit::text_width(fonts, kit::FontRole::regular, words);
+    };
+    OA_CHECK(regular_width(compact) < regular_width(regular));
+    OA_CHECK(regular_width(regular) < regular_width(large));
+    OA_CHECK(
+        kit::tracked_width(compact, kit::FontRole::regular, caps, 1) <
+        kit::tracked_width(large, kit::FontRole::regular, caps, 1)
+    );
+    OA_CHECK(
+        kit::capitals(compact, kit::FontRole::regular) <=
+        kit::capitals(large, kit::FontRole::regular)
+    );
+    OA_CHECK(
+        kit::modern_capitals(
+            *stack, kit::modern_type(kit::FontRole::regular, true, kit::SizeClass::compact), 100
+        ) <
+        kit::modern_capitals(
+            *stack, kit::modern_type(kit::FontRole::regular, true, kit::SizeClass::large), 100
+        )
+    );
+    // A boxed line at Large is drawn as wide as its Large measure.
+    oa::ui::frontend_renderer::Surface surface;
+    surface.width = 200;
+    surface.height = 30;
+    surface.rgb.assign(static_cast<std::size_t>(surface.width) * surface.height * 3U, 0);
+    const oa::ui::frontend_renderer::Placement placement{0, 0, 1, {}};
+    const oa::ui::frontend_renderer::SourceRect box{10, 4, 180, 22};
+    kit::draw_boxed_text(
+        surface,
+        placement,
+        large,
+        kit::FontRole::regular,
+        words,
+        box,
+        kit::Align::left,
+        {255, 255, 255}
+    );
+    const InkColumns ink = ink_columns(surface);
+    OA_CHECK(ink.first >= box.x && ink.first <= box.x + 2);
+    OA_CHECK(ink.end <= box.x + regular_width(large) + 1);
+    OA_CHECK(ink.end > box.x + regular_width(compact) + 1);
+    // The classic look keeps one size at every class.
+    kit::Fonts classic_large;
+    classic_large.size_class = kit::SizeClass::large;
+    OA_CHECK(
+        kit::text_width(classic_large, kit::FontRole::regular, words) ==
+        kit::text_width(kit::Fonts{}, kit::FontRole::regular, words)
+    );
+}
+
 /// Checks the modern fonts' measure: the hooks when they are set, an estimate when not, and
 /// an empty line measured as nothing without asking the hook.
 void the_measure_uses_its_hooks() {
@@ -1212,5 +1324,6 @@ int main() {
     the_measure_uses_its_hooks();
     a_text_wider_than_its_box_or_across_another_is_recorded();
     the_modern_look_draws_in_barlow();
+    the_modern_look_takes_the_class_steps();
     return oa::test::check_exit_status();
 }

@@ -141,14 +141,6 @@ inline constexpr int32_t auto_scale_height = 720;
 [[nodiscard]] int32_t
 auto_scale(int32_t canvas_height, float density, bool offer_fractional = false) noexcept;
 
-/// How much room a layout has, from the points left after the scale: the
-/// largest class whose settings dialog fits with class_margin points round it.
-enum class SizeClass : uint8_t {
-    compact, ///< below 768 by 534 points: Regular's dialog does not fit
-    regular, ///< from 768 by 534 points: Regular's 720 by 486 dialog fits
-    large,   ///< from 1008 by 648 points: Large's 960 by 600 dialog fits
-};
-
 /// The points kept free round a size class's settings dialog, on each side,
 /// for a room to take that class.
 inline constexpr int32_t class_margin = 24;
@@ -165,23 +157,6 @@ inline constexpr Point large_from{
     large_metrics.dialog_width + 2 * class_margin,
     large_metrics.dialog_height + 2 * class_margin,
 };
-
-/// Returns a size class's metrics: compact_metrics, regular_metrics or
-/// large_metrics. A screen takes its window's sizes from them.
-///
-/// @param size_class the size class
-/// @return its metrics
-[[nodiscard]] constexpr const Metrics& metrics_of(SizeClass size_class) noexcept {
-    switch (size_class) {
-    case SizeClass::regular:
-        return regular_metrics;
-    case SizeClass::large:
-        return large_metrics;
-    case SizeClass::compact:
-        break;
-    }
-    return compact_metrics;
-}
 
 /// Returns the size class of a layout's room: the largest class whose
 /// dialog fits it with class_margin points round it.

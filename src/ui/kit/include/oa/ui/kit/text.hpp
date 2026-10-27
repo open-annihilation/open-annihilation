@@ -86,6 +86,11 @@ struct Fonts {
     /// used. Null keeps the classic look. The host owns the stack, and one
     /// thread at a time uses it.
     oa::platform::text_font::FontStack* modern{};
+    /// The size class whose steps on the type scale the modern look
+    /// measures and draws in (modern_type): the class of the screens these
+    /// fonts are handed to, which the host sets as it lays them out at a
+    /// class. The classic look's game fonts keep one size at every class.
+    SizeClass size_class{SizeClass::compact};
 };
 
 /// Tells whether fonts draw the modern look.
@@ -103,29 +108,31 @@ struct ModernType {
     oa::platform::text_font::Family family{}; ///< the faces it looks in first
 };
 
-/// Returns the type the modern look draws a font's text in: the type
-/// scale's Compact steps at every size class, as the game's fonts keep one
-/// size at every class. The regular font's text is a label, Barlow
-/// SemiBold at label_size (14); the small font's is small text, Barlow
-/// Regular at small_size (12). A tracked line, a window's title or a
-/// section's heading in capitals, is Barlow Condensed: the regular font's
-/// Bold at title_size (17), the small font's SemiBold at small_size.
+/// Returns the type the modern look draws a font's text in at a size
+/// class: that class's steps on the type scale (metrics_of). The regular
+/// font's text is a label, Barlow SemiBold at label_size (14, 15 and 16
+/// points at Compact, Regular and Large); the small font's is small text,
+/// Barlow Regular at small_size (12, 12 and 13). A tracked line, a
+/// window's title or a section's heading in capitals, is Barlow Condensed:
+/// the regular font's Bold at title_size (17, 20 and 24), the small font's
+/// SemiBold at small_size.
 ///
 /// @param role which font
 /// @param tracked the line has tracking
+/// @param size_class the class whose steps it takes (Fonts::size_class)
 /// @return the type
-[[nodiscard]] constexpr ModernType modern_type(FontRole role, bool tracked) noexcept {
+[[nodiscard]] constexpr ModernType
+modern_type(FontRole role, bool tracked, SizeClass size_class = SizeClass::compact) noexcept {
     using oa::platform::text_font::Family;
     using oa::platform::text_font::Weight;
+    const Metrics& steps = metrics_of(size_class);
     if (tracked)
         return role == FontRole::regular
-                   ? ModernType{compact_metrics.title_size, Weight::bold, Family::interface_condensed}
-                   : ModernType{
-                         compact_metrics.small_size, Weight::semibold, Family::interface_condensed
-                     };
+                   ? ModernType{steps.title_size, Weight::bold, Family::interface_condensed}
+                   : ModernType{steps.small_size, Weight::semibold, Family::interface_condensed};
     return role == FontRole::regular
-               ? ModernType{compact_metrics.label_size, Weight::semibold, Family::interface}
-               : ModernType{compact_metrics.small_size, Weight::regular, Family::interface};
+               ? ModernType{steps.label_size, Weight::semibold, Family::interface}
+               : ModernType{steps.small_size, Weight::regular, Family::interface};
 }
 
 /// Returns a line's width in the modern look: each character's advance at

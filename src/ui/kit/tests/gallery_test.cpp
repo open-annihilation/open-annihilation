@@ -846,8 +846,8 @@ gallery_picture(const kit::Frame& frame, const kit::GalleryLayout& laid, const k
 }
 
 /// The gallery follows the look: in the modern look its header's title is
-/// as wide as Barlow Condensed draws it, and its text is drawn in other
-/// pixels than the classic look's.
+/// as wide as Barlow Condensed draws it at the case's class, and its text is
+/// drawn in other pixels than the classic look's.
 void the_gallery_follows_the_look(
     const Case& shown, const kit::Frame& frame, const kit::Fonts& classic, const kit::Fonts& modern
 ) {
@@ -876,12 +876,13 @@ void the_gallery_follows_the_look(
         "the modern look's header title is not Barlow Condensed's width"
     );
     expect(
-        modern_header->title_width == kit::modern_width(
-                                          *modern.modern,
-                                          modern_header->title,
-                                          kit::modern_type(kit::FontRole::regular, true),
-                                          modern_header->tracking
-                                      ),
+        modern_header->title_width ==
+            kit::modern_width(
+                *modern.modern,
+                modern_header->title,
+                kit::modern_type(kit::FontRole::regular, true, shown.size_class),
+                modern_header->tracking
+            ),
         shown,
         "the modern look's header title is not measured in its tracked type"
     );
@@ -939,6 +940,9 @@ int main() {
         for (const Case& shown : kCases) {
             const kit::Frame frame = frame_of(shown);
             expect(frame.size_class == shown.size_class, shown, "the frame is not of its class");
+            // The modern look's type takes the case's class, as the OA
+            // layer hands its screens their class's fonts.
+            modern.size_class = shown.size_class;
             const kit::GalleryModel model;
             const kit::GalleryLayout laid = kit::gallery_layout(model, frame, fonts());
             expect(
@@ -967,7 +971,9 @@ int main() {
             }
         }
     }
-    for (const Case& shown : kCases)
+    for (const Case& shown : kCases) {
+        modern.size_class = shown.size_class;
         the_gallery_follows_the_look(shown, frame_of(shown), classic, modern);
+    }
     return oa::test::check_exit_status();
 }

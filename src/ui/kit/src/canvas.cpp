@@ -201,7 +201,7 @@ void modern_smooth_text(
     int32_t tracking
 ) {
     text_font::FontStack& fonts = *canvas.fonts->modern;
-    const ModernType type = modern_type(role, tracking > 0);
+    const ModernType type = modern_type(role, tracking > 0, canvas.fonts->size_class);
     const int32_t percent = std::max(canvas.smooth.scale_percent, int32_t{1});
     const ModernLine line = modern_line(fonts, text, type, tracking, percent);
     int32_t pen_points = box.x;

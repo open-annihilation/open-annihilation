@@ -763,6 +763,32 @@ inline constexpr Metrics large_metrics = [] {
     return sized;
 }();
 
+/// How much room a layout has, from the points left after the scale: the
+/// largest class whose settings dialog fits with class_margin points round
+/// it (oa/ui/kit/layout.hpp).
+enum class SizeClass : uint8_t {
+    compact, ///< below 768 by 534 points: Regular's dialog does not fit
+    regular, ///< from 768 by 534 points: Regular's 720 by 486 dialog fits
+    large,   ///< from 1008 by 648 points: Large's 960 by 600 dialog fits
+};
+
+/// Returns a size class's metrics: compact_metrics, regular_metrics or
+/// large_metrics. A screen takes its window's sizes from them.
+///
+/// @param size_class the size class
+/// @return its metrics
+[[nodiscard]] constexpr const Metrics& metrics_of(SizeClass size_class) noexcept {
+    switch (size_class) {
+    case SizeClass::regular:
+        return regular_metrics;
+    case SizeClass::large:
+        return large_metrics;
+    case SizeClass::compact:
+        break;
+    }
+    return compact_metrics;
+}
+
 /// Returns the radius of a control's corners from its height: the radius
 /// of the class whose controls are that tall, and for a control shorter
 /// than Compact's, Compact's radius in proportion, at least 2 points.
