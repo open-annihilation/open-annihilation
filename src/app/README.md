@@ -1836,7 +1836,12 @@ prompts, Settings › Updates and the headers name one state with one size.
   rendered far view (`far_view_dot_covers`, in `selection_hooks`), and a
   press on the black
   past the map's edges, at any zoom, takes the nearest point of the shown
-  map (`ground_point_under`). In the Full tier the far frame's world layer
+  map (`ground_point_under`). The drag box's corner there is the point
+  itself at height 0 while View past the map's edge lets the view past the
+  edges (`match_pointer_ground`, `drag_box_corner`), so that a box reaches
+  as far as the view shows and selects the units drawn there, as a click on
+  one does; at Off it is held on the map's ground, as 3.1c holds it
+  (`native-off-map-selection`). In the Full tier the far frame's world layer
   is the processor's picture, which Basic's presentation draws without
   leaving Full. `app-far-view` checks the floors, the pyramid, the filter
   before and past the map, the dots and the pixels they cover, and the

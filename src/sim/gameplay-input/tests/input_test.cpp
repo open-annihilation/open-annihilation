@@ -52,6 +52,31 @@ int main() {
     // A map with no size has no terrain to find.
     const auto nowhere = terrain_intersection(terrain, 32, 40, 0, 128);
     OA_CHECK(nowhere.x == 0 && nowhere.y == 0 && nowhere.z == 0);
+    // A drag box's corner over the map is the terrain point there, whether
+    // or not the view may show past the map's edges.
+    for (const bool past_edges : {false, true}) {
+        const auto on_map = drag_box_corner(terrain, 32, 40, 64, 128, past_edges);
+        OA_CHECK(on_map.x == ground.x && on_map.y == ground.y && on_map.z == ground.z);
+    }
+    // Past the edges a view kept on the map holds the corner on the map's
+    // ground, as terrain_intersection does.
+    const auto held = drag_box_corner(terrain, -40, -24, 64, 128, false);
+    const auto edge = terrain_intersection(terrain, -40, -24, 64, 128);
+    OA_CHECK(held.x == edge.x && held.y == edge.y && held.z == edge.z);
+    OA_CHECK(held.x == 0);
+    // A view that shows past them takes the point itself at height 0, on
+    // every side.
+    const auto left = drag_box_corner(terrain, -40, 60, 64, 128, true);
+    OA_CHECK(left.x == -40 * 65536 && left.y == 0 && left.z == 60 * 65536);
+    const auto above = drag_box_corner(terrain, 10, -24, 64, 128, true);
+    OA_CHECK(above.x == 10 * 65536 && above.y == 0 && above.z == -24 * 65536);
+    const auto right = drag_box_corner(terrain, 64, 60, 64, 128, true);
+    OA_CHECK(right.x == 64 * 65536 && right.y == 0 && right.z == 60 * 65536);
+    const auto below = drag_box_corner(terrain, 10, 300, 64, 128, true);
+    OA_CHECK(below.x == 10 * 65536 && below.y == 0 && below.z == 300 * 65536);
+    // A map with no size still has no terrain to find.
+    const auto sizeless = drag_box_corner(terrain, -40, 60, 0, 128, true);
+    OA_CHECK(sizeless.x == 0 && sizeless.y == 0 && sizeless.z == 0);
     OA_CHECK(command_binds_cursor_unit(0));
     OA_CHECK(command_binds_cursor_unit(1));
     OA_CHECK(command_binds_cursor_unit(2));
