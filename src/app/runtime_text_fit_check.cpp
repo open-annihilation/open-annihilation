@@ -29,7 +29,9 @@
 // The key editor's list is painted at every size, and Compact's details page,
 // then the capture, the clash prompt, the keyboard, the mouse and the draft card.
 // The keys overlay is painted in a benchmark skirmish, in every language, at
-// 640x480 only.
+// 640x480 and 1280x720. The install question a key layout opened from a file
+// asks is painted for a new layout and for an update, in every language and
+// every size. The check's last lines name the key screens it painted.
 // Controls is painted with an own layout of OA default that holds twelve
 // changes, in every language and every size, so Key layout's value is the
 // layout's name and its count. The own layout is removed before the check ends.
@@ -44,6 +46,8 @@
 #include "oa/app/game_directory.hpp"
 #include "oa/app/game_files_import.hpp"
 #include "oa/app/mutators_memory.hpp"
+#include "oa/app/package_install.hpp"
+#include "oa/app/package_install/oakeys.hpp"
 #include "oa/app/runtime.hpp"
 #include "oa/data/brain_library/library.hpp"
 #include "oa/data/brain_library/seats.hpp"
@@ -82,6 +86,7 @@
 #include <memory>
 #include <optional>
 #include <ostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -463,7 +468,10 @@ void Runtime::check_text_fit() {
         require(going, std::string(screen) + ": a frame ended the run");
     };
 
+    /// Every screen painted, by name, for the check's last lines.
+    std::set<std::string> painted;
     const auto paint = [&](std::string_view screen) {
+        painted.insert(std::string(screen));
         paint_frames(screen);
         keep();
     };
@@ -1855,6 +1863,40 @@ void Runtime::check_text_fit() {
             if (LayerScreen* notice = oa_layer().find(NoticeScreen::screen_name))
                 oa_layer().close(notice);
 
+            // The install question a key layout opened from a file asks: a
+            // new layout, then an update of one installed.
+            {
+                namespace install = oa::app::package_install;
+                install::Incoming incoming;
+                incoming.id = "ridge-left-hand-grid";
+                incoming.name = "Ridge left-hand grid for the long evenings";
+                incoming.version = "1.2";
+                const auto paint_install = [&](const install::InstallPlan& plan,
+                                               std::string_view screen) {
+                    install::PackagePrompt made = install::oakeys::question_prompt(
+                        plan, incoming, "ridge-left-hand-grid.oakeys", {}, false
+                    );
+                    oa_layer().push(
+                        std::make_unique<QuestionScreen>(
+                            oa_layer(),
+                            Screen::main_menu,
+                            std::move(made.prompt),
+                            QuestionScreen::Host{}
+                        )
+                    );
+                    paint(screen);
+                    if (LayerScreen* asked = oa_layer().find(QuestionScreen::screen_name))
+                        oa_layer().close(asked);
+                };
+                install::InstallPlan fresh;
+                fresh.kind = install::PlanKind::ask_install;
+                paint_install(fresh, "install-question/keys");
+                install::InstallPlan update;
+                update.kind = install::PlanKind::ask_update;
+                update.installed.version = "1.1";
+                paint_install(update, "install-question/keys-update");
+            }
+
             const std::string_view steps[] = {"language", "online", "buttons"};
             for (const std::string_view step : steps) {
                 require(open_staged_first_run(step), "the welcome did not open");
@@ -1939,8 +1981,9 @@ void Runtime::check_text_fit() {
             apply_output_mode();
             require(!chosen_folder, "the folder chooser kept a folder");
 
-            // The keys overlay, beside the side column of one skirmish, at 640 only.
-            if (size_at == 0) {
+            // The keys overlay, beside the side column of one skirmish, at
+            // 640x480 and 1280x720.
+            if (size_at == 0 || size_at + 1 == std::size(kWidths)) {
                 close_covering();
                 load(Screen::main_menu);
                 bool overlay_going = true;
@@ -1977,6 +2020,20 @@ void Runtime::check_text_fit() {
                   << " at 640x480, 960x540 and 1280x720\n";
         std::cout << "text-fit check: brain-picker fits in " << joined_languages(languages)
                   << " at 640x480, 960x540 and 1280x720\n";
+        std::string key_screens;
+        for (const std::string& name : painted) {
+            const bool key_screen =
+                name.starts_with("key-editor") || name == "keys-overlay" ||
+                name == "settings/controls" || name == "settings/accessibility" ||
+                name.starts_with("library/keys") || name.starts_with("install-question/");
+            if (!key_screen)
+                continue;
+            if (!key_screens.empty())
+                key_screens += ", ";
+            key_screens += name;
+        }
+        std::cout << "text-fit check: the key screens fit in " << joined_languages(languages)
+                  << ": " << key_screens << '\n';
         return;
     }
     std::string report = "text-fit check: text does not fit:\n";
