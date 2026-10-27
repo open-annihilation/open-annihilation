@@ -539,8 +539,8 @@ PillRow plan_pills(
     for (int index = 0; index < 5; ++index) {
         kit::PillLook look;
         look.text = pill_caption(editor, state, pill_filters[index], words_of[index]);
-        look.state = state.filter == pill_filters[index] ? kit::PillState::active
-                                                         : kit::PillState::inactive;
+        look.state =
+            state.filter == pill_filters[index] ? kit::PillState::active : kit::PillState::inactive;
         look.hovered = hot(state, ids[index]);
         look.focused = focused_on(state, ids[index]);
         int32_t width = kit::pill_width(fonts, look) + taller;
@@ -5066,6 +5066,86 @@ std::string callout_roles(const kit::KeycapLook& cap) {
     return cap.label;
 }
 
+/// Lays a callout's roles, " · " between them, on at most `most` lines of a
+/// width, each role whole: as many roles as fit, then "+n" for the rest. A
+/// role wider than the width takes lines of its own, broken between words.
+///
+/// @param editor the words
+/// @param roles the roles, " · " between them
+/// @param width the callout's width, in points
+/// @param measure a text's width
+/// @param most the most lines
+/// @return the lines; empty when not even the first role fits whole
+std::vector<std::string> fit_roles(
+    const Editor& editor,
+    std::string_view roles,
+    int32_t width,
+    const kit::Measure& measure,
+    int most
+) {
+    constexpr std::string_view separator = " · ";
+    std::vector<std::string> each;
+    for (std::size_t from = 0; from <= roles.size();) {
+        const std::size_t at = roles.find(separator, from);
+        const std::size_t to = at == std::string_view::npos ? roles.size() : at;
+        if (to > from)
+            each.emplace_back(roles.substr(from, to - from));
+        if (at == std::string_view::npos)
+            break;
+        from = at + separator.size();
+    }
+    // Packs the first `shown` roles, and the count of the others, into lines.
+    // Returns more than `most` lines when they do not fit whole.
+    const auto pack = [&](std::size_t shown) {
+        std::vector<std::string> items(
+            each.begin(), each.begin() + static_cast<std::ptrdiff_t>(shown)
+        );
+        const std::size_t rest = each.size() - shown;
+        std::vector<std::string> lines;
+        std::string line;
+        for (std::size_t index = 0; index <= items.size(); ++index) {
+            const bool count = index == items.size();
+            if (count && rest == 0)
+                break;
+            const std::string item =
+                count ? fill(show(editor.text(), words::more_chords), {{"n", std::to_string(rest)}})
+                      : items[index];
+            const std::string joined =
+                line.empty() ? item : line + (count ? " " : std::string(separator)) + item;
+            if (measure(joined) <= width) {
+                line = joined;
+                continue;
+            }
+            if (!line.empty())
+                lines.push_back(std::move(line));
+            line.clear();
+            if (measure(item) <= width) {
+                line = item;
+                continue;
+            }
+            // A role wider than a line breaks between its words, never in one.
+            const std::vector<std::string> broken = kit::wrap(item, width, measure);
+            std::string rejoined;
+            for (const std::string& part : broken)
+                rejoined += (rejoined.empty() ? "" : " ") + part;
+            if (broken.empty() || rejoined != item)
+                return std::vector<std::string>(static_cast<std::size_t>(most) + 1);
+            for (std::size_t part = 0; part + 1 < broken.size(); ++part)
+                lines.push_back(broken[part]);
+            line = broken.back();
+        }
+        if (!line.empty())
+            lines.push_back(std::move(line));
+        return lines;
+    };
+    for (std::size_t shown = each.size(); shown >= 1; --shown) {
+        std::vector<std::string> lines = pack(shown);
+        if (static_cast<int>(lines.size()) <= most)
+            return lines;
+    }
+    return {};
+}
+
 /// What a mouse control reads as to automation: the roles of its button, as
 /// a key reads as its legend. The wheel is both its turns' roles.
 ///
@@ -5287,12 +5367,17 @@ void add_mouse_body(
             constexpr int role_lines = 2;
             std::vector<std::string> lines;
             if (!roles.empty()) {
-                kit::WrapRules rules;
-                rules.most_lines = static_cast<std::size_t>(role_lines);
-                rules.shorten_last = [&](std::string_view rest) {
-                    return kit::cut_to_width(fonts, kit::FontRole::small, rest, width);
-                };
-                lines = kit::wrap(roles, width, measure_roles, rules);
+                // Whole roles, and a count of the rest where they do not all
+                // fit; a role is cut only where not even one fits whole.
+                lines = fit_roles(editor, roles, width, measure_roles, role_lines);
+                if (lines.empty()) {
+                    kit::WrapRules rules;
+                    rules.most_lines = static_cast<std::size_t>(role_lines);
+                    rules.shorten_last = [&](std::string_view rest) {
+                        return kit::cut_to_width(fonts, kit::FontRole::small, rest, width);
+                    };
+                    lines = kit::wrap(roles, width, measure_roles, rules);
+                }
             }
             const int32_t count = 1 + static_cast<int32_t>(lines.size());
             int32_t top = centred ? anchor - (count * line_h) / 2 : anchor;
@@ -5795,8 +5880,7 @@ lay(const Editor& editor,
                     place_category({after_tabs, field_y, category_w, field_h});
                 pills_left = after_tabs + category_w + (category_w > 0 ? gap : 0);
             }
-            const int32_t packed =
-                plan_pills(editor, state, fonts, metrics, content_w).packed;
+            const int32_t packed = plan_pills(editor, state, fonts, metrics, content_w).packed;
             if (pills_left + packed <= window.right) {
                 const int32_t pills_top = y + std::max((tab_h - chip_h) / 2, int32_t{0});
                 const int32_t pills_bottom = add_pills(

@@ -861,6 +861,14 @@ void check_view(
         if (!labelled)
             std::fprintf(stderr, "%s: a playing row does not name its button\n", where.c_str());
         OA_CHECK(labelled);
+        // The callouts beside the picture show whole roles, and count the
+        // rest, rather than cutting one off.
+        for (const kit::Item& item : list.items) {
+            if (item.role != kit::Role::text || item.text.find("...") == std::string::npos)
+                continue;
+            std::fprintf(stderr, "%s: \"%s\" is cut\n", where.c_str(), item.text.c_str());
+            OA_CHECK(false);
+        }
     }
 }
 
