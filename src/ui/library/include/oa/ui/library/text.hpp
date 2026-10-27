@@ -487,14 +487,9 @@ inline constexpr std::string_view built_in_layout_name = "OA default";
 inline constexpr std::string_view built_in_layout_summary =
     "The keys Open Annihilation ships with.";
 /// A key layout's facts.
-inline constexpr std::string_view fact_keyboard = "Keyboard";
-inline constexpr std::string_view fact_interface = "Interface";
 inline constexpr std::string_view fact_asks_for = "Asks for";
 inline constexpr std::string_view fact_not_in_version = "Not in this version";
 inline constexpr std::string_view fact_key_layouts = "Key layouts";
-/// How many actions a layout names. `{count}` is the number.
-inline constexpr std::string_view changes_one = "Changes 1 action";
-inline constexpr std::string_view changes_many = "Changes {count} actions";
 /// Actions this version does not know. `{count}` is the number.
 inline constexpr std::string_view not_in_version_one = "Not in this version: 1";
 inline constexpr std::string_view not_in_version_many = "Not in this version: {count}";
@@ -503,27 +498,12 @@ inline constexpr std::string_view own_changes_one = "· 1 change of your own";
 inline constexpr std::string_view own_changes_many = "· {count} changes of your own";
 /// The Active tile, when a layout is set for the mod being played.
 inline constexpr std::string_view keys_with_mod = "With {mod}: {name}";
-/// A layout's keyboard, as the details name it.
-inline constexpr std::string_view keyboard_ansi = "ANSI";
-inline constexpr std::string_view keyboard_iso = "ISO";
-inline constexpr std::string_view keyboard_jis = "JIS";
-inline constexpr std::string_view keyboard_any = "Any keyboard";
-/// A layout's interface, as the details name it.
-inline constexpr std::string_view pointer_right = "Right-click";
-inline constexpr std::string_view pointer_left = "Left-click";
 /// USE's question.
 inline constexpr std::string_view use_title = "Use {name}";
-inline constexpr std::string_view use_own_heading = "Your own changes";
-inline constexpr std::string_view use_keep_one = "Keep my 1 change on top";
-inline constexpr std::string_view use_keep_many = "Keep my {count} changes on top";
-inline constexpr std::string_view use_aside = "Set them aside";
-inline constexpr std::string_view use_stay_saved = "They stay saved with {name}.";
 inline constexpr std::string_view use_already_one =
     "{name} already has 1 change of your own; it stays.";
 inline constexpr std::string_view use_already_many =
     "{name} already has {count} changes of your own; they stay.";
-inline constexpr std::string_view use_asks_heading = "This layout asks for";
-inline constexpr std::string_view use_for_heading = "Use it for";
 inline constexpr std::string_view use_every_game = "Every game";
 inline constexpr std::string_view use_only_with = "Only with {mod}";
 inline constexpr std::string_view use_latch = "Latch {action}";
@@ -538,6 +518,63 @@ inline constexpr std::string_view use_edge_off = "Edge scrolling off";
 /// `{layout}` and `{yours}` are "left-click" or "right-click".
 inline constexpr std::string_view use_pointer_mismatch =
     "Made for the {layout} interface; yours is {yours}.";
+/// A key layout's state on its row and in its details: one word, never an icon.
+inline constexpr std::string_view layout_state_installed = "Installed";
+inline constexpr std::string_view layout_state_update = "Update";
+inline constexpr std::string_view layout_state_get = "Get";
+/// GET's state with the download's size. `{size}` is size_text's.
+inline constexpr std::string_view layout_state_get_size = "Get · {size}";
+/// The own changes on a layout's row. `{count}` is the number.
+inline constexpr std::string_view own_count_one = "1 change of your own";
+inline constexpr std::string_view own_count_many = "{count} changes of your own";
+/// A key layout's facts, said by what it does.
+inline constexpr std::string_view fact_your_changes = "Your changes";
+/// How many commands a layout moves. `{count}` is the number.
+inline constexpr std::string_view commands_one = "1 command";
+inline constexpr std::string_view commands_many = "{count} commands";
+/// One own change in the Your changes fact. `{command}` is the command's
+/// name, `{key}` its key.
+inline constexpr std::string_view own_change_on = "{command} on {key}";
+/// One own change that leaves a command with no key.
+inline constexpr std::string_view own_change_off = "{command} with no key";
+/// After the commands a list names, how many it leaves out.
+inline constexpr std::string_view names_more = "and {count} more";
+/// What a layout works with after its mods: the keyboard, then the interface.
+inline constexpr std::string_view works_keyboard_any = "any keyboard";
+inline constexpr std::string_view works_keyboard_ansi = "ANSI keyboards";
+inline constexpr std::string_view works_keyboard_iso = "ISO keyboards";
+inline constexpr std::string_view works_keyboard_jis = "JIS keyboards";
+inline constexpr std::string_view works_pointer_right = "the right-click interface";
+inline constexpr std::string_view works_pointer_left = "the left-click interface";
+/// USE's question, scope first. A section's heading is numbered: `{number}`
+/// counts the sections shown and `{heading}` is its words.
+inline constexpr std::string_view use_section = "{number} · {heading}";
+inline constexpr std::string_view use_where = "Where";
+/// The own-changes section. `{name}` is the layout they sit on.
+inline constexpr std::string_view use_yours_one = "Your 1 change to {name}";
+inline constexpr std::string_view use_yours_many = "Your {count} changes to {name}";
+inline constexpr std::string_view use_keep_it = "Keep it on top";
+inline constexpr std::string_view use_keep_them = "Keep them on top";
+inline constexpr std::string_view use_start_clean = "Start clean";
+inline constexpr std::string_view use_saved_one =
+    "Either way it stays saved with {name}, and comes back when you use {name} again.";
+inline constexpr std::string_view use_saved_many =
+    "Either way they stay saved with {name}, and come back when you use {name} again.";
+/// The before-and-after list.
+inline constexpr std::string_view use_what_moves = "What moves";
+inline constexpr std::string_view use_nothing_moves = "No command changes its key.";
+/// After a command whose key afterwards is the player's own.
+inline constexpr std::string_view use_yours = "yours";
+/// In place of a key, for a command with none.
+inline constexpr std::string_view use_no_key = "No key";
+/// The helpers' note: they are settings, not part of a layout.
+inline constexpr std::string_view use_helpers_every_game = "Helpers act in every game.";
+inline constexpr std::string_view use_helpers_not_only =
+    "Helpers act in every game, not only with {mod}.";
+/// USE's button names the answer.
+inline constexpr std::string_view use_for_every_game = "Use for every game";
+inline constexpr std::string_view use_for_mod = "Use for {mod}";
+inline constexpr std::string_view use_cancel = "Cancel";
 /// UNINSTALL of the layout in use.
 inline constexpr std::string_view uninstall_layout_in_use =
     "You play with {name} now. Uninstall it and go back to OA default? Your own changes stay "

@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -232,6 +233,53 @@ struct BrainFacts {
     std::optional<Verdict> verdict{};
 };
 
+/// A key as a row of keycaps shows it: the keycaps' labels in order, and a
+/// gesture word after them. No keycaps is no key.
+struct KeyChord {
+    std::vector<std::string> keys{}; ///< the keycaps' labels, modifiers first
+    std::string gesture{};           ///< the gesture word, such as "hold"; empty for a press
+};
+
+/// One command whose key changes: a layout's own change, or what USE moves.
+struct KeyMove {
+    /// The command's English name, as the key editor lists it. It is looked
+    /// up when it is shown.
+    std::string command{};
+    KeyChord before{}; ///< its first key now; empty when it has none
+    KeyChord after{};  ///< its first key afterwards; empty when it will have none
+    /// The key afterwards is one of the player's own changes.
+    bool own{};
+};
+
+/// The most commands a list of moves or own changes holds. Its total counts
+/// the rest.
+inline constexpr std::size_t most_key_moves = 64;
+
+/// What USE would move: the commands whose first key differs now and
+/// afterwards, in the key editor's order, for each answer to the question
+/// about the player's own changes.
+///
+/// `kept` is the layout with the own changes it would hold when they are kept
+/// on top: its own, when it already has some, else those of the layout in
+/// use. `clean` is the layout with its own changes alone. Nothing here is
+/// written anywhere.
+struct KeyMoves {
+    /// The host read both layouts. Unset lists nothing, and the question
+    /// leaves out what moves.
+    bool known{};
+    std::vector<KeyMove> kept{};  ///< with the own changes on top
+    uint32_t kept_total{};        ///< how many commands `kept` moves, all of them
+    std::vector<KeyMove> clean{}; ///< with the layout's own changes alone
+    uint32_t clean_total{};       ///< how many commands `clean` moves, all of them
+};
+
+/// How the Library asks its host what USE would move. Empty asks nothing.
+struct KeyUseHooks {
+    /// Returns what changing from one layout to another moves. Each id is a
+    /// package key, or "oa-default" for OA default.
+    std::function<KeyMoves(std::string_view from, std::string_view to)> moves{};
+};
+
 /// What a key layout's manifest or catalogue entry says about it.
 ///
 /// `tags` is read the way a brain's are: the chips and the search use them,
@@ -266,6 +314,10 @@ struct KeyLayoutFacts {
     uint32_t unknown_actions{};
     /// The player's own changes sitting on this layout. Not an entry of their own.
     uint32_t own_changes{};
+    /// Those changes, each a command and its first key (`after`), in the key
+    /// editor's order, at most most_key_moves. Empty when the host names
+    /// none; the details then count them.
+    std::vector<KeyMove> own_list{};
     /// This copy is the layout in use. The built-in layout reads Inputs instead.
     bool in_use{};
     /// "Made for {mod}" when works-with names the mod being played. Empty otherwise.
@@ -1090,6 +1142,8 @@ struct KeyUse {
     std::string mod_name{};
     /// "Made for the left-click interface; yours is right-click." Empty when the schemes agree.
     std::string pointer_note{};
+    /// What USE would move, from KeyUseHooks when the question opened.
+    KeyMoves moves{};
 };
 
 /// What USE applies. CANCEL does not build one.
@@ -1140,6 +1194,8 @@ struct Library {
     /// The USE question, over the Library. Empty `open` draws nothing.
     /// GET, an install and a catalogue update never open it.
     KeyUse key_use{};
+    /// How the question learns what USE would move. Empty lists nothing.
+    KeyUseHooks key_hooks{};
     /// A stored note said a mod was cleared because an expansion it needs
     /// went off. Set when the inputs say so, and kept across refresh so the
     /// Active tab can still say why after the host clears the preference.
@@ -1219,6 +1275,13 @@ brain_unfit_reason(const Inputs& inputs, const BrainFacts& facts, const TextHook
 /// @param entry one of its entries
 /// @return true when the player plays with this layout
 [[nodiscard]] bool layout_in_use(const Library& library, const Entry& entry);
+
+/// Returns the layout the player plays with now: the one used only with the
+/// mod being played while that is set, else the one for every game.
+///
+/// @param inputs the Library's inputs
+/// @return its package key, or "oa-default" for OA default
+[[nodiscard]] std::string layout_in_effect(const Inputs& inputs);
 
 /// Tells whether a layout's works-with list fits the mod being played.
 ///

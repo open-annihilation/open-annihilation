@@ -1134,46 +1134,87 @@ void append_brain_facts(const Library& library, const Entry& entry, std::vector<
     }
 }
 
-/// The word a keyboard shape shows.
+/// Returns a key as a fact names it: its keycaps joined with "+", then its
+/// gesture word.
 ///
-/// A layout's "any" stays "Any keyboard". An empty shape uses the player's
-/// keyboard, and an empty player keyboard is ANSI.
-///
-/// @param keyboard the layout's keyboard; empty when it names none
-/// @param inputs the Library's inputs
-/// @param text how texts are looked up
-/// @return the word
-std::string keyboard_word(std::string_view keyboard, const Inputs& inputs, const TextHooks& text) {
-    std::string_view which = keyboard;
-    if (which.empty())
-        which = inputs.player_keyboard.empty() ? std::string_view{"ansi"} : inputs.player_keyboard;
-    if (which == "iso")
-        return std::string(shown(text, words::keyboard_iso));
-    if (which == "jis")
-        return std::string(shown(text, words::keyboard_jis));
-    if (which == "any")
-        return std::string(shown(text, words::keyboard_any));
-    if (which == "ansi")
-        return std::string(shown(text, words::keyboard_ansi));
-    return std::string(which);
+/// @param chord the key
+/// @return the text; empty for no key
+std::string chord_words(const KeyChord& chord) {
+    std::string text;
+    for (const std::string& cap : chord.keys) {
+        if (!text.empty())
+            text.push_back('+');
+        text += cap;
+    }
+    if (!chord.gesture.empty() && !text.empty()) {
+        text.push_back(' ');
+        text += chord.gesture;
+    }
+    return text;
 }
 
-/// The word an interface scheme shows. Empty when the layout names none.
+/// The most own changes the Your changes fact names before "and {count} more".
+constexpr std::size_t own_changes_named = 3;
+
+/// Returns the Your changes fact's value: up to three changes by command and
+/// key ("Patrol on Q, Cloak on K and 2 more"), or their count when the host
+/// names none.
 ///
-/// @param pointer "right-click", "left-click", or empty
+/// @param facts the layout's facts
 /// @param text how texts are looked up
-/// @return the word
-std::string pointer_word(std::string_view pointer, const TextHooks& text) {
-    if (pointer == "left-click")
-        return std::string(shown(text, words::pointer_left));
-    if (pointer == "right-click")
-        return std::string(shown(text, words::pointer_right));
-    return {};
+/// @return the value; empty when the layout holds none of the player's changes
+std::string your_changes_text(const KeyLayoutFacts& facts, const TextHooks& text) {
+    if (facts.own_list.empty()) {
+        if (facts.own_changes == 0)
+            return {};
+        if (facts.own_changes == 1)
+            return std::string(shown(text, words::own_count_one));
+        return filled(text, words::own_count_many, {{"count", std::to_string(facts.own_changes)}});
+    }
+    std::vector<std::string> parts;
+    const std::size_t named = std::min(facts.own_list.size(), own_changes_named);
+    for (std::size_t index = 0; index < named; ++index) {
+        const KeyMove& change = facts.own_list[index];
+        const std::string command(shown(text, change.command));
+        const std::string key = chord_words(change.after);
+        parts.push_back(
+            key.empty() ? filled(text, words::own_change_off, {{"command", command}})
+                        : filled(text, words::own_change_on, {{"command", command}, {"key", key}})
+        );
+    }
+    const std::size_t total =
+        std::max(static_cast<std::size_t>(facts.own_changes), facts.own_list.size());
+    if (total <= named)
+        return join_parts(text, parts, words::names_and);
+    // Every change named is joined with a comma, and the count of the rest
+    // follows: "Patrol on Q, Cloak on K and 3 more".
+    std::string joined = parts.front();
+    for (std::size_t index = 1; index < parts.size(); ++index)
+        joined = filled(text, words::names_comma, {{"left", joined}, {"right", parts[index]}});
+    return joined + " " +
+           filled(text, words::names_more, {{"count", std::to_string(total - named)}});
 }
 
-/// Appends a key layout's facts: Works with, Needs, Keyboard, Interface,
-/// Asks for, Changes and Not in this version. Size and From are written by
-/// the caller. An unmet engine range is a warning. It does not block GET.
+/// Returns the keyboards a layout works with, as Works with names them.
+///
+/// @param keyboard the layout's keyboard: "ansi", "iso", "jis", "any" or empty
+/// @param text how texts are looked up
+/// @return the words; "any keyboard" when it names none
+std::string works_keyboard(std::string_view keyboard, const TextHooks& text) {
+    if (keyboard == "ansi")
+        return std::string(shown(text, words::works_keyboard_ansi));
+    if (keyboard == "iso")
+        return std::string(shown(text, words::works_keyboard_iso));
+    if (keyboard == "jis")
+        return std::string(shown(text, words::works_keyboard_jis));
+    return std::string(shown(text, words::works_keyboard_any));
+}
+
+/// Appends a key layout's facts, said by what it does: Changes, Your
+/// changes, Asks for, Works with (its mods, keyboards and interface), Needs
+/// and Not in this version. The version, the author, the size and where it
+/// is from are written by the caller, after these. An unmet engine range is
+/// a warning. It does not block GET.
 ///
 /// @param library the Library
 /// @param entry the layout
@@ -1185,24 +1226,54 @@ void append_key_facts(const Library& library, const Entry& entry, std::vector<Fa
     const KeyLayoutFacts& facts = keys != nullptr ? *keys : empty;
     const bool built_in = is_built_in_layout(entry.id);
 
-    if (built_in || facts.works_with.empty()) {
-        const std::string any(shown(text, words::works_with_any));
-        list.push_back(fact_of(shown(text, words::fact_works_with), any, any, Mark::none));
-    } else {
+    if (facts.changes > 0) {
+        const std::string value =
+            facts.changes == 1
+                ? std::string(shown(text, words::commands_one))
+                : filled(text, words::commands_many, {{"count", std::to_string(facts.changes)}});
+        list.push_back(fact_of(shown(text, words::fact_changes), value, value, Mark::none));
+    }
+
+    if (const std::string yours = your_changes_text(facts, text); !yours.empty())
+        list.push_back(fact_of(shown(text, words::fact_your_changes), yours, yours, Mark::none));
+
+    if (!facts.helpers.empty()) {
+        std::vector<std::string> labels;
+        for (const std::string& token : facts.helpers) {
+            const std::string label = key_helper_label(token, text);
+            if (!label.empty())
+                labels.push_back(label);
+        }
+        if (!labels.empty()) {
+            const std::string asks = join_parts(text, labels, words::names_and);
+            list.push_back(fact_of(shown(text, words::fact_asks_for), asks, asks, Mark::none));
+        }
+    }
+
+    std::string works_text(shown(text, words::works_with_any));
+    Mark works_mark = Mark::none;
+    if (!built_in && !facts.works_with.empty()) {
         BrainFacts stand_in;
         stand_in.works_with = facts.works_with;
         const BrainWorksWith works = brain_works_with(library.inputs, stand_in, text);
-        const std::string works_text = works.any ? std::string(shown(text, words::works_with_any))
-                                                 : join_or(text, works.names);
-        if (!works_text.empty()) {
-            list.push_back(fact_of(
-                shown(text, words::fact_works_with),
-                works_text,
-                works_text,
-                works.fits ? Mark::none : Mark::warn
-            ));
-        }
+        if (!works.any)
+            works_text = join_or(text, works.names);
+        works_mark = works.fits ? Mark::none : Mark::warn;
     }
+    const auto joined = [&](std::string left, std::string_view right) {
+        if (left.empty())
+            return std::string(right);
+        return filled(text, words::fact_join, {{"left", left}, {"right", std::string(right)}});
+    };
+    works_text =
+        joined(std::move(works_text), works_keyboard(built_in ? "" : facts.keyboard, text));
+    if (!built_in && facts.pointer == "left-click")
+        works_text = joined(std::move(works_text), shown(text, words::works_pointer_left));
+    else if (!built_in && facts.pointer == "right-click")
+        works_text = joined(std::move(works_text), shown(text, words::works_pointer_right));
+    list.push_back(
+        fact_of(shown(text, words::fact_works_with), works_text, works_text, works_mark)
+    );
 
     if (!built_in) {
         if (const std::optional<formats::oamod::EngineRange> range =
@@ -1219,42 +1290,6 @@ void append_key_facts(const Library& library, const Entry& entry, std::vector<Fa
         }
     }
 
-    const std::string keyboard =
-        keyboard_word(built_in ? std::string_view{} : facts.keyboard, library.inputs, text);
-    list.push_back(fact_of(shown(text, words::fact_keyboard), keyboard, keyboard, Mark::none));
-
-    std::string_view pointer = facts.pointer;
-    if (pointer.empty())
-        pointer = library.inputs.player_pointer.empty() ? std::string_view{"right-click"}
-                                                        : library.inputs.player_pointer;
-    const std::string interface_word = pointer_word(pointer, text);
-    if (!interface_word.empty()) {
-        list.push_back(
-            fact_of(shown(text, words::fact_interface), interface_word, interface_word, Mark::none)
-        );
-    }
-
-    if (!facts.helpers.empty()) {
-        std::vector<std::string> labels;
-        for (const std::string& token : facts.helpers) {
-            const std::string label = key_helper_label(token, text);
-            if (!label.empty())
-                labels.push_back(label);
-        }
-        if (!labels.empty()) {
-            const std::string asks = join_parts(text, labels, words::names_and);
-            list.push_back(fact_of(shown(text, words::fact_asks_for), asks, asks, Mark::none));
-        }
-    }
-
-    if (facts.changes > 0) {
-        const std::string value =
-            facts.changes == 1
-                ? std::string(shown(text, words::changes_one))
-                : filled(text, words::changes_many, {{"count", std::to_string(facts.changes)}});
-        list.push_back(fact_of(shown(text, words::fact_changes), value, value, Mark::none));
-    }
-
     if (facts.unknown_actions > 0) {
         const std::string value = facts.unknown_actions == 1
                                       ? std::string(shown(text, words::not_in_version_one))
@@ -1264,11 +1299,6 @@ void append_key_facts(const Library& library, const Entry& entry, std::vector<Fa
                                             {{"count", std::to_string(facts.unknown_actions)}}
                                         );
         list.push_back(fact_of(shown(text, words::fact_not_in_version), value, value, Mark::warn));
-    }
-
-    if (facts.own_changes > 0) {
-        const std::string line = own_changes_line(facts.own_changes, text);
-        list.push_back(fact_of(shown(text, words::use_own_heading), line, line, Mark::none));
     }
 }
 
@@ -1497,6 +1527,14 @@ bool layout_in_use(const Library& library, const Entry& entry) {
         return true;
     }
     return entry.installed != nullptr && entry.id.key == wanted;
+}
+
+std::string layout_in_effect(const Inputs& inputs) {
+    const std::string& wanted =
+        !inputs.keys_for_mod.empty() ? inputs.keys_for_mod : inputs.keys_layout;
+    if (layout_names_oa_default(wanted))
+        return "oa-default";
+    return wanted;
 }
 
 std::string own_changes_line(uint32_t count, const TextHooks& text) {
@@ -2279,6 +2317,10 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
         expansions_written = true;
     };
 
+    // A key layout says what it does before which copy it is.
+    if (entry.id.kind == Kind::key_layout)
+        append_key_facts(library, entry, list);
+
     // Which version is installed and which is newest, and who made it: each
     // left out when it has nothing to say.
     if (installed != nullptr) {
@@ -2352,7 +2394,6 @@ std::vector<Fact> facts(const Library& library, const Entry& entry) {
     }
 
     if (entry.id.kind == Kind::key_layout) {
-        append_key_facts(library, entry, list);
         if (listing != nullptr) {
             const std::string size = size_text(listing->size, text);
             if (entry.update != nullptr) {
