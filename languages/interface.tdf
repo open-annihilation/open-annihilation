@@ -725,9 +725,9 @@
 [· 1 change of your own]
 	{
 	de=· 1 eigene Änderung;
-	fr=· 1 changement à toi;
-	es=· 1 cambio tuyo;
-	it=· 1 tua modifica;
+	fr=· ton 1 changement;
+	es=· tu 1 cambio;
+	it=· la tua 1 modifica;
 	}
 
 [· from {registry}]
@@ -1316,7 +1316,7 @@
 
 [ADD: Shift for selecting, so taps, boxes and groups add to the selection. Tap to latch, hold for one.]
 	{
-	de=HINZUFÜGEN: Umschalt zum Auswählen, damit Tippen, Rahmen und Gruppen zur Auswahl hinzukommen. Tippen hält es fest, Halten gilt einmal.;
+	de=HINZUFÜGEN: Umschalt zum Auswählen, damit Tippen, Rahmen und Gruppen zur Auswahl hinzukommen. Tippen rastet es ein, Halten gilt einmal.;
 	fr=AJOUTER : Maj pour sélectionner, afin que les touches, les cadres et les groupes s'ajoutent à la sélection. Touche pour le verrouiller, maintiens pour une fois.;
 	es=AÑADIR: Mayús para seleccionar, de modo que toques, marcos y grupos se suman a la selección. Toca para fijarlo, mantén para una vez.;
 	it=AGGIUNGI: Maiusc per selezionare, così tocchi, riquadri e gruppi si aggiungono alla selezione. Tocca per bloccarlo, tieni premuto per una volta.;
@@ -5044,7 +5044,7 @@
 
 [Hold to confirm]
 	{
-	de=Halten zum Bestätigen;
+	de=Zum Bestätigen halten;
 	fr=Maintenir pour confirmer;
 	es=Mantener para confirmar;
 	it=Tieni premuto per confermare;
@@ -5052,7 +5052,7 @@
 
 [Hold to confirm {action}]
 	{
-	de=Halten zum Bestätigen von {action};
+	de=Zum Bestätigen halten: {action};
 	fr=Maintenir pour confirmer {action};
 	es=Mantener para confirmar {action};
 	it=Tieni premuto per confermare {action};
@@ -6333,9 +6333,9 @@
 [Key layout packages (.oakeys)]
 	{
 	de=Tastenbelegungs-Pakete (.oakeys);
-	fr=Paquets de touches (.oakeys);
-	es=Paquetes de teclas (.oakeys);
-	it=Pacchetti di tasti (.oakeys);
+	fr=Paquets de dispositions des touches (.oakeys);
+	es=Paquetes de distribuciones de teclas (.oakeys);
+	it=Pacchetti di disposizioni dei tasti (.oakeys);
 	}
 
 [Key Remaps]
@@ -6452,7 +6452,7 @@
 
 [LATCHED]
 	{
-	de=FESTGEHALTEN;
+	de=EINGERASTET;
 	fr=VERROUILLÉ;
 	es=FIJADO;
 	it=BLOCCATO;
@@ -6565,15 +6565,15 @@
 [Latch]
 	{
 	de=Einrasten;
-	fr=Verrou;
+	fr=Verrouiller;
 	es=Fijar;
-	it=Blocco;
+	it=Bloccare;
 	}
 
 [Latch {action}]
 	{
 	de={action} einrasten;
-	fr=Enclencher {action};
+	fr=Verrouiller {action};
 	es=Fijar {action};
 	it=Blocca {action};
 	}
@@ -7436,10 +7436,10 @@
 
 [Name this layout]
 	{
-	de=Diese Belegung benennen;
-	fr=Nommer cette disposition;
-	es=Nombrar esta distribución;
-	it=Dai un nome a questa disposizione;
+	de=Diese Tastenbelegung benennen;
+	fr=Nommer cette disposition des touches;
+	es=Nombrar esta distribución de teclas;
+	it=Dai un nome a questa disposizione dei tasti;
 	}
 
 [Nanolathe glow]
@@ -9132,7 +9132,7 @@
 
 [QUEUE: Shift for orders, building and placement. Tap to latch, hold for one.]
 	{
-	de=WARTESCHLANGE: Umschalt für Befehle, Bauen und Platzieren. Tippen hält es fest, Halten gilt einmal.;
+	de=WARTESCHLANGE: Umschalt für Befehle, Bauen und Platzieren. Tippen rastet es ein, Halten gilt einmal.;
 	fr=FILE : Maj pour les ordres, la construction et le placement. Touche pour le verrouiller, maintiens pour une fois.;
 	es=COLA: Mayús para órdenes, construcción y colocación. Toca para fijarlo, mantén para una vez.;
 	it=CODA: Maiusc per ordini, costruzione e posizionamento. Tocca per bloccarlo, tieni premuto per una volta.;
@@ -10029,7 +10029,7 @@
 [Search key layouts]
 	{
 	de=Tastenbelegungen suchen;
-	fr=Chercher des dispositions de touches;
+	fr=Chercher des dispositions des touches;
 	es=Buscar distribuciones de teclas;
 	it=Cerca disposizioni dei tasti;
 	}
@@ -11500,10 +11500,10 @@
 
 [The key in the {key} place]
 	{
-	de=Die Taste an der Stelle {key};
-	fr=La touche à la place {key};
-	es=La tecla en el lugar {key};
-	it=Il tasto nel posto {key};
+	de=Die Taste an der Position {key};
+	fr=La touche à la position {key};
+	es=La tecla en la posición {key};
+	it=Il tasto nella posizione {key};
 	}
 
 [The largest whole-number scale that fits: smaller menus, every pixel square.]
@@ -11524,10 +11524,10 @@
 
 [The layout was not saved: {reason}]
 	{
-	de=Die Belegung wurde nicht gespeichert: {reason};
-	fr=La disposition n'a pas été enregistrée : {reason};
-	es=La distribución no se guardó: {reason};
-	it=La disposizione non è stata salvata: {reason};
+	de=Die Tastenbelegung wurde nicht gespeichert: {reason};
+	fr=La disposition des touches n'a pas été enregistrée : {reason};
+	es=La distribución de teclas no se guardó: {reason};
+	it=La disposizione dei tasti non è stata salvata: {reason};
 	}
 
 [The letter {key}, wherever your keyboard has it]
@@ -11597,8 +11597,8 @@
 [The id {id} is kept for your own changes.]
 	{
 	de=Die Kennung {id} ist für deine eigenen Änderungen reserviert.;
-	fr=L'identifiant {id} est gardé pour tes propres changements.;
-	es=El identificador {id} está reservado para tus propios cambios.;
+	fr=L'identifiant {id} est gardé pour tes changements.;
+	es=El identificador {id} está reservado para tus cambios.;
 	it=L'identificatore {id} è tenuto per le tue modifiche.;
 	}
 
@@ -13525,8 +13525,8 @@
 [You play with {name} now. Uninstall it and go back to OA default? Your own changes stay saved.]
 	{
 	de=Du spielst jetzt mit {name}. Deinstallieren und zurück zu OA-Standard? Deine eigenen Änderungen bleiben gespeichert.;
-	fr=Tu joues avec {name} maintenant. Le désinstaller et revenir à OA par défaut ? Tes propres changements restent enregistrés.;
-	es=Juegas con {name} ahora. ¿Desinstalarlo y volver a OA predeterminado? Tus propios cambios siguen guardados.;
+	fr=Tu joues avec {name} maintenant. Le désinstaller et revenir à OA par défaut ? Tes changements restent enregistrés.;
+	es=Juegas con {name} ahora. ¿Desinstalarlo y volver a OA predeterminado? Tus cambios siguen guardados.;
 	it=Giochi con {name} ora. Disinstallarlo e tornare a OA predefinito? Le tue modifiche restano salvate.;
 	}
 
@@ -13869,17 +13869,17 @@
 [and 1 change of your own]
 	{
 	de=und 1 eigene Änderung;
-	fr=et 1 changement à toi;
-	es=y 1 cambio tuyo;
-	it=e 1 modifica tua;
+	fr=et ton 1 changement;
+	es=y tu 1 cambio;
+	it=e la tua 1 modifica;
 	}
 
 [and {n} changes of your own]
 	{
 	de=und {n} eigene Änderungen;
-	fr=et {n} changements à toi;
-	es=y {n} cambios tuyos;
-	it=e {n} modifiche tue;
+	fr=et tes {n} changements;
+	es=y tus {n} cambios;
+	it=e le tue {n} modifiche;
 	}
 
 [and {n} more]
@@ -14252,10 +14252,10 @@
 
 [hold to confirm]
 	{
-	de=halten zum Bestätigen;
+	de=zum Bestätigen halten;
 	fr=maintenir pour confirmer;
 	es=mantener para confirmar;
-	it=tenere premuto per confermare;
+	it=tieni premuto per confermare;
 	}
 
 [icon, manual or help file]
@@ -15068,7 +15068,7 @@
 
 [x5: Shift for the build buttons, five at a time. Tap to latch, hold for one.]
 	{
-	de=x5: Umschalt für die Bautasten, fünf auf einmal. Tippen hält es fest, Halten gilt einmal.;
+	de=x5: Umschalt für die Bautasten, fünf auf einmal. Tippen rastet es ein, Halten gilt einmal.;
 	fr=x5 : Maj pour les boutons de construction, cinq à la fois. Touche pour le verrouiller, maintiens pour une fois.;
 	es=x5: Mayús para los botones de construcción, cinco a la vez. Toca para fijarlo, mantén para una vez.;
 	it=x5: Maiusc per i pulsanti di costruzione, cinque alla volta. Tocca per bloccarlo, tieni premuto per una volta.;
@@ -15789,17 +15789,17 @@
 [{name} already has 1 change of your own; it stays.]
 	{
 	de={name} hat schon 1 eigene Änderung. Sie bleibt.;
-	fr={name} a déjà 1 changement à toi. Il reste.;
-	es={name} ya tiene 1 cambio tuyo. Se queda.;
-	it={name} ha già 1 modifica tua. Resta.;
+	fr={name} a déjà ton 1 changement. Il reste.;
+	es={name} ya tiene tu 1 cambio. Se queda.;
+	it={name} ha già la tua 1 modifica. Resta.;
 	}
 
 [{name} already has {count} changes of your own; they stay.]
 	{
 	de={name} hat schon {count} eigene Änderungen. Sie bleiben.;
-	fr={name} a déjà {count} changements à toi. Ils restent.;
-	es={name} ya tiene {count} cambios tuyos. Se quedan.;
-	it={name} ha già {count} modifiche tue. Restano.;
+	fr={name} a déjà tes {count} changements. Ils restent.;
+	es={name} ya tiene tus {count} cambios. Se quedan.;
+	it={name} ha già le tue {count} modifiche. Restano.;
 	}
 
 [{name} came with {dependant}]
@@ -15837,9 +15837,9 @@
 [{name} · latched]
 	{
 	de={name} · eingerastet;
-	fr={name} · enclenché;
+	fr={name} · verrouillé;
 	es={name} · fijado;
-	it={name} · agganciato;
+	it={name} · bloccato;
 	}
 
 [{name} is installed. Choose it for a computer player when you set up a game.]
@@ -16925,9 +16925,9 @@
 [· {count} changes of your own]
 	{
 	de=· {count} eigene Änderungen;
-	fr=· {count} changements à toi;
-	es=· {count} cambios tuyos;
-	it=· {count} tue modifiche;
+	fr=· tes {count} changements;
+	es=· tus {count} cambios;
+	it=· le tue {count} modifiche;
 	}
 
 [· {reason}]
@@ -17269,9 +17269,9 @@
 [{name} · 1 change of your own]
 	{
 	de={name} · 1 eigene Änderung;
-	fr={name} · 1 changement de ton côté;
-	es={name} · 1 cambio tuyo;
-	it={name} · 1 modifica tua;
+	fr={name} · ton 1 changement;
+	es={name} · tu 1 cambio;
+	it={name} · la tua 1 modifica;
 	}
 
 [{name} · made for {mod}]
@@ -17285,9 +17285,9 @@
 [{name} · {n} changes of your own]
 	{
 	de={name} · {n} eigene Änderungen;
-	fr={name} · {n} changements de ton côté;
-	es={name} · {n} cambios tuyos;
-	it={name} · {n} modifiche tue;
+	fr={name} · tes {n} changements;
+	es={name} · tus {n} cambios;
+	it={name} · le tue {n} modifiche;
 	}
 
 [A key counts only after it is held this long. For a hand that brushes keys.]
@@ -17365,9 +17365,9 @@
 [Hold keys that latch]
 	{
 	de=Tasten, die einrasten;
-	fr=Touches qui s'enclenchent;
-	es=Teclas que se quedan;
-	it=Tasti che restano;
+	fr=Touches qui se verrouillent;
+	es=Teclas que se fijan;
+	it=Tasti che si bloccano;
 	}
 
 [Hold middle]
@@ -17404,7 +17404,7 @@
 
 [How long a hold is: hold to confirm, and keys bound to a hold.]
 	{
-	de=Wie lange ein Halten dauert: Halten zum Bestätigen, und Tasten, die an ein Halten gebunden sind.;
+	de=Wie lange ein Halten dauert: zum Bestätigen halten, und Tasten, die an ein Halten gebunden sind.;
 	fr=Combien de temps dure un maintien : maintenir pour confirmer, et les touches liées à un maintien.;
 	es=Cuánto dura una pulsación larga: mantener para confirmar, y las teclas ligadas a un mantenimiento.;
 	it=Quanto dura una pressione: tieni premuto per confermare, e i tasti legati a una pressione.;
@@ -17469,9 +17469,9 @@
 [Queue and the status strip latch: tap on, tap off. A chip shows each one on.]
 	{
 	de=Warteschlange und die Statusleiste rasten ein: tippen an, tippen aus. Ein Plättchen zeigt jede an.;
-	fr=La file et la barre d'état s'enclenchent : un appui allume, un appui éteint. Une pastille montre chacune allumée.;
-	es=La cola y la barra de estado se quedan: un toque enciende, un toque apaga. Una ficha muestra cada una encendida.;
-	it=La coda e la barra di stato restano: un tocco accende, un tocco spegne. Un tassello mostra ciascuna accesa.;
+	fr=La file et la barre d'état se verrouillent : un appui allume, un appui éteint. Une pastille montre chacune allumée.;
+	es=La cola y la barra de estado se fijan: un toque enciende, un toque apaga. Una ficha muestra cada una encendida.;
+	it=La coda e la barra di stato si bloccano: un tocco accende, un tocco spegne. Un tassello mostra ciascuna accesa.;
 	}
 
 [Self-destruct, surrender and quitting need a long press. A ring fills as you hold.]
@@ -17709,9 +17709,9 @@
 [place]
 	{
 	de=Position;
-	fr=place;
-	es=lugar;
-	it=posto;
+	fr=position;
+	es=posición;
+	it=posizione;
 	}
 
 [Imported from {file}]
@@ -17772,10 +17772,10 @@
 
 [This layout has problems:]
 	{
-	de=Dieses Layout hat Probleme:;
-	fr=Cette disposition a des problèmes :;
-	es=Esta disposición tiene problemas:;
-	it=Questa disposizione ha dei problemi:;
+	de=Diese Tastenbelegung hat Probleme:;
+	fr=Cette disposition des touches a des problèmes :;
+	es=Esta distribución de teclas tiene problemas:;
+	it=Questa disposizione dei tasti ha dei problemi:;
 	}
 
 [Paste keys]
@@ -17814,16 +17814,16 @@
 	{
 	de=Ein Konflikt: {chord} gehört schon zu {action}. Übernehmen behält deine Taste und listet den Konflikt.;
 	fr=Un conflit : {chord} appartient déjà à {action}. Appliquer garde la tienne et liste le conflit.;
-	es=Un choque: {chord} ya pertenece a {action}. Aplicar conserva la tuya y lista el choque.;
+	es=Un conflicto: {chord} ya pertenece a {action}. Aplicar conserva la tuya y lista el conflicto.;
 	it=Un conflitto: {chord} appartiene già a {action}. Applica tiene il tuo ed elenca il conflitto.;
 	}
 
 [{action} is kept in your layout for a version that has it.]
 	{
-	de={action} bleibt in deinem Layout für eine Version, die es kennt.;
-	fr={action} reste dans ta disposition pour une version qui l'aura.;
-	es={action} se queda en tu disposición para una versión que la tenga.;
-	it={action} resta nella tua disposizione per una versione che lo avrà.;
+	de={action} bleibt in deiner Tastenbelegung für eine Version, die es kennt.;
+	fr={action} reste dans ta disposition des touches pour une version qui l'aura.;
+	es={action} se queda en tu distribución de teclas para una versión que la tenga.;
+	it={action} resta nella tua disposizione dei tasti per una versione che lo avrà.;
 	}
 
 [A mod's Ctrl+F2 keys]
@@ -17892,10 +17892,10 @@
 
 [Numbers are Windows key codes, read as key places. The changes go on top of your layout as "Imported from {file}". Nothing else changes.]
 	{
-	de=Zahlen sind Windows-Tastencodes und werden als Tastenorte gelesen. Die Änderungen liegen auf deinem Layout als "Importiert aus {file}". Sonst ändert sich nichts.;
-	fr=Les nombres sont des codes de touches Windows, lus comme des emplacements. Les changements s'ajoutent à ta disposition comme "Importé depuis {file}". Rien d'autre ne change.;
-	es=Los números son códigos de tecla de Windows, leídos como lugares. Los cambios se ponen sobre tu disposición como "Importado de {file}". Nada más cambia.;
-	it=I numeri sono codici dei tasti di Windows, letti come posti. I cambiamenti si mettono sul tuo schema come "Importato da {file}". Non cambia nient'altro.;
+	de=Zahlen sind Windows-Tastencodes und werden als Tastenpositionen gelesen. Die Änderungen liegen auf deiner Tastenbelegung als "Importiert aus {file}". Sonst ändert sich nichts.;
+	fr=Les nombres sont des codes de touches Windows, lus comme des positions. Les changements s'ajoutent à ta disposition des touches comme "Importé depuis {file}". Rien d'autre ne change.;
+	es=Los números son códigos de tecla de Windows, leídos como posiciones. Los cambios se ponen sobre tu distribución de teclas como "Importado de {file}". Nada más cambia.;
+	it=I numeri sono codici dei tasti di Windows, letti come posizioni. Le modifiche si mettono sulla tua disposizione dei tasti come "Importato da {file}". Non cambia nient'altro.;
 	}
 
 [Update]
@@ -17917,17 +17917,17 @@
 [1 change of your own]
 	{
 	de=1 eigene Änderung;
-	fr=1 changement à toi;
-	es=1 cambio tuyo;
-	it=1 modifica tua;
+	fr=ton 1 changement;
+	es=tu 1 cambio;
+	it=la tua 1 modifica;
 	}
 
 [{count} changes of your own]
 	{
 	de={count} eigene Änderungen;
-	fr={count} changements à toi;
-	es={count} cambios tuyos;
-	it={count} modifiche tue;
+	fr=tes {count} changements;
+	es=tus {count} cambios;
+	it=le tue {count} modifiche;
 	}
 
 [Your changes]
@@ -17940,18 +17940,18 @@
 
 [1 command]
 	{
-	de=1 Kommando;
-	fr=1 commande;
-	es=1 comando;
-	it=1 comando;
+	de=1 Aktion;
+	fr=1 action;
+	es=1 acción;
+	it=1 azione;
 	}
 
 [{count} commands]
 	{
-	de={count} Kommandos;
-	fr={count} commandes;
-	es={count} comandos;
-	it={count} comandi;
+	de={count} Aktionen;
+	fr={count} actions;
+	es={count} acciones;
+	it={count} azioni;
 	}
 
 [{command} on {key}]
@@ -18100,10 +18100,10 @@
 
 [No command changes its key.]
 	{
-	de=Kein Kommando ändert seine Taste.;
-	fr=Aucune commande ne change de touche.;
-	es=Ningún comando cambia de tecla.;
-	it=Nessun comando cambia tasto.;
+	de=Keine Aktion ändert ihre Taste.;
+	fr=Aucune action ne change de touche.;
+	es=Ninguna acción cambia de tecla.;
+	it=Nessuna azione cambia tasto.;
 	}
 
 [yours]
@@ -18380,18 +18380,18 @@
 
 [Commands]
 	{
-	de=Kommandos;
-	fr=Commandes;
-	es=Comandos;
-	it=Comandi;
+	de=Aktionen;
+	fr=Actions;
+	es=Acciones;
+	it=Azioni;
 	}
 
 [Common commands]
 	{
-	de=Häufige Kommandos;
-	fr=Commandes courantes;
-	es=Comandos habituales;
-	it=Comandi comuni;
+	de=Häufige Aktionen;
+	fr=Actions courantes;
+	es=Acciones habituales;
+	it=Azioni comuni;
 	}
 
 [Discard]
@@ -18620,10 +18620,10 @@
 
 [Same place on every keyboard]
 	{
-	de=Gleiche Stelle auf jeder Tastatur;
-	fr=Même place sur chaque clavier;
-	es=Mismo lugar en cada teclado;
-	it=Stesso posto su ogni tastiera;
+	de=Gleiche Position auf jeder Tastatur;
+	fr=Même position sur chaque clavier;
+	es=Misma posición en cada teclado;
+	it=Stessa posizione su ogni tastiera;
 	}
 
 [Save]
@@ -18660,10 +18660,10 @@
 
 [Search commands]
 	{
-	de=Kommandos suchen;
-	fr=Chercher des commandes;
-	es=Buscar comandos;
-	it=Cerca comandi;
+	de=Aktionen suchen;
+	fr=Chercher des actions;
+	es=Buscar acciones;
+	it=Cerca azioni;
 	}
 
 [Select a key to see everything on it.]
@@ -18916,10 +18916,10 @@
 
 [Tap Shift, then press A.]
 	{
-	de=Tipp Shift, dann drück A.;
-	fr=Appuie brièvement sur Shift, puis sur A.;
-	es=Toca Shift y luego pulsa A.;
-	it=Tocca Shift, poi premi A.;
+	de=Tipp Umschalt, dann drück A.;
+	fr=Appuie brièvement sur Maj, puis sur A.;
+	es=Toca Mayús y luego pulsa A.;
+	it=Tocca Maiusc, poi premi A.;
 	}
 
 [Hold a key until it counts.]
@@ -18940,10 +18940,10 @@
 
 [Press a key, alone or with Shift, Ctrl or Alt.]
 	{
-	de=Drück eine Taste, allein oder mit Shift, Ctrl oder Alt.;
-	fr=Appuie sur une touche, seule ou avec Shift, Ctrl ou Alt.;
-	es=Pulsa una tecla, sola o con Shift, Ctrl o Alt.;
-	it=Premi un tasto, da solo o con Shift, Ctrl o Alt.;
+	de=Drück eine Taste, allein oder mit Umschalt, Strg oder Alt.;
+	fr=Appuie sur une touche, seule ou avec Maj, Ctrl ou Alt.;
+	es=Pulsa una tecla, sola o con Mayús, Ctrl o Alt.;
+	it=Premi un tasto, da solo o con Maiusc, Ctrl o Alt.;
 	}
 
 [Keys pressed here never reach the game.]
@@ -19036,7 +19036,7 @@
 
 [Hold Ctrl + D to try Hold to confirm.]
 	{
-	de=Halte Ctrl + D, um Halten zum Bestätigen auszuprobieren.;
+	de=Halte Strg + D, um Zum Bestätigen halten auszuprobieren.;
 	fr=Maintiens Ctrl + D pour essayer Maintenir pour confirmer.;
 	es=Mantén Ctrl + D para probar Mantener para confirmar.;
 	it=Tieni premuto Ctrl + D per provare Tieni premuto per confermare.;
