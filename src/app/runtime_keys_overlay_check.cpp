@@ -16,7 +16,8 @@
 // stay in the preferences: run again on them (the preferences already hold
 // the keys overlay's place), the check finds the keys overlay and the chat
 // line where they were left. --snapshot writes keys-overlay-<w>x<h>.ppm,
-// key-badges-<w>x<h>.ppm, arrange-overlays-<w>x<h>.ppm and
+// key-badges-<w>x<h>.ppm, key-badges-off-<w>x<h>.ppm (Show keys on buttons
+// Off), rotate-hint-<w>x<h>.ppm, arrange-overlays-<w>x<h>.ppm and
 // rounded-settings-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, the last
 // two at 800x600 too, and keys-overlay-focus-640x480.ppm and
 // keys-overlay-list-focus-640x480.ppm with the focus on EDIT KEYS… and on the
@@ -78,6 +79,13 @@ namespace pad = oa::ui::pad_controls;
 constexpr SDL_Keymod kPrimaryModifier = SDL_KMOD_LGUI;
 #else
 constexpr SDL_Keymod kPrimaryModifier = SDL_KMOD_LCTRL;
+#endif
+
+/// The rotate hint on OA default: Alt is Option on a Mac.
+#ifdef SDL_PLATFORM_MACOS
+constexpr std::string_view kDefaultRotateHint = "Press /, or Option+wheel, to rotate";
+#else
+constexpr std::string_view kDefaultRotateHint = "Press /, or Alt+wheel, to rotate";
 #endif
 
 /// Window sizes the snapshots are taken at, wide then tall.
@@ -175,6 +183,15 @@ void Runtime::check_keys_overlay() {
     preferences_dirty_ = true;
     save_preferences();
     set_language_choice("en");
+    // Show keys on buttons is Off until the player turns it on; the check
+    // turns it on.
+    if (preference_values_.find(std::string(settings::key::keys_show_on_buttons)) ==
+        preference_values_.end()) {
+        require(
+            !engine_settings().show_keys_on_buttons, "Show keys on buttons is not Off by default"
+        );
+        say_step("Show keys on buttons is Off by default");
+    }
     {
         auto chosen = engine_settings();
         chosen.show_keys_on_buttons = true;
@@ -603,8 +620,10 @@ void Runtime::check_keys_overlay() {
         "the overlay is not titled Keys while placing a building"
     );
     require(placing.find("\nRotate /") != std::string::npos, "the overlay does not list Rotate");
-    say_step("the rotate hint reads Press /, or Alt+wheel, to rotate on OA default");
-    seek_hint("Press /, or Alt+wheel, to rotate");
+    say_step(
+        std::string("the rotate hint reads ") + std::string(kDefaultRotateHint) + " on OA default"
+    );
+    seek_hint(kDefaultRotateHint);
     disarm();
 
     say_step("Escape closes the overlay and the clock runs on");
@@ -894,6 +913,10 @@ void Runtime::check_keys_overlay() {
         const std::optional<KeyBadgeDrawn> shown = badge_for("order.attack");
         require(shown.has_value() && shown->label == "A", "the badge snapshot has no A on ATTACK");
         snapshot("key-badges", width, height);
+        set_badges(false);
+        require(key_badges_drawn_.empty(), "badges were drawn for the Off snapshot");
+        snapshot("key-badges-off", width, height);
+        set_badges(true);
         open_overlay();
         const std::string titled = list_text();
         require(
@@ -904,6 +927,11 @@ void Runtime::check_keys_overlay() {
         );
         snapshot("keys-overlay", width, height);
         close_overlay();
+        // The rotate hint names its modifier as the platform and the look do.
+        arm_building(tower);
+        seek_hint(kDefaultRotateHint);
+        snapshot("rotate-hint", width, height);
+        disarm();
     }
     tap(SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_NONE);
 

@@ -5,8 +5,10 @@
 // and 1920x1080 (a mouse button reading as its roles), each modifier layer,
 // the shape drop-down, a free key bound through the capture prompt, the
 // mouse's Forward, and Left-click saved as Interface Type. With --snapshot it
-// writes key-keyboard-<w>x<h>.ppm and key-mouse-<w>x<h>.ppm. The pictures are
-// the shape the system reports.
+// writes key-keyboard-<w>x<h>.ppm, key-keyboard-alt-<w>x<h>.ppm (Alt's layer
+// held), key-mouse-<w>x<h>.ppm and key-chord-<w>x<h>.ppm (Add group 1, whose
+// keys hold two modifiers, chosen). The pictures are the shape the system
+// reports.
 
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
@@ -200,6 +202,13 @@ void Runtime::check_key_views() {
         click_named("oa.key-editor.view.keyboard");
         note("Keyboard view at " + size);
         snapshot("key-keyboard", window);
+        // The modifier keys as this platform and the look name them, Alt's
+        // layer held: Option on a Mac.
+        if (named("oa.key-editor.layer.alt").has_value()) {
+            click_named("oa.key-editor.layer.alt");
+            snapshot("key-keyboard-alt", window);
+            click_named("oa.key-editor.layer.none");
+        }
         click_named("oa.key-editor.view.mouse");
         note("Mouse view at " + size);
         // A button reads as its roles to automation, as a key reads as its legend.
@@ -209,6 +218,22 @@ void Runtime::check_key_views() {
             "the mouse's left button does not read as its roles at " + size
         );
         snapshot("key-mouse", window);
+        // Add group 1's keys hold two modifiers, in its row and its details.
+        click_named("oa.key-editor.view.list");
+        type_search("add group 1");
+        show_row("oa.key-editor.row.group.add-1");
+        click_named("oa.key-editor.row.group.add-1");
+        note("Add group 1's keys at " + size);
+        snapshot("key-chord", window);
+        if (named("oa.key-editor.back").has_value())
+            click_named("oa.key-editor.back");
+        PadAccess::send_key(*this, SDLK_ESCAPE);
+        frames(1);
+        require(
+            oa_layer().find(editor::screen_name) != nullptr &&
+                require_named("oa.key-editor.search", "the search is not shown").text.empty(),
+            "Escape did not clear the search at " + size
+        );
     }
 
     resize(kLarge);

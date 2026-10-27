@@ -921,6 +921,49 @@ void whole_keyboard_keeps_named_legends() {
     }
 }
 
+/// A Mac's modifier keys named for their platform keep those names: one too
+/// wide for its key shows no legend rather than the geometry's PC label, and
+/// automation reads every Mac modifier in words, without its symbol.
+void mac_modifiers_keep_their_names() {
+    const kit::Fonts& wide = wide_regular_fonts();
+    // A five-quarter key at 5 points a quarter holds 19 points of legend:
+    // Command does not fit, and Win, the geometry's own, would.
+    kit::KeyboardLook look;
+    kit::KeyboardKey meta;
+    meta.code = "MetaLeft";
+    meta.cap.label = "Command";
+    look.keys.push_back(meta);
+    kit::KeyboardKey option;
+    option.code = "AltLeft";
+    option.cap.label = "⌥ Opt";
+    look.keys.push_back(option);
+    const kit::Rect board{0, 0, 91 * 5, 25 * 5};
+    renderer::Surface surface = black(board.width, board.height);
+    const kit::Canvas canvas{&surface, {0, 0, 1, {}}, &wide, {}};
+    kit::draw_keyboard(canvas, board, look);
+    kit::DisplayList list;
+    kit::add_keyboard(list, board, look, 1, "board");
+    const kit::Control* command = key_named(list, "board.meta-left");
+    OA_CHECK(command != nullptr);
+    if (command != nullptr)
+        OA_CHECK(ink_span(surface, command->rect, kit::colour::text) == 0);
+    const kit::Control* alt = key_named(list, "board.alt-left");
+    OA_CHECK(alt != nullptr && alt->text == "Opt");
+
+    kit::DisplayList chips;
+    kit::ChordChipLook chord;
+    chord.keys = {"⌘ Cmd", "⇧ Shift", "Z"};
+    kit::add_chord_chip(chips, {0, 0, 120, 16}, chord, 7, "chip");
+    kit::KeycapLook cap;
+    cap.label = "⌃ Ctrl";
+    kit::add_keycap(chips, {0, 20, 40, 16}, cap, 8, "cap");
+    OA_CHECK(chips.controls.size() == 2);
+    if (chips.controls.size() == 2) {
+        OA_CHECK(chips.controls[0].text == "Cmd+Shift+Z");
+        OA_CHECK(chips.controls[1].text == "Ctrl");
+    }
+}
+
 } // namespace
 
 int main() {
@@ -937,6 +980,7 @@ int main() {
     main_block_draws_its_keys_alone();
     main_block_keeps_every_legend();
     whole_keyboard_keeps_named_legends();
+    mac_modifiers_keep_their_names();
     paint_matches_the_draws();
     std::puts("ui-kit-keys passed");
     return oa::test::check_exit_status();

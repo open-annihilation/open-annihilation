@@ -96,6 +96,7 @@ inline constexpr std::string_view interface_words[] = {
     "Numpad paren left",
     "Numpad paren right",
     "Numpad subtract",
+    "Option",
     "Pad",
     "Page down",
     "Page up",
