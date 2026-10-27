@@ -1564,6 +1564,33 @@ void Runtime::check_text_fit() {
                 paint("key-editor/keyboard");
                 click_named("oa.key-editor.view.mouse");
                 paint("key-editor/mouse");
+                click_named("oa.key-editor.view.list");
+                const auto press_editor = [&](std::string_view name) {
+                    if (!named(name).has_value() && named("oa.key-editor.more").has_value()) {
+                        click_named("oa.key-editor.more");
+                        // MORE shows eight rows. End brings PASTE into view.
+                        if (!named(name).has_value()) {
+                            key_event(SDL_EVENT_KEY_DOWN, SDLK_END, SDL_KMOD_NONE);
+                            key_event(SDL_EVENT_KEY_UP, SDLK_END, SDL_KMOD_NONE);
+                            bool going = true;
+                            run_frame(going);
+                            require(going, "the key editor's menu did not move");
+                        }
+                    }
+                    click_named(name);
+                };
+                press_editor("oa.key-editor.share");
+                paint("key-editor/share");
+                if (named("oa.key-editor.share.close").has_value())
+                    click_named("oa.key-editor.share.close");
+                press_editor("oa.key-editor.paste");
+                paint("key-editor/paste");
+                if (named("oa.key-editor.paste.cancel").has_value())
+                    click_named("oa.key-editor.paste.cancel");
+                press_editor("oa.key-editor.import");
+                paint("key-editor/import");
+                if (named("oa.key-editor.import.cancel").has_value())
+                    click_named("oa.key-editor.import.cancel");
 
                 if (LayerScreen* keys_open = oa_layer().find("key-editor"))
                     oa_layer().close(keys_open);

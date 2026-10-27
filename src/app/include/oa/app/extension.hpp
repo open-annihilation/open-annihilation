@@ -229,7 +229,9 @@
 /// fills it. Version 19 is Kit 2's look in the kit's headers: Metrics gains
 /// the type, spacing and shape scales and Kit 2's control sizes, the theme
 /// its new tokens, and the kit a danger button, information and brand
-/// pills, and a paused progress bar. It is not a hook.
+/// pills, a paused progress bar, a main-block keyboard picture, a header
+/// height, and a question's callouts, line boxes and quiet button with the
+/// update pill. It is not a hook.
 #define OA_EXTENSION_API_VERSION 19
 
 namespace oa {

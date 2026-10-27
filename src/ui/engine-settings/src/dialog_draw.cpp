@@ -356,6 +356,32 @@ void add_nav(Building& building, const Dialog& dialog) {
     item(building.list, kit::Role::nav, nav.area, {}).look = std::move(nav);
     const layout::NavMetrics& metrics = sized.nav;
     for (const Shown& entry : shown) {
+        // Updates' badge stands at the entry's right where the caption keeps
+        // its whole width left of it; a caption that needs the room keeps it.
+        int32_t badge_width = 0;
+        const int32_t caption_room =
+            entry.rect.width - metrics.text_left - layout::list_text_margin;
+        const auto small = width_in(building.fonts, DialogFont::small);
+        const auto regular = width_in(building.fonts, DialogFont::regular);
+        if (!entry.piece->registered && entry.piece->page == Page::updates &&
+            !dialog.updates_badge.empty() &&
+            regular(entry.piece->text) + layout::list_text_margin + small(dialog.updates_badge) <=
+                caption_room) {
+            badge_width = small(dialog.updates_badge);
+            text(
+                building.list,
+                DialogFont::small,
+                dialog.updates_badge,
+                {entry.rect.x + entry.rect.width - layout::list_text_margin - badge_width,
+                 entry.rect.y,
+                 badge_width,
+                 entry.rect.height},
+                kit::Align::right,
+                kit::colour::accent_light,
+                layout.area
+            );
+            badge_width += layout::list_text_margin;
+        }
         const SourceRect icon{
             entry.rect.x + metrics.icon_left,
             entry.rect.y + (entry.rect.height - metrics.icon_side) / 2,
@@ -377,7 +403,7 @@ void add_nav(Building& building, const Dialog& dialog) {
             entry.piece->text,
             {entry.rect.x + metrics.text_left,
              entry.rect.y,
-             entry.rect.width - metrics.text_left - layout::list_text_margin,
+             entry.rect.width - metrics.text_left - layout::list_text_margin - badge_width,
              entry.rect.height},
             kit::Align::left,
             entry.lit ? kit::colour::text : kit::colour::list_text,

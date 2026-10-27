@@ -153,9 +153,9 @@ static_assert(kWindowLayouts.size() == kWindowSizes.size(), "one layout for each
 /// Graphics' scroll limit at Compact: its twenty-one rows, Smooth motion and
 /// Fog of War among them, after Menu scaling, Window frame, HUD scaling and
 /// Interface size left for User Interface.
-constexpr int32_t kGraphicsScrollLimit = 972;
+constexpr int32_t kGraphicsScrollLimit = 988;
 /// Graphics' scroll limit at Large, whose taller view holds more of its rows.
-constexpr int32_t kGraphicsLargeScrollLimit = 600;
+constexpr int32_t kGraphicsLargeScrollLimit = 616;
 /// Interface size's place on User Interface, from the section's first row.
 constexpr int32_t kInterfaceSizeRow = 3;
 
@@ -502,6 +502,10 @@ std::string_view label_of(settings::Setting setting) {
         return "Welcome setup";
     case settings::Setting::fog_of_war:
         return "Fog of War";
+    case settings::Setting::window_size:
+        return "Window size";
+    case settings::Setting::reset_window_positions:
+        return "Reset window positions";
     default:
         return {};
     }
@@ -878,7 +882,7 @@ void Runtime::check_engine_settings_dialog() {
 
     // The wheel and the scroll keys reach the dialog. Given a section taller
     // than its view, a notch towards the player scrolls it 24 pixels, Page
-    // Down 200 more and End to its end, Page Up 200 back and Home to its top;
+    // Down a page more and End to its end, Page Up a page back and Home to its top;
     // a notch away from the player at the top, a notch towards the player at
     // the end, and a notch outside the dialog, do nothing.
     {
@@ -920,18 +924,23 @@ void Runtime::check_engine_settings_dialog() {
         require(offset() == tall::kWheelStepPixels, "the wheel outside the dialog scrolled it");
         tap(SDLK_PAGEDOWN);
         require(
-            offset() == tall::kWheelStepPixels + tall::kPageStepPixels,
+            offset() ==
+                tall::kWheelStepPixels + settings::dialog_page_step(*engine_settings_dialog()),
             "Page Down did not scroll the dialog"
         );
         tap(SDLK_END);
         const int32_t end = offset();
         require(
-            end > tall::kWheelStepPixels + tall::kPageStepPixels, "End did not scroll to the end"
+            end > tall::kWheelStepPixels + settings::dialog_page_step(*engine_settings_dialog()),
+            "End did not scroll to the end"
         );
         turn_wheel(over_rows, -1.0F);
         require(offset() == end, "the wheel scrolled the dialog past its end");
         tap(SDLK_PAGEUP);
-        require(offset() == end - tall::kPageStepPixels, "Page Up did not scroll the dialog");
+        require(
+            offset() == end - settings::dialog_page_step(*engine_settings_dialog()),
+            "Page Up did not scroll the dialog"
+        );
         tap(SDLK_HOME);
         require(offset() == 0, "Home did not scroll back to the top");
         require(
@@ -1090,8 +1099,9 @@ void Runtime::check_engine_settings_dialog() {
 
     // Escape opens the game menu, the last row of User Interface.
     click(settings::page_control(settings::Page::user_interface), {}, "User Interface's entry");
-    focus(settings::first_row_control + 4, "Escape opens the game menu");
-    click(settings::first_row_control + 4, "ON", "Escape opens the game menu's On");
+    const int32_t escape_row = control_named("settings.escape-opens-menu");
+    focus(escape_row, "Escape opens the game menu");
+    click(escape_row, "ON", "Escape opens the game menu's On");
     chosen.escape_opens_menu = true;
     expect("Escape opens the game menu On");
 
@@ -1198,7 +1208,7 @@ void Runtime::check_engine_settings_dialog() {
         require(!renderer_waits(sdl_.renderer), "the renderer waits for the display at Off");
         focus(settings::first_row_control + 4, "Vertical sync");
         require(
-            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 72,
+            dialog->scroll[static_cast<std::size_t>(settings::Page::graphics)] == 88,
             "the focus on Vertical sync did not scroll Graphics to show it"
         );
         require(
@@ -1456,7 +1466,7 @@ void Runtime::check_engine_settings_dialog() {
         !engine_settings().frame_stats && engine_settings().wheel_zoom && !frame_stats_shown_,
         "the changes before Cancel did not take effect at once"
     );
-    click(settings::cancel_control, "CANCEL", "Cancel");
+    click(settings::cancel_control, "Cancel", "Cancel");
     require(engine_settings_dialog() == nullptr, "Cancel did not close the dialog");
     require(
         same_settings(engine_settings(), chosen) && frame_stats_shown_,
@@ -1574,7 +1584,7 @@ void Runtime::check_engine_settings_dialog() {
             "Simplified Chinese is not waiting after its download was recorded"
         );
         std::cout << "engine settings check: recorded download " << recorded << '\n';
-        click(settings::cancel_control, "CANCEL", "Cancel");
+        click(settings::cancel_control, "Cancel", "Cancel");
         require(engine_settings_dialog() == nullptr, "Cancel did not close the language dialog");
         require(
             engine_settings().language == opened_language && shown_language().tag == "en" &&
@@ -1805,17 +1815,17 @@ void Runtime::check_engine_settings_dialog() {
         dialog = open("with touch controls");
         require(dialog->touch, "the dialog opened with touch controls does not list Touch");
         auto parts = settings::dialog_layout(*dialog);
-        const auto* graphics_entry =
-            find_part(parts, settings::page_control(settings::Page::graphics), {});
+        const auto* accessibility_entry =
+            find_part(parts, settings::page_control(settings::Page::accessibility), {});
         const auto* touch_entry =
             find_part(parts, settings::page_control(settings::Page::touch), {});
-        const auto* developer_entry =
-            find_part(parts, settings::page_control(settings::Page::developer), {});
+        const auto* graphics_entry =
+            find_part(parts, settings::page_control(settings::Page::graphics), {});
         require(
-            graphics_entry != nullptr && touch_entry != nullptr && developer_entry != nullptr &&
-                touch_entry->text == "Touch" && graphics_entry->rect.y < touch_entry->rect.y &&
-                touch_entry->rect.y < developer_entry->rect.y,
-            "Touch is not listed between Graphics and Developer"
+            accessibility_entry != nullptr && touch_entry != nullptr && graphics_entry != nullptr &&
+                touch_entry->text == "Touch" && accessibility_entry->rect.y < touch_entry->rect.y &&
+                touch_entry->rect.y < graphics_entry->rect.y,
+            "Touch is not listed between Accessibility and Graphics"
         );
         click(settings::page_control(settings::Page::touch), {}, "Touch's entry");
         require(engine_settings_dialog()->page == settings::Page::touch, "Touch did not show");
@@ -1892,7 +1902,7 @@ void Runtime::check_engine_settings_dialog() {
                 "Settings still lists a Mods section"
             );
         }
-        click(settings::cancel_control, "CANCEL", "Cancel");
+        click(settings::cancel_control, "Cancel", "Cancel");
         // The Library over the mod folders the run lists.
         LibraryHost& host = library_host();
         // A Library opens on Active: the mods are chosen on its Mods tab.
@@ -2471,14 +2481,27 @@ void Runtime::check_engine_settings_window_sizes() {
                 }
                 shows_dialog("Developer Mode on");
                 snapshot("menu-dialog-developer-on-" + size);
+                // Compact's list view holds little more than the area's
+                // header: Page Down brings the hack into it, Home back.
+                const auto reveal_text = [&](std::string_view text) {
+                    for (int32_t pages = 0; pages < 40; ++pages) {
+                        if (shows_text(settings::dialog_layout(*engine_settings_dialog()), text))
+                            return;
+                        tap(SDLK_PAGEDOWN);
+                    }
+                };
+                reveal_text(kShownHack);
                 click_text(kShownHack);
                 {
+                    reveal_text(kShownHack);
                     const auto hack_parts = settings::dialog_layout(*engine_settings_dialog());
                     click_part(hack_switch(hack_parts, kShownHack, "ON"), "rule hack's switch");
                 }
                 shows_dialog("Developer Mode with a rule hack open and on");
                 snapshot("menu-dialog-developer-hack-" + size);
+                reveal_text(kShownHack);
                 click_text(kShownHack);
+                tap(SDLK_HOME);
                 click_text(kFirstArea);
             }
             if (page != settings::Page::graphics)

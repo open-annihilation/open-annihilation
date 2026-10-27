@@ -55,8 +55,9 @@ constexpr int32_t maps_search_width = 148;
 /// How many map rows the Active page keeps in view, once scrolled to them,
 /// before it scrolls the tiles and the maps as one page.
 constexpr int32_t maps_rows_kept = 4;
-/// The list pane's width at Regular.
-constexpr int32_t regular_list_width = 420;
+/// The list pane's width at Regular. It leaves the details room for a key
+/// layout's main block at four points a quarter, where its legends show.
+constexpr int32_t regular_list_width = 400;
 /// The list pane's width at Large.
 constexpr int32_t large_list_width = 400;
 /// The filter pane's width at Large.
@@ -295,6 +296,14 @@ struct Window {
     int32_t footer_top{};  ///< the footer's first row
     int32_t button_top{};  ///< the footer's buttons' top row
     int32_t gap{};         ///< the rows between stacked parts
+    /// The footer's height: Kit 2's window footer, or at Compact its controls
+    /// with a space above and below, so the list keeps its room.
+    int32_t footer_height{};
+    int32_t button_height{}; ///< a footer's or a bar's button: Kit 2's control height
+    int32_t tab_height{};    ///< the tab strip: Kit 2's tab strip height
+    int32_t field_height{};  ///< the search field and a drop-down field: Kit 2's text field
+    int32_t pill_height{};   ///< a filter pill: Kit 2's filter chip height
+    int32_t header_height{}; ///< the header's band: Kit 2's window header, Compact's at Compact
 };
 
 /// Returns the window's rows and columns for a frame, as the settings
@@ -304,18 +313,34 @@ struct Window {
 /// @return the window
 Window window_of(const kit::Frame& frame) {
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+    const bool compact = frame.size_class == kit::SizeClass::compact;
     const kit::Point size = window_size(frame);
     Window window;
     window.width = size.x;
     window.height = size.y;
-    window.padding = metrics.padding;
-    window.left = metrics.padding;
-    window.right = size.x - metrics.edge - metrics.padding;
-    window.body_top = metrics.edge + metrics.header_height + 1;
-    window.footer_rule = size.y - metrics.edge - metrics.footer_height - 1;
+    // Kit 2's window padding, and its sizes for the shell's controls: its
+    // window header, tab strip, fields, pills, controls and footer. Compact's
+    // stacked parts sit a space apart and its footer holds its controls
+    // with a space above and below, so the list keeps its room.
+    window.padding = metrics.window_padding;
+    window.left = window.padding;
+    window.right = size.x - metrics.edge - window.padding;
+    window.button_height = metrics.control_height;
+    window.tab_height = metrics.tab_strip_height;
+    window.field_height = metrics.text_field_height;
+    window.pill_height = metrics.filter_chip_height;
+    window.footer_height =
+        compact ? metrics.control_height + 2 * metrics.space : metrics.window_footer_height;
+    // Regular and Large take Kit 2's window header. Compact keeps the kit's
+    // Compact band: ten points more would cost its list a row and leave the
+    // Active page's lowest controls over the footer's, where no arrow
+    // passes them.
+    window.header_height = compact ? metrics.header_height : metrics.window_header_height;
+    window.body_top = metrics.edge + window.header_height + 1;
+    window.footer_rule = size.y - metrics.edge - window.footer_height - 1;
     window.footer_top = window.footer_rule + 1;
-    window.button_top = window.footer_top + (metrics.footer_height - metrics.button_height) / 2;
-    window.gap = metrics.paragraph_gap;
+    window.button_top = window.footer_top + (window.footer_height - window.button_height) / 2;
+    window.gap = compact ? metrics.space : metrics.row_gap;
     return window;
 }
 
@@ -1334,6 +1359,7 @@ void add_header(
 
     kit::HeaderLook look;
     look.width = window.width;
+    look.height = window.header_height;
     look.tracking = tracking;
     look.right_inset = right_inset;
     look.title = std::string(title);
@@ -1352,7 +1378,7 @@ void add_header(
     );
     look.version = cut(building, kit::FontRole::small, right, version_room);
     look.version_width = width_of(building, kit::FontRole::small, look.version);
-    const int32_t header_rule = compact.edge + compact.header_height;
+    const int32_t header_rule = compact.edge + window.header_height;
     add_item(building.list, kit::Role::header, {0, 0, window.width, header_rule + 1}, {}).look =
         std::move(look);
 }
@@ -1366,7 +1392,7 @@ kit::Rect header_close_rect(const Window& window) {
     const int32_t side = compact.button_height;
     return {
         window.width - compact.edge - compact.padding - side,
-        compact.edge + (compact.header_height - side) / 2,
+        compact.edge + (window.header_height - side) / 2,
         side,
         side,
     };
@@ -1482,7 +1508,7 @@ void add_offline_mark(Building& building, const Window& window) {
         icon_left - compact.header_gap - mark_width,
         compact.edge,
         std::max(mark_width, int32_t{0}),
-        compact.header_height,
+        window.header_height,
     };
     add_text(building, kit::FontRole::small, mark, box, kit::Align::right, kit::colour::lock, {});
 }
@@ -1641,7 +1667,9 @@ void use_compact_tab_names(const Library& library, kit::TabsLook& look) {
 /// view and the last tab still meets it. The largest padding that does it is
 /// kept, and the theme's tracking while any padding can keep it. Compact's
 /// short names stand in only when the full names cannot, however far the
-/// gaps close.
+/// gaps close. The gaps never close past Kit 2's spacing, a space either
+/// side of a name, so each tab reads apart: when even that does not hold
+/// Updates, the strip scrolls to it with its arrow.
 ///
 /// @param building the layout
 /// @param strip the strip
@@ -1651,8 +1679,9 @@ void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsL
         return;
     const int32_t theme_pad = building.metrics->tab_padding;
     const int32_t theme_track = building.metrics->tab_tracking;
+    const int32_t least_pad = std::min(building.metrics->space, theme_pad);
     const auto tighten = [&](int32_t letter_gap) {
-        for (int32_t side = theme_pad; side >= 0; --side) {
+        for (int32_t side = theme_pad; side >= least_pad; --side) {
             look.side_padding = side;
             look.tracking = letter_gap;
             if (opening_tabs_reached(building, strip, look))
@@ -1669,7 +1698,7 @@ void keep_updates_in_view(Building& building, const kit::Rect& strip, kit::TabsL
         return;
     if (theme_track != 0 && tighten(0))
         return;
-    look.side_padding = 0;
+    look.side_padding = least_pad;
     look.tracking = 0;
 }
 
@@ -1857,7 +1886,7 @@ void add_updates_line(Building& building, const kit::Rect& row) {
     const kit::Metrics& metrics = *building.metrics;
     const std::string_view caption = action_text(Action::update_all, library.text);
     const int32_t width = std::min(button_width(building, caption), row.width);
-    const kit::Rect button{row.x + row.width - width, row.y, width, metrics.button_height};
+    const kit::Rect button{row.x + row.width - width, row.y, width, row.height};
     const std::size_t shown_count = updates_shown(library);
     const std::string count = filled(
         library.text,
@@ -1865,7 +1894,7 @@ void add_updates_line(Building& building, const kit::Rect& row) {
         {{"count", std::to_string(shown_count)}}
     );
     const int32_t count_room = std::max(button.x - metrics.label_gap - row.x, int32_t{0});
-    const kit::Rect words_box{row.x, row.y, count_room, metrics.button_height};
+    const kit::Rect words_box{row.x, row.y, count_room, row.height};
     add_text(
         building,
         kit::FontRole::small,
@@ -1897,7 +1926,7 @@ void add_compact_search_row(Building& building, const kit::Rect& row) {
     const Library& library = *building.library;
     const kit::Metrics& metrics = *building.metrics;
     const int32_t field_width = std::max(row.width - compact_filter_room, int32_t{0});
-    add_search(building, {row.x, row.y, field_width, metrics.field_height});
+    add_search(building, {row.x, row.y, field_width, row.height});
     std::vector<controls::MenuItem> items = controls::menu_items(library, MenuKind::filter, {});
     const int32_t chosen = controls::chosen_item(library, MenuKind::filter, items);
     const std::string caption =
@@ -1908,7 +1937,7 @@ void add_compact_search_row(Building& building, const kit::Rect& row) {
         {row.x + field_width + metrics.button_gap,
          row.y,
          compact_filter_room - metrics.button_gap,
-         metrics.regular_line},
+         row.height},
         MenuKind::filter,
         caption,
         std::move(items),
@@ -1926,13 +1955,16 @@ void add_compact_search_row(Building& building, const kit::Rect& row) {
 void add_chip_row(Building& building, const kit::Rect& row) {
     const Library& library = *building.library;
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t height = kit::pill_height();
-    const int32_t pill_top = row.y + (row.height - height) / 2;
+    // Kit 2's filter chips: the row's height, each pill wider by what it
+    // gains in height, so its words stay clear of the rounder ends.
+    const int32_t height = row.height;
+    const int32_t taller = std::max(height - kit::pill_height(), int32_t{0});
+    const int32_t pill_top = row.y;
     int32_t left = row.x;
     const auto add_one = [&](kit::PillLook look, kit::ControlId id, std::string name) {
         look.hovered = hovered(building, id);
         look.focused = focused(building, id);
-        const int32_t width = kit::pill_width(*building.fonts, look);
+        const int32_t width = kit::pill_width(*building.fonts, look) + taller;
         const kit::Rect rect{left, pill_top, width, height};
         const std::size_t before = building.list.controls.size();
         kit::add_pill(building.list, rect, look, id, unique_name(building, std::move(name)));
@@ -1961,7 +1993,7 @@ void add_chip_row(Building& building, const kit::Rect& row) {
         look.text = std::string(tag_caption(library, tag, labelled));
         if (mutator_tab)
             look.tag = kit::tag_icon_of(tag);
-        widths.push_back(kit::pill_width(*building.fonts, look));
+        widths.push_back(kit::pill_width(*building.fonts, look) + taller);
         total += widths.back() + metrics.chip_gap;
     }
     const int32_t row_right = row.x + row.width;
@@ -2005,10 +2037,7 @@ void add_chip_row(Building& building, const kit::Rect& row) {
     add_drop_down(
         building,
         building.top,
-        {row_right - width,
-         row.y + (row.height - metrics.regular_line) / 2,
-         width,
-         metrics.regular_line},
+        {row_right - width, row.y, width, row.height},
         MenuKind::tags,
         caption,
         std::move(items),
@@ -3004,8 +3033,32 @@ int32_t add_key_picture(
             named_keys += code;
         }
     }
-    // As wide as the details, so its keys' legends can be read.
-    const kit::Point unit = kit::keyboard_size();
+    // Beside the list, the main block alone, as wide as the details, so its
+    // keys' legends can be read; the whole keyboard when a key the layout
+    // changes lies outside that block. Compact's page is wide enough for the
+    // whole keyboard.
+    if (building.size_class != kit::SizeClass::compact) {
+        bool inside = true;
+        for (const kit::KeyboardKey& key : look.keys) {
+            for (const kit::KeyPlace& place : kit::keyboard_places(shape)) {
+                if (place.code != key.code)
+                    continue;
+                kit::KeyboardLook block;
+                block.main_block = true;
+                inside = inside && kit::keyboard_draws(place, block);
+            }
+        }
+        look.main_block = inside;
+        // The main block's keys are large enough to read, so a changed key is
+        // filled with the accent under its legend, as the design marks it,
+        // rather than wearing a corner mark over the legend.
+        if (inside)
+            for (kit::KeyboardKey& key : look.keys) {
+                key.cap.mark = kit::KeyMark::none;
+                key.cap.held = true;
+            }
+    }
+    const kit::Point unit = kit::keyboard_size(look);
     const int32_t picture_width = width;
     const int32_t picture_height =
         unit.x > 0 ? std::max(picture_width * unit.y / unit.x, int32_t{1}) : int32_t{25};
@@ -3373,7 +3426,15 @@ int32_t add_details_content(
     add_badge(building, entry, {left, first, details_badge_side, details_badge_side}, view);
     const int32_t text_left = left + details_badge_side + metrics.list_row_gap;
     const int32_t text_width = std::max(left + width - text_left, int32_t{0});
+    // The state is said once: a key layout's chip says it in words, where it
+    // is used while it is the layout in use, and the status line under the
+    // name is left out when it would say the same.
     kit::ChipLook chip = entry_chip(library, entry);
+    const std::string status_words = status_line(library, entry);
+    if (entry.id.kind == Kind::key_layout && !is_built_in_layout(entry.id) &&
+        layout_in_use(library, entry))
+        chip.text = status_words;
+    const bool status_on_chip = !chip.icon && chip.text == status_words;
     const int32_t chip_width = kit::chip_width(*building.fonts, chip);
     const int32_t chip_height = chip.icon ? metrics.state_icon_side : metrics.chip_height;
     const std::string name =
@@ -3399,21 +3460,24 @@ int32_t add_details_content(
     };
     kit::add_chip(building.list, chip_rect, chip, kit::no_control, {});
     building.list.items.back().clip = view;
-    const std::vector<std::string> status = wrapped(
-        building, kit::FontRole::small, status_line(library, entry), text_width, wide_status_lines
-    );
+    const std::vector<std::string> status =
+        status_on_chip
+            ? std::vector<std::string>{}
+            : wrapped(building, kit::FontRole::small, status_words, text_width, wide_status_lines);
     const int32_t status_top = first + metrics.regular_line;
     const int32_t status_bottom =
         add_lines(building, status, text_left, status_top, text_width, status_colour(entry), view);
+    // Automation reads the status where it is shown: the line, or the chip.
     add_label(
         building.detail,
         controls::status,
-        {text_left,
-         status_top,
-         text_width,
-         std::max(status_bottom - status_top, metrics.small_line)},
+        status_on_chip ? chip_rect
+                       : kit::Rect{text_left,
+                                   status_top,
+                                   text_width,
+                                   std::max(status_bottom - status_top, metrics.small_line)},
         unique_name(building, named("status")),
-        joined(status),
+        status_on_chip ? status_words : joined(status),
         view,
         controls::details_group
     );
@@ -3436,12 +3500,40 @@ int32_t add_details_content(
     top = add_facts(building, entry, {left, top, width, 0}, true, wide_fact_lines, view) +
           metrics.paragraph_gap;
 
-    // The buttons are Kit 2's controls, control_height high.
-    const std::vector<ActionButton> actions = entry_actions(library, entry);
+    static_cast<void>(add_note(building, left, top, width, view, controls::details_group));
+    const std::optional<controls::Extent> extent =
+        controls::clipped_extent(building.list, view, first_item);
+    return extent ? extent->bottom - first : 0;
+}
+
+/// Returns the rows the details' actions take at the pane's foot: three to a
+/// line at Kit 2's control height.
+///
+/// @param building the layout
+/// @param entry the entry
+/// @return the rows; 0 when it has no action
+int32_t detail_actions_height(const Building& building, const Entry& entry) {
+    const kit::Metrics& metrics = *building.metrics;
+    const auto count = static_cast<int32_t>(entry_actions(*building.library, entry).size());
+    if (count == 0)
+        return 0;
+    const int32_t lines = (count + actions_per_line - 1) / actions_per_line;
+    return lines * metrics.control_height + (lines - 1) * metrics.button_gap;
+}
+
+/// Appends the details' actions, three to a line at Kit 2's control height,
+/// in a bar at the pane's foot that does not scroll.
+///
+/// @param[in,out] building the layout
+/// @param entry the entry
+/// @param bar the bar
+void add_detail_actions(Building& building, const Entry& entry, const kit::Rect& bar) {
+    const kit::Metrics& metrics = *building.metrics;
+    const std::vector<ActionButton> actions = entry_actions(*building.library, entry);
     const int32_t button_gap = metrics.button_gap;
     const int32_t button_height = metrics.control_height;
     const int32_t each =
-        std::max((width - (actions_per_line - 1) * button_gap) / actions_per_line, int32_t{0});
+        std::max((bar.width - (actions_per_line - 1) * button_gap) / actions_per_line, int32_t{0});
     for (std::size_t index = 0; index < actions.size(); ++index) {
         const auto column = static_cast<int32_t>(index) % actions_per_line;
         const auto line = static_cast<int32_t>(index) / actions_per_line;
@@ -3449,8 +3541,8 @@ int32_t add_details_content(
         add_button(
             building,
             building.detail,
-            {left + column * (each + button_gap),
-             top + line * (button_height + button_gap),
+            {bar.x + column * (each + button_gap),
+             bar.y + line * (button_height + button_gap),
              each,
              button_height},
             action.text,
@@ -3459,32 +3551,28 @@ int32_t add_details_content(
             action.enabled,
             controls::action_control(action.action),
             named("action." + std::string(action_word(action.action))),
-            view,
-            controls::details_group
+            {},
+            -1
         );
     }
-    if (!actions.empty()) {
-        const auto lines =
-            (static_cast<int32_t>(actions.size()) + actions_per_line - 1) / actions_per_line;
-        top += lines * button_height + (lines - 1) * button_gap + metrics.paragraph_gap;
-    }
-    static_cast<void>(add_note(building, left, top, width, view, controls::details_group));
-    const std::optional<controls::Extent> extent =
-        controls::clipped_extent(building.list, view, first_item);
-    return extent ? extent->bottom - first : 0;
 }
 
-/// Appends the details pane of the selected entry. When its parts are
-/// taller than the pane they scroll, and the pane keeps a column for the
-/// scroll bar at its right.
+/// Appends the details pane of the selected entry: its parts, which scroll
+/// when they are taller than the room above the actions, the pane then
+/// keeping a column for the scroll bar at its right, and the actions in a
+/// bar at the pane's foot, which do not scroll.
 ///
 /// @param[in,out] building the layout
-/// @param pane the pane
-void add_details_pane(Building& building, const kit::Rect& pane) {
+/// @param whole the pane
+void add_details_pane(Building& building, const kit::Rect& whole) {
     const Entry* entry = selected_entry(*building.library);
     if (entry == nullptr)
         return;
     const kit::Metrics& metrics = *building.metrics;
+    const int32_t actions_height = detail_actions_height(building, *entry);
+    kit::Rect pane = whole;
+    if (actions_height > 0)
+        pane.height = std::max(whole.height - actions_height - metrics.row_gap, int32_t{0});
     // Laid out once at the pane's width to learn its height, then again
     // narrower when that is taller than the pane.
     Building trial = building;
@@ -3517,6 +3605,12 @@ void add_details_pane(Building& building, const kit::Rect& pane) {
             scroll.thumb(metrics.least_thumb_height), building.state->bar_held == Pane::details
         };
     }
+    if (actions_height > 0)
+        add_detail_actions(
+            building,
+            *entry,
+            {whole.x, whole.y + whole.height - actions_height, whole.width, actions_height}
+        );
 }
 
 /// The side of an Active tile's badge. A list row's badge plus the card's
@@ -5881,7 +5975,7 @@ void add_registry_bar(Building& building, const Window& window, int32_t& top) {
     if (library.tab != Tab::registries)
         return;
     const kit::Metrics& metrics = *building.metrics;
-    const int32_t height = metrics.button_height;
+    const int32_t height = window.button_height;
     const int32_t room = std::max(window.right - window.left, int32_t{0});
     if (library.inputs.in_match) {
         const int32_t lock_width = std::min(
@@ -5920,6 +6014,22 @@ void add_registry_bar(Building& building, const Window& window, int32_t& top) {
     top += height + window.gap;
 }
 
+/// Appends the footer's band: the line over it and the band, Kit 2's footer
+/// height (Window::footer_height) under the line.
+///
+/// @param[in,out] building the layout
+/// @param window the window
+void add_footer_band(Building& building, const Window& window) {
+    const int32_t edge = building.metrics->edge;
+    const int32_t inner = window.width - 2 * edge;
+    add_item(building.list, kit::Role::rule, {edge, window.footer_rule, inner, 1}, {}).colour =
+        kit::colour::rule;
+    add_item(
+        building.list, kit::Role::fill, {edge, window.footer_top, inner, window.footer_height}, {}
+    )
+        .colour = kit::colour::band;
+}
+
 /// Appends the footer's band, the queue's words at its left and its buttons
 /// at its right: DETAILS at Compact but not on the Active or Registries
 /// tabs, and CLOSE, the main action. On the Registries tab, ADD REGISTRY…
@@ -5931,13 +6041,7 @@ void add_registry_bar(Building& building, const Window& window, int32_t& top) {
 void add_list_footer(Building& building, const Window& window, bool compact) {
     const Library& library = *building.library;
     const kit::Metrics& metrics = *building.metrics;
-    add_item(
-        building.list,
-        kit::Role::footer_band,
-        {0, window.footer_rule, window.width, metrics.footer_height + 1},
-        {}
-    )
-        .look = kit::FooterBandLook{window.width, window.footer_rule};
+    add_footer_band(building, window);
 
     struct FooterButton {
         Action action{};
@@ -5967,7 +6071,7 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
         add_button(
             building,
             building.footer,
-            {left, window.button_top, width, metrics.button_height},
+            {left, window.button_top, width, window.button_height},
             caption,
             button.action == Action::close,
             button.enabled,
@@ -5997,14 +6101,14 @@ void add_list_footer(Building& building, const Window& window, bool compact) {
     const int32_t line_count = second_line ? 2 : 1;
     int32_t gap = bar ? metrics.hint_gap : 0;
     int32_t block = line_count * metrics.small_line + (bar ? gap + metrics.progress_bar_height : 0);
-    if (bar && block > metrics.footer_height) {
+    if (bar && block > window.footer_height) {
         gap = std::max(
-            metrics.footer_height - line_count * metrics.small_line - metrics.progress_bar_height,
+            window.footer_height - line_count * metrics.small_line - metrics.progress_bar_height,
             int32_t{0}
         );
         block = line_count * metrics.small_line + gap + metrics.progress_bar_height;
     }
-    const int32_t line_top = window.footer_top + (metrics.footer_height - block) / 2;
+    const int32_t line_top = window.footer_top + (window.footer_height - block) / 2;
     const std::string first = cut(building, kit::FontRole::small, primary, queue_width);
     const kit::Rect box{window.left, line_top, queue_width, metrics.small_line};
     add_text(building, kit::FontRole::small, first, box, kit::Align::left, kit::colour::text, {});
@@ -7427,7 +7531,6 @@ kit::DisplayList library_layout(
         return details_page_layout(library, state, frame, fonts);
     Building building = start(library, state, frame, fonts);
     const Window window = window_of(frame);
-    const kit::Metrics& metrics = *building.metrics;
     const bool compact = frame.size_class == kit::SizeClass::compact;
     const bool large = frame.size_class == kit::SizeClass::large;
     if (compact) {
@@ -7454,28 +7557,27 @@ kit::DisplayList library_layout(
     const bool catalogue = !active && !registries;
     // The Updates tab's line, count and UPDATE ALL, takes a row over its list.
     const bool updates_line = library.tab == Tab::updates;
-    const int32_t updates_row = metrics.button_height + window.gap;
+    const int32_t updates_row = window.button_height + window.gap;
     const auto body_of = [&](int32_t body_top) {
         return kit::Rect{
             window.left, body_top, content_width, window.footer_rule - window.gap - body_top
         };
     };
     if (compact) {
-        add_tabs(building, {window.left, top, content_width, metrics.tab_height});
-        top += metrics.tab_height + window.gap;
+        add_tabs(building, {window.left, top, content_width, window.tab_height});
+        top += window.tab_height + window.gap;
         if (active)
             add_active(building, body_of(top));
         else if (registries) {
             add_registry_bar(building, window, top);
             add_registries(building, body_of(top));
         } else {
-            const int32_t row_height_points = std::max(metrics.field_height, metrics.button_height);
-            add_compact_search_row(building, {window.left, top, content_width, row_height_points});
-            top += row_height_points + window.gap;
+            add_compact_search_row(
+                building, {window.left, top, content_width, window.field_height}
+            );
+            top += window.field_height + window.gap;
             if (updates_line) {
-                add_updates_line(
-                    building, {window.left, top, content_width, metrics.button_height}
-                );
+                add_updates_line(building, {window.left, top, content_width, window.button_height});
                 top += updates_row;
             }
             add_list(
@@ -7495,22 +7597,22 @@ kit::DisplayList library_layout(
         const int32_t beside_width = content_width - wide_search_width - window.padding;
         const bool search_beside = catalogue && tabs_fit(building, beside_width);
         const int32_t tab_width = search_beside ? beside_width : content_width;
-        add_tabs(building, {window.left, top, tab_width, metrics.tab_height});
+        add_tabs(building, {window.left, top, tab_width, window.tab_height});
         if (search_beside)
             add_search(
                 building,
                 {window.right - wide_search_width,
-                 top + (metrics.tab_height - metrics.field_height) / 2,
+                 top + (window.tab_height - window.field_height) / 2,
                  wide_search_width,
-                 metrics.field_height}
+                 window.field_height}
             );
-        top += metrics.tab_height + window.gap;
+        top += window.tab_height + window.gap;
         if (catalogue && !search_beside) {
             add_search(
                 building,
-                {window.right - wide_search_width, top, wide_search_width, metrics.field_height}
+                {window.right - wide_search_width, top, wide_search_width, window.field_height}
             );
-            top += metrics.field_height + window.gap;
+            top += window.field_height + window.gap;
         }
         if (active)
             add_active(building, body_of(top));
@@ -7519,8 +7621,8 @@ kit::DisplayList library_layout(
             add_registries(building, body_of(top));
         } else {
             if (!large) {
-                add_chip_row(building, {window.left, top, content_width, metrics.button_height});
-                top += metrics.button_height + window.gap;
+                add_chip_row(building, {window.left, top, content_width, window.pill_height});
+                top += window.pill_height + window.gap;
             }
             const int32_t panes_height = window.footer_rule - window.gap - top;
             int32_t left = window.left;
@@ -7531,7 +7633,7 @@ kit::DisplayList library_layout(
             const int32_t list_width = large ? large_list_width : regular_list_width;
             int32_t list_top = top;
             if (updates_line) {
-                add_updates_line(building, {left, top, list_width, metrics.button_height});
+                add_updates_line(building, {left, top, list_width, window.button_height});
                 list_top += updates_row;
             }
             add_list(
@@ -7693,13 +7795,7 @@ kit::DisplayList details_page_layout(
 
     // The footer: the first three actions, MORE ▾ with the rest, and BACK.
     // BACK does what the old breadcrumb did: the list, with its place kept.
-    add_item(
-        building.list,
-        kit::Role::footer_band,
-        {0, window.footer_rule, window.width, metrics.footer_height + 1},
-        {}
-    )
-        .look = kit::FooterBandLook{window.width, window.footer_rule};
+    add_footer_band(building, window);
     const std::vector<ActionButton> actions = entry_actions(library, *entry);
     int32_t left = window.left;
     for (std::size_t index = 0; index < actions.size() && index < compact_action_buttons; ++index) {
@@ -7708,7 +7804,7 @@ kit::DisplayList details_page_layout(
         add_button(
             building,
             building.footer,
-            {left, window.button_top, width_points, metrics.button_height},
+            {left, window.button_top, width_points, window.button_height},
             action.text,
             index == 0 && action.action != Action::uninstall,
             action.enabled,
@@ -7726,10 +7822,7 @@ kit::DisplayList details_page_layout(
         add_drop_down(
             building,
             building.footer,
-            {left,
-             window.button_top + (metrics.button_height - metrics.regular_line) / 2,
-             width_points,
-             metrics.regular_line},
+            {left, window.button_top, width_points, window.button_height},
             MenuKind::more,
             caption,
             std::move(items),
@@ -7742,7 +7835,7 @@ kit::DisplayList details_page_layout(
     add_button(
         building,
         building.footer,
-        {window.right - back_width, window.button_top, back_width, metrics.button_height},
+        {window.right - back_width, window.button_top, back_width, window.button_height},
         back_caption,
         true,
         true,

@@ -9,12 +9,14 @@
 #include "oa/data/input_actions/actions.hpp"
 #include "oa/formats/oakeys/manifest.hpp"
 #include "oa/ui/key_bindings/layout.hpp"
+#include "oa/ui/key_bindings/legacy_import.hpp"
 #include "oa/ui/key_editor/text.hpp"
 #include "oa/ui/kit/looks.hpp"
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -199,6 +201,77 @@ struct RoleLine {
     oa::ui::key_bindings::Chord chord{};   ///< the chord this row changes
     bool has_chord{false};                 ///< false on a place's Free row
     kit::KeyMark mark{kit::KeyMark::none}; ///< a change on this row
+};
+
+/// Which side of a draft clash keeps the chord.
+enum class Settle : uint8_t {
+    keep_here,  ///< the action the card was opened on keeps it
+    keep_there, ///< the other action keeps it
+};
+
+/// A paste that left a chord where it already was. SAVE waits on it, and the
+/// card settles it.
+struct HeldClash {
+    std::string pasted{};                ///< the action the paste named
+    std::string holder{};                ///< the action that keeps the chord
+    oa::ui::key_bindings::Chord chord{}; ///< the chord
+};
+
+/// The facts SHARE… shows.
+struct ShareSummary {
+    std::string name{};     ///< the name the player typed
+    std::string id{};       ///< the layout id; empty when the name cannot be one
+    std::string base{};     ///< the layout the keys start from
+    std::size_t keys{0};    ///< bindings in the shared text
+    std::size_t helpers{0}; ///< helpers the shared layout sets
+    std::string text{};     ///< K06's text form
+};
+
+/// One row a paste would write.
+struct PasteRow {
+    std::string action{};                              ///< the action id
+    std::vector<oa::ui::key_bindings::Chord> before{}; ///< the chords in use
+    std::vector<oa::ui::key_bindings::Chord> after{};  ///< the chords the text named
+    bool clash{false};                                 ///< a chord stays where it already is
+    bool unknown{false};                               ///< this version has no such action
+    std::string holder{};                              ///< the action that keeps a clashing chord
+    uint32_t line{0};                                  ///< the action's line in the text
+    uint32_t column{0};                                ///< the action's column in the text
+    bool apply{false};                                 ///< APPLY counts this row
+};
+
+/// What a paste would change, before APPLY writes the draft.
+struct PastePreview {
+    std::vector<PasteRow> rows{};                         ///< one row per binding that parsed
+    std::vector<oa::formats::oakeys::Problem> problems{}; ///< errors, with line and column
+    std::size_t changes{0};                               ///< rows APPLY writes
+    std::size_t clashes{0};                               ///< rows that keep the old chord
+    std::size_t unknown{0};                               ///< rows this version does not know
+};
+
+/// One key IMPORT… would bring in.
+struct ImportRow {
+    std::string action{}; ///< the action id; empty when Open Annihilation has none
+    std::vector<oa::ui::key_bindings::Chord> before{}; ///< the chords in use
+    std::vector<oa::ui::key_bindings::Chord> after{};  ///< the chords IMPORT would write
+    std::string source_line{};                         ///< the line the file wrote
+    uint32_t line{0};                                  ///< that line's number
+    std::string loses{};                               ///< the action that loses a moved chord
+    std::string note{};                                ///< the left-and-right sentence, or empty
+    bool unused{false};                                ///< the old tool's key has no action here
+    bool differs{false};                               ///< IMPORT counts this key
+    bool unknown{false};                               ///< the action is kept for a later version
+};
+
+/// What an import would change. Only keys that differ are changes.
+struct ImportPreview {
+    std::vector<ImportRow> rows{}; ///< differing, unused and noted keys
+    std::vector<oa::ui::key_bindings::LayoutProblem> problems{}; ///< what the reader reported
+    std::size_t found{0};                                        ///< keys the file held
+    std::size_t differ{0};                                       ///< keys IMPORT would write
+    std::string tool{};                                          ///< imported-from tool
+    std::string file{};                                          ///< imported-from file
+    std::string date{}; ///< imported-from date; the host sets it
 };
 
 /// The editor. Rows are what resolution would put in use. Nothing is written
@@ -461,6 +534,24 @@ class Editor {
     /// @return one entry per chord the draft took
     [[nodiscard]] std::vector<DraftTake> draft_takes() const;
 
+    /// The name SHARE… is packing. An empty name keeps SAVE FILE… disabled.
+    ///
+    /// @param name the name the player typed
+    void set_share_name(std::string name);
+
+    /// The name SHARE… is packing.
+    ///
+    /// @return the name; empty until the player types one
+    [[nodiscard]] const std::string& share_name() const noexcept;
+
+    /// Settles a clash a paste is holding. Keeping the holder drops the
+    /// record and leaves the chord. Keeping the pasted action moves the chord.
+    ///
+    /// @param clash the pair, with `a` the action the card calls "here"
+    /// @param which which side keeps the chord
+    /// @return true when this was a paste clash
+    bool settle_paste_clash(const oa::ui::key_bindings::Clash& clash, Settle which);
+
   private:
 
     struct Snapshot {
@@ -483,6 +574,9 @@ class Editor {
     std::vector<LayoutSummary> installed_{};
     std::vector<std::string> written_{}; ///< ids created or renamed, for result()
     Snapshot opened_{};
+    std::vector<HeldClash> held_clashes_{}; ///< paste clashes SAVE is waiting on
+    std::optional<oa::formats::oakeys::ImportedFrom> imported_from_{}; ///< what an import recorded
+    std::string share_name_{}; ///< the name SHARE… is packing
 
     /// Resolves the base, the chosen layout, the mod's data and the draft.
     ///
@@ -513,7 +607,79 @@ class Editor {
     mouse_table(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
     /// The keys one action is bound to.
     friend std::vector<std::string> keys_of(const Editor& editor, std::string_view action);
+    /// The shared layout, including bindings this version does not know.
+    friend oa::formats::oakeys::Manifest share_manifest(const Editor& editor);
+    /// SHARE…'s facts, from the shared layout.
+    friend ShareSummary share_summary(const Editor& editor);
+    /// Writes a paste into the draft. A clash is held; an unknown action is kept.
+    friend void apply_paste(Editor& editor, const PastePreview& preview);
+    /// Writes an import into the draft and records imported-from.
+    friend void apply_import(Editor& editor, const ImportPreview& preview);
 };
+
+/// Folds a share name into a layout id.
+///
+/// Letters fold to lower case. Digits stay. Any other run of characters
+/// becomes one hyphen, and hyphens at the ends are dropped. Empty, longer
+/// than 64 bytes, `oa-default`, `classic` and an id that starts with `own-`
+/// are refused: a package cannot install those.
+///
+/// @param name the name the player typed
+/// @return the id, or nothing when it is refused
+[[nodiscard]] std::optional<std::string> id_from_name(std::string_view name);
+
+/// The shared layout a friend can install. Its id comes from the share name.
+/// Bindings are the chosen layout with the draft over it, including an action
+/// this version does not know. The text form is `write_bindings_text` of this.
+///
+/// @param editor the draft
+/// @return the manifest; its id is empty when the name cannot be one
+[[nodiscard]] oa::formats::oakeys::Manifest share_manifest(const Editor& editor);
+
+/// SHARE…'s facts.
+///
+/// @param editor the draft
+/// @return the name, the id, the base, the counts and the text form
+[[nodiscard]] ShareSummary share_summary(const Editor& editor);
+
+/// Reads a paste: K06's text form, or a whole manifest. A chord that does not
+/// parse is a problem at its line and column. The other bindings are still rows.
+/// A clash keeps the chord where it is. An unknown action is kept.
+///
+/// @param editor the chords in use
+/// @param bytes the clipboard, at most the manifest's limit
+/// @return the rows, the problems and the counts APPLY shows
+[[nodiscard]] PastePreview paste_preview(const Editor& editor, std::span<const uint8_t> bytes);
+
+/// Writes a paste into the draft. Nothing is written before this. A clashing
+/// chord stays where it is and holds SAVE. An unknown action is kept.
+///
+/// @param[in,out] editor the draft
+/// @param preview what paste_preview returned
+void apply_paste(Editor& editor, const PastePreview& preview);
+
+/// Lists the keys an older file would change. A key whose chords already match
+/// the chords in use is left out. A key Open Annihilation does not use is listed
+/// and is not a change. A chord that cannot be written back is noted and not applied.
+///
+/// @param editor the chords in use
+/// @param read the keys the file held
+/// @param tool the tool name recorded on imported-from
+/// @param file the file name recorded on imported-from
+/// @return the rows and the counts
+[[nodiscard]] ImportPreview import_preview(
+    const Editor& editor,
+    const oa::ui::key_bindings::LegacyRead& read,
+    std::string_view tool,
+    std::string_view file
+);
+
+/// Moves each differing key onto the draft. The action that held the chord
+/// loses it. imported-from is recorded when tool, file and date are all set.
+///
+/// @param[in,out] editor the draft
+/// @param preview what import_preview returned; the host fills `date` first
+void apply_import(Editor& editor, const ImportPreview& preview);
 
 /// The keyboard picture for one shape and one modifier layer.
 ///
@@ -607,12 +773,6 @@ enum class CaptureEvent : uint8_t {
 enum class ClashChoice : uint8_t {
     replace, ///< the other action loses the chord
     swap,    ///< the other action takes the chord this one gave up
-};
-
-/// Which side of a draft clash keeps the chord.
-enum class Settle : uint8_t {
-    keep_here,  ///< the action the card was opened on keeps it
-    keep_there, ///< the other action keeps it
 };
 
 /// One capture, from + ADD KEY or from Enter on a chord.

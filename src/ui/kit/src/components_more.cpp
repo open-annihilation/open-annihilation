@@ -1497,7 +1497,9 @@ DisplayList question_list(const Question& question, const Fonts* fonts) {
     }
     add_footer(list, placed.footer_rule, width);
     if (placed.bar.width > 0)
-        add_progress(list, placed.bar, question.progress, question_progress_whole);
+        add_progress(
+            list, placed.bar, question.progress, question_progress_whole, question.progress_paused
+        );
     for (std::size_t index = 0; index < placed.buttons.size(); ++index) {
         const auto control = static_cast<ControlId>(index);
         const QuestionButton& button = question.buttons[index];
@@ -1778,7 +1780,9 @@ void draw_question(const Canvas& canvas, const Question& question) {
     }
     draw_footer_band(canvas, width, placed.footer_rule);
     if (placed.bar.width > 0)
-        draw_progress(canvas, placed.bar, question.progress, question_progress_whole);
+        draw_progress(
+            canvas, placed.bar, question.progress, question_progress_whole, question.progress_paused
+        );
     for (std::size_t index = 0; index < placed.buttons.size(); ++index) {
         const auto control = static_cast<ControlId>(index);
         const QuestionButton& button = question.buttons[index];
@@ -2006,17 +2010,17 @@ PlacedUpdatePill place_update_pill(const UpdatePill& pill, const Measure& small)
     PlacedUpdatePill placed;
     placed.height = kPillHeight;
     const int32_t words = small ? small(pill.text) : estimated_width(pill.text);
-    const int32_t text_width = std::clamp(words, kPillLeastText, kPillMostText);
+    const int32_t words_width = std::clamp(words, kPillLeastText, kPillMostText);
     int32_t x = kPillPadding;
     placed.icon = {x, (kPillHeight - kPillIconSide) / 2, kPillIconSide, kPillIconSide};
     x += kPillIconSide + kPillGap;
     const bool bar = pill.percent >= 0;
     const int32_t block = metrics.small_line + (bar ? kPillBarGap + kPillBarHeight : 0);
     const int32_t text_top = (kPillHeight - block) / 2;
-    placed.text = {x, text_top, text_width, metrics.small_line};
+    placed.text = {x, text_top, words_width, metrics.small_line};
     if (bar)
-        placed.bar = {x, text_top + metrics.small_line + kPillBarGap, text_width, kPillBarHeight};
-    x += text_width;
+        placed.bar = {x, text_top + metrics.small_line + kPillBarGap, words_width, kPillBarHeight};
+    x += words_width;
     if (!pill.caption.empty()) {
         const int32_t caption =
             std::max(estimated_width(pill.caption), small ? small(pill.caption) : int32_t{0});

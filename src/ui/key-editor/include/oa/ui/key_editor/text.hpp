@@ -412,6 +412,109 @@ inline constexpr std::string_view cap_space_down = "Space -";
 /// The wheel and the middle button, above the mouse picture.
 inline constexpr std::string_view cap_wheel_middle = "Wheel and middle";
 
+/// The footer's IMPORT….
+inline constexpr std::string_view import_keys = "IMPORT…";
+/// The footer's SHARE….
+inline constexpr std::string_view share_keys = "SHARE…";
+/// The footer's PASTE….
+inline constexpr std::string_view paste_keys = "PASTE…";
+/// The share prompt's title.
+inline constexpr std::string_view share_title = "Share your keys";
+/// The name field's label.
+inline constexpr std::string_view share_name_label = "Name";
+/// The base line's label.
+inline constexpr std::string_view starts_from = "Starts from";
+/// The changes line's label. The catalogue already has this word.
+inline constexpr std::string_view changes_label = "Changes";
+/// How many keys and helpers the share text carries.
+inline constexpr std::string_view keys_and_helpers = "{keys} keys, {helpers} helpers";
+/// The same line when the text carries one key and one helper.
+inline constexpr std::string_view keys_one_helper_one = "1 key, 1 helper";
+/// The same line when the text carries one key.
+inline constexpr std::string_view keys_one_helpers = "1 key, {helpers} helpers";
+/// The same line when the text carries one helper.
+inline constexpr std::string_view keys_helpers_one = "{keys} keys, 1 helper";
+/// Where SAVE FILE… wrote the package. `{place}` is the path.
+inline constexpr std::string_view saved_to = "Saved to {place}";
+/// Opens the folder a package was written to.
+inline constexpr std::string_view open_folder = "OPEN FOLDER";
+/// What the paste text would change. `{n}` is the count and `{layout}` the base.
+inline constexpr std::string_view text_changes = "The text changes {n} keys of {layout}.";
+/// The same line when the text changes one key.
+inline constexpr std::string_view text_changes_one = "The text changes 1 key of {layout}.";
+/// A row whose chord is a key's place.
+inline constexpr std::string_view place_word = "place";
+/// APPLY on the paste prompt. `{n}` is how many rows it writes.
+inline constexpr std::string_view apply_changes = "APPLY {n} CHANGES";
+/// APPLY when it writes one row.
+inline constexpr std::string_view apply_change_one = "APPLY 1 CHANGE";
+/// The line under an imported layout. `{file}` is the file's name.
+inline constexpr std::string_view imported_from_file = "Imported from {file}";
+/// A legacy key Open Annihilation has no action for.
+inline constexpr std::string_view not_used = "not used by Open Annihilation";
+/// The import summary. `{n}` were read, `{m}` differ, `{layout}` is the base.
+inline constexpr std::string_view found_differ = "Found {n} keys · {m} differ from {layout}";
+/// The summary when one key was read and it differs.
+inline constexpr std::string_view found_one_differs_one = "Found 1 key · 1 differs from {layout}";
+/// The summary when one key was read.
+inline constexpr std::string_view found_one_key = "Found 1 key · {m} differ from {layout}";
+/// The summary when one key differs.
+inline constexpr std::string_view found_differs_one = "Found {n} keys · 1 differs from {layout}";
+/// IMPORT on the import prompt. `{n}` is how many keys it writes.
+inline constexpr std::string_view import_n_keys = "IMPORT {n} KEYS";
+/// IMPORT when it writes one key.
+inline constexpr std::string_view import_one_key = "IMPORT 1 KEY";
+/// Asks for another legacy file.
+inline constexpr std::string_view choose_another_file = "CHOOSE ANOTHER FILE…";
+/// A left-hand or right-hand modifier. `{modifier}` is Shift, Ctrl or Alt.
+inline constexpr std::string_view hands_are_one =
+    "Left and right {modifier} are one key in Open Annihilation";
+/// The install question, above each problem.
+inline constexpr std::string_view layout_has_problems = "This layout has problems:";
+/// The paste prompt's title.
+inline constexpr std::string_view paste_title = "Paste keys";
+/// The import prompt's title.
+inline constexpr std::string_view import_title = "Import keys from an older setup";
+/// Under the share text.
+inline constexpr std::string_view share_file_note =
+    "The file is a .oakeys package anyone can open in Open Annihilation. The text carries the keys "
+    "alone, for a forum or a chat.";
+/// Under the paste summary.
+inline constexpr std::string_view nothing_until_apply = "Nothing changes until you apply it.";
+/// COPY AS TEXT.
+inline constexpr std::string_view copy_as_text = "COPY AS TEXT";
+/// SAVE FILE….
+inline constexpr std::string_view save_file = "SAVE FILE…";
+/// CLOSE. The catalogue already has this word.
+inline constexpr std::string_view close_word = "CLOSE";
+/// A paste clash. `{chord}` is the key and `{action}` the action that keeps it.
+inline constexpr std::string_view paste_clash =
+    "One clash: {chord} already belongs to {action}. Apply keeps yours and lists the clash.";
+/// An unknown action a paste keeps.
+inline constexpr std::string_view kept_for_later =
+    "{action} is kept in your layout for a version that has it.";
+/// The import prompt's first source.
+inline constexpr std::string_view from_eye = "A mod's Ctrl+F2 keys";
+/// The aside under that source.
+inline constexpr std::string_view from_eye_aside = "The keys OA keeps for TA Zero, ESC or Twilight";
+/// The import prompt's tdraw source.
+inline constexpr std::string_view from_tdraw = "tdraw's Settings.ini";
+/// The aside under that source.
+inline constexpr std::string_view from_tdraw_aside = "Mayhem, Twilight and older patches";
+/// The import prompt's cnc-ddraw source.
+inline constexpr std::string_view from_ddraw = "cnc-ddraw's ddraw.ini";
+/// The aside under that source.
+inline constexpr std::string_view from_ddraw_aside = "Full screen, screenshot and pointer keys";
+/// The file the import is showing. `{file}` is its name.
+inline constexpr std::string_view chosen_file = "Chosen file: {file}";
+/// What an import does to a chord another action holds.
+inline constexpr std::string_view import_moves =
+    "Importing gives the key to this action and leaves {action} without it.";
+/// Under the import rows.
+inline constexpr std::string_view numbers_are_places =
+    "Numbers are Windows key codes, read as key places. The changes go on top of your layout as "
+    "\"Imported from {file}\". Nothing else changes.";
+
 /// The keys overlay's title while a match is being played.
 inline constexpr std::string_view keys_while_playing = "Keys while playing";
 /// The keys overlay's title while a match is being watched.

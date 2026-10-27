@@ -704,6 +704,11 @@ struct KeyboardKey {
 struct KeyboardLook {
     KeyboardShape shape{KeyboardShape::ansi}; ///< which keyboard
     std::vector<KeyboardKey> keys{};          ///< the keys that are not free
+    /// Only the main block: the rows from Tab to Enter, Caps Lock to Enter
+    /// and Shift to Shift, scaled to the rectangle on their own, so a narrow
+    /// picture keeps keys large enough for their legends. Off draws the
+    /// whole keyboard.
+    bool main_block{false};
 };
 
 /// A mouse button, in the order MouseLook::buttons stores their looks.

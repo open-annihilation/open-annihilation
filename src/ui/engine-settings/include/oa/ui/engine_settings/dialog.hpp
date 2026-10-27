@@ -1276,6 +1276,11 @@ struct Dialog {
     /// What Updates shows, which the host fills after the dialog has opened.
     /// open_dialog clears it, and sets mode from the check in effect.
     UpdatesOffer updates{};
+    /// A short word at the right of Updates' entry in the section list, in
+    /// the accent: how far a download has come ("41%") or that a release is
+    /// ready, as the update centre's pill says it. Empty shows none. The host
+    /// keeps it as the update moves.
+    std::string updates_badge;
     /// Each install-ID switch as the player has it, in downloads.install_ids'
     /// order. A switch takes effect at OK.
     std::vector<InstallIdChoice> install_id_chosen{};
@@ -1685,6 +1690,14 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 /// @return what the turn asks of the host: DialogAction::redraw when the
 ///     section scrolled, else DialogAction::none
 [[nodiscard]] DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches);
+
+/// Returns how far Page Up and Page Down scroll the open section: its view
+/// at the dialog's size class, less three hint lines, so that what showed
+/// at one edge still shows at the other.
+///
+/// @param dialog the dialog
+/// @return the rows, in source pixels
+[[nodiscard]] int32_t dialog_page_step(const Dialog& dialog) noexcept;
 
 /// Lays the dialog out at a size class (Dialog::size_class) and scrolls its
 /// section list the least that shows the open section's entry there.

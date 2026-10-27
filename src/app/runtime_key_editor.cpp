@@ -11,8 +11,16 @@
 
 #include "oa_layer.hpp"
 
+#include "oa/app/game_directory.hpp"
 #include "oa/app/runtime.hpp"
+#include "oa/app/user_folder.hpp"
+#include "oa/app/view_rules.hpp"
+#include "oa/data/input_actions/actions.hpp"
+#include "oa/data/key_library/library.hpp"
 #include "oa/data/languages/interface_text.hpp"
+#include "oa/formats/oakeys/manifest.hpp"
+#include "oa/ui/key_bindings/legacy.hpp"
+#include "oa/ui/key_bindings/legacy_import.hpp"
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
 #include "oa/sim/gameplay_input/order_cursor.hpp"
@@ -25,6 +33,16 @@
 
 #include <SDL3/SDL.h>
 #include "oa/ui/kit/components.hpp"
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <vector>
 #include "oa/ui/kit/components_more.hpp"
 #include "oa/ui/kit/controls.hpp"
 #include "oa/ui/kit/input.hpp"
@@ -53,12 +71,153 @@ namespace {
 /// The preference that remembers the keyboard picture's shape.
 constexpr std::string_view kKeyboardShapePreference = "open-annihilation.keys.keyboard";
 
+namespace fs = std::filesystem;
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
 namespace keys = oa::ui::key_bindings;
 namespace settings = oa::ui::engine_settings;
 namespace display = oa::ui::display_layout;
 namespace pad = oa::ui::pad_controls;
+namespace key_library = oa::data::key_library;
+namespace oakeys = oa::formats::oakeys;
+namespace actions = oa::data::input_actions;
+
+/// The most bytes PASTE… reads from the clipboard.
+constexpr std::size_t kClipboardCap = 256 * 1024;
+/// One byte past the legacy reader's limit, so a longer file is reported.
+constexpr std::size_t kLegacyReadCap = 64 * 1024 + 1;
+
+/// True when this run must not open a file dialog.
+///
+/// @param unattended the command line asked for no questions
+/// @param headless a check is running
+/// @return true for a check, an unattended run, or a driver nobody watches
+bool skip_file_dialog(bool unattended, bool headless) {
+    if (unattended || headless)
+        return true;
+    const char* driver = SDL_GetCurrentVideoDriver();
+    return driver != nullptr && unattended_environment({}, driver);
+}
+
+/// Packs one manifest as a key-layout package.
+///
+/// @param manifest the layout
+/// @param[out] problem why it was not packed
+/// @return the package, or nothing
+std::optional<std::vector<uint8_t>>
+pack_share(const oakeys::Manifest& manifest, std::string& problem) {
+    const std::string yaml = oakeys::write_manifest(manifest);
+    key_library::PackageFile held;
+    held.name = std::string(oakeys::manifest_file);
+    held.bytes.assign(yaml.begin(), yaml.end());
+    const std::array<key_library::PackageFile, 1> files{std::move(held)};
+    return key_library::package_bytes(files, &problem);
+}
+
+/// Reads at most `cap` bytes of a file.
+///
+/// @param path the file
+/// @param cap the most bytes
+/// @return the bytes; empty when the file cannot be opened
+std::vector<uint8_t> read_capped(const fs::path& path, std::size_t cap) {
+    std::ifstream in(path, std::ios::binary);
+    std::vector<uint8_t> bytes;
+    if (!in)
+        return bytes;
+    bytes.resize(cap);
+    in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(cap));
+    const std::streamsize got = in.gcount();
+    if (got <= 0)
+        bytes.clear();
+    else
+        bytes.resize(static_cast<std::size_t>(got));
+    return bytes;
+}
+
+/// A file the system's dialog named.
+struct PickedPath {
+    bool cancelled{false}; ///< the player closed the dialog
+    bool failed{false};    ///< the dialog could not be shown
+    fs::path path{};       ///< the file
+    std::string error{};   ///< why it failed
+};
+
+#if OA_NATIVE_FOLDER_DIALOG
+/// SDL answers inside the call on macOS and from event pumping elsewhere.
+struct DialogWait {
+    std::atomic<bool> done{false};
+    bool failed{false};
+    std::string path{};
+    std::string error{};
+};
+
+void SDLCALL dialog_chosen(void* userdata, const char* const* filelist, int) {
+    auto* wait = static_cast<DialogWait*>(userdata);
+    if (filelist == nullptr) {
+        wait->failed = true;
+        const char* reason = SDL_GetError();
+        if (reason != nullptr)
+            wait->error = reason;
+    } else if (filelist[0] != nullptr && filelist[0][0] != '\0') {
+        wait->path = filelist[0];
+    }
+    wait->done.store(true, std::memory_order_release);
+}
+
+/// Asks for one file, the same way the installer pick waits.
+///
+/// @param window the window the dialog belongs to
+/// @param save true for SAVE FILE…
+/// @param start the folder the dialog opens in
+/// @param title the dialog's title
+/// @return the file, a cancel, or why the dialog failed
+PickedPath pick_key_file(SDL_Window* window, bool save, const fs::path& start, std::string title) {
+    PickedPath picked;
+    DialogWait wait;
+    SDL_DialogFileFilter filters[] = {
+        {save ? "Key layout" : "Settings", save ? "oakeys" : "ini"},
+        {"All files", "*"},
+    };
+    const SDL_PropertiesID properties = SDL_CreateProperties();
+    if (properties == 0) {
+        const char* reason = SDL_GetError();
+        if (reason != nullptr)
+            picked.error = reason;
+        picked.failed = true;
+        return picked;
+    }
+    (void)SDL_SetStringProperty(properties, SDL_PROP_FILE_DIALOG_TITLE_STRING, title.c_str());
+    (void)SDL_SetPointerProperty(properties, SDL_PROP_FILE_DIALOG_FILTERS_POINTER, filters);
+    (void)SDL_SetNumberProperty(properties, SDL_PROP_FILE_DIALOG_NFILTERS_NUMBER, 2);
+    if (window != nullptr)
+        (void)SDL_SetPointerProperty(properties, SDL_PROP_FILE_DIALOG_WINDOW_POINTER, window);
+    (void)SDL_SetBooleanProperty(properties, SDL_PROP_FILE_DIALOG_MANY_BOOLEAN, false);
+    const std::string location = dialog_location(start);
+    if (!location.empty())
+        (void)SDL_SetStringProperty(
+            properties, SDL_PROP_FILE_DIALOG_LOCATION_STRING, location.c_str()
+        );
+    SDL_ShowFileDialogWithProperties(
+        save ? SDL_FILEDIALOG_SAVEFILE : SDL_FILEDIALOG_OPENFILE, dialog_chosen, &wait, properties
+    );
+    SDL_DestroyProperties(properties);
+    while (!wait.done.load(std::memory_order_acquire)) {
+        SDL_PumpEvents();
+        SDL_Delay(15);
+    }
+    if (wait.failed) {
+        picked.failed = true;
+        picked.error = std::move(wait.error);
+        return picked;
+    }
+    if (wait.path.empty()) {
+        picked.cancelled = true;
+        return picked;
+    }
+    picked.path = path_from_utf8(wait.path);
+    return picked;
+}
+#endif
 
 /// The sound opening the editor plays, as Settings does.
 constexpr std::string_view kOpenSound = "Options";
@@ -1188,6 +1347,13 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         }
         if (state_.prompt != editor::Prompt::none)
             return LayerAnswer::pass;
+        // Primary+V on the list reads the clipboard. A focused search keeps
+        // the layer's paste into that field.
+        if (layer_paste(sdl_key, modifiers)) {
+            if (editor::focused_field(state_, list_))
+                return LayerAnswer::pass;
+            return take({editor::EditorAction::read_clipboard, {}, true});
+        }
         if (!editor::focused_field(state_, list_) || !state_.search.text.empty())
             return LayerAnswer::pass;
         const keys::InputEvent event =
@@ -1457,6 +1623,24 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         case editor::EditorAction::ask_name:
             ask_name(result.id);
             break;
+        case editor::EditorAction::copy_text:
+            copy_share_text();
+            break;
+        case editor::EditorAction::save_share:
+            save_share_file(result.id);
+            break;
+        case editor::EditorAction::open_share_folder:
+            open_saved_folder();
+            break;
+        case editor::EditorAction::read_clipboard:
+            read_pasted_text();
+            break;
+        case editor::EditorAction::prepare_import:
+            fill_import_offers();
+            break;
+        case editor::EditorAction::read_import:
+            read_import_source(result.id);
+            break;
         case editor::EditorAction::none:
             break;
         }
@@ -1626,6 +1810,289 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         runtime_.oa_layer().push(std::move(screen));
     }
 
+    /// The date imported-from records. A check uses a fixed day.
+    ///
+    /// @return the date
+    std::string import_stamp() {
+        if (!runtime_.key_import_folder_.empty() || runtime_.options_.check_key_share)
+            return "2026-10-27";
+        const std::chrono::year_month_day ymd{
+            std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now())
+        };
+        const int year = static_cast<int>(ymd.year());
+        const unsigned month = static_cast<unsigned>(ymd.month());
+        const unsigned day = static_cast<unsigned>(ymd.day());
+        std::ostringstream out;
+        out << year << '-';
+        if (month < 10)
+            out << '0';
+        out << month << '-';
+        if (day < 10)
+            out << '0';
+        out << day;
+        return out.str();
+    }
+
+    /// True when the played mod stores one of the three Ctrl+F2 keys.
+    ///
+    /// @return true when a stored number is present
+    bool eye_is_stored() {
+        static constexpr std::array<std::string_view, 3> ids{
+            "build.snap-override", "build.line", "build.rotate"
+        };
+        for (const std::string_view id : ids) {
+            bool stored = false;
+            std::ignore = view_rules::imported_key(id, [&](std::string_view name) {
+                const std::optional<uint32_t> value =
+                    runtime_.read_number(view_rules::view_settings_section, name);
+                if (value)
+                    stored = true;
+                return value;
+            });
+            if (stored)
+                return true;
+        }
+        return false;
+    }
+
+    /// Adds one file the import prompt can read, once.
+    ///
+    /// @param path the file
+    /// @param tool tdraw or cnc-ddraw
+    void add_offer(const fs::path& path, std::string tool) {
+        std::error_code error;
+        if (!fs::is_regular_file(path, error) || error)
+            return;
+        const std::string place = path.string();
+        for (const editor::ImportOffer& offer : state_.import_offers)
+            if (offer.path == place)
+                return;
+        editor::ImportOffer offer;
+        offer.id = path.filename().string();
+        offer.path = place;
+        offer.tool = std::move(tool);
+        offer.file = path.filename().string();
+        offer.caption = offer.file;
+        state_.import_offers.push_back(std::move(offer));
+    }
+
+    /// Fills the import offers from the check's folder, or the played mod.
+    void fill_import_offers() {
+        state_.import_offers.clear();
+        state_.import_date = import_stamp();
+        state_.import_eye = eye_is_stored();
+        state_.import_chosen = -1;
+        const fs::path folder = runtime_.key_import_folder_.empty() ? runtime_.played_mod_folder()
+                                                                    : runtime_.key_import_folder_;
+        if (runtime_.key_import_folder_.empty()) {
+            std::string settings_name = "totala.ini";
+            if (const oa::data::mod_profile::ModProfile* profile = runtime_.mod_profile()) {
+                if (!profile->identity.settings_file.empty())
+                    settings_name = profile->identity.settings_file;
+            }
+            add_offer(folder / settings_name, "tdraw");
+        }
+        add_offer(folder / "Settings.ini", "tdraw");
+        add_offer(folder / "ddraw.ini", "cnc-ddraw");
+    }
+
+    /// The file a source button reads.
+    ///
+    /// @param which "tdraw" or "ddraw"
+    /// @return the file
+    [[nodiscard]] fs::path import_file(std::string_view which) const {
+        const bool ddraw = which == "ddraw";
+        const char* leaf = ddraw ? "ddraw.ini" : "Settings.ini";
+        if (!runtime_.key_import_folder_.empty())
+            return runtime_.key_import_folder_ / leaf;
+        for (const editor::ImportOffer& offer : state_.import_offers) {
+            const bool match = ddraw ? offer.tool == "cnc-ddraw" : offer.tool == "tdraw";
+            if (match && !offer.path.empty())
+                return fs::path(offer.path);
+        }
+        return runtime_.played_mod_folder() / leaf;
+    }
+
+    /// The mod's stored Ctrl+F2 keys, as a legacy read.
+    ///
+    /// @return the three slider actions that map to a chord
+    keys::LegacyRead eye_read() {
+        keys::LegacyRead read;
+        static constexpr std::array<std::string_view, 3> ids{
+            "build.snap-override", "build.line", "build.rotate"
+        };
+        uint32_t line = 1;
+        for (const std::string_view id : ids) {
+            const std::optional<view_rules::ImportedKey> imported =
+                view_rules::imported_key(id, [&](std::string_view name) {
+                    return runtime_.read_number(view_rules::view_settings_section, name);
+                });
+            if (!imported)
+                continue;
+            const actions::Action* action = actions::find(id);
+            if (action == nullptr)
+                continue;
+            const std::optional<keys::Chord> chord = keys::legacy_key_chord(
+                imported->code, capture_scancode(imported->code), action->by
+            );
+            if (!chord)
+                continue;
+            keys::LegacyKey key;
+            key.action = std::string(id);
+            key.chords = keys::imported_list(*action, *chord);
+            key.source_line = std::string(imported->setting);
+            key.line = line;
+            ++line;
+            read.keys.push_back(std::move(key));
+        }
+        return read;
+    }
+
+    /// Shows an import preview.
+    ///
+    /// @param read the keys
+    /// @param tool the tool name
+    /// @param file the file name
+    void show_import(keys::LegacyRead read, std::string tool, std::string file) {
+        state_.importing = editor::import_preview(editor_, read, tool, file);
+        state_.import_chosen = 0;
+        state_.exchange_scroll = 0;
+        state_.prompt = editor::Prompt::import;
+    }
+
+    /// Reads the source the import prompt named.
+    ///
+    /// @param which "eye", "tdraw", "ddraw" or "choose"
+    void read_import_source(const std::string& which) {
+        if (which == "eye") {
+            show_import(eye_read(), "eye", "Ctrl+F2");
+            return;
+        }
+        if (which == "choose" &&
+            !skip_file_dialog(runtime_.options_.unattended, runtime_.options_.check_key_share)) {
+#if OA_NATIVE_FOLDER_DIALOG
+            const std::string title =
+                std::string(oa::data::languages::interface_text("CHOOSE ANOTHER FILE…"));
+            const PickedPath picked =
+                pick_key_file(runtime_.sdl_.window, false, runtime_.played_mod_folder(), title);
+            if (picked.cancelled)
+                return;
+            if (picked.failed) {
+                tell_write_failed(picked.error);
+                return;
+            }
+            const std::string leaf = picked.path.filename().string();
+            std::string lowered = leaf;
+            for (char& character : lowered) {
+                if (character >= 'A' && character <= 'Z')
+                    character = static_cast<char>(character - 'A' + 'a');
+            }
+            const bool ddraw_file = lowered == "ddraw.ini";
+            const std::vector<uint8_t> bytes = read_capped(picked.path, kLegacyReadCap);
+            show_import(
+                ddraw_file ? keys::read_cnc_ddraw(bytes) : keys::read_tdraw_settings(bytes),
+                ddraw_file ? "cnc-ddraw" : "tdraw",
+                leaf
+            );
+            return;
+#endif
+        }
+        const bool ddraw = which == "ddraw";
+        const fs::path path = import_file(ddraw ? "ddraw" : "tdraw");
+        const std::vector<uint8_t> bytes = read_capped(path, kLegacyReadCap);
+        show_import(
+            ddraw ? keys::read_cnc_ddraw(bytes) : keys::read_tdraw_settings(bytes),
+            ddraw ? "cnc-ddraw" : "tdraw",
+            path.filename().string()
+        );
+    }
+
+    /// Puts the share text on the clipboard.
+    void copy_share_text() {
+        const editor::ShareSummary summary = editor::share_summary(editor_);
+        if (!SDL_SetClipboardText(summary.text.c_str())) {
+            const char* reason = SDL_GetError();
+            tell_write_failed(reason == nullptr ? "The clipboard was not set." : reason);
+        }
+    }
+
+    /// Writes the shared package. A check names the path; otherwise the
+    /// player does, or the file lands in Keys/Shared.
+    ///
+    /// @param layout_id the folded id
+    void save_share_file(const std::string& layout_id) {
+        const oakeys::Manifest manifest = editor::share_manifest(editor_);
+        if (manifest.id.empty() || manifest.id != layout_id)
+            return;
+        std::string problem;
+        const std::optional<std::vector<uint8_t>> packed = pack_share(manifest, problem);
+        if (!packed) {
+            tell_write_failed(problem);
+            return;
+        }
+        fs::path out = runtime_.key_share_save_path_;
+        const fs::path shared = runtime_.user_folder_ / std::string(key_library::keys_folder_name) /
+                                "Shared" / (layout_id + ".oakeys");
+        if (out.empty()) {
+            if (skip_file_dialog(runtime_.options_.unattended, runtime_.options_.check_key_share)) {
+                out = shared;
+            } else {
+#if OA_NATIVE_FOLDER_DIALOG
+                const std::string title =
+                    std::string(oa::data::languages::interface_text("SAVE FILE…"));
+                const PickedPath picked =
+                    pick_key_file(runtime_.sdl_.window, true, shared.parent_path(), title);
+                if (picked.cancelled)
+                    return;
+                if (picked.failed) {
+                    tell_write_failed(picked.error);
+                    return;
+                }
+                out = picked.path.empty() ? shared : picked.path;
+#else
+                out = shared;
+#endif
+            }
+        }
+        std::error_code made;
+        if (!out.parent_path().empty())
+            fs::create_directories(out.parent_path(), made);
+        if (made || !key_library::write_package(out, *packed, &problem)) {
+            if (problem.empty())
+                problem = "The file was not written.";
+            tell_write_failed(problem);
+            return;
+        }
+        state_.share_place = path_to_utf8(out);
+    }
+
+    /// Opens the folder the shared package was written to.
+    void open_saved_folder() {
+        if (state_.share_place.empty())
+            return;
+        const fs::path file = path_from_utf8(state_.share_place);
+        const fs::path folder = file.has_parent_path() ? file.parent_path() : file;
+        std::ignore = runtime_.open_player_folder(folder);
+    }
+
+    /// Reads the clipboard, at most 256 KiB, and opens the paste prompt.
+    void read_pasted_text() {
+        char* clipboard = SDL_GetClipboardText();
+        std::vector<uint8_t> bytes;
+        if (clipboard != nullptr) {
+            const std::size_t length = std::strlen(clipboard);
+            const std::size_t used = length < kClipboardCap ? length : kClipboardCap;
+            bytes.assign(
+                reinterpret_cast<const uint8_t*>(clipboard),
+                reinterpret_cast<const uint8_t*>(clipboard) + used
+            );
+            SDL_free(clipboard);
+        }
+        state_.paste = editor::paste_preview(editor_, bytes);
+        state_.exchange_scroll = 0;
+        state_.prompt = editor::Prompt::paste;
+    }
+
     Runtime& runtime_;            ///< the runtime
     editor::Editor editor_;       ///< the draft
     editor::ScreenState state_{}; ///< the list, the focus and the search
@@ -1712,6 +2179,11 @@ bool Runtime::open_key_editor(KeyEditorRequest request) {
         std::make_unique<KeyEditorScreen>(*this, std::move(inputs), std::move(request), in_match)
     );
     return true;
+}
+
+bool Runtime::stage_clipboard_text(std::string_view text) {
+    const std::string owned(text);
+    return SDL_SetClipboardText(owned.c_str());
 }
 
 } // namespace oa::app

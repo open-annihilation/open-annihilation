@@ -1435,6 +1435,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_key_editor_check.cpp
   src/app/runtime_keys_overlay_check.cpp
   src/app/runtime_key_capture_check.cpp
+  src/app/runtime_key_share_check.cpp
   src/app/runtime_key_views_check.cpp
   src/app/runtime_mutator_picker_check.cpp
   src/app/runtime_brain_picker_check.cpp
@@ -2446,6 +2447,31 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_key_capture_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-capture-clean)
+      # Sharing, pasting and importing a layout, then a dropped file that is
+      # refused and one that is installed. Each run starts from a clean
+      # folder. --snapshot writes key-share-<w>x<h>.ppm, key-paste-<w>x<h>.ppm
+      # and key-import-<w>x<h>.ppm beside the named file.
+      set(oa_key_share_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-share")
+      file(MAKE_DIRECTORY "${oa_key_share_dir}")
+      add_test(NAME key-share-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_share_dir}/Open Annihilation" "${oa_key_share_dir}/key-share.conf"
+        "${oa_key_share_dir}/key-share.ppm"
+        "${oa_key_share_dir}/key-share-640x480.ppm" "${oa_key_share_dir}/key-share-1280x720.ppm"
+        "${oa_key_share_dir}/key-share-1920x1080.ppm"
+        "${oa_key_share_dir}/key-paste-640x480.ppm" "${oa_key_share_dir}/key-paste-1280x720.ppm"
+        "${oa_key_share_dir}/key-paste-1920x1080.ppm"
+        "${oa_key_share_dir}/key-import-640x480.ppm" "${oa_key_share_dir}/key-import-1280x720.ppm"
+        "${oa_key_share_dir}/key-import-1920x1080.ppm")
+      set_tests_properties(key-share-clean PROPERTIES FIXTURES_SETUP key-share-clean)
+      add_test(NAME native-key-share COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-share
+        --snapshot "${oa_key_share_dir}/key-share.ppm"
+        --preferences-file "${oa_key_share_dir}/key-share.conf"
+        --user-folder "${oa_key_share_dir}/Open Annihilation")
+      set_tests_properties(native-key-share PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_share_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-share-clean)
       # The key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080.
       # --snapshot writes key-keyboard-<w>x<h>.ppm and key-mouse-<w>x<h>.ppm
       # beside the named file. Each run starts from a clean folder.

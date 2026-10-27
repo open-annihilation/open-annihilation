@@ -765,6 +765,11 @@ int Runtime::run() {
             flush_preferences();
             return 0;
         }
+        if (options_.check_key_share) {
+            check_key_share();
+            flush_preferences();
+            return 0;
+        }
         if (options_.check_key_views) {
             check_key_views();
             flush_preferences();

@@ -219,6 +219,41 @@ void header_matches_its_parts() {
     expect(icon_surface, 32, 4, 0x12, 0x14, 0x10);
 }
 
+/// A header of its own height: the band down to it, the rule under it, and
+/// the mark, the title, the second word and the version in its middle, each
+/// five rows lower than in Compact's 26-point band for a 36-point one.
+void header_takes_its_height() {
+    kit::HeaderLook look = header_look();
+    look.height = 36;
+    renderer::Surface surface = black(210, 50);
+    kit::draw_header(canvas_on(surface), look);
+    expect(surface, 1, 2, 0x12, 0x14, 0x10);
+    expect(surface, 1, 27, 0x12, 0x14, 0x10);
+    expect(surface, 1, 36, 0x12, 0x14, 0x10);
+    expect(surface, 1, 37, 0x2b, 0x30, 0x27);
+    expect(surface, 18, 15, 0xd6, 0xa7, 0x47);
+    expect(surface, 38, 14, 0xe7, 0xe8, 0xdf);
+    expect(surface, 64, 14, 0x95, 0x9c, 0x8b);
+    expect(surface, 183, 14, 0x95, 0x9c, 0x8b);
+
+    renderer::Surface icon_surface = black(210, 50);
+    kit::Canvas with_icon = canvas_on(icon_surface);
+    with_icon.icon = red_icon();
+    kit::draw_header(with_icon, look);
+    expect(icon_surface, 12, 9, 0xff, 0x00, 0x00);
+    expect(icon_surface, 31, 28, 0xff, 0x00, 0x00);
+    expect(icon_surface, 12, 8, 0x12, 0x14, 0x10);
+
+    // 0 is Compact's band, exactly as a look that names no height.
+    kit::HeaderLook compact = header_look();
+    compact.height = 0;
+    renderer::Surface zero = black(210, 40);
+    renderer::Surface unset = black(210, 40);
+    kit::draw_header(canvas_on(zero), compact);
+    kit::draw_header(canvas_on(unset), header_look());
+    OA_CHECK(zero.rgb == unset.rgb);
+}
+
 void window_and_footer_match() {
     renderer::Surface face = black(20, 12);
     const kit::Rect whole{0, 0, 20, 10};
@@ -369,6 +404,7 @@ void paint_matches_the_direct_draw(int32_t scale) {
 
 int main() {
     header_matches_its_parts();
+    header_takes_its_height();
     window_and_footer_match();
     nav_matches_its_entries();
     row_and_fade_match();

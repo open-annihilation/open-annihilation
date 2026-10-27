@@ -372,7 +372,10 @@ Its names are the module's
 | The draft card | `oa.key-editor.card.keep-here`, `.keep-there`, `.choose` | button |
 | The search's chord | `oa.key-editor.search.chord` | button, the chip and its ✕ |
 | Latch, Hold to confirm | `oa.key-editor.detail.latch`, `oa.key-editor.detail.confirm` | check box. Parts `.off` and `.on` |
-| The footer | `oa.key-editor.restore`, `.cancel`, `.save` | button. Compact's MORE is `oa.key-editor.more`, and its details page's BACK is `oa.key-editor.back` |
+| The footer | `oa.key-editor.import`, `.share`, `.paste`, `.restore`, `.cancel`, `.save` | button. At Compact, IMPORT…, SHARE… and PASTE… are items of `oa.key-editor.more`. Compact's details page's BACK is `oa.key-editor.back` |
+| Share your keys | `oa.key-editor.share.name`, `.id`, `.text`, `.copy`, `.save-file`, `.open-folder`, `.close` | the name field, the folded id, the text form, and the buttons. OPEN FOLDER appears once a file is written |
+| Paste keys | `oa.key-editor.paste.summary`, `.list`, `.apply`, `.cancel` | the summary's text counts the changes, the clashes and the unknown actions; the list names each action |
+| Import keys | `oa.key-editor.import.from.eye`, `.tdraw`, `.ddraw`, `oa.key-editor.import.choose`, `.summary`, `.list`, `.apply`, `.cancel` | the sources, then the keys that differ |
 | The summary | `oa.key-editor.summary` | label, its text the words shown |
 | List, Keyboard, Mouse | `oa.key-editor.view.list`, `.keyboard`, `.mouse` | button. Only the open tab takes Tab |
 | A modifier layer | `oa.key-editor.layer.none`, `.shift`, `.ctrl`, `.alt`, `.cmd` | button. Cmd is absent where Primary is Ctrl |

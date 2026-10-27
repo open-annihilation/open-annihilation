@@ -85,6 +85,13 @@ dispatcher times a double press and a hold from that time.
   place of each trigger. Extra modifiers and the gesture stay. A default
   that is a modifier on its own loses it before the key is applied, and a
   stored modifier replaces the whole chord.
+- `code_of_virtual_key` and `modifier_of_virtual_key` map one Windows
+  virtual-key number to a key place, or to Shift, Ctrl or Alt. A number
+  outside that table maps to nothing. `read_tdraw_settings` reads the
+  `[Settings]` keys of an older settings file, and `read_cnc_ddraw` reads
+  the named hotkey lines. A value of 0 is off. An unknown name or number is
+  reported and skipped. A sided modifier is one modifier, and the key says
+  so. Neither reader writes the file it was given.
 - `Dispatcher` turns one event into action events. `set_contexts` says which
   contexts are open for the next `feed`. A plain chord gives `pressed` on
   the down and `released` on that key's or button's up. `:double` gives
@@ -255,6 +262,12 @@ system's repeat the platform's repeats pass through; a mouse button and the
 wheel are not held back; typed text is not held back; `drag_click_ticks(32)`
 is 0x19 and `drag_click_ticks(96)` is 75; `clamped` holds every limit and
 keeps a zero that means the system's own time.
+
+`ui-key-bindings-legacy` (`tests/legacy_import_test.cpp`) reads a made-up
+settings text and a hotkey text. A settings key becomes the place that
+Windows number names. A hotkey that is off is left out, one this version
+does not use is listed as unused, and a section that overrides another
+wins. An unknown name or number is reported. The reader stops after 64 KiB.
 
 `ui-key-bindings-sdl` (`tests/sdl_numbers_test.cpp`) links SDL and checks the
 numbers the library holds: every scancode SDL names is in the position table

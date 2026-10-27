@@ -2419,6 +2419,38 @@ void the_window_frame_default_read_and_round_trip() {
     CHECK(values.empty());
 }
 
+/// Window size: Auto everywhere by default, under the key the OA layer reads;
+/// its four words read back, any other text reads Auto; Large written alone
+/// and read back, and Restore defaults then OK erases the key.
+void the_window_size_default_read_and_round_trip() {
+    CHECK(settings::key::window_size == "open-annihilation.ui.window-size");
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.window_size == settings::WindowSize::automatic);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    const auto size = [](const char* text) {
+        return read_one(settings::key::window_size, text).window_size;
+    };
+    CHECK(size("auto") == settings::WindowSize::automatic);
+    CHECK(size("compact") == settings::WindowSize::compact);
+    CHECK(size("regular") == settings::WindowSize::regular);
+    CHECK(size("large") == settings::WindowSize::large);
+    for (const char* text : {"", "Large", "huge", "2", " large"})
+        CHECK(size(text) == settings::WindowSize::automatic);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto shown = defaults;
+    shown.window_size = settings::WindowSize::large;
+    Values values;
+    settings::write_settings(values, defaults, shown, defaults, false);
+    CHECK(values.size() == 1);
+    CHECK(values.at(std::string{settings::key::window_size}) == "large");
+    CHECK(settings::read_settings(values, players_own_on_linux, false) == shown);
+    settings::write_settings(values, shown, defaults, defaults, true);
+    CHECK(values.empty());
+}
+
 /// HUD scaling: On everywhere by default; a file written before it reads
 /// the default; a number above 0 reads On and any other number Off; Off
 /// written alone and read back, and Restore defaults then OK erases the key.
@@ -3132,6 +3164,7 @@ int main() {
     the_window_edge_default_read_and_round_trip();
     the_edge_stickiness_default_read_and_round_trip();
     the_window_frame_default_read_and_round_trip();
+    the_window_size_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
     visual_effect_switches_round_trip();
