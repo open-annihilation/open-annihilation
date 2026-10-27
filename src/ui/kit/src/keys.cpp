@@ -593,7 +593,9 @@ int32_t drawn_letter_rows(const Canvas& canvas, FontRole role) {
             return 0;
         const int32_t percent = std::max(canvas.smooth.scale_percent, int32_t{1});
         if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
-            return modern_capitals(*canvas.fonts->modern, modern_type(role, false), percent);
+            return modern_capitals(
+                *canvas.fonts->modern, modern_type(role, false, canvas.fonts->size_class), percent
+            );
         const int32_t pixel_size =
             std::max(int32_t{1}, to_canvas(Rect{0, 0, smooth_text_points(role), 0}, percent).width);
         const oa::ui::paint::TextLine line = oa::ui::paint::draw_line(
