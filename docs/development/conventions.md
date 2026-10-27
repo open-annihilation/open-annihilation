@@ -748,14 +748,17 @@ picture at the top of the README, `docs/images/trailer.jpg`.
 The settings pictures are drawn, not edited by hand.
 `oa-ui-engine-settings-pictures DIRECTORY` (built with the tests) draws
 each section of the dialog alone, unlocked, at Compact and 2×, 960 by 648,
-in the installed game's fonts, and writes them under the names that folder
-uses (`engine-limits.png`, `controls-1.png`, `downloads-2.png` for
-Downloads scrolled to its end, and the same for the other sections). It
-needs `OA_GAME_DIR`. The data test `ui-engine-settings-pictures` runs it
-into a scratch folder. Refresh the manual with:
+in the installed game's fonts, or with `--modern FONTS` in the modern look,
+and writes them under the names that folder uses (`engine-limits.png`,
+`controls-1.png`, `downloads-2.png` for Downloads scrolled to its end, and
+the same for the other sections). It needs `OA_GAME_DIR`. The data test
+`ui-engine-settings-pictures` runs it into a scratch folder. Refresh the
+manual by drawing into a scratch folder and copying every picture but the
+Updates ones, which are cut from the native update check's pictures
+([the settings' module](../../src/ui/engine-settings/README.md#the-manuals-pictures)):
 
 ```sh
-oa-ui-engine-settings-pictures docs/images/settings
+oa-ui-engine-settings-pictures pictures --modern local/deps/text-fonts
 ```
 
 ## Checks
