@@ -652,6 +652,13 @@ void Runtime::paint_font_text(
 ) {
     if (text.empty() || scale < 1)
         return;
+    if (text_hold_.holding()) {
+        // Painted once every box of its group is laid (BackedText).
+        hold_painted_text([this, face = &font, x, y, line = std::string(text), color, scale] {
+            paint_font_text(*face, x, y, line, color, scale);
+        });
+        return;
+    }
     auto& dest = paint_target();
     // The glyphs are drawn into a buffer with room above the pen row for
     // the font's lift, and two rows of margin around them.

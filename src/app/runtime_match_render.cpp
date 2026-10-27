@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// Composition of the match battlefield frame.
+// Composition of the match battlefield frame, and the groups of text it
+// lays over the backings painted with them (BackedText).
 #include "oa/app/runtime.hpp"
 #include "gui_actions.hpp"
 #include "oa/app/far_view.hpp"
@@ -24,6 +25,7 @@
 #include "oa/present/raster.hpp"
 #include "oa/present/scene_grid.hpp"
 #include "oa/ui/console/game_fields.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/health_bar.hpp"
 #include "oa/ui/hud/shared_views.hpp"
 #include "oa/present/model/sprite_placement.hpp"
@@ -40,6 +42,8 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
+#include <functional>
 #include <iostream>
 #include <optional>
 #include <span>
@@ -821,6 +825,54 @@ renderer::ButtonCondition Runtime::match_button_condition(std::size_t index) con
     if ((match_hud_held_ == index && hovered_ == index) || match_command_lit(index))
         return renderer::ButtonCondition::pressed;
     return renderer::ButtonCondition::normal;
+}
+
+Runtime::BackedText::BackedText(Runtime& owner)
+    : runtime(&owner), exceptions(std::uncaught_exceptions()) {
+    owner.text_hold_.open(owner.text_backings_shown());
+}
+
+Runtime::BackedText::~BackedText() {
+    // A frame an exception leaves lays nothing more.
+    if (std::uncaught_exceptions() > exceptions)
+        runtime->text_hold_.drop();
+    else
+        runtime->text_hold_.close();
+}
+
+bool Runtime::text_backings_shown() const {
+    const auto settings = game_text_settings();
+    // A line's box comes with the lines the modern fonts draw, whole or the
+    // characters a game font lacks; the message log's backdrop with either
+    // font.
+    return (settings.style.background && modern_fonts_open()) || chat_backdrop_shown();
+}
+
+void Runtime::hold_painted_text(std::function<void()> paint) {
+    text_hold_.hold([this,
+                     target = overlay_target_,
+                     source_space = hud_source_space_,
+                     origin = paint_origin_,
+                     painter = std::move(paint)] {
+        // Painted where the line was drawn, and the frame's paint target
+        // given back after it.
+        struct KeptPaint {
+            Runtime* runtime{};
+            renderer::Surface* kept_target{};
+            bool kept_source_space{};
+            oa::ui::display_layout::Point kept_origin{};
+
+            ~KeptPaint() {
+                runtime->overlay_target_ = kept_target;
+                runtime->hud_source_space_ = kept_source_space;
+                runtime->paint_origin_ = kept_origin;
+            }
+        } const kept{this, overlay_target_, hud_source_space_, paint_origin_};
+        overlay_target_ = target;
+        hud_source_space_ = source_space;
+        paint_origin_ = origin;
+        painter();
+    });
 }
 
 void Runtime::compose_match_hud() {
@@ -2376,6 +2428,8 @@ bool Runtime::draw_match_surface() {
     // The bars shrink as the view zooms out, and keep the game's size at
     // zoom 1 and in.
     const auto bar_size = oa::ui::hud::health_bar_size(match_zoom());
+    // The digits lie over every unit's bar and over each other's boxes.
+    std::optional<BackedText> unit_digits(std::in_place, *this);
     for (const auto& slot : match_->world().slots) {
         if (live_renderer_active())
             break;
@@ -2439,6 +2493,7 @@ bool Runtime::draw_match_surface() {
                 bar_x - 4, bar_y - bar_size.half_height - 10, std::to_string(count), 1
             );
     }
+    unit_digits.reset();
     // The rotated view replaces the battlefield's picture, so it is drawn
     // before what lies over the battlefield: the megamap, the markers and
     // the commander placement. A rotated frame the card cannot draw ends the
@@ -2456,12 +2511,18 @@ bool Runtime::draw_match_surface() {
         // The bars' text keeps to the game fonts' size at most; the chat
         // line follows the text size.
         const PanelText panel(*this);
-        // The unit panel shows the unit under the cursor alone, never the
-        // selection.
-        draw_unit_panel();
-        draw_resource_readout();
-        draw_clock_line(PaintLayer::hud);
-        draw_build_captions();
+        {
+            // The bars' lines lie over every box laid among them: the
+            // unit's status over the rate figures beside it, the figures
+            // and the clock line over each other.
+            const BackedText bars(*this);
+            // The unit panel shows the unit under the cursor alone, never
+            // the selection.
+            draw_unit_panel();
+            draw_resource_readout();
+            draw_clock_line(PaintLayer::hud);
+            draw_build_captions();
+        }
         draw_key_badges();
         call_hook_or_report<&Extension::draw_match_hud>(extension_, hook_error_report(), *this);
     }
@@ -2469,20 +2530,48 @@ bool Runtime::draw_match_surface() {
     paint_on(PaintLayer::battlefield);
     // The markers' map points are placed as the classic view draws them, so
     // the rotated view leaves them out rather than drawing them elsewhere.
-    if (!live_renderer_active())
+    // Each overlay's lines lie over every box laid among them (BackedText).
+    if (!live_renderer_active()) {
+        const BackedText markers(*this);
         draw_whiteboard(painted);
+    }
     draw_middle_pan_marks();
-    draw_commander_placement();
-    draw_match_kill_board();
+    {
+        const BackedText prompt(*this);
+        draw_commander_placement();
+    }
+    {
+        const BackedText board(*this);
+        draw_match_kill_board();
+    }
     // Then the status strip over the bottom of the battlefield. The panels'
     // text keeps to the game fonts' size at most (PanelText).
     {
         const PanelText panel(*this);
+        const BackedText strip(*this);
         draw_status_panel();
     }
-    draw_resource_panel_overlay();
-    draw_clock_line(PaintLayer::battlefield);
-    draw_chat_overlay();
+    {
+        const BackedText rows(*this);
+        draw_resource_panel_overlay();
+    }
+    // The clock line, the game clock and the message log share the
+    // battlefield's top left: their lines lie over each other's boxes and
+    // the log's backdrops alike.
+    {
+        const BackedText lines(*this);
+        draw_clock_line(PaintLayer::battlefield);
+        draw_console_clock();
+        draw_match_message_log();
+    }
+    {
+        const BackedText debug_line(*this);
+        draw_debug_status_line();
+    }
+    {
+        const BackedText stats(*this);
+        draw_frame_stats();
+    }
     draw_key_latch_chips();
     draw_hold_ring();
     draw_extension_overlay();

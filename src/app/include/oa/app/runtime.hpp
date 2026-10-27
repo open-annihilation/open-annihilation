@@ -56,6 +56,7 @@
 #include "oa/present/world_renderer/world_fog.hpp"
 #include "oa/present/world_renderer/world_overlays.hpp"
 #include "oa/sim/sprite_animation.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/boundary.hpp"
 #include "oa/ui/hud/build_page_fit.hpp"
 #include "oa/ui/hud/camera_scroll.hpp"
@@ -9212,6 +9213,42 @@ class Runtime final : public menu::Host,
         PanelText& operator=(const PanelText&) = delete;
     };
 
+    /// Lays the lines of game text painted while it lives over every
+    /// backing painted with them: while a line's background box, or a
+    /// backdrop a caller fills under its text, would show, each box is laid
+    /// where its line is painted and every line once the outermost group
+    /// ends, in the order they were painted, so that no box covers another
+    /// line of the group. A group opened inside another joins it. Without
+    /// a box to show, each line is painted where it is drawn, as if there
+    /// were no group.
+    struct BackedText {
+        Runtime* runtime{};
+        int exceptions{}; ///< exceptions in flight when the group opened
+
+        /// Opens a group of lines, or joins the one open.
+        ///
+        /// @param owner the runtime
+        explicit BackedText(Runtime& owner);
+        /// Closes the group: the outermost lays the lines it held. A group
+        /// left by an exception lets its lines go unlaid.
+        ~BackedText();
+        BackedText(const BackedText&) = delete;
+        BackedText& operator=(const BackedText&) = delete;
+    };
+
+    /// Tells whether the game text painted now may show a backing: a line's
+    /// background box, which the Language settings' background asks for,
+    /// or the message log's backdrop.
+    ///
+    /// @return true while either shows
+    [[nodiscard]] bool text_backings_shown() const;
+
+    /// Holds a line of text until its BackedText group ends, to be painted
+    /// on the paint target and from the paint origin there are now.
+    ///
+    /// @param paint paints the line, once, while nothing is held
+    void hold_painted_text(std::function<void()> paint);
+
     /// Gives the size a run of game text is painted at where text is
     /// painted now.
     ///
@@ -13037,6 +13074,31 @@ class Runtime final : public menu::Host,
         const oa::present::TextLayers& layers, int x, int baseline_y, std::array<uint8_t, 3> color
     );
 
+    /// Gives the canvas paint_modern_text lays lines on: the paint target,
+    /// reduced to the match palette, and on the Full tier's overlay canvas
+    /// the world under it handed to the card.
+    ///
+    /// @return the canvas
+    [[nodiscard]] oa::present::TextCanvas match_text_canvas();
+
+    /// Lays a line of the modern fonts on the paint target at once, as
+    /// paint_modern_text paints it outside a BackedText group, and notes it
+    /// for the checks while painted_lines_ holds a list.
+    ///
+    /// @param layers the line
+    /// @param x paint column of the pen
+    /// @param baseline_y paint row just below the capitals
+    /// @param color the letters' colour
+    /// @param backed whether the line's background box was laid, with it or
+    ///        before it
+    void lay_match_text(
+        const oa::present::TextLayers& layers,
+        int x,
+        int baseline_y,
+        std::array<uint8_t, 3> color,
+        bool backed
+    );
+
     /// Measures game text in an FNT font as paint_text paints it.
     ///
     /// @param font the font
@@ -14873,10 +14935,6 @@ class Runtime final : public menu::Host,
     ///
     /// @return the gadget's name, or null when the pointer is over no gadget
     [[nodiscard]] const char* hovered_gadget_name() const;
-
-    /// Draws the game clock, the message log, the debug keys' line
-    /// (draw_debug_status_line) and the "+stats" overlay over the battlefield.
-    void draw_chat_overlay();
 
     /// Has the extension draw its readouts over the battlefield (Extension::draw_match_overlay).
     ///
@@ -20343,6 +20401,18 @@ class Runtime final : public menu::Host,
     renderer::Surface* overlay_target_ = nullptr;
     bool hud_source_space_ = false;
     oa::ui::display_layout::Point paint_origin_{}; // canvas position of the paint target's (0,0)
+    /// The lines the open BackedText groups hold.
+    oa::ui::hud::TextHold text_hold_{};
+
+    /// A line of the modern fonts laid on a layer, for the checks.
+    struct PaintedLine {
+        const renderer::Surface* target{}; ///< the layer
+        oa::ui::hud::LaidLine line{};
+    };
+
+    /// The lines lay_match_text laid, in order, while a check asks for them;
+    /// none noted while empty.
+    std::optional<std::vector<PaintedLine>> painted_lines_{};
     bool match_use_layers_ = false;
     renderer::Surface* capture_frame_ = nullptr;  // receives the next presented frame
     std::unique_ptr<VideoCapture> video_capture_; // --capture-video, while it runs

@@ -14,6 +14,7 @@
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/decoded.hpp"
 #include "oa/sim/messages.hpp"
+#include "oa/ui/hud/backed_text.hpp"
 #include "oa/ui/hud/camera_scroll.hpp"
 #include "oa/ui/hud/chat_panel.hpp"
 #include "oa/ui/hud/order_overlays.hpp"
@@ -1574,6 +1575,58 @@ void Runtime::check_pointer_picks() {
             rows_of(side_hud_.unit_metal_make, 0, kTextReach, metal_colour) == english,
             "back in English the metal figure does not lie where it did"
         );
+    }
+    // With the Language settings' background on, at the game fonts' size,
+    // each line of the bars lies on a box, and the commander's status's
+    // reaches down over the rate figures beside it: every box is laid
+    // before every line, so each line's letters show whole and every line
+    // keeps its box.
+    {
+        auto& text_settings = engine_settings_state().current;
+        const auto kept_text = std::tuple{
+            text_settings.modern_fonts, text_settings.text_background, text_settings.text_size
+        };
+        text_settings.modern_fonts = true;
+        text_settings.text_background = true;
+        text_settings.text_size = oa::present::game_font_text_size;
+        move_to(commander_canvas_x, commander_canvas_y);
+        painted_lines_.emplace();
+        frame();
+        std::vector<oa::ui::hud::LaidLine> on_bars;
+        for (auto& painted : *painted_lines_)
+            if (painted.target == &match_hud_cpu_)
+                on_bars.push_back(std::move(painted.line));
+        painted_lines_.reset();
+        const auto found = oa::ui::hud::find_laid_lines(
+            match_hud_cpu_.rgb,
+            static_cast<int32_t>(match_hud_cpu_.width),
+            static_cast<int32_t>(match_hud_cpu_.height),
+            match_palette_,
+            on_bars
+        );
+        snapshot("native-pointer-unit-panel-backed.ppm");
+        std::tie(
+            text_settings.modern_fonts, text_settings.text_background, text_settings.text_size
+        ) = kept_text;
+        std::cout << "pointer pick check: the bars' lines with their boxes: " << on_bars.size()
+                  << " lines, " << found.letters_under_later_backings << " of "
+                  << found.letter_pixels << " letter pixels under a later line's box, "
+                  << found.covered_letters << " covered, " << found.backing_pixels_shown << " of "
+                  << found.backing_pixels << " box pixels shown\n";
+        require_pick(
+            found.letters_under_later_backings > 0,
+            "with the text background on no box in the bars reaches over another line"
+        );
+        require_pick(
+            found.covered_letters == 0,
+            "with the text background on a box covers " + std::to_string(found.covered_letters) +
+                " letter pixels of another line in the bars"
+        );
+        require_pick(
+            found.bare_backings == 0 && found.backing_pixels_shown > 0,
+            "with the text background on a line in the bars shows no box"
+        );
+        move_to(commander_canvas_x, commander_canvas_y);
     }
     // A build button on the commander's build page.
     adopt_selection(commander);
