@@ -258,7 +258,12 @@ void Runtime::paint_faded(
         std::copy_n(at(row), row_bytes, before.data() + row_bytes * (row - top));
     const bool canvas = paints_full_canvas();
     const std::size_t first_quad = canvas ? full_->world_quads.size() : 0;
-    paint();
+    {
+        // What it paints is read back here, so no group holds its lines
+        // (BackedText).
+        const oa::ui::hud::TextHold::Pause painted_now(text_hold_);
+        paint();
+    }
     if (canvas) {
         // What the painter asked the card for, at the opacity: its blends
         // and shades fainter, the rest left out.

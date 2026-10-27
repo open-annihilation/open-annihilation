@@ -1358,13 +1358,6 @@ void Runtime::draw_unit_info_panel() {
     );
 }
 
-void Runtime::draw_chat_overlay() {
-    draw_console_clock();
-    draw_match_message_log();
-    draw_debug_status_line();
-    draw_frame_stats();
-}
-
 void Runtime::ensure_talk_panel() {
     if (talk_layout_)
         return;

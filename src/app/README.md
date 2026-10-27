@@ -4852,7 +4852,14 @@ into the records and decisions of the modules that carry them out, and
   bottom bar's top row, so that its status line, whose ideographs would
   rise above the bar, is lowered to keep within it (`panel_text_drop`);
   the unit's metal and energy figures under it then move down as far and
-  one outline further, clear of its outline and shadow.
+  one outline further, clear of its outline and shadow. While a line's box
+  or the log's backdrop shows (`text_backings_shown`), the bars' text and
+  each overlay's over the battlefield are painted within a `BackedText`
+  group (`runtime_match_render.cpp`): each box is laid where its line is
+  drawn and the lines, in either font, once the group ends
+  (`hold_painted_text`, `oa::ui::hud::TextHold`), so that no box covers
+  another line of its group; a fading clock's lines are painted at once
+  (`paint_faded`).
 - **Language** (`runtime_language.cpp`, `language_state.hpp`): the
   language the game shows its text in ([docs/languages.md](../../docs/languages.md)).
   `start_language` asks the operating system for its preferred locales
