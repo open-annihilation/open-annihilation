@@ -1226,6 +1226,10 @@
 	it=+{n};
 	}
 
+[1 mutator on]
+	{
+	}
+
 [A]
 	{
 	de=A;
@@ -18442,6 +18446,10 @@
 	it=Vale mentre giochi {mod}. Come nel gioco usa Disposizione dei tasti.;
 	}
 
+[{count} mutators on]
+	{
+	}
+
 [{name} · 1 change of your own]
 	{
 	de={name} · 1 eigene Änderung;
@@ -18704,6 +18712,54 @@
 	fr=par seconde;
 	es=por segundo;
 	it=al secondo;
+	}
+
+[and {count} more]
+	{
+	}
+
+[Applied in this order.]
+	{
+	}
+
+[Click to change.]
+	{
+	}
+
+[Click to read.]
+	{
+	}
+
+[Computer player for this seat]
+	{
+	}
+
+[Computer player in the missions]
+	{
+	}
+
+[Get more brains...]
+	{
+	}
+
+[Mutators: off]
+	{
+	}
+
+[Mutators: {count} on]
+	{
+	}
+
+[No mutators on]
+	{
+	}
+
+[not installed]
+	{
+	}
+
+[Options...]
+	{
 	}
 
 [px]

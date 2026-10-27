@@ -391,6 +391,21 @@ inline constexpr std::string_view interface_words[] = {
     "{version} is out",
     "{version} won't be offered again. The next release will be, or choose {version} in "
     "Settings › Updates to try it again.",
+    // The rooms' brain menu, Mutators button and its card.
+    "Computer player for this seat",
+    "Computer player in the missions",
+    "Get more brains...",
+    "Options...",
+    "Mutators: off",
+    "Mutators: {count} on",
+    "No mutators on",
+    "1 mutator on",
+    "{count} mutators on",
+    "and {count} more",
+    "not installed",
+    "Applied in this order.",
+    "Click to change.",
+    "Click to read.",
 };
 
 } // namespace oa::app
