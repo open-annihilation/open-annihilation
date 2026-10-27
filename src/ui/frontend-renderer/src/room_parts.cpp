@@ -902,6 +902,33 @@ void draw_room_lamp(RoomCanvas& canvas, const RoomArt& art, SourceRect rect, Roo
     }
 }
 
+void draw_room_bar(
+    RoomCanvas& canvas, const RoomArt& art, SourceRect rect, int32_t done, int32_t whole
+) {
+    if (rect.width < 4 || rect.height < 4)
+        return;
+    fill(canvas, rect, gui_rgb(art, gui_black));
+    frame_line(canvas, rect, gui_rgb(art, gui_black), gui_rgb(art, gui_light));
+    if (whole <= 0 || done <= 0)
+        return;
+    const int32_t inner = rect.width - 2;
+    const int32_t filled =
+        static_cast<int32_t>(static_cast<int64_t>(inner) * std::min(done, whole) / whole);
+    if (filled <= 0)
+        return;
+    const int32_t rows = rect.height - 2;
+    for (int32_t row = 0; row < rows; ++row) {
+        Rgb mixed{};
+        for (std::size_t channel = 0; channel < 3; ++channel)
+            mixed[channel] = static_cast<uint8_t>(
+                lamp_green_top[channel] +
+                (static_cast<int32_t>(lamp_green_foot[channel]) - lamp_green_top[channel]) * row /
+                    std::max(rows - 1, 1)
+            );
+        row_line(canvas, rect.x + 1, rect.x + filled, rect.y + 1 + row, palette_colour(art, mixed));
+    }
+}
+
 SourceRect room_notch_rect(SourceRect button, int32_t width) noexcept {
     const int32_t edge = 2;
     return {

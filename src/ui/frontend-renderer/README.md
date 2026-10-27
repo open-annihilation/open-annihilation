@@ -131,13 +131,15 @@ through:
   tick, a value column right-aligned or a CHECKBOX art box, a groove between
   groups, a grey row darkened as a grayed button is, and the selected row
   lit through light level 30 as a list's selection is.
+- `draw_room_bar` draws a bar that fills as work goes on: a dark sunk
+  well filled from its left in the green lamp's light.
 - `draw_room_text` draws a label's glyphs on what is under them,
   `cover_room_area` lays the room's background over a cell, and
   `draw_room_focus` lights the focus marker's six outlines round a record.
 
 `room_parts_test.cpp` (`frontend-room-parts`) checks the canvas, the plain
-face, a plate drawn wider than its art, the notch, the stamp, a lamp and a
-list's rows against a gray palette; with the installed game
+face, a plate drawn wider than its art, the notch, the stamp, a lamp, a bar
+and a list's rows against a gray palette; with the installed game
 (`frontend-room-parts-data`) it draws every part over the skirmish setup's
 background and checks the plate, the lamps and the list, and with
 `--frames DIR` writes that picture as `room-parts.png` in DIR.
