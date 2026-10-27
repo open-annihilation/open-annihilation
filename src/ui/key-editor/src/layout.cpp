@@ -4041,18 +4041,28 @@ std::string layer_name(const Editor& editor, uint8_t layer) {
     return show(editor.text(), word);
 }
 
-/// What the shape drop-down shows closed.
+/// The keyboard shape's name: ANSI, ISO or JIS.
 ///
 /// @param editor the words
 /// @param state the shape
-/// @return the caption
-std::string shape_caption(const Editor& editor, const ScreenState& state) {
+/// @return the name
+std::string shape_name(const Editor& editor, const ScreenState& state) {
     std::string_view word = words::shape_ansi;
     if (state.shape == kit::KeyboardShape::iso)
         word = words::shape_iso;
     else if (state.shape == kit::KeyboardShape::jis)
         word = words::shape_jis;
-    const std::string name = show(editor.text(), word);
+    return show(editor.text(), word);
+}
+
+/// What the shape drop-down shows closed: the shape, and that the system
+/// chose it.
+///
+/// @param editor the words
+/// @param state the shape and whether the system chose it
+/// @return the words
+std::string shape_caption(const Editor& editor, const ScreenState& state) {
+    const std::string name = shape_name(editor, state);
     if (!state.shape_from_system)
         return name;
     return fill(show(editor.text(), words::shape_from_system), {{"shape", name}});
@@ -4126,7 +4136,13 @@ int32_t add_layer_bar(
     pills += metrics.chip_gap * (count - 1);
     const std::string holding = show(editor.text(), words::holding);
     int32_t holding_w = kit::text_width(fonts, kit::FontRole::small, holding);
-    int32_t shape_w = std::min(int32_t{168}, std::max(room / 3, int32_t{0}));
+    // The drop-down is as wide as its words where a third of the row holds
+    // them, and at least 168 points where the row allows.
+    std::string shape_words = shape_caption(editor, state);
+    const int32_t shape_natural = kit::text_width(fonts, kit::FontRole::regular, shape_words) +
+                                  metrics.choice_text_inset + metrics.choice_arrow_room;
+    int32_t shape_w =
+        std::min(std::max(int32_t{168}, shape_natural), std::max(room / 3, int32_t{0}));
     const int32_t gap = metrics.button_gap;
     if (holding_w + gap + pills + gap + shape_w > room)
         holding_w = 0;
@@ -4182,11 +4198,15 @@ int32_t add_layer_bar(
     one_stop(built, rest, chosen);
     if (shape_w > 0) {
         shape_field = {left + room - shape_w, text_y, shape_w, metrics.field_height};
+        // Where "· from your system" does not fit, the shape's name alone;
+        // the open menu still says the system chose it.
+        if (shape_natural > shape_w && state.shape_from_system)
+            shape_words = shape_name(editor, state);
         place_choice(
             built,
             state,
             shape_field,
-            choice_text(fonts, metrics, shape_w, shape_caption(editor, state)),
+            choice_text(fonts, metrics, shape_w, std::move(shape_words)),
             controls::keyboard_shape,
             std::string(name_keyboard_shape),
             state.menu == Menu::shape
