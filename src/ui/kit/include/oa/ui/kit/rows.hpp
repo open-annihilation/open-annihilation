@@ -51,9 +51,9 @@ enum class RowKind : uint8_t {
 using ActionId = int32_t;
 
 /// A switch's Off half's words, in English, shown through the caller's text function.
-inline constexpr std::string_view switch_off_text = "OFF";
+inline constexpr std::string_view switch_off_text = "Off";
 /// A switch's On half's words, in English, shown through the caller's text function.
-inline constexpr std::string_view switch_on_text = "ON";
+inline constexpr std::string_view switch_on_text = "On";
 
 /// The function that gives the text to show for an English text: the
 /// interface catalogue's translation, or the text itself. An empty function

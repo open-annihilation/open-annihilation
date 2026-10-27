@@ -895,9 +895,9 @@ void a_view_shows_every_word_through_the_callers_function() {
             return "VSYNC";
         if (english == "Waits for the display.")
             return "WAITS";
-        if (english == "OFF")
+        if (english == "Off")
             return "AUS";
-        if (english == "ON")
+        if (english == "On")
             return "EIN";
         if (english == "Not during a game")
             return "NICHT JETZT";
@@ -924,7 +924,7 @@ void a_view_shows_every_word_through_the_callers_function() {
     OA_CHECK(views[6].text == "Ridge");
     // Without a function, every word shows as written.
     const std::vector<kit::RowView> written = views_of(kEveryKind, sample);
-    OA_CHECK(written[0].label == "Vertical sync" && written[0].captions[0] == "OFF");
+    OA_CHECK(written[0].label == "Vertical sync" && written[0].captions[0] == "Off");
     OA_CHECK(written[0].lock == "Not during a game");
 }
 
@@ -1101,7 +1101,7 @@ void the_display_list_names_and_orders_every_control() {
         OA_CHECK(same(control.clip, state.clip));
         OA_CHECK(same(control.rect, placed.rows[at].control_area));
     }
-    OA_CHECK(list.controls[0].checked && list.controls[0].text == "ON");
+    OA_CHECK(list.controls[0].checked && list.controls[0].text == "On");
     OA_CHECK(list.tab_order == (std::vector<kit::ControlId>{13, 14, 15, 16, 17, 18, 19, 20}));
 
     using kit::Role;
