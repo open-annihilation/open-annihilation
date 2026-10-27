@@ -46,7 +46,10 @@ and the journal are removed after the new version has started.
   moved. The plan's own fields do not stand in for the feed.
 - A step that fails undoes every step that finished. The old version is
   started, without the update flag, except when that version is still
-  running or the plan cannot be read.
+  running or the plan cannot be read. Once files have changed, the window
+  says "The update failed. The game was put back." When the undo itself
+  does not finish, it says "The update failed. The game could not be put
+  back." It does not say that nothing was changed.
 - The program makes no network request.
 
 ## Tests
@@ -56,11 +59,12 @@ that does not match the feed, zip-slip, the executable bit, a journal that
 fails at each step of a five-step list, a journal left on disk, the wait
 giving up, the window's text placed without fonts, the Windows route
 decisions, the move retries, the `WININIT.INI` text and a postponed rename,
-the Linux versions folder, and the macOS decision and operation list. No
-test signs a bundle or starts a program. `tools-oa-update-run` runs the
-program on a plain folder, in a self-check build. `app-update-plan` covers
-the plan from the game's side. `app-update-route` covers which route a
-machine is given.
+the Linux versions folder, a second Linux update while the first kept copy
+is still there, a failed Windows setup whose undo leaves the helper's own
+file alone, and the macOS decision and operation list. No test signs a
+bundle or starts a program. `tools-oa-update-run` runs the program on a
+plain folder, in a self-check build. `app-update-plan` covers the plan from
+the game's side. `app-update-route` covers which route a machine is given.
 
 ## Limitations
 
