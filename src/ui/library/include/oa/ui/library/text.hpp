@@ -524,6 +524,10 @@ inline constexpr std::string_view layout_state_update = "Update";
 inline constexpr std::string_view layout_state_get = "Get";
 /// GET's state with the download's size. `{size}` is size_text's.
 inline constexpr std::string_view layout_state_get_size = "Get · {size}";
+/// The status line of the layout in use: where it is used. `{mod}` is the
+/// mod being played.
+inline constexpr std::string_view status_in_use_every_game = "In use for every game";
+inline constexpr std::string_view status_in_use_with = "In use with {mod}";
 /// The own changes on a layout's row. `{count}` is the number.
 inline constexpr std::string_view own_count_one = "1 change of your own";
 inline constexpr std::string_view own_count_many = "{count} changes of your own";

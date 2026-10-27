@@ -2604,6 +2604,17 @@ std::string status_line(const Library& library, const Entry& entry) {
             return std::string(shown(text, words::status_without_manifest));
         if (entry.id.kind == Kind::brain && entry.is_default && entry.state == State::installed)
             return std::string(shown(text, words::status_installed_default));
+        // The layout in use says where it is used.
+        if (entry.id.kind == Kind::key_layout && layout_in_use(library, entry)) {
+            const Inputs& inputs = library.inputs;
+            if (!inputs.keys_for_mod.empty() && inputs.keys_for_mod == entry.id.key)
+                return filled(
+                    text,
+                    words::status_in_use_with,
+                    {{"mod", inputs.played.name.empty() ? inputs.played.id : inputs.played.name}}
+                );
+            return std::string(shown(text, words::status_in_use_every_game));
+        }
         return std::string(shown(
             text, entry.state == State::playing ? words::status_playing : words::status_installed
         ));

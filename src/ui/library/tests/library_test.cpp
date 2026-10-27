@@ -5243,6 +5243,9 @@ void test_keys() {
     OA_CHECK_TEXT(playing.keys_badge, "USING");
     OA_CHECK_TEXT(playing.keys_with, "With Ridge: Grid Test");
     OA_CHECK_TEXT(playing.keys_line, "· 2 changes of your own");
+    // The layout in use says where it is used.
+    if (const lib::Entry* with_ridge = at(library, core, Kind::key_layout, "grid-test"))
+        OA_CHECK_TEXT(lib::status_line(library, *with_ridge), "In use with Ridge");
 
     lib::set_tab(library, lib::Tab::keys);
     inputs.keys_layout = "grid-test";
@@ -5255,6 +5258,7 @@ void test_keys() {
     const lib::Entry* default_unused = lib::find_entry(library, lib::built_in_layout_id());
     OA_CHECK(grid_used != nullptr && default_unused != nullptr);
     if (grid_used != nullptr) {
+        OA_CHECK_TEXT(lib::status_line(library, *grid_used), "In use for every game");
         const Buttons used = actions_of(library, *grid_used);
         OA_CHECK(has_action(used, Action::edit_keys));
         OA_CHECK(!has_action(used, Action::use_layout));

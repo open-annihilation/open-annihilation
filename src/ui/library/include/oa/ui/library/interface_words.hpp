@@ -474,6 +474,8 @@ inline constexpr std::string_view interface_words[] = {
     words::use_edge_off,
     words::use_pointer_mismatch,
     words::layout_state_installed,
+    words::status_in_use_every_game,
+    words::status_in_use_with,
     words::layout_state_update,
     words::layout_state_get,
     words::layout_state_get_size,
