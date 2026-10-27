@@ -3614,7 +3614,9 @@ void add_mouse_body(
         // The callouts stop short of the table, so a role and a row do not meet.
         const int32_t gutter = 12;
         const int32_t column = std::max(half - gutter, least_callout);
-        const int32_t wheel_band = line_h * 2;
+        // The wheel callout is its name and up to two lines of roles.
+        const int32_t wheel_lines = 3;
+        const int32_t wheel_band = line_h * wheel_lines;
         int32_t room_h = avail_h;
         int32_t wheel_top = 0;
         if (avail_h >= 64 + wheel_band + gap) {
@@ -3647,32 +3649,64 @@ void add_mouse_body(
         steal(built.list, built.rest, before);
         for (std::size_t index = rest; index < built.rest.size(); ++index)
             built.rest[index].focusable = false;
+        const kit::Measure measure_roles = [&](std::string_view words) {
+            return kit::text_width(fonts, kit::FontRole::small, words);
+        };
+        // A callout is the button's name and its roles, on two lines when
+        // they do not fit one. `anchor` is the top, or the centre when
+        // `centred` is set. The block starts at `floor` when centring would
+        // land on the callout above it. Returns the block's bottom.
         auto add_callout = [&](int32_t x,
-                               int32_t top,
+                               int32_t anchor,
                                int32_t width,
                                kit::Align align,
                                const std::string& title,
                                const std::string& roles,
-                               kit::Colour ink) {
+                               kit::Colour ink,
+                               bool centred,
+                               int32_t floor) -> int32_t {
+            if (width <= 0)
+                return floor;
+            constexpr int role_lines = 2;
+            std::vector<std::string> lines;
+            if (!roles.empty()) {
+                kit::WrapRules rules;
+                rules.most_lines = static_cast<std::size_t>(role_lines);
+                rules.shorten_last = [&](std::string_view rest) {
+                    return kit::cut_to_width(fonts, kit::FontRole::small, rest, width);
+                };
+                lines = kit::wrap(roles, width, measure_roles, rules);
+            }
+            const int32_t count = 1 + static_cast<int32_t>(lines.size());
+            int32_t top = centred ? anchor - (count * line_h) / 2 : anchor;
+            if (top < floor)
+                top = floor;
             if (top < body.y)
                 top = body.y;
-            if (width <= 0 || top + line_h > bottom)
-                return;
+            if (top + line_h > bottom)
+                return floor;
             const kit::Colour title_ink = ink == kit::colour::hint ? kit::colour::text : ink;
             add_line(
                 built, fonts, {x, top, width, line_h}, title, kit::FontRole::small, title_ink, align
             );
-            if (!roles.empty() && top + line_h * 2 <= bottom)
+            for (std::size_t line_at = 0; line_at < lines.size(); ++line_at) {
+                const int32_t line_y = top + line_h * static_cast<int32_t>(line_at + 1);
+                if (line_y + line_h > bottom)
+                    break;
                 add_line(
                     built,
                     fonts,
-                    {x, top + line_h, width, line_h},
-                    roles,
+                    {x, line_y, width, line_h},
+                    lines[line_at],
                     kit::FontRole::small,
                     ink,
                     align
                 );
+            }
+            return top + count * line_h;
         };
+        int32_t left_floor = body.y + wheel_top;
+        int32_t right_floor = body.y + wheel_top;
         auto beside_button = [&](int32_t design_y,
                                  int32_t design_h,
                                  int32_t x,
@@ -3680,9 +3714,11 @@ void add_mouse_body(
                                  kit::Align align,
                                  const std::string& title,
                                  const std::string& roles,
-                                 kit::Colour ink) {
+                                 kit::Colour ink,
+                                 bool on_left) {
+            int32_t& floor = on_left ? left_floor : right_floor;
             const int32_t centre = pic_y + (design_y + design_h / 2) * unit;
-            add_callout(x, centre - line_h, width, align, title, roles, ink);
+            floor = add_callout(x, centre, width, align, title, roles, ink, true, floor);
         };
         const std::string left_name = show(editor.text(), words::button_left);
         const std::string right_name = show(editor.text(), words::button_right);
@@ -3690,15 +3726,25 @@ void add_mouse_body(
         const std::string forward_name = show(editor.text(), words::button_forward);
         const std::string wheel_name = show(editor.text(), words::cap_wheel_middle);
         const int32_t right_x = pic_x + pic_w + gap;
-        beside_button(4, 16, body.x, callout_w, kit::Align::right, left_name, left_roles, left_ink);
         beside_button(
-            18, 10, body.x, callout_w, kit::Align::right, back_name, back_roles, back_ink
+            4, 16, body.x, callout_w, kit::Align::right, left_name, left_roles, left_ink, true
         );
         beside_button(
-            30, 10, body.x, callout_w, kit::Align::right, forward_name, forward_roles, forward_ink
+            18, 10, body.x, callout_w, kit::Align::right, back_name, back_roles, back_ink, true
         );
         beside_button(
-            4, 16, right_x, callout_w, kit::Align::left, right_name, right_roles, right_ink
+            30,
+            10,
+            body.x,
+            callout_w,
+            kit::Align::right,
+            forward_name,
+            forward_roles,
+            forward_ink,
+            true
+        );
+        beside_button(
+            4, 16, right_x, callout_w, kit::Align::left, right_name, right_roles, right_ink, false
         );
         if (wheel_top > 0) {
             int32_t wheel_w = std::max(pic_w, int32_t{96});
@@ -3708,7 +3754,15 @@ void add_mouse_body(
             if (wheel_x < body.x)
                 wheel_x = body.x;
             add_callout(
-                wheel_x, body.y, wheel_w, kit::Align::centre, wheel_name, wheel_roles, wheel_ink
+                wheel_x,
+                body.y,
+                wheel_w,
+                kit::Align::centre,
+                wheel_name,
+                wheel_roles,
+                wheel_ink,
+                false,
+                body.y
             );
         }
         const int32_t table_x = body.x + half;
