@@ -483,11 +483,21 @@ void Runtime::check_key_share() {
         const AutomationControl rows =
             require_named("oa.key-editor.paste.list", "the paste list is not shown");
         require(summary.text.find('3') != std::string::npos, "the paste does not name 3 keys");
-        require(rows.text.find("order.move") != std::string::npos, "order.move is not listed");
-        require(rows.text.find("select.all clash") != std::string::npos, "the clash is not listed");
+        // The rows name their actions as the list does, and no id reaches
+        // the player but that of an action this version does not know.
         require(
-            rows.text.find("camera.orbit-left unknown") != std::string::npos,
-            "the unknown action is not listed"
+            rows.text.find("order.move") == std::string::npos &&
+                rows.text.find("select.all") == std::string::npos,
+            "the paste names an action by its id: " + rows.text
+        );
+        require(rows.text.find("Move") != std::string::npos, "Move is not listed");
+        require(
+            rows.text.find("+B does two things") != std::string::npos,
+            "the clash is not listed: " + rows.text
+        );
+        require(
+            rows.text.find("camera.orbit-left · Q · Not in this version") != std::string::npos,
+            "the unknown action is not listed: " + rows.text
         );
         note("APPLY holds SAVE back until the card settles the clash");
         const AutomationControl apply =
@@ -540,7 +550,12 @@ void Runtime::check_key_share() {
         const AutomationControl rows =
             require_named("oa.key-editor.import.list", "the import list is not shown");
         require(summary.text.find("Found 1") != std::string::npos, "IMPORT did not find one key");
-        require(rows.text.find("whiteboard.draw") != std::string::npos, "F3 is not listed");
+        require(
+            rows.text.find("F3") != std::string::npos &&
+                rows.text.find("whiteboard.draw") == std::string::npos &&
+                rows.text.find("WhiteboardKey") == std::string::npos,
+            "F3 is not listed by its action's name: " + rows.text
+        );
         note("IMPORT one key, then SAVE writes whiteboard.draw and imported-from");
         const AutomationControl apply =
             require_named("oa.key-editor.import.apply", "IMPORT KEYS is not shown");

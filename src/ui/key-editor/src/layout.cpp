@@ -10,6 +10,7 @@
 #include "menu_geom.hpp"
 #include "screen_controls.hpp"
 
+#include "oa/data/input_actions/actions.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/key_editor/text.hpp"
 #include "oa/ui/kit/chrome.hpp"
@@ -2209,6 +2210,37 @@ struct ExchangeButton {
     bool enabled{true};                 ///< a press does something
 };
 
+/// An action's name as the list names it: its details' name, else the
+/// registry's, else its id, which only an action this version does not know
+/// keeps.
+///
+/// @param editor the actions
+/// @param id the action
+/// @return the name
+std::string listed_name(const Editor& editor, std::string_view id) {
+    const Details details = editor.details(id);
+    if (!details.name.empty())
+        return details.name;
+    if (const oa::data::input_actions::Action* action = oa::data::input_actions::find(id))
+        return show(editor.text(), action->words.name);
+    return std::string(id);
+}
+
+/// Chords as the player reads them, ", " between them.
+///
+/// @param editor the keyboard and the platform
+/// @param chords the chords
+/// @return the words
+std::string chords_text(const Editor& editor, const std::vector<keys::Chord>& chords) {
+    std::string text;
+    for (const keys::Chord& chord : chords) {
+        if (!text.empty())
+            text += ", ";
+        text += keys::display_text(chord, editor.keyboard(), editor.platform());
+    }
+    return text;
+}
+
 /// One of Import's sources: its button and the line that says what it reads.
 struct ImportSource {
     ExchangeButton button{}; ///< the button
@@ -2691,22 +2723,28 @@ kit::DisplayList exchange_prompt(
                 name_paste_summary,
                 spoken
             );
+        // Each row names its action as the list does, then its keys: "{chord}
+        // does two things" for a clash, "place" for a key's place, and "Not in
+        // this version" for an action only a later version knows.
         std::string rows;
         for (const PasteRow& row : state.paste.rows) {
             if (!rows.empty())
                 rows += '\n';
-            rows += row.action;
-            if (row.clash)
-                rows += " clash";
-            if (row.unknown)
-                rows += " unknown";
+            rows += listed_name(editor, row.action);
+            const std::string chords = chords_text(editor, row.after);
+            if (row.clash && !chords.empty())
+                rows += " · " + fill(show(editor.text(), words::does_two), {{"chord", chords}});
+            else if (!chords.empty())
+                rows += " · " + chords;
             for (const keys::Chord& chord : row.after) {
                 if (chord.kind != keys::TriggerKind::place)
                     continue;
-                rows += ' ';
+                rows += " · ";
                 rows += show(editor.text(), words::place_word);
                 break;
             }
+            if (row.unknown)
+                rows += " · " + show(editor.text(), words::not_in_version);
         }
         for (const auto& problem : state.paste.problems) {
             if (!rows.empty())
@@ -2723,7 +2761,8 @@ kit::DisplayList exchange_prompt(
                 continue;
             const std::string chord =
                 row.after.empty() ? std::string{} : keys::chord_text(row.after.front());
-            const std::string holder = row.holder.empty() ? row.action : row.holder;
+            const std::string holder =
+                listed_name(editor, row.holder.empty() ? row.action : row.holder);
             tail = fill(
                 show(editor.text(), words::paste_clash), {{"chord", chord}, {"action", holder}}
             );
@@ -2733,7 +2772,10 @@ kit::DisplayList exchange_prompt(
         for (const PasteRow& row : state.paste.rows) {
             if (!row.unknown)
                 continue;
-            kept = fill(show(editor.text(), words::kept_for_later), {{"action", row.action}});
+            kept = fill(
+                show(editor.text(), words::kept_for_later),
+                {{"action", listed_name(editor, row.action)}}
+            );
             break;
         }
         const std::string until = show(editor.text(), words::nothing_until_apply);
@@ -2905,26 +2947,22 @@ kit::DisplayList exchange_prompt(
             name_import_summary,
             found
         );
+    // Each row names its action as the list does and the keys Import would
+    // give it. A key Open Annihilation has no action for shows the file's own
+    // line, the only name it has.
     std::string rows;
     for (const ImportRow& row : state.importing.rows) {
         if (!rows.empty())
             rows += '\n';
-        if (row.unused || row.action.empty())
-            rows += show(editor.text(), words::not_used);
-        else
-            rows += row.action;
-        if (!row.source_line.empty()) {
-            rows += ' ';
-            rows += row.source_line;
-        }
-        if (!row.loses.empty()) {
-            rows += ' ';
-            rows += row.loses;
-        }
-        if (!row.note.empty()) {
-            rows += ' ';
-            rows += hands_sentence(editor, row.note);
-        }
+        const bool unused = row.unused || row.action.empty();
+        rows += unused ? show(editor.text(), words::not_used) : listed_name(editor, row.action);
+        const std::string chords = chords_text(editor, row.after);
+        if (!chords.empty())
+            rows += " · " + chords;
+        else if (unused && !row.source_line.empty())
+            rows += " · " + row.source_line;
+        if (!row.note.empty())
+            rows += " · " + hands_sentence(editor, row.note);
     }
     for (const auto& problem : state.importing.problems) {
         if (!rows.empty())
@@ -2939,7 +2977,9 @@ kit::DisplayList exchange_prompt(
     for (const ImportRow& moved : state.importing.rows) {
         if (moved.loses.empty())
             continue;
-        moves = fill(show(editor.text(), words::import_moves), {{"action", moved.loses}});
+        moves = fill(
+            show(editor.text(), words::import_moves), {{"action", listed_name(editor, moved.loses)}}
+        );
         break;
     }
     const std::string numbers =

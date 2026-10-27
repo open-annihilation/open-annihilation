@@ -1014,9 +1014,21 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
         std::fprintf(stderr, "%s: the paste rows are one line\n", where.c_str());
     }
     OA_CHECK(rows != nullptr && rows->text.find('\n') != std::string::npos);
-    if (!line_holds(paste_list, "order.move", "select.all"))
-        std::fprintf(stderr, "%s: order.move shares a line with select.all\n", where.c_str());
-    OA_CHECK(line_holds(paste_list, "order.move", "select.all"));
+    // Rows name their actions as the list does; no id reaches the player
+    // but an action's this version does not know.
+    const std::string move_name = model.details("order.move").name;
+    const std::string all_name = model.details("select.all").name;
+    OA_CHECK(!move_name.empty() && !all_name.empty());
+    if (!line_holds(paste_list, move_name, all_name))
+        std::fprintf(stderr, "%s: Move shares a line with Select all\n", where.c_str());
+    OA_CHECK(line_holds(paste_list, move_name, all_name));
+    OA_CHECK(rows != nullptr && rows->text.find("order.move") == std::string::npos);
+    OA_CHECK(rows != nullptr && rows->text.find("select.all") == std::string::npos);
+    OA_CHECK(rows != nullptr && rows->text.find("Ctrl+B does two things") != std::string::npos);
+    OA_CHECK(
+        rows != nullptr &&
+        rows->text.find("camera.orbit-left · Q · Not in this version") != std::string::npos
+    );
     const std::string apply = caption_of(paste_list, editor::name_paste_apply);
     if (apply.find("Apply 3 changes") == std::string::npos)
         std::fprintf(stderr, "%s: APPLY is \"%s\"\n", where.c_str(), apply.c_str());
@@ -1051,18 +1063,38 @@ void check_exchange_lines(const kit::Frame& frame, const std::string& where) {
     importing.importing.file = "Settings.ini";
     editor::ImportRow first;
     first.action = "megamap.toggle";
+    first.source_line = "MegamapKey=77";
     editor::ImportRow second;
     second.action = "whiteboard.draw";
+    second.source_line = "WhiteboardKey=114";
     importing.importing.rows.push_back(std::move(first));
     importing.importing.rows.push_back(std::move(second));
     const kit::DisplayList imported = laid_out(model, importing, frame);
     check_list(imported, where + " import lines");
-    if (!line_holds(imported, "megamap.toggle", "whiteboard.draw")) {
+    const auto registry_name = [&](std::string_view id) {
+        const oa::data::input_actions::Action* action = oa::data::input_actions::find(id);
+        return action == nullptr ? std::string(id) : std::string(action->words.name);
+    };
+    const std::string megamap = registry_name("megamap.toggle");
+    const std::string whiteboard = registry_name("whiteboard.draw");
+    if (!line_holds(imported, megamap, whiteboard)) {
         std::fprintf(
-            stderr, "%s: megamap.toggle shares a line with whiteboard.draw\n", where.c_str()
+            stderr,
+            "%s: %s shares a line with %s\n",
+            where.c_str(),
+            megamap.c_str(),
+            whiteboard.c_str()
         );
     }
-    OA_CHECK(line_holds(imported, "megamap.toggle", "whiteboard.draw"));
+    OA_CHECK(line_holds(imported, megamap, whiteboard));
+    // Names, not ids or the file's raw lines.
+    const kit::Control* import_rows = find_named(imported, editor::name_import_list);
+    OA_CHECK(
+        import_rows != nullptr && import_rows->text.find("whiteboard.draw") == std::string::npos
+    );
+    OA_CHECK(
+        import_rows != nullptr && import_rows->text.find("WhiteboardKey") == std::string::npos
+    );
     if (!shows(imported, "Found 2 keys"))
         std::fprintf(stderr, "%s: two keys are not plural\n", where.c_str());
     OA_CHECK(shows(imported, "Found 2 keys"));
