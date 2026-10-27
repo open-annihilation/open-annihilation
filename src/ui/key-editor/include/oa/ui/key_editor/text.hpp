@@ -308,6 +308,110 @@ inline constexpr std::string_view choose_another = "CHOOSE ANOTHER KEY…";
 /// What the other action is left with. `{chord}` is that, or "nothing: unbound".
 inline constexpr std::string_view keep_leaves = "Keep it here leaves {name} with {chord}.";
 
+/// The view tabs.
+inline constexpr std::string_view view_list = "List";
+inline constexpr std::string_view view_keyboard = "Keyboard";
+inline constexpr std::string_view view_mouse = "Mouse";
+/// The layer strip. Nothing is the catalogue's word.
+inline constexpr std::string_view holding = "Holding";
+inline constexpr std::string_view holding_nothing = "Nothing";
+inline constexpr std::string_view layer_shift = "Shift";
+inline constexpr std::string_view layer_ctrl = "Ctrl";
+inline constexpr std::string_view layer_alt = "Alt";
+inline constexpr std::string_view layer_cmd = "Cmd";
+/// The shape drop-down. `{shape}` is ANSI, ISO or JIS.
+inline constexpr std::string_view shape_from_system = "{shape} · from your system";
+inline constexpr std::string_view shape_system = "From your system";
+inline constexpr std::string_view shape_ansi = "ANSI";
+inline constexpr std::string_view shape_iso = "ISO";
+inline constexpr std::string_view shape_jis = "JIS";
+/// The legend. Game and window share the game letter. The dashed sentence is gone.
+inline constexpr std::string_view legend_game_window = "Game and window";
+inline constexpr std::string_view legend_hacks = "The mod's hacks";
+inline constexpr std::string_view legend_data = "The mod's data";
+inline constexpr std::string_view grey_keys =
+    "Grey keys are free while playing. Click a free key to give it the action chosen in the "
+    "list. Hover a key to see everything on it.";
+/// Card contexts. These start with a capital, unlike "while playing".
+inline constexpr std::string_view card_while_playing = "While playing";
+inline constexpr std::string_view card_while_watching = "While watching";
+inline constexpr std::string_view card_placing = "Placing a building";
+inline constexpr std::string_view card_chat_line = "In the chat line";
+inline constexpr std::string_view card_close_line = "Close the line";
+inline constexpr std::string_view card_always = "always";
+inline constexpr std::string_view card_oa_screens = "On Open Annihilation's screens";
+/// The catalogue's Back, not the footer's BACK.
+inline constexpr std::string_view card_back = "Back";
+inline constexpr std::string_view in_place_of = "in place of";
+/// A release, beside A press, A double press and A hold.
+inline constexpr std::string_view a_release = "A release";
+/// Named keys the picture spells out.
+inline constexpr std::string_view key_space = "Space";
+inline constexpr std::string_view key_enter = "Enter";
+inline constexpr std::string_view key_tab = "Tab";
+/// The details' button that outlines an action's keys.
+inline constexpr std::string_view find_on_keyboard = "FIND ON KEYBOARD";
+/// The mouse view.
+inline constexpr std::string_view clicks_give_orders = "Clicks give orders with";
+inline constexpr std::string_view scheme_right_click = "Right-click";
+inline constexpr std::string_view scheme_left_click = "Left-click";
+inline constexpr std::string_view button_left = "Left";
+inline constexpr std::string_view button_right = "Right";
+inline constexpr std::string_view button_middle = "Middle";
+inline constexpr std::string_view button_wheel = "Wheel";
+inline constexpr std::string_view button_forward = "Forward";
+/// Free is the catalogue's word.
+inline constexpr std::string_view free_role = "Free";
+inline constexpr std::string_view place_minimap = "On the minimap";
+inline constexpr std::string_view place_build = "On a build button";
+inline constexpr std::string_view place_whiteboard = "Whiteboard held";
+inline constexpr std::string_view mouse_note =
+    "Click a button on the picture, or a role in the table, to change it. Buttons 6 to 8 of a "
+    "gaming mouse appear here when the game sees them pressed.";
+inline constexpr std::string_view button_6 = "Button 6";
+inline constexpr std::string_view button_7 = "Button 7";
+inline constexpr std::string_view button_8 = "Button 8";
+/// Short names a key shows. The card keeps the action's full name.
+inline constexpr std::string_view cap_store = "Store";
+inline constexpr std::string_view cap_set = "Set";
+inline constexpr std::string_view cap_group = "Group";
+inline constexpr std::string_view cap_page = "Page";
+inline constexpr std::string_view cap_cat = "Cat.";
+inline constexpr std::string_view cap_idle_bld = "Idle bld";
+inline constexpr std::string_view cap_idle_fac = "Idle fac";
+inline constexpr std::string_view cap_sel_bld = "Sel bld";
+inline constexpr std::string_view cap_sel_fac = "Sel fac";
+inline constexpr std::string_view cap_cmdr = "Cmdr";
+inline constexpr std::string_view cap_same = "Same";
+inline constexpr std::string_view cap_armed = "Armed";
+inline constexpr std::string_view cap_box_armed = "Box: armed";
+inline constexpr std::string_view cap_box_fact = "Box: fact.";
+inline constexpr std::string_view cap_box_bld = "Box: bld";
+inline constexpr std::string_view cap_destruct = "Destruct";
+inline constexpr std::string_view cap_on_off = "On/off";
+inline constexpr std::string_view cap_fire = "Fire";
+inline constexpr std::string_view cap_moves = "Moves";
+inline constexpr std::string_view cap_force = "Force";
+inline constexpr std::string_view cap_build = "Build";
+inline constexpr std::string_view cap_shot = "Shot";
+inline constexpr std::string_view cap_resources = "Resources";
+inline constexpr std::string_view cap_kills = "Kills";
+inline constexpr std::string_view cap_macro = "Macro";
+inline constexpr std::string_view cap_clear = "Clear";
+inline constexpr std::string_view cap_bars = "Bars";
+inline constexpr std::string_view cap_faster = "Faster";
+inline constexpr std::string_view cap_slower = "Slower";
+inline constexpr std::string_view cap_pin = "Pin";
+inline constexpr std::string_view cap_status = "Status";
+inline constexpr std::string_view cap_marker = "Marker";
+inline constexpr std::string_view cap_prev_pg = "Prev pg";
+inline constexpr std::string_view cap_next_pg = "Next pg";
+inline constexpr std::string_view cap_follow_back = "Follow back";
+inline constexpr std::string_view cap_space_up = "Space +";
+inline constexpr std::string_view cap_space_down = "Space -";
+/// The wheel and the middle button, above the mouse picture.
+inline constexpr std::string_view cap_wheel_middle = "Wheel and middle";
+
 } // namespace words
 
 } // namespace oa::ui::key_editor

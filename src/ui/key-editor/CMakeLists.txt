@@ -9,10 +9,12 @@ add_library(oa-ui-key-editor
   src/clash.cpp
   src/draw.cpp
   src/input.cpp
+  src/keyboard_view.cpp
   src/layout.cpp
   src/list_geom.cpp
   src/menu_geom.cpp
   src/model.cpp
+  src/mouse_view.cpp
   src/names.cpp
   src/text.cpp)
 add_library(oa::ui::key_editor ALIAS oa-ui-key-editor)
@@ -34,6 +36,13 @@ if(BUILD_TESTING)
   add_test(NAME ui-key-editor-layout COMMAND oa-ui-key-editor-layout-test)
   set_tests_properties(ui-key-editor-layout PROPERTIES TIMEOUT 60)
 
+  # The keyboard and mouse pictures: labels, layers, the card, a click and the scheme.
+  add_executable(oa-ui-key-editor-views-test tests/views_test.cpp)
+  target_link_libraries(oa-ui-key-editor-views-test PRIVATE oa-ui-key-editor oa-ui-kit oa-formats-oakeys
+    oa-test-support)
+  add_test(NAME ui-key-editor-views COMMAND oa-ui-key-editor-views-test)
+  set_tests_properties(ui-key-editor-views PROPERTIES TIMEOUT 60)
+
   # The search, Escape, the list's arrows, Compact's details page and a finger.
   add_executable(oa-ui-key-editor-input-test tests/input_test.cpp)
   target_link_libraries(oa-ui-key-editor-input-test PRIVATE oa-ui-key-editor oa-ui-kit oa-test-support)
@@ -46,7 +55,7 @@ if(BUILD_TESTING)
   add_test(NAME ui-key-editor-capture COMMAND oa-ui-key-editor-capture-test)
   set_tests_properties(ui-key-editor-capture PROPERTIES TIMEOUT 60)
 
-  # The list, and the capture, clash and card, in the block font and again in the installed game's fonts.
+  # The list, the keyboard, the mouse, and the capture, clash and card, in the block font and again in the installed game's fonts.
   add_executable(oa-ui-key-editor-draw-test tests/draw_test.cpp)
   target_link_libraries(oa-ui-key-editor-draw-test PRIVATE oa-ui-key-editor oa-ui-kit oa-base-sha256
     oa-data-languages oa-formats-png oa-formats-hpi oa-platform-text-font oa-present oa-test-game-data

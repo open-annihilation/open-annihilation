@@ -1361,8 +1361,11 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
 # is still the size the player sees; other systems take the size SDL reports.
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
   enable_language(OBJCXX)
-  list(APPEND oa_game_sources src/app/window_live_size.mm)
-  set_source_files_properties(src/app/window_live_size.mm PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+  list(APPEND oa_game_sources src/app/window_live_size.mm src/app/keyboard_shape.mm)
+  set_source_files_properties(src/app/window_live_size.mm src/app/keyboard_shape.mm
+    PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
+else()
+  list(APPEND oa_game_sources src/app/keyboard_shape.cpp)
 endif()
 # The self-checks: the --check-* options with which the game drives itself
 # through its screens and orders and reports a verdict, for the native
@@ -1419,6 +1422,7 @@ set(oa_game_self_check_sources src/app/runtime_checks.cpp src/app/runtime_order_
   src/app/runtime_map_browser_check.cpp
   src/app/runtime_key_editor_check.cpp
   src/app/runtime_key_capture_check.cpp
+  src/app/runtime_key_views_check.cpp
   src/app/runtime_mutator_picker_check.cpp
   src/app/runtime_brain_picker_check.cpp
   src/app/runtime_brain_seats_check.cpp
@@ -1604,7 +1608,7 @@ if(OA_BUILD_PLATFORM)
   if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     # window_live_size.mm reads the window the player sees.
     set_target_properties(oa-game PROPERTIES OBJCXX_STANDARD 20 OBJCXX_STANDARD_REQUIRED ON)
-    target_link_libraries(oa-game PRIVATE "-framework AppKit")
+    target_link_libraries(oa-game PRIVATE "-framework AppKit" "-framework Carbon")
   endif()
   if(BUILD_TESTING)
     # --version prints one line and exits before the game looks for anything.
@@ -2386,6 +2390,28 @@ if(OA_BUILD_PLATFORM)
         WORKING_DIRECTORY "${oa_key_capture_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
         FIXTURES_REQUIRED key-capture-clean)
+      # The key editor's keyboard and mouse at 640x480, 1280x720 and 1920x1080.
+      # --snapshot writes key-keyboard-<w>x<h>.ppm and key-mouse-<w>x<h>.ppm
+      # beside the named file. Each run starts from a clean folder.
+      set(oa_key_views_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/key-views")
+      file(MAKE_DIRECTORY "${oa_key_views_dir}")
+      add_test(NAME key-views-clean COMMAND ${CMAKE_COMMAND} -E rm -rf
+        "${oa_key_views_dir}/Open Annihilation" "${oa_key_views_dir}/key-views.conf"
+        "${oa_key_views_dir}/key-views.ppm"
+        "${oa_key_views_dir}/key-keyboard-640x480.ppm" "${oa_key_views_dir}/key-keyboard-1280x720.ppm"
+        "${oa_key_views_dir}/key-keyboard-1920x1080.ppm"
+        "${oa_key_views_dir}/key-mouse-640x480.ppm" "${oa_key_views_dir}/key-mouse-1280x720.ppm"
+        "${oa_key_views_dir}/key-mouse-1920x1080.ppm")
+      set_tests_properties(key-views-clean PROPERTIES FIXTURES_SETUP key-views-clean)
+      add_test(NAME native-key-views COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-key-views
+        --snapshot "${oa_key_views_dir}/key-views.ppm"
+        --preferences-file "${oa_key_views_dir}/key-views.conf"
+        --user-folder "${oa_key_views_dir}/Open Annihilation")
+      set_tests_properties(native-key-views PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_key_views_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED key-views-clean)
       # The mutator picker over the main menu, on a feed of made-up mutators,
       # at 640x480, 1280x720, 1920x1080 and 2560x1440: the mended On order,
       # every row's grip and switch, one download and the waiting words, the

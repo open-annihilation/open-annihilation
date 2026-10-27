@@ -153,6 +153,54 @@ struct SaveResult {
     std::vector<oa::formats::oakeys::Manifest> layouts{};
 };
 
+/// Which picture the editor is showing.
+enum class View : uint8_t {
+    list,     ///< the list of actions
+    keyboard, ///< the player's keyboard
+    mouse,    ///< the mouse and its roles
+};
+
+/// What the keyboard picture is asked to draw.
+struct KeyboardViewInputs {
+    kit::KeyboardShape shape{kit::KeyboardShape::ansi}; ///< ANSI, ISO or JIS
+    bool shape_from_system{true};                       ///< the shape follows the system
+    /// 0 is Nothing. Otherwise one modifier bit: Shift, Ctrl, Alt or Meta.
+    uint8_t layer{0};
+};
+
+/// A named key's word, already looked up. The code is the W3C code.
+struct NamedLabel {
+    std::string code{}; ///< the W3C code, such as Space
+    std::string word{}; ///< the word the key shows
+};
+
+/// The words the keyboard picture uses where a key does not print.
+struct Labels {
+    std::vector<NamedLabel> keys{}; ///< one word per named key
+};
+
+/// One line of a key's card: where it is read, the action, and a note.
+struct CardLine {
+    std::string context{}; ///< where it is read, already looked up
+    std::string action{};  ///< the action's short name, already looked up
+    std::string note{};    ///< the source, the gesture or the player's change
+    std::string id{};      ///< the action id
+    bool fixed{false};     ///< Escape's fixed line on the chat line or the screens
+};
+
+/// One row of the mouse table, one role in one place.
+struct RoleLine {
+    std::string place{};    ///< the place, already looked up
+    std::string place_id{}; ///< playing, minimap, build-button or whiteboard
+    std::string button{};   ///< the button, already looked up; empty when the place is free
+    std::string role{};     ///< the action's short name, or Free
+    std::string action{};   ///< the action id; empty when the place is free
+    bool free{false};       ///< the place has no role
+    oa::ui::key_bindings::Chord chord{};   ///< the chord this row changes
+    bool has_chord{false};                 ///< false on a place's Free row
+    kit::KeyMark mark{kit::KeyMark::none}; ///< a change on this row
+};
+
 /// The editor. Rows are what resolution would put in use. Nothing is written
 /// until a host saves `result()`.
 class Editor {
@@ -346,6 +394,18 @@ class Editor {
     /// @return the platform the editor was given
     [[nodiscard]] oa::ui::key_bindings::Platform platform() const noexcept;
 
+    /// The pointer scheme the draft is showing. The list and the mouse view
+    /// draw their roles from it. SAVE is what writes Interface Type.
+    ///
+    /// @return the scheme
+    [[nodiscard]] oa::ui::key_bindings::PointerScheme scheme() const noexcept;
+
+    /// Changes the draft's pointer scheme. The layout's bindings stay as they
+    /// are. Interface Type is not written.
+    ///
+    /// @param scheme the scheme the views draw
+    void set_scheme(oa::ui::key_bindings::PointerScheme scheme);
+
     /// True when the editor was opened over a match. The host sets the screen
     /// state; this is the mod's name for the header.
     ///
@@ -406,6 +466,9 @@ class Editor {
     struct Snapshot {
         std::string layout_id{};
         bool number_keys{false};
+        oa::ui::key_bindings::PointerScheme scheme{
+            oa::ui::key_bindings::PointerScheme::right_click
+        };
         oa::ui::key_bindings::Layout own{};
         oa::formats::oakeys::Helpers helpers{};
         std::vector<std::string> names{}; ///< each installed id, a tab, and its name
@@ -435,7 +498,95 @@ class Editor {
     ///
     /// @return the helpers in use
     [[nodiscard]] oa::formats::oakeys::Helpers effective_helpers() const;
+
+    /// The keyboard picture for one shape and one modifier layer.
+    friend kit::KeyboardLook
+    keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labels& labels);
+    /// Every action on one key in one layer.
+    friend std::vector<CardLine>
+    key_card(const Editor& editor, std::string_view code, uint8_t layer);
+    /// The mouse picture for one pointer scheme.
+    friend kit::MouseLook
+    mouse_look(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
+    /// The mouse table for one pointer scheme, by place.
+    friend std::vector<RoleLine>
+    mouse_table(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
+    /// The keys one action is bound to.
+    friend std::vector<std::string> keys_of(const Editor& editor, std::string_view action);
 };
+
+/// The keyboard picture for one shape and one modifier layer.
+///
+/// Each key is labelled as the player's keyboard prints it, in capitals, or
+/// with the named key's word. The short name is the plain press of exactly
+/// that layer's modifiers that is read while playing. A key that only meets
+/// play, such as Back on Escape, is used when nothing is read in play itself.
+/// Nothing is drawn dashed as fixed. A clash is marked, and a key the draft
+/// changed is marked when it does not clash. The layer's own modifier keys
+/// are held.
+///
+/// @param editor the bindings, the keyboard and the platform
+/// @param inputs the shape and the layer
+/// @param labels the named keys' words
+/// @return the picture K30 draws
+[[nodiscard]] kit::KeyboardLook
+keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labels& labels);
+
+/// Every action on one key in one layer, in every context, gestures included.
+///
+/// Escape under Nothing adds the chat line's and the screens' fixed lines.
+/// Settings is an ordinary bound key: its line does not say always.
+///
+/// @param editor the bindings and the words
+/// @param code the W3C code
+/// @param layer 0, or one modifier bit
+/// @return the lines, in list order
+[[nodiscard]] std::vector<CardLine>
+key_card(const Editor& editor, std::string_view code, uint8_t layer);
+
+/// The mouse picture for one pointer scheme.
+///
+/// The scheme is the one passed in, not the draft's, so a caller can draw
+/// either mode. The layout's bindings are not changed. A button's short name
+/// is what it does while playing. A battlefield role outranks one that only
+/// meets play, and an earlier catalogue order outranks a later one. Select
+/// and Command may share the left button in the left-click scheme, and that
+/// is not a clash. Buttons 6 to 8 are not asked for here: the screen shows
+/// them once they have been pressed.
+///
+/// @param editor the bindings and the words
+/// @param scheme the pointer scheme to draw
+/// @return the picture K30 draws
+[[nodiscard]] kit::MouseLook
+mouse_look(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
+
+/// The mouse table for one pointer scheme, by place.
+///
+/// The places are while playing, the minimap, a build button and the
+/// whiteboard. A place with no role has one Free row. The scheme is the one
+/// passed in. The layout's bindings are not changed.
+///
+/// @param editor the bindings and the words
+/// @param scheme the pointer scheme to draw
+/// @return the rows, place by place
+[[nodiscard]] std::vector<RoleLine>
+mouse_table(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
+
+/// The keys an action is bound to, as W3C codes, for FIND ON KEYBOARD.
+///
+/// A letter is the key that prints it. A place is that key. A named key is
+/// its key. The same code is listed once.
+///
+/// @param editor the bindings and the keyboard
+/// @param action the action id
+/// @return the codes, in key order
+[[nodiscard]] std::vector<std::string> keys_of(const Editor& editor, std::string_view action);
+
+/// The named keys' words: Space, Enter and Tab.
+///
+/// @param hooks how words are looked up
+/// @return the labels
+[[nodiscard]] Labels key_labels(const TextHooks& hooks);
 
 /// Where a capture sits.
 enum class CaptureState : uint8_t {

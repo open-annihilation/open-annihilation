@@ -21,6 +21,7 @@ enum class MenuKind : uint8_t {
     category,  ///< show that category
     filter,    ///< keep that filter
     restore,   ///< restore the defaults
+    shape,     ///< the keyboard's shape
     divider,   ///< a heading, not a choice
 };
 

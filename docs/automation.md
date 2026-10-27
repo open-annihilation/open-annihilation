@@ -360,6 +360,14 @@ Its names are the module's
 | Latch, Hold to confirm | `oa.key-editor.detail.latch`, `oa.key-editor.detail.confirm` | check box. Parts `.off` and `.on` |
 | The footer | `oa.key-editor.restore`, `.cancel`, `.save` | button. Compact's MORE is `oa.key-editor.more`, and its details page's BACK is `oa.key-editor.back` |
 | The summary | `oa.key-editor.summary` | label, its text the words shown |
+| List, Keyboard, Mouse | `oa.key-editor.view.list`, `.keyboard`, `.mouse` | button. Only the open tab takes Tab |
+| A modifier layer | `oa.key-editor.layer.none`, `.shift`, `.ctrl`, `.alt`, `.cmd` | button. Cmd is absent where Primary is Ctrl |
+| The keyboard's shape | `oa.key-editor.keyboard-shape` | button. Items `oa.key-editor.keyboard-shape.system`, `.ansi`, `.iso` and `.jis` |
+| A key | `oa.key-editor.keyboard.<code word>` | button. The card is the label `oa.key-editor.key-card` |
+| A mouse button | `oa.key-editor.mouse.mouse-left`, `.mouse-right`, `.mouse-middle`, `.wheel`, `.mouse-back`, `.mouse-forward`, and `.mouse-6` to `.mouse-8` once the game has seen them pressed | button |
+| The scheme | `oa.key-editor.scheme.right-click`, `.left-click` | button |
+| A role in a place | `oa.key-editor.mouse-table.<place>.<n>` | button, numbered from 1 in that place |
+| FIND ON KEYBOARD | `oa.key-editor.detail.find` | button, in the chosen action's details |
 
 A question over the editor keeps the prompt's names: `oa.prompt.leave`, `oa.prompt.keep-editing`, `oa.prompt.keep-them`, `oa.prompt.set-aside`, `oa.prompt.cancel` and `oa.prompt.body`. On a menu that question is the prompt screen. In a match the same question is `oa.key-editor-prompt`, because a prompt does not place there, and its controls stay `oa.prompt.*`. The name field is `oa.key-editor.name.field`, with `oa.key-editor.name.cancel` and `oa.key-editor.name.save`, on `oa.key-editor-name`. A failed save's notice is `oa.notice` on a menu and `oa.key-editor-notice` in a match.
 

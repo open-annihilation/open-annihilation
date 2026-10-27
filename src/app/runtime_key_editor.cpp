@@ -15,11 +15,13 @@
 #include "oa/data/languages/interface_text.hpp"
 #include "oa/ui/engine_settings/notice.hpp"
 #include "oa/ui/engine_settings/prompt.hpp"
+#include "oa/sim/gameplay_input/order_cursor.hpp"
 #include "oa/ui/frontend_dialogs.hpp"
 #include "oa/ui/key_bindings/chord.hpp"
 #include "oa/ui/key_bindings/input.hpp"
 #include "oa/ui/key_editor/screen.hpp"
 #include "oa/ui/kit/chrome.hpp"
+#include "oa/ui/kit/looks.hpp"
 
 #include <SDL3/SDL.h>
 #include "oa/ui/kit/components.hpp"
@@ -38,7 +40,18 @@
 
 namespace oa::app {
 
+/// The keyboard shape the system reports. On macOS that is Carbon's layout
+/// type. Elsewhere it is a guess from the keys that print.
+///
+/// @param map the player's keyboard
+/// @return ANSI, ISO or JIS
+[[nodiscard]] oa::ui::kit::KeyboardShape
+keyboard_shape(const oa::ui::key_bindings::KeyboardMap& map);
+
 namespace {
+
+/// The preference that remembers the keyboard picture's shape.
+constexpr std::string_view kKeyboardShapePreference = "open-annihilation.keys.keyboard";
 
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
@@ -1062,6 +1075,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             if (!clashing.empty())
                 state_.selected = clashing.front().id;
         }
+        apply_keyboard_shape();
     }
 
     /// Returns "key-editor".
@@ -1107,12 +1121,14 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
     /// @param placed_on what the screen is placed on
     void lay_out(const LayerView& placed_on) override {
         const kit::Frame next = frame_for(placed_on);
+        const bool extra = runtime_.mouse_extra_buttons_;
         if (laid_ && next.area.width == frame_.area.width &&
             next.area.height == frame_.area.height && next.size_class == frame_.size_class &&
             next.scale_percent == frame_.scale_percent &&
-            next.reduced_motion == frame_.reduced_motion)
+            next.reduced_motion == frame_.reduced_motion && extra == state_.extra_buttons)
             return;
         frame_ = next;
+        state_.extra_buttons = extra;
         laid_ = true;
         relayout();
     }
@@ -1369,6 +1385,46 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         return placed_on.frame;
     }
 
+    /// Reads the keyboard picture's shape from the preference, or the system.
+    void apply_keyboard_shape() {
+        const kit::KeyboardShape detected = keyboard_shape(editor_.keyboard());
+        state_.system_shape = detected;
+        const auto found = runtime_.preference_values_.find(std::string(kKeyboardShapePreference));
+        const std::string stored =
+            found == runtime_.preference_values_.end() ? std::string() : found->second;
+        if (stored == "iso")
+            state_.shape = kit::KeyboardShape::iso;
+        else if (stored == "jis")
+            state_.shape = kit::KeyboardShape::jis;
+        else if (stored == "ansi")
+            state_.shape = kit::KeyboardShape::ansi;
+        else
+            state_.shape = detected;
+        state_.shape_from_system = stored != "ansi" && stored != "iso" && stored != "jis";
+    }
+
+    /// Writes the shape the player chose. Absent stays absent while it follows the system.
+    void remember_keyboard_shape() {
+        std::string want = "system";
+        if (!state_.shape_from_system) {
+            if (state_.shape == kit::KeyboardShape::iso)
+                want = "iso";
+            else if (state_.shape == kit::KeyboardShape::jis)
+                want = "jis";
+            else
+                want = "ansi";
+        }
+        const std::string key{kKeyboardShapePreference};
+        const auto found = runtime_.preference_values_.find(key);
+        if (want == "system" && found == runtime_.preference_values_.end())
+            return;
+        if (found != runtime_.preference_values_.end() && found->second == want)
+            return;
+        runtime_.preference_values_[key] = std::move(want);
+        runtime_.preferences_dirty_ = true;
+        runtime_.save_preferences();
+    }
+
     /// Lays the editor out again.
     void relayout() {
         ++revision_;
@@ -1403,6 +1459,7 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             break;
         }
         if (result.action != editor::EditorAction::none || result.redraw) {
+            remember_keyboard_shape();
             relayout();
             return LayerAnswer::redraw;
         }
@@ -1418,6 +1475,15 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
             relayout();
             return LayerAnswer::redraw;
         }
+        const int32_t face = editor_.scheme() == keys::PointerScheme::left_click
+                                 ? oa::sim::gameplay_input::interface_left_click
+                                 : oa::sim::gameplay_input::interface_right_click;
+        if (runtime_.preferences_.interface_type != face) {
+            runtime_.preferences_.interface_type = face;
+            runtime_.preferences_dirty_ = true;
+        }
+        if (runtime_.match_ != nullptr)
+            runtime_.match_->state().game.interface_type = face;
         std::string problem;
         if (!runtime_.save_key_editor(editor_.result(), problem)) {
             tell_write_failed(problem);

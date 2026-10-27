@@ -24,7 +24,7 @@
 // The brain picker is painted on its fixture feed: the list, the inline
 // details at Regular and Large, and Compact's details page.
 // The key editor's list is painted at both sizes, and Compact's details page,
-// then the capture, the clash prompt and the draft card.
+// then the capture, the clash prompt, the keyboard, the mouse and the draft card.
 // Controls is painted with an own layout of OA default that holds twelve
 // changes, in every language and both sizes, so Key layout's value is the
 // layout's name and its count. The own layout is removed before the check ends.
@@ -1486,6 +1486,12 @@ void Runtime::check_text_fit() {
                 click_named("oa.key-editor.capture.ok");
                 paint("key-editor/clash");
                 click_named("oa.key-editor.clash.cancel");
+                if (named("oa.key-editor.back").has_value())
+                    click_named("oa.key-editor.back");
+                click_named("oa.key-editor.view.keyboard");
+                paint("key-editor/keyboard");
+                click_named("oa.key-editor.view.mouse");
+                paint("key-editor/mouse");
 
                 if (LayerScreen* keys_open = oa_layer().find("key-editor"))
                     oa_layer().close(keys_open);
