@@ -283,7 +283,9 @@ translator finds them together. Every word passes through `Library::text`
     same way. An installed brain reads Installed, and Installed · Default
     while it is the default. The built-in entry reads Built in, and Built
     in · Default while it is the default. An update's line and a queue's
-    line stay those lines while a brain is the default.
+    line stay those lines while a brain is the default. The installed key
+    layout in use reads In use for every game, or In use with {mod} while
+    it is used only with the mod being played.
 - `entry_summary` gives the words under the details' status line: the
   listing's summary, else the installed manifest's description
   (`Installed::description`), as for a mod of the player's own.
