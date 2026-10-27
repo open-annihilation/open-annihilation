@@ -225,7 +225,8 @@ screens over every screen of the game: `OaLayer`, which every screen
 reaches through `Runtime::oa_layer()`. It holds the settings dialog on the
 main menu and in a match (`Runtime::SettingsScreen`), the Library on the
 main menu (`Runtime::LibraryScreen`, [The Library](#the-library)), the
-in-game menu's OA button, and the notices and questions of the engine's own
+in-game menu's OA button and Overlays button, Arrange overlays, and the
+notices and questions of the engine's own
 (`NoticeScreen`, `QuestionScreen`). It replaces the main menu's and the match's own hosts of
 the dialog, and the notices' and the installs' prompts' own overlays, which
 each mapped the pointer, told a finger from a mouse, mapped the keys,
@@ -686,8 +687,9 @@ latched the closing key and drew a backdrop.
 - **Automation** lists what the layer shows (`automation_controls`), as
   [docs/automation.md](../../docs/automation.md#oas-own-screens) describes:
   `oa.button` (on the main menu its text says how many updates wait in the
-  Library) and, on the main menu, `oa.settings-button`, then the screens
-  from the top down to the first modal one,
+  Library) and, on the main menu, `oa.settings-button`, or in the in-game
+  menu the Overlays button, `oa.arrange-button` (text `Overlays`), then the
+  screens from the top down to the first modal one,
   each control and part named `oa.` and its kit name, with its exact
   rectangle in the window's pixels and that rectangle mapped back onto the
   canvas.
@@ -1697,7 +1699,7 @@ prompts, Settings › Updates and the headers name one state with one size.
   `runtime_update_roll_back_check.cpp`) serve their feeds and packages on
   127.0.0.1 with a key made from a fixed seed, request no published feed
   and start no helper. The download check presses the pill's and the
-  update centre's Pause and Resume, holds Keep it ready to scheduling
+  update centre's Pause and Resume, checks that Keep it ready schedules
   nothing, and records the hand-off. Its `cancel` case
   (`--update-download-case cancel`) opens the update centre from the pill
   during a download and presses Cancel download, which keeps nothing; its
