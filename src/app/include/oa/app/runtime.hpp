@@ -11111,12 +11111,23 @@ class Runtime final : public menu::Host,
     /// [runtime_keys_overlay.cpp]
     void toggle_keys_overlay_screen();
 
-    /// Fills the overlay from the bindings and the contexts that are active now.
+    /// Fills the overlay from the bindings in use, the contexts active now,
+    /// the latches and sticky modifiers that are on, and the layout's name
+    /// and changes. Before the bindings are read only the lookup is filled.
     ///
     /// [runtime_key_bindings.cpp]
     ///
     /// @param[out] inputs the overlay's inputs
     void fill_keys_overlay(oa::ui::key_editor::OverlayInputs& inputs);
+
+    /// Returns a text that changes whenever what the keys overlay lists
+    /// would: the contexts and conditions, the bindings, the layout and its
+    /// changes, the keyboard, the language and the chips that are on.
+    ///
+    /// [runtime_key_bindings.cpp]
+    ///
+    /// @return the stamp; empty before the bindings are read
+    [[nodiscard]] std::string keys_overlay_stamp();
 
     /// Remembers the layout's name and how many of the player's own changes
     /// it carries, when the bindings' signature changes.
@@ -11129,21 +11140,26 @@ class Runtime final : public menu::Host,
     /// [runtime_key_bindings.cpp]
     void reread_key_bindings();
 
-    /// The first key chord of an action that fires in the active context.
+    /// The first key chord of an action that fires now: one of its contexts
+    /// is active and every condition it names holds, as the dispatcher
+    /// decides.
     ///
-    /// Empty when the bindings are not ready, the action is absent, or no
-    /// key chord of it meets the context. A pointer or wheel action is empty.
-    /// [runtime_key_bindings.cpp]
+    /// Empty when the bindings are not ready, the action is absent or does
+    /// not fire now, or it has no key chord. A pointer or wheel action is
+    /// empty. [runtime_key_bindings.cpp]
     ///
     /// @param id the action id
     /// @return the chord, as display_text spells it
     [[nodiscard]] std::string active_key_chord(std::string_view id);
 
-    /// The letter a button's caption underlines for an order action.
+    /// The letter a button's caption underlines for an order action: the
+    /// letter of the action's first key chord, as the caption spells it,
+    /// when that chord is a plain press of a letter key with no modifier
+    /// and the caption holds the letter.
     ///
     /// Nothing while the bindings are not ready, so the caption keeps the
-    /// letter it had. Zero when they are ready and the first key chord is
-    /// not a bare letter in the caption.
+    /// letter it had. Zero when the action does not fire now, or its first
+    /// key chord is not such a letter, so no stale letter stays underlined.
     /// [runtime_key_bindings.cpp]
     ///
     /// @param action the action id
@@ -11158,24 +11174,50 @@ class Runtime final : public menu::Host,
     /// @return the chord, or empty outside 1..12 or when unbound
     [[nodiscard]] std::string build_cell_chord(int32_t cell);
 
-    /// The wheel half of the rotate hint, from build.rotate-wheel.
+    /// The wheel half of the rotate hint, from build.rotate-wheel's chords as
+    /// they answer while a building is placed.
     ///
-    /// Two turns that share their modifiers are those modifiers and the word
-    /// "wheel". Anything else is the first wheel chord's name.
+    /// Two turns that share their modifiers are those modifiers' keycaps and
+    /// the word for the wheel, in the player's language ("Alt+wheel").
+    /// Anything else is the first wheel chord's name.
     /// [runtime_key_bindings.cpp]
     ///
     /// @return the wheel's name, or empty when it does not fire
     [[nodiscard]] std::string rotate_wheel_text();
 
-    /// The rotate hint for the bindings in use.
+    /// The rotate hint for the bindings in use: build.rotate's first key
+    /// chord and the wheel's name (rotate_wheel_text) in the player's words.
     ///
     /// [runtime_key_bindings.cpp]
     ///
     /// @return the hint, or empty when the key and the wheel are both unbound
     [[nodiscard]] std::string rotate_hint_line();
 
-    /// Draws a small keycap on each order button and build cell while Show
-    /// keys on buttons is on.
+    /// Returns the build page's cells in reading order: the active unit and
+    /// weapon buttons of the panel shown, top row first and each row from
+    /// the left. build.cell-1 presses the first.
+    ///
+    /// [runtime_hud.cpp]
+    ///
+    /// @return the cells' gadget indices; empty with no panel
+    [[nodiscard]] std::vector<std::size_t> build_cell_gadgets() const;
+
+    /// Returns the action an order panel's gadget presses (order_action_id):
+    /// nothing for a build or weapon button, and nothing while a paused
+    /// menu's panel is shown.
+    ///
+    /// [runtime_hud.cpp]
+    ///
+    /// @param index the gadget of match_hud_
+    /// @return the action id, or empty
+    [[nodiscard]] std::string_view order_gadget_action(std::size_t index) const;
+
+    /// Draws the kit's small keycap on the order panel while Show keys on
+    /// buttons is on: each order button that takes a press wears its
+    /// action's first key chord at its top right, and each build cell its
+    /// build.cell-n chord at its bottom left, when that chord fires now.
+    /// Nothing is drawn over a paused menu, the unit info panel or the team
+    /// panel. Each badge drawn is noted in key_badges_drawn_.
     ///
     /// [runtime_hud.cpp]
     void draw_key_badges();

@@ -877,7 +877,7 @@ void Runtime::compose_match_hud() {
                 // An order button's underline follows the chord that fires it.
                 // A chord with a modifier, or a letter the caption does not
                 // hold, underlines nothing, so a moved key leaves no stale letter.
-                const auto action = order_action_id(gadget.common.name);
+                const std::string_view action = order_gadget_action(index);
                 if (!action.empty()) {
                     if (const std::optional<char> letter =
                             order_quick_letter(action, button->text)) {

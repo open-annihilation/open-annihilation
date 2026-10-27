@@ -4,6 +4,7 @@
 // World-space drawing: build ghosts, lines and GAF blits.
 #include "oa/app/runtime.hpp"
 #include "oa/core/map_plot.h"
+#include "oa/present/game_text.hpp"
 #include "match_models.hpp"
 #include "presentation_interpolation.hpp"
 #include "world_draws.hpp"
@@ -159,10 +160,14 @@ void Runtime::draw_build_facing(
     const char letter[2] = {view_rules::facing_letter(pending_build_facing()), '\0'};
     draw_match_label(middle.x, middle.y, letter, ui_colors_[kUiColorText]);
     if (!view_settings_.rotate_key_discovered) {
+        // Kept as the player reads it, drawn as game text.
         rotate_hint_drawn_ = rotate_hint_line();
         if (!rotate_hint_drawn_.empty())
             draw_match_label(
-                middle.x, middle.y + kRotateHintRise, rotate_hint_drawn_, ui_colors_[kUiColorText]
+                middle.x,
+                middle.y + kRotateHintRise,
+                oa::present::encode_game_text(rotate_hint_drawn_, game_text_utf8()),
+                ui_colors_[kUiColorText]
             );
     }
     overlay_target_ = kept_target;
