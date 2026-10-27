@@ -302,6 +302,7 @@ void check_game_files_options(Options& options) {
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
         {options.check_keys_overlay, "--check-keys-overlay"},
+        {options.check_selection_keys, "--check-selection-keys"},
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
         {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
@@ -703,6 +704,7 @@ void check_director_options(Options& options) {
         {options.check_key_share, "--check-key-share"},
         {options.check_key_views, "--check-key-views"},
         {options.check_keys_overlay, "--check-keys-overlay"},
+        {options.check_selection_keys, "--check-selection-keys"},
         {options.check_mutator_picker, "--check-mutator-picker"},
         {options.check_brain_picker, "--check-brain-picker"},
         {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
@@ -837,6 +839,7 @@ void refuse_left_out_self_checks([[maybe_unused]] const Options& options) {
             {options.check_key_share, "--check-key-share"},
             {options.check_key_views, "--check-key-views"},
             {options.check_keys_overlay, "--check-keys-overlay"},
+            {options.check_selection_keys, "--check-selection-keys"},
             {options.check_mutator_picker, "--check-mutator-picker"},
             {options.check_brain_picker, "--check-brain-picker"},
             {options.check_brain_seat_buttons, "--check-brain-seat-buttons"},
@@ -1005,6 +1008,7 @@ constexpr FlagOption kFlagOptions[] = {
     {"--check-key-share", &Options::check_key_share},
     {"--check-key-views", &Options::check_key_views},
     {"--check-keys-overlay", &Options::check_keys_overlay},
+    {"--check-selection-keys", &Options::check_selection_keys},
     {"--check-mutator-button", &Options::check_mutator_button},
     {"--check-mutator-room", &Options::check_mutator_room},
     {"--check-brain-room", &Options::check_brain_room},
@@ -1804,6 +1808,7 @@ void write_startup_line(std::string_view text) {
                      "[--check-map-pack-lists] [--check-mod-map-settings] "
                      "[--check-map-browser] [--check-key-editor] [--check-key-capture] "
                      "[--check-key-views] [--check-key-share] [--check-keys-overlay] "
+                     "[--check-selection-keys] "
                      "[--check-mutator-button] [--check-mutator-picker] "
                      "[--check-brain-picker] "
                      "[--check-brain-seat-buttons] "
@@ -2130,7 +2135,8 @@ void write_startup_line(std::string_view text) {
         result.check_brain_picker || result.check_brain_seat_buttons ||
         result.check_brain_campaign || result.check_mutator_prompts ||
         result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
-        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap;
+        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap ||
+        result.check_selection_keys;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||

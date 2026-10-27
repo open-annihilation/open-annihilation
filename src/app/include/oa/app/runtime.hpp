@@ -7824,6 +7824,17 @@ class Runtime final : public menu::Host,
     /// Throws std::runtime_error naming the first step that failed.
     void check_keys_overlay();
 
+    /// Runs --check-selection-keys: a skirmish with radar, sonar and jammer
+    /// units, aircraft and armed kbots planted for the local player and a
+    /// radar tower for the other. Each of 3.1c's Ctrl+letter keys, Ctrl+Shift+R
+    /// and Ctrl+Shift+P, Ctrl+1 and its group key, and Primary+/ go in as the
+    /// system sends them, modifier keys and all; each selection is the one the
+    /// loaded data's Category words name, Ctrl+R draws the rings on the
+    /// minimap, and Primary+/ opens and closes the keys overlay.
+    ///
+    /// Throws std::runtime_error naming the first step that failed.
+    void check_selection_keys();
+
     /// Writes --check-mutator-picker's and --check-brain-picker's registry
     /// list into the player's folder, every built-in registry turned off,
     /// before the content service reads it, so that the check fetches nothing.
