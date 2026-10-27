@@ -6162,6 +6162,18 @@ void shell_takes_kit_2_sizes() {
             band = band || (item.role == kit::Role::fill && item.rect.y == footer_rule + 1 &&
                             item.rect.height == footer && item.colour == kit::colour::band);
         OA_CHECK(band);
+        // Kit 2's window header at Regular and Large, Compact's band at Compact.
+        const int32_t header = compact ? metrics.header_height : metrics.window_header_height;
+        bool header_drawn = false;
+        for (const kit::Item& item : list.items)
+            if (const auto* look = std::get_if<kit::HeaderLook>(&item.look))
+                header_drawn = look->height == header && item.rect.height == header + 2;
+        OA_CHECK(header_drawn);
+        const kit::Control* close_x = fixture::named(list, "library.close-x");
+        OA_CHECK(
+            close_x != nullptr &&
+            close_x->rect.y == metrics.edge + (header - close_x->rect.height) / 2
+        );
         if (compact) {
             const kit::Control* filter = fixture::named(list, "library.filter");
             OA_CHECK(filter != nullptr && filter->rect.height == metrics.text_field_height);
