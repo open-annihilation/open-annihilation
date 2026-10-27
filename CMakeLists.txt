@@ -2396,12 +2396,16 @@ if(OA_BUILD_PLATFORM)
       # The keys overlay beside the side column, the order and build cell
       # badges, the help lines, the rotate hint and the latch chips, on a
       # skirmish whose mod turns buildings: the check gives the mod's folder
-      # a light laser tower with four facings. Then Arrange overlays from the
-      # in-game menu: the keys overlay and the chat line dragged on the grid,
-      # kept for the size class, Reset and the overlays' own places at three
-      # window sizes. --snapshot writes keys-overlay-<w>x<h>.ppm,
-      # key-badges-<w>x<h>.ppm, arrange-overlays-<w>x<h>.ppm and
-      # rounded-settings-<w>x<h>.ppm. Each run starts from a clean folder.
+      # a light laser tower with four facings. Then the overlays' places:
+      # Settings' Move overlays turned on, Arrange… placing the keys overlay,
+      # the latch chips and the chat line on a picture of the match, kept for
+      # the size class, Cancel and Reset, the overlays at their places in a
+      # second skirmish and back at their own with Move overlays off, and the
+      # in-game menu's OA Settings button. --snapshot writes
+      # keys-overlay-<w>x<h>.ppm, key-badges-<w>x<h>.ppm,
+      # arrange-overlays-<w>x<h>.ppm, overlays-placed-<w>x<h>.ppm,
+      # ingame-menu-<w>x<h>.ppm, rounded-settings-<w>x<h>.ppm and the rest
+      # the clean fixture names. Each run starts from a clean folder.
       # The mod's profile stays.
       set(oa_keys_overlay_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/keys-overlay")
       file(MAKE_DIRECTORY "${oa_keys_overlay_dir}/mod")
