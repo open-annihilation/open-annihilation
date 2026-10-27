@@ -1924,10 +1924,19 @@ void Runtime::draw_hold_ring() {
 
     const int32_t anchor_x = shown.button ? shown.x + shown.width / 2 : shown.x;
     const int32_t anchor_y = shown.button ? shown.y + shown.height / 2 : shown.y;
-    const int32_t point_x =
-        static_cast<int32_t>((static_cast<int64_t>(anchor_x) - area.x) / point_scale);
-    const int32_t point_y =
-        static_cast<int32_t>((static_cast<int64_t>(anchor_y) - area.y) / point_scale);
+    int32_t point_x = static_cast<int32_t>((static_cast<int64_t>(anchor_x) - area.x) / point_scale);
+    int32_t point_y = static_cast<int32_t>((static_cast<int64_t>(anchor_y) - area.y) / point_scale);
+    if (!shown.button) {
+        // A pointer over the side column or the bottom bar would put the
+        // ring outside the battlefield, where it is not drawn: it stays at
+        // the battlefield's edge nearest the pointer, the card beside it.
+        const int32_t area_w = static_cast<int32_t>(area.width) / point_scale;
+        const int32_t area_h = static_cast<int32_t>(area.height) / point_scale;
+        if (area_w > ring_points && area_h > ring_points) {
+            point_x = std::clamp(point_x, ring_points / 2, area_w - ring_points / 2);
+            point_y = std::clamp(point_y, ring_points / 2, area_h - ring_points / 2);
+        }
+    }
     if (!shown.button) {
         const kit::Rect ring{
             point_x - ring_points / 2, point_y - ring_points / 2, ring_points, ring_points
