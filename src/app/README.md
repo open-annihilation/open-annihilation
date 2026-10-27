@@ -1607,6 +1607,106 @@ FIXTURES_SETUP test (`mutator-prompts-clean`) clears its folders before each
 run. `--check-text-fit` paints the four questions, with long names, in every
 language and both sizes.
 
+## Updates
+
+`runtime_update.cpp`, `runtime_update_offer.cpp` and
+`runtime_update_install.cpp` are the game's side of a new release; the
+model, the files and the words are [src/app/update](update/README.md),
+and [docs/updates.md](../../docs/updates.md) says what the player sees.
+Every screen reads one state, so the menu pill, the update centre, the
+prompts, Settings › Updates and the headers name one state with one size.
+
+- **The state.** `Runtime::update_centre()` gathers `update::CentreInputs`
+  (the check's snapshot and its failure, the offer, the skipped, held and
+  scheduled releases, the download's snapshot with its bytes and rate, the
+  route, `--updated-from` and `--rolled-back-from`, the state file's
+  confirmation and kept version, and the helper's receipt) and returns
+  `update::centre_state`: one stage, its versions, its bytes, its percent
+  and the actions it allows. The size is the file the route downloads.
+- **The actions.** `Runtime::take_update_action` carries out one: Check
+  now starts a check; Download update starts the download, or opens the
+  release's page where this copy cannot install it; Pause and Resume stop
+  and carry on the download; Cancel download discards it, keeping nothing,
+  and takes back its schedule; Install when I quit writes the schedule;
+  the install-now action, named for the route, writes it and quits;
+  Don't install when I quit clears it; Skip this version and Try this
+  version write and clear the skip; Try again clears a held release and
+  starts the download again, or checks again after a failed check; Show
+  details shows the recovery screen; Show the log opens the updates
+  folder; What's new and Open the release page open the release's page;
+  Roll back… asks the roll back question; Keep it ready and Later change
+  nothing. Each preference written is flushed at once.
+- **The offer** (`runtime_update_offer.cpp`, the question `prompt`, its
+  buttons `skip`, `later` and `update`) asks at the settled main menu, and
+  waits through a match, Settings and a message box: "Open Annihilation
+  {version} is out", the size, the release's notes in a What's new box and
+  the reassurance; Skip this version (quiet, at the left), Later (Escape)
+  and Download update. A release held after it failed to install, and one
+  already downloaded, do not ask.
+- **The menu pill** (`update-pill`, not modal) shows the update centre's
+  short form at the main menu's top right, clear of the game's own
+  buttons, or under the OA buttons while an extension's overlay has put
+  them at the top; it hides off the main menu, in a match and under a
+  modal screen. It shows while a download moves ("0.8.8 · 41%", its bar
+  and Pause), is paused (its bar amber and Resume), is being checked, is
+  ready (Install…, which asks the ready prompt again), is scheduled
+  (Change) or stopped (Try again). A press on the pill opens the update
+  centre, a question (`update-centre`) with the state's heading, its
+  detail, the bar, its note and its actions as buttons, the first in the
+  accent, then Close; it follows the state while it shows, Pause turning
+  into Resume.
+- **The ready prompt** (`ready-update`) asks once a download is ready: a
+  callout "Downloaded and checked · {size}", a box listing the three
+  answers with their notes, and Keep it ready (Escape, `keep-ready`), the
+  install-now action (`restart-now`: Install and restart, Open the
+  installer on the macOS installer route, Close the game on a Steam Deck)
+  and Install when I quit (`when-i-quit`, marked). A quit installs only a
+  release scheduled for it, or `--update-and-quit`
+  (`Runtime::hand_off_requested`); quitting otherwise never installs.
+- **The recovery screen** (`update-receipt`) shows a receipt the helper
+  left that did not end well, once, at the first settled menu: the
+  outcome's words as its title, a callout, What happened with each step
+  marked done or failed, To put the game right where recovery did not
+  finish, and Show the log, Try again where the release can be tried again,
+  and Continue (`ok`). It marks the receipt shown, holds the release and
+  takes back its schedule. The Updated notice says once that this start
+  replaced an older version.
+- **The roll back's question** (`update-previous`,
+  `settings::updates::roll_back_question`) shows what comes back and what
+  stays as it is, a caution, and Cancel (marked) and Roll back and restart
+  (a danger button), which quits for the helper to put the kept version
+  back.
+- **Settings › Updates.** Each frame `apply_update_download` fills the
+  page's card from the state: "Installed {version}", the heading, the
+  detail, the bar and its paused look, the note and the actions as buttons
+  (Roll back… stays Previous version's; Later and Keep it ready, which ask
+  nothing of a page that stays open, are left out); a card's button
+  returns `DialogAction::update_action` with `Dialog::update_act`, which
+  the host hands to `take_update_action`. It also fills Updates' badge in
+  the section list ("41%" while a download moves or is paused, "ready"
+  while a release is ready or scheduled, `Dialog::updates_badge`), and
+  `update_header_note` gives the pill's words to Settings' header and the
+  Library's.
+- **The checks.** `native-engine-feed` (`--check-engine-feed`,
+  `runtime_update_check.cpp`), `native-update-offer`
+  (`--check-update-offer`, `runtime_update_offer_check.cpp`),
+  `native-update-download` (`--check-update-download`,
+  `runtime_update_install_check.cpp`, its starts run by
+  `tools/check_native_update_download.py`, each in its own folders) and
+  `native-update-roll-back` (`--check-update-roll-back`,
+  `runtime_update_roll_back_check.cpp`) serve their feeds and packages on
+  127.0.0.1 with a key made from a fixed seed, request no published feed
+  and start no helper. The download check presses the pill's and the
+  update centre's Pause and Resume, holds Keep it ready to scheduling
+  nothing, and records the hand-off. Its `cancel` case
+  (`--update-download-case cancel`) opens the update centre from the pill
+  during a download and presses Cancel download, which keeps nothing; its
+  `pictures` case draws every update screen in every state, from made-up
+  states, at 640x480, 1280x720 and 1920x1080 with Window size set to
+  Compact, Regular and Large, and writes
+  `update-<screen>-<state>-<w>x<h>.png` to its folder. The roll back check
+  also shows a failed install's receipt once and holds its release.
+
 ## Files
 
 - `app.hpp`, `runtime.hpp`, `runtime.cpp`, `runtime_frontend_host.cpp`,
@@ -1614,7 +1714,9 @@ language and both sizes.
   screen loading and the host of the frontend dispatcher. Lines are only
   ever added to `screens.inc`.
 - `runtime_update.cpp`: looks for a new release at the settled main menu,
-  at most once a day, and keeps the signed feed it accepted.
+  at most once a day, keeps the signed feed it accepted, and reads it
+  again at the first menu of each start; `runtime_update_offer.cpp` and
+  `runtime_update_install.cpp` are its screens ([Updates](#updates)).
 - `runtime_menu_audio.cpp`: the main menu's hum, and when it starts and
   stops (The start's movies and the menu hum, above).
 - `runtime_world_draw.cpp`, `runtime_camera.cpp`: world rendering and the
