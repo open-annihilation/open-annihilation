@@ -35,7 +35,7 @@ order.cloak	select=builder	key K	none
 order.cloak:commander	select=commander	key K	none
 order.attack:shift	select=builder	key A shift	none
 order.attack:alt	select=builder	key A alt	none
-order.attack:ctrl	select=builder	key A ctrl	build-page=0;primary=commander;selected=250
+order.attack:ctrl	select=builder	key A ctrl	build-page=0;primary=commander;selected=6
 order.move:shift	select=builder	key M shift	armed=move
 order.move:alt	select=builder	key M alt	armed=move
 order.move:ctrl	select=builder	key M ctrl	none
@@ -78,7 +78,7 @@ camera.edge-scroll:left:left-click	interface=left-click	button left edge-left	ca
 camera.edge-scroll:right:left-click	interface=left-click	button left edge-right	camera=right
 camera.edge-scroll:top:left-click	interface=left-click	button left edge-top	camera=up
 camera.edge-scroll:bottom:left-click	interface=left-click	button left edge-bottom	camera=down
-select.all	select=none	key A ctrl	primary=commander;selected=250
+select.all	select=none	key A ctrl	primary=commander;selected=6
 select.commander	select=none	key C ctrl	build-page=1;primary=commander;selected=1
 select.commander-add	select=combat	key C ctrl shift	primary=commander;selected=2
 select.idle-builders	select=none	key B ctrl	none
