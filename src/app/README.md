@@ -698,7 +698,8 @@ latched the closing key and drew a backdrop.
 host the Library ([src/ui/library](../ui/library/README.md)) as a screen of
 the OA layer on the main menu, named `library`: modal over a backdrop, laid
 out at the view's size class (`library::window_size`, `library_layout`) and
-centred in the window at its scale. Its model, its screen's state and its feed are
+centred in the window at its scale, or where the player moved it by its
+title ([The OA layer](#the-oa-layer)), its corners rounded. Its model, its screen's state and its feed are
 the host's (`Runtime::LibraryHost`, made on first use, joined as the
 runtime goes).
 
@@ -832,6 +833,28 @@ runtime goes).
   `Discarder`, a folder anywhere else being refused. The Library's own
   keys are Cmd+F (Ctrl+F elsewhere) and `/` outside the search for Find, and
   Ctrl+Tab and Ctrl+Shift+Tab for the tabs; Cmd+, opens Settings over it.
+- **Key layouts and USE.** The host gives the model `Library::key_hooks`.
+  When USE's question opens, its `moves` reads the player's Keys folder and
+  resolves the layout in use with its own changes, and the new layout with
+  the own changes it would hold under Keep them on top and under Start
+  clean, as `apply_library_key_use` would leave them, on the player's
+  keyboard (`Runtime::key_map`) with the played mod's letters
+  (`Runtime::key_mod_data`) and the pointer interface in use
+  (`key_moves_between`); What moves lists each command whose first key
+  differs, and each command on one of the player's own keys. The answer
+  goes to `Runtime::apply_library_key_use`, which writes the layout
+  preference, shared or for the played mod, switches on the helpers the
+  question left on, and copies the old layout's own changes to the new
+  one's own folder only under Keep them on top and only when the new
+  layout has none; it never deletes or writes over a player's own
+  changes. It returns what it changed (`Runtime::LibraryKeyUseUndo`: the
+  layout preferences before, the engine settings before, this run's latch
+  and hold lists, and the own folder only when USE made it). The Library
+  then pushes a question over itself that says where the layout is used
+  ("Using Lefty for every game.", or "… with {mod}."), with OK and Undo;
+  Undo calls `Runtime::undo_library_key_use`, which puts all of that back,
+  removes only an own folder USE made, and loads the layout again. EDIT
+  KEYS… opens the key editor.
 - **The check.** `native-library` (`--check-library`,
   `runtime_library_check.cpp`) gives the Library a feed of made-up
   packages and no network, with its data and the player's folder in the
@@ -841,7 +864,14 @@ runtime goes).
   Active, its lines read and taking no press, and closed, the dot and
   `oa.button`'s "Library · 3 packages · 2 updates" with two, the Library on
   Active and its Updates tab on its two updates,
-  GET and CANCEL reaching the feed, OPEN FOLDER and HOMEPAGE through the
+  the Keys tab reading "Keys (3)" with OA default first over layouts the
+  check writes into its Keys folder (Grid Test in use with the player's
+  own change, Patrol on J, and Lefty Test), USE asking where first, then
+  about the own changes, then listing what moves, writing the preference,
+  keeping the own changes on top at 640x480 and starting clean at
+  1920x1080, Grid Test's own changes never lost, and Undo on the notice
+  after USE putting Grid Test back and removing only the own folder USE
+  made, GET and CANCEL reaching the feed, OPEN FOLDER and HOMEPAGE through the
   recorded openers, ROLL BACK's question over the Library, PLAY NOW's soft
   restart, Settings over the Library and the Library over Settings, never
   two of either, the shortcut opening Settings, and in a skirmish the
