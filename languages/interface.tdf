@@ -204,7 +204,7 @@
 
 [Ctrl]
 	{
-	de=Ctrl;
+	de=Strg;
 	fr=Ctrl;
 	es=Ctrl;
 	it=Ctrl;
@@ -580,10 +580,10 @@
 
 [Shift]
 	{
-	de=Shift;
-	fr=Shift;
-	es=Shift;
-	it=Shift;
+	de=Umschalt;
+	fr=Maj;
+	es=Mayús;
+	it=Maiusc;
 	}
 
 [Shot]
@@ -644,10 +644,10 @@
 
 [Tab]
 	{
-	de=Tabulator;
-	fr=Tabulation;
-	es=Tabulador;
-	it=Tabulazione;
+	de=Tab;
+	fr=Tab;
+	es=Tab;
+	it=Tab;
 	}
 
 [The mod's data]
@@ -13292,7 +13292,7 @@
 
 [Capture]
 	{
-	de=Fangen;
+	de=Einfangen;
 	fr=Capture;
 	es=Captura;
 	it=Cattura;
@@ -20840,4 +20840,4232 @@
 	fr=Ce texte n'est pas une disposition des touches.;
 	es=Este texto no es una distribución de teclas.;
 	it=Questo testo non è una disposizione dei tasti.;
+	}
+
+// The key bindings: each action's name and description, the select.tag
+// family's words (src/data/input-actions, generated from the registry).
+[Next page]
+	{
+	de=Nächste Seite;
+	fr=Page suivante;
+	es=Página siguiente;
+	it=Pagina successiva;
+	}
+
+[Next page of the build menu]
+	{
+	de=Nächste Seite des Baumenüs;
+	fr=Page suivante du menu de construction;
+	es=Página siguiente del menú de construcción;
+	it=Pagina successiva del menu di costruzione;
+	}
+
+[Previous page]
+	{
+	de=Vorherige Seite;
+	fr=Page précédente;
+	es=Página anterior;
+	it=Pagina precedente;
+	}
+
+[Previous page of the build menu]
+	{
+	de=Vorherige Seite des Baumenüs;
+	fr=Page précédente du menu de construction;
+	es=Página anterior del menú de construcción;
+	it=Pagina precedente del menu di costruzione;
+	}
+
+[Build cell 1]
+	{
+	de=Bauknopf 1;
+	fr=Case de construction 1;
+	es=Celda de construcción 1;
+	it=Cella di costruzione 1;
+	}
+
+[Presses build button 1 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 1 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 1 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 1 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 1 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 2]
+	{
+	de=Bauknopf 2;
+	fr=Case de construction 2;
+	es=Celda de construcción 2;
+	it=Cella di costruzione 2;
+	}
+
+[Presses build button 2 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 2 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 2 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 2 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 2 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 3]
+	{
+	de=Bauknopf 3;
+	fr=Case de construction 3;
+	es=Celda de construcción 3;
+	it=Cella di costruzione 3;
+	}
+
+[Presses build button 3 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 3 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 3 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 3 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 3 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 4]
+	{
+	de=Bauknopf 4;
+	fr=Case de construction 4;
+	es=Celda de construcción 4;
+	it=Cella di costruzione 4;
+	}
+
+[Presses build button 4 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 4 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 4 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 4 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 4 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 5]
+	{
+	de=Bauknopf 5;
+	fr=Case de construction 5;
+	es=Celda de construcción 5;
+	it=Cella di costruzione 5;
+	}
+
+[Presses build button 5 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 5 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 5 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 5 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 5 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 6]
+	{
+	de=Bauknopf 6;
+	fr=Case de construction 6;
+	es=Celda de construcción 6;
+	it=Cella di costruzione 6;
+	}
+
+[Presses build button 6 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 6 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 6 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 6 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 6 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 7]
+	{
+	de=Bauknopf 7;
+	fr=Case de construction 7;
+	es=Celda de construcción 7;
+	it=Cella di costruzione 7;
+	}
+
+[Presses build button 7 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 7 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 7 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 7 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 7 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 8]
+	{
+	de=Bauknopf 8;
+	fr=Case de construction 8;
+	es=Celda de construcción 8;
+	it=Cella di costruzione 8;
+	}
+
+[Presses build button 8 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 8 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 8 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 8 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 8 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 9]
+	{
+	de=Bauknopf 9;
+	fr=Case de construction 9;
+	es=Celda de construcción 9;
+	it=Cella di costruzione 9;
+	}
+
+[Presses build button 9 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 9 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 9 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 9 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 9 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 10]
+	{
+	de=Bauknopf 10;
+	fr=Case de construction 10;
+	es=Celda de construcción 10;
+	it=Cella di costruzione 10;
+	}
+
+[Presses build button 10 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 10 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 10 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 10 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 10 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 11]
+	{
+	de=Bauknopf 11;
+	fr=Case de construction 11;
+	es=Celda de construcción 11;
+	it=Cella di costruzione 11;
+	}
+
+[Presses build button 11 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 11 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 11 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 11 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 11 della pagina mostrata, in ordine di lettura;
+	}
+
+[Build cell 12]
+	{
+	de=Bauknopf 12;
+	fr=Case de construction 12;
+	es=Celda de construcción 12;
+	it=Cella di costruzione 12;
+	}
+
+[Presses build button 12 of the page shown, in reading order]
+	{
+	de=Drückt Bauknopf 12 der gezeigten Seite, in Leserichtung;
+	fr=Appuie sur le bouton de construction 12 de la page affichée, dans le sens de lecture;
+	es=Pulsa el botón de construcción 12 de la página mostrada, en orden de lectura;
+	it=Preme il pulsante di costruzione 12 della pagina mostrata, in ordine di lettura;
+	}
+
+[Line build]
+	{
+	de=Linienbau;
+	fr=Construction en ligne;
+	es=Construcción en línea;
+	it=Costruzione in linea;
+	}
+
+[Held while placing: drag lays a line, a click rings a unit]
+	{
+	de=Beim Platzieren gehalten: Ziehen legt eine Linie, ein Klick umringt eine Einheit;
+	fr=Maintenu en plaçant : un glissement trace une ligne, un clic entoure une unité;
+	es=Mantenido al colocar: arrastrar traza una línea, un clic rodea una unidad;
+	it=Tenuto mentre piazzi: trascinare traccia una linea, un clic circonda un'unità;
+	}
+
+[Spacing up]
+	{
+	de=Abstand größer;
+	fr=Espacement plus grand;
+	es=Más separación;
+	it=Più spaziatura;
+	}
+
+[Raises the spacing of a build line]
+	{
+	de=Vergrößert den Abstand einer Baulinie;
+	fr=Augmente l'espacement d'une ligne de construction;
+	es=Aumenta la separación de una línea de construcción;
+	it=Aumenta la spaziatura di una linea di costruzione;
+	}
+
+[Spacing down]
+	{
+	de=Abstand kleiner;
+	fr=Espacement plus petit;
+	es=Menos separación;
+	it=Meno spaziatura;
+	}
+
+[Lowers the spacing of a build line]
+	{
+	de=Verkleinert den Abstand einer Baulinie;
+	fr=Réduit l'espacement d'une ligne de construction;
+	es=Reduce la separación de una línea de construcción;
+	it=Riduce la spaziatura di una linea di costruzione;
+	}
+
+[Rotate]
+	{
+	de=Drehen;
+	fr=Tourner;
+	es=Girar;
+	it=Ruota;
+	}
+
+[Next facing]
+	{
+	de=Nächste Ausrichtung;
+	fr=Orientation suivante;
+	es=Siguiente orientación;
+	it=Orientamento successivo;
+	}
+
+[Move queued site]
+	{
+	de=Geplanten Bauplatz verschieben;
+	fr=Déplacer un chantier prévu;
+	es=Mover obra en cola;
+	it=Sposta cantiere in coda;
+	}
+
+[Drags a queued build site]
+	{
+	de=Zieht einen geplanten Bauplatz;
+	fr=Fait glisser un chantier prévu;
+	es=Arrastra una obra en cola;
+	it=Trascina un cantiere in coda;
+	}
+
+[Rotate wheel]
+	{
+	de=Mit dem Rad drehen;
+	fr=Tourner à la molette;
+	es=Girar con la rueda;
+	it=Ruota con la rotella;
+	}
+
+[Turns the facing]
+	{
+	de=Dreht die Ausrichtung;
+	fr=Tourne l'orientation;
+	es=Gira la orientación;
+	it=Gira l'orientamento;
+	}
+
+[Snap override]
+	{
+	de=Ohne Ausrichten;
+	fr=Sans aimantation;
+	es=Sin ajuste;
+	it=Senza aggancio;
+	}
+
+[Held: no mex or wreck snap, and drag queued orders]
+	{
+	de=Gehalten: kein Einschnappen an Metallfeldern oder Wracks, und geplante Befehle ziehen;
+	fr=Maintenu : pas d'aimantation aux gisements ni aux épaves, et glisser les ordres en file;
+	es=Mantenido: sin ajuste a yacimientos ni restos, y arrastrar órdenes en cola;
+	it=Tenuto: niente aggancio a giacimenti o relitti, e trascina gli ordini in coda;
+	}
+
+[Pan up]
+	{
+	de=Nach oben schwenken;
+	fr=Défiler vers le haut;
+	es=Desplazar arriba;
+	it=Scorri su;
+	}
+
+[Scrolls the view up]
+	{
+	de=Schiebt die Ansicht nach oben;
+	fr=Fait défiler la vue vers le haut;
+	es=Desplaza la vista hacia arriba;
+	it=Scorre la visuale in su;
+	}
+
+[Pan down]
+	{
+	de=Nach unten schwenken;
+	fr=Défiler vers le bas;
+	es=Desplazar abajo;
+	it=Scorri giù;
+	}
+
+[Scrolls the view down]
+	{
+	de=Schiebt die Ansicht nach unten;
+	fr=Fait défiler la vue vers le bas;
+	es=Desplaza la vista hacia abajo;
+	it=Scorre la visuale in giù;
+	}
+
+[Pan left]
+	{
+	de=Nach links schwenken;
+	fr=Défiler vers la gauche;
+	es=Desplazar a la izquierda;
+	it=Scorri a sinistra;
+	}
+
+[Scrolls the view left]
+	{
+	de=Schiebt die Ansicht nach links;
+	fr=Fait défiler la vue vers la gauche;
+	es=Desplaza la vista hacia la izquierda;
+	it=Scorre la visuale a sinistra;
+	}
+
+[Pan right]
+	{
+	de=Nach rechts schwenken;
+	fr=Défiler vers la droite;
+	es=Desplazar a la derecha;
+	it=Scorri a destra;
+	}
+
+[Scrolls the view right]
+	{
+	de=Schiebt die Ansicht nach rechts;
+	fr=Fait défiler la vue vers la droite;
+	es=Desplaza la vista hacia la derecha;
+	it=Scorre la visuale a destra;
+	}
+
+[Centre]
+	{
+	de=Zentrieren;
+	fr=Centrer;
+	es=Centrar;
+	it=Centra;
+	}
+
+[Centres on the selected unit, or selects and centres on the commander]
+	{
+	de=Zentriert auf die gewählte Einheit, oder wählt den Kommandanten und zentriert auf ihn;
+	fr=Centre sur l'unité sélectionnée, ou sélectionne le commandant et centre sur lui;
+	es=Centra en la unidad seleccionada, o selecciona al comandante y centra en él;
+	it=Centra sull'unità selezionata, o seleziona il comandante e centra su di lui;
+	}
+
+[Follow]
+	{
+	de=Folgen;
+	fr=Suivre;
+	es=Seguir;
+	it=Segui;
+	}
+
+[Follows the next selected unit]
+	{
+	de=Folgt der nächsten gewählten Einheit;
+	fr=Suit l'unité sélectionnée suivante;
+	es=Sigue a la siguiente unidad seleccionada;
+	it=Segue l'unità selezionata successiva;
+	}
+
+[Follow previous]
+	{
+	de=Vorherige folgen;
+	fr=Suivre la précédente;
+	es=Seguir la anterior;
+	it=Segui la precedente;
+	}
+
+[Follows the previous selected unit]
+	{
+	de=Folgt der vorherigen gewählten Einheit;
+	fr=Suit l'unité sélectionnée précédente;
+	es=Sigue a la unidad seleccionada anterior;
+	it=Segue l'unità selezionata precedente;
+	}
+
+[Next unit]
+	{
+	de=Nächste Einheit;
+	fr=Unité suivante;
+	es=Siguiente unidad;
+	it=Unità successiva;
+	}
+
+[Centres on the next unit not yet visited]
+	{
+	de=Zentriert auf die nächste noch nicht besuchte Einheit;
+	fr=Centre sur l'unité suivante pas encore visitée;
+	es=Centra en la siguiente unidad aún no visitada;
+	it=Centra sulla prossima unità non ancora visitata;
+	}
+
+[Next report]
+	{
+	de=Nächster Bericht;
+	fr=Rapport suivant;
+	es=Siguiente informe;
+	it=Rapporto successivo;
+	}
+
+[The next unit the message log reported]
+	{
+	de=Die nächste Einheit, die das Nachrichtenprotokoll gemeldet hat;
+	fr=L'unité suivante signalée par le journal des messages;
+	es=La siguiente unidad que informó el registro de mensajes;
+	it=La prossima unità segnalata dal registro dei messaggi;
+	}
+
+[Set bookmark 1]
+	{
+	de=Lesezeichen 1 setzen;
+	fr=Placer le signet 1;
+	es=Fijar marcador 1;
+	it=Imposta segnalibro 1;
+	}
+
+[Stores the view as bookmark 1]
+	{
+	de=Speichert die Ansicht als Lesezeichen 1;
+	fr=Garde la vue comme signet 1;
+	es=Guarda la vista como marcador 1;
+	it=Salva la visuale come segnalibro 1;
+	}
+
+[Go to bookmark 1]
+	{
+	de=Zu Lesezeichen 1;
+	fr=Aller au signet 1;
+	es=Ir al marcador 1;
+	it=Vai al segnalibro 1;
+	}
+
+[Returns to bookmark 1]
+	{
+	de=Kehrt zu Lesezeichen 1 zurück;
+	fr=Revient au signet 1;
+	es=Vuelve al marcador 1;
+	it=Torna al segnalibro 1;
+	}
+
+[Set bookmark 2]
+	{
+	de=Lesezeichen 2 setzen;
+	fr=Placer le signet 2;
+	es=Fijar marcador 2;
+	it=Imposta segnalibro 2;
+	}
+
+[Stores the view as bookmark 2]
+	{
+	de=Speichert die Ansicht als Lesezeichen 2;
+	fr=Garde la vue comme signet 2;
+	es=Guarda la vista como marcador 2;
+	it=Salva la visuale come segnalibro 2;
+	}
+
+[Go to bookmark 2]
+	{
+	de=Zu Lesezeichen 2;
+	fr=Aller au signet 2;
+	es=Ir al marcador 2;
+	it=Vai al segnalibro 2;
+	}
+
+[Returns to bookmark 2]
+	{
+	de=Kehrt zu Lesezeichen 2 zurück;
+	fr=Revient au signet 2;
+	es=Vuelve al marcador 2;
+	it=Torna al segnalibro 2;
+	}
+
+[Set bookmark 3]
+	{
+	de=Lesezeichen 3 setzen;
+	fr=Placer le signet 3;
+	es=Fijar marcador 3;
+	it=Imposta segnalibro 3;
+	}
+
+[Stores the view as bookmark 3]
+	{
+	de=Speichert die Ansicht als Lesezeichen 3;
+	fr=Garde la vue comme signet 3;
+	es=Guarda la vista como marcador 3;
+	it=Salva la visuale come segnalibro 3;
+	}
+
+[Go to bookmark 3]
+	{
+	de=Zu Lesezeichen 3;
+	fr=Aller au signet 3;
+	es=Ir al marcador 3;
+	it=Vai al segnalibro 3;
+	}
+
+[Returns to bookmark 3]
+	{
+	de=Kehrt zu Lesezeichen 3 zurück;
+	fr=Revient au signet 3;
+	es=Vuelve al marcador 3;
+	it=Torna al segnalibro 3;
+	}
+
+[Set bookmark 4]
+	{
+	de=Lesezeichen 4 setzen;
+	fr=Placer le signet 4;
+	es=Fijar marcador 4;
+	it=Imposta segnalibro 4;
+	}
+
+[Stores the view as bookmark 4]
+	{
+	de=Speichert die Ansicht als Lesezeichen 4;
+	fr=Garde la vue comme signet 4;
+	es=Guarda la vista como marcador 4;
+	it=Salva la visuale come segnalibro 4;
+	}
+
+[Go to bookmark 4]
+	{
+	de=Zu Lesezeichen 4;
+	fr=Aller au signet 4;
+	es=Ir al marcador 4;
+	it=Vai al segnalibro 4;
+	}
+
+[Returns to bookmark 4]
+	{
+	de=Kehrt zu Lesezeichen 4 zurück;
+	fr=Revient au signet 4;
+	es=Vuelve al marcador 4;
+	it=Torna al segnalibro 4;
+	}
+
+[Zoom in key]
+	{
+	de=Hineinzoomen per Taste;
+	fr=Zoom avant au clavier;
+	es=Acercar con tecla;
+	it=Zoom avanti da tasto;
+	}
+
+[Zooms in about the centre]
+	{
+	de=Zoomt um die Mitte hinein;
+	fr=Zoome vers le centre;
+	es=Acerca sobre el centro;
+	it=Ingrandisce attorno al centro;
+	}
+
+[Zoom out key]
+	{
+	de=Herauszoomen per Taste;
+	fr=Zoom arrière au clavier;
+	es=Alejar con tecla;
+	it=Zoom indietro da tasto;
+	}
+
+[Zooms out about the centre]
+	{
+	de=Zoomt um die Mitte heraus;
+	fr=Dézoome depuis le centre;
+	es=Aleja sobre el centro;
+	it=Rimpicciolisce attorno al centro;
+	}
+
+[Reset zoom]
+	{
+	de=Zoom zurücksetzen;
+	fr=Réinitialiser le zoom;
+	es=Restablecer zoom;
+	it=Reimposta zoom;
+	}
+
+[The game's own scale]
+	{
+	de=Der eigene Maßstab des Spiels;
+	fr=L'échelle propre du jeu;
+	es=La escala propia del juego;
+	it=La scala propria del gioco;
+	}
+
+[Classic view]
+	{
+	de=Klassische Ansicht;
+	fr=Vue classique;
+	es=Vista clásica;
+	it=Vista classica;
+	}
+
+[Puts the Full 3D view's camera back to the classic view]
+	{
+	de=Setzt die Kamera der vollen 3D-Ansicht auf die klassische Ansicht zurück;
+	fr=Remet la caméra de la vue 3D complète sur la vue classique;
+	es=Devuelve la cámara de la vista 3D completa a la vista clásica;
+	it=Riporta la telecamera della vista 3D completa alla vista classica;
+	}
+
+[Unlocked Camera on or off in the Full 3D view]
+	{
+	de=Freie Kamera in der vollen 3D-Ansicht an oder aus;
+	fr=Caméra déverrouillée dans la vue 3D complète : activer ou désactiver;
+	es=Cámara desbloqueada en la vista 3D completa: activar o desactivar;
+	it=Camera sbloccata nella vista 3D completa: attiva o disattiva;
+	}
+
+[Edge scroll]
+	{
+	de=Randscrollen;
+	fr=Défilement au bord;
+	es=Desplazamiento en el borde;
+	it=Scorrimento al bordo;
+	}
+
+[Scrolls at the window's edge]
+	{
+	de=Scrollt am Fensterrand;
+	fr=Fait défiler au bord de la fenêtre;
+	es=Desplaza en el borde de la ventana;
+	it=Scorre al bordo della finestra;
+	}
+
+[Send chat]
+	{
+	de=Chat senden;
+	fr=Envoyer la discussion;
+	es=Enviar chat;
+	it=Invia chat;
+	}
+
+[Sends the line]
+	{
+	de=Sendet die Zeile;
+	fr=Envoie la ligne;
+	es=Envía la línea;
+	it=Invia la riga;
+	}
+
+[Cancel chat]
+	{
+	de=Chat abbrechen;
+	fr=Annuler la discussion;
+	es=Cancelar chat;
+	it=Annulla chat;
+	}
+
+[Closes the line]
+	{
+	de=Schließt die Zeile;
+	fr=Ferme la ligne;
+	es=Cierra la línea;
+	it=Chiude la riga;
+	}
+
+[Open chat]
+	{
+	de=Chat öffnen;
+	fr=Ouvrir la discussion;
+	es=Abrir chat;
+	it=Apri chat;
+	}
+
+[Opens the chat line]
+	{
+	de=Öffnet die Chatzeile;
+	fr=Ouvre la ligne de discussion;
+	es=Abre la línea de chat;
+	it=Apre la riga di chat;
+	}
+
+[Open allies chat]
+	{
+	de=Verbündeten-Chat öffnen;
+	fr=Ouvrir la discussion des alliés;
+	es=Abrir chat de aliados;
+	it=Apri chat alleati;
+	}
+
+[Opens the chat line to allies]
+	{
+	de=Öffnet die Chatzeile an die Verbündeten;
+	fr=Ouvre la ligne de discussion vers les alliés;
+	es=Abre la línea de chat a los aliados;
+	it=Apre la riga di chat verso gli alleati;
+	}
+
+[Debug keys on or off]
+	{
+	de=Debug-Tasten an oder aus;
+	fr=Touches de débogage : activer ou désactiver;
+	es=Teclas de depuración: activar o desactivar;
+	it=Tasti di debug: attiva o disattiva;
+	}
+
+[Movie capture]
+	{
+	de=Filmaufnahme;
+	fr=Capture vidéo;
+	es=Captura de vídeo;
+	it=Cattura video;
+	}
+
+[Refill]
+	{
+	de=Auffüllen;
+	fr=Remplir;
+	es=Rellenar;
+	it=Riempi;
+	}
+
+[Refills resources]
+	{
+	de=Füllt die Rohstoffe auf;
+	fr=Remplit les ressources;
+	es=Rellena los recursos;
+	it=Riempie le risorse;
+	}
+
+[Kill under pointer]
+	{
+	de=Unter dem Zeiger zerstören;
+	fr=Détruire sous le pointeur;
+	es=Destruir bajo el puntero;
+	it=Distruggi sotto il puntatore;
+	}
+
+[Kills the unit under the pointer]
+	{
+	de=Zerstört die Einheit unter dem Zeiger;
+	fr=Détruit l'unité sous le pointeur;
+	es=Destruye la unidad bajo el puntero;
+	it=Distrugge l'unità sotto il puntatore;
+	}
+
+[Developer info]
+	{
+	de=Entwicklerinfo;
+	fr=Infos développeur;
+	es=Info de desarrollo;
+	it=Info sviluppatore;
+	}
+
+[The developer information key]
+	{
+	de=Die Taste für die Entwicklerinformationen;
+	fr=La touche des informations développeur;
+	es=La tecla de la información de desarrollo;
+	it=Il tasto delle informazioni sviluppatore;
+	}
+
+[Overlay]
+	{
+	de=Overlay;
+	fr=Surcouche;
+	es=Capa;
+	it=Overlay;
+	}
+
+[Cycles the overlay]
+	{
+	de=Wechselt das Overlay;
+	fr=Fait défiler la surcouche;
+	es=Cambia la capa;
+	it=Cambia l'overlay;
+	}
+
+[The Escape chain: armed order, selection, then the game menu]
+	{
+	de=Die Escape-Kette: gewählter Befehl, Auswahl, dann das Spielmenü;
+	fr=La chaîne d'Échap : ordre armé, sélection, puis le menu du jeu;
+	es=La cadena de Escape: orden armada, selección, luego el menú del juego;
+	it=La catena di Esc: ordine armato, selezione, poi il menu di gioco;
+	}
+
+[Game menu]
+	{
+	de=Spielmenü;
+	fr=Menu du jeu;
+	es=Menú del juego;
+	it=Menu di gioco;
+	}
+
+[The in-game menu, or resumes]
+	{
+	de=Das Spielmenü, oder es geht weiter;
+	fr=Le menu en jeu, ou reprend;
+	es=El menú de la partida, o se reanuda;
+	it=Il menu di gioco, o riprende;
+	}
+
+[Pause on or off]
+	{
+	de=Pause an oder aus;
+	fr=Pause : activer ou désactiver;
+	es=Pausa: activar o desactivar;
+	it=Pausa: attiva o disattiva;
+	}
+
+[Speed up]
+	{
+	de=Schneller;
+	fr=Accélérer;
+	es=Acelerar;
+	it=Accelera;
+	}
+
+[One speed step faster]
+	{
+	de=Eine Geschwindigkeitsstufe schneller;
+	fr=Un cran de vitesse plus rapide;
+	es=Un paso de velocidad más rápido;
+	it=Un livello di velocità più veloce;
+	}
+
+[Speed down]
+	{
+	de=Langsamer;
+	fr=Ralentir;
+	es=Desacelerar;
+	it=Rallenta;
+	}
+
+[One speed step slower]
+	{
+	de=Eine Geschwindigkeitsstufe langsamer;
+	fr=Un cran de vitesse plus lent;
+	es=Un paso de velocidad más lento;
+	it=Un livello di velocità più lento;
+	}
+
+[The unit info panel]
+	{
+	de=Das Einheiteninfo-Feld;
+	fr=Le panneau d'infos de l'unité;
+	es=El panel de info de la unidad;
+	it=Il pannello info dell'unità;
+	}
+
+[Pin unit]
+	{
+	de=Einheit anheften;
+	fr=Épingler l'unité;
+	es=Fijar unidad;
+	it=Fissa unità;
+	}
+
+[Pins the unit under the pointer]
+	{
+	de=Heftet die Einheit unter dem Zeiger an;
+	fr=Épingle l'unité sous le pointeur;
+	es=Fija la unidad bajo el puntero;
+	it=Fissa l'unità sotto il puntatore;
+	}
+
+[Kills board]
+	{
+	de=Abschusstafel;
+	fr=Tableau des pertes;
+	es=Tablero de bajas;
+	it=Tabella uccisioni;
+	}
+
+[Pins the kills board]
+	{
+	de=Heftet die Abschusstafel an;
+	fr=Épingle le tableau des pertes;
+	es=Fija el tablero de bajas;
+	it=Fissa la tabella uccisioni;
+	}
+
+[Resource panel]
+	{
+	de=Rohstoffleiste;
+	fr=Panneau des ressources;
+	es=Panel de recursos;
+	it=Pannello risorse;
+	}
+
+[The resource panel on or off]
+	{
+	de=Die Rohstoffleiste an oder aus;
+	fr=Le panneau des ressources : activer ou désactiver;
+	es=El panel de recursos: activar o desactivar;
+	it=Il pannello risorse: attiva o disattiva;
+	}
+
+[Status strip]
+	{
+	de=Statusleiste;
+	fr=Bandeau d'état;
+	es=Barra de estado;
+	it=Barra di stato;
+	}
+
+[Held: the status strip and kills board]
+	{
+	de=Gehalten: die Statusleiste und die Abschusstafel;
+	fr=Maintenu : le bandeau d'état et le tableau des pertes;
+	es=Mantenido: la barra de estado y el tablero de bajas;
+	it=Tenuto: la barra di stato e la tabella uccisioni;
+	}
+
+[Damage bars]
+	{
+	de=Schadensbalken;
+	fr=Barres de dégâts;
+	es=Barras de daño;
+	it=Barre del danno;
+	}
+
+[Damage bars on or off]
+	{
+	de=Schadensbalken an oder aus;
+	fr=Barres de dégâts : activer ou désactiver;
+	es=Barras de daño: activar o desactivar;
+	it=Barre del danno: attiva o disattiva;
+	}
+
+[Damage bar mode 1]
+	{
+	de=Schadensbalken-Modus 1;
+	fr=Mode des barres de dégâts 1;
+	es=Modo de barras de daño 1;
+	it=Modalità barre del danno 1;
+	}
+
+[Damage bars the way the shifted 1 key shows them]
+	{
+	de=Schadensbalken, wie die Taste 1 mit Umschalt sie zeigt;
+	fr=Barres de dégâts comme les montre la touche 1 avec Maj;
+	es=Barras de daño como las muestra la tecla 1 con Mayús;
+	it=Barre del danno come le mostra il tasto 1 con Maiusc;
+	}
+
+[Damage bar mode 2]
+	{
+	de=Schadensbalken-Modus 2;
+	fr=Mode des barres de dégâts 2;
+	es=Modo de barras de daño 2;
+	it=Modalità barre del danno 2;
+	}
+
+[Damage bars the way the shifted 3 key shows them]
+	{
+	de=Schadensbalken, wie die Taste 3 mit Umschalt sie zeigt;
+	fr=Barres de dégâts comme les montre la touche 3 avec Maj;
+	es=Barras de daño como las muestra la tecla 3 con Mayús;
+	it=Barre del danno come le mostra il tasto 3 con Maiusc;
+	}
+
+[Damage bar mode 3]
+	{
+	de=Schadensbalken-Modus 3;
+	fr=Mode des barres de dégâts 3;
+	es=Modo de barras de daño 3;
+	it=Modalità barre del danno 3;
+	}
+
+[Damage bars the way the shifted 8 key shows them]
+	{
+	de=Schadensbalken, wie die Taste 8 mit Umschalt sie zeigt;
+	fr=Barres de dégâts comme les montre la touche 8 avec Maj;
+	es=Barras de daño como las muestra la tecla 8 con Mayús;
+	it=Barre del danno come le mostra il tasto 8 con Maiusc;
+	}
+
+[Damage bar mode 4]
+	{
+	de=Schadensbalken-Modus 4;
+	fr=Mode des barres de dégâts 4;
+	es=Modo de barras de daño 4;
+	it=Modalità barre del danno 4;
+	}
+
+[Damage bars the way the shifted backquote key shows them]
+	{
+	de=Schadensbalken, wie die Taste ` mit Umschalt sie zeigt;
+	fr=Barres de dégâts comme les montre la touche ` avec Maj;
+	es=Barras de daño como las muestra la tecla ` con Mayús;
+	it=Barre del danno come le mostra il tasto ` con Maiusc;
+	}
+
+[Clear messages]
+	{
+	de=Nachrichten leeren;
+	fr=Effacer les messages;
+	es=Borrar mensajes;
+	it=Cancella messaggi;
+	}
+
+[Clears the message log]
+	{
+	de=Leert das Nachrichtenprotokoll;
+	fr=Efface le journal des messages;
+	es=Borra el registro de mensajes;
+	it=Cancella il registro dei messaggi;
+	}
+
+[Screenshot]
+	{
+	de=Bildschirmfoto;
+	fr=Capture d'écran;
+	es=Captura de pantalla;
+	it=Istantanea;
+	}
+
+[Saves a screenshot]
+	{
+	de=Speichert ein Bildschirmfoto;
+	fr=Enregistre une capture d'écran;
+	es=Guarda una captura de pantalla;
+	it=Salva un'istantanea;
+	}
+
+[Allies menu]
+	{
+	de=Verbündetenmenü;
+	fr=Menu des alliés;
+	es=Menú de aliados;
+	it=Menu alleati;
+	}
+
+[The allies menu]
+	{
+	de=Das Verbündetenmenü;
+	fr=Le menu des alliés;
+	es=El menú de aliados;
+	it=Il menu alleati;
+	}
+
+[Share panel]
+	{
+	de=Teilen-Feld;
+	fr=Panneau de partage;
+	es=Panel de compartir;
+	it=Pannello condivisione;
+	}
+
+[The share panel]
+	{
+	de=Das Teilen-Feld;
+	fr=Le panneau de partage;
+	es=El panel de compartir;
+	it=Il pannello condivisione;
+	}
+
+[Repeat command]
+	{
+	de=Chatbefehl wiederholen;
+	fr=Répéter la commande;
+	es=Repetir comando;
+	it=Ripeti comando;
+	}
+
+[Runs the last chat command again]
+	{
+	de=Führt den letzten Chatbefehl erneut aus;
+	fr=Relance la dernière commande de discussion;
+	es=Vuelve a ejecutar el último comando del chat;
+	it=Esegue di nuovo l'ultimo comando della chat;
+	}
+
+[The mod's options dialog]
+	{
+	de=Der Optionsdialog des Mods;
+	fr=La boîte d'options du mod;
+	es=El diálogo de opciones del mod;
+	it=La finestra delle opzioni del mod;
+	}
+
+[Chat macro]
+	{
+	de=Chat-Makro;
+	fr=Macro de discussion;
+	es=Macro de chat;
+	it=Macro della chat;
+	}
+
+[Sends the mod's chat macro]
+	{
+	de=Sendet das Chat-Makro des Mods;
+	fr=Envoie la macro de discussion du mod;
+	es=Envía la macro de chat del mod;
+	it=Invia la macro della chat del mod;
+	}
+
+[Assign group 1]
+	{
+	de=Gruppe 1 zuweisen;
+	fr=Attribuer le groupe 1;
+	es=Asignar grupo 1;
+	it=Assegna gruppo 1;
+	}
+
+[Stores the selection as group 1]
+	{
+	de=Speichert die Auswahl als Gruppe 1;
+	fr=Garde la sélection comme groupe 1;
+	es=Guarda la selección como grupo 1;
+	it=Salva la selezione come gruppo 1;
+	}
+
+[Select group 1]
+	{
+	de=Gruppe 1 wählen;
+	fr=Sélectionner le groupe 1;
+	es=Seleccionar grupo 1;
+	it=Seleziona gruppo 1;
+	}
+
+[Selects group 1; again centres on it]
+	{
+	de=Wählt Gruppe 1, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 1, une seconde fois centre dessus;
+	es=Selecciona el grupo 1, otra vez centra en él;
+	it=Seleziona il gruppo 1, di nuovo centra su di esso;
+	}
+
+[Add group 1]
+	{
+	de=Gruppe 1 hinzufügen;
+	fr=Ajouter le groupe 1;
+	es=Añadir grupo 1;
+	it=Aggiungi gruppo 1;
+	}
+
+[Adds group 1]
+	{
+	de=Fügt Gruppe 1 hinzu;
+	fr=Ajoute le groupe 1;
+	es=Añade el grupo 1;
+	it=Aggiunge il gruppo 1;
+	}
+
+[Menu page 1]
+	{
+	de=Menüseite 1;
+	fr=Page du menu 1;
+	es=Página del menú 1;
+	it=Pagina del menu 1;
+	}
+
+[Shows page 0 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 0 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 0 du menu (1 est celle des ordres);
+	es=Muestra la página 0 del menú (1 son las órdenes);
+	it=Mostra la pagina 0 del menu (1 sono gli ordini);
+	}
+
+[Assign group 2]
+	{
+	de=Gruppe 2 zuweisen;
+	fr=Attribuer le groupe 2;
+	es=Asignar grupo 2;
+	it=Assegna gruppo 2;
+	}
+
+[Stores the selection as group 2]
+	{
+	de=Speichert die Auswahl als Gruppe 2;
+	fr=Garde la sélection comme groupe 2;
+	es=Guarda la selección como grupo 2;
+	it=Salva la selezione come gruppo 2;
+	}
+
+[Select group 2]
+	{
+	de=Gruppe 2 wählen;
+	fr=Sélectionner le groupe 2;
+	es=Seleccionar grupo 2;
+	it=Seleziona gruppo 2;
+	}
+
+[Selects group 2; again centres on it]
+	{
+	de=Wählt Gruppe 2, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 2, une seconde fois centre dessus;
+	es=Selecciona el grupo 2, otra vez centra en él;
+	it=Seleziona il gruppo 2, di nuovo centra su di esso;
+	}
+
+[Add group 2]
+	{
+	de=Gruppe 2 hinzufügen;
+	fr=Ajouter le groupe 2;
+	es=Añadir grupo 2;
+	it=Aggiungi gruppo 2;
+	}
+
+[Adds group 2]
+	{
+	de=Fügt Gruppe 2 hinzu;
+	fr=Ajoute le groupe 2;
+	es=Añade el grupo 2;
+	it=Aggiunge il gruppo 2;
+	}
+
+[Menu page 2]
+	{
+	de=Menüseite 2;
+	fr=Page du menu 2;
+	es=Página del menú 2;
+	it=Pagina del menu 2;
+	}
+
+[Shows page 1 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 1 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 1 du menu (1 est celle des ordres);
+	es=Muestra la página 1 del menú (1 son las órdenes);
+	it=Mostra la pagina 1 del menu (1 sono gli ordini);
+	}
+
+[Assign group 3]
+	{
+	de=Gruppe 3 zuweisen;
+	fr=Attribuer le groupe 3;
+	es=Asignar grupo 3;
+	it=Assegna gruppo 3;
+	}
+
+[Stores the selection as group 3]
+	{
+	de=Speichert die Auswahl als Gruppe 3;
+	fr=Garde la sélection comme groupe 3;
+	es=Guarda la selección como grupo 3;
+	it=Salva la selezione come gruppo 3;
+	}
+
+[Select group 3]
+	{
+	de=Gruppe 3 wählen;
+	fr=Sélectionner le groupe 3;
+	es=Seleccionar grupo 3;
+	it=Seleziona gruppo 3;
+	}
+
+[Selects group 3; again centres on it]
+	{
+	de=Wählt Gruppe 3, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 3, une seconde fois centre dessus;
+	es=Selecciona el grupo 3, otra vez centra en él;
+	it=Seleziona il gruppo 3, di nuovo centra su di esso;
+	}
+
+[Add group 3]
+	{
+	de=Gruppe 3 hinzufügen;
+	fr=Ajouter le groupe 3;
+	es=Añadir grupo 3;
+	it=Aggiungi gruppo 3;
+	}
+
+[Adds group 3]
+	{
+	de=Fügt Gruppe 3 hinzu;
+	fr=Ajoute le groupe 3;
+	es=Añade el grupo 3;
+	it=Aggiunge il gruppo 3;
+	}
+
+[Menu page 3]
+	{
+	de=Menüseite 3;
+	fr=Page du menu 3;
+	es=Página del menú 3;
+	it=Pagina del menu 3;
+	}
+
+[Shows page 2 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 2 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 2 du menu (1 est celle des ordres);
+	es=Muestra la página 2 del menú (1 son las órdenes);
+	it=Mostra la pagina 2 del menu (1 sono gli ordini);
+	}
+
+[Assign group 4]
+	{
+	de=Gruppe 4 zuweisen;
+	fr=Attribuer le groupe 4;
+	es=Asignar grupo 4;
+	it=Assegna gruppo 4;
+	}
+
+[Stores the selection as group 4]
+	{
+	de=Speichert die Auswahl als Gruppe 4;
+	fr=Garde la sélection comme groupe 4;
+	es=Guarda la selección como grupo 4;
+	it=Salva la selezione come gruppo 4;
+	}
+
+[Select group 4]
+	{
+	de=Gruppe 4 wählen;
+	fr=Sélectionner le groupe 4;
+	es=Seleccionar grupo 4;
+	it=Seleziona gruppo 4;
+	}
+
+[Selects group 4; again centres on it]
+	{
+	de=Wählt Gruppe 4, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 4, une seconde fois centre dessus;
+	es=Selecciona el grupo 4, otra vez centra en él;
+	it=Seleziona il gruppo 4, di nuovo centra su di esso;
+	}
+
+[Add group 4]
+	{
+	de=Gruppe 4 hinzufügen;
+	fr=Ajouter le groupe 4;
+	es=Añadir grupo 4;
+	it=Aggiungi gruppo 4;
+	}
+
+[Adds group 4]
+	{
+	de=Fügt Gruppe 4 hinzu;
+	fr=Ajoute le groupe 4;
+	es=Añade el grupo 4;
+	it=Aggiunge il gruppo 4;
+	}
+
+[Menu page 4]
+	{
+	de=Menüseite 4;
+	fr=Page du menu 4;
+	es=Página del menú 4;
+	it=Pagina del menu 4;
+	}
+
+[Shows page 3 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 3 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 3 du menu (1 est celle des ordres);
+	es=Muestra la página 3 del menú (1 son las órdenes);
+	it=Mostra la pagina 3 del menu (1 sono gli ordini);
+	}
+
+[Assign group 5]
+	{
+	de=Gruppe 5 zuweisen;
+	fr=Attribuer le groupe 5;
+	es=Asignar grupo 5;
+	it=Assegna gruppo 5;
+	}
+
+[Stores the selection as group 5]
+	{
+	de=Speichert die Auswahl als Gruppe 5;
+	fr=Garde la sélection comme groupe 5;
+	es=Guarda la selección como grupo 5;
+	it=Salva la selezione come gruppo 5;
+	}
+
+[Select group 5]
+	{
+	de=Gruppe 5 wählen;
+	fr=Sélectionner le groupe 5;
+	es=Seleccionar grupo 5;
+	it=Seleziona gruppo 5;
+	}
+
+[Selects group 5; again centres on it]
+	{
+	de=Wählt Gruppe 5, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 5, une seconde fois centre dessus;
+	es=Selecciona el grupo 5, otra vez centra en él;
+	it=Seleziona il gruppo 5, di nuovo centra su di esso;
+	}
+
+[Add group 5]
+	{
+	de=Gruppe 5 hinzufügen;
+	fr=Ajouter le groupe 5;
+	es=Añadir grupo 5;
+	it=Aggiungi gruppo 5;
+	}
+
+[Adds group 5]
+	{
+	de=Fügt Gruppe 5 hinzu;
+	fr=Ajoute le groupe 5;
+	es=Añade el grupo 5;
+	it=Aggiunge il gruppo 5;
+	}
+
+[Menu page 5]
+	{
+	de=Menüseite 5;
+	fr=Page du menu 5;
+	es=Página del menú 5;
+	it=Pagina del menu 5;
+	}
+
+[Shows page 4 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 4 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 4 du menu (1 est celle des ordres);
+	es=Muestra la página 4 del menú (1 son las órdenes);
+	it=Mostra la pagina 4 del menu (1 sono gli ordini);
+	}
+
+[Assign group 6]
+	{
+	de=Gruppe 6 zuweisen;
+	fr=Attribuer le groupe 6;
+	es=Asignar grupo 6;
+	it=Assegna gruppo 6;
+	}
+
+[Stores the selection as group 6]
+	{
+	de=Speichert die Auswahl als Gruppe 6;
+	fr=Garde la sélection comme groupe 6;
+	es=Guarda la selección como grupo 6;
+	it=Salva la selezione come gruppo 6;
+	}
+
+[Select group 6]
+	{
+	de=Gruppe 6 wählen;
+	fr=Sélectionner le groupe 6;
+	es=Seleccionar grupo 6;
+	it=Seleziona gruppo 6;
+	}
+
+[Selects group 6; again centres on it]
+	{
+	de=Wählt Gruppe 6, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 6, une seconde fois centre dessus;
+	es=Selecciona el grupo 6, otra vez centra en él;
+	it=Seleziona il gruppo 6, di nuovo centra su di esso;
+	}
+
+[Add group 6]
+	{
+	de=Gruppe 6 hinzufügen;
+	fr=Ajouter le groupe 6;
+	es=Añadir grupo 6;
+	it=Aggiungi gruppo 6;
+	}
+
+[Adds group 6]
+	{
+	de=Fügt Gruppe 6 hinzu;
+	fr=Ajoute le groupe 6;
+	es=Añade el grupo 6;
+	it=Aggiunge il gruppo 6;
+	}
+
+[Menu page 6]
+	{
+	de=Menüseite 6;
+	fr=Page du menu 6;
+	es=Página del menú 6;
+	it=Pagina del menu 6;
+	}
+
+[Shows page 5 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 5 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 5 du menu (1 est celle des ordres);
+	es=Muestra la página 5 del menú (1 son las órdenes);
+	it=Mostra la pagina 5 del menu (1 sono gli ordini);
+	}
+
+[Assign group 7]
+	{
+	de=Gruppe 7 zuweisen;
+	fr=Attribuer le groupe 7;
+	es=Asignar grupo 7;
+	it=Assegna gruppo 7;
+	}
+
+[Stores the selection as group 7]
+	{
+	de=Speichert die Auswahl als Gruppe 7;
+	fr=Garde la sélection comme groupe 7;
+	es=Guarda la selección como grupo 7;
+	it=Salva la selezione come gruppo 7;
+	}
+
+[Select group 7]
+	{
+	de=Gruppe 7 wählen;
+	fr=Sélectionner le groupe 7;
+	es=Seleccionar grupo 7;
+	it=Seleziona gruppo 7;
+	}
+
+[Selects group 7; again centres on it]
+	{
+	de=Wählt Gruppe 7, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 7, une seconde fois centre dessus;
+	es=Selecciona el grupo 7, otra vez centra en él;
+	it=Seleziona il gruppo 7, di nuovo centra su di esso;
+	}
+
+[Add group 7]
+	{
+	de=Gruppe 7 hinzufügen;
+	fr=Ajouter le groupe 7;
+	es=Añadir grupo 7;
+	it=Aggiungi gruppo 7;
+	}
+
+[Adds group 7]
+	{
+	de=Fügt Gruppe 7 hinzu;
+	fr=Ajoute le groupe 7;
+	es=Añade el grupo 7;
+	it=Aggiunge il gruppo 7;
+	}
+
+[Menu page 7]
+	{
+	de=Menüseite 7;
+	fr=Page du menu 7;
+	es=Página del menú 7;
+	it=Pagina del menu 7;
+	}
+
+[Shows page 6 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 6 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 6 du menu (1 est celle des ordres);
+	es=Muestra la página 6 del menú (1 son las órdenes);
+	it=Mostra la pagina 6 del menu (1 sono gli ordini);
+	}
+
+[Assign group 8]
+	{
+	de=Gruppe 8 zuweisen;
+	fr=Attribuer le groupe 8;
+	es=Asignar grupo 8;
+	it=Assegna gruppo 8;
+	}
+
+[Stores the selection as group 8]
+	{
+	de=Speichert die Auswahl als Gruppe 8;
+	fr=Garde la sélection comme groupe 8;
+	es=Guarda la selección como grupo 8;
+	it=Salva la selezione come gruppo 8;
+	}
+
+[Select group 8]
+	{
+	de=Gruppe 8 wählen;
+	fr=Sélectionner le groupe 8;
+	es=Seleccionar grupo 8;
+	it=Seleziona gruppo 8;
+	}
+
+[Selects group 8; again centres on it]
+	{
+	de=Wählt Gruppe 8, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 8, une seconde fois centre dessus;
+	es=Selecciona el grupo 8, otra vez centra en él;
+	it=Seleziona il gruppo 8, di nuovo centra su di esso;
+	}
+
+[Add group 8]
+	{
+	de=Gruppe 8 hinzufügen;
+	fr=Ajouter le groupe 8;
+	es=Añadir grupo 8;
+	it=Aggiungi gruppo 8;
+	}
+
+[Adds group 8]
+	{
+	de=Fügt Gruppe 8 hinzu;
+	fr=Ajoute le groupe 8;
+	es=Añade el grupo 8;
+	it=Aggiunge il gruppo 8;
+	}
+
+[Menu page 8]
+	{
+	de=Menüseite 8;
+	fr=Page du menu 8;
+	es=Página del menú 8;
+	it=Pagina del menu 8;
+	}
+
+[Shows page 7 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 7 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 7 du menu (1 est celle des ordres);
+	es=Muestra la página 7 del menú (1 son las órdenes);
+	it=Mostra la pagina 7 del menu (1 sono gli ordini);
+	}
+
+[Assign group 9]
+	{
+	de=Gruppe 9 zuweisen;
+	fr=Attribuer le groupe 9;
+	es=Asignar grupo 9;
+	it=Assegna gruppo 9;
+	}
+
+[Stores the selection as group 9]
+	{
+	de=Speichert die Auswahl als Gruppe 9;
+	fr=Garde la sélection comme groupe 9;
+	es=Guarda la selección como grupo 9;
+	it=Salva la selezione come gruppo 9;
+	}
+
+[Select group 9]
+	{
+	de=Gruppe 9 wählen;
+	fr=Sélectionner le groupe 9;
+	es=Seleccionar grupo 9;
+	it=Seleziona gruppo 9;
+	}
+
+[Selects group 9; again centres on it]
+	{
+	de=Wählt Gruppe 9, ein zweites Mal zentriert darauf;
+	fr=Sélectionne le groupe 9, une seconde fois centre dessus;
+	es=Selecciona el grupo 9, otra vez centra en él;
+	it=Seleziona il gruppo 9, di nuovo centra su di esso;
+	}
+
+[Add group 9]
+	{
+	de=Gruppe 9 hinzufügen;
+	fr=Ajouter le groupe 9;
+	es=Añadir grupo 9;
+	it=Aggiungi gruppo 9;
+	}
+
+[Adds group 9]
+	{
+	de=Fügt Gruppe 9 hinzu;
+	fr=Ajoute le groupe 9;
+	es=Añade el grupo 9;
+	it=Aggiunge il gruppo 9;
+	}
+
+[Menu page 9]
+	{
+	de=Menüseite 9;
+	fr=Page du menu 9;
+	es=Página del menú 9;
+	it=Pagina del menu 9;
+	}
+
+[Shows page 8 of the menu (1 is orders)]
+	{
+	de=Zeigt Seite 8 des Menüs (1 sind die Befehle);
+	fr=Affiche la page 8 du menu (1 est celle des ordres);
+	es=Muestra la página 8 del menú (1 son las órdenes);
+	it=Mostra la pagina 8 del menu (1 sono gli ordini);
+	}
+
+[The megamap on or off]
+	{
+	de=Die Großkarte an oder aus;
+	fr=La mégacarte : activer ou désactiver;
+	es=El megamapa: activar o desactivar;
+	it=La megamappa: attiva o disattiva;
+	}
+
+[Open megamap]
+	{
+	de=Großkarte öffnen;
+	fr=Ouvrir la mégacarte;
+	es=Abrir megamapa;
+	it=Apri megamappa;
+	}
+
+[Opens the megamap]
+	{
+	de=Öffnet die Großkarte;
+	fr=Ouvre la mégacarte;
+	es=Abre el megamapa;
+	it=Apre la megamappa;
+	}
+
+[Close megamap]
+	{
+	de=Großkarte schließen;
+	fr=Fermer la mégacarte;
+	es=Cerrar megamapa;
+	it=Chiudi megamappa;
+	}
+
+[Closes the megamap and centres on the pointer]
+	{
+	de=Schließt die Großkarte und zentriert auf den Zeiger;
+	fr=Ferme la mégacarte et centre sur le pointeur;
+	es=Cierra el megamapa y centra en el puntero;
+	it=Chiude la megamappa e centra sul puntatore;
+	}
+
+[Megamap jump]
+	{
+	de=Großkarte-Sprung;
+	fr=Saut sur la mégacarte;
+	es=Salto en el megamapa;
+	it=Salto nella megamappa;
+	}
+
+[Jumps the view to a point of the megamap]
+	{
+	de=Springt mit der Ansicht zu einem Punkt der Großkarte;
+	fr=Amène la vue à un point de la mégacarte;
+	es=Lleva la vista a un punto del megamapa;
+	it=Porta la visuale a un punto della megamappa;
+	}
+
+[Accept]
+	{
+	de=Annehmen;
+	fr=Accepter;
+	es=Aceptar;
+	it=Accetta;
+	}
+
+[Presses the focused button, or the screen's default]
+	{
+	de=Drückt den Knopf mit dem Fokus, oder den Standardknopf des Bildschirms;
+	fr=Appuie sur le bouton qui a le focus, ou celui par défaut de l'écran;
+	es=Pulsa el botón con el foco, o el predeterminado de la pantalla;
+	it=Preme il pulsante con il focus, o quello predefinito della schermata;
+	}
+
+[Cancel menu]
+	{
+	de=Menü abbrechen;
+	fr=Annuler le menu;
+	es=Cancelar menú;
+	it=Annulla menu;
+	}
+
+[Closes the menu, or answers its cancel]
+	{
+	de=Schließt das Menü, oder antwortet mit seinem Abbrechen;
+	fr=Ferme le menu, ou répond par son annulation;
+	es=Cierra el menú, o responde con su cancelar;
+	it=Chiude il menu, o risponde con il suo annulla;
+	}
+
+[Press button]
+	{
+	de=Knopf drücken;
+	fr=Appuyer sur le bouton;
+	es=Pulsar botón;
+	it=Premi pulsante;
+	}
+
+[Presses the focused button]
+	{
+	de=Drückt den Knopf mit dem Fokus;
+	fr=Appuie sur le bouton qui a le focus;
+	es=Pulsa el botón con el foco;
+	it=Preme il pulsante con il focus;
+	}
+
+[Next button]
+	{
+	de=Nächster Knopf;
+	fr=Bouton suivant;
+	es=Botón siguiente;
+	it=Pulsante successivo;
+	}
+
+[Moves the focus to the next button]
+	{
+	de=Setzt den Fokus auf den nächsten Knopf;
+	fr=Met le focus sur le bouton suivant;
+	es=Mueve el foco al botón siguiente;
+	it=Sposta il focus sul pulsante successivo;
+	}
+
+[Previous button]
+	{
+	de=Vorheriger Knopf;
+	fr=Bouton précédent;
+	es=Botón anterior;
+	it=Pulsante precedente;
+	}
+
+[Moves the focus to the previous button]
+	{
+	de=Setzt den Fokus auf den vorherigen Knopf;
+	fr=Met le focus sur le bouton précédent;
+	es=Mueve el foco al botón anterior;
+	it=Sposta il focus sul pulsante precedente;
+	}
+
+[Focus up]
+	{
+	de=Fokus nach oben;
+	fr=Focus vers le haut;
+	es=Foco arriba;
+	it=Focus su;
+	}
+
+[Moves the focus up. Up itself steps a list]
+	{
+	de=Bewegt den Fokus nach oben. Pfeil hoch allein blättert in einer Liste;
+	fr=Monte le focus. La flèche haut seule fait défiler une liste;
+	es=Sube el foco. La flecha arriba sola recorre una lista;
+	it=Sposta il focus in su. La freccia su da sola scorre un elenco;
+	}
+
+[Focus down]
+	{
+	de=Fokus nach unten;
+	fr=Focus vers le bas;
+	es=Foco abajo;
+	it=Focus giù;
+	}
+
+[Moves the focus down. Down itself steps a list]
+	{
+	de=Bewegt den Fokus nach unten. Pfeil runter allein blättert in einer Liste;
+	fr=Descend le focus. La flèche bas seule fait défiler une liste;
+	es=Baja el foco. La flecha abajo sola recorre una lista;
+	it=Sposta il focus in giù. La freccia giù da sola scorre un elenco;
+	}
+
+[Focus left]
+	{
+	de=Fokus nach links;
+	fr=Focus vers la gauche;
+	es=Foco a la izquierda;
+	it=Focus a sinistra;
+	}
+
+[Moves the focus left from a button]
+	{
+	de=Bewegt den Fokus von einem Knopf nach links;
+	fr=Déplace le focus vers la gauche depuis un bouton;
+	es=Mueve el foco a la izquierda desde un botón;
+	it=Sposta il focus a sinistra da un pulsante;
+	}
+
+[Focus right]
+	{
+	de=Fokus nach rechts;
+	fr=Focus vers la droite;
+	es=Foco a la derecha;
+	it=Focus a destra;
+	}
+
+[Moves the focus right from a button]
+	{
+	de=Bewegt den Fokus von einem Knopf nach rechts;
+	fr=Déplace le focus vers la droite depuis un bouton;
+	es=Mueve el foco a la derecha desde un botón;
+	it=Sposta il focus a destra da un pulsante;
+	}
+
+[List up]
+	{
+	de=Liste nach oben;
+	fr=Liste vers le haut;
+	es=Lista arriba;
+	it=Elenco su;
+	}
+
+[Steps a list up, or moves the focus up from a button]
+	{
+	de=Blättert in einer Liste nach oben, oder bewegt den Fokus von einem Knopf nach oben;
+	fr=Remonte d'un cran dans une liste, ou monte le focus depuis un bouton;
+	es=Sube un paso en una lista, o sube el foco desde un botón;
+	it=Scorre un elenco in su, o sposta il focus in su da un pulsante;
+	}
+
+[List down]
+	{
+	de=Liste nach unten;
+	fr=Liste vers le bas;
+	es=Lista abajo;
+	it=Elenco giù;
+	}
+
+[Steps a list down, or moves the focus down from a button]
+	{
+	de=Blättert in einer Liste nach unten, oder bewegt den Fokus von einem Knopf nach unten;
+	fr=Descend d'un cran dans une liste, ou descend le focus depuis un bouton;
+	es=Baja un paso en una lista, o baja el foco desde un botón;
+	it=Scorre un elenco in giù, o sposta il focus in giù da un pulsante;
+	}
+
+[Selects the unit under the pointer, or starts a box]
+	{
+	de=Wählt die Einheit unter dem Zeiger, oder beginnt einen Rahmen;
+	fr=Sélectionne l'unité sous le pointeur, ou commence un cadre;
+	es=Selecciona la unidad bajo el puntero, o empieza un marco;
+	it=Seleziona l'unità sotto il puntatore, o inizia un riquadro;
+	}
+
+[Command]
+	{
+	de=Befehl;
+	fr=Ordre;
+	es=Orden;
+	it=Ordine;
+	}
+
+[The order the pointer shows]
+	{
+	de=Der Befehl, den der Zeiger zeigt;
+	fr=L'ordre que montre le pointeur;
+	es=La orden que muestra el puntero;
+	it=L'ordine che mostra il puntatore;
+	}
+
+[Select type]
+	{
+	de=Typ auswählen;
+	fr=Sélectionner le type;
+	es=Seleccionar tipo;
+	it=Seleziona tipo;
+	}
+
+[Every unit of that type on the map]
+	{
+	de=Jede Einheit dieses Typs auf der Karte;
+	fr=Chaque unité de ce type sur la carte;
+	es=Cada unidad de ese tipo en el mapa;
+	it=Ogni unità di quel tipo sulla mappa;
+	}
+
+[Select type on screen]
+	{
+	de=Typ auf dem Bildschirm auswählen;
+	fr=Sélectionner le type à l'écran;
+	es=Seleccionar tipo en pantalla;
+	it=Seleziona tipo sullo schermo;
+	}
+
+[That type on screen only]
+	{
+	de=Nur dieser Typ auf dem Bildschirm;
+	fr=Ce type à l'écran seulement;
+	es=Solo ese tipo en pantalla;
+	it=Solo quel tipo sullo schermo;
+	}
+
+[Add to selection]
+	{
+	de=Zur Auswahl hinzufügen;
+	fr=Ajouter à la sélection;
+	es=Añadir a la selección;
+	it=Aggiungi alla selezione;
+	}
+
+[Held: a click toggles a unit and a box adds]
+	{
+	de=Gehalten: ein Klick schaltet eine Einheit um und ein Rahmen fügt hinzu;
+	fr=Maintenu : un clic bascule une unité et un cadre ajoute;
+	es=Mantenido: un clic alterna una unidad y un marco añade;
+	it=Tenuto: un clic alterna un'unità e un riquadro aggiunge;
+	}
+
+[Pan]
+	{
+	de=Schwenken;
+	fr=Défiler;
+	es=Desplazar;
+	it=Scorri;
+	}
+
+[Pans towards the pointer]
+	{
+	de=Schwenkt zum Zeiger;
+	fr=Défile vers le pointeur;
+	es=Desplaza hacia el puntero;
+	it=Scorre verso il puntatore;
+	}
+
+[Orbit camera]
+	{
+	de=Kamera kreisen;
+	fr=Faire tourner la caméra;
+	es=Orbitar cámara;
+	it=Ruota telecamera;
+	}
+
+[Orbits the Full 3D view's camera]
+	{
+	de=Lässt die Kamera der vollen 3D-Ansicht kreisen;
+	fr=Fait tourner la caméra de la vue 3D complète;
+	es=Hace orbitar la cámara de la vista 3D completa;
+	it=Fa ruotare la telecamera della vista 3D completa;
+	}
+
+[Pan camera]
+	{
+	de=Kamera schwenken;
+	fr=Déplacer la caméra;
+	es=Desplazar cámara;
+	it=Sposta telecamera;
+	}
+
+[Pans the Full 3D view's camera]
+	{
+	de=Schwenkt die Kamera der vollen 3D-Ansicht;
+	fr=Déplace la caméra de la vue 3D complète;
+	es=Desplaza la cámara de la vista 3D completa;
+	it=Sposta la telecamera della vista 3D completa;
+	}
+
+[Mouse look]
+	{
+	de=Mausblick;
+	fr=Vue à la souris;
+	es=Vista con ratón;
+	it=Visuale col mouse;
+	}
+
+[Drags the view]
+	{
+	de=Zieht die Ansicht;
+	fr=Fait glisser la vue;
+	es=Arrastra la vista;
+	it=Trascina la visuale;
+	}
+
+[Minimap jump]
+	{
+	de=Minikarte-Sprung;
+	fr=Saut sur la minicarte;
+	es=Salto en el minimapa;
+	it=Salto nella minimappa;
+	}
+
+[Jumps the view to a minimap point]
+	{
+	de=Springt mit der Ansicht zu einem Punkt der Minikarte;
+	fr=Amène la vue à un point de la minicarte;
+	es=Lleva la vista a un punto del minimapa;
+	it=Porta la visuale a un punto della minimappa;
+	}
+
+[Minimap scroll]
+	{
+	de=Minikarte-Scrollen;
+	fr=Défilement sur la minicarte;
+	es=Desplazamiento en el minimapa;
+	it=Scorrimento nella minimappa;
+	}
+
+[Scrolls the view while held on the minimap]
+	{
+	de=Scrollt die Ansicht, solange auf der Minikarte gehalten;
+	fr=Fait défiler la vue tant qu'il est maintenu sur la minicarte;
+	es=Desplaza la vista mientras se mantiene en el minimapa;
+	it=Scorre la visuale mentre è tenuto sulla minimappa;
+	}
+
+[Zoom in]
+	{
+	de=Hineinzoomen;
+	fr=Zoom avant;
+	es=Acercar;
+	it=Zoom avanti;
+	}
+
+[Zooms in about the pointer]
+	{
+	de=Zoomt um den Zeiger hinein;
+	fr=Zoome vers le pointeur;
+	es=Acerca sobre el puntero;
+	it=Ingrandisce attorno al puntatore;
+	}
+
+[Zoom out]
+	{
+	de=Herauszoomen;
+	fr=Zoom arrière;
+	es=Alejar;
+	it=Zoom indietro;
+	}
+
+[Zooms out about the pointer]
+	{
+	de=Zoomt um den Zeiger heraus;
+	fr=Dézoome depuis le pointeur;
+	es=Aleja sobre el puntero;
+	it=Rimpicciolisce attorno al puntatore;
+	}
+
+[Queue five]
+	{
+	de=Fünf einreihen;
+	fr=Mettre cinq en file;
+	es=Encolar cinco;
+	it=Accoda cinque;
+	}
+
+[Held: a build button adds or takes five]
+	{
+	de=Gehalten: ein Bauknopf fügt fünf hinzu oder nimmt fünf weg;
+	fr=Maintenu : un bouton de construction ajoute ou retire cinq;
+	es=Mantenido: un botón de construcción añade o quita cinco;
+	it=Tenuto: un pulsante di costruzione aggiunge o toglie cinque;
+	}
+
+[Queue hundred]
+	{
+	de=Hundert einreihen;
+	fr=Mettre cent en file;
+	es=Encolar cien;
+	it=Accoda cento;
+	}
+
+[Held with the queue modifier: a build button adds or takes 100]
+	{
+	de=Mit der Einreihen-Zusatztaste gehalten: ein Bauknopf fügt 100 hinzu oder nimmt sie weg;
+	fr=Maintenu avec le modificateur de file : un bouton de construction ajoute ou retire 100;
+	es=Mantenido con el modificador de cola: un botón de construcción añade o quita 100;
+	it=Tenuto con il modificatore di coda: un pulsante di costruzione aggiunge o toglie 100;
+	}
+
+[Build add]
+	{
+	de=Bau hinzufügen;
+	fr=Ajouter à la construction;
+	es=Añadir construcción;
+	it=Aggiungi costruzione;
+	}
+
+[A build button: queue one, or start placing]
+	{
+	de=Ein Bauknopf: einen einreihen, oder mit dem Platzieren beginnen;
+	fr=Un bouton de construction : en mettre un en file, ou commencer à placer;
+	es=Un botón de construcción: encolar uno, o empezar a colocar;
+	it=Un pulsante di costruzione: accodarne uno, o iniziare a piazzare;
+	}
+
+[Build remove]
+	{
+	de=Bau entfernen;
+	fr=Retirer de la construction;
+	es=Quitar construcción;
+	it=Togli costruzione;
+	}
+
+[A build button: take one off]
+	{
+	de=Ein Bauknopf: einen wegnehmen;
+	fr=Un bouton de construction : en retirer un;
+	es=Un botón de construcción: quitar uno;
+	it=Un pulsante di costruzione: toglierne uno;
+	}
+
+[Pointer up]
+	{
+	de=Zeiger hoch;
+	fr=Pointeur haut;
+	es=Puntero arriba;
+	it=Puntatore su;
+	}
+
+[Moves the pointer up, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach oben, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers le haut, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero hacia arriba, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore in su, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer down]
+	{
+	de=Zeiger runter;
+	fr=Pointeur bas;
+	es=Puntero abajo;
+	it=Puntatore giù;
+	}
+
+[Moves the pointer down, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach unten, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers le bas, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero hacia abajo, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore in giù, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer left]
+	{
+	de=Zeiger links;
+	fr=Pointeur gauche;
+	es=Puntero izquierda;
+	it=Puntatore sinistra;
+	}
+
+[Moves the pointer left, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach links, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers la gauche, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero a la izquierda, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore a sinistra, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer right]
+	{
+	de=Zeiger rechts;
+	fr=Pointeur droite;
+	es=Puntero derecha;
+	it=Puntatore destra;
+	}
+
+[Moves the pointer right, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach rechts, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers la droite, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero a la derecha, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore a destra, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer up left]
+	{
+	de=Zeiger hoch links;
+	fr=Pointeur haut gauche;
+	es=Puntero arriba izquierda;
+	it=Puntatore su sinistra;
+	}
+
+[Moves the pointer up and left, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach oben links, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers le haut et la gauche, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero arriba y a la izquierda, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore in su e a sinistra, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer up right]
+	{
+	de=Zeiger hoch rechts;
+	fr=Pointeur haut droite;
+	es=Puntero arriba derecha;
+	it=Puntatore su destra;
+	}
+
+[Moves the pointer up and right, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach oben rechts, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers le haut et la droite, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero arriba y a la derecha, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore in su e a destra, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer down left]
+	{
+	de=Zeiger runter links;
+	fr=Pointeur bas gauche;
+	es=Puntero abajo izquierda;
+	it=Puntatore giù sinistra;
+	}
+
+[Moves the pointer down and left, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach unten links, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers le bas et la gauche, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero abajo y a la izquierda, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore in giù e a sinistra, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer down right]
+	{
+	de=Zeiger runter rechts;
+	fr=Pointeur bas droite;
+	es=Puntero abajo derecha;
+	it=Puntatore giù destra;
+	}
+
+[Moves the pointer down and right, faster the longer the key is held]
+	{
+	de=Bewegt den Zeiger nach unten rechts, schneller, je länger die Taste gehalten wird;
+	fr=Déplace le pointeur vers le bas et la droite, plus vite à mesure que la touche reste enfoncée;
+	es=Mueve el puntero abajo y a la derecha, más rápido cuanto más se mantiene la tecla;
+	it=Sposta il puntatore in giù e a destra, più veloce quanto più a lungo il tasto è tenuto;
+	}
+
+[Pointer click left]
+	{
+	de=Zeiger-Linksklick;
+	fr=Clic gauche du pointeur;
+	es=Clic izquierdo del puntero;
+	it=Clic sinistro del puntatore;
+	}
+
+[Clicks the left button. Twice quickly, a double click]
+	{
+	de=Klickt die linke Taste. Zweimal schnell, ein Doppelklick;
+	fr=Clique le bouton gauche. Deux fois vite, un double clic;
+	es=Hace clic con el botón izquierdo. Dos veces rápido, un doble clic;
+	it=Fa clic con il tasto sinistro. Due volte in fretta, un doppio clic;
+	}
+
+[Pointer click right]
+	{
+	de=Zeiger-Rechtsklick;
+	fr=Clic droit du pointeur;
+	es=Clic derecho del puntero;
+	it=Clic destro del puntatore;
+	}
+
+[Clicks the right button]
+	{
+	de=Klickt die rechte Taste;
+	fr=Clique le bouton droit;
+	es=Hace clic con el botón derecho;
+	it=Fa clic con il tasto destro;
+	}
+
+[Pointer hold left]
+	{
+	de=Linke Taste halten;
+	fr=Maintenir le bouton gauche;
+	es=Mantener botón izquierdo;
+	it=Tieni tasto sinistro;
+	}
+
+[Holds the left button down until pressed again]
+	{
+	de=Hält die linke Taste gedrückt, bis sie wieder gedrückt wird;
+	fr=Maintient le bouton gauche enfoncé jusqu'au prochain appui;
+	es=Mantiene pulsado el botón izquierdo hasta volver a pulsar;
+	it=Tiene premuto il tasto sinistro finché non lo premi di nuovo;
+	}
+
+[Pointer let go]
+	{
+	de=Zeiger loslassen;
+	fr=Relâcher le pointeur;
+	es=Soltar puntero;
+	it=Rilascia puntatore;
+	}
+
+[Lets a held mouse button go]
+	{
+	de=Lässt eine gehaltene Maustaste los;
+	fr=Relâche un bouton de souris maintenu;
+	es=Suelta un botón del ratón mantenido;
+	it=Rilascia un tasto del mouse tenuto;
+	}
+
+[Move]
+	{
+	de=Bewegen;
+	fr=Déplacer;
+	es=Mover;
+	it=Muovi;
+	}
+
+[Arms Move]
+	{
+	de=Wählt Bewegen;
+	fr=Arme Déplacer;
+	es=Arma Mover;
+	it=Arma Muovi;
+	}
+
+[Patrol]
+	{
+	de=Patrouillieren;
+	fr=Patrouiller;
+	es=Patrullar;
+	it=Pattuglia;
+	}
+
+[Arms Patrol]
+	{
+	de=Wählt Patrouillieren;
+	fr=Arme Patrouiller;
+	es=Arma Patrullar;
+	it=Arma Pattuglia;
+	}
+
+[Attack]
+	{
+	de=Angreifen;
+	fr=Attaquer;
+	es=Atacar;
+	it=Attacca;
+	}
+
+[Arms Attack]
+	{
+	de=Wählt Angreifen;
+	fr=Arme Attaquer;
+	es=Arma Atacar;
+	it=Arma Attacca;
+	}
+
+[Reclaim]
+	{
+	de=Recyceln;
+	fr=Récupérer;
+	es=Recuperar;
+	it=Recupera;
+	}
+
+[Arms Reclaim]
+	{
+	de=Wählt Recyceln;
+	fr=Arme Récupérer;
+	es=Arma Recuperar;
+	it=Arma Recupera;
+	}
+
+[Arms Repair]
+	{
+	de=Wählt Reparieren;
+	fr=Arme Réparer;
+	es=Arma Reparar;
+	it=Arma Ripara;
+	}
+
+[Arms Capture]
+	{
+	de=Wählt Einfangen;
+	fr=Arme Capturer;
+	es=Arma Capturar;
+	it=Arma Cattura;
+	}
+
+[Load]
+	{
+	de=Verladen;
+	fr=Embarquer;
+	es=Cargar;
+	it=Carica;
+	}
+
+[Arms Load]
+	{
+	de=Wählt Verladen;
+	fr=Arme Embarquer;
+	es=Arma Cargar;
+	it=Arma Carica;
+	}
+
+[Unload]
+	{
+	de=Abladen;
+	fr=Débarquer;
+	es=Descargar;
+	it=Scarica;
+	}
+
+[Arms Unload]
+	{
+	de=Wählt Abladen;
+	fr=Arme Débarquer;
+	es=Arma Descargar;
+	it=Arma Scarica;
+	}
+
+[Stop]
+	{
+	de=Halt;
+	fr=Stop;
+	es=Parar;
+	it=Ferma;
+	}
+
+[Guard]
+	{
+	de=Bewachen;
+	fr=Garder;
+	es=Proteger;
+	it=Proteggi;
+	}
+
+[Arms Defend (guard)]
+	{
+	de=Wählt Verteidigen (Bewachen);
+	fr=Arme Défendre (garder);
+	es=Arma Defender (proteger);
+	it=Arma Difendi (proteggi);
+	}
+
+[D-gun]
+	{
+	de=D-Gun;
+	fr=D-gun;
+	es=D-gun;
+	it=D-gun;
+	}
+
+[Arms BLAST (D-gun)]
+	{
+	de=Wählt SPRENGEN (D-Gun);
+	fr=Arme EXPLOSER (D-gun);
+	es=Arma DETONAR (D-gun);
+	it=Arma ESPLODI (D-gun);
+	}
+
+[Cloak]
+	{
+	de=Tarnen;
+	fr=Occulter;
+	es=Ocultar;
+	it=Occulta;
+	}
+
+[Cloak on or off]
+	{
+	de=Tarnen an oder aus;
+	fr=Occulter : activer ou désactiver;
+	es=Ocultar: activar o desactivar;
+	it=Occulta: attiva o disattiva;
+	}
+
+[On or off]
+	{
+	de=An oder aus;
+	fr=Marche ou arrêt;
+	es=Encendido o apagado;
+	it=Acceso o spento;
+	}
+
+[Activate on or off]
+	{
+	de=Aktivieren: an oder aus;
+	fr=Activer : marche ou arrêt;
+	es=Activar: encendido o apagado;
+	it=Attiva: acceso o spento;
+	}
+
+[Fire state]
+	{
+	de=Feuermodus;
+	fr=Mode de tir;
+	es=Modo de fuego;
+	it=Modalità di fuoco;
+	}
+
+[Steps the fire standing order]
+	{
+	de=Schaltet den Feuer-Dauerbefehl weiter;
+	fr=Passe à l'ordre permanent de tir suivant;
+	es=Avanza la orden permanente de fuego;
+	it=Fa avanzare l'ordine permanente di fuoco;
+	}
+
+[Move state]
+	{
+	de=Bewegungsmodus;
+	fr=Mode de déplacement;
+	es=Modo de movimiento;
+	it=Modalità di movimento;
+	}
+
+[Steps the move standing order]
+	{
+	de=Schaltet den Bewegungs-Dauerbefehl weiter;
+	fr=Passe à l'ordre permanent de déplacement suivant;
+	es=Avanza la orden permanente de movimiento;
+	it=Fa avanzare l'ordine permanente di movimento;
+	}
+
+[Self-destruct]
+	{
+	de=Selbstzerstörung;
+	fr=Autodestruction;
+	es=Autodestrucción;
+	it=Autodistruzione;
+	}
+
+[Starts or stops the countdown]
+	{
+	de=Startet oder stoppt den Countdown;
+	fr=Lance ou arrête le compte à rebours;
+	es=Inicia o detiene la cuenta atrás;
+	it=Avvia o ferma il conto alla rovescia;
+	}
+
+[Orders tab]
+	{
+	de=Reiter Befehle;
+	fr=Onglet des ordres;
+	es=Pestaña de órdenes;
+	it=Scheda ordini;
+	}
+
+[The ORDERS tab]
+	{
+	de=Der Reiter BEFEHLE;
+	fr=L'onglet ORDRES;
+	es=La pestaña ÓRDENES;
+	it=La scheda ORDINI;
+	}
+
+[Build tab]
+	{
+	de=Reiter Bauen;
+	fr=Onglet de construction;
+	es=Pestaña de construcción;
+	it=Scheda costruzione;
+	}
+
+[The BUILD tab]
+	{
+	de=Der Reiter BAUEN;
+	fr=L'onglet CONSTRUIRE;
+	es=La pestaña CONSTRUIR;
+	it=La scheda COSTRUISCI;
+	}
+
+[Queue]
+	{
+	de=Einreihen;
+	fr=File;
+	es=Cola;
+	it=Coda;
+	}
+
+[Held: orders join the queue, an armed order stays armed, queued orders show]
+	{
+	de=Gehalten: Befehle reihen sich ein, ein gewählter Befehl bleibt gewählt, eingereihte Befehle werden gezeigt;
+	fr=Maintenu : les ordres rejoignent la file, un ordre armé reste armé, les ordres en file s'affichent;
+	es=Mantenido: las órdenes se encolan, una orden armada sigue armada, se muestran las órdenes en cola;
+	it=Tenuto: gli ordini entrano in coda, un ordine armato resta armato, si vedono gli ordini in coda;
+	}
+
+[Force attack]
+	{
+	de=Angriff erzwingen;
+	fr=Forcer l'attaque;
+	es=Forzar ataque;
+	it=Forza attacco;
+	}
+
+[Held: force-attack a unit or the ground]
+	{
+	de=Gehalten: eine Einheit oder den Boden angreifen, egal was;
+	fr=Maintenu : forcer l'attaque d'une unité ou du sol;
+	es=Mantenido: forzar el ataque a una unidad o al suelo;
+	it=Tenuto: forza l'attacco a un'unità o al suolo;
+	}
+
+[Cancel order]
+	{
+	de=Befehl abbrechen;
+	fr=Annuler l'ordre;
+	es=Cancelar orden;
+	it=Annulla ordine;
+	}
+
+[Takes back an armed order or a placement only]
+	{
+	de=Nimmt nur einen gewählten Befehl oder ein Platzieren zurück;
+	fr=Annule seulement un ordre armé ou un placement;
+	es=Solo retira una orden armada o una colocación;
+	it=Ritira solo un ordine armato o un piazzamento;
+	}
+
+[Select all]
+	{
+	de=Alle auswählen;
+	fr=Tout sélectionner;
+	es=Seleccionar todo;
+	it=Seleziona tutto;
+	}
+
+[Every unit]
+	{
+	de=Jede Einheit;
+	fr=Chaque unité;
+	es=Cada unidad;
+	it=Ogni unità;
+	}
+
+[Select builders]
+	{
+	de=Bauer auswählen;
+	fr=Sélectionner les bâtisseurs;
+	es=Seleccionar constructores;
+	it=Seleziona costruttori;
+	}
+
+[Units tagged CTRL_B]
+	{
+	de=Einheiten mit CTRL_B;
+	fr=Unités marquées CTRL_B;
+	es=Unidades marcadas CTRL_B;
+	it=Unità marcate CTRL_B;
+	}
+
+[Select factories]
+	{
+	de=Fabriken auswählen;
+	fr=Sélectionner les usines;
+	es=Seleccionar fábricas;
+	it=Seleziona fabbriche;
+	}
+
+[Units tagged CTRL_F]
+	{
+	de=Einheiten mit CTRL_F;
+	fr=Unités marquées CTRL_F;
+	es=Unidades marcadas CTRL_F;
+	it=Unità marcate CTRL_F;
+	}
+
+[Select aircraft]
+	{
+	de=Luftfahrzeuge auswählen;
+	fr=Sélectionner les aéronefs;
+	es=Seleccionar aeronaves;
+	it=Seleziona aerei;
+	}
+
+[Units tagged CTRL_V]
+	{
+	de=Einheiten mit CTRL_V;
+	fr=Unités marquées CTRL_V;
+	es=Unidades marcadas CTRL_V;
+	it=Unità marcate CTRL_V;
+	}
+
+[Select on screen]
+	{
+	de=Auf dem Bildschirm auswählen;
+	fr=Sélectionner à l'écran;
+	es=Seleccionar en pantalla;
+	it=Seleziona sullo schermo;
+	}
+
+[Units on screen]
+	{
+	de=Einheiten auf dem Bildschirm;
+	fr=Unités à l'écran;
+	es=Unidades en pantalla;
+	it=Unità sullo schermo;
+	}
+
+[Select commander]
+	{
+	de=Kommandant auswählen;
+	fr=Sélectionner le commandant;
+	es=Seleccionar comandante;
+	it=Seleziona comandante;
+	}
+
+[Selects and follows the commander]
+	{
+	de=Wählt den Kommandanten und folgt ihm;
+	fr=Sélectionne et suit le commandant;
+	es=Selecciona y sigue al comandante;
+	it=Seleziona e segue il comandante;
+	}
+
+[Add commander]
+	{
+	de=Kommandant hinzufügen;
+	fr=Ajouter le commandant;
+	es=Añadir comandante;
+	it=Aggiungi comandante;
+	}
+
+[Adds the commander]
+	{
+	de=Fügt den Kommandanten hinzu;
+	fr=Ajoute le commandant;
+	es=Añade al comandante;
+	it=Aggiunge il comandante;
+	}
+
+[Select same type]
+	{
+	de=Gleichen Typ auswählen;
+	fr=Sélectionner le même type;
+	es=Seleccionar el mismo tipo;
+	it=Seleziona lo stesso tipo;
+	}
+
+[Every unit of a selected unit's type]
+	{
+	de=Jede Einheit vom Typ einer gewählten Einheit;
+	fr=Chaque unité du type d'une unité sélectionnée;
+	es=Cada unidad del tipo de una unidad seleccionada;
+	it=Ogni unità del tipo di un'unità selezionata;
+	}
+
+[Idle builders]
+	{
+	de=Untätige Bauer;
+	fr=Bâtisseurs inactifs;
+	es=Constructores inactivos;
+	it=Costruttori inattivi;
+	}
+
+[Cycles idle constructors, centring on each]
+	{
+	de=Wechselt durch untätige Bauer und zentriert auf jeden;
+	fr=Passe d'un bâtisseur inactif à l'autre, en centrant sur chacun;
+	es=Recorre los constructores inactivos, centrando en cada uno;
+	it=Scorre i costruttori inattivi, centrando su ciascuno;
+	}
+
+[Idle factories]
+	{
+	de=Untätige Fabriken;
+	fr=Usines inactives;
+	es=Fábricas inactivas;
+	it=Fabbriche inattive;
+	}
+
+[Cycles idle factories]
+	{
+	de=Wechselt durch untätige Fabriken;
+	fr=Passe d'une usine inactive à l'autre;
+	es=Recorre las fábricas inactivas;
+	it=Scorre le fabbriche inattive;
+	}
+
+[Armed on screen]
+	{
+	de=Bewaffnete auf dem Bildschirm;
+	fr=Armés à l'écran;
+	es=Armados en pantalla;
+	it=Armati sullo schermo;
+	}
+
+[Mobile armed units on screen, not aircraft]
+	{
+	de=Bewegliche bewaffnete Einheiten auf dem Bildschirm, keine Luftfahrzeuge;
+	fr=Unités mobiles armées à l'écran, sans les aéronefs;
+	es=Unidades móviles armadas en pantalla, sin aeronaves;
+	it=Unità mobili armate sullo schermo, senza aerei;
+	}
+
+[Box combat]
+	{
+	de=Rahmen: Kampf;
+	fr=Cadre : combat;
+	es=Marco: combate;
+	it=Riquadro: combattimento;
+	}
+
+[Held as a box is released: keep mobile combat units]
+	{
+	de=Gehalten, wenn ein Rahmen losgelassen wird: bewegliche Kampfeinheiten behalten;
+	fr=Maintenu quand un cadre est relâché : garder les unités de combat mobiles;
+	es=Mantenido al soltar un marco: conservar las unidades de combate móviles;
+	it=Tenuto quando un riquadro è rilasciato: tieni le unità da combattimento mobili;
+	}
+
+[Box builders]
+	{
+	de=Rahmen: Bauer;
+	fr=Cadre : bâtisseurs;
+	es=Marco: constructores;
+	it=Riquadro: costruttori;
+	}
+
+[Held as a box is released: keep constructors]
+	{
+	de=Gehalten, wenn ein Rahmen losgelassen wird: Bauer behalten;
+	fr=Maintenu quand un cadre est relâché : garder les bâtisseurs;
+	es=Mantenido al soltar un marco: conservar los constructores;
+	it=Tenuto quando un riquadro è rilasciato: tieni i costruttori;
+	}
+
+[Box factories]
+	{
+	de=Rahmen: Fabriken;
+	fr=Cadre : usines;
+	es=Marco: fábricas;
+	it=Riquadro: fabbriche;
+	}
+
+[Held as a box is released: keep factories]
+	{
+	de=Gehalten, wenn ein Rahmen losgelassen wird: Fabriken behalten;
+	fr=Maintenu quand un cadre est relâché : garder les usines;
+	es=Mantenido al soltar un marco: conservar las fábricas;
+	it=Tenuto quando un riquadro è rilasciato: tieni le fabbriche;
+	}
+
+[Next primary]
+	{
+	de=Nächste Haupteinheit;
+	fr=Unité principale suivante;
+	es=Siguiente principal;
+	it=Principale successiva;
+	}
+
+[Next selected unit becomes primary]
+	{
+	de=Die nächste gewählte Einheit wird zur Haupteinheit;
+	fr=L'unité sélectionnée suivante devient principale;
+	es=La siguiente unidad seleccionada pasa a ser la principal;
+	it=L'unità selezionata successiva diventa la principale;
+	}
+
+[Previous primary]
+	{
+	de=Vorherige Haupteinheit;
+	fr=Unité principale précédente;
+	es=Anterior principal;
+	it=Principale precedente;
+	}
+
+[Previous selected unit becomes primary]
+	{
+	de=Die vorherige gewählte Einheit wird zur Haupteinheit;
+	fr=L'unité sélectionnée précédente devient principale;
+	es=La unidad seleccionada anterior pasa a ser la principal;
+	it=L'unità selezionata precedente diventa la principale;
+	}
+
+[Clear selection]
+	{
+	de=Auswahl aufheben;
+	fr=Effacer la sélection;
+	es=Borrar selección;
+	it=Cancella selezione;
+	}
+
+[Clears the selection only]
+	{
+	de=Hebt nur die Auswahl auf;
+	fr=Efface seulement la sélection;
+	es=Solo borra la selección;
+	it=Cancella solo la selezione;
+	}
+
+[Player view]
+	{
+	de=Spieleransicht;
+	fr=Vue du joueur;
+	es=Vista del jugador;
+	it=Visuale del giocatore;
+	}
+
+[Takes the view of the player whose row is clicked]
+	{
+	de=Übernimmt die Ansicht des Spielers, dessen Zeile angeklickt wird;
+	fr=Prend la vue du joueur dont la ligne est cliquée;
+	es=Toma la vista del jugador cuya fila se pulsa;
+	it=Prende la visuale del giocatore la cui riga viene cliccata;
+	}
+
+[Lock view]
+	{
+	de=Ansicht koppeln;
+	fr=Caler la vue;
+	es=Enganchar vista;
+	it=Aggancia visuale;
+	}
+
+[Locks onto that player's camera]
+	{
+	de=Koppelt sich an die Kamera dieses Spielers;
+	fr=Se cale sur la caméra de ce joueur;
+	es=Se engancha a la cámara de ese jugador;
+	it=Si aggancia alla telecamera di quel giocatore;
+	}
+
+[Draw]
+	{
+	de=Zeichnen;
+	fr=Dessiner;
+	es=Dibujar;
+	it=Disegna;
+	}
+
+[Held: the whiteboard takes the mouse]
+	{
+	de=Gehalten: die Tafel übernimmt die Maus;
+	fr=Maintenu : le tableau prend la souris;
+	es=Mantenido: la pizarra toma el ratón;
+	it=Tenuto: la lavagna prende il mouse;
+	}
+
+[Newest marker]
+	{
+	de=Neueste Marke;
+	fr=Marqueur le plus récent;
+	es=Marca más reciente;
+	it=Segno più recente;
+	}
+
+[Goes to the newest marker]
+	{
+	de=Geht zur neuesten Marke;
+	fr=Va au marqueur le plus récent;
+	es=Va a la marca más reciente;
+	it=Va al segno più recente;
+	}
+
+[Line]
+	{
+	de=Linie;
+	fr=Ligne;
+	es=Línea;
+	it=Linea;
+	}
+
+[Draws a line]
+	{
+	de=Zeichnet eine Linie;
+	fr=Trace une ligne;
+	es=Dibuja una línea;
+	it=Disegna una linea;
+	}
+
+[Dot]
+	{
+	de=Punkt;
+	fr=Point;
+	es=Punto;
+	it=Punto;
+	}
+
+[Places a dot]
+	{
+	de=Setzt einen Punkt;
+	fr=Place un point;
+	es=Coloca un punto;
+	it=Mette un punto;
+	}
+
+[Places text]
+	{
+	de=Setzt Text;
+	fr=Place du texte;
+	es=Coloca texto;
+	it=Mette del testo;
+	}
+
+[Move marker]
+	{
+	de=Marke verschieben;
+	fr=Déplacer un marqueur;
+	es=Mover marca;
+	it=Sposta segno;
+	}
+
+[Moves a marker]
+	{
+	de=Verschiebt eine Marke;
+	fr=Déplace un marqueur;
+	es=Mueve una marca;
+	it=Sposta un segno;
+	}
+
+[Wipe]
+	{
+	de=Abwischen;
+	fr=Tout effacer;
+	es=Borrar todo;
+	it=Cancella tutto;
+	}
+
+[Wipes the board]
+	{
+	de=Wischt die Tafel ab;
+	fr=Efface le tableau;
+	es=Borra la pizarra;
+	it=Cancella la lavagna;
+	}
+
+[Erase]
+	{
+	de=Radieren;
+	fr=Gommer;
+	es=Borrar;
+	it=Cancella;
+	}
+
+[Erases a marker]
+	{
+	de=Radiert eine Marke weg;
+	fr=Gomme un marqueur;
+	es=Borra una marca;
+	it=Cancella un segno;
+	}
+
+[Opens Settings]
+	{
+	de=Öffnet die Einstellungen;
+	fr=Ouvre les Réglages;
+	es=Abre Ajustes;
+	it=Apre le Impostazioni;
+	}
+
+[Full screen]
+	{
+	de=Vollbild;
+	fr=Plein écran;
+	es=Pantalla completa;
+	it=Schermo intero;
+	}
+
+[Full screen on or off]
+	{
+	de=Vollbild an oder aus;
+	fr=Plein écran : activer ou désactiver;
+	es=Pantalla completa: activar o desactivar;
+	it=Schermo intero: attiva o disattiva;
+	}
+
+[Keys overlay]
+	{
+	de=Tasten-Overlay;
+	fr=Surcouche des touches;
+	es=Capa de teclas;
+	it=Overlay dei tasti;
+	}
+
+[The keys overlay for the screen shown]
+	{
+	de=Das Tasten-Overlay für den gezeigten Bildschirm;
+	fr=La surcouche des touches de l'écran affiché;
+	es=La capa de teclas de la pantalla mostrada;
+	it=L'overlay dei tasti della schermata mostrata;
+	}
+
+[Release pointer]
+	{
+	de=Zeiger freigeben;
+	fr=Libérer le pointeur;
+	es=Liberar puntero;
+	it=Rilascia puntatore;
+	}
+
+[Lets a captured pointer go]
+	{
+	de=Gibt einen eingefangenen Zeiger frei;
+	fr=Libère un pointeur capturé;
+	es=Libera un puntero capturado;
+	it=Rilascia un puntatore catturato;
+	}
+
+[Quits]
+	{
+	de=Beendet das Spiel;
+	fr=Quitte le jeu;
+	es=Sale del juego;
+	it=Esce dal gioco;
+	}
+
+[Accepts the screen, or presses the focused control]
+	{
+	de=Bestätigt den Bildschirm, oder drückt das Element mit dem Fokus;
+	fr=Valide l'écran, ou appuie sur le contrôle qui a le focus;
+	es=Acepta la pantalla, o pulsa el control con el foco;
+	it=Accetta la schermata, o preme il controllo con il focus;
+	}
+
+[Cancel screen]
+	{
+	de=Bildschirm abbrechen;
+	fr=Annuler l'écran;
+	es=Cancelar pantalla;
+	it=Annulla schermata;
+	}
+
+[Closes the screen on top]
+	{
+	de=Schließt den obersten Bildschirm;
+	fr=Ferme l'écran du dessus;
+	es=Cierra la pantalla de arriba;
+	it=Chiude la schermata in cima;
+	}
+
+[Moves the focus up]
+	{
+	de=Bewegt den Fokus nach oben;
+	fr=Monte le focus;
+	es=Sube el foco;
+	it=Sposta il focus in su;
+	}
+
+[Down]
+	{
+	de=Nach unten;
+	fr=Descendre;
+	es=Bajar;
+	it=Giù;
+	}
+
+[Moves the focus down]
+	{
+	de=Bewegt den Fokus nach unten;
+	fr=Descend le focus;
+	es=Baja el foco;
+	it=Sposta il focus in giù;
+	}
+
+[Moves the focus left, or steps a control]
+	{
+	de=Bewegt den Fokus nach links, oder schaltet ein Element weiter;
+	fr=Déplace le focus à gauche, ou fait avancer un contrôle;
+	es=Mueve el foco a la izquierda, o avanza un control;
+	it=Sposta il focus a sinistra, o fa avanzare un controllo;
+	}
+
+[Moves the focus right, or steps a control]
+	{
+	de=Bewegt den Fokus nach rechts, oder schaltet ein Element weiter;
+	fr=Déplace le focus à droite, ou fait avancer un contrôle;
+	es=Mueve el foco a la derecha, o avanza un control;
+	it=Sposta il focus a destra, o fa avanzare un controllo;
+	}
+
+[Presses the focused control]
+	{
+	de=Drückt das Element mit dem Fokus;
+	fr=Appuie sur le contrôle qui a le focus;
+	es=Pulsa el control con el foco;
+	it=Preme il controllo con il focus;
+	}
+
+[Next control]
+	{
+	de=Nächstes Element;
+	fr=Contrôle suivant;
+	es=Control siguiente;
+	it=Controllo successivo;
+	}
+
+[Moves the focus to the next control]
+	{
+	de=Setzt den Fokus auf das nächste Element;
+	fr=Met le focus sur le contrôle suivant;
+	es=Mueve el foco al control siguiente;
+	it=Sposta il focus sul controllo successivo;
+	}
+
+[Previous control]
+	{
+	de=Vorheriges Element;
+	fr=Contrôle précédent;
+	es=Control anterior;
+	it=Controllo precedente;
+	}
+
+[Moves the focus to the previous control]
+	{
+	de=Setzt den Fokus auf das vorherige Element;
+	fr=Met le focus sur le contrôle précédent;
+	es=Mueve el foco al control anterior;
+	it=Sposta il focus sul controllo precedente;
+	}
+
+[Page up]
+	{
+	de=Bild auf;
+	fr=Page préc.;
+	es=Re Pág;
+	it=Pag su;
+	}
+
+[Scrolls up]
+	{
+	de=Scrollt nach oben;
+	fr=Défile vers le haut;
+	es=Desplaza hacia arriba;
+	it=Scorre in su;
+	}
+
+[Page down]
+	{
+	de=Bild ab;
+	fr=Page suiv.;
+	es=Av Pág;
+	it=Pag giù;
+	}
+
+[Scrolls down]
+	{
+	de=Scrollt nach unten;
+	fr=Défile vers le bas;
+	es=Desplaza hacia abajo;
+	it=Scorre in giù;
+	}
+
+[Go to start]
+	{
+	de=Zum Anfang;
+	fr=Aller au début;
+	es=Ir al inicio;
+	it=Vai all'inizio;
+	}
+
+[Scrolls to the top, or moves to the start of a text field]
+	{
+	de=Scrollt ganz nach oben, oder geht an den Anfang eines Textfelds;
+	fr=Défile tout en haut, ou va au début d'un champ de texte;
+	es=Desplaza hasta arriba, o va al inicio de un campo de texto;
+	it=Scorre in cima, o va all'inizio di un campo di testo;
+	}
+
+[Go to end]
+	{
+	de=Zum Ende;
+	fr=Aller à la fin;
+	es=Ir al final;
+	it=Vai alla fine;
+	}
+
+[Scrolls to the end, or moves to the end of a text field]
+	{
+	de=Scrollt ans Ende, oder geht ans Ende eines Textfelds;
+	fr=Défile jusqu'à la fin, ou va à la fin d'un champ de texte;
+	es=Desplaza hasta el final, o va al final de un campo de texto;
+	it=Scorre alla fine, o va alla fine di un campo di testo;
+	}
+
+[Yes]
+	{
+	de=Ja;
+	fr=Oui;
+	es=Sí;
+	it=Sì;
+	}
+
+[Answers yes]
+	{
+	de=Antwortet mit Ja;
+	fr=Répond oui;
+	es=Responde sí;
+	it=Risponde sì;
+	}
+
+[No]
+	{
+	de=Nein;
+	fr=Non;
+	es=No;
+	it=No;
+	}
+
+[Answers no]
+	{
+	de=Antwortet mit Nein;
+	fr=Répond non;
+	es=Responde no;
+	it=Risponde no;
+	}
+
+[Information]
+	{
+	de=Information;
+	fr=Informations;
+	es=Información;
+	it=Informazioni;
+	}
+
+[Shows more about what the focus is on]
+	{
+	de=Zeigt mehr über das, worauf der Fokus liegt;
+	fr=Montre plus sur ce qui a le focus;
+	es=Muestra más sobre lo que tiene el foco;
+	it=Mostra di più su ciò che ha il focus;
+	}
+
+[Paste]
+	{
+	de=Einfügen;
+	fr=Coller;
+	es=Pegar;
+	it=Incolla;
+	}
+
+[Pastes the clipboard into the focused text field]
+	{
+	de=Fügt die Zwischenablage in das Textfeld mit dem Fokus ein;
+	fr=Colle le presse-papiers dans le champ de texte qui a le focus;
+	es=Pega el portapapeles en el campo de texto con el foco;
+	it=Incolla gli appunti nel campo di testo con il focus;
+	}
+
+[Find]
+	{
+	de=Suchen;
+	fr=Chercher;
+	es=Buscar;
+	it=Cerca;
+	}
+
+[Finds on the screen]
+	{
+	de=Sucht auf dem Bildschirm;
+	fr=Cherche dans l'écran;
+	es=Busca en la pantalla;
+	it=Cerca nella schermata;
+	}
+
+[Refreshes the screen]
+	{
+	de=Frischt den Bildschirm auf;
+	fr=Rafraîchit l'écran;
+	es=Recarga la pantalla;
+	it=Ricarica la schermata;
+	}
+
+[Next tab]
+	{
+	de=Nächster Reiter;
+	fr=Onglet suivant;
+	es=Pestaña siguiente;
+	it=Scheda successiva;
+	}
+
+[Shows the next tab]
+	{
+	de=Zeigt den nächsten Reiter;
+	fr=Affiche l'onglet suivant;
+	es=Muestra la pestaña siguiente;
+	it=Mostra la scheda successiva;
+	}
+
+[Previous tab]
+	{
+	de=Vorheriger Reiter;
+	fr=Onglet précédent;
+	es=Pestaña anterior;
+	it=Scheda precedente;
+	}
+
+[Shows the previous tab]
+	{
+	de=Zeigt den vorherigen Reiter;
+	fr=Affiche l'onglet précédent;
+	es=Muestra la pestaña anterior;
+	it=Mostra la scheda precedente;
+	}
+
+[Select {word}]
+	{
+	de={word} auswählen;
+	fr=Sélectionner {word};
+	es=Seleccionar {word};
+	it=Seleziona {word};
+	}
+
+[Selects your units tagged {word}: those on screen, then the whole map on a second press.]
+	{
+	de=Wählt deine Einheiten mit dem Stichwort {word}: die auf dem Bildschirm, beim zweiten Druck die ganze Karte.;
+	fr=Sélectionne tes unités marquées {word} : celles à l'écran, puis toute la carte au second appui.;
+	es=Selecciona tus unidades con la etiqueta {word}: las de la pantalla y, con una segunda pulsación, todo el mapa.;
+	it=Seleziona le tue unità con l'etichetta {word}: quelle sullo schermo, poi tutta la mappa alla seconda pressione.;
+	}
+
+// The key bindings: the words a chord's keycaps show (src/ui/key-bindings),
+// as each language's keyboard prints them.
+[Again]
+	{
+	de=Wiederholen;
+	fr=Répéter;
+	es=Repetir;
+	it=Ripeti;
+	}
+
+[Arrow down]
+	{
+	de=Pfeil runter;
+	fr=Flèche bas;
+	es=Flecha abajo;
+	it=Freccia giù;
+	}
+
+[Arrow left]
+	{
+	de=Pfeil links;
+	fr=Flèche gauche;
+	es=Flecha izquierda;
+	it=Freccia sinistra;
+	}
+
+[Arrow right]
+	{
+	de=Pfeil rechts;
+	fr=Flèche droite;
+	es=Flecha derecha;
+	it=Freccia destra;
+	}
+
+[Arrow up]
+	{
+	de=Pfeil hoch;
+	fr=Flèche haut;
+	es=Flecha arriba;
+	it=Freccia su;
+	}
+
+[Audio volume down]
+	{
+	de=Leiser;
+	fr=Volume moins;
+	es=Bajar volumen;
+	it=Volume giù;
+	}
+
+[Audio volume mute]
+	{
+	de=Ton aus;
+	fr=Muet;
+	es=Silencio;
+	it=Muto;
+	}
+
+[Audio volume up]
+	{
+	de=Lauter;
+	fr=Volume plus;
+	es=Subir volumen;
+	it=Volume su;
+	}
+
+[Back button]
+	{
+	de=Zurück-Taste;
+	fr=Bouton précédent;
+	es=Botón atrás;
+	it=Tasto indietro;
+	}
+
+[Backquote]
+	{
+	de=Gravis;
+	fr=Accent grave;
+	es=Acento grave;
+	it=Accento grave;
+	}
+
+[Backslash]
+	{
+	de=Rückstrich;
+	fr=Barre oblique inversée;
+	es=Barra invertida;
+	it=Barra rovesciata;
+	}
+
+[Backspace]
+	{
+	de=Rücktaste;
+	fr=Retour arrière;
+	es=Retroceso;
+	it=Backspace;
+	}
+
+[Bracket left]
+	{
+	de=Klammer auf;
+	fr=Crochet gauche;
+	es=Corchete izquierdo;
+	it=Parentesi quadra aperta;
+	}
+
+[Bracket right]
+	{
+	de=Klammer zu;
+	fr=Crochet droit;
+	es=Corchete derecho;
+	it=Parentesi quadra chiusa;
+	}
+
+[Browser back]
+	{
+	de=Browser zurück;
+	fr=Navigateur précédent;
+	es=Navegador atrás;
+	it=Browser indietro;
+	}
+
+[Browser favorites]
+	{
+	de=Browser-Favoriten;
+	fr=Favoris du navigateur;
+	es=Favoritos del navegador;
+	it=Preferiti del browser;
+	}
+
+[Browser forward]
+	{
+	de=Browser vor;
+	fr=Navigateur suivant;
+	es=Navegador adelante;
+	it=Browser avanti;
+	}
+
+[Browser home]
+	{
+	de=Browser-Startseite;
+	fr=Accueil du navigateur;
+	es=Inicio del navegador;
+	it=Home del browser;
+	}
+
+[Browser refresh]
+	{
+	de=Browser neu laden;
+	fr=Actualiser le navigateur;
+	es=Actualizar navegador;
+	it=Aggiorna browser;
+	}
+
+[Browser search]
+	{
+	de=Browser-Suche;
+	fr=Recherche du navigateur;
+	es=Búsqueda del navegador;
+	it=Ricerca del browser;
+	}
+
+[Browser stop]
+	{
+	de=Browser stoppen;
+	fr=Arrêt du navigateur;
+	es=Detener navegador;
+	it=Ferma browser;
+	}
+
+[Button]
+	{
+	de=Maustaste;
+	fr=Bouton;
+	es=Botón;
+	it=Tasto;
+	}
+
+[Comma]
+	{
+	de=Komma;
+	fr=Virgule;
+	es=Coma;
+	it=Virgola;
+	}
+
+[Context menu]
+	{
+	de=Kontextmenü;
+	fr=Menu contextuel;
+	es=Menú contextual;
+	it=Menu contestuale;
+	}
+
+[Convert]
+	{
+	de=Umwandeln;
+	fr=Conversion;
+	es=Convertir;
+	it=Converti;
+	}
+
+[Copy]
+	{
+	de=Kopieren;
+	fr=Copier;
+	es=Copiar;
+	it=Copia;
+	}
+
+[Cut]
+	{
+	de=Ausschneiden;
+	fr=Couper;
+	es=Cortar;
+	it=Taglia;
+	}
+
+[Delete]
+	{
+	de=Entf;
+	fr=Suppr;
+	es=Supr;
+	it=Canc;
+	}
+
+[Digit]
+	{
+	de=Ziffer;
+	fr=Chiffre;
+	es=Dígito;
+	it=Cifra;
+	}
+
+[Eject]
+	{
+	de=Auswerfen;
+	fr=Éjecter;
+	es=Expulsar;
+	it=Espelli;
+	}
+
+[End]
+	{
+	de=Ende;
+	fr=Fin;
+	es=Fin;
+	it=Fine;
+	}
+
+[Equal]
+	{
+	de=Gleichheitszeichen;
+	fr=Égal;
+	es=Igual;
+	it=Uguale;
+	}
+
+[Escape]
+	{
+	de=Esc;
+	fr=Esc;
+	es=Esc;
+	it=Esc;
+	}
+
+[Forward button]
+	{
+	de=Vorwärts-Taste;
+	fr=Bouton suivant;
+	es=Botón adelante;
+	it=Tasto avanti;
+	}
+
+[Help]
+	{
+	de=Hilfe;
+	fr=Aide;
+	es=Ayuda;
+	it=Aiuto;
+	}
+
+[Home key]
+	{
+	de=Pos1;
+	fr=Début;
+	es=Inicio;
+	it=Inizio;
+	}
+
+[Insert]
+	{
+	de=Einfg;
+	fr=Inser;
+	es=Insert;
+	it=Ins;
+	}
+
+[Intl backslash]
+	{
+	de=Taste <;
+	fr=Touche <;
+	es=Tecla <;
+	it=Tasto <;
+	}
+
+[Intl ro]
+	{
+	de=Ro;
+	fr=Ro;
+	es=Ro;
+	it=Ro;
+	}
+
+[Intl yen]
+	{
+	de=Yen;
+	fr=Yen;
+	es=Yen;
+	it=Yen;
+	}
+
+[Kana mode]
+	{
+	de=Kana;
+	fr=Kana;
+	es=Kana;
+	it=Kana;
+	}
+
+[Left button]
+	{
+	de=Linke Maustaste;
+	fr=Bouton gauche;
+	es=Botón izquierdo;
+	it=Tasto sinistro;
+	}
+
+[Media play pause]
+	{
+	de=Wiedergabe/Pause;
+	fr=Lecture/Pause;
+	es=Reproducir/Pausa;
+	it=Riproduci/Pausa;
+	}
+
+[Media select]
+	{
+	de=Medienauswahl;
+	fr=Choix du média;
+	es=Selección de medio;
+	it=Selezione media;
+	}
+
+[Media stop]
+	{
+	de=Medien stoppen;
+	fr=Arrêt du média;
+	es=Detener medio;
+	it=Ferma media;
+	}
+
+[Media track next]
+	{
+	de=Nächster Titel;
+	fr=Piste suivante;
+	es=Pista siguiente;
+	it=Traccia successiva;
+	}
+
+[Media track previous]
+	{
+	de=Vorheriger Titel;
+	fr=Piste précédente;
+	es=Pista anterior;
+	it=Traccia precedente;
+	}
+
+[Middle button]
+	{
+	de=Mittlere Maustaste;
+	fr=Bouton du milieu;
+	es=Botón central;
+	it=Tasto centrale;
+	}
+
+[Non convert]
+	{
+	de=Nicht umwandeln;
+	fr=Sans conversion;
+	es=No convertir;
+	it=Non convertire;
+	}
+
+[Numpad]
+	{
+	de=Ziffernblock;
+	fr=Pavé num.;
+	es=Teclado num.;
+	it=Tastierino;
+	}
+
+[Numpad add]
+	{
+	de=Ziffernblock Plus;
+	fr=Pavé num. plus;
+	es=Teclado num. más;
+	it=Tastierino più;
+	}
+
+[Numpad backspace]
+	{
+	de=Ziffernblock Rücktaste;
+	fr=Pavé num. retour;
+	es=Teclado num. retroceso;
+	it=Tastierino backspace;
+	}
+
+[Numpad clear]
+	{
+	de=Ziffernblock Löschen;
+	fr=Pavé num. effacer;
+	es=Teclado num. borrar;
+	it=Tastierino cancella;
+	}
+
+[Numpad clear entry]
+	{
+	de=Ziffernblock Eingabe löschen;
+	fr=Pavé num. effacer l'entrée;
+	es=Teclado num. borrar entrada;
+	it=Tastierino cancella voce;
+	}
+
+[Numpad comma]
+	{
+	de=Ziffernblock Komma;
+	fr=Pavé num. virgule;
+	es=Teclado num. coma;
+	it=Tastierino virgola;
+	}
+
+[Numpad decimal]
+	{
+	de=Ziffernblock Dezimal;
+	fr=Pavé num. décimale;
+	es=Teclado num. decimal;
+	it=Tastierino decimale;
+	}
+
+[Numpad divide]
+	{
+	de=Ziffernblock Geteilt;
+	fr=Pavé num. diviser;
+	es=Teclado num. dividir;
+	it=Tastierino diviso;
+	}
+
+[Numpad enter]
+	{
+	de=Ziffernblock Eingabe;
+	fr=Pavé num. entrée;
+	es=Teclado num. intro;
+	it=Tastierino invio;
+	}
+
+[Numpad equal]
+	{
+	de=Ziffernblock Gleich;
+	fr=Pavé num. égal;
+	es=Teclado num. igual;
+	it=Tastierino uguale;
+	}
+
+[Numpad hash]
+	{
+	de=Ziffernblock Raute;
+	fr=Pavé num. dièse;
+	es=Teclado num. almohadilla;
+	it=Tastierino cancelletto;
+	}
+
+[Numpad memory add]
+	{
+	de=Ziffernblock Speicher plus;
+	fr=Pavé num. mémoire plus;
+	es=Teclado num. memoria más;
+	it=Tastierino memoria più;
+	}
+
+[Numpad memory clear]
+	{
+	de=Ziffernblock Speicher löschen;
+	fr=Pavé num. effacer la mémoire;
+	es=Teclado num. borrar memoria;
+	it=Tastierino cancella memoria;
+	}
+
+[Numpad memory recall]
+	{
+	de=Ziffernblock Speicher abrufen;
+	fr=Pavé num. rappel mémoire;
+	es=Teclado num. recuperar memoria;
+	it=Tastierino richiama memoria;
+	}
+
+[Numpad memory store]
+	{
+	de=Ziffernblock Speicher setzen;
+	fr=Pavé num. stocker en mémoire;
+	es=Teclado num. guardar memoria;
+	it=Tastierino salva in memoria;
+	}
+
+[Numpad memory subtract]
+	{
+	de=Ziffernblock Speicher minus;
+	fr=Pavé num. mémoire moins;
+	es=Teclado num. memoria menos;
+	it=Tastierino memoria meno;
+	}
+
+[Numpad multiply]
+	{
+	de=Ziffernblock Mal;
+	fr=Pavé num. multiplier;
+	es=Teclado num. multiplicar;
+	it=Tastierino per;
+	}
+
+[Numpad paren left]
+	{
+	de=Ziffernblock Klammer auf;
+	fr=Pavé num. parenthèse ouvrante;
+	es=Teclado num. paréntesis izquierdo;
+	it=Tastierino parentesi aperta;
+	}
+
+[Numpad paren right]
+	{
+	de=Ziffernblock Klammer zu;
+	fr=Pavé num. parenthèse fermante;
+	es=Teclado num. paréntesis derecho;
+	it=Tastierino parentesi chiusa;
+	}
+
+[Numpad subtract]
+	{
+	de=Ziffernblock Minus;
+	fr=Pavé num. moins;
+	es=Teclado num. menos;
+	it=Tastierino meno;
+	}
+
+[Pad]
+	{
+	de=Pad;
+	fr=Manette;
+	es=Mando;
+	it=Pad;
+	}
+
+[Period]
+	{
+	de=Punkt;
+	fr=Point;
+	es=Punto;
+	it=Punto;
+	}
+
+[Power]
+	{
+	de=Netz;
+	fr=Alimentation;
+	es=Encendido;
+	it=Accensione;
+	}
+
+[Print screen]
+	{
+	de=Druck;
+	fr=Impr. écran;
+	es=Impr Pant;
+	it=Stamp;
+	}
+
+[Quote]
+	{
+	de=Apostroph;
+	fr=Apostrophe;
+	es=Apóstrofo;
+	it=Apostrofo;
+	}
+
+[Right button]
+	{
+	de=Rechte Maustaste;
+	fr=Bouton droit;
+	es=Botón derecho;
+	it=Tasto destro;
+	}
+
+[Semicolon]
+	{
+	de=Semikolon;
+	fr=Point-virgule;
+	es=Punto y coma;
+	it=Punto e virgola;
+	}
+
+[Slash]
+	{
+	de=Schrägstrich;
+	fr=Barre oblique;
+	es=Barra;
+	it=Barra;
+	}
+
+[Sleep]
+	{
+	de=Ruhezustand;
+	fr=Veille;
+	es=Suspender;
+	it=Sospensione;
+	}
+
+[Wake up]
+	{
+	de=Aufwecken;
+	fr=Réveil;
+	es=Despertar;
+	it=Riattiva;
+	}
+
+[Wheel down]
+	{
+	de=Rad runter;
+	fr=Molette bas;
+	es=Rueda abajo;
+	it=Rotella giù;
+	}
+
+[Wheel left]
+	{
+	de=Rad links;
+	fr=Molette gauche;
+	es=Rueda izquierda;
+	it=Rotella sinistra;
+	}
+
+[Wheel right]
+	{
+	de=Rad rechts;
+	fr=Molette droite;
+	es=Rueda derecha;
+	it=Rotella destra;
+	}
+
+[Wheel up]
+	{
+	de=Rad hoch;
+	fr=Molette haut;
+	es=Rueda arriba;
+	it=Rotella su;
+	}
+
+[Win]
+	{
+	de=Win;
+	fr=Win;
+	es=Win;
+	it=Win;
+	}
+
+[double]
+	{
+	de=doppelt;
+	fr=double;
+	es=doble;
+	it=doppio;
+	}
+
+[hold]
+	{
+	de=halten;
+	fr=maintenir;
+	es=mantener;
+	it=tieni;
+	}
+
+[release]
+	{
+	de=loslassen;
+	fr=relâcher;
+	es=soltar;
+	it=rilascia;
 	}
