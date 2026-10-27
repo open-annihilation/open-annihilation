@@ -14949,7 +14949,8 @@ class Runtime final : public menu::Host,
     /// Draws the chat line over the battlefield while it is taller than the
     /// TALK field and two rows above and below it, and every line while the
     /// touch controls are on: a black box across the overlays' area
-    /// (overlay_area), standing on its bottom edge, as tall as the line with
+    /// (overlay_area), standing on its bottom edge or where the player put it
+    /// with Arrange overlays (OaLayer::overlay_shown), as tall as the line with
     /// two rows above and below it, and the line in it at the battlefield's
     /// scale from the column the field's text starts at (the area's left with
     /// the touch controls on). With the touch controls on and the game's fonts
@@ -19414,8 +19415,9 @@ class Runtime final : public menu::Host,
     /// @param[out] chips the chips, cleared first
     void gather_key_latch_chips(std::vector<KeyLatchChip>& chips);
 
-    /// Draws those chips centred on the battlefield, 6 points under its top.
-    /// [runtime_hud.cpp]
+    /// Draws those chips centred on the battlefield, 6 points under its top,
+    /// or where the player put them with Arrange overlays
+    /// (OaLayer::overlay_shown). [runtime_hud.cpp]
     void draw_key_latch_chips();
 
     /// What the hold ring and its card draw from the press that is running.
