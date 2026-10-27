@@ -469,8 +469,10 @@ void reset_and_empty_are_disabled_when_they_cannot_act() {
     OA_CHECK(layout_has(dialog, "Made at your first download"));
     OA_CHECK(!layout_has(dialog, "Your install ID"));
 
+    // EMPTY is the last row's button; the end of the scroll shows it whole.
     offer.kept_bytes = 0;
     dialog = opened(offer);
+    dialog.scroll[static_cast<std::size_t>(Page::downloads)] = settings::scroll_limit(dialog);
     const NamedControl empty = control_named(dialog, "settings.downloaded-files.empty");
     OA_CHECK(empty.found && !empty.enabled);
     OA_CHECK(click_caption(dialog, "EMPTY") != DialogAction::empty_downloads);
@@ -478,6 +480,7 @@ void reset_and_empty_are_disabled_when_they_cannot_act() {
     offer.kept_bytes = kKept;
     offer.downloads_busy = true;
     dialog = opened(offer);
+    dialog.scroll[static_cast<std::size_t>(Page::downloads)] = settings::scroll_limit(dialog);
     const NamedControl busy = control_named(dialog, "settings.downloaded-files.empty");
     OA_CHECK(busy.found && !busy.enabled);
     OA_CHECK(click_caption(dialog, "EMPTY") != DialogAction::empty_downloads);
