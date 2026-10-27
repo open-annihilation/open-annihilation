@@ -28,6 +28,7 @@ Every example below is taken from it as it is built and checked.
 - [Why the kit](#why-the-kit)
 - [Provisional until it is stable](#provisional-until-it-is-stable)
 - [Sizes and scales](#sizes-and-scales)
+- [Kit 2's look](#kit-2s-look)
 - [A Settings page](#a-settings-page)
 - [A kit screen](#a-kit-screen)
 - [Notices and prompts](#notices-and-prompts)
@@ -87,35 +88,63 @@ scale at which Compact's 480 by 324 point dialog fits the window. While the
 modern fonts are on and opened, 150% is one of the steps and a tie takes
 the larger: 1x below 900 lines, 150% from 900, 2x from 1260 and 3x from
 1800. While they are off, or they did not open, the steps are whole: 1x
-below 1080 lines, 2x from 1080, 3x from 1800. The points left over choose
-the size class: Compact below 960 by 540 points, Regular from 960 by 540,
-Large from 1280 by 720 (`SizeClass`, `size_class_of` in
-[layout.hpp][layout]). At some common windows, with 150% not offered:
+below 1080 lines, 2x from 1080, 3x from 1800.
+
+The points left over choose the size class: the largest whose settings
+dialog fits them with `class_margin` (24) points round it, so Compact
+below 768 by 534 points, Regular from `regular_from` (768 by 534) and
+Large from `large_from` (1008 by 648) (`SizeClass`, `size_class_of` in
+[layout.hpp][layout]). Where Auto's scale leaves the room below Large and
+one step down gives Large, Auto takes that step (`layer_viewport`), so a
+larger window shows the larger layout rather than the smaller one drawn
+bigger. At some common windows, with 150% not offered:
 
 | Window | Auto scale | Points | Size class |
 |---|---|---|---|
 | 640x480 | 1x | 640 by 480 | Compact, pixel for pixel as 0.7.3 |
-| 1024x768 | 1x | 1024 by 768 | Regular |
+| 800x600 | 1x | 800 by 600 | Regular |
+| 1024x768 | 1x | 1024 by 768 | Large |
 | 1280x720 | 1x | 1280 by 720 | Large |
-| 1920x1080 | 2x | 960 by 540 | Regular |
+| 1920x1080 | 1x, a step down from 2x | 1920 by 1080 | Large |
 | 2560x1440 | 2x | 1280 by 720 | Large |
 | 3840x2160 | 3x | 1280 by 720 | Large |
 | a phone, 852 by 393 points at 3 pixels a point | 3x | 852 by 393 | Compact |
 
 With the modern fonts on, 1920x1080 is 1.5x instead: 1280 by 720 points,
-Large. A window a few lines short of 1080, such as 1914x1077, is 1.5x and
-Regular. 2560x1440 stays 2x.
+Large. 2560x1440 stays 2x.
 
-The player's Interface size (Settings › Graphics) replaces Auto with 100%,
-150%, 200%, 300% or 400%, held the same way. 150% is offered only while the
-modern fonts are on: the game's bitmap fonts take only whole steps, so the
-kit draws 150% on its smooth form, in the modern fonts, with every edge on
-a whole pixel. A 1920x1080 window at 150% is Large, at 1.5x.
+The player's Interface size (Settings › User Interface) replaces Auto with
+100%, 150%, 200%, 300% or 400%, held the same way and never stepped down.
+150% is offered only while the modern fonts are on: the game's bitmap fonts
+take only whole steps, so the kit draws 150% on its smooth form, in the
+modern fonts, with every edge on a whole pixel. A 1920x1080 window at 150%
+is Large, at 1.5x. The player's Window size (the same section) chooses the
+class instead of Auto: a chosen class is used wherever its dialog fits the
+room whole, and is held to the largest that fits elsewhere
+(`size_class_within`); Auto's step down then serves that class.
 
-Each class has its metrics (`metrics_of` in [layout.hpp][layout], the values
-in `theme.hpp`). They differ only in the room a dialog takes; rows, text,
-buttons and every control keep Compact's sizes, so a larger class shows
-more of them rather than larger ones:
+Each class has its metrics (`metrics_of` in [layout.hpp][layout], the
+values in `theme.hpp`), of two kinds. Kit 2's scales grow with the class:
+the type scale (`title_size`, `label_size`, `body_size`, `small_size`),
+the spacing (`space` 4, 6 and 8 points, `row_gap`, `section_gap`,
+`window_padding` 12, 18 and 24), the radii (`keycap_radius` to
+`dialog_radius`), and Kit 2's control sizes:
+
+| Metric | Compact | Regular | Large |
+|---|---|---|---|
+| `control_height` | 28 | 34 | 38 |
+| `row_height` | 36 | 40 | 44 |
+| `text_field_height` | 30 | 36 | 40 |
+| `filter_chip_height` | 24 | 26 | 28 |
+| `tab_strip_height` | 32 | 38 | 44 |
+| `window_header_height`, `window_footer_height` | 36, 48 | 36, 48 | 36, 48 |
+| `window_radius`, `dialog_radius` | 10, 12 | 11, 13 | 12, 14 |
+
+The members the older layouts are built on (`button_height`,
+`field_height`, `tab_height`, `header_height`, `footer_height`, `padding`
+and the rest) keep Compact's sizes in every class and differ only in the
+room a dialog takes, so a screen laid out with them shows more rows at a
+larger class rather than larger ones:
 
 | Metric | Compact | Regular | Large |
 |---|---|---|---|
@@ -125,9 +154,53 @@ more of them rather than larger ones:
 | `notice_width` | 400 | 520 | 600 |
 | `greatest_notice_height` | 440 | 500 | 640 |
 
-A layout takes its sizes from the frame it is given (`Frame`: its area in
+Settings, the Library and the key editor are laid out on Kit 2's sizes. A
+layout takes its sizes from the frame it is given (`Frame`: its area in
 points, its size class and its scale) and from `metrics_of` that class,
 never from the window, and works in the smallest room as in the largest.
+
+The engine rounds the corners of the windows and dialogs it shows: a
+window that moves takes its class's `window_radius`, a notice, a prompt or
+a question its `dialog_radius`, and the picture behind shows outside the
+curve. A screen draws its own rectangle square; the rounding is the
+layer's.
+
+## Kit 2's look
+
+The colours are tokens (`kit::colour` in `theme.hpp`): a ramp of five
+surfaces from the bars and wells to the selected row, three text tones
+(primary, secondary and tertiary, which hints and quiet text take), the
+lime accent with its light tone, which is the focus ring, caution amber,
+a lifted red for danger, an information blue, and the brand gold, worn
+only by the OA mark. Badges and chips take tinted fills of those colours.
+Buttons come in looks (`ButtonStyle`): the primary, lime with dark ink;
+the secondary, raised with a strong edge; quiet, a lime caption with no
+face at rest; and danger, outlined in red. Buttons, fields, drop-downs,
+list rows, cards and menus are rounded with the control's or the card's
+radius; chips, pills, the switch, the slider and the progress bar are
+pills. The switch is a 42-point track with a round knob, lime while On. A
+focused control wears a one-point ring of the light accent one point
+clear of it, and a focused field also takes a soft ring. A progress bar
+drawn paused (`ProgressLook::paused`) fills amber.
+[src/ui/kit/README.md](../../src/ui/kit/README.md) lists every token and
+its value.
+
+The letters follow the player's Look (Settings › User Interface). In the
+modern look, the default, the kit draws in Barlow: labels, values and
+buttons in Barlow SemiBold, hints and small text in Barlow Regular, and
+tracked capitals, window titles and section headings, in Barlow
+Condensed, at the type scale's steps (`TextLevel`), with DejaVu Sans, a
+language's own face and Noto Emoji drawing what Barlow lacks. In the
+classic look it draws the game's two bitmap fonts, titles and labels in
+the regular font and body and small text in the small one
+(`classic_font`). `kit::Fonts::modern` is the modern look's font stack,
+null in the classic look; `modern_look` tells which look a `Fonts` draws,
+and `ModernType`, `modern_type`, `modern_width`, `modern_line` and
+`modern_capitals` measure and draw in it. A screen that measures its
+words with `text_width` or `tracked_width` and draws them with `box_text`
+follows the look with no change of its own. A screen that sizes its parts
+from the game font's widths should measure its words instead, since
+Barlow's widths differ.
 
 ## A Settings page
 
@@ -398,8 +471,9 @@ kit::DisplayList lay_out_screen(void*, const kit::Frame& frame) {
   [components.hpp][components] (buttons, switches,
   level strips, sliders, drop-downs, the lock, the focus ring, and
   `draw_tag_icon` for the eight catalogue tag icons),
-  [components_more.hpp][components_more] (the progress bar, and a question's
-  item lines),
+  [components_more.hpp][components_more] (the progress bar, drawn amber
+  while paused, a question's item lines and its parts, and the update
+  pill),
   [chrome.hpp][chrome] (the nav list, whose entries can lead with a tag icon)
   and [rows.hpp][rows] (declared rows, `add_rows`). A tag icon is strokes
   sampled at the canvas's pixels, not a picture. A package badge
@@ -498,7 +572,15 @@ buttons (`app::most_prompt_buttons`).
 A question can also list packages under its paragraphs. Each `QuestionItem`
 is a badge (`BadgeLook`), a name and an aside drawn after the name in the
 hint colour. The kit draws them; the caller supplies the words. With no
-items the question is unchanged.
+items the question is unchanged. The engine's own questions can also hold
+parts (`Question::parts`): a paragraph in the secondary colour, a tinted
+callout with its mark, one box across or two side by side, each a heading
+and lines marked done, failed or with a bullet, and a quiet button at the
+footer's left or a danger button outlined in red. The update screens use
+them; the services table's requests do not carry them.
+
+The engine shows a notice or a prompt with rounded corners, its class's
+`dialog_radius`.
 
 Both are requests in [screen_registry/kit.hpp][regkit], queued through the
 services table, which copies the request and every string it names at
