@@ -97,7 +97,11 @@ artless::Surface expected_layer_frame(
             oa::ui::kit::rgb(oa::ui::kit::colour::backdrop),
             oa::ui::kit::menu_backdrop_opacity
         );
-    // The drawing at its place, pixel for pixel.
+    // The drawing at its place, pixel for pixel, its corners rounded as the
+    // layer rounds them: what lies outside them shows the frame behind.
+    LayerDrawing rounded;
+    rounded.picture = drawing;
+    round_layer_corners(rounded, placement.corner_radius, placement.scale_percent);
     const auto& shown = placement.shown;
     const auto drawn_width = static_cast<int32_t>(drawing.width);
     const auto drawn_height = static_cast<int32_t>(drawing.height);
@@ -111,10 +115,11 @@ artless::Surface expected_layer_frame(
     );
     for (int32_t row = top; row < bottom; ++row)
         for (int32_t column = left; column < right; ++column) {
-            const auto* from =
-                drawing.rgb.data() + (static_cast<std::size_t>(row - shown.y) * drawing.width +
-                                      static_cast<std::size_t>(column - shown.x)) *
-                                         3U;
+            const std::size_t source = static_cast<std::size_t>(row - shown.y) * drawing.width +
+                                       static_cast<std::size_t>(column - shown.x);
+            if (!rounded.opacity.empty() && rounded.opacity[source] == 0)
+                continue;
+            const auto* from = rounded.picture.rgb.data() + source * 3U;
             auto* to = expected.rgb.data() + (static_cast<std::size_t>(row) * expected.width +
                                               static_cast<std::size_t>(column)) *
                                                  3U;

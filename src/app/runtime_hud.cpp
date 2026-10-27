@@ -1806,12 +1806,24 @@ void Runtime::draw_key_latch_chips() {
     int32_t origin = canvas.placement.clip.x;
     if (total < span)
         origin += (span - total) / 2;
+    // Centred under the area's top, or where the player put the chips
+    // (Arrange overlays), in the area's canvas pixels.
+    int32_t row_top = top;
+    {
+        const oa::ui::display_layout::Rect unplaced{
+            area.x + origin * scale, area.y + top * scale, total * scale, chip_height * scale
+        };
+        const oa::ui::display_layout::Rect shown =
+            oa_layer().overlay_shown(overlay_placement::latch_chips, unplaced);
+        origin += (shown.x - unplaced.x) / scale;
+        row_top += (shown.y - unplaced.y) / scale;
+    }
     for (const Placed& item : row) {
         key_latch_chips_drawn_.push_back(item.text);
         kit::ChipLook look;
         look.text = item.text;
         look.state = item.filled ? kit::ChipState::playing : kit::ChipState::installed;
-        kit::draw_chip(canvas, {origin, top, item.width, chip_height}, look);
+        kit::draw_chip(canvas, {origin, row_top, item.width, chip_height}, look);
         origin += item.width + gap;
     }
 }

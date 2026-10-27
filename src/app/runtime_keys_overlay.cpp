@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // The keys overlay in a match: a panel beside the side column listing the
-// keys of the contexts that are active now. It is not modal: the match keeps
-// running, and what the panel does not take goes on to the match.
+// keys of the contexts that are active now, or where the player put it with
+// Arrange overlays. It is not modal: the match keeps running, and what the
+// panel does not take goes on to the match.
 
 #include "oa/app/runtime.hpp"
 
@@ -100,7 +101,8 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
     /// @return true
     [[nodiscard]] bool revision_covers_drawing() const override { return true; }
 
-    /// Lays the panel out for the battlefield beside the side column.
+    /// Lays the panel out for the battlefield beside the side column, then
+    /// moves it to the place the player gave it (Arrange overlays).
     ///
     /// @param placed_on what the screen is placed on
     void lay_out(const LayerView& placed_on) override {
@@ -261,6 +263,12 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
     /// The overlay keeps nothing of its own once it closes.
     void close(bool /*by_key*/) override {}
 
+    /// Returns where the panel lays itself out, before the player's place
+    /// for it (OaLayer::overlay_shown).
+    ///
+    /// @return the panel, in canvas pixels; empty before it is laid out
+    [[nodiscard]] const layout::Rect& unplaced() const noexcept { return unplaced_; }
+
   private:
 
     /// Lays the groups out again when what they show has changed.
@@ -284,6 +292,18 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
         const std::vector<editor::OverlayGroup> groups = editor::overlay_groups(inputs);
         editor::OverlayLayout laid = editor::overlay_layout(inputs, groups, room_, *fonts, scroll_);
         scroll_ = laid.scroll;
+        // Where the panel lays itself out, then where the player put it
+        // (Arrange overlays), at the in-match dialogs' scale.
+        const int32_t scale = std::max(scale_percent_, int32_t{100});
+        const kit::Rect unplaced =
+            scale_percent_ > 0 ? kit::to_canvas(laid.panel, scale) : laid.panel;
+        unplaced_ = {unplaced.x, unplaced.y, unplaced.width, unplaced.height};
+        const layout::Rect shown =
+            runtime_.oa_layer().overlay_shown(editor::name_keys_overlay, unplaced_);
+        if (shown.x != unplaced_.x || shown.y != unplaced_.y) {
+            laid.panel.x = scale_percent_ > 0 ? pixel_to_point(shown.x, scale) : shown.x;
+            laid.panel.y = scale_percent_ > 0 ? pixel_to_point(shown.y, scale) : shown.y;
+        }
         const bool changed = !laid_ || placed != stamp_ || laid.panel.x != laid_out_.panel.x ||
                              laid.panel.y != laid_out_.panel.y ||
                              laid.panel.width != laid_out_.panel.width ||
@@ -302,9 +322,22 @@ struct Runtime::KeysOverlayScreen final : LayerScreen {
     int32_t scroll_{0};                ///< how far the groups are scrolled, in points
     int32_t scale_percent_{100};       ///< the in-match dialogs' scale; 0 fitted
     std::string stamp_{};              ///< what the panel was last laid out for
+    layout::Rect unplaced_{};          ///< where the panel lays itself out, in canvas pixels
     uint64_t revision_{1};             ///< changes with what the panel draws
     bool laid_{false};                 ///< laid out over a match
 };
+
+layout::Rect OaLayer::keys_overlay_unplaced() const {
+    if (screen_fonts() == nullptr)
+        return {};
+    const LayerView seen = view();
+    if (!seen.match)
+        return {};
+    // The panel as it would be laid out now, whether or not it is open.
+    Runtime::KeysOverlayScreen panel(runtime_);
+    panel.lay_out(seen);
+    return panel.unplaced();
+}
 
 void Runtime::toggle_keys_overlay_screen() {
     if (LayerScreen* open = oa_layer().find(editor::name_keys_overlay)) {

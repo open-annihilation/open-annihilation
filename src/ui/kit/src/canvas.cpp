@@ -718,6 +718,27 @@ void ring_corner_rect(
     blend_round(canvas, rect, radius, hole_px, ink, true);
 }
 
+std::vector<uint8_t> corner_coverage(int32_t radius_px, int32_t hole_px, bool stepped) {
+    if (radius_px <= 0 || radius_px > kMostRoundedPixels / 2)
+        return {};
+    // A circle of the radius has the same top left quarter as every
+    // rectangle whose corners take it.
+    const int32_t side = 2 * radius_px;
+    const std::vector<uint8_t> circle =
+        capsule_coverage(side, side, radius_px, std::max(hole_px, int32_t{0}), stepped, true);
+    std::vector<uint8_t> corner(
+        static_cast<std::size_t>(radius_px) * static_cast<std::size_t>(radius_px)
+    );
+    for (int32_t row = 0; row < radius_px; ++row)
+        for (int32_t column = 0; column < radius_px; ++column)
+            corner
+                [static_cast<std::size_t>(row) * static_cast<std::size_t>(radius_px) +
+                 static_cast<std::size_t>(column)] = circle
+                    [static_cast<std::size_t>(row) * static_cast<std::size_t>(side) +
+                     static_cast<std::size_t>(column)];
+    return corner;
+}
+
 void rule_rect(const Canvas& canvas, const Rect& rect, Colour ink) {
     if (!is_smooth(canvas)) {
         // A rule is a fill one pixel high or wide at a whole scale.

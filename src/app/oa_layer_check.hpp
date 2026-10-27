@@ -77,7 +77,8 @@ window_pointer(const LayerView& view, oa::ui::display_layout::Point picture_poin
 /// over the front end: the frame presented with no OA screen open, every
 /// pixel darkened as a modal screen's backdrop darkens it (the backdrop's
 /// colour blended at the main menu's opacity, once for each such screen),
-/// with the screen's own drawing copied at its placement.
+/// with the screen's own drawing copied at its placement, its corners rounded
+/// by the placement's radius as the layer rounds them (round_layer_corners).
 ///
 /// The frames are compared at the display gamma the window shows; the
 /// darkening is the frame's own, so the comparison holds where that gamma

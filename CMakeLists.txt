@@ -1205,6 +1205,16 @@ if(BUILD_TESTING)
       oa-test-support oa-options)
     add_test(NAME app-window-placement COMMAND oa-app-window-placement-test)
     set_tests_properties(app-window-placement PROPERTIES TIMEOUT 30)
+    # The places of the overlays Arrange overlays moves: their keys and values
+    # for each size class, the 8-point grid from the nearest edge or the
+    # centre, a drag, an arrow, the handles, Reset, and none off the
+    # overlays' area nor over the side column.
+    add_executable(oa-app-overlay-placement-test src/app/oa_layer_overlays_test.cpp
+      src/app/oa_layer_overlays.cpp src/app/window_placement.cpp)
+    target_link_libraries(oa-app-overlay-placement-test PRIVATE oa-ui-kit oa-ui-display-layout
+      oa-test-support oa-options)
+    add_test(NAME app-overlay-placement COMMAND oa-app-overlay-placement-test)
+    set_tests_properties(app-overlay-placement PROPERTIES TIMEOUT 30)
     # The texture limit the render policy corrects from the probe's report,
     # the line the game logs once its renderer is made, naming the driver,
     # the adapter, the texture limit and the tier with what it does or why
@@ -1333,6 +1343,8 @@ set(oa_game_sources src/app/main.cpp src/app/full_screen.cpp src/app/runtime_win
   src/app/runtime_engine_settings_menu.cpp
   src/app/runtime_engine_settings_match.cpp
   src/app/oa_layer.cpp
+  src/app/oa_layer_arrange.cpp
+  src/app/oa_layer_overlays.cpp
   src/app/window_placement.cpp
   src/app/runtime_library.cpp src/app/runtime_library_actions.cpp
   src/app/runtime_map_browser.cpp
@@ -2384,9 +2396,12 @@ if(OA_BUILD_PLATFORM)
       # The keys overlay beside the side column, the order and build cell
       # badges, the help lines, the rotate hint and the latch chips, on a
       # skirmish whose mod turns buildings: the check gives the mod's folder
-      # a light laser tower with four facings. --snapshot writes
-      # keys-overlay-<w>x<h>.ppm and key-badges-<w>x<h>.ppm. Each run starts
-      # from a clean folder. The mod's profile stays.
+      # a light laser tower with four facings. Then Arrange overlays from the
+      # in-game menu: the keys overlay and the chat line dragged on the grid,
+      # kept for the size class, Reset and the overlays' own places at three
+      # window sizes. --snapshot writes keys-overlay-<w>x<h>.ppm,
+      # key-badges-<w>x<h>.ppm and arrange-overlays-<w>x<h>.ppm. Each run
+      # starts from a clean folder. The mod's profile stays.
       set(oa_keys_overlay_dir "${CMAKE_CURRENT_BINARY_DIR}/native-checks/keys-overlay")
       file(MAKE_DIRECTORY "${oa_keys_overlay_dir}/mod")
       file(WRITE "${oa_keys_overlay_dir}/mod/oamod.yaml"
@@ -2412,6 +2427,9 @@ if(OA_BUILD_PLATFORM)
         "${oa_keys_overlay_dir}/key-badges-640x480.ppm"
         "${oa_keys_overlay_dir}/key-badges-1280x720.ppm"
         "${oa_keys_overlay_dir}/key-badges-1920x1080.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-640x480.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-1280x720.ppm"
+        "${oa_keys_overlay_dir}/arrange-overlays-1920x1080.ppm"
         "${oa_keys_overlay_dir}/mod/units")
       set_tests_properties(keys-overlay-clean PROPERTIES FIXTURES_SETUP keys-overlay-clean)
       add_test(NAME native-keys-overlay COMMAND oa-game --game-dir "${OA_GAME_DIR}"
@@ -2423,7 +2441,18 @@ if(OA_BUILD_PLATFORM)
       set_tests_properties(native-keys-overlay PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
         WORKING_DIRECTORY "${oa_keys_overlay_dir}"
         ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
-        FIXTURES_REQUIRED keys-overlay-clean)
+        FIXTURES_REQUIRED keys-overlay-clean FIXTURES_SETUP keys-overlay-arranged)
+      # The game started again on the places native-keys-overlay arranged:
+      # the keys overlay and the chat line show where they were left.
+      add_test(NAME native-keys-overlay-restart COMMAND oa-game --game-dir "${OA_GAME_DIR}"
+        --skip-intro --mute --check-keys-overlay
+        --mod-dir "${oa_keys_overlay_dir}/mod"
+        --preferences-file "${oa_keys_overlay_dir}/keys-overlay.conf"
+        --user-folder "${oa_keys_overlay_dir}/Open Annihilation")
+      set_tests_properties(native-keys-overlay-restart PROPERTIES TIMEOUT ${OA_NATIVE_CHECK_TIMEOUT}
+        WORKING_DIRECTORY "${oa_keys_overlay_dir}"
+        ENVIRONMENT "SDL_VIDEO_DRIVER=dummy;SDL_AUDIO_DRIVER=dummy;SDL_RENDER_DRIVER=software"
+        FIXTURES_REQUIRED keys-overlay-arranged)
       # Capturing a chord, a clash, Escape held for a second, and a draft
       # clash's card, over a paused skirmish. Each run starts from a clean
       # folder. --snapshot writes key-capture-<w>x<h>.ppm and

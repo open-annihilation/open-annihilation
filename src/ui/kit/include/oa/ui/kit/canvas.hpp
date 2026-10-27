@@ -28,6 +28,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace oa::ui::kit {
 
@@ -301,6 +302,21 @@ void draw_mark(
 void blend_coverage(
     const Canvas& canvas, const Rect& rect, std::span<const uint8_t> coverage, Colour ink
 );
+
+/// Returns how much of each pixel of a rounded rectangle's top left corner
+/// the shape covers, or its ring of a thickness round the inside, worked out
+/// as fill_corner_rect and ring_corner_rect work out every corner: 16
+/// samples a pixel, and at a stepped scale a pixel more than half covered is
+/// covered and the rest are not. The other three corners are the same
+/// mirrored. The OA layer rounds a window's corners with it.
+///
+/// @param radius_px the corner's radius, in pixels
+/// @param hole_px the ring's thickness, in pixels; 0 for the filled shape
+/// @param stepped true rounds each pixel to covered (255) or not (0)
+/// @return radius_px times radius_px bytes, rows top to bottom, 0 to 255;
+///     empty for a radius of 0 or less
+[[nodiscard]] std::vector<uint8_t>
+corner_coverage(int32_t radius_px, int32_t hole_px, bool stepped);
 
 /// How a rectangle is drawn on after it has been laid out flat: turned about
 /// its vertical axis, and covered by an opacity.

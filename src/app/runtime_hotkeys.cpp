@@ -16,6 +16,7 @@
 #include "oa/ui/decoded.hpp"
 #include "engine_settings_state.hpp"
 #include "match_models.hpp"
+#include "oa_layer.hpp"
 #include "oa/sim/speed.hpp"
 #include "oa/ui/console/game_fields.hpp"
 #include "oa/ui/console/hotkeys.hpp"
@@ -1578,9 +1579,17 @@ void Runtime::draw_risen_chat_line() {
     if (right <= left)
         return;
     const int bottom = area.y + area.height;
+    // Standing on the area's bottom edge, or where the player put the line
+    // (Arrange overlays).
+    const auto placed_at = [&](int top) {
+        const layout::Rect shown = oa_layer().overlay_shown(
+            overlay_placement::chat_line, {left, top, right - left, bottom - top}
+        );
+        return canvas_paint(shown.x, shown.y);
+    };
     if (layers) {
         const int top = std::max(bottom - layers->height - 2 * inset, area.y);
-        const auto at = canvas_paint(left, top);
+        const auto at = placed_at(top);
         fill_hud_rect(at.x, at.y, right - left, bottom - top, view_rules::chat_backdrop_color);
         const int baseline = at.y + inset + layers->baseline;
         std::ignore =
@@ -1613,7 +1622,7 @@ void Runtime::draw_risen_chat_line() {
     }
     const int text_height = static_cast<int>(oa::formats::fnt::line_height(*font)) * scale;
     const int top = std::max(bottom - text_height - 2 * inset, area.y);
-    const auto at = canvas_paint(left, top);
+    const auto at = placed_at(top);
     fill_hud_rect(at.x, at.y, right - left, bottom - top, view_rules::chat_backdrop_color);
     draw_match_text(font, at.x + pen - left, at.y + inset, line, kChatTextColor, scale);
     // The input method's composition, as much of it as the line shows, is

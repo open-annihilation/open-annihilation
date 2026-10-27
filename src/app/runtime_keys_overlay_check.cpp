@@ -6,9 +6,15 @@
 // changes its title, Escape closes it, and EDIT KEYS… opens the editor,
 // which holds the clock. The order badges, the underline, the help lines,
 // the build cell's badge, the rotate hint and a latched QUEUE in the On line
-// follow the bindings. --snapshot writes keys-overlay-<w>x<h>.ppm and
-// key-badges-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, on OA default
-// with QUEUE latched.
+// follow the bindings. Then Arrange Overlays from the in-game menu: a handle
+// on each overlay inside the overlays' area, the keys overlay and the chat
+// line dragged to places on the 8-point grid, Reset, Done, the places kept
+// at another window size of the same class and not at Compact. The places
+// stay in the preferences: run again on them (the preferences already hold
+// the keys overlay's place), the check finds the keys overlay and the chat
+// line where they were left. --snapshot writes keys-overlay-<w>x<h>.ppm,
+// key-badges-<w>x<h>.ppm, arrange-overlays-<w>x<h>.ppm and
+// rounded-settings-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080.
 
 #include "oa/app/runtime.hpp"
 #include "oa_layer_check.hpp"
@@ -26,8 +32,10 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <ios>
@@ -53,6 +61,8 @@ namespace settings = oa::ui::engine_settings;
 namespace first_run = oa::ui::first_run;
 namespace layout = oa::ui::display_layout;
 namespace hud = oa::ui::touch_hud;
+namespace kit = oa::ui::kit;
+namespace places = overlay_placement;
 
 /// Primary on this platform: Command on a Mac, Ctrl elsewhere.
 #ifdef SDL_PLATFORM_MACOS
@@ -454,6 +464,75 @@ void Runtime::check_keys_overlay() {
         apply_engine_settings(chosen);
         render_match_surface();
     };
+    // The overlays' room, and a control's rectangle in its points.
+    const auto overlay_room_now = [this] {
+        const std::optional<OaLayer::OverlayRoom> room = oa_layer().overlay_room();
+        require(room.has_value(), "the match has no overlays' area");
+        return *room;
+    };
+    const auto points_of = [](const OaLayer::OverlayRoom& room, const AutomationControl& control) {
+        const auto down = [&room](int32_t pixels) {
+            return static_cast<int32_t>(int64_t{pixels} * 100 / room.scale_percent);
+        };
+        return kit::Rect{
+            down(control.window_x - room.area.x),
+            down(control.window_y - room.area.y),
+            down(control.window_width),
+            down(control.window_height)
+        };
+    };
+    // Where an overlay shows at its place, in canvas pixels, worked out
+    // from the place the preferences hold, apart from the layer.
+    const auto expected_at = [&](std::string_view overlay, const layout::Rect& unplaced) {
+        const OaLayer::OverlayRoom room = overlay_room_now();
+        const auto place = places::stored_place(preference_values_, overlay, room.size_class);
+        require(place.has_value(), std::string(overlay) + " has no place at this size");
+        const int32_t percent = room.scale_percent;
+        const kit::Rect at = places::rect_at(
+            room.points(),
+            {static_cast<int32_t>((int64_t{unplaced.width} * 100 + percent - 1) / percent),
+             static_cast<int32_t>((int64_t{unplaced.height} * 100 + percent - 1) / percent)},
+            *place
+        );
+        return layout::Point{
+            room.area.x + window_placement::pixels_of(at.x, percent),
+            room.area.y + window_placement::pixels_of(at.y, percent)
+        };
+    };
+    const auto arranged_unplaced = [this](std::string_view overlay) {
+        for (const OaLayer::ArrangedOverlay& arranged : oa_layer().arranged_overlays())
+            if (arranged.name == overlay)
+                return arranged.unplaced;
+        require(false, std::string(overlay) + " is not among the arranged overlays");
+        return layout::Rect{};
+    };
+    // The keys overlay and the chat line show where their places put them.
+    const auto overlays_at_places = [&](std::string_view where) {
+        open_overlay();
+        frames(1);
+        const layout::Rect unplaced = oa_layer().keys_overlay_unplaced();
+        const layout::Point wanted = expected_at(places::keys_overlay, unplaced);
+        const LayerPlacement panel = oa_layer().placement_of(editor::name_keys_overlay);
+        require(
+            std::abs(panel.shown.x - wanted.x) <= 1 && std::abs(panel.shown.y - wanted.y) <= 1,
+            "the keys overlay is at " + std::to_string(panel.shown.x) + "," +
+                std::to_string(panel.shown.y) + ", not at its place " + std::to_string(wanted.x) +
+                "," + std::to_string(wanted.y) + std::string(where)
+        );
+        require(
+            panel.shown.x != unplaced.x || panel.shown.y != unplaced.y,
+            "the keys overlay shows where it lays itself out" + std::string(where)
+        );
+        close_overlay();
+        const layout::Rect line = arranged_unplaced(places::chat_line);
+        const layout::Point line_wanted = expected_at(places::chat_line, line);
+        const layout::Rect line_shown = oa_layer().overlay_shown(places::chat_line, line);
+        require(
+            line_shown.x == line_wanted.x && line_shown.y == line_wanted.y &&
+                line_shown.y != line.y,
+            "the chat line does not stand at its place" + std::string(where)
+        );
+    };
 
     resize(1280, 720);
     if (screen_ != Screen::main_menu)
@@ -463,9 +542,23 @@ void Runtime::check_keys_overlay() {
         oa_layer().close(welcome);
         frames(1);
     }
+    // Started again on the places a first run arranged (native-keys-overlay-
+    // restart): the keys overlay and the chat line show where they were left.
+    const bool arranged_before =
+        std::any_of(preference_values_.begin(), preference_values_.end(), [](const auto& entry) {
+            return entry.first.starts_with(
+                std::string(places::place_key_start) + std::string(places::keys_overlay) + "."
+            );
+        });
     start_benchmark_skirmish();
     require(screen_ == Screen::match && match_ != nullptr, "the skirmish did not start");
     require(!match_paused_, "the skirmish started paused");
+    if (arranged_before) {
+        say_step("started again: the keys overlay and the chat line are where they were arranged");
+        overlays_at_places(" after the restart");
+        say_step("done");
+        return;
+    }
     // The right-click interface, on which a tap of Shift latches QUEUE.
     match_->state().game.interface_type = oa::sim::gameplay_input::interface_right_click;
     select_commander();
@@ -685,6 +778,187 @@ void Runtime::check_keys_overlay() {
         close_overlay();
     }
     tap(SDLK_LSHIFT, SDL_SCANCODE_LSHIFT, SDL_KMOD_NONE);
+
+    // Arrange overlays, from the in-game menu.
+    const auto open_arrange = [&] {
+        if (!match_paused_ || !ingame_menu_column_shown())
+            show_match_pause_menu();
+        frames(1);
+        require(ingame_menu_column_shown(), "the in-game menu's column does not show");
+        const std::optional<AutomationControl> button = named("oa.arrange-button");
+        require(button.has_value(), "the in-game menu has no Arrange Overlays button");
+        require(button->text == "Arrange Overlays", "the button does not read Arrange Overlays");
+        require(
+            button->window_x + button->window_width <= match_layout_.left,
+            "the Arrange Overlays button leaves the side column"
+        );
+        click_named("oa.arrange-button");
+        require(
+            oa_layer().find("arrange-overlays") != nullptr,
+            "Arrange Overlays did not open oa.arrange-overlays"
+        );
+    };
+    const auto close_arrange = [&] {
+        click_named("oa.arrange-overlays.done");
+        require(oa_layer().find("arrange-overlays") == nullptr, "Done did not close the screen");
+        require(ingame_menu_column_shown(), "Done did not go back to the in-game menu");
+    };
+    const auto handle = [&](std::string_view overlay) {
+        frames(1);
+        const std::optional<AutomationControl> control =
+            named("oa.arrange-overlays." + std::string(overlay));
+        require(control.has_value(), "Arrange Overlays shows no handle on " + std::string(overlay));
+        return *control;
+    };
+    // No handle off the overlays' area or over the side column's buttons.
+    const auto handles_inside = [&](std::string_view where) {
+        const layout::Rect area = overlay_area();
+        for (const std::string_view overlay : places::overlays) {
+            const AutomationControl control = handle(overlay);
+            require(
+                control.window_x >= area.x && control.window_y >= area.y &&
+                    control.window_x + control.window_width <= area.x + area.width &&
+                    control.window_y + control.window_height <= area.y + area.height &&
+                    control.window_x >= match_layout_.left,
+                "the " + std::string(overlay) + " handle leaves the overlays' area" +
+                    std::string(where)
+            );
+        }
+    };
+    // Drags a handle by a travel in window pixels, in four moves.
+    const auto drag_handle = [&](std::string_view overlay, layout::Point travel) {
+        const AutomationControl control = handle(overlay);
+        const layout::Point grab{
+            control.window_x + control.window_width / 2,
+            control.window_y + control.window_height / 2
+        };
+        pointer_at(grab, SDL_EVENT_MOUSE_MOTION, 0);
+        pointer_at(grab, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT);
+        for (int32_t step = 1; step <= 4; ++step)
+            pointer_at(
+                {grab.x + travel.x * step / 4, grab.y + travel.y * step / 4},
+                SDL_EVENT_MOUSE_MOTION,
+                0
+            );
+        pointer_at(
+            {grab.x + travel.x, grab.y + travel.y}, SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT
+        );
+        frames(1);
+        // The place on the grid that drag gives, worked out apart.
+        const OaLayer::OverlayRoom room = overlay_room_now();
+        const auto wanted = places::dragged_place(
+            room.points(),
+            points_of(room, control),
+            {static_cast<int32_t>(int64_t{travel.x} * 100 / room.scale_percent),
+             static_cast<int32_t>(int64_t{travel.y} * 100 / room.scale_percent)}
+        );
+        const auto kept = places::stored_place(preference_values_, overlay, room.size_class);
+        require(
+            kept.has_value() && *kept == wanted,
+            "dragging the " + std::string(overlay) + " handle kept " +
+                (kept ? places::place_text(*kept) : std::string("no place")) + ", not " +
+                places::place_text(wanted)
+        );
+        require(
+            kept->across.points % places::grid_points == 0 &&
+                kept->down.points % places::grid_points == 0,
+            "the " + std::string(overlay) + " place is off the 8-point grid"
+        );
+        return *kept;
+    };
+
+    say_step("the in-game menu's Arrange Overlays shows a handle on each overlay, inside the area");
+    resize(1280, 720);
+    open_arrange();
+    handles_inside(" at 1280x720");
+    for (const std::string_view overlay : places::overlays)
+        require(
+            !places::stored_place(preference_values_, overlay, overlay_room_now().size_class),
+            std::string(overlay) + " has a place before it was arranged"
+        );
+
+    say_step("the keys overlay and the chat line dragged keep places on the 8-point grid");
+    drag_handle(places::keys_overlay, {203, 117});
+    drag_handle(places::chat_line, {57, -301});
+    {
+        const std::string large_key =
+            places::place_key(places::keys_overlay, overlay_room_now().size_class);
+        require(
+            preference_values_.contains(large_key),
+            "the keys overlay's place is not kept as " + large_key
+        );
+    }
+
+    say_step("Reset puts every overlay back where it lays itself out");
+    click_named("oa.arrange-overlays.reset");
+    for (const std::string_view overlay : places::overlays)
+        require(
+            !places::stored_place(preference_values_, overlay, overlay_room_now().size_class),
+            "Reset left a place for " + std::string(overlay)
+        );
+    handles_inside(" after Reset");
+
+    say_step("arranged again, Done goes back to the in-game menu");
+    drag_handle(places::keys_overlay, {-40, 160});
+    drag_handle(places::chat_line, {0, -260});
+    close_arrange();
+    resume_match_pause();
+    frames(1);
+    require(!match_paused_, "the match stayed paused after Arrange Overlays");
+    select_commander();
+    overlays_at_places(" at 1280x720");
+
+    say_step("1920x1080, the same size class, keeps the places from their edges");
+    resize(1920, 1080);
+    overlays_at_places(" at 1920x1080");
+
+    say_step("640x480, Compact, has places of its own: the overlays lay themselves out");
+    resize(640, 480);
+    {
+        open_overlay();
+        frames(1);
+        const layout::Rect unplaced = oa_layer().keys_overlay_unplaced();
+        const LayerPlacement panel = oa_layer().placement_of(editor::name_keys_overlay);
+        require(
+            panel.shown.x == unplaced.x && panel.shown.y == unplaced.y,
+            "the keys overlay does not lay itself out at Compact"
+        );
+        require(
+            panel.shown.x >= match_layout_.left,
+            "the keys overlay covers the side column at Compact"
+        );
+        close_overlay();
+    }
+
+    say_step("snapshots of Arrange Overlays and the rounded in-match Settings");
+    for (std::size_t size_at = 0; size_at < 3; ++size_at) {
+        const int32_t width = kWidths[size_at];
+        const int32_t height = kHeights[size_at];
+        resize(width, height);
+        open_arrange();
+        handles_inside(" at " + std::to_string(width) + "x" + std::to_string(height));
+        render_match_surface();
+        snapshot("arrange-overlays", width, height);
+        close_arrange();
+        open_engine_settings_in_match();
+        frames(2);
+        require(oa_layer().find("settings") != nullptr, "the in-match Settings did not open");
+        require(
+            oa_layer().placement_of("settings").corner_radius > 0,
+            "the in-match Settings' corners are not rounded"
+        );
+        render_match_surface();
+        snapshot("rounded-settings", width, height);
+        tap(SDLK_ESCAPE, SDL_SCANCODE_ESCAPE, SDL_KMOD_NONE);
+        frames(1);
+        require(
+            oa_layer().find("settings") == nullptr, "Escape did not close the in-match Settings"
+        );
+    }
+    resume_match_pause();
+    frames(1);
+    resize(1280, 720);
+    // The places stay for the run started again (native-keys-overlay-restart).
 
     // Put back what the check changed.
     fs::remove(own_file, removed);
