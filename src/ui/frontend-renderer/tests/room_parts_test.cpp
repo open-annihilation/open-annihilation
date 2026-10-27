@@ -187,6 +187,12 @@ void the_notch_sits_in_the_right_end() {
     }
     CHECK(first_row >= 0);
     CHECK(first_width > last_width);
+    // The triangle has no black edge: past the groove nothing is black.
+    bool black = false;
+    for (int32_t y = notch.y; y < notch.y + notch.height; ++y)
+        for (int32_t x = notch.x + 2; x < notch.x + notch.width; ++x)
+            black = black || (covered(canvas, x, y) && at(canvas, x, y) == gray(0));
+    CHECK(!black);
     renderer::RoomCanvas held = renderer::room_canvas({0, 0, 80, 30}, nullptr);
     renderer::draw_room_notch(held, art, notch, true, true);
     CHECK(at(held, 56, 10) == gray(17));

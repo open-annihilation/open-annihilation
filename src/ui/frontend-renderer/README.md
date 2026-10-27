@@ -121,8 +121,9 @@ through:
   second the green one, its third neither. A plate of another size keeps
   its lamps' end. `room_switch_width` measures the width a caption needs.
 - `draw_room_notch` draws a groove and a triangle at a button's right end
-  (`room_notch_rect`), the triangle in the caption font's colour outlined
-  in black, pointing up while what it opens is open.
+  (`room_notch_rect`), the triangle in the caption font's colour with its
+  slanted sides a shade darker and no black edge, as the room's own arrows
+  are drawn, pointing up while what it opens is open.
 - `draw_room_stamp` draws the small engraved OA stamp that marks a part
   3.1c does not have: a dark sunk plate with the OA mark in the palette's
   gold (`room_stamp_rect` places it in a button's left end).

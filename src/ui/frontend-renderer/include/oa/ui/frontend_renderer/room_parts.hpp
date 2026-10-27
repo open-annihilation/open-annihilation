@@ -284,9 +284,10 @@ void draw_room_bar(
 [[nodiscard]] SourceRect room_notch_rect(SourceRect button, int32_t width) noexcept;
 
 /// Draws the notch at a button's right end: a groove down its left side and
-/// a triangle, in the caption font's colour, pointing down, or up while
-/// what it opens is open. Held, the triangle drops a pixel and the groove
-/// turns.
+/// a triangle in the caption font's colour, its slanted sides a shade
+/// darker and no black edge, as the room's own arrows are drawn, pointing
+/// down, or up while what it opens is open. Held, the triangle drops a
+/// pixel and the groove turns.
 ///
 /// @param[in,out] canvas the canvas
 /// @param art the art

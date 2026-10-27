@@ -55,6 +55,8 @@ constexpr Rgb lamp_green_foot{31, 159, 31};
 constexpr Rgb lamp_red_top{255, 171, 156};
 constexpr Rgb lamp_red_foot{179, 38, 26};
 constexpr Rgb notch_ink{239, 231, 168};
+/// How bright a notch triangle's slanted sides are, in percent of its face.
+constexpr int32_t notch_shade_percent = 45;
 
 [[nodiscard]] Rgb entry_rgb(const PaletteBytes& palette, uint8_t index) noexcept {
     const std::size_t at = static_cast<std::size_t>(index) * palette_entry_bytes;
@@ -955,8 +957,13 @@ void draw_room_notch(
     const int32_t left = notch.x + 2 + (notch.width - 2 - base) / 2 + drop;
     const int32_t top = notch.y + (notch.height - rows) / 2 + drop;
     const Rgb ink = ink_of(art, font_of(art, RoomFont::caption));
-    // The triangle in the caption's colour, outlined in black as the
-    // caption font outlines its letters.
+    // The triangle in the caption's colour with no black edge, shaded as
+    // the room's own arrows are: its slanted sides and its point a shade
+    // darker than its face.
+    Rgb shaded{};
+    for (std::size_t channel = 0; channel < shaded.size(); ++channel)
+        shaded[channel] = static_cast<uint8_t>(ink[channel] * notch_shade_percent / 100);
+    const Rgb edge = palette_colour(art, shaded);
     const auto inside = [&](int32_t x, int32_t y) {
         const int32_t row = y - top;
         if (row < 0 || row >= rows)
@@ -964,21 +971,15 @@ void draw_room_notch(
         const int32_t inset = open ? rows - 1 - row : row;
         return x >= left + inset && x <= left + base - 1 - inset;
     };
-    for (int32_t y = top - 1; y <= top + rows; ++y)
-        for (int32_t x = left - 1; x <= left + base; ++x) {
-            if (inside(x, y))
-                continue;
-            bool touches = false;
-            for (int32_t dy = -1; dy <= 1 && !touches; ++dy)
-                for (int32_t dx = -1; dx <= 1 && !touches; ++dx)
-                    touches = inside(x + dx, y + dy);
-            if (touches)
-                put(canvas, x, y, dark);
-        }
+    // The base row is the face's; the other rows' ends are the slanted sides.
+    const int32_t base_row = open ? rows - 1 : 0;
     for (int32_t y = top; y < top + rows; ++y)
-        for (int32_t x = left; x < left + base; ++x)
-            if (inside(x, y))
-                put(canvas, x, y, ink);
+        for (int32_t x = left; x < left + base; ++x) {
+            if (!inside(x, y))
+                continue;
+            const bool side = y - top != base_row && (!inside(x - 1, y) || !inside(x + 1, y));
+            put(canvas, x, y, side ? edge : ink);
+        }
 }
 
 void draw_room_stamp(RoomCanvas& canvas, const RoomArt& art, SourceRect rect) {
