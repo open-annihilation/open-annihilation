@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-key-capture: capturing a chord over a paused skirmish, a clash and
-// its swap, Escape held for a second, a refused Escape, Settings' chord, an
-// empty search that finds Primary+, and a draft clash's card. With --snapshot
-// it writes key-capture-<w>x<h>.ppm and key-clash-<w>x<h>.ppm at 640x480,
-// 1280x720 and 1920x1080.
+// its swap after its confirm button, Escape held for a second, a refused
+// Escape, Settings' chord, Find by key hearing Primary+, and a draft clash
+// settled from Settle…. With --snapshot it writes key-capture-<w>x<h>.ppm and
+// key-clash-<w>x<h>.ppm at 640x480, 1280x720 and 1920x1080, and
+// key-find-1280x720.ppm.
 
 #include "oa_layer.hpp"
 #include "oa_layer_check.hpp"
@@ -171,7 +172,7 @@ void Runtime::check_key_capture() {
         if (named("oa.key-editor.capture").has_value() || named("oa.key-editor.clash").has_value())
             return;
         const std::optional<AutomationControl> field = named("oa.key-editor.search");
-        if (!field || (field->text.empty() && !named("oa.key-editor.search.chord").has_value()))
+        if (!field || field->text.empty())
             return;
         PadAccess::send_key(*this, SDLK_ESCAPE);
         frames(1);
@@ -210,6 +211,8 @@ void Runtime::check_key_capture() {
             click_named("oa.key-editor.capture.cancel");
         else if (named("oa.key-editor.clash.cancel").has_value())
             click_named("oa.key-editor.clash.cancel");
+        else if (named("oa.key-editor.find-key.close").has_value())
+            click_named("oa.key-editor.find-key.close");
         require(
             !named("oa.key-editor.capture").has_value() &&
                 !named("oa.key-editor.clash").has_value(),
@@ -334,14 +337,24 @@ void Runtime::check_key_capture() {
     note("paused staged skirmish");
     resize(kLarge);
     open_paused();
-    note("an empty search finds Primary+, and Settings stays shut");
-    click_named("oa.key-editor.search");
+    note("Find by key hears Primary+, and lists Settings, and Settings stays shut");
+    click_named("oa.key-editor.find");
+    require(named("oa.key-editor.find-key").has_value(), "Find by key did not open");
     chord(SDLK_COMMA, kShortcutModifier, kShortcutKey);
-    require(oa_layer().find("settings") == nullptr, "Settings opened from the search");
+    require(oa_layer().find("settings") == nullptr, "Settings opened from Find by key");
     require(
-        named("oa.key-editor.search.chord").has_value() ||
-            named("oa.key-editor.row.ui.settings").has_value(),
+        require_named("oa.key-editor.find-key", "Find by key is not shown").text.find("Settings") !=
+            std::string::npos,
         "Primary+, did not find Settings"
+    );
+    snapshot("key-find", kLarge);
+    click_named("oa.key-editor.find-key.close");
+    require(!named("oa.key-editor.find-key").has_value(), "Close left Find by key open");
+    note("typing in the search only searches commands");
+    type_search("b");
+    require(
+        require_named("oa.key-editor.search", "the search is not shown").text == "b",
+        "a typed b did not reach the search"
     );
     clear_search();
     capture_attack(kLarge, true);
@@ -365,11 +378,19 @@ void Runtime::check_key_capture() {
                 .text.find("Select builders") != std::string::npos,
         "the clash prompt does not name Select builders"
     );
-    require(named("oa.key-editor.clash.swap").has_value(), "SWAP is not shown");
+    require(named("oa.key-editor.clash.swap").has_value(), "Swap them is not shown");
     snapshot("key-clash", kLarge);
-    note("SWAP gives Select all Ctrl+B and Select builders Ctrl+A");
+    note("choosing Swap them changes nothing until its button");
     click_named("oa.key-editor.clash.swap");
-    require(!named("oa.key-editor.clash").has_value(), "SWAP left the clash prompt open");
+    require(named("oa.key-editor.clash").has_value(), "choosing Swap them closed the question");
+    require(
+        require_named("oa.key-editor.clash.confirm", "the confirm button is not shown").text ==
+            "Swap them",
+        "the confirm button is not Swap them"
+    );
+    note("Swap them gives Select all Ctrl+B and Select builders Ctrl+A");
+    click_named("oa.key-editor.clash.confirm");
+    require(!named("oa.key-editor.clash").has_value(), "Swap them left the question open");
     clear_search();
     type_search("select.all");
     show_row("oa.key-editor.row.select.all");
@@ -513,15 +534,21 @@ void Runtime::check_key_capture() {
     dismiss_welcome();
     require(open_key_editor({}), "the editor did not open on the clash");
     frames(1);
-    require(named("oa.key-editor.card.keep-here").has_value(), "the card is not shown");
-    require(named("oa.key-editor.card.keep-there").has_value(), "KEEP IT FOR is not shown");
-    require(named("oa.key-editor.card.choose").has_value(), "CHOOSE ANOTHER KEY is not shown");
-    require(!named("oa.key-editor.row.select.all").has_value(), "the list did not open on Clashes");
-    note("KEEP IT HERE enables SAVE");
-    click_named("oa.key-editor.card.keep-here");
+    require(named("oa.key-editor.card.settle").has_value(), "Settle… is not shown");
+    click_named("oa.key-editor.card.settle");
+    require(named("oa.key-editor.card.keep-here").has_value(), "Keep it for Attack is not shown");
     require(
-        require_named("oa.key-editor.save", "SAVE is not shown").enabled,
-        "KEEP IT HERE left SAVE disabled"
+        named("oa.key-editor.card.keep-there").has_value(), "Keep it for the other is not shown"
+    );
+    require(named("oa.key-editor.clash.another").has_value(), "Choose another key is not shown");
+    require(!named("oa.key-editor.row.select.all").has_value(), "the list did not open on Clashes");
+    note("Keep it for Attack enables Save changes");
+    click_named("oa.key-editor.card.keep-here");
+    click_named("oa.key-editor.clash.confirm");
+    require(!named("oa.key-editor.clash").has_value(), "the confirm button left the question open");
+    require(
+        require_named("oa.key-editor.save", "Save changes is not shown").enabled,
+        "Keep it for Attack left Save changes disabled"
     );
     close_editor();
 }

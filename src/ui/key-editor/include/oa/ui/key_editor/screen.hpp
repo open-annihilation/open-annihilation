@@ -79,7 +79,8 @@ inline constexpr std::string_view name_cancel = "key-editor.cancel";
 inline constexpr std::string_view name_save = "key-editor.save";
 /// The header's close mark.
 inline constexpr std::string_view name_close = "key-editor.close";
-/// The layout's summary. Kind area: it takes no press, and its text is the words shown.
+/// The layout's summary. Kind area: it takes no press, and its text is the
+/// whole summary, of which the row shows what fits.
 inline constexpr std::string_view name_summary = "key-editor.summary";
 /// The Large footer's aside, or the line that asks the player to settle clashes.
 inline constexpr std::string_view name_footer_note = "key-editor.footer-note";
@@ -235,9 +236,9 @@ inline constexpr std::string_view name_import_cancel = "key-editor.import.cancel
 inline constexpr std::string_view name_import_summary = "key-editor.import.summary";
 
 /// The layout drop-down's least width at Large, in points.
-inline constexpr int32_t large_layout_width = 240;
+inline constexpr int32_t large_layout_width = 200;
 /// The search field and Find by key's least width at Large, in points.
-inline constexpr int32_t large_search_width = 380;
+inline constexpr int32_t large_search_width = 360;
 /// The nav's width at Large, in points.
 inline constexpr int32_t large_nav_width = 172;
 /// The chord column's width at Large, in points.

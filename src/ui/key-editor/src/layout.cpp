@@ -445,7 +445,7 @@ void add_summary(
     control.focusable = false;
     control.name = std::string(name_summary);
     control.kind = kit::ControlKind::area;
-    control.text = kit::cut_to_width(fonts, kit::FontRole::small, shown, rect.width);
+    control.text = shown;
     built.rest.push_back(std::move(control));
 }
 
@@ -1164,6 +1164,7 @@ struct Piece {
     kit::ButtonMark mark{kit::ButtonMark::none};     ///< a button's mark
     kit::ChordChipLook chip{};                       ///< a chord chip
     kit::KeyTint tint{kit::KeyTint::none};           ///< a title square's tint
+    std::string said{}; ///< a control's text for automation, when not its caption
 };
 
 /// The chosen action's pieces, top to bottom: its name, what it does and
@@ -1379,6 +1380,9 @@ std::vector<Piece> detail_pieces(
                     change_w,
                     true
                 );
+                // Its text for automation is the chord it changes.
+                pieces.back().said =
+                    keys::display_text(chord.chord, editor.keyboard(), editor.platform());
                 right -= change_w + metrics.space;
             }
         }
@@ -1662,6 +1666,8 @@ void add_details(
         const std::size_t before = built.list.controls.size();
         kit::add_button(built.list, full, button, piece.id, piece.name);
         steal(built.list, built.rest, before);
+        if (!piece.said.empty() && !built.rest.empty() && built.rest.back().id == piece.id)
+            built.rest.back().text = piece.said;
         built.details.push_back(piece.id);
     }
     if (!scrolling)

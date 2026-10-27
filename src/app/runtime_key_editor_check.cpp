@@ -375,6 +375,7 @@ void Runtime::check_key_editor() {
     type_text("queue");
     show_row("oa.key-editor.row.order.queue-modifier");
     click_named("oa.key-editor.row.order.queue-modifier");
+    click_named("oa.key-editor.detail.more");
     click_named("oa.key-editor.detail.latch.on");
 
     std::cout << "key editor check: number keys\n";
@@ -442,17 +443,43 @@ void Runtime::check_key_editor() {
     );
     click_named("oa.key-editor.nav.groups");
     click_named("oa.key-editor.number-keys.off");
+    require(
+        require_named("oa.key-editor.draft", "the draft line is not shown").text ==
+            "1 unsaved edit",
+        "the draft line does not say 1 unsaved edit"
+    );
     click_named("oa.key-editor.cancel");
     require(
-        require_named("oa.prompt.body", "CANCEL did not ask to leave")
-                .text.find("Leave without saving") != std::string::npos,
-        "the leave question does not ask"
+        require_named("oa.prompt.body", "Cancel did not ask before closing")
+                .text.find("before closing") != std::string::npos,
+        "the close question does not ask"
     );
-    require(named("oa.prompt.leave").has_value(), "LEAVE is not shown");
-    require(named("oa.prompt.keep-editing").has_value(), "KEEP EDITING is not shown");
-    std::cout << "key editor check: leave question\n";
-    click_named("oa.prompt.leave");
-    require(oa_layer().find(editor::screen_name) == nullptr, "LEAVE did not close the editor");
+    require(named("oa.prompt.save").has_value(), "Save is not shown");
+    require(named("oa.prompt.discard").has_value(), "Discard is not shown");
+    require(named("oa.prompt.keep-editing").has_value(), "Keep editing is not shown");
+    std::cout << "key editor check: close question\n";
+    click_named("oa.prompt.keep-editing");
+    require(oa_layer().find(editor::screen_name) != nullptr, "Keep editing closed the editor");
+    click_named("oa.key-editor.undo");
+    require(
+        require_named("oa.key-editor.draft", "the draft line is not shown").text ==
+            "No unsaved edits",
+        "Undo did not take the edit back"
+    );
+    click_named("oa.key-editor.number-keys.off");
+    click_named("oa.key-editor.close");
+    click_named("oa.prompt.discard");
+    require(oa_layer().find(editor::screen_name) == nullptr, "Discard did not close the editor");
+    require(engine_settings().switch_alt, "Discard wrote the switch");
+    std::cout << "key editor check: Discard writes nothing\n";
+    open_over_settings();
+    click_named("oa.key-editor.nav.groups");
+    click_named("oa.key-editor.number-keys.off");
+    click_named("oa.key-editor.cancel");
+    click_named("oa.prompt.save");
+    require(oa_layer().find(editor::screen_name) == nullptr, "Save did not close the editor");
+    require(!engine_settings().switch_alt, "Save did not write the switch");
+    std::cout << "key editor check: Save from the close question\n";
 
     std::cout << "key editor check: developer off\n";
     open_over_settings();

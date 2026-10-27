@@ -476,7 +476,7 @@ void Runtime::check_key_share() {
         type_chars("select.all");
         show_row("oa.key-editor.row.select.all");
         click_named("oa.key-editor.row.select.all");
-        for (int32_t pass = 0; pass < 6 && !named("oa.key-editor.card.keep-here"); ++pass) {
+        for (int32_t pass = 0; pass < 6 && !named("oa.key-editor.card.settle"); ++pass) {
             SDL_Event wheel{};
             wheel.type = SDL_EVENT_MOUSE_WHEEL;
             wheel.wheel.windowID = SDL_GetWindowID(sdl_.window);
@@ -488,7 +488,9 @@ void Runtime::check_key_share() {
             require(running, "a wheel ended the run");
             frames(1);
         }
+        click_named("oa.key-editor.card.settle");
         click_named("oa.key-editor.card.keep-here");
+        click_named("oa.key-editor.clash.confirm");
         require(
             require_named("oa.key-editor.save", "SAVE is not shown after the card").enabled,
             "SAVE stayed held after the card"

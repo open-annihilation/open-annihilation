@@ -233,7 +233,7 @@ void Runtime::check_key_views() {
         "the drop-down did not write open-annihilation.keys.keyboard as jis"
     );
 
-    note("selecting Repair and clicking the free F9 under Nothing gives Repair F9 after OK");
+    note("selecting Repair, then the free F9 inspects it, and Use F9 for Repair… gives F9");
     click_named("oa.key-editor.view.list");
     type_search("repair");
     show_row("oa.key-editor.row.order.repair");
@@ -241,6 +241,13 @@ void Runtime::check_key_views() {
     click_named("oa.key-editor.view.keyboard");
     click_named("oa.key-editor.layer.none");
     click_named("oa.key-editor.keyboard.f9");
+    require(!named("oa.key-editor.capture").has_value(), "a click on F9 opened the capture");
+    require(
+        require_named("oa.key-editor.key-card", "the inspector is not shown").text.find("F9") !=
+            std::string::npos,
+        "the inspector does not name F9"
+    );
+    click_named("oa.key-editor.key-card.use");
     const AutomationControl prompt =
         require_named("oa.key-editor.capture", "the capture prompt did not open for F9");
     require(prompt.text.find("F9") != std::string::npos, "the prompt does not show F9");
