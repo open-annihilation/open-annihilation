@@ -556,6 +556,8 @@ struct MutatorStartStop {
 
 namespace update {
 struct CheckSnapshot;
+struct Centre;
+enum class Act : uint8_t;
 } // namespace update
 
 /// Counts one unconfirmed start on macOS and Windows, before the game loads.
@@ -6850,6 +6852,17 @@ class Runtime final : public menu::Host,
     ///
     /// @return "{version} ready" or "{version} downloading"
     [[nodiscard]] std::string update_header_note() const;
+
+    /// The update centre's state: where the check, the download and an install stand, the
+    /// versions, the bytes and the actions it allows (oa::app::update::centre_state).
+    ///
+    /// @return the state
+    [[nodiscard]] update::Centre update_centre() const;
+
+    /// Carries out one of the update centre's actions.
+    ///
+    /// @param action the action, one of the state's
+    void take_update_action(update::Act action);
 
     /// Copies the download onto Settings: the switch's rows and the header note.
     ///
