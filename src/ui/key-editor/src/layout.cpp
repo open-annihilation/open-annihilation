@@ -4995,7 +4995,18 @@ void add_mouse_body(
     if (!roomy(body))
         return;
     const int32_t gap = std::max(metrics.paragraph_gap / 2, int32_t{2});
-    const int32_t note_h = metrics.small_line;
+    // The note under the mouse wraps onto a second line rather than being cut.
+    const kit::Measure note_measure = [&](std::string_view words_measured) {
+        return kit::text_width(fonts, kit::FontRole::small, words_measured);
+    };
+    std::vector<std::string> note_lines = kit::wrap(
+        show(editor.text(), words::mouse_note), std::max(body.width, int32_t{1}), note_measure
+    );
+    for (std::size_t rest = 2; rest < note_lines.size(); ++rest)
+        note_lines[1] += " " + note_lines[rest];
+    if (note_lines.size() > 2)
+        note_lines.resize(2);
+    const int32_t note_h = metrics.small_line * static_cast<int32_t>(note_lines.size());
     const int32_t note_y = body.y + body.height - note_h;
     const int32_t bottom = note_y - gap;
     const int32_t avail_h = std::max(bottom - body.y, int32_t{0});
@@ -5349,15 +5360,20 @@ void add_mouse_body(
             ++row_index;
         }
     }
-    if (note_h > 0 && body.width > 0)
-        add_line(
-            built,
-            fonts,
-            {body.x, note_y, body.width, note_h},
-            show(editor.text(), words::mouse_note),
-            kit::FontRole::small,
-            kit::colour::hint
-        );
+    if (body.width > 0) {
+        int32_t line_y = note_y;
+        for (const std::string& line : note_lines) {
+            add_line(
+                built,
+                fonts,
+                {body.x, line_y, body.width, metrics.small_line},
+                line,
+                kit::FontRole::small,
+                kit::colour::hint
+            );
+            line_y += metrics.small_line;
+        }
+    }
 }
 
 /// The category drop-down's words: the chosen category's title.
