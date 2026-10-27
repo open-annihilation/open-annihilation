@@ -40,6 +40,8 @@ The controls a journey presses, as `oa.` and the name:
 | `key-editor.card.keep-here`, `.keep-there` | The outcomes Keep it for this action and for the other, while a draft clash is settled |
 | `key-editor.clash.confirm` | The confirm button, named after the marked outcome. Nothing changes before it |
 | `key-editor.clash.another`, `.cancel` | Choose another key, and Cancel |
+| `key-editor.leave` | The close question. Its text is the question and, while a clash holds Save back, the line that says so |
+| `key-editor.leave.save`, `.discard`, `.keep-editing` | Save (absent while a clash holds it back), Discard and Keep editing. Tab's order is Discard, Keep editing, Save |
 | `key-editor.find-key` | Find by key. Its text is the line and every use of the chord |
 | `key-editor.find-key.well` | Its well. A press here listens for another chord |
 | `key-editor.find-key.row.<n>` | One use, numbered from 1. A press chooses that action in the list |
@@ -77,9 +79,9 @@ Tab's order is the open view's tab, LAYOUT ▾, the search, Find by key, the cat
 
 ## Input
 
-`editor_pointer`, `editor_key`, `editor_text`, `editor_wheel`, `editor_command` and `editor_stick` change only the model and `ScreenState`. They return what the host must do. `cancel` closes the editor. `save` writes the draft when `can_save` is true. `ask_keep_changes` names the layout being chosen. `ask_leave` asks before unsaved edits are closed: the host offers Save, Discard and Keep editing, or Discard and Keep editing while a clash holds Save back. `ask_name` asks a layout's name: its id is `duplicate` or `rename`.
+`editor_pointer`, `editor_key`, `editor_text`, `editor_wheel`, `editor_command` and `editor_stick` change only the model and `ScreenState`. They return what the host must do. `cancel` closes the editor. `save` writes the draft when `can_save` is true. `ask_keep_changes` names the layout being chosen. `ask_name` asks a layout's name: its id is `duplicate` or `rename`.
 
-On the list, Up and Down move the chosen row, Page Up and Page Down move by the rows shown, and Home and End go to the ends. Enter on a row opens Compact's details page, or moves the focus to the details' first control at Regular and Large. Delete on a focused chord removes it. Escape closes an open menu, else clears a search that holds words, else leaves Compact's details page, else asks before closing or closes. Cancel and the × do the same last step. Typed text goes to a focused search; a key typed there is only text. The search matches names, descriptions, asides, ids, an order's 3.1c word and category titles, folded as the Library folds them. The wheel and a finger scroll the pane under them. A tap selects the row. A press on a chord's ✕ takes that chord off.
+On the list, Up and Down move the chosen row, Page Up and Page Down move by the rows shown, and Home and End go to the ends. Enter on a row opens Compact's details page, or moves the focus to the details' first control at Regular and Large. Delete on a focused chord removes it. Escape closes an open menu, else clears a search that holds words, else leaves Compact's details page, else asks before closing or closes. Cancel and the × do the same last step. With unsaved edits the editor asks its own question over the dimmed editor, a Kit 2 question as wide as its words: "Save your edit before closing?" (or "Save your {n} edits before closing?"), Discard apart at the left, then Keep editing and Save, Save first in focus. While a clash holds Save back it says so ("Settle 1 clash to save") and offers Discard and Keep editing, with the focus on Keep editing. Save answers `save` and Discard `cancel`; Keep editing, Escape and the controller's B go back to the draft, and Menu is Save. Typed text goes to a focused search; a key typed there is only text. The search matches names, descriptions, asides, ids, an order's 3.1c word and category titles, folded as the Library folds them. The wheel and a finger scroll the pane under them. A tap selects the row. A press on a chord's ✕ takes that chord off.
 
 `find` focuses the search. `back` closes a menu, or leaves the details page, or answers `cancel`. `save` answers `save`. `add_key` is + Add a key on the chosen row: the controller's X. `undo` is Undo; the host gives it Primary+Z while the search does not have the focus. The host maps a controller as it does for the Library: Y is `find`, X is `add_key`, B is `back`, Menu is `save`, and L1 and R1 are Shift+Tab and Tab. The right stick is `editor_stick`.
 
@@ -128,7 +130,7 @@ Share… shows the name, the id it folds to, the base, how many keys and helpers
 
 `ui-key-editor-overlay` lists the keys of the contexts active while playing, while watching and while placing a building. Assign group collapses into Ctrl+1…9, and with group 5 moved to Q it is Ctrl+1…4, Q and Ctrl+6…9. Hack actions sit under This mod, and a hack key whose condition does not hold is left out. The On line shows the latches the caller names as chips, and no On line shows without one. The panel at each class sits inside the battlefield, to the right of a 128-point column, every part inside it, with one column of groups at Compact and two above it; on a short battlefield the groups scroll. The automation names are sound.
 
-`ui-key-editor-input` drives the keys, the pad's commands, a finger's scroll and tap, and Cancel and the × asking before unsaved edits are closed, with Undo and Primary+Z taking them back.
+`ui-key-editor-input` drives the keys, the pad's commands, a finger's scroll and tap, and Cancel, the ×, Escape and Back asking before unsaved edits are closed in the editor's own question (Keep editing, Discard, Save and Menu, and Save left out while a clash holds it back), with Undo and Primary+Z taking them back.
 
 `ui-key-editor-capture` captures a chord and checks what the capture says and its button; that the clash question lists each outcome on both actions, changes nothing until its confirm button, and that Cancel and Choose another key change nothing; Settle… on a draft clash; and Find by key, which changes nothing, apart from the search.
 
@@ -136,7 +138,7 @@ Share… shows the name, the id it folds to, the base, how many keys and helpers
 
 `ui-key-editor-share` checks a share id, a paste that keeps a clash and an unknown action, and an import that moves a chord and records `imported-from`.
 
-`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the draft with Undo, the keyboard, the mouse, the capture, clash and card, Find by key, the settling question, Share, Paste and Import, and the keys overlay at each class, the capture's More options and the keyboard as a list at Large, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large. The overlay is drawn at each class on an 800 by 480 room beside a 128-point column, with a latched QUEUE in its On line; its pictures are `keys-overlay-<class>.png`.
+`ui-key-editor-draw` and `ui-key-editor-draw-data` draw the list, the draft with Undo and the close question over it, the keyboard, the mouse, the capture, clash and card, Find by key, the settling question, Share, Paste and Import, and the keys overlay at each class, the capture's More options and the keyboard as a list at Large, in the block font and again in the installed game's fonts, and check them against `tests/frames.txt`. The ISO and JIS keyboards are drawn at Large. The overlay is drawn at each class on an 800 by 480 room beside a 128-point column, with a latched QUEUE in its On line; its pictures are `keys-overlay-<class>.png`.
 
 ## State
 

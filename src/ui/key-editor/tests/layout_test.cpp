@@ -698,6 +698,44 @@ void check_prompts(const kit::Frame& frame, const std::string& where) {
         require_named(list, std::string(editor::name_find_row_prefix) + "1", where + " find");
         require_named(list, editor::name_find_close, where + " find");
     }
+    {
+        // The close question: Kit 2's buttons, each as wide as its words,
+        // the box no wider than the widest prompt and narrower than the window.
+        editor::Editor edited(editor_fixture());
+        OA_CHECK(edited.remove_chord("order.attack", 0));
+        editor::ScreenState state;
+        state.prompt = editor::Prompt::leave;
+        const kit::DisplayList list = laid_out(edited, state, frame);
+        check_list(list, where + " leave");
+        require_named(list, editor::name_leave, where + " leave");
+        const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
+        for (const std::string_view name :
+             {editor::name_leave_save, editor::name_leave_discard, editor::name_leave_keep}) {
+            require_named(list, name, where + " leave");
+            const kit::Control* button = find_named(list, name);
+            if (button != nullptr && button->rect.height != metrics.control_height)
+                std::fprintf(
+                    stderr,
+                    "%s leave: %s is %d high, not %d\n",
+                    where.c_str(),
+                    std::string(name).c_str(),
+                    button->rect.height,
+                    metrics.control_height
+                );
+            OA_CHECK(button != nullptr && button->rect.height == metrics.control_height);
+        }
+        const kit::Control* save = find_named(list, editor::name_leave_save);
+        const kit::Control* question = find_named(list, editor::name_leave);
+        if (save != nullptr && question != nullptr)
+            OA_CHECK(question->rect.width < window.x);
+        // Tab: Discard, Keep editing, Save.
+        const std::vector<kit::ControlId> expected{
+            kit::control_named(list, editor::name_leave_discard),
+            kit::control_named(list, editor::name_leave_keep),
+            kit::control_named(list, editor::name_leave_save),
+        };
+        OA_CHECK(list.tab_order == expected);
+    }
 }
 
 /// True for one key of the keyboard picture.

@@ -89,6 +89,7 @@ enum class Shown : uint8_t {
     settling,  ///< the clash question settling the draft clash
     draft,     ///< the list with an unsaved edit and Undo
     more,      ///< the capture with More options open
+    leave,     ///< the close question over the list with unsaved edits
 };
 
 /// One picture.
@@ -307,6 +308,9 @@ std::vector<Scene> all_scenes() {
         picture("draft-regular", 1920, 1080, 200, regular, false, false, Shown::draft),
         picture("draft-large", 1280, 720, 100, large, false, false, Shown::draft),
         picture("capture-more-large", 1280, 720, 100, large, false, false, Shown::more),
+        picture("leave-compact", 640, 480, 100, compact, false, false, Shown::leave),
+        picture("leave-regular", 1920, 1080, 200, regular, false, false, Shown::leave),
+        picture("leave-large", 1280, 720, 100, large, false, false, Shown::leave),
         [&] {
             Scene scene = shaped(
                 "keyboard-list-large",
@@ -398,10 +402,12 @@ void arm_scene(editor::Editor& model, editor::ScreenState& state, const Scene& s
         }
         return;
     }
-    if (scene.shown == Shown::draft) {
+    if (scene.shown == Shown::draft || scene.shown == Shown::leave) {
         model.remove_chord("order.stop", 0);
         model.set_number_keys(!model.number_keys());
         state.selected = "order.stop";
+        if (scene.shown == Shown::leave)
+            state.prompt = editor::Prompt::leave;
         return;
     }
     if (scene.shown == Shown::more) {

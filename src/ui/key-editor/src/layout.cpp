@@ -2201,16 +2201,6 @@ struct PromptButton {
     bool enabled{true};                 ///< a press reaches it
 };
 
-/// The capture prompt or the clash question, the size of its parts.
-///
-/// The box is centred over the editor. The caller lays the editor under it
-/// and dims that editor; this list is only the prompt.
-///
-/// @param editor the editor
-/// @param state the prompt
-/// @param frame the frame
-/// @param fonts the fonts
-/// @return the display list
 /// One button on SHARE…, PASTE… or IMPORT….
 struct ExchangeButton {
     kit::ControlId id{kit::no_control}; ///< its number
@@ -3022,6 +3012,66 @@ kit::DisplayList exchange_prompt(
     return list;
 }
 
+/// The close question's words: "Save your edit before closing?", with the
+/// count of unsaved edits when there is more than one.
+///
+/// @param editor the count
+/// @return the question
+std::string leave_question(const Editor& editor) {
+    const std::string_view pattern =
+        editor.unsaved() == 1 ? words::close_question_one : words::close_question;
+    return fill(show(editor.text(), pattern), {{"n", std::to_string(editor.unsaved())}});
+}
+
+/// The close question's line while a clash holds Save back; empty when Save
+/// is offered.
+///
+/// @param editor the clashes
+/// @return the line
+std::string leave_settle_line(const Editor& editor) {
+    const std::size_t clashes = editor.draft_clashes();
+    if (editor.can_save() || clashes == 0)
+        return {};
+    if (clashes == 1)
+        return std::string(show(editor.text(), words::settle_one));
+    return fill(show(editor.text(), words::settle), {{"n", std::to_string(clashes)}});
+}
+
+/// The close question's width, as Kit 2 sizes a question to its words: the
+/// wider of the question on one line and its buttons in a row (Discard apart
+/// at the left), with the window padding either side, at least half the
+/// widest prompt and at most the widest.
+///
+/// @param editor the words
+/// @param fonts the fonts
+/// @param metrics the size class
+/// @param widest the widest prompt, in points
+/// @return the width, in points
+int32_t leave_width(
+    const Editor& editor, const kit::Fonts& fonts, const kit::Metrics& metrics, int32_t widest
+) {
+    const int32_t text = kit::text_width(fonts, kit::FontRole::regular, leave_question(editor));
+    int32_t buttons = button_width(fonts, metrics, show(editor.text(), words::discard)) +
+                      metrics.space * 4 +
+                      button_width(fonts, metrics, show(editor.text(), words::keep_editing_title));
+    if (editor.can_save())
+        buttons += metrics.button_gap +
+                   button_width(fonts, metrics, show(editor.text(), words::save_word));
+    const int32_t wanted = std::max(text, buttons) + metrics.window_padding * 2;
+    return std::clamp(wanted, widest / 2, widest);
+}
+
+/// The capture prompt, the clash question, Find by key or the close
+/// question, the size of its parts.
+///
+/// The box is centred over the editor. The caller lays the editor under it
+/// and dims that editor; this list is only the prompt.
+///
+/// @param editor the editor
+/// @param state the prompt
+/// @param frame the frame
+/// @param fonts the fonts
+/// @return the display list
 kit::DisplayList prompt_layout(
     const Editor& editor, const ScreenState& state, const kit::Frame& frame, const kit::Fonts& fonts
 ) {
@@ -3032,13 +3082,17 @@ kit::DisplayList prompt_layout(
     const kit::Metrics& metrics = kit::metrics_of(frame.size_class);
     const Window window = window_of(frame);
     // Wide enough for the question at Large, and inset from the window at
-    // every class so the dimmed editor stays visible around it.
+    // every class so the dimmed editor stays visible around it. The close
+    // question is as wide as its words.
     constexpr int32_t kPromptWide = 560;
     const int32_t kSectionGap = metrics.space * 2;
     constexpr int32_t kWellHigh = 76;
     constexpr int32_t kCapHigh = 44;
     const int32_t pad = metrics.window_padding;
-    const int32_t box_w = std::min(kPromptWide, std::max(window.width - pad * 2, int32_t{1}));
+    const int32_t wanted_w = state.prompt == Prompt::leave
+                                 ? leave_width(editor, fonts, metrics, kPromptWide)
+                                 : kPromptWide;
+    const int32_t box_w = std::min(wanted_w, std::max(window.width - pad * 2, int32_t{1}));
     const int32_t column_x = pad;
     const int32_t column_w = std::max(box_w - pad * 2, int32_t{1});
     const int32_t content_stop =
@@ -3383,7 +3437,48 @@ kit::DisplayList prompt_layout(
     std::vector<PromptButton> footer_left;
     std::string footer_hint;
 
-    if (state.prompt == Prompt::find) {
+    if (state.prompt == Prompt::leave) {
+        // The close question: what it asks, the line while a clash holds Save
+        // back, then Discard apart at the left, Keep editing and Save.
+        const int32_t title_top = y;
+        std::string spoken = leave_question(editor);
+        y += wrapped(column_x, y, column_w, spoken, kit::FontRole::regular, kit::colour::text);
+        const std::string settle_line = leave_settle_line(editor);
+        if (!settle_line.empty()) {
+            y += metrics.space;
+            y += wrapped(
+                column_x, y, column_w, settle_line, kit::FontRole::small, kit::colour::lock
+            );
+            spoken += ' ';
+            spoken += settle_line;
+        }
+        area(
+            {column_x, title_top, column_w, std::max(y - title_top, metrics.regular_line)},
+            controls::leave_title,
+            name_leave,
+            std::move(spoken)
+        );
+        gap_after();
+        PromptButton discard;
+        discard.id = controls::leave_discard;
+        discard.name = std::string(name_leave_discard);
+        discard.caption = show(editor.text(), words::discard);
+        discard.quiet = true;
+        footer_left.push_back(std::move(discard));
+        PromptButton keep;
+        keep.id = controls::leave_keep;
+        keep.name = std::string(name_leave_keep);
+        keep.caption = show(editor.text(), words::keep_editing_title);
+        footer.push_back(std::move(keep));
+        if (editor.can_save()) {
+            PromptButton save_button;
+            save_button.id = controls::leave_save;
+            save_button.name = std::string(name_leave_save);
+            save_button.caption = show(editor.text(), words::save_word);
+            save_button.accent = true;
+            footer.push_back(std::move(save_button));
+        }
+    } else if (state.prompt == Prompt::find) {
         // Find by key: the chord heard, every action on it, and Open › on each.
         const std::string title = show(editor.text(), words::find_by_key);
         std::string finding_words;

@@ -59,14 +59,23 @@ EditorResult asked(EditorAction action, std::string id, bool draw) {
     return result;
 }
 
-/// Leaves the editor, asking first while the draft differs from what was opened.
+void focus_on(ScreenState& state, kit::ControlId id);
+
+/// Leaves the editor, asking first while the draft differs from what was
+/// opened: the close question offers Save, Discard and Keep editing, Save
+/// left out while a clash holds it back. Its focus starts on Save, or on
+/// Keep editing when Save is left out.
 ///
 /// @param editor the model
-/// @return cancel, or ask_leave
-EditorResult leave(const Editor& editor) {
-    if (editor.unsaved() > 0)
-        return asked(EditorAction::ask_leave, {}, false);
-    return asked(EditorAction::cancel, {}, false);
+/// @param[in,out] state the prompt
+/// @return cancel, or the question shown
+EditorResult leave(const Editor& editor, ScreenState& state) {
+    if (editor.unsaved() == 0)
+        return asked(EditorAction::cancel, {}, false);
+    state.menu = Menu::none;
+    state.prompt = Prompt::leave;
+    focus_on(state, editor.can_save() ? controls::leave_save : controls::leave_keep);
+    return redrawn();
 }
 
 /// True at Compact, where the filters live in the category menu and there is no nav.
@@ -869,7 +878,23 @@ activate(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit::
         return redrawn();
     }
     if (id == controls::cancel || id == controls::close_mark)
-        return leave(editor);
+        return leave(editor, state);
+    if (id == controls::leave_save) {
+        // Save writes the draft and closes; a failed write leaves the editor
+        // open under the host's notice.
+        if (!editor.can_save())
+            return {};
+        close_prompt(state);
+        return asked(EditorAction::save, {}, true);
+    }
+    if (id == controls::leave_discard) {
+        close_prompt(state);
+        return asked(EditorAction::cancel, {}, false);
+    }
+    if (id == controls::leave_keep) {
+        close_prompt(state);
+        return redrawn();
+    }
     if (id == controls::save) {
         if (!editor.can_save())
             return {};
@@ -1063,7 +1088,7 @@ EditorResult escape_key(Editor& editor, ScreenState& state) {
         state.details_page = false;
         return redrawn();
     }
-    return leave(editor);
+    return leave(editor, state);
 }
 
 /// True when the focused control is one of the details.
@@ -2435,7 +2460,7 @@ editor_key(Editor& editor, ScreenState& state, const kit::DisplayList& list, kit
         );
     }
     if (outcome.result == kit::KeyResult::cancel)
-        return leave(editor);
+        return leave(editor, state);
     return {};
 }
 
@@ -2540,12 +2565,14 @@ EditorResult editor_wheel(
 EditorResult editor_command(
     Editor& editor, ScreenState& state, const kit::DisplayList& list, EditorCommand command
 ) {
-    static_cast<void>(list);
     if (state.prompt != Prompt::none) {
         if (command == EditorCommand::back) {
             close_prompt(state);
             return redrawn();
         }
+        // Menu on the close question is its Save.
+        if (command == EditorCommand::save && state.prompt == Prompt::leave)
+            return activate(editor, state, list, controls::leave_save);
         return {};
     }
     if (command == EditorCommand::add_key) {
@@ -2566,7 +2593,7 @@ EditorResult editor_command(
             state.details_page = false;
             return redrawn();
         }
-        return leave(editor);
+        return leave(editor, state);
     }
     if (command == EditorCommand::save) {
         if (!editor.can_save())

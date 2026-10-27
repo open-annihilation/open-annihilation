@@ -27,6 +27,7 @@ namespace {
 
 namespace kit = oa::ui::kit;
 namespace editor = oa::ui::key_editor;
+using key_editor_fixture::binding_of;
 using key_editor_fixture::editor_fixture;
 using key_editor_fixture::fonts;
 using key_editor_fixture::frame_for;
@@ -186,7 +187,24 @@ void search_and_escape() {
     OA_CHECK(closed.action == editor::EditorAction::cancel);
 }
 
-/// Escape and Back ask to leave once a chord has been removed. Save on a clean editor saves.
+/// True when the close question is up and offers Save as asked.
+///
+/// @param session the session
+/// @param offers_save true when Save should be offered
+/// @return true when the question shows Discard, Keep editing and Save as asked
+bool asks_before_closing(const Session& session, bool offers_save) {
+    return session.state.prompt == editor::Prompt::leave &&
+           kit::control_named(session.list, editor::name_leave_discard) != kit::no_control &&
+           kit::control_named(session.list, editor::name_leave_keep) != kit::no_control &&
+           (kit::control_named(session.list, editor::name_leave_save) != kit::no_control) ==
+               offers_save;
+}
+
+/// Escape, Back, Cancel and the close mark ask before closing once a chord
+/// has been removed, in the editor's own question. Keep editing and Back
+/// leave the draft open, Discard closes, Save and Menu save; nothing is
+/// written before one of them. While a clash holds Save back the question
+/// offers Discard and Keep editing only. Save on a clean editor saves.
 void leave_and_save() {
     Session dirty(frame_for(1280, 720, 100));
     const editor::Details attack = dirty.model.details("order.attack");
@@ -195,22 +213,57 @@ void leave_and_save() {
     OA_CHECK(dirty.model.unsaved() > 0);
     const editor::EditorResult escape =
         dirty.take(editor::editor_key(dirty.model, dirty.state, dirty.list, kit::Key::escape));
-    OA_CHECK(escape.action == editor::EditorAction::ask_leave);
+    OA_CHECK(escape.action == editor::EditorAction::none);
+    OA_CHECK(asks_before_closing(dirty, true));
+    OA_CHECK(
+        dirty.state.interaction.focused == kit::control_named(dirty.list, editor::name_leave_save)
+    );
+    // Keep editing goes back to the draft, which still holds the edit.
+    OA_CHECK(dirty.click(editor::name_leave_keep).action == editor::EditorAction::none);
+    OA_CHECK(dirty.state.prompt == editor::Prompt::none);
+    OA_CHECK(dirty.model.unsaved() > 0);
+    // Escape on the question is Keep editing too.
+    dirty.take(editor::editor_key(dirty.model, dirty.state, dirty.list, kit::Key::escape));
+    OA_CHECK(asks_before_closing(dirty, true));
+    dirty.take(editor::editor_key(dirty.model, dirty.state, dirty.list, kit::Key::escape));
+    OA_CHECK(dirty.state.prompt == editor::Prompt::none);
 
     Session back(frame_for(1280, 720, 100));
     OA_CHECK(back.model.remove_chord("order.attack", 0));
     const editor::EditorResult leaving = back.take(
         editor::editor_command(back.model, back.state, back.list, editor::EditorCommand::back)
     );
-    OA_CHECK(leaving.action == editor::EditorAction::ask_leave);
+    OA_CHECK(leaving.action == editor::EditorAction::none);
+    OA_CHECK(asks_before_closing(back, true));
+    // Back on the question keeps editing; Menu on it saves.
+    back.take(
+        editor::editor_command(back.model, back.state, back.list, editor::EditorCommand::back)
+    );
+    OA_CHECK(back.state.prompt == editor::Prompt::none);
+    back.take(
+        editor::editor_command(back.model, back.state, back.list, editor::EditorCommand::back)
+    );
+    OA_CHECK(
+        back.take(
+                editor::editor_command(
+                    back.model, back.state, back.list, editor::EditorCommand::save
+                )
+        )
+            .action == editor::EditorAction::save
+    );
 
     // Cancel and the close mark ask too; with nothing unsaved they close.
     Session asked(frame_for(1280, 720, 100));
     OA_CHECK(asked.model.remove_chord("order.attack", 0));
     asked.show();
-    OA_CHECK(asked.click(editor::name_close).action == editor::EditorAction::ask_leave);
-    asked.show();
-    OA_CHECK(asked.click(editor::name_cancel).action == editor::EditorAction::ask_leave);
+    OA_CHECK(asked.click(editor::name_close).action == editor::EditorAction::none);
+    OA_CHECK(asks_before_closing(asked, true));
+    OA_CHECK(asked.click(editor::name_leave_save).action == editor::EditorAction::save);
+    OA_CHECK(asked.state.prompt == editor::Prompt::none);
+    OA_CHECK(asked.click(editor::name_cancel).action == editor::EditorAction::none);
+    OA_CHECK(asks_before_closing(asked, true));
+    OA_CHECK(asked.click(editor::name_leave_discard).action == editor::EditorAction::cancel);
+    OA_CHECK(asked.model.unsaved() > 0);
     // Undo takes the change back; then Cancel closes at once.
     asked.show();
     asked.click(editor::name_undo);
@@ -223,6 +276,32 @@ void leave_and_save() {
         editor::editor_command(asked.model, asked.state, asked.list, editor::EditorCommand::undo)
     );
     OA_CHECK(asked.model.unsaved() == 0);
+
+    // A draft clash holds Save back: the question offers Discard and Keep editing.
+    Session held(frame_for(1280, 720, 100));
+    editor::EditorInputs inputs = editor_fixture();
+    inputs.number_keys_select_groups = true;
+    inputs.own.bindings.push_back(binding_of("order.move", "Alt+Shift+@Digit1"));
+    held.model = editor::Editor(std::move(inputs));
+    OA_CHECK(held.model.remove_chord("order.attack", 0));
+    OA_CHECK(!held.model.can_save());
+    held.show();
+    OA_CHECK(held.click(editor::name_cancel).action == editor::EditorAction::none);
+    OA_CHECK(asks_before_closing(held, false));
+    OA_CHECK(
+        held.state.interaction.focused == kit::control_named(held.list, editor::name_leave_keep)
+    );
+    const kit::Control* question =
+        kit::control_of(held.list, kit::control_named(held.list, editor::name_leave));
+    OA_CHECK(question != nullptr && question->text.find("Settle") != std::string::npos);
+    OA_CHECK(
+        held.take(
+                editor::editor_command(
+                    held.model, held.state, held.list, editor::EditorCommand::save
+                )
+        )
+            .action == editor::EditorAction::none
+    );
 
     Session clean(frame_for(1280, 720, 100));
     if (!clean.model.can_save())

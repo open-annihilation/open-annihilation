@@ -372,44 +372,6 @@ kit::Question keep_question(const editor::Editor& model, std::string_view id) {
     return question;
 }
 
-/// The question that asks before unsaved edits are closed: Save, Discard or
-/// Keep editing. While a clash holds Save back, the question says so and
-/// offers Discard and Keep editing.
-///
-/// @param model the editor
-/// @return the question, named prompt
-kit::Question leave_question(const editor::Editor& model) {
-    const editor::TextHooks& hooks = model.text();
-    const std::string count = std::to_string(model.unsaved());
-    const std::string_view pattern =
-        model.unsaved() == 1 ? editor::words::close_question_one : editor::words::close_question;
-    kit::Question question;
-    question.title = editor::show(hooks, editor::words::keys);
-    kit::Paragraph body;
-    body.text = editor::fill(editor::show(hooks, pattern), {{"n", count}});
-    question.paragraphs.push_back(std::move(body));
-    const std::size_t clashes = model.draft_clashes();
-    if (clashes != 0) {
-        kit::Paragraph settle;
-        settle.text = clashes == 1 ? editor::show(hooks, editor::words::settle_one)
-                                   : editor::fill(
-                                         editor::show(hooks, editor::words::settle),
-                                         {{"n", std::to_string(clashes)}}
-                                     );
-        question.paragraphs.push_back(std::move(settle));
-    } else {
-        question.buttons.push_back(question_button(hooks, editor::words::save_word, true, "save"));
-    }
-    question.buttons.push_back(question_button(hooks, editor::words::discard, false, "discard"));
-    question.buttons.push_back(
-        question_button(hooks, editor::words::keep_editing_title, false, "keep-editing")
-    );
-    question.primary_button = 0;
-    question.cancel_button = static_cast<int32_t>(question.buttons.size()) - 1;
-    question.marked = 0;
-    return question;
-}
-
 /// The notice a failed write shows.
 ///
 /// @param hooks the lookup
@@ -1618,9 +1580,6 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         case editor::EditorAction::ask_keep_changes:
             ask_keep(result.id);
             break;
-        case editor::EditorAction::ask_leave:
-            ask_leave();
-            break;
         case editor::EditorAction::ask_name:
             ask_name(result.id);
             break;
@@ -1703,31 +1662,6 @@ struct Runtime::KeyEditorScreen final : LayerScreen {
         };
         auto close_when = [runtime]() { return editor_gone(runtime->oa_layer()); };
         push_question(keep_question(editor_, id), std::move(answer), std::move(close_when));
-    }
-
-    /// Asks before unsaved edits are closed. Save writes them and closes,
-    /// Discard closes without writing, Keep editing leaves the draft open.
-    void ask_leave() {
-        if (question_up(runtime_.oa_layer()))
-            return;
-        Runtime* runtime = &runtime_;
-        const bool offers_save = editor_.draft_clashes() == 0;
-        auto answer = [runtime, offers_save](int32_t button) {
-            LayerScreen* found = runtime->oa_layer().find(editor::screen_name);
-            if (found == nullptr)
-                return true;
-            const int32_t discard = offers_save ? 1 : 0;
-            if (offers_save && button == 0) {
-                auto* screen = static_cast<KeyEditorScreen*>(found);
-                if (screen->save_draft() == LayerAnswer::close)
-                    runtime->oa_layer().close(found);
-            } else if (button == discard) {
-                runtime->oa_layer().close(found);
-            }
-            return true;
-        };
-        auto close_when = [runtime]() { return editor_gone(runtime->oa_layer()); };
-        push_question(leave_question(editor_), std::move(answer), std::move(close_when));
     }
 
     /// Asks the layout's name. An empty name leaves the screen open.

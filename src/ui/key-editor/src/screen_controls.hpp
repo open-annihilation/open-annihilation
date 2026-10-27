@@ -169,6 +169,14 @@ inline constexpr kit::ControlId card_change = 89;
 inline constexpr kit::ControlId card_use = 90;
 /// The key list's scroll bar.
 inline constexpr kit::ControlId key_list_bar = 91;
+/// The close question's words. Its text is the question, for automation.
+inline constexpr kit::ControlId leave_title = 92;
+/// The close question's Save.
+inline constexpr kit::ControlId leave_save = 93;
+/// The close question's Discard.
+inline constexpr kit::ControlId leave_discard = 94;
+/// The close question's Keep editing.
+inline constexpr kit::ControlId leave_keep = 95;
 
 /// One nav entry. The category's place among the nav's entries, from 0, is added.
 inline constexpr kit::ControlId nav_first = 100;

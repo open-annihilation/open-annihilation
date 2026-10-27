@@ -452,16 +452,16 @@ void Runtime::check_key_editor() {
     snapshot("draft");
     click_named("oa.key-editor.cancel");
     require(
-        require_named("oa.prompt.body", "Cancel did not ask before closing")
+        require_named("oa.key-editor.leave", "Cancel did not ask before closing")
                 .text.find("before closing") != std::string::npos,
         "the close question does not ask"
     );
-    require(named("oa.prompt.save").has_value(), "Save is not shown");
-    require(named("oa.prompt.discard").has_value(), "Discard is not shown");
-    require(named("oa.prompt.keep-editing").has_value(), "Keep editing is not shown");
+    require(named("oa.key-editor.leave.save").has_value(), "Save is not shown");
+    require(named("oa.key-editor.leave.discard").has_value(), "Discard is not shown");
+    require(named("oa.key-editor.leave.keep-editing").has_value(), "Keep editing is not shown");
     std::cout << "key editor check: close question\n";
     snapshot("close-question");
-    click_named("oa.prompt.keep-editing");
+    click_named("oa.key-editor.leave.keep-editing");
     require(oa_layer().find(editor::screen_name) != nullptr, "Keep editing closed the editor");
     click_named("oa.key-editor.undo");
     require(
@@ -471,7 +471,7 @@ void Runtime::check_key_editor() {
     );
     click_named("oa.key-editor.number-keys.off");
     click_named("oa.key-editor.close");
-    click_named("oa.prompt.discard");
+    click_named("oa.key-editor.leave.discard");
     require(oa_layer().find(editor::screen_name) == nullptr, "Discard did not close the editor");
     require(engine_settings().switch_alt, "Discard wrote the switch");
     std::cout << "key editor check: Discard writes nothing\n";
@@ -479,7 +479,7 @@ void Runtime::check_key_editor() {
     click_named("oa.key-editor.nav.groups");
     click_named("oa.key-editor.number-keys.off");
     click_named("oa.key-editor.cancel");
-    click_named("oa.prompt.save");
+    click_named("oa.key-editor.leave.save");
     require(oa_layer().find(editor::screen_name) == nullptr, "Save did not close the editor");
     require(!engine_settings().switch_alt, "Save did not write the switch");
     std::cout << "key editor check: Save from the close question\n";

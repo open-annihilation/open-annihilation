@@ -130,6 +130,16 @@ inline constexpr std::string_view name_card_here = "key-editor.card.keep-here";
 inline constexpr std::string_view name_card_there = "key-editor.card.keep-there";
 /// Settle…, on a draft clash in the details: opens the clash question.
 inline constexpr std::string_view name_card_settle = "key-editor.card.settle";
+/// The question asked before unsaved edits are closed. Its text is the
+/// question and, while a clash holds Save back, the line that says so.
+inline constexpr std::string_view name_leave = "key-editor.leave";
+/// The close question's Save: writes the draft and closes. Absent while a
+/// clash holds Save back.
+inline constexpr std::string_view name_leave_save = "key-editor.leave.save";
+/// The close question's Discard: closes without writing.
+inline constexpr std::string_view name_leave_discard = "key-editor.leave.discard";
+/// The close question's Keep editing: back to the draft, nothing changed.
+inline constexpr std::string_view name_leave_keep = "key-editor.leave.keep-editing";
 /// Find by key, beside the search.
 inline constexpr std::string_view name_find = "key-editor.find";
 /// Find by key's prompt. Its text is the line that says what the chord does.
@@ -277,7 +287,6 @@ enum class EditorAction : uint8_t {
     cancel,            ///< close the editor
     save,              ///< write the draft
     ask_keep_changes,  ///< ask before choosing another layout; id is that layout
-    ask_leave,         ///< ask before leaving unsaved changes
     ask_name,          ///< ask the layout's name; id is "duplicate" or "rename"
     copy_text,         ///< put the share text on the clipboard
     save_share,        ///< write the .oakeys package; id is the layout id
@@ -308,7 +317,7 @@ enum class PointerKind : uint8_t {
 /// R1 into it.
 enum class EditorCommand : uint8_t {
     find,    ///< the controller's Y: the search takes the focus
-    back,    ///< the controller's B: leave the details page, else ask to leave
+    back,    ///< the controller's B: leave the details page, else ask before leaving
     save,    ///< the controller's Menu: save, when SAVE is enabled
     add_key, ///< the controller's X: + ADD KEY on the chosen row
     undo,    ///< Primary+Z: take back the last change
@@ -323,6 +332,7 @@ enum class Prompt : uint8_t {
     share,   ///< Share your keys
     paste,   ///< Paste keys
     import,  ///< Import keys from an older setup
+    leave,   ///< Save your edits before closing? Save, Discard or Keep editing
 };
 
 /// One file IMPORT… can read, or the mod's Ctrl+F2 keys.
