@@ -2126,12 +2126,11 @@ void write_startup_line(std::string_view text) {
         result.check_zoom_memory || result.check_map_packs || result.check_map_browser ||
         result.check_key_editor || result.check_key_capture || result.check_key_share ||
         result.check_key_views || result.check_keys_overlay || result.check_mutator_button ||
-        result.check_mutator_room ||
-        result.check_brain_room || result.check_mutator_picker || result.check_brain_picker ||
-        result.check_brain_seat_buttons || result.check_brain_campaign ||
-        result.check_mutator_prompts || result.check_map_pack_lists ||
-        result.check_mod_map_settings || result.check_side_orders || result.check_skirmish_sides ||
-        result.check_mod_limits || result.check_click_snap;
+        result.check_mutator_room || result.check_brain_room || result.check_mutator_picker ||
+        result.check_brain_picker || result.check_brain_seat_buttons ||
+        result.check_brain_campaign || result.check_mutator_prompts ||
+        result.check_map_pack_lists || result.check_mod_map_settings || result.check_side_orders ||
+        result.check_skirmish_sides || result.check_mod_limits || result.check_click_snap;
     // A capture and a showcase need the application's own loop and window,
     // which checks and benchmarks do not run.
     const bool check_run = result.fixed_clock || result.check_navigation ||
