@@ -4947,6 +4947,18 @@ int mouse_look_index(int index) noexcept {
     return index + 1;
 }
 
+/// The words for a mouse role's chord: its modifiers and its button, or the
+/// button alone on a row with no chord.
+///
+/// @param editor the keyboard and the platform
+/// @param row the role
+/// @return the words
+std::string mouse_row_chord(const Editor& editor, const RoleLine& row) {
+    if (!row.has_chord)
+        return row.button;
+    return keys::display_text(row.chord, editor.keyboard(), editor.platform());
+}
+
 /// The roles a button's callout shows: every role, or its one name.
 ///
 /// @param cap the button
@@ -5291,8 +5303,8 @@ void add_mouse_body(
             control.name = name;
             control.kind = kit::ControlKind::button;
             // The picture draws the role beside the chip. The control names the
-            // button as well, so a row reads as "Left · Command".
-            control.text = row.free ? row.role : row.button + " · " + row.role;
+            // chord as well, so a row reads as "Alt+Left button · Orbit camera".
+            control.text = row.free ? row.role : mouse_row_chord(editor, row) + " · " + row.role;
             built.rest.push_back(std::move(control));
             y += row_h + 2;
             ++row_index;
@@ -5337,7 +5349,10 @@ void add_mouse_body(
             if (y + metrics.field_height > bottom)
                 break;
             ++place_number;
-            std::string caption = row.free ? row.role : row.button + " · " + row.role;
+            // The chord with its modifiers, so Alt+Left's role does not read
+            // as Left's.
+            std::string caption =
+                row.free ? row.role : mouse_row_chord(editor, row) + " · " + row.role;
             kit::ButtonLook button;
             button.caption = kit::cut_to_width(
                 fonts, kit::FontRole::small, caption, std::max(table_w, int32_t{1})
