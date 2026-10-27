@@ -1,13 +1,18 @@
 // SPDX-FileCopyrightText: The Open Annihilation Authors; see COPYRIGHT
 // SPDX-License-Identifier: GPL-3.0-only
 
-// One brain button on each computer row this machine runs in the battle
-// room, over that row's empty screen-size column. The button reads the
-// seat's label, cut with … to the column, and opens that seat's picker.
-// Another machine's brain is a label in the same place. Tab, the arrows and
-// the controller reach the buttons. Resting the pointer, or the information
-// key, shows the seat's card. With nothing to draw the screen is not there.
+// A computer seat's brain in the battle room, drawn from the room's own art
+// (brain_seats_room.hpp). A computer row keeps 3.1c's "AI:<owner>" name;
+// its empty Resolution cell shows the seat's brain after the OA stamp, or
+// the built-in player, and its Mem cell the brain's level. On a computer
+// this machine runs, the name has a notch; the notch, the Resolution cell
+// and the right button on the name open the brain menu as the room's list
+// box, and the Mem cell steps the brain's level. Another machine's brain
+// is read alone. Tab, the arrows and the controller reach the Resolution
+// cells. Resting the pointer on one, or the information key, shows the
+// seat's card. With nothing to show the screen is not there.
 
+#include "brain_seats_room.hpp"
 #include "oa_button_focus.hpp"
 #include "oa_layer.hpp"
 #include "library_host.hpp"
@@ -30,6 +35,8 @@
 #include "oa/ui/frontend_multiplayer/panel.hpp"
 #include "oa/ui/frontend_multiplayer/presence_card.hpp"
 #include "oa/ui/frontend_multiplayer/screens.hpp"
+#include "oa/ui/frontend_renderer/room_parts.hpp"
+#include "oa/ui/kit/canvas.hpp"
 #include "oa/ui/kit/components.hpp"
 #include "oa/ui/kit/input.hpp"
 #include "oa/ui/kit/layout.hpp"
@@ -62,6 +69,7 @@ namespace place = oa::ui::frontend_state;
 namespace mp = oa::ui::frontend_multiplayer;
 namespace pad = oa::ui::pad_controls;
 namespace kit = oa::ui::kit;
+namespace room = oa::ui::frontend_renderer;
 
 /// Writes a choice onto the computers this machine runs. The screen is not
 /// a member, and a lambda handed to the picker reaches the choice through this.
@@ -87,6 +95,20 @@ namespace {
 constexpr std::string_view screen_name = "brain-room";
 /// Control ids start here, clear of a hover card's line ids.
 constexpr int32_t id_base = 100;
+/// A Mem cell's control id is its row's and this.
+constexpr int32_t level_id_offset = 20;
+/// A notch's control id is its row's and this.
+constexpr int32_t notch_id_offset = 40;
+/// The menu's control ids start here.
+constexpr int32_t menu_id_base = 200;
+/// The card's slot while the menu is open: the menu's selected row.
+constexpr int32_t menu_card_slot = 1000;
+/// Points between the menu and the card beside it.
+constexpr int32_t card_gap = 6;
+/// The notch's width at a name's right end, in frame pixels.
+constexpr int32_t notch_width = 14;
+/// The light-table row a cell's words are lit through under the pointer.
+constexpr int32_t hover_light = 28;
 constexpr std::array<std::string_view, 3> level_labels{"Easy", "Medium", "Hard"};
 
 /// Returns one of the interface's words in the language shown.
@@ -126,21 +148,6 @@ bool same_tag(std::string_view left, std::string_view right) {
             return false;
     }
     return true;
-}
-
-/// Copies a fixed field up to its first NUL.
-///
-/// @param text the field
-/// @param bytes the field's size
-/// @return the text
-std::string copied_field(const char* text, std::size_t bytes) {
-    std::string out;
-    if (text == nullptr)
-        return out;
-    out.reserve(bytes);
-    for (std::size_t at = 0; at < bytes && text[at] != '\0'; ++at)
-        out.push_back(text[at]);
-    return out;
 }
 
 /// The screen-size control's name for one slot: RES0 through RES9.
@@ -566,13 +573,23 @@ picker::Choice choice_from_launch(
     return built_in;
 }
 
-/// Grows a rectangle by the focus ring's margin.
+/// Grows a rectangle of frame pixels on every side.
 ///
 /// @param rect the rectangle
-/// @param margin the margin, in points
+/// @param margin the pixels added on each side
 /// @return the grown rectangle
-kit::Rect outset(const kit::Rect& rect, int32_t margin) noexcept {
+room::SourceRect grown(const room::SourceRect& rect, int32_t margin) noexcept {
     return {rect.x - margin, rect.y - margin, rect.width + margin * 2, rect.height + margin * 2};
+}
+
+/// Tells whether a rectangle of frame pixels holds a pixel.
+///
+/// @param rect the rectangle
+/// @param at the pixel
+/// @return true when it does
+bool holds_pixel(const room::SourceRect& rect, kit::Point at) noexcept {
+    return at.x >= rect.x && at.y >= rect.y && at.x < rect.x + rect.width &&
+           at.y < rect.y + rect.height;
 }
 
 /// Returns the union of two rectangles.
@@ -583,6 +600,8 @@ kit::Rect outset(const kit::Rect& rect, int32_t margin) noexcept {
 kit::Rect unite(const kit::Rect& into, const kit::Rect& extra) noexcept {
     if (into.width <= 0 || into.height <= 0)
         return extra;
+    if (extra.width <= 0 || extra.height <= 0)
+        return into;
     const int32_t left = std::min(into.x, extra.x);
     const int32_t top = std::min(into.y, extra.y);
     const int32_t right = std::max(into.x + into.width, extra.x + extra.width);
@@ -667,8 +686,13 @@ void BrainRoomAccess::write(
 }
 
 /// The brain seats over the battle room. Not modal, no backdrop, not opaque,
-/// so the picture shows round them. A button takes its own press and the
-/// focus handed to it. A label takes neither.
+/// so the room shows round them. A computer row's Resolution cell shows its
+/// brain with the OA stamp, its Mem cell the brain's level, and its name
+/// keeps 3.1c's "AI:<owner>". On a computer this machine runs, the name
+/// has a notch; the notch, the Resolution cell and the right button on the
+/// name open the brain menu, and the Mem cell steps the level. Another
+/// machine's brain is read alone. While the menu is open it takes every
+/// press.
 struct Runtime::BrainRoomScreen final : LayerScreen {
     /// Makes the screen.
     ///
@@ -683,7 +707,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// Tells whether a row needs the screen.
     ///
     /// True while the battle room is in front, the fonts are ready, and some
-    /// computer row would draw a button or a label.
+    /// computer row would show a brain or the built-in player.
     ///
     /// @param runtime the runtime
     /// @return true when the screen should be up
@@ -724,7 +748,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return false;
     }
 
-    /// Returns the rows, the focus ring's margin and the open card, in the window.
+    /// Returns the rows, their focus markers, the open menu and the open card, in the window.
     ///
     /// @param placed_on what the screen is placed on
     /// @return its place; empty while it does not show
@@ -762,14 +786,77 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// @param placed_on what the screen is placed on
     void lay_out(const LayerView& placed_on) override { view_ = placed_on; }
 
-    /// Draws the rows, the open card and, while a button holds the focus, its ring.
+    /// Draws each row's cells and notch in the room's art, the open menu as
+    /// the room's list box, and the open card.
     ///
     /// @param canvas where it draws
-    void draw(const kit::Canvas& canvas) const override { kit::paint(canvas, display_list()); }
+    void draw(const kit::Canvas& canvas) const override {
+        const Geometry laid = geometry(view_);
+        if (!laid.ok)
+            return;
+        const room::RoomArt art = room_art();
+        const room::Surface& frame = BrainSeatsAccess::frame(runtime_);
+        const mp::PanelOffset offset = mp::multiplayer_panel_offset();
+        for (const SeatRow& row : laid.rows) {
+            room::RoomCanvas res = room::room_canvas(grown(row.res, room_focus_margin), &frame);
+            draw_brain_cell(res, art, row);
+            if (focused_slot_ == row.slot)
+                room::draw_room_focus(res, art, row.res);
+            paint_room_parts(canvas, view_, laid.bounds, res);
+            if (row.mem.width > 0 && !row.level_words.empty()) {
+                room::RoomCanvas mem = room::room_canvas(row.mem, &frame);
+                if (art.resources != nullptr)
+                    room::cover_room_area(
+                        mem, row.mem, art.resources->background, offset.x, offset.y
+                    );
+                const std::string level = room::room_text(row.level_words);
+                const room::RoomFont font = cell_font(art, row.mem);
+                const std::string fitted = room::fit_room_text(art, font, level, row.mem.width - 4);
+                const int32_t width = room::room_text_width(art, font, fitted);
+                const int32_t height = room::room_line_height(art, font);
+                std::ignore = room::draw_room_text(
+                    mem,
+                    art,
+                    font,
+                    fitted,
+                    row.mem.x + (row.mem.width - width) / 2,
+                    row.mem.y + (row.mem.height - height) / 2,
+                    row.mem.width
+                );
+                paint_room_parts(canvas, view_, laid.bounds, mem);
+            }
+            if (row.button && row.notch.width > 0) {
+                room::RoomCanvas notch = room::room_canvas(row.notch, &frame);
+                room::draw_room_notch(
+                    notch,
+                    art,
+                    row.notch,
+                    menu_.seat == row.slot,
+                    pressed_part_ == Part::notch && pressed_slot_ == row.slot
+                );
+                paint_room_parts(canvas, view_, laid.bounds, notch);
+            }
+        }
+        if (menu_.seat >= 0) {
+            room::RoomCanvas parts = room::room_canvas(menu_.rect, &frame);
+            const std::vector<room::RoomListRow> rows = brain_menu_list_rows(menu_);
+            room::RoomListLook look;
+            look.rect = menu_.rect;
+            look.rows = rows;
+            look.value_width = brain_menu_value_width;
+            room::draw_room_list(parts, art, look);
+            paint_room_parts(canvas, view_, laid.bounds, parts);
+        }
+        if (laid.card) {
+            kit::DisplayList card;
+            kit::add_hover_card(card, *laid.card, laid.card_look);
+            kit::paint(canvas, card);
+        }
+    }
 
-    /// Takes a press on a button or the open card. A press on a disabled
-    /// button is taken and opens nothing. A press anywhere else clears the
-    /// focus and goes on.
+    /// Takes a press on a row's part this machine runs, the open menu or the
+    /// open card. A press on a part of a ready player's row is taken and does
+    /// nothing. A press anywhere else clears the focus and goes on.
     ///
     /// @param kind pointer_move, pointer_down or pointer_up
     /// @param button the pointer's button
@@ -783,12 +870,18 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             return LayerAnswer::pass;
         pointer_layer_ = {at.x + laid.bounds.x, at.y + laid.bounds.y};
         have_pointer_ = true;
-        const int32_t over_mouse = button_at(laid, at);
-        const int32_t over = kind != ScreenInputKind::pointer_move && finger_reach > 0
-                                 ? finger_slot(laid, at, finger_reach)
-                                 : over_mouse;
-        if (over_mouse != hovered_slot_) {
-            hovered_slot_ = over_mouse;
+        const kit::Point pixel = frame_point(view_, pointer_layer_);
+        if (menu_.seat >= 0)
+            return menu_pointer(kind, button, pixel);
+        Part part = Part::none;
+        int32_t over = part_at(laid, pixel, part);
+        if (kind != ScreenInputKind::pointer_move && finger_reach > 0 && over < 0) {
+            over = finger_slot(laid, at, finger_reach);
+            part = over >= 0 ? Part::cell : Part::none;
+        }
+        const int32_t over_cell = part == Part::cell ? over : -1;
+        if (over_cell != hovered_slot_) {
+            hovered_slot_ = over_cell;
             ++revision_;
         }
         const int32_t card_before = card_.open_slot();
@@ -796,52 +889,73 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         if (card_.open_slot() != card_before)
             ++revision_;
         const bool on_card = card_contains(laid, at);
-        if (kind == ScreenInputKind::pointer_down && button == SDL_BUTTON_LEFT) {
-            if (over >= 0) {
+        const SeatRow* row = button_of(laid, over);
+        if (kind == ScreenInputKind::pointer_down &&
+            (button == SDL_BUTTON_LEFT || button == SDL_BUTTON_RIGHT)) {
+            // The right button on a computer's name opens its menu; the left
+            // button there is the room's.
+            const bool taken = row != nullptr && (button == SDL_BUTTON_RIGHT || part != Part::name);
+            if (taken) {
                 pressed_slot_ = over;
+                pressed_part_ = part;
+                pressed_button_ = button;
                 card_pressed_ = false;
                 ++revision_;
                 return LayerAnswer::redraw;
             }
-            if (on_card) {
+            if (button == SDL_BUTTON_LEFT && on_card) {
                 pressed_slot_ = -1;
                 card_pressed_ = true;
                 return LayerAnswer::none;
             }
             pressed_slot_ = -1;
             card_pressed_ = false;
-            if (focused_slot_ >= 0) {
+            if (button == SDL_BUTTON_LEFT && focused_slot_ >= 0) {
                 focused_slot_ = -1;
                 ++revision_;
             }
             return LayerAnswer::pass;
         }
-        if (kind == ScreenInputKind::pointer_up && button == SDL_BUTTON_LEFT) {
-            if (card_pressed_) {
+        if (kind == ScreenInputKind::pointer_up &&
+            (button == SDL_BUTTON_LEFT || button == SDL_BUTTON_RIGHT)) {
+            if (button == SDL_BUTTON_LEFT && card_pressed_) {
                 card_pressed_ = false;
                 return LayerAnswer::none;
             }
-            if (on_card && pressed_slot_ < 0)
+            if (button == SDL_BUTTON_LEFT && on_card && pressed_slot_ < 0)
                 return LayerAnswer::none;
-            if (pressed_slot_ >= 0) {
+            if (pressed_slot_ >= 0 && button == pressed_button_) {
                 const int32_t pressed = pressed_slot_;
+                const Part pressed_on = pressed_part_;
                 pressed_slot_ = -1;
+                pressed_part_ = Part::none;
                 ++revision_;
-                const SeatRow* row = button_of(laid, pressed);
-                if (over == pressed && row != nullptr && row->enabled)
-                    open_picker(pressed);
+                const SeatRow* held = button_of(laid, pressed);
+                if (over == pressed && held != nullptr && held->enabled) {
+                    if (pressed_on == Part::mem)
+                        step_level(*held, button == SDL_BUTTON_LEFT);
+                    else
+                        open_menu(pressed);
+                }
                 return LayerAnswer::redraw;
             }
         }
         return LayerAnswer::pass;
     }
 
-    /// Takes the information key, Escape when a card is open, and the keys
-    /// a focused button holds.
+    /// Takes the open menu's keys, the information key, Escape when a card
+    /// is open, and the keys a focused cell holds.
     ///
     /// @param pressed the key
     /// @return none or redraw when the screen takes it; pass otherwise
     LayerAnswer key(kit::Key pressed, uint32_t /*sdl_key*/) override {
+        if (menu_.seat >= 0) {
+            if (pressed == kit::Key::tab || pressed == kit::Key::back_tab)
+                return LayerAnswer::none;
+            apply(brain_menu_key(menu_, pressed));
+            ++revision_;
+            return LayerAnswer::redraw;
+        }
         if (pressed == kit::Key::info) {
             const int32_t focused = focused_slot_ >= 0 ? focused_slot_ : mp::presence_card_no_slot;
             if (card_.key_info(focused)) {
@@ -874,81 +988,79 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// @return none or redraw when the screen takes it; pass otherwise
     LayerAnswer pad_action(pad::Action action) override {
         if (action == pad::Action::press)
-            return answer_key(kit::Key::enter);
+            return key(kit::Key::enter, 0);
         if (action == pad::Action::focus_next)
-            return answer_key(kit::Key::tab);
+            return key(kit::Key::tab, 0);
         if (action == pad::Action::focus_previous)
-            return answer_key(kit::Key::back_tab);
+            return key(kit::Key::back_tab, 0);
         if (action == pad::Action::focus_up)
-            return answer_key(kit::Key::up);
+            return key(kit::Key::up, 0);
         if (action == pad::Action::focus_down)
-            return answer_key(kit::Key::down);
+            return key(kit::Key::down, 0);
         if (action == pad::Action::focus_left)
-            return answer_key(kit::Key::left);
+            return key(kit::Key::left, 0);
         if (action == pad::Action::focus_right)
-            return answer_key(kit::Key::right);
+            return key(kit::Key::right, 0);
         return LayerAnswer::pass;
     }
 
-    /// Lets the wheel go on.
+    /// Lets the wheel go on, and takes it while the menu is open.
     ///
-    /// @return pass
-    LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override { return LayerAnswer::pass; }
+    /// @return pass, or none while the menu is open
+    LayerAnswer wheel(kit::Point /*at*/, float /*notches*/) override {
+        return menu_.seat >= 0 ? LayerAnswer::none : LayerAnswer::pass;
+    }
 
-    /// Returns the rows, the open card and the ring.
+    /// Returns the rows' controls for automation and the pointer, the open
+    /// menu's and the open card's lines.
     ///
-    /// A row's automation name is brain-seat.<slot>, which the endpoint
-    /// lists as oa.brain-seat.<slot>. A button's text is the whole label.
-    /// The drawn caption is that label cut to the button. A label's drawn
-    /// text is cut the same way, in the small font. Tab's order holds the
-    /// buttons. The card's lines are not focusable.
+    /// A row's Resolution cell is brain-seat.<slot>, which the endpoint
+    /// lists as oa.brain-seat.<slot>: a button on a computer this machine
+    /// runs, a label on another machine's, its text the seat's whole label.
+    /// Its Mem cell, while it shows a brain's level, is
+    /// brain-seat-level.<slot>, its text that level; its notch is
+    /// brain-seat-menu.<slot>. Tab's order holds the Resolution buttons.
     ///
     /// @return the display list
     [[nodiscard]] kit::DisplayList display_list() const override {
         kit::DisplayList list;
         const Geometry laid = geometry(view_);
-        const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
-        if (!laid.ok || fonts == nullptr)
+        if (!laid.ok)
             return list;
+        if (menu_.seat >= 0)
+            add_brain_menu_controls(list, room_art(), menu_, view_, laid.bounds, menu_id_base);
         for (const SeatRow& row : laid.rows) {
-            if (!row.button) {
-                const auto measure = [fonts](std::string_view text) {
-                    return kit::text_width(*fonts, kit::FontRole::small, text);
-                };
-                const std::string fitted = measure(row.label) <= row.local.width
-                                               ? row.label
-                                               : kit::fit(row.label, row.local.width, measure);
-                kit::Item item;
-                item.role = kit::Role::text;
-                item.rect = row.local;
-                item.text = fitted;
-                item.font = kit::FontRole::small;
-                item.align = kit::Align::centre;
-                item.colour = kit::colour::text;
-                list.items.push_back(std::move(item));
-                kit::Control control;
-                control.id = row.id;
-                control.rect = row.local;
-                control.enabled = false;
-                control.name = row.name;
-                control.kind = kit::ControlKind::area;
-                control.focusable = false;
-                control.text = row.label;
-                list.controls.push_back(std::move(control));
-                continue;
+            kit::Control cell;
+            cell.id = row.id;
+            cell.rect = frame_rect_local(view_, laid.bounds, row.res);
+            cell.enabled = row.button && row.enabled;
+            cell.name = row.name;
+            cell.kind = row.button ? kit::ControlKind::button : kit::ControlKind::area;
+            cell.focusable = row.button;
+            cell.text = row.label;
+            list.controls.push_back(std::move(cell));
+            if (row.mem.width > 0 && !row.level_words.empty()) {
+                kit::Control level;
+                level.id = row.id + level_id_offset;
+                level.rect = frame_rect_local(view_, laid.bounds, row.mem);
+                level.enabled = row.button && row.enabled && row.steps;
+                level.name = "brain-seat-level." + std::to_string(row.slot);
+                level.kind = row.button ? kit::ControlKind::button : kit::ControlKind::area;
+                level.focusable = false;
+                level.text = row.level_words;
+                list.controls.push_back(std::move(level));
             }
-            kit::ButtonLook look;
-            look.style = kit::ButtonStyle::filled;
-            look.enabled = row.enabled;
-            look.hovered = row.enabled && hovered_slot_ == row.slot;
-            look.held = row.enabled && pressed_slot_ == row.slot && hovered_slot_ == row.slot;
-            look.oa_mark = true;
-            fit_caption(look, *fonts, row.local, row.label);
-            kit::add_button(list, row.local, look, row.id, row.name);
-            if (!list.controls.empty())
-                list.controls.back().text = row.label;
-            if (focused_slot_ == row.slot)
-                kit::add_focus_ring(list, row.local, true);
+            if (row.button && row.notch.width > 0) {
+                kit::Control notch;
+                notch.id = row.id + notch_id_offset;
+                notch.rect = frame_rect_local(view_, laid.bounds, row.notch);
+                notch.enabled = row.enabled;
+                notch.name = "brain-seat-menu." + std::to_string(row.slot);
+                notch.kind = kit::ControlKind::button;
+                notch.focusable = false;
+                notch.text = row.label;
+                list.controls.push_back(std::move(notch));
+            }
         }
         for (const Stop& stop : stops_of(laid)) {
             if (stop.button)
@@ -967,7 +1079,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     [[nodiscard]] kit::Interaction interaction() const override {
         kit::Interaction shown_state;
         shown_state.hovered = control_id(hovered_slot_);
-        shown_state.pressed = control_id(pressed_slot_);
+        shown_state.pressed =
+            pressed_part_ == Part::cell ? control_id(pressed_slot_) : kit::no_control;
         shown_state.focused = control_id(focused_slot_);
         shown_state.focus_shown = focused_slot_ >= 0;
         return shown_state;
@@ -975,8 +1088,9 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
 
     /// Closes once the battle room is gone or no row needs the screen.
     /// Notes this machine's computers, so a choice sticks once the session
-    /// seats the player. Gives up a button whose row is gone, and gives up
-    /// the focus once the battle room's own focus is on a control again.
+    /// seats the player. Closes the menu whose row is gone or became ready.
+    /// Gives up a button whose row is gone, and gives up the focus once the
+    /// battle room's own focus is on a control again.
     ///
     /// @return close when it should leave; otherwise none
     LayerAnswer tick() override {
@@ -984,6 +1098,14 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         if (!wanted(runtime_))
             return LayerAnswer::close;
         Geometry laid = geometry(view_);
+        if (menu_.seat >= 0) {
+            const SeatRow* open = button_of(laid, menu_.seat);
+            if (open == nullptr || !open->enabled) {
+                menu_ = {};
+                card_.close();
+                ++revision_;
+            }
+        }
         if (focused_slot_ >= 0 && button_of(laid, focused_slot_) == nullptr) {
             focused_slot_ = -1;
             pressed_slot_ = -1;
@@ -994,7 +1116,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             pressed_slot_ = -1;
             ++revision_;
         }
-        if (card_.open_slot() != mp::presence_card_no_slot &&
+        if (card_.open_slot() != mp::presence_card_no_slot && card_.open_slot() != menu_card_slot &&
             row_of(laid, card_.open_slot()) == nullptr)
             card_.close();
         const int32_t card_before = card_.open_slot();
@@ -1015,27 +1137,40 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     /// @return the revision
     [[nodiscard]] uint64_t revision() const override { return revision_; }
 
-    /// Has nothing of its own to close. The picker, when it is open, is its own screen.
-    void close(bool /*by_key*/) override {}
+    /// Closes the menu, when it is open.
+    void close(bool /*by_key*/) override { menu_ = {}; }
 
   private:
 
-    /// One computer row's button or label.
+    /// The part of a row a point lies on.
+    enum class Part : uint8_t {
+        none,  ///< none of them
+        cell,  ///< the Resolution cell
+        mem,   ///< the Mem cell
+        notch, ///< the notch at the name's right end
+        name,  ///< the rest of the name
+    };
+
+    /// One computer row's cells.
     struct SeatRow {
         int32_t slot{-1};          ///< the slot, from 0
         uint32_t player_id{};      ///< the computer's player id; 0 for another machine's
-        bool button{};             ///< true for a button this machine runs
+        bool button{};             ///< true for a computer this machine runs
         bool enabled{true};        ///< false while this player is ready
+        bool steps{};              ///< the Mem cell steps the brain's level
         kit::ControlId id{};       ///< its control id
         std::string name{};        ///< its automation name, without oa.
-        place::PlaceRect at{};     ///< the row, in the layer's points
-        kit::Rect local{};         ///< the row, in the screen's points
+        room::SourceRect res{};    ///< the Resolution cell, in frame pixels
+        room::SourceRect mem{};    ///< the Mem cell while it shows a brain's level, in frame pixels
+        room::SourceRect player{}; ///< the name, in frame pixels
+        room::SourceRect notch{};  ///< the notch at the name's right end, in frame pixels
         std::string label{};       ///< the whole label, uncut
+        std::string level_words{}; ///< the brain's level; empty for the built-in player
         picker::SeatShown shown{}; ///< what the card reads
-        picker::Choice choice{};   ///< the choice the picker opens on
+        picker::Choice choice{};   ///< the seat's choice
     };
 
-    /// Where the rows, the records and the open card lie.
+    /// Where the rows, the records, the menu and the open card lie.
     struct Geometry {
         bool ok{};                               ///< a row was placed
         kit::Rect bounds{};                      ///< the screen's place, in the layer's points
@@ -1047,12 +1182,12 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         kit::HoverCardLook card_look{};          ///< the open card's look
     };
 
-    /// One stop in the combined Tab order: a record, or a seat button.
+    /// One stop in the combined Tab order: a record, or a seat's cell.
     struct Stop {
-        bool button{};     ///< true for a seat button
+        bool button{};     ///< true for a seat's cell
         int32_t id{-1};    ///< the control's index, or the slot
         int32_t place{-1}; ///< the record's place in the battle room's order
-        int64_t key{};     ///< a button's Tab key; 0 for a record
+        int64_t key{};     ///< a cell's Tab key; 0 for a record
     };
 
     /// The control id of a slot, or none.
@@ -1077,7 +1212,70 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return nullptr;
     }
 
-    /// Where the rows and the open card lie for a view.
+    /// The battle room's art, read once while the screen lives.
+    ///
+    /// @return the art; without resources when it could not be read
+    [[nodiscard]] room::RoomArt room_art() const {
+        if (!art_read_) {
+            art_read_ = true;
+            art_ = BrainSeatsAccess::load_art(runtime_, battle_room_art_names());
+        }
+        if (!art_)
+            return {};
+        return {&*art_, room::room_palette(*art_)};
+    }
+
+    /// The font a cell's words are drawn in: the caption font where it fits
+    /// the cell's height, else the label font.
+    ///
+    /// @param art the art
+    /// @param cell the cell
+    /// @return the font
+    [[nodiscard]] static room::RoomFont
+    cell_font(const room::RoomArt& art, const room::SourceRect& cell) {
+        return room::room_line_height(art, room::RoomFont::caption) <= cell.height
+                   ? room::RoomFont::caption
+                   : room::RoomFont::label;
+    }
+
+    /// Draws a row's Resolution cell: the OA stamp, then the brain's name,
+    /// or the built-in player's word, in the room's font.
+    ///
+    /// @param parts the canvas
+    /// @param art the art
+    /// @param row the row
+    void
+    draw_brain_cell(room::RoomCanvas& parts, const room::RoomArt& art, const SeatRow& row) const {
+        const room::SourceRect& cell = row.res;
+        int32_t left = cell.x + 2;
+        if (!row.shown.name.empty()) {
+            const int32_t height = std::clamp(cell.height - 4, 7, 12);
+            const room::SourceRect stamp{
+                left, cell.y + (cell.height - height) / 2, room::oa_mark_thin.width + 6, height
+            };
+            room::draw_room_stamp(parts, art, stamp);
+            left = stamp.x + stamp.width + 4;
+        }
+        const std::string words = room::room_text(
+            row.shown.name.empty()
+                ? std::string(library::shown(text_hooks(), picker::words::built_in_player))
+                : row.shown.name
+        );
+        const int32_t room_left = cell.x + cell.width - left - 2;
+        // The caption font where the words fit it, else the narrower label font.
+        room::RoomFont font = cell_font(art, cell);
+        if (room::room_text_width(art, font, words) > room_left)
+            font = room::RoomFont::label;
+        const std::string fitted = room::fit_room_text(art, font, words, room_left);
+        const int32_t height = room::room_line_height(art, font);
+        const int32_t light =
+            row.button && row.enabled && hovered_slot_ == row.slot ? hover_light : 0;
+        std::ignore = room::draw_room_text(
+            parts, art, font, fitted, left, cell.y + (cell.height - height) / 2, room_left, light
+        );
+    }
+
+    /// Where the rows, the menu and the open card lie for a view.
     ///
     /// @param placed_on what the screen is placed on
     /// @return the geometry; not ok while no row is placed
@@ -1108,6 +1306,13 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             record.focus_place = control.focus_place;
             laid.focusable.push_back(record);
         }
+        const auto control_rect = [&controls](const std::string& name) {
+            for (const mp::BattleRoomControl& control : controls) {
+                if (control.name == name && control.width > 0 && control.height > 0)
+                    return room::SourceRect{control.x, control.y, control.width, control.height};
+            }
+            return room::SourceRect{};
+        };
         const brain::Listing& listing = runtime_.installed_brains();
         const library::Inputs probe =
             fit_inputs(runtime_.engine_settings_state(), runtime_.content_choice());
@@ -1128,32 +1333,25 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             } else {
                 continue;
             }
-            const std::string name = res_name(slot);
-            const mp::BattleRoomControl* res = nullptr;
-            for (const mp::BattleRoomControl& control : controls) {
-                if (control.name == name && control.width > 0 && control.height > 0)
-                    res = &control;
-            }
-            if (res == nullptr)
-                continue;
-            const kit::Rect res_frame{res->x, res->y, res->width, res->height};
-            const kit::Rect res_points = frame_to_points(placed_on, res_frame);
-            const int32_t band = std::min(kit::compact_metrics.button_height, res_points.height);
-            if (band <= 0 || res_points.width <= 0)
-                continue;
             SeatRow row;
+            row.res = control_rect(res_name(slot));
+            if (row.res.width <= 0)
+                continue;
             row.slot = slot;
             row.id = control_id(slot);
             row.name = "brain-seat." + std::to_string(slot);
-            row.at = place::PlaceRect{
-                res_points.x, res_points.y + (res_points.height - band) / 2, res_points.width, band
-            };
+            row.player = control_rect("PLAYER" + std::to_string(slot));
             if (own) {
                 row.button = true;
                 row.enabled = !ready;
                 row.player_id = player.player_id;
                 row.choice = *choice;
                 row.shown = describe_choice(runtime_, listing, probe, *choice).shown;
+                if (const brain::InstalledBrain* brain_installed =
+                        row.shown.name.empty() ? nullptr : brain::find(listing, choice->brain))
+                    row.steps = brain_installed->manifest.levels.size() > 1;
+                if (row.player.width > notch_width * 2)
+                    row.notch = room::room_notch_rect(row.player, notch_width);
             } else {
                 row.button = false;
                 row.enabled = false;
@@ -1162,6 +1360,10 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                 row.shown.level = remote->level;
                 row.shown.full_awareness = remote->full_awareness;
             }
+            if (!row.shown.name.empty()) {
+                row.level_words = row.shown.level;
+                row.mem = control_rect("MEM" + std::to_string(slot));
+            }
             row.label = picker::seat_label(row.shown, true, hooks);
             laid.rows.push_back(std::move(row));
         }
@@ -1169,50 +1371,69 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             return laid;
         kit::Rect bounds{};
         for (const SeatRow& row : laid.rows) {
-            const kit::Rect rect{row.at.x, row.at.y, row.at.width, row.at.height};
-            bounds =
-                unite(bounds, row.button ? outset(rect, kit::compact_metrics.focus_inset) : rect);
+            bounds = unite(bounds, frame_rect_points(placed_on, grown(row.res, room_focus_margin)));
+            if (row.mem.width > 0)
+                bounds = unite(bounds, frame_rect_points(placed_on, row.mem));
+            if (row.notch.width > 0)
+                bounds = unite(bounds, frame_rect_points(placed_on, row.notch));
         }
-        const int32_t open = card_.open_slot();
-        const SeatRow* open_row = row_of(laid, open);
+        if (menu_.seat >= 0)
+            bounds = unite(bounds, frame_rect_points(placed_on, menu_.rect));
         const kit::Fonts* fonts = runtime_.oa_layer().screen_fonts();
-        if (open_row != nullptr && fonts != nullptr) {
-            const int32_t arrow_depth =
-                kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
-            laid.card_look = picker::seat_card(open_row->shown, hooks);
-            const kit::Point size = kit::hover_card_size(*fonts, laid.card_look);
-            const kit::Rect badge{
-                open_row->at.x, open_row->at.y, open_row->at.width, open_row->at.height
-            };
-            const kit::Rect card =
-                mp::presence_card_place(badge, size, placed_on.frame.area, arrow_depth);
-            mp::presence_card_point(laid.card_look, card, badge);
-            const kit::Rect arrow = arrow_rect(card, laid.card_look, arrow_depth);
-            bounds = unite(bounds, card);
-            if (arrow.width > 0 && arrow.height > 0)
-                bounds = unite(bounds, arrow);
-            laid.card = local_of(card, bounds);
-            if (arrow.width > 0 && arrow.height > 0)
-                laid.arrow = local_of(arrow, bounds);
+        const int32_t open = card_.open_slot();
+        if (fonts != nullptr && open == menu_card_slot && menu_.seat >= 0 && menu_.selected >= 0 &&
+            static_cast<std::size_t>(menu_.selected) < menu_.rows.size()) {
+            const BrainMenuRow& row = menu_.rows[static_cast<std::size_t>(menu_.selected)];
+            if (row.kind == BrainMenuKind::brain || row.kind == BrainMenuKind::built_in) {
+                laid.card_look = picker::seat_card(row.shown, hooks);
+                laid.card_look.arrow = kit::Side::none;
+                const kit::Point size = kit::hover_card_size(*fonts, laid.card_look);
+                const kit::Rect list = frame_rect_points(placed_on, menu_.rect);
+                const kit::Rect area = placed_on.frame.area;
+                int32_t x = list.x + list.width + card_gap;
+                if (x + size.x > area.x + area.width)
+                    x = list.x - card_gap - size.x;
+                x = std::max(x, area.x);
+                const int32_t y =
+                    std::clamp(list.y, area.y, std::max(area.y, area.y + area.height - size.y));
+                laid.card = kit::Rect{x, y, size.x, size.y};
+                bounds = unite(bounds, *laid.card);
+            }
+        } else if (fonts != nullptr && menu_.seat < 0) {
+            if (const SeatRow* open_row = row_of(laid, open)) {
+                const int32_t arrow_depth =
+                    kit::metrics_of(placed_on.frame.size_class).hover_card_arrow;
+                laid.card_look = picker::seat_card(open_row->shown, hooks);
+                const kit::Point size = kit::hover_card_size(*fonts, laid.card_look);
+                const kit::Rect badge = frame_rect_points(placed_on, open_row->res);
+                const kit::Rect card =
+                    mp::presence_card_place(badge, size, placed_on.frame.area, arrow_depth);
+                mp::presence_card_point(laid.card_look, card, badge);
+                const kit::Rect arrow = arrow_rect(card, laid.card_look, arrow_depth);
+                bounds = unite(bounds, card);
+                if (arrow.width > 0 && arrow.height > 0) {
+                    bounds = unite(bounds, arrow);
+                    laid.arrow = arrow;
+                }
+                laid.card = card;
+            }
         }
-        for (SeatRow& row : laid.rows) {
-            const kit::Rect rect{row.at.x, row.at.y, row.at.width, row.at.height};
-            row.local = local_of(rect, bounds);
-        }
+        if (laid.card)
+            laid.card = local_of(*laid.card, bounds);
+        if (laid.arrow)
+            laid.arrow = local_of(*laid.arrow, bounds);
         laid.gadgets.reserve(everything.size());
-        for (const place::PlaceRect& rect : everything) {
-            const kit::Rect shifted =
-                local_of(kit::Rect{rect.x, rect.y, rect.width, rect.height}, bounds);
+        for (const place::PlaceRect& rect : everything)
             laid.gadgets.push_back(
-                place::PlaceRect{shifted.x, shifted.y, shifted.width, shifted.height}
+                place::PlaceRect{rect.x - bounds.x, rect.y - bounds.y, rect.width, rect.height}
             );
-        }
         laid.bounds = bounds;
         laid.ok = bounds.width > 0 && bounds.height > 0;
         return laid;
     }
 
-    /// A text that changes when the rows, the focus or the card change.
+    /// A text that changes when the rows, the focus, the press, the menu or
+    /// the card change.
     ///
     /// @param laid the geometry
     /// @return the text
@@ -1220,25 +1441,57 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         std::string text = std::to_string(focused_slot_);
         text.push_back('/');
         text += std::to_string(card_.open_slot());
+        text.push_back('/');
+        text += std::to_string(menu_.seat);
+        text.push_back(':');
+        text += std::to_string(menu_.selected);
+        text += menu_.every ? "e" : "-";
+        for (const BrainMenuRow& row : menu_.rows) {
+            text += row.level_id;
+            text += row.current ? "*" : ".";
+        }
+        text += std::to_string(hovered_slot_);
         for (const SeatRow& row : laid.rows) {
             text.push_back('|');
             text += std::to_string(row.slot);
             text += row.label;
-            text += std::to_string(row.at.x);
-            text += std::to_string(row.at.y);
+            text += row.enabled ? "e" : "d";
+            text += std::to_string(row.res.x);
+            text += std::to_string(row.res.y);
+        }
+        if (laid.card) {
+            text += "#";
+            text += std::to_string(laid.card->x);
+            text += std::to_string(laid.card->y);
         }
         return text;
     }
 
-    /// The slot whose button holds a point, or -1. A label is not a button.
+    /// The slot and part of a row a frame pixel lies on.
     ///
     /// @param laid the geometry
-    /// @param at the point, in the screen's points
-    /// @return the slot
-    [[nodiscard]] static int32_t button_at(const Geometry& laid, kit::Point at) noexcept {
+    /// @param at the pixel
+    /// @param[out] part the part; none when the pixel is on no row
+    /// @return the slot, or -1
+    [[nodiscard]] static int32_t part_at(const Geometry& laid, kit::Point at, Part& part) noexcept {
+        part = Part::none;
         for (const SeatRow& row : laid.rows) {
-            if (row.button && kit::contains(row.local, at))
+            if (holds_pixel(row.res, at)) {
+                part = Part::cell;
                 return row.slot;
+            }
+            if (row.mem.width > 0 && holds_pixel(row.mem, at)) {
+                part = Part::mem;
+                return row.slot;
+            }
+            if (row.notch.width > 0 && holds_pixel(row.notch, at)) {
+                part = Part::notch;
+                return row.slot;
+            }
+            if (row.button && row.player.width > 0 && holds_pixel(row.player, at)) {
+                part = Part::name;
+                return row.slot;
+            }
         }
         return -1;
     }
@@ -1256,11 +1509,11 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return nullptr;
     }
 
-    /// The button of a slot, or null.
+    /// The row of a slot this machine runs, or null.
     ///
     /// @param laid the geometry
     /// @param slot the slot
-    /// @return the button
+    /// @return the row
     [[nodiscard]] static const SeatRow* button_of(const Geometry& laid, int32_t slot) noexcept {
         const SeatRow* row = row_of(laid, slot);
         if (row == nullptr || !row->button)
@@ -1279,40 +1532,12 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return laid.arrow && kit::contains(*laid.arrow, at);
     }
 
-    /// Puts the label in the look, in the regular font where it fits after
-    /// the badge, else the small font, cut with … only when even that does
-    /// not fit.
-    ///
-    /// @param look the look the words go in
-    /// @param fonts the fonts
-    /// @param button the button, in the screen's points
-    /// @param label the whole label
-    void fit_caption(
-        kit::ButtonLook& look,
-        const kit::Fonts& fonts,
-        const kit::Rect& button,
-        const std::string& label
-    ) const {
-        const kit::ButtonMarkParts parts = kit::button_mark_parts(button);
-        const int32_t room = std::max(parts.caption.width, int32_t{0});
-        look.font = kit::FontRole::regular;
-        if (kit::text_width(fonts, kit::FontRole::regular, label) <= room) {
-            look.caption = label;
-            return;
-        }
-        look.font = kit::FontRole::small;
-        const auto measure = [&fonts](std::string_view text) {
-            return kit::text_width(fonts, kit::FontRole::small, text);
-        };
-        look.caption = measure(label) <= room ? label : kit::fit(label, room, measure);
-    }
-
-    /// Tells whether a finger's reach lands on a button.
+    /// Tells whether a finger's reach lands on a row's Resolution cell.
     ///
     /// A control nearer the point, or one the point lies inside, keeps it.
-    /// A disabled button is still the one the finger lands on.
+    /// A cell of a ready player's row is still the one the finger lands on.
     ///
-    /// @param laid where the buttons and the controls lie
+    /// @param laid where the cells and the controls lie
     /// @param at the finger, in the screen's points
     /// @param finger_reach how far the finger reaches, in points
     /// @return the slot, or -1
@@ -1320,19 +1545,18 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
     finger_slot(const Geometry& laid, kit::Point at, int32_t finger_reach) const {
         if (finger_reach <= 0)
             return -1;
+        kit::DisplayList list = display_list();
+        for (kit::Control& control : list.controls)
+            control.enabled = true;
         for (const SeatRow& row : laid.rows) {
-            if (!row.button || row.local.width <= 0 || row.local.height <= 0)
+            if (!row.button)
                 continue;
-            const place::PlaceRect button_place{
-                row.local.x, row.local.y, row.local.width, row.local.height
-            };
-            if (place::nearer_gadget(at.x, at.y, button_place, laid.gadgets))
+            const kit::Rect local = frame_rect_local(view_, laid.bounds, row.res);
+            if (local.width <= 0 || local.height <= 0)
                 continue;
-            kit::DisplayList list = display_list();
-            for (kit::Control& control : list.controls) {
-                if (control.id == row.id)
-                    control.enabled = true;
-            }
+            const place::PlaceRect cell{local.x, local.y, local.width, local.height};
+            if (place::nearer_gadget(at.x, at.y, cell, laid.gadgets))
+                continue;
             kit::Interaction trial = interaction();
             if (kit::finger_down(trial, list, at, finger_reach).control == row.id)
                 return row.slot;
@@ -1340,33 +1564,40 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return -1;
     }
 
-    /// The slot whose row the card follows: a button or a label.
-    ///
-    /// @param laid the geometry
-    /// @param at the point, in the screen's points
-    /// @return the slot, or -1
-    [[nodiscard]] static int32_t row_at(const Geometry& laid, kit::Point at) noexcept {
-        for (const SeatRow& row : laid.rows) {
-            if (kit::contains(row.local, at))
-                return row.slot;
-        }
-        return -1;
-    }
-
-    /// Follows the pointer and the focus for the card.
+    /// Follows the pointer and the focus for the card. While the menu is
+    /// open, the card is the selected row's, at once.
     ///
     /// The pointer is kept in the layer's points, so a card opening, which
     /// moves the screen's origin, still finds the row.
     ///
     /// @param laid the geometry
     void follow_card(const Geometry& laid) {
+        if (menu_.seat >= 0) {
+            const bool shows_card = menu_.selected >= 0 &&
+                                    static_cast<std::size_t>(menu_.selected) < menu_.rows.size() &&
+                                    (menu_.rows[static_cast<std::size_t>(menu_.selected)].kind ==
+                                         BrainMenuKind::brain ||
+                                     menu_.rows[static_cast<std::size_t>(menu_.selected)].kind ==
+                                         BrainMenuKind::built_in);
+            if (!shows_card)
+                card_.close();
+            else if (card_.open_slot() != menu_card_slot) {
+                card_.close();
+                (void)card_.key_info(menu_card_slot);
+            }
+            return;
+        }
+        if (card_.open_slot() == menu_card_slot)
+            card_.close();
         int32_t slot = mp::presence_card_no_slot;
         bool over = false;
         if (laid.ok && have_pointer_) {
             const kit::Point local{
                 pointer_layer_.x - laid.bounds.x, pointer_layer_.y - laid.bounds.y
             };
-            slot = row_at(laid, local);
+            Part part = Part::none;
+            const int32_t at = part_at(laid, frame_point(view_, pointer_layer_), part);
+            slot = part == Part::cell ? at : mp::presence_card_no_slot;
             over = card_contains(laid, local);
         }
         card_.over_card(over);
@@ -1388,13 +1619,22 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return -1;
     }
 
+    /// A row's Resolution cell in the layer's points, for the Tab order.
+    ///
+    /// @param row the row
+    /// @return the cell
+    [[nodiscard]] place::PlaceRect cell_points(const SeatRow& row) const {
+        const kit::Rect points = frame_rect_points(view_, row.res);
+        return {points.x, points.y, points.width, points.height};
+    }
+
     /// The combined Tab order. Records keep the battle room's own order. A
-    /// button sits just after the record before it, and buttons that share
+    /// cell sits just after the record before it, and cells that share
     /// that record follow their own Tab key.
     ///
     /// @param laid the geometry
     /// @return the stops
-    [[nodiscard]] static std::vector<Stop> stops_of(const Geometry& laid) {
+    [[nodiscard]] std::vector<Stop> stops_of(const Geometry& laid) const {
         std::vector<Stop> stops;
         stops.reserve(laid.focusable.size() + laid.rows.size());
         for (const FocusRecord& record : laid.focusable)
@@ -1402,9 +1642,10 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         for (const SeatRow& row : laid.rows) {
             if (!row.button)
                 continue;
-            const int32_t before = record_before(laid.focusable, row.at);
+            const place::PlaceRect at = cell_points(row);
+            const int32_t before = record_before(laid.focusable, at);
             const int32_t place = before >= 0 ? place_of(laid, before) : -1;
-            stops.push_back(Stop{true, row.slot, place, order_key(row.at)});
+            stops.push_back(Stop{true, row.slot, place, order_key(at)});
         }
         std::sort(stops.begin(), stops.end(), [](const Stop& left, const Stop& right) {
             if (left.place != right.place)
@@ -1416,7 +1657,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return stops;
     }
 
-    /// Takes the focus onto a button and clears the battle room's ring.
+    /// Takes the focus onto a cell and clears the battle room's own.
     ///
     /// @param slot the slot
     /// @return redraw
@@ -1428,7 +1669,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return LayerAnswer::redraw;
     }
 
-    /// Hands the focus to a record and clears the button's ring.
+    /// Hands the focus to a record and clears the cell's marker.
     ///
     /// @param index the record; 0 is a real control
     /// @return redraw
@@ -1451,7 +1692,7 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         return LayerAnswer::none;
     }
 
-    /// The seat button above or below, when there is one.
+    /// The seat cell above or below, when there is one.
     ///
     /// @param laid the geometry
     /// @param slot the focused slot
@@ -1463,20 +1704,17 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
             return -1;
         int32_t found = -1;
         int32_t best_y = 0;
-        int32_t best_x = 0;
         for (const SeatRow& row : laid.rows) {
             if (!row.button || row.slot == slot)
                 continue;
-            const bool that_way = down ? row.at.y > current->at.y : row.at.y < current->at.y;
+            const bool that_way = down ? row.res.y > current->res.y : row.res.y < current->res.y;
             if (!that_way)
                 continue;
-            const bool closer = found < 0 || (down ? row.at.y < best_y : row.at.y > best_y) ||
-                                (row.at.y == best_y && row.at.x < best_x);
+            const bool closer = found < 0 || (down ? row.res.y < best_y : row.res.y > best_y);
             if (!closer)
                 continue;
             found = row.slot;
-            best_y = row.at.y;
-            best_x = row.at.x;
+            best_y = row.res.y;
         }
         return found;
     }
@@ -1496,17 +1734,18 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
                 for (const SeatRow& row : laid.rows) {
                     if (!row.button)
                         continue;
+                    const place::PlaceRect at = cell_points(row);
                     if (pressed == kit::Key::tab) {
-                        const int32_t before = record_before(laid.focusable, row.at);
+                        const int32_t before = record_before(laid.focusable, at);
                         if (before < 0 || current != before)
                             continue;
-                        if (best == nullptr || order_key(row.at) < order_key(best->at))
+                        if (best == nullptr || order_key(at) < order_key(cell_points(*best)))
                             best = &row;
                     } else {
-                        const int32_t after = record_after(laid.focusable, row.at);
+                        const int32_t after = record_after(laid.focusable, at);
                         if (after < 0 || current != after)
                             continue;
-                        if (best == nullptr || order_key(row.at) > order_key(best->at))
+                        if (best == nullptr || order_key(at) > order_key(cell_points(*best)))
                             best = &row;
                     }
                 }
@@ -1518,8 +1757,8 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         if (pressed == kit::Key::enter || pressed == kit::Key::space) {
             const SeatRow* row = button_of(laid, focused_slot_);
             if (row != nullptr && row->enabled)
-                open_picker(focused_slot_);
-            return LayerAnswer::none;
+                open_menu(focused_slot_);
+            return LayerAnswer::redraw;
         }
         const std::vector<Stop> stops = stops_of(laid);
         std::size_t at = stops.size();
@@ -1537,62 +1776,178 @@ struct Runtime::BrainRoomScreen final : LayerScreen {
         const SeatRow* focused_row = button_of(laid, focused_slot_);
         if (focused_row == nullptr)
             return LayerAnswer::pass;
+        const place::PlaceRect focused_at = cell_points(*focused_row);
         if (pressed == kit::Key::up || pressed == kit::Key::down) {
             const int32_t neighbour =
                 neighbour_slot(laid, focused_slot_, pressed == kit::Key::down);
             if (neighbour >= 0)
                 return take_focus(neighbour);
             const Aim aim = pressed == kit::Key::down ? Aim::down : Aim::up;
-            const int32_t next = nearest_record(laid.focusable, focused_row->at, aim);
+            const int32_t next = nearest_record(laid.focusable, focused_at, aim);
             return next >= 0 ? hand_focus(next) : LayerAnswer::none;
         }
         if (pressed == kit::Key::left || pressed == kit::Key::right) {
             const Aim aim = pressed == kit::Key::left ? Aim::left : Aim::right;
-            const int32_t next = nearest_record(laid.focusable, focused_row->at, aim);
+            const int32_t next = nearest_record(laid.focusable, focused_at, aim);
             return next >= 0 ? hand_focus(next) : LayerAnswer::none;
         }
         return LayerAnswer::pass;
     }
 
-    /// Opens the picker on one seat. USE THIS writes that computer, or every
-    /// computer this machine runs. A disabled button opens nothing.
+    /// Takes the pointer while the menu is open: a move selects the row
+    /// under it, a press on a row answers it, and a press outside closes
+    /// the menu. Every press is taken.
+    ///
+    /// @param kind pointer_move, pointer_down or pointer_up
+    /// @param button the pointer's button
+    /// @param pixel the pointer, in frame pixels
+    /// @return redraw when it changed what is drawn; none otherwise
+    LayerAnswer menu_pointer(ScreenInputKind kind, uint8_t button, kit::Point pixel) {
+        const room::RoomArt art = room_art();
+        if (kind == ScreenInputKind::pointer_move) {
+            const int32_t row = brain_menu_row_at(art, menu_, pixel);
+            if (row >= 0 && row != menu_.selected &&
+                menu_.rows[static_cast<std::size_t>(row)].kind != BrainMenuKind::heading &&
+                !menu_.rows[static_cast<std::size_t>(row)].unfit) {
+                menu_.selected = row;
+                ++revision_;
+                follow_card(geometry(view_));
+                return LayerAnswer::redraw;
+            }
+            return LayerAnswer::none;
+        }
+        if (kind == ScreenInputKind::pointer_down) {
+            menu_press_ = button;
+            return LayerAnswer::none;
+        }
+        if (kind == ScreenInputKind::pointer_up && menu_press_ == button) {
+            menu_press_ = 0;
+            apply(brain_menu_press(art, menu_, pixel));
+            ++revision_;
+            return LayerAnswer::redraw;
+        }
+        return LayerAnswer::none;
+    }
+
+    /// Opens the brain menu on one computer this machine runs, under its name.
     ///
     /// @param slot the slot
-    void open_picker(int32_t slot) {
+    void open_menu(int32_t slot) {
         const Geometry laid = geometry(view_);
         const SeatRow* row = button_of(laid, slot);
         if (row == nullptr || !row->enabled)
             return;
-        BrainPickerRequest request;
-        request.setup = brain::Setup::multiplayer;
-        mp::Lobby& lobby = mp::multiplayer_lobby();
-        request.seat_name = copied_field(
-            mp::slot_player(lobby, slot).name, sizeof(mp::slot_player(lobby, slot).name)
+        const std::string built_in_level =
+            built_in_word(runtime_, row->choice.brain.empty() ? row->choice.level : "hard");
+        std::vector<std::pair<std::string, std::string>> built_in_levels;
+        for (const brain::Difficulty difficulty :
+             {brain::Difficulty::easy, brain::Difficulty::medium, brain::Difficulty::hard}) {
+            const std::string id = level_id_of(difficulty);
+            built_in_levels.emplace_back(id, built_in_word(runtime_, id));
+        }
+        menu_ = BrainSeatsAccess::menu(
+            runtime_,
+            slot,
+            row->choice,
+            brain::Difficulty::hard,
+            built_in_level,
+            built_in_levels,
+            brain_menu_words::seat_heading,
+            true,
+            false
         );
-        request.current = row->choice;
-        request.setup_difficulty = brain::Difficulty::hard;
-        request.built_in_level_fixed = false;
-        request.offer_every_seat = true;
-        Runtime* runtime = &runtime_;
-        const uint32_t player_id = row->player_id;
-        request.used = [runtime, player_id](picker::Choice choice, bool every) {
-            BrainRoomAccess::write(*runtime, mp::multiplayer_lobby(), player_id, choice, every);
-        };
-        request.cancelled = [] {};
-        runtime_.open_brain_picker(std::move(request));
+        menu_.every = false;
+        const room::SourceRect under = row->player.width > 0 ? row->player : row->res;
+        place_brain_menu(
+            room_art(), menu_, under, {0, 0, view_.picture_size.x, view_.picture_size.y}
+        );
+        menu_press_ = 0;
+        card_.close();
+        ++revision_;
+    }
+
+    /// Steps a computer's brain to its level after, or before, round its levels.
+    ///
+    /// @param row the row
+    /// @param forward true for the level after
+    void step_level(const SeatRow& row, bool forward) {
+        if (!row.steps)
+            return;
+        const brain::InstalledBrain* installed =
+            brain::find(runtime_.installed_brains(), row.choice.brain);
+        if (installed == nullptr || installed->manifest.levels.size() < 2)
+            return;
+        const auto& levels = installed->manifest.levels;
+        std::size_t at = 0;
+        for (std::size_t index = 0; index < levels.size(); ++index)
+            if (levels[index].id == row.choice.level)
+                at = index;
+        at = forward ? (at + 1) % levels.size() : (at + levels.size() - 1) % levels.size();
+        picker::Choice choice = row.choice;
+        choice.level = levels[at].id;
+        BrainRoomAccess::write(runtime_, mp::multiplayer_lobby(), row.player_id, choice, false);
+        ++revision_;
+    }
+
+    /// Does what the menu asked: writes the computer, or every computer
+    /// this machine runs, or closes.
+    ///
+    /// @param answer the menu's answer
+    void apply(const BrainMenuAnswer& answer) {
+        const int32_t seat = menu_.seat;
+        const Geometry laid = geometry(view_);
+        const SeatRow* row = button_of(laid, seat);
+        const uint32_t player_id = row != nullptr ? row->player_id : 0;
+        switch (answer.kind) {
+        case BrainMenuAnswer::Kind::none:
+            return;
+        case BrainMenuAnswer::Kind::close:
+        case BrainMenuAnswer::Kind::get_brains:
+            menu_ = {};
+            card_.close();
+            return;
+        case BrainMenuAnswer::Kind::choose:
+            if (player_id != 0)
+                BrainRoomAccess::write(
+                    runtime_, mp::multiplayer_lobby(), player_id, answer.choice, answer.every
+                );
+            menu_ = {};
+            card_.close();
+            return;
+        case BrainMenuAnswer::Kind::level:
+        case BrainMenuAnswer::Kind::every: {
+            if (player_id != 0)
+                BrainRoomAccess::write(
+                    runtime_, mp::multiplayer_lobby(), player_id, answer.choice, answer.every
+                );
+            const int32_t selected = menu_.selected;
+            const bool every = menu_.every;
+            open_menu(seat);
+            menu_.selected = selected;
+            menu_.every = every;
+            return;
+        }
+        }
     }
 
     Runtime& runtime_;               ///< the runtime whose room it shows over
     LayerView view_{};               ///< the view it was last laid out for
     mp::PresenceCardTrigger card_{}; ///< when a seat's card opens and closes
-    int32_t hovered_slot_{-1};       ///< the button the pointer is over; -1 for none
-    int32_t pressed_slot_{-1};       ///< the button a press is held on; -1 for none
-    int32_t focused_slot_{-1};       ///< the button the keyboard focus is on; -1 for none
-    bool have_pointer_{};            ///< the pointer has been seen
-    kit::Point pointer_layer_{};     ///< the pointer, in the layer's points
-    bool card_pressed_{};            ///< a press started on the open card
-    std::string seal_{};             ///< the rows and the card last drawn
-    uint64_t revision_{};            ///< counts the changes to how it looks
+    BrainMenu menu_{};               ///< the brain menu; closed while its seat is -1
+    uint8_t menu_press_{};     ///< the button a press on the open menu is held with; 0 for none
+    int32_t hovered_slot_{-1}; ///< the cell the pointer is over; -1 for none
+    int32_t pressed_slot_{-1}; ///< the row a press is held on; -1 for none
+    Part pressed_part_{Part::none}; ///< the part of that row
+    uint8_t pressed_button_{};      ///< the pointer's button that holds the press
+    int32_t focused_slot_{-1};      ///< the cell the keyboard focus is on; -1 for none
+    bool have_pointer_{};           ///< the pointer has been seen
+    kit::Point pointer_layer_{};    ///< the pointer, in the layer's points
+    bool card_pressed_{};           ///< a press started on the open card
+    std::string seal_{};            ///< the rows, the menu and the card last drawn
+    uint64_t revision_{};           ///< counts the changes to how it looks
+    /// The battle room's art, read on its first use; nothing when it could not be read.
+    mutable std::optional<room::ScreenResources> art_{};
+    mutable bool art_read_{}; ///< the battle room's art has been read
 };
 
 void Runtime::keep_brain_room_screen() {

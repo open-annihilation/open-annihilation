@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: GPL-3.0-only
 
 // --check-mutator-button: Mutators on the skirmish setup and on NEWGAME, at
-// 640x480 and 1280x720. The button wears the OA badge with its words after
-// it; on SKIRMISH it is as large as Previous Menu, centred between
-// Difficulty and Previous Menu in their column, and on NEWGAME as large as
-// the SELECT SIDE middle of the side bar, under it. It reads "Mutators", or
-// "Mutators (2)" for the set chosen. Tab and Down reach the button, a finger
-// presses it by its reach, the Y chip stands inside it, Return opens the
+// 640x480 and 1280x720. The button is one of the room's own on and off
+// buttons, with no part of the kit; on SKIRMISH it is as large as Previous
+// Menu, centred between Difficulty and Previous Menu in their column, and
+// on NEWGAME as large as the SELECT SIDE middle of the side bar, under it;
+// either is wider to the left only where its words need it.
+// It reads "Mutators: off", or "Mutators: 2 on" for the set chosen. Tab and
+// Down reach the button, a finger presses it by its reach, the pad's
+// badges leave it as it is, Return opens the
 // picker on the remembered set, USE THESE replaces the setup's set, Y opens
 // that set again, SELMAP keeps it, and START hands it to the match. A
 // scratch preferences file holds a remembered skirmish set (Gatehouse,
@@ -301,39 +303,28 @@ void Runtime::check_mutator_button() {
         require(control.has_value(), why);
         return *control;
     };
-    // The button's own control: its text is its words, "Mutators" or
-    // "Mutators (2)".
+    // The button's own control: its text is its words, "Mutators: off" or
+    // "Mutators: 2 on".
     const auto summary_of = [&](std::string_view why) {
         const std::optional<AutomationControl> control =
             named_on("oa.mutators", "oa.mutators-button");
         require(control.has_value(), why);
         return *control;
     };
-    // The button wears the OA badge with its words after it, keeping to the
-    // left, in the filled look; the badge's square is not the plain face.
+    // The button is one of the room's own parts: the screen draws no item
+    // of the kit, and its one button control is the mutators button.
     const auto require_badge = [&](const std::string& on) {
         LayerScreen* shown = oa_layer().find("mutators-button");
         require(shown != nullptr, "the mutators-button screen is not up" + on);
         const kit::DisplayList list = shown->display_list();
-        const kit::Item* face = nullptr;
-        for (const kit::Item& item : list.items)
-            if (item.role == kit::Role::button)
-                face = &item;
-        require(face != nullptr, "the button draws no face" + on);
-        const auto* look = std::get_if<kit::ButtonLook>(&face->look);
-        require(look != nullptr, "the button has no button look" + on);
-        require(look->oa_mark, "the button does not wear the OA badge" + on);
-        require(look->style == kit::ButtonStyle::filled, "the button is not filled" + on);
-        require(!look->caption.empty(), "the button has no words" + on);
-        const kit::ButtonMarkParts parts = kit::button_mark_parts(face->rect);
-        require(
-            parts.mark.width > 0 && parts.mark.height == parts.mark.width &&
-                parts.mark.x - face->rect.x == parts.mark.y - face->rect.y &&
-                parts.caption.x - (parts.mark.x + parts.mark.width) == parts.mark.x - face->rect.x,
-            "the badge and the words are not padded evenly" + on
-        );
+        require(list.items.empty(), "the button draws a part of the kit" + on);
+        bool button = false;
+        for (const kit::Control& control : list.controls)
+            if (control.name == "mutators" && control.kind == kit::ControlKind::button)
+                button = true;
+        require(button, "the button has no control" + on);
     };
-    // Four mutators chosen for a moment: the button reads "Mutators (4)",
+    // Four mutators chosen for a moment: the button reads "Mutators: 4 on",
     // and the frame is written as mutator-button-<screen>-four-<w>x<h>.png.
     // The setup's set is put back.
     const auto capture_four = [&](mutators_memory::Setup setup,
@@ -354,8 +345,8 @@ void Runtime::check_mutator_button() {
         frames(1);
         const AutomationControl counted = summary_of("the button left with four chosen" + on);
         require(
-            counted.text == "Mutators (4)",
-            "four chosen do not read Mutators (4) (" + counted.text + ")" + on
+            counted.text == "Mutators: 4 on",
+            "four chosen do not read Mutators: 4 on (" + counted.text + ")" + on
         );
         require_badge(on);
         oa_layer().read_whole_window(true);
@@ -372,7 +363,7 @@ void Runtime::check_mutator_button() {
         const std::string picture =
             "mutator-button-" + std::string(screen) + "-four-" + size + ".png";
         write_png(fs::path(picture), four_frame);
-        std::cout << "mutator button check: four chosen read Mutators (4); wrote " << picture
+        std::cout << "mutator button check: four chosen read Mutators: 4 on; wrote " << picture
                   << "\n";
         replace_setup_mutators(setup, kept);
         frames(1);
@@ -503,8 +494,8 @@ void Runtime::check_mutator_button() {
         const AutomationControl button =
             require_named("oa.mutators", "oa.mutators is not shown" + on);
         require(
-            button.text == "Mutators",
-            "the button does not read Mutators (" + button.text + ")" + on
+            button.text == "Mutators: off",
+            "the button does not read Mutators: off (" + button.text + ")" + on
         );
         require(button.kind == AutomationControlKind::button, "oa.mutators is not a button" + on);
         require_badge(on);
@@ -532,16 +523,18 @@ void Runtime::check_mutator_button() {
         const kit::Rect picture{
             seen.picture.x, seen.picture.y, seen.picture.width, seen.picture.height
         };
-        // As large as Previous Menu, from the column's left edge, centred
-        // between Difficulty and Previous Menu.
+        // As large as Previous Menu, to the column's right edge, wider to
+        // the left only where its words need it, centred between Difficulty
+        // and Previous Menu.
         const int32_t slack = percent / 50 + 1;
         require(
-            apart(button_window.x, previous_window.x) <= 1 &&
-                apart(button_window.x, anchor_window.x) <= 1,
-            "the button's left edge is not the column's" + on
+            apart(
+                button_window.x + button_window.width, previous_window.x + previous_window.width
+            ) <= slack,
+            "the button's right edge is not the column's" + on
         );
         require(
-            apart(button_window.width, previous_window.width) <= slack &&
+            button_window.width + slack >= previous_window.width &&
                 apart(button_window.height, previous_window.height) <= slack,
             "the button is not as large as Previous Menu" + on
         );
@@ -727,51 +720,23 @@ void Runtime::check_mutator_button() {
         }
         touch_state().dispatch.accept_unregistered_touch = unregistered;
 
-        // With the pad's badges showing, the Y chip stands inside the
-        // button's right end, and the button stays where it was.
+        // With the pad's badges showing, the button stays one of the
+        // room's own parts, where it was: no chip of the kit is drawn.
         const bool badges_were = touch_state().hud.pad.badges;
         touch_state().hud.pad.badges = true;
         frames(1);
         {
-            LayerScreen* shown = oa_layer().find("mutators-button");
-            require(shown != nullptr, "the mutators-button screen left with the chip" + on);
-            const kit::DisplayList list = shown->display_list();
-            const kit::Item* chip = nullptr;
-            const kit::Item* face = nullptr;
-            for (const kit::Item& item : list.items) {
-                if (item.role == kit::Role::chip)
-                    chip = &item;
-                if (item.role == kit::Role::button)
-                    face = &item;
-            }
-            require(chip != nullptr, "the Y chip is hidden" + on);
-            require(face != nullptr, "the button left with the chip" + on);
-            const kit::Rect& inner = chip->rect;
-            const kit::Rect& outer = face->rect;
+            require_badge(" with the pad's badges" + on);
+            const AutomationControl with_badges =
+                require_named("oa.mutators", "oa.mutators left with the pad's badges" + on);
             require(
-                inner.x > outer.x && inner.y >= outer.y &&
-                    inner.x + inner.width <= outer.x + outer.width &&
-                    inner.y + inner.height <= outer.y + outer.height,
-                "the Y chip is not inside the button" + on
-            );
-            const auto* look = std::get_if<kit::ButtonLook>(&face->look);
-            require(look != nullptr, "the button has no look with the chip" + on);
-            const kit::ButtonMarkParts parts = kit::button_mark_parts(outer);
-            require(
-                parts.caption.x +
-                        kit::text_width(*oa_layer().screen_fonts(), look->font, look->caption) <=
-                    inner.x,
-                "the words run into the Y chip" + on
-            );
-            const AutomationControl with_chip =
-                require_named("oa.mutators", "oa.mutators left with the chip" + on);
-            require(
-                window_rect(with_chip).x == button_window.x &&
-                    window_rect(with_chip).y == button_window.y,
-                "the chip moved the button" + on
+                window_rect(with_badges).x == button_window.x &&
+                    window_rect(with_badges).y == button_window.y,
+                "the pad's badges moved the button" + on
             );
         }
-        std::cout << "mutator button check: the Y chip stands inside the button" << on << "\n";
+        std::cout << "mutator button check: with the pad's badges the button stays the room's" << on
+                  << "\n";
         touch_state().hud.pad.badges = badges_were;
         frames(1);
 
@@ -818,7 +783,7 @@ void Runtime::check_mutator_button() {
         );
         const AutomationControl chosen = summary_of("the button left after USE THESE" + on);
         require(
-            chosen.text == "Mutators (2)",
+            chosen.text == "Mutators: 2 on",
             "USE THESE did not count the set on the button (" + chosen.text + ")" + on
         );
         require(
@@ -915,10 +880,10 @@ void Runtime::check_mutator_button() {
         close_covering();
         const AutomationControl cleared = summary_of("the button left after returning" + on);
         require(
-            cleared.text == "Mutators",
+            cleared.text == "Mutators: off",
             "returning to SKIRMISH kept the set (" + cleared.text + ")" + on
         );
-        std::cout << "mutator button check: SKIRMISH from the main menu reads Mutators" << on
+        std::cout << "mutator button check: SKIRMISH from the main menu reads Mutators: off" << on
                   << "\n";
 
         load(Screen::single_player);
@@ -931,8 +896,8 @@ void Runtime::check_mutator_button() {
         const AutomationControl campaign_button =
             require_named("oa.mutators", "oa.mutators is not shown on NEWGAME" + on);
         require(
-            campaign_button.text == "Mutators",
-            "NEWGAME's button does not read Mutators (" + campaign_button.text + ")" + on
+            campaign_button.text == "Mutators: off",
+            "NEWGAME's button does not read Mutators: off (" + campaign_button.text + ")" + on
         );
         require_badge(on);
         const LayerView campaign_seen = oa_layer().view();
@@ -970,10 +935,13 @@ void Runtime::check_mutator_button() {
         const kit::Rect campaign_button_window = window_rect(campaign_button);
         const int32_t campaign_slack = campaign_percent / 50 + 1;
         require(
-            apart(campaign_button_window.x, middle_window.x) <= campaign_slack &&
-                apart(campaign_button_window.width, middle_window.width) <= campaign_slack &&
+            apart(
+                campaign_button_window.x + campaign_button_window.width,
+                middle_window.x + middle_window.width
+            ) <= campaign_slack &&
+                campaign_button_window.width + campaign_slack >= middle_window.width &&
                 apart(campaign_button_window.height, middle_window.height) <= campaign_slack,
-            "NEWGAME's button is not as large as SELECT SIDE, from its left edge" + on
+            "NEWGAME's button is not as large as SELECT SIDE, to its right edge" + on
         );
         const int32_t bar_bottom = std::max(
             kit::to_canvas(arm_points, campaign_percent).y +
@@ -1066,7 +1034,7 @@ void Runtime::check_mutator_button() {
         const AutomationControl campaign_chosen =
             summary_of("the campaign button left after USE THESE" + on);
         require(
-            campaign_chosen.text == "Mutators (1)" && campaign_mutators_.size() == 1 &&
+            campaign_chosen.text == "Mutators: 1 on" && campaign_mutators_.size() == 1 &&
                 campaign_mutators_[0].id == "fast-builders",
             "USE THESE did not choose Fast Builders (" + campaign_chosen.text + ")" + on
         );
@@ -1101,8 +1069,8 @@ void Runtime::check_mutator_button() {
     close_covering();
     const AutomationControl empty_summary = summary_of("the empty start has no button");
     require(
-        empty_summary.text == "Mutators",
-        "the empty start does not read Mutators (" + empty_summary.text + ")"
+        empty_summary.text == "Mutators: off",
+        "the empty start does not read Mutators: off (" + empty_summary.text + ")"
     );
     exercise_click(skirmish::resource_name(skirmish::Button::start));
     require(screen_ == Screen::match && match_ != nullptr, "the empty skirmish did not start");
