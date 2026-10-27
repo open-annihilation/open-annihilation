@@ -401,7 +401,6 @@ docpath src/engine src/ui/services -
 docpath src/runtime src/platform/preferences -
 
 # ---- known dependencies against the layer order ------------------------------
-allow oa-data-persist oa-sim-world-environment - the savegame writes the weather and sea records through the environment module
 allow oa-present-model oa-ui-hud - the model renderer places sprites with the HUD's sprite placement
 
 # ---- include paths ---------------------------------------------------------------
