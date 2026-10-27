@@ -17252,10 +17252,10 @@
 
 [Used while {mod} is played. Same as the game uses Key layout.]
 	{
-	de=Gilt, solange {mod} läuft. Wie im Spiel nimmt Tastenbelegung.;
-	fr=Sert tant que {mod} est joué. Comme dans le jeu reprend Disposition des touches.;
-	es=Se usa mientras juegas {mod}. Como en el juego usa Distribución de teclas.;
-	it=Vale mentre giochi {mod}. Come nel gioco usa Disposizione dei tasti.;
+	de=Gilt, solange du {mod} spielst. "Wie im Spiel" nimmt die Tastenbelegung.;
+	fr=Sert pendant que tu joues à {mod}. "Comme dans le jeu" reprend la disposition des touches.;
+	es=Se usa mientras juegas a {mod}. "Como en el juego" usa la distribución de teclas.;
+	it=Vale mentre giochi a {mod}. "Come nel gioco" usa la disposizione dei tasti.;
 	}
 
 [{count} mutators on]
