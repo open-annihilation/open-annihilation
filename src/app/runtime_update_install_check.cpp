@@ -249,7 +249,8 @@ int Runtime::check_update_download() {
         for (int pass = 0; pass < 8; ++pass) {
             LayerScreen* top = layer.top();
             if (top == nullptr || is_update_question(top) || top->name() == "settings" ||
-                top->name() == "ready-update" || top->name() == "updated-notice")
+                top->name() == "ready-update" || top->name() == "updated-notice" ||
+                top->name() == "update-centre")
                 return;
             layer.close(top);
         }
@@ -513,10 +514,14 @@ int Runtime::check_update_download() {
 
             update_->pictured = downloading;
             menu_picture("downloading");
+            click_named("oa.update-pill.open");
+            screen_picture("update-centre", "downloading");
             settings_picture("downloading");
 
             update_->pictured = paused;
             menu_picture("paused");
+            click_named("oa.update-pill.open");
+            screen_picture("update-centre", "paused");
             settings_picture("paused");
 
             update_->pictured = ready;
@@ -765,6 +770,57 @@ int Runtime::check_update_download() {
             "the pill's Resume did not carry the download on"
         );
         say("pill paused and resumed");
+        // A press on the pill opens the update centre: the download's
+        // actions are buttons there, and the question follows the state.
+        click_named("oa.update-pill.open");
+        require(
+            named("oa.update-centre.cancel-download").has_value(),
+            "the update centre does not offer Cancel download"
+        );
+        click_named("oa.update-centre.pause");
+        require(
+            shot().state == update::DownloadState::paused_by_player,
+            "the update centre's Pause did not pause the download"
+        );
+        click_named("oa.update-centre.resume");
+        require(
+            shot().state != update::DownloadState::paused_by_player,
+            "the update centre's Resume did not carry the download on"
+        );
+        click_named("oa.update-centre.close");
+        require(oa_layer().find("update-centre") == nullptr, "Close left the update centre open");
+        say("update centre paused and resumed");
+    }
+    // Cancel download keeps nothing half-downloaded and goes back to the offer.
+    if (options_.update_download_case == "cancel") {
+        click_named("oa.update-pill.open");
+        click_named("oa.update-centre.cancel-download");
+        const auto deadline = deadline_from(std::chrono::seconds{40});
+        while (shot().state != update::DownloadState::waiting) {
+            require(
+                std::chrono::steady_clock::now() < deadline,
+                "Cancel download did not stop the download"
+            );
+            idle_tick();
+        }
+        for (int frame = 0; frame < 8; ++frame)
+            idle_tick();
+        require(
+            !fs::exists(package_file) && !fs::exists(fs::path(package_file.string() + ".part")),
+            "Cancel download kept a file"
+        );
+        require(
+            update_centre().stage == update::Stage::offered,
+            "Cancel download did not go back to the offer"
+        );
+        require(
+            oa_layer().find(kit::update_pill_word) == nullptr &&
+                oa_layer().waiting(kit::update_pill_word) == nullptr,
+            "the pill stayed after Cancel download"
+        );
+        require(!hand_off_requested(), "a quit after Cancel download would install");
+        say("cancel download kept nothing");
+        return 0;
     }
     // The ranged answer is held for kHeadDelayMs. The match has to be on
     // before that body arrives, or the file finishes without a pause.

@@ -369,9 +369,8 @@ kit::Question receipt_question(
     return asked;
 }
 
-/// The word of the question the update pill's Change asks about a release
-/// scheduled for the quit.
-constexpr std::string_view kScheduledWord = "scheduled-update";
+/// The word of the update centre's question, which the update pill opens.
+constexpr std::string_view kCentreWord = "update-centre";
 /// The update pill's button that opens the ready prompt again.
 constexpr std::string_view kPillInstall = "Install\u2026";
 /// The update pill's button that asks what a scheduled release does.
@@ -380,6 +379,52 @@ constexpr std::string_view kPillChange = "Change";
 constexpr int32_t kPillGap = 8;
 /// The update pill's margin from the main menu's top and right edges, in points.
 constexpr int32_t kPillMargin = 12;
+
+/// Returns the word an action's button is named by to automation.
+///
+/// @param act the action
+/// @return a word of a-z and hyphens
+std::string_view act_id(update::Act act) noexcept {
+    switch (act) {
+    case update::Act::check_now:
+        return "check-now";
+    case update::Act::download:
+        return "download";
+    case update::Act::pause:
+        return "pause";
+    case update::Act::resume:
+        return "resume";
+    case update::Act::cancel_download:
+        return "cancel-download";
+    case update::Act::install_on_quit:
+        return "when-i-quit";
+    case update::Act::install_now:
+        return "restart-now";
+    case update::Act::keep_ready:
+        return "keep-ready";
+    case update::Act::unschedule:
+        return "unschedule";
+    case update::Act::skip:
+        return "skip";
+    case update::Act::later:
+        return "later";
+    case update::Act::try_version:
+        return "try-version";
+    case update::Act::retry:
+        return "try-again";
+    case update::Act::details:
+        return "details";
+    case update::Act::show_log:
+        return "show-the-log";
+    case update::Act::open_page:
+        return "page";
+    case update::Act::roll_back:
+        return "roll-back";
+    case update::Act::whats_new:
+        return "whats-new";
+    }
+    return "action";
+}
 
 /// Returns the caption the update centre gives one of a state's actions.
 ///
@@ -454,45 +499,51 @@ std::optional<kit::UpdatePill> pill_of(const update::Centre& centre) {
     return pill;
 }
 
-/// The question the update pill's Change asks about a release scheduled for
-/// the quit: Don't install when I quit, the route's install-now action, and
-/// Continue, which leaves it scheduled.
+/// The update centre as a question, which the update pill opens: the
+/// state's heading as the title, its detail, the bar while a download is
+/// under way, its note, and its actions as buttons, the first in the accent,
+/// then Close where there is room.
 ///
-/// @param centre the update centre's state, scheduled
-/// @return the question
-kit::Question scheduled_question(const update::Centre& centre) {
+/// @param centre the update centre's state
+/// @param[out] acts the action of each button, from the left; Close has none
+/// @return the question; its word is update-centre
+kit::Question centre_question(const update::Centre& centre, std::vector<update::Act>& acts) {
     const update::CentreWords words = update::centre_words(centre, shown_hooks());
     kit::Question asked;
-    asked.word = std::string(kScheduledWord);
+    asked.word = std::string(kCentreWord);
     asked.title = words.status;
-    if (!words.detail.empty()) {
-        kit::QuestionPart checked;
-        checked.kind = kit::PartKind::callout;
-        checked.tone = kit::CalloutTone::ok;
-        checked.text = words.detail;
-        asked.parts.push_back(std::move(checked));
+    if (!words.detail.empty())
+        asked.paragraphs.push_back({words.detail, false});
+    if (centre.percent >= 0 && (centre.stage == update::Stage::downloading ||
+                                centre.stage == update::Stage::paused_by_player ||
+                                centre.stage == update::Stage::paused_by_match))
+        asked.progress = centre.percent * kit::question_progress_whole / 100;
+    if (!words.note.empty()) {
+        kit::QuestionPart note;
+        note.kind = kit::PartKind::text;
+        note.text = words.note;
+        asked.parts.push_back(std::move(note));
     }
-    std::vector<kit::BoxLine> answers;
-    for (const update::ActWords& act : words.actions)
-        answers.push_back(
-            {kit::LineMark::bullet,
-             act.note.empty() ? act.caption : act.caption + " \u00b7 " + act.note}
-        );
-    if (!answers.empty())
-        asked.parts.push_back(box_part(kWhenShouldItGoIn, std::move(answers)));
-    asked.buttons.push_back({act_caption(words, update::Act::unschedule), false, "unschedule"});
-    asked.buttons.push_back({act_caption(words, update::Act::install_now), false, "restart-now"});
-    asked.buttons.push_back({std::string(languages::interface_text("Continue")), true, "ok"});
-    asked.cancel_button = 2;
-    asked.primary_button = 2;
-    asked.marked = 2;
+    acts.clear();
+    for (const update::ActWords& act : words.actions) {
+        if (act.act == update::Act::roll_back || asked.buttons.size() == kit::most_question_buttons)
+            continue;
+        asked.buttons.push_back({act.caption, asked.buttons.empty(), std::string(act_id(act.act))});
+        acts.push_back(act.act);
+    }
+    if (asked.buttons.size() < kit::most_question_buttons)
+        asked.buttons.push_back({std::string(languages::interface_text("Close")), false, "close"});
+    const auto last = static_cast<int32_t>(asked.buttons.size()) - 1;
+    asked.cancel_button = last;
+    asked.primary_button = 0;
+    asked.marked = 0;
     return asked;
 }
 
 /// The update pill on the main menu: the update centre's state in short,
 /// at the main menu's top right, with one small button. A press on the pill
-/// opens Settings › Updates. It takes no key, and what it does not take
-/// goes on to the main menu.
+/// opens the update centre's question. It takes no key, and what it does not
+/// take goes on to the main menu.
 class UpdatePillScreen final : public LayerScreen {
   public:
 
@@ -501,7 +552,7 @@ class UpdatePillScreen final : public LayerScreen {
         /// Returns the pill as the update centre's state shows it now;
         /// nothing closes the pill.
         std::function<std::optional<kit::UpdatePill>()> look{};
-        /// Opens where the state is told in full.
+        /// Opens the update centre's question, where the state is told in full.
         std::function<void()> opened{};
         /// Takes the pill's button: its id.
         std::function<void(const std::string& button)> pressed{};
@@ -572,8 +623,8 @@ class UpdatePillScreen final : public LayerScreen {
     void draw(const kit::Canvas& canvas) const override { kit::draw_update_pill(canvas, pill_); }
 
     /// Takes the pointer over the pill: it lights, a press on it holds, and a
-    /// release over what the press held opens Settings › Updates or presses
-    /// the button. Anything off the pill goes on.
+    /// release over what the press held opens the update centre's question
+    /// or presses the button. Anything off the pill goes on.
     ///
     /// @param kind pointer_move, pointer_down or pointer_up
     /// @param button the pointer's button
@@ -2353,7 +2404,8 @@ void Runtime::tick_update_install() {
     confirm_installed_version();
     offer_ready();
     // The update pill shows the centre's state in short on the main menu
-    // while a download is under way, ready, scheduled or stopped.
+    // while a download is under way, ready, scheduled or stopped. A press on
+    // it opens the update centre's question.
     if (screen_ == Screen::main_menu && !options_.update_and_quit &&
         (options_.update_feed.has_value() || !(options_.unattended || options_.headless_check))) {
         OaLayer& layer = oa_layer();
@@ -2362,16 +2414,66 @@ void Runtime::tick_update_install() {
         std::optional<kit::UpdatePill> pill = up ? std::nullopt : pill_of(update_centre());
         if (pill.has_value() && layer.screen_fonts() != nullptr) {
             Runtime* runtime = this;
+            // The pill, and its Change, open the update centre as a question
+            // that follows the state while it shows: Pause, Resume, Cancel
+            // download and the other actions of the state, as buttons.
+            const auto open_centre = [runtime]() {
+                OaLayer& shown_on = runtime->oa_layer();
+                if (shown_on.find(kCentreWord) != nullptr)
+                    return;
+                auto acts = std::make_shared<std::vector<update::Act>>();
+                auto screen_slot = std::make_shared<QuestionScreen*>(nullptr);
+                kit::Question asked = centre_question(runtime->update_centre(), *acts);
+                QuestionScreen::Host asked_host;
+                asked_host.answer = [runtime, acts](int32_t answered) {
+                    if (answered < 0 || static_cast<std::size_t>(answered) >= acts->size())
+                        return true;
+                    const update::Act act = (*acts)[static_cast<std::size_t>(answered)];
+                    runtime->take_update_action(act);
+                    // Pause, Resume, the schedule and Try again change the
+                    // state the question shows; the others are done with it.
+                    return act != update::Act::pause && act != update::Act::resume &&
+                           act != update::Act::install_on_quit && act != update::Act::unschedule &&
+                           act != update::Act::retry;
+                };
+                asked_host.tick = [runtime, acts, screen_slot]() {
+                    if (runtime->match_ != nullptr || runtime->screen_ == Screen::match)
+                        return true;
+                    QuestionScreen* shown = *screen_slot;
+                    if (shown == nullptr)
+                        return false;
+                    // A state with no pill is not this question's to show.
+                    const update::Centre now = runtime->update_centre();
+                    if (!pill_of(now).has_value())
+                        return true;
+                    std::vector<update::Act> now_acts;
+                    kit::Question next = centre_question(now, now_acts);
+                    kit::Question& held = shown->question();
+                    if (next.title == held.title &&
+                        next.paragraphs.size() == held.paragraphs.size() &&
+                        (next.paragraphs.empty() ||
+                         next.paragraphs.front().text == held.paragraphs.front().text) &&
+                        next.progress == held.progress && now_acts == *acts)
+                        return false;
+                    next.hovered = held.hovered;
+                    next.pressed = held.pressed;
+                    if (now_acts == *acts)
+                        next.marked = held.marked;
+                    held = std::move(next);
+                    *acts = std::move(now_acts);
+                    shown->changed();
+                    return false;
+                };
+                auto question = std::make_unique<QuestionScreen>(
+                    shown_on, Screen::main_menu, std::move(asked), std::move(asked_host)
+                );
+                *screen_slot = question.get();
+                shown_on.push(std::move(question));
+            };
             UpdatePillScreen::Host host;
             host.look = [runtime]() { return pill_of(runtime->update_centre()); };
-            host.opened = [runtime]() {
-                runtime->open_engine_settings_from_menu();
-                if (settings::Dialog* dialog = runtime->engine_settings_dialog()) {
-                    dialog->page = settings::Page::updates;
-                    runtime->apply_update_download(*dialog);
-                }
-            };
-            host.pressed = [runtime](const std::string& button) {
+            host.opened = open_centre;
+            host.pressed = [runtime, open_centre](const std::string& button) {
                 if (button == "pause") {
                     runtime->take_update_action(update::Act::pause);
                 } else if (button == "resume") {
@@ -2383,29 +2485,7 @@ void Runtime::tick_update_install() {
                         runtime->update_->ready_prompt_release.reset();
                     runtime->offer_ready();
                 } else if (button == "change") {
-                    const update::Centre centre = runtime->update_centre();
-                    if (centre.stage != update::Stage::scheduled)
-                        return;
-                    QuestionScreen::Host asked_host;
-                    asked_host.answer = [runtime](int32_t answered) {
-                        if (answered == 0)
-                            runtime->take_update_action(update::Act::unschedule);
-                        else if (answered == 1)
-                            runtime->take_update_action(update::Act::install_now);
-                        return true;
-                    };
-                    asked_host.tick = [runtime]() {
-                        return runtime->match_ != nullptr || runtime->screen_ == Screen::match;
-                    };
-                    OaLayer& shown_on = runtime->oa_layer();
-                    shown_on.push(
-                        std::make_unique<QuestionScreen>(
-                            shown_on,
-                            Screen::main_menu,
-                            scheduled_question(centre),
-                            std::move(asked_host)
-                        )
-                    );
+                    open_centre();
                 }
             };
             layer.show_when_free(
