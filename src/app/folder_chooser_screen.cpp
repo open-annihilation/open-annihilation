@@ -331,6 +331,7 @@ class ChooserScreen {
                          "are missing\n";
         else
             use_game_files_language_fonts(*fonts_);
+        text_family_ = game_files_text_family(options_.preferences_file);
         int count = 0;
         if (SDL_JoystickID* ids = SDL_GetGamepads(&count); ids != nullptr) {
             for (int index = 0; index < count; ++index)
@@ -1171,7 +1172,9 @@ class ChooserScreen {
 
     /// Lays the chooser out from the model and the state now.
     void lay_out_now() {
-        layout_ = chooser::lay_out(model_, ui_, viewport_, game_files_measure(fonts_.get()));
+        layout_ = chooser::lay_out(
+            model_, ui_, viewport_, game_files_measure(fonts_.get(), text_family_)
+        );
         // A focus past the end of a new layout moves to its first target.
         if (ui_.focus >= static_cast<int32_t>(layout_.focus_order.size()))
             ui_.focus = layout_.focus_order.empty() ? -1 : 0;
@@ -1196,7 +1199,12 @@ class ChooserScreen {
         if (canvas_.width != viewport_.width || canvas_.height != viewport_.height)
             canvas_ = paint::make_canvas(viewport_.width, viewport_.height);
         paint_game_files(
-            canvas_, layout_.paint, fonts_.get(), viewport_.px_per_point, game_files_icon()
+            canvas_,
+            layout_.paint,
+            fonts_.get(),
+            viewport_.px_per_point,
+            game_files_icon(),
+            text_family_
         );
         dirty_ = false;
         painted_ = true;
@@ -1211,6 +1219,8 @@ class ChooserScreen {
         static_cast<void>(frame_.show(canvas_, render_state_, host_));
     }
 
+    /// The family the text is drawn in: Barlow in the modern look (game_files_text_family).
+    text_font::Family text_family_{text_font::Family::sans};
     const Options& options_;   ///< the parsed command line
     RendererHost* host_{};     ///< what made the renderer; may be null
     SDL_Window* window_{};     ///< the game's window
