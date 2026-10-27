@@ -63,6 +63,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Coastal waves, locked as Water ripples is | 0–200%, steps of 10% | 30% | `open-annihilation.coastal-waves.intensity` |
 | | Underwater shimmer, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.underwater-shimmer.intensity` |
 | | Naval reflections, locked as Water ripples is | 0–200%, steps of 10% | 100% | `open-annihilation.naval-reflections.intensity` |
+| | New unit shadows, Graphics' last row: the shadows of units and wrecks Open Annihilation draws where the graphics card draws the battlefield (Hardware acceleration Full), or the game's own; the processor always draws the game's own | Off, On | On | `open-annihilation.new-unit-shadows` (`0` or `1`) |
 | User Interface | Menu scaling | Sharp, Whole steps, Unfiltered | Sharp | `open-annihilation.menu-scaling` (`sharp`, `whole-steps` or `unfiltered`) |
 | | Window frame: whether a window shows its title bar and borders while a game is played; the game menu, a panel it opens and every other screen show them | Hidden in play, Always shown | Hidden in play | `open-annihilation.window-frame` (`hidden-in-play` or `always-shown`) |
 | | HUD scaling: whether a game's side column and bars grow with the window, up to twice the original game's size, or keep its size | Off, On | On | `open-annihilation.hud-scaling` |
@@ -251,6 +252,18 @@ as the game drew it, so the frames between two ticks repeat the tick's
 picture (`Runtime::smooth_motion`, `Runtime::present_frame_between_ticks`).
 The frame rate, the camera and the interface are the same either way, and
 it changes nothing a match shares, saves or records.
+
+New unit shadows is never locked, and takes effect at once, in a game too.
+It changes only what the graphics card draws (`ModelFrameInputs::new_unit_shadows`
+in `src/app/runtime_full.hpp`, `renderer_live_scene::Inputs::new_unit_shadows`):
+On, every unit's, wreck's and shot's shadow is laid on the ground before
+anything stands on it, so that overlapping shadows darken once and a
+unit's shadow lies under the trees and units beside it, and an aircraft's
+shadow has a soft edge; Off, each casts the game's own shadow with its
+unit or shot, a unit's the silhouette the processor blends
+(`ground_shadow` in `src/present/model`), over whatever was drawn before
+it, as the trees' and rocks' own shadows are drawn. The processor draws the game's own either
+way, and nothing a match shares, saves or records changes.
 
 Language says which language the game shows its text in. System default
 is the language the operating system's preferred locales choose, which the
@@ -1384,8 +1397,8 @@ which moved its list down; no other scene changed. The Graphics scenes
 joined Graphics' rows, which shortened the scroll bar's thumb and put the
 row between Explosion flash and Zoomed out units, and again when the
 camera's switches and the effect sliders joined them, which shortened the
-thumb further and put the water sliders at the end; no other scene
-changed.
+thumb further and put the water sliders at the end, and again when New
+unit shadows joined them at the end; no other scene changed.
 
 `ui-engine-settings-dialog` also holds UI kit gallery's row: its label,
 its hint in two lines at Compact and one at Regular and Large, and SHOW,
@@ -1476,9 +1489,9 @@ while the modern fonts are Off, lifted as they turn On; the Language
 drop-down's choices, each language named in itself, its field and list,
 the pointer and the keys on them, a press off the list, the command line's
 lock, and lists that scroll or open over their field;
-the Graphics section's twenty-one rows, Naval reflections last, their places at every offset
+the Graphics section's twenty-two rows, New unit shadows last, their places at every offset
 and under every lock, the focus scrolling them into view, both forms of a
-locked row, Smooth motion's switch and its two hints, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
+locked row, Smooth motion's and New unit shadows' switches and their two hints each, Zoomed out units' faded Icons and After zoom's lock, every status of Hardware acceleration, Full's included, and
 the requests to try the graphics card afresh; User Interface's seven rows, Menu scaling, Window frame, HUD scaling, Interface size, Window size, Reset window positions and Escape opens the game menu, Window frame's two ways and HUD scaling's two hints; Accessibility's thirteen rows, the captions at both ends of each range, CHOOSE… opening the key editor on Latchable while Edit keys… stays on All, and each change applying at once; Interface size's drop-down
 offering 150% only with the modern fonts shown On, and turning them Off
 taking 150% to 100%; Graphics drawn on the kit canvas's smooth form at 1.5×

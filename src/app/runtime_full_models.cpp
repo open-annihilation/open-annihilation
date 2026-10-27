@@ -41,10 +41,12 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <limits>
 #include <numeric>
+#include <optional>
 #include <span>
 #include <tuple>
 #include <unordered_map>
@@ -162,6 +164,25 @@ constexpr uint32_t solid_page_edge = 2;
 /// texture frames as they are first seen.
 constexpr uint64_t projectile_shadow_number = 0;
 constexpr uint64_t first_texture_number = 1;
+/// The mark on the number of a model's shadow as the game casts it
+/// (game_shadow_of_model): the top bit, over a digest of its silhouette, so
+/// that no texture frame's number meets it and a silhouette many units
+/// share is one frame.
+constexpr uint64_t game_shadow_number_mark = uint64_t{1} << 63;
+
+/// Returns how a model's shadow as the game casts it reads its frame at a
+/// zoom: as the sprite stage reads a feature's shadow frame
+/// (sprite_sampling), nearest at a whole-number zoom, linear below 1 and
+/// pixel-art above.
+///
+/// @param zoom window pixels per map pixel
+/// @return the sampling
+card::Sampling game_shadow_sampling(float zoom) noexcept {
+    if (std::floor(zoom) == zoom)
+        return card::Sampling::nearest;
+    return zoom < 1.0F ? card::Sampling::linear : card::Sampling::pixel_art;
+}
+
 /// A frame's number doubled, plus its variant: the keyed frame, or the flat
 /// one whose image-key texels are a colour.
 constexpr uint64_t variants = 2;
@@ -1385,6 +1406,10 @@ struct ModelStage::Impl {
     card::TargetHandle shadow_target{};
     uint32_t shadow_width{};
     uint32_t shadow_height{};
+    /// A model's shadow as the game casts it, and that shadow as a frame for
+    /// the pages (game_shadow_of_model), kept from draw to draw.
+    draw::GroundShadow game_shadow;
+    oa::formats::gaf::RenderedFrame game_shadow_frame;
     // Scratch of a frame's emission, kept from frame to frame.
     std::vector<Corner> corners;
     std::vector<Polygon> polygons;
@@ -1699,12 +1724,16 @@ class Emitter {
     );
 
     // Emitting.
+    /// Appends triangles to the frame, joining the last batch where it draws
+    /// alike; `sampling` reads the page as given, else nearest at a
+    /// whole-number scale and linear at any other.
     void append(
         const Canvas& surface,
         card::PageHandle page,
         card::Blend blend,
         std::span<const card::Vertex> vertices,
-        std::span<const card::Index> indices
+        std::span<const card::Index> indices,
+        std::optional<card::Sampling> sampling = std::nullopt
     );
     void emit_polygons(const Canvas& surface);
     void emit_polygon(const Canvas& surface, const Polygon& polygon);
@@ -1736,6 +1765,10 @@ class Emitter {
         const ModelDraw& drawn, const Canvas& surface, card::Blend blend, bool unfinished_pass
     );
     void shadow_of_projectile(const ProjectileDraw& shot, const Canvas& surface);
+    /// Emits a model's shadow as the game casts it (New unit shadows Off):
+    /// the processor's silhouette as a frame on the texture pages, one quad
+    /// at the shadows' own darkness, over what the list drew before it.
+    void game_shadow_of_model(const ModelDraw& drawn);
     /// Emits a cached, padded silhouette at the shadows' own darkness and
     /// place, its edge softened a little more at altitude.
     bool aircraft_shadow(
@@ -2483,9 +2516,11 @@ void Emitter::append(
     card::PageHandle page,
     card::Blend blend,
     std::span<const card::Vertex> vertices,
-    std::span<const card::Index> indices
+    std::span<const card::Index> indices,
+    std::optional<card::Sampling> asked_sampling
 ) {
-    const card::Sampling sampling = whole_scale_ ? card::Sampling::nearest : card::Sampling::linear;
+    const card::Sampling sampling =
+        asked_sampling.value_or(whole_scale_ ? card::Sampling::nearest : card::Sampling::linear);
     const auto base = static_cast<card::Index>(frame_.vertices.size());
     const auto first = static_cast<card::Index>(frame_.indices.size());
     frame_.vertices.insert(frame_.vertices.end(), vertices.begin(), vertices.end());
@@ -3862,6 +3897,107 @@ void Emitter::shadow_of_projectile(const ProjectileDraw& shot, const Canvas& sur
     ++counts_.shadows;
 }
 
+void Emitter::game_shadow_of_model(const ModelDraw& drawn) {
+    if (in_.draws == nullptr || !shadows_drawn(*in_.draws) || in_.world == nullptr ||
+        (drawn.on_map && !map_shown()))
+        return;
+    draw::ModelRef model = drawn.model;
+    if (drawn.stand_in >= 0 && static_cast<size_t>(drawn.stand_in) < in_.draws->stand_ins.size())
+        model.unit = &in_.draws->stand_ins[static_cast<size_t>(drawn.stand_in)];
+    if (model.instance == nullptr || model.state == nullptr || model.unit == nullptr ||
+        !drawn.plan.linked.drawn || !drawn.plan.model.from_image)
+        return;
+    draw::GroundShadow& shadow = impl_.game_shadow;
+    if (!draw::ground_shadow(
+            in_.graphics_flags,
+            in_.world->game,
+            model,
+            camera_x_,
+            camera_z_,
+            drawn.plan.model.ground,
+            shadow
+        ) ||
+        shadow.width > UINT16_MAX || shadow.height > UINT16_MAX)
+        return;
+    // The silhouette as a frame of colour 0, which the pages hold in the
+    // palette's colour 0 as the processor's alpha table mixes it, numbered
+    // by a digest of its shape so that a frame is placed once for every
+    // unit that casts it.
+    uint64_t digest = shape_digest_start;
+    const auto fold = [&digest](uint64_t value) {
+        digest = (digest ^ value) * shape_digest_multiplier;
+    };
+    fold(static_cast<uint64_t>(shadow.width));
+    fold(static_cast<uint64_t>(shadow.height));
+    bool any = false;
+    for (const uint8_t covered : shadow.coverage) {
+        fold(covered);
+        any = any || covered != 0;
+    }
+    if (!any)
+        return;
+    oa::formats::gaf::RenderedFrame& frame = impl_.game_shadow_frame;
+    frame.width = static_cast<uint16_t>(shadow.width);
+    frame.height = static_cast<uint16_t>(shadow.height);
+    frame.origin_x = 0;
+    frame.origin_y = 0;
+    frame.transparency_index = 0;
+    frame.pixels.assign(shadow.coverage.size(), 0);
+    // The silhouette's bytes go to the frame, and the frame's last ones back
+    // to the scratch the next shadow overwrites.
+    frame.coverage.swap(shadow.coverage);
+    PlacedFrame placed;
+    if (!place_frame(
+            pages_,
+            impl_.slots,
+            game_shadow_number_mark | (digest >> 1),
+            nullptr,
+            false,
+            &frame,
+            placed
+        ))
+        return;
+    const Canvas surface = drawn.on_map ? on_map(battlefield()) : battlefield();
+    const float left = surface.origin_x + static_cast<float>(shadow.left) * scale_;
+    const float top = surface.origin_y + static_cast<float>(shadow.top) * scale_;
+    const float width = static_cast<float>(shadow.width) * scale_;
+    const float height = static_cast<float>(shadow.height) * scale_;
+    const auto page = static_cast<float>(placed.page_size);
+    const float u0 = static_cast<float>(placed.rect.x) / page;
+    const float v0 = static_cast<float>(placed.rect.y) / page;
+    const float u1 = static_cast<float>(placed.rect.x + placed.rect.width) / page;
+    const float v1 = static_cast<float>(placed.rect.y + placed.rect.height) / page;
+    // Under the premultiplied blend a colour and alpha of the shadows'
+    // alpha mix that much of colour 0 into what is under it, as a
+    // feature's translucent shadow frame is drawn.
+    const float alpha = shadow_alpha();
+    const card::Colour shade{alpha, alpha, alpha, alpha};
+    vertices_.clear();
+    for (const auto& [x, y, u, v] :
+         {std::tuple{left, top, u0, v0},
+          std::tuple{left + width, top, u1, v0},
+          std::tuple{left + width, top + height, u1, v1},
+          std::tuple{left, top + height, u0, v1}}) {
+        card::Vertex vertex;
+        vertex.x = x;
+        vertex.y = y;
+        vertex.u = u;
+        vertex.v = v;
+        vertex.colour = shade;
+        vertices_.push_back(vertex);
+    }
+    constexpr std::array<card::Index, 6> quad{0, 1, 2, 0, 2, 3};
+    append(
+        surface,
+        placed.page,
+        card::Blend::alpha_premultiplied,
+        vertices_,
+        quad,
+        game_shadow_sampling(view_.zoom)
+    );
+    ++counts_.shadows;
+}
+
 void Emitter::shadows(bool& through_target) {
     through_target = false;
     // A frame drawn too far out for shadows draws none, and neither clears
@@ -3901,13 +4037,19 @@ void Emitter::shadows(bool& through_target) {
         frame_.batches.push_back(clear);
     }
     // The shadow sprites first, blended, then the silhouettes over them.
+    // With New unit shadows off, each shot casts its own with its draw
+    // (emit), as each model does.
     for (const WorldDraw& entry : in_.draws->draws)
-        if (entry.kind == WorldDrawKind::projectile && entry.index < in_.draws->projectiles.size())
+        if (in_.new_unit_shadows && entry.kind == WorldDrawKind::projectile &&
+            entry.index < in_.draws->projectiles.size())
             shadow_of_projectile(in_.draws->projectiles[entry.index], surface);
-    // A feature's shadow falls only over the map the view shows.
+    // A feature's shadow falls only over the map the view shows. With New
+    // unit shadows off, each model casts its own with its draw instead
+    // (game_shadow_of_model).
     for (const bool unfinished_pass : {true, false})
         for (const WorldDraw& entry : in_.draws->draws) {
-            if (entry.kind != WorldDrawKind::model || entry.index >= in_.draws->models.size())
+            if (!in_.new_unit_shadows || entry.kind != WorldDrawKind::model ||
+                entry.index >= in_.draws->models.size())
                 continue;
             const ModelDraw& drawn = in_.draws->models[entry.index];
             if (drawn.on_map && !map_shown())
@@ -3935,12 +4077,20 @@ void Emitter::emit(const WorldDraw& entry) {
     const WorldDrawList& list = *in_.draws;
     switch (entry.kind) {
     case WorldDrawKind::model:
-        if (entry.index < list.models.size())
+        if (entry.index < list.models.size()) {
+            if (!in_.new_unit_shadows)
+                game_shadow_of_model(list.models[entry.index]);
             draw_model(list.models[entry.index]);
+        }
         break;
     case WorldDrawKind::projectile:
-        if (entry.index < list.projectiles.size())
+        if (entry.index < list.projectiles.size()) {
+            // A shot's shadow sprite, as the game draws it, just before the
+            // shot, over what the list drew before it.
+            if (!in_.new_unit_shadows && shadows_drawn(list))
+                shadow_of_projectile(list.projectiles[entry.index], battlefield());
             draw_projectile(list.projectiles[entry.index]);
+        }
         break;
     case WorldDrawKind::debris:
         if (entry.index < list.debris.size())

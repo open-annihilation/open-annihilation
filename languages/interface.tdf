@@ -7634,6 +7634,14 @@
 	it=Mai più vicino della dimensione normale. La rotella, una pizzicata e un controller si fermano lì.;
 	}
 
+[New unit shadows]
+	{
+	de=Neue Einheitenschatten;
+	fr=Nouvelles ombres des unités;
+	es=Nuevas sombras de unidades;
+	it=Nuove ombre delle unità;
+	}
+
 [New]
 	{
 	de=Neu;
@@ -10546,6 +10554,14 @@
 	it=Bordi morbidi dove la scheda grafica disegna il campo di battaglia (Completo).;
 	}
 
+[Softer aircraft shadows, laid under every unit and tree (Full).]
+	{
+	de=Weichere Schatten der Luftfahrzeuge, unter jeder Einheit und jedem Baum (Voll).;
+	fr=Ombres des aéronefs plus douces, posées sous chaque unité et chaque arbre (Complet).;
+	es=Sombras de aeronaves más suaves, bajo cada unidad y cada árbol (Completo).;
+	it=Ombre degli aerei più morbide, stese sotto ogni unità e ogni albero (Completo).;
+	}
+
 [Solid]
 	{
 	de=Flächig;
@@ -12648,6 +12664,14 @@
 	fr=Les unités sont dessinées comme des modèles à chaque zoom. Très loin sur une grande carte, demande un processeur rapide.;
 	es=Las unidades se dibujan como modelos en cada zoom. Muy lejos en un mapa grande, necesita una CPU rápida.;
 	it=Le unità sono disegnate come modelli a ogni zoom. Molto lontano su una mappa grande, serve una CPU veloce.;
+	}
+
+[Units cast the original game's shadows, as trees and rocks do.]
+	{
+	de=Einheiten werfen die Schatten des ursprünglichen Spiels, wie Bäume und Felsen.;
+	fr=Les unités projettent les ombres du jeu d'origine, comme les arbres et les rochers.;
+	es=Las unidades proyectan las sombras del juego original, como los árboles y las rocas.;
+	it=Le unità proiettano le ombre del gioco originale, come gli alberi e le rocce.;
 	}
 
 [Units drawn at 16x and scaled down. Needs a fast CPU.]

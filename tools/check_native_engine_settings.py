@@ -21,6 +21,7 @@ preferences file the check writes:
   acceleration at Full and vertical sync, which a headless run has no
   renderer for, Smooth motion off, Allow Full 3D Mode off and Unlocked
   Camera on, the eight effect sliders at 0%, the explosions' flashes off,
+  the game's own unit shadows (New unit shadows off),
   units zoomed out as dots past half scale, the window's frame always
   shown, and the side column and bars at the original game's size), it
   writes the same trace stream and reaches the same world digest.
@@ -89,6 +90,7 @@ DEFAULTS = {
     "open-annihilation.naval-reflections.intensity": "100",
     "open-annihilation.explosion-flash": "full",
     "open-annihilation.fog-of-war": "smooth",
+    "open-annihilation.new-unit-shadows": "1",
     "open-annihilation.zoomed-out-units": "rendered",
     "open-annihilation.zoomed-out-after": "1/6",
     "open-annihilation.window-frame": "hidden-in-play",
@@ -123,6 +125,7 @@ PRESENTATION = {
     "open-annihilation.naval-reflections.intensity": "0",
     "open-annihilation.explosion-flash": "off",
     "open-annihilation.fog-of-war": "classic",
+    "open-annihilation.new-unit-shadows": "0",
     "open-annihilation.zoomed-out-units": "dots",
     "open-annihilation.zoomed-out-after": "1/2",
     "open-annihilation.window-frame": "always-shown",

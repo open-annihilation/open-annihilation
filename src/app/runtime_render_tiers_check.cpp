@@ -13,7 +13,8 @@
 // following a walking unit at its farthest zoom, the ground at the view's
 // exact place every frame and its picture moving by whole pixels; and the
 // Full tier's model stage over the zoom-1 frame, its frame of models
-// against the processor's raster of the same list (check_full_models).
+// against the processor's raster of the same list (check_full_models); and
+// New unit shadows On and Off in every tier (check_unit_shadow_switch).
 // The tier comes from the game's own decision: --hardware-acceleration
 // switches it on after the start-up function test passed, and the check
 // switches it off and on again as --no-hardware-acceleration and
@@ -2195,6 +2196,8 @@ int Runtime::check_render_tiers() {
         if (asked_level == HardwareAcceleration::full)
             poster_levels.push_back(HardwareAcceleration::full);
         check_poster_tiers(set_level, poster_levels, at_zoom, report_directory);
+        // New unit shadows in each tier, beside a tree.
+        check_unit_shadow_switch(set_level, poster_levels, report_directory);
     }
     // Switched off, every frame is the standard tier's again, the whole
     // frame where the chrome's scale is a whole number.

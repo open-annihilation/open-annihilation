@@ -2877,6 +2877,60 @@ void the_smooth_motion_default_read_and_round_trip() {
     CHECK(alone.empty());
 }
 
+/// New unit shadows: On everywhere by default, a light machine and a Steam
+/// Deck included, so a file written before it reads On; a number above 0
+/// reads On, any other number Off and a text that is no number keeps the
+/// default; Off written alone as 0 and read back, On chosen again written as
+/// 1, and Restore defaults then OK erases the key. It leaves every other key
+/// as it was.
+void the_new_unit_shadows_default_read_and_round_trip() {
+    CHECK(settings::key::new_unit_shadows == "open-annihilation.new-unit-shadows");
+    settings::Inputs own_mac = players_own_on_linux;
+    own_mac.macos = true;
+    settings::Inputs light = players_own_on_linux;
+    light.light_machine = true;
+    settings::Inputs deck = players_own_on_linux;
+    deck.steam_deck_panel_hz = 90;
+    for (const auto& inputs : {settings::Inputs{}, players_own_on_linux, own_mac, light, deck}) {
+        const auto defaults = settings::default_settings(inputs);
+        CHECK(defaults.new_unit_shadows);
+        CHECK(settings::read_settings({}, inputs, false) == defaults);
+    }
+    CHECK(read_one(settings::key::new_unit_shadows, "1").new_unit_shadows);
+    CHECK(read_one(settings::key::new_unit_shadows, "2").new_unit_shadows);
+    CHECK(!read_one(settings::key::new_unit_shadows, "0").new_unit_shadows);
+    CHECK(!read_one(settings::key::new_unit_shadows, "-1").new_unit_shadows);
+    CHECK(read_one(settings::key::new_unit_shadows, "off").new_unit_shadows);
+
+    const auto defaults = settings::default_settings(players_own_on_linux);
+    auto off = defaults;
+    off.new_unit_shadows = false;
+    Values values;
+    values[std::string{settings::key::fog_of_war}] = "classic";
+    values["open-annihilation.not-a-setting"] = "kept";
+    const Values others = values;
+    const auto opened = settings::read_settings(values, players_own_on_linux, false);
+    auto chosen = opened;
+    chosen.new_unit_shadows = false;
+    settings::write_settings(values, opened, chosen, defaults, false);
+    CHECK(values.size() == others.size() + 1);
+    for (const auto& [key, value] : others)
+        CHECK(values.contains(key) && values.at(key) == value);
+    CHECK(values.at(std::string{settings::key::new_unit_shadows}) == "0");
+    CHECK(!settings::read_settings(values, players_own_on_linux, false).new_unit_shadows);
+    settings::write_settings(values, chosen, opened, defaults, false);
+    CHECK(values.at(std::string{settings::key::new_unit_shadows}) == "1");
+    CHECK(settings::read_settings(values, players_own_on_linux, false).new_unit_shadows);
+
+    Values alone;
+    settings::write_settings(alone, defaults, off, defaults, false);
+    CHECK(alone.size() == 1);
+    CHECK(alone.at(std::string{settings::key::new_unit_shadows}) == "0");
+    CHECK(settings::read_settings(alone, players_own_on_linux, false) == off);
+    settings::write_settings(alone, off, defaults, defaults, true);
+    CHECK(alone.empty());
+}
+
 /// Interface size: Auto everywhere by default, with the player's own file
 /// and with a named one, a file written before it included; each of its
 /// six words reads its size and round-trips alone, 150 while Use modern
@@ -3204,6 +3258,7 @@ int main() {
     the_look_default_read_and_round_trip();
     the_hud_scaling_default_read_and_round_trip();
     the_smooth_motion_default_read_and_round_trip();
+    the_new_unit_shadows_default_read_and_round_trip();
     visual_effect_switches_round_trip();
     water_effects_round_trip();
     the_interface_size_default_read_and_round_trip();

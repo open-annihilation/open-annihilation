@@ -267,6 +267,105 @@ void test_building_shadow() {
     CHECK(scene.pixel(119, 100) == ground);
 }
 
+/// One case of ground_shadow against the draw: how the scene is set up.
+struct GroundShadowCase {
+    const char* name{};
+    uint16_t graphics_flags{};
+    uint32_t def_flags{}; ///< the unit type's flags
+    bool turret{};        ///< the turret model, a barrel two pixels over a square
+    bool building{};      ///< the unit is a building
+    bool z_buffer{};      ///< its image has a depth plane
+    int32_t height{};     ///< its height above the map's floor, pixels
+    uint8_t sea_level{};  ///< the map's sea level
+    bool casts{};         ///< the draw casts a shadow
+};
+
+// ground_shadow names exactly the pixels draw_linked_model darkens for its
+// shadow, where the model's own image does not cover them: a vehicle, an
+// aircraft, a building, a vehicle half under the water and a digger, whose
+// square lies under the water or the ground and whose barrel casts alone,
+// and the cases that cast none.
+void test_ground_shadow_matches_the_draw() {
+    constexpr uint16_t both = graphics_shadows | graphics_vehicle_shadows;
+    constexpr uint32_t none = 0;
+    const GroundShadowCase cases[] = {
+        {"vehicle", both, none, false, false, false, 0, 0, true},
+        {"aircraft", both, OA_UNIT_DEF_FLAG_CAN_FLY, false, false, false, 40, 0, true},
+        {"building", graphics_shadows, none, true, true, false, 0, 0, true},
+        {"building with a depth plane", graphics_shadows, none, true, true, true, 0, 0, true},
+        {"vehicle with a depth plane", both, none, true, false, true, 0, 0, true},
+        {"vehicle half under water", both, none, true, false, true, 4, 5, true},
+        {"digger", both, OA_UNIT_DEF_FLAG_DIGGER, true, false, true, 0, 0, true},
+        {"shadows off", graphics_vehicle_shadows, none, false, false, false, 0, 0, false},
+        {"vehicle shadows off", graphics_shadows, none, false, false, false, 0, 0, false},
+        {"a type without a shadow",
+         both,
+         OA_UNIT_DEF_FLAG_NO_SHADOW,
+         false,
+         false,
+         false,
+         0,
+         0,
+         false},
+        {"hovercraft", both, OA_UNIT_DEF_FLAG_CAN_HOVER, false, false, false, 0, 0, false},
+    };
+    for (const GroundShadowCase& shown : cases) {
+        // The frame without shadows, then with: the pixels that changed are
+        // the shadow's.
+        const auto draw = [&](uint16_t flags, Scene& scene) {
+            scene.renderer.graphics_flags = flags;
+            scene.world->game.sea_level = shown.sea_level;
+            scene.world->unit_defs[1].flags = shown.def_flags;
+            scene.unit->position.y = shown.height * unit_fixed;
+            if (shown.building) {
+                scene.unit->flags |= OA_UNIT_FLAG_BUILDING;
+                scene.unit->type_index = 1;
+            }
+            if (shown.z_buffer)
+                scene.unit->flags2 |= OA_UNIT_FLAG2_Z_BUFFER;
+            draw_linked_model(scene.renderer, &scene.screen.surface, scene.ref(), !shown.building);
+        };
+        Scene plain(shown.turret ? turret_model() : square_model());
+        draw(0, plain);
+        Scene shaded(shown.turret ? turret_model() : square_model());
+        draw(shown.graphics_flags, shaded);
+        GroundShadow shadow;
+        shadow.coverage.assign(3, 1);
+        const bool cast =
+            ground_shadow(shown.graphics_flags, shaded.world->game, shaded.ref(), 0, 0, 0, shadow);
+        std::size_t changed = 0;
+        std::size_t named = 0;
+        std::size_t mismatched = 0;
+        for (int y = 0; y < 200; ++y)
+            for (int x = 0; x < 200; ++x) {
+                const bool darkened = shaded.pixel(x, y) != plain.pixel(x, y);
+                const int column = x - shadow.left;
+                const int row = y - shadow.top;
+                const bool covered =
+                    cast && column >= 0 && row >= 0 && column < shadow.width &&
+                    row < shadow.height &&
+                    shadow.coverage[static_cast<std::size_t>(row * shadow.width + column)] != 0;
+                // Where the model's own image lies, the shadow does not show.
+                const bool seen = covered && plain.pixel(x, y) == ground;
+                changed += darkened ? 1U : 0U;
+                named += seen ? 1U : 0U;
+                mismatched += darkened != seen ? 1U : 0U;
+            }
+        std::printf(
+            "ground shadow, %s: %zu pixels darkened, %zu named, %zu apart\n",
+            shown.name,
+            changed,
+            named,
+            mismatched
+        );
+        CHECK(cast == shown.casts);
+        CHECK(mismatched == 0);
+        CHECK((changed != 0) == shown.casts);
+        if (!cast)
+            CHECK(shadow.coverage.empty() && shadow.width == 0 && shadow.height == 0);
+    }
+}
+
 void test_remap_depth_bands() {
     uint8_t pixels[6] = {9, 9, 9, 9, 9, image_key};
     uint8_t depth[6] = {1, 5, 6, 9, 10, 7};
@@ -790,6 +889,7 @@ int main() {
     test_linked_draw();
     test_vehicle_shadow_at_altitude();
     test_building_shadow();
+    test_ground_shadow_matches_the_draw();
     test_remap_depth_bands();
     test_build_effect();
     test_build_pulse_colours();

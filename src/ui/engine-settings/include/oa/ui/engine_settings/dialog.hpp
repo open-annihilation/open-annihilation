@@ -333,6 +333,9 @@ enum class Setting : uint8_t {
     welcome_setup,
     /// Fog of War: a strip of Classic and Smooth
     fog_of_war,
+    /// New unit shadows: a switch, On for Open Annihilation's shadows where
+    /// the graphics card draws them, Off for the game's own
+    new_unit_shadows,
     /// Set by the mod: the heading over the limits the mod fixes.
     /// It keeps no setting.
     mod_limits_heading,
