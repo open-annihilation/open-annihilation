@@ -245,7 +245,7 @@ void the_window_shows_each_mode_and_phase() {
         (buttons_of(list) == std::vector<std::string>{"add-registry.cancel", "add-registry.add"})
     );
     OA_CHECK(ready.interaction.focused == settings::add_registry_cancel_control);
-    OA_CHECK(named(list, "add-registry.add")->text == "ADD");
+    OA_CHECK(named(list, "add-registry.add")->text == "Add");
     OA_CHECK(
         !named(list, "add-registry.name")->enabled && !named(list, "add-registry.name")->focusable
     );
@@ -335,7 +335,7 @@ void the_window_shows_each_mode_and_phase() {
         std::string::npos
     );
     OA_CHECK(label_of(list, "add-registry.key") == std::string("aaaa\nbbbb\ncccc\n+1 more"));
-    OA_CHECK(named(list, "add-registry.add")->text == "ADD MIRROR");
+    OA_CHECK(named(list, "add-registry.add")->text == "Add mirror");
     OA_CHECK(mirror.interaction.focused == settings::add_registry_cancel_control);
     OA_CHECK(words_of(list).find("Not reviewed") == std::string::npos);
 }

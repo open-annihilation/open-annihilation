@@ -843,8 +843,8 @@ void each_section_shows_its_rows() {
           "Edit keys…",
           "OA default",
           "Show keys on buttons",
-          "OFF",
-          "ON",
+          "Off",
+          "On",
           "RESTORE DEFAULTS",
           "Cancel",
           "OK"})
@@ -3453,7 +3453,7 @@ void locked_switch_rows_keep_their_value_in_sight() {
     for (const auto& part : parts) {
         CHECK(part.control != settings::first_row_control + 3);
         CHECK(part.control != settings::first_row_control + 4);
-        if (part.text != "OFF" && part.text != "ON")
+        if (part.text != "Off" && part.text != "On")
             continue;
         if (part.rect.y == 133) {
             CHECK(part.control == settings::no_control);
@@ -5213,7 +5213,7 @@ void developer_mode_lists_every_hack_by_area_closed_at_first() {
         CHECK(find_part(parts, text, settings::no_control) != nullptr);
     CHECK(shows_wrapped(parts, "Your changes to the profile's hacks apply while on.", dialog));
     CHECK(find_part(parts, label, settings::no_control) != nullptr);
-    const auto* restore = find_part(parts, "RESTORE PROFILE VALUES", settings::no_control);
+    const auto* restore = find_part(parts, "Restore profile values", settings::no_control);
     CHECK(restore != nullptr && restore->control == settings::no_control);
     int32_t bars = 0;
     for (const auto& part : parts)
@@ -5278,12 +5278,12 @@ void developer_mode_lists_every_hack_by_area_closed_at_first() {
     // is, and the rows have scrolled away.
     const auto top_parts = settings::dialog_layout(compact);
     CHECK(find_part(top_parts, label, settings::no_control) == nullptr);
-    CHECK(find_part(top_parts, "RESTORE PROFILE VALUES", settings::no_control) == nullptr);
+    CHECK(find_part(top_parts, "Restore profile values", settings::no_control) == nullptr);
     settings::Dialog ended = compact;
     ended.scroll[kDeveloperScroll] = whole.limit;
     const auto end_parts = settings::dialog_layout(ended);
     CHECK(find_part(end_parts, label, settings::no_control) != nullptr);
-    CHECK(find_part(end_parts, "RESTORE PROFILE VALUES", settings::no_control) != nullptr);
+    CHECK(find_part(end_parts, "Restore profile values", settings::no_control) != nullptr);
     CHECK(find_part(end_parts, "Enable Developer Mode", settings::no_control) == nullptr);
     int32_t compact_bars = 0;
     for (const auto& part : end_parts)
@@ -5348,7 +5348,7 @@ void the_kit_gallery_row_moves_only_developers_list() {
         CHECK(shown != nullptr && same_rect(shown->rect, gallery_row.hints[line]));
     }
     CHECK(shows_wrapped(parts, geometry::kit_gallery_hint_text, dialog));
-    const auto* show = find_part(parts, "SHOW", show_control);
+    const auto* show = find_part(parts, "Show", show_control);
     CHECK(show != nullptr && same_rect(show->rect, gallery_row.control_area));
     // Its hint breaks as the Developer rule assumes at every class.
     for (const auto size_class :
@@ -5660,7 +5660,7 @@ void developer_mode_off_shows_the_profile_and_takes_no_change() {
         ) != nullptr
     );
     const auto profile_parts = settings::dialog_layout(dialog);
-    const auto* button = find_part(profile_parts, "RESTORE PROFILE VALUES", 0);
+    const auto* button = find_part(profile_parts, "Restore profile values", 0);
     CHECK(button != nullptr && button->control == settings::restore_profile_control);
     // Show performance statistics, on, stays as it is.
     CHECK(click(dialog, switch_half(stats, true)) == DialogAction::changed);
@@ -6326,9 +6326,9 @@ void developer_texts_fit(const settings::DialogFonts& fonts) {
 /// @param fonts the dialog's fonts
 void manage_draws_in_the_game_font_inside_its_button(const settings::DialogFonts& fonts) {
     const int32_t width =
-        settings::dialog_text_width(fonts, settings::DialogFont::small, "MANAGE…");
+        settings::dialog_text_width(fonts, settings::DialogFont::small, "Manage…");
     const auto stops =
-        static_cast<int32_t>(oa::formats::fnt::measure_text(fonts.small.font, "MANAGE..."));
+        static_cast<int32_t>(oa::formats::fnt::measure_text(fonts.small.font, "Manage..."));
     CHECK(width == stops);
     CHECK(width + 2 * 3 <= geometry::manage_button_width);
     // The mark between a location's folders, as a greater-than sign.
@@ -6443,7 +6443,7 @@ void your_files_shows_the_folder_and_opens_its_folders() {
     CHECK(row.control_area.y == row.label.y);
     CHECK(row.label.x + row.label.width < row.control_area.x);
     const auto parts = settings::dialog_layout(dialog);
-    const std::array<std::string_view, 3> captions{"SAVES", "SCREENSHOTS", "MODS"};
+    const std::array<std::string_view, 3> captions{"Saves", "Screenshots", "Mods"};
     for (std::size_t index = 0; index < captions.size(); ++index) {
         const auto* part = find_part(parts, captions[index], settings::no_control);
         CHECK(part != nullptr && part->control == row.control);
@@ -7601,12 +7601,12 @@ void game_files_shows_what_is_installed_the_backups_and_the_folder() {
     CHECK(shows_wrapped(
         parts, "After restoring this tablet from a backup, add the game files again.", dialog
     ));
-    const auto* manage = find_part(parts, "MANAGE…", settings::no_control);
+    const auto* manage = find_part(parts, "Manage…", settings::no_control);
     CHECK(manage != nullptr && manage->control == settings::first_row_control);
     CHECK(manage != nullptr && same_entry(manage->rect, summary.control_area));
     const auto* annihilation = find_part(parts, "Total Annihilation", settings::no_control);
     CHECK(annihilation != nullptr && annihilation->control == settings::no_control);
-    const auto* off = find_part(parts, "OFF", settings::no_control);
+    const auto* off = find_part(parts, "Off", settings::no_control);
     CHECK(off != nullptr && off->control == settings::first_row_control + 1);
     for (const auto& part : parts)
         CHECK(part.control != settings::first_row_control + 2);
@@ -9095,9 +9095,9 @@ void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
     const auto up_parts = settings::dialog_layout(up_to_date);
     CHECK(find_part(up_parts, "Open Annihilation 0.8.6", settings::no_control) != nullptr);
     CHECK(find_part(up_parts, "Check for updates", settings::no_control) != nullptr);
-    CHECK(find_part(up_parts, "CHECK NOW", settings::no_control) != nullptr);
-    CHECK(find_part(up_parts, "UPDATE…", settings::no_control) == nullptr);
-    const auto check_now = find_part(settings::dialog_layout(up_to_date), "CHECK NOW", 0);
+    CHECK(find_part(up_parts, "Check now", settings::no_control) != nullptr);
+    CHECK(find_part(up_parts, "Update…", settings::no_control) == nullptr);
+    const auto check_now = find_part(settings::dialog_layout(up_to_date), "Check now", 0);
     CHECK(check_now != nullptr);
     if (check_now != nullptr)
         CHECK(click(up_to_date, centre(check_now->rect)) == DialogAction::check_updates);
@@ -9105,7 +9105,7 @@ void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
     ready.offered = true;
     ready.status = "0.8.7 is out · Stable · checked today at 09:00";
     settings::Dialog offered = updates_dialog(ready);
-    const auto update = find_part(settings::dialog_layout(offered), "UPDATE…", 0);
+    const auto update = find_part(settings::dialog_layout(offered), "Update…", 0);
     CHECK(update != nullptr);
     if (update != nullptr)
         CHECK(click(offered, centre(update->rect)) == DialogAction::open_release);
@@ -9114,7 +9114,7 @@ void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
     ready.can_check = false;
     ready.status = "Checking…";
     settings::Dialog checking = updates_dialog(ready);
-    const auto checking_button = find_part(settings::dialog_layout(checking), "CHECK NOW", 0);
+    const auto checking_button = find_part(settings::dialog_layout(checking), "Check now", 0);
     CHECK(checking_button != nullptr);
     if (checking_button != nullptr)
         CHECK(click(checking, centre(checking_button->rect)) == DialogAction::none);
@@ -9122,14 +9122,14 @@ void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
     ready.can_check = true;
     ready.status = "Could not check";
     settings::Dialog failed = updates_dialog(ready);
-    const auto failed_button = find_part(settings::dialog_layout(failed), "CHECK NOW", 0);
+    const auto failed_button = find_part(settings::dialog_layout(failed), "Check now", 0);
     CHECK(failed_button != nullptr);
     if (failed_button != nullptr)
         CHECK(click(failed, centre(failed_button->rect)) == DialogAction::check_updates);
 
     ready.status = "Not checked yet";
     settings::Dialog idle = updates_dialog(ready);
-    CHECK(find_part(settings::dialog_layout(idle), "CHECK NOW", 0) != nullptr);
+    CHECK(find_part(settings::dialog_layout(idle), "Check now", 0) != nullptr);
 
     settings::Dialog never = opened(Page::updates);
     never.chosen.update_check = settings::UpdateCheck::never;
@@ -9139,8 +9139,8 @@ void updates_lists_its_rows_and_the_compact_list_of_fourteen_scrolls() {
     never.updates.can_check = false;
     never.updates.offered = true;
     const auto never_parts = settings::dialog_layout(never);
-    CHECK(find_part(never_parts, "CHECK NOW", settings::no_control) == nullptr);
-    CHECK(find_part(never_parts, "UPDATE…", settings::no_control) == nullptr);
+    CHECK(find_part(never_parts, "Check now", settings::no_control) == nullptr);
+    CHECK(find_part(never_parts, "Update…", settings::no_control) == nullptr);
     CHECK(find_part(never_parts, "OA never checks", settings::no_control) != nullptr);
 
     // The way changes at once on the dialog and is kept at OK. Cancel puts
@@ -9317,7 +9317,7 @@ void download_rows_sit_between_the_status_and_the_check() {
     settings::Dialog ready = updates_dialog(offer);
     const auto ready_parts = settings::dialog_layout(ready);
     const settings::LayoutPart* restart =
-        find_part(ready_parts, "RESTART TO UPDATE", settings::no_control);
+        find_part(ready_parts, "Restart to update", settings::no_control);
     CHECK(restart != nullptr);
     if (restart != nullptr)
         CHECK(click(ready, centre(restart->rect)) == DialogAction::restart_update);
@@ -9326,7 +9326,7 @@ void download_rows_sit_between_the_status_and_the_check() {
     offer.download_reason = "the download was not the file the feed promised";
     settings::Dialog stopped = updates_dialog(offer);
     const auto stopped_parts = settings::dialog_layout(stopped);
-    const settings::LayoutPart* retry = find_part(stopped_parts, "RETRY", settings::no_control);
+    const settings::LayoutPart* retry = find_part(stopped_parts, "Retry", settings::no_control);
     CHECK(retry != nullptr);
     if (retry != nullptr)
         CHECK(click(stopped, centre(retry->rect)) == DialogAction::retry_update);
@@ -9337,7 +9337,7 @@ void download_rows_sit_between_the_status_and_the_check() {
     switching.opened.update_download = false;
     switching.chosen.update_download = false;
     const auto on_parts = settings::dialog_layout(switching);
-    const settings::LayoutPart* on = find_part(on_parts, "ON", settings::no_control);
+    const settings::LayoutPart* on = find_part(on_parts, "On", settings::no_control);
     CHECK(on != nullptr);
     if (on != nullptr)
         CHECK(click(switching, centre(on->rect)) == DialogAction::changed);
@@ -9350,7 +9350,7 @@ void download_rows_sit_between_the_status_and_the_check() {
     cancelled.opened.update_download = false;
     cancelled.chosen.update_download = false;
     const auto cancel_parts = settings::dialog_layout(cancelled);
-    const settings::LayoutPart* cancel_on = find_part(cancel_parts, "ON", settings::no_control);
+    const settings::LayoutPart* cancel_on = find_part(cancel_parts, "On", settings::no_control);
     CHECK(cancel_on != nullptr);
     if (cancel_on != nullptr)
         CHECK(click(cancelled, centre(cancel_on->rect)) == DialogAction::changed);
@@ -10291,7 +10291,7 @@ void language_links_to_the_library_where_the_host_says() {
     CHECK(rows.size() > 1 && rows[1].setting == Setting::more_in_library);
     const std::optional<oa::ui::kit::Control> link =
         named_control(linked, "settings.more-in-library");
-    CHECK(link && link->text == "MORE IN THE LIBRARY…");
+    CHECK(link && link->text == "More in the Library…");
     if (link) {
         linked.library_tab = settings::LibraryTab::mods;
         CHECK(

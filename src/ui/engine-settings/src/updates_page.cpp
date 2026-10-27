@@ -460,21 +460,21 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
             spec.hint_text = status_hint;
             return spec;
         }
-        const char* caption = "CHECK NOW";
+        const char* caption = "Check now";
         const char* ident = "check-now";
         int32_t action = check_updates_action;
         int32_t width = geometry::manage_button_width;
         if (restart) {
-            caption = "RESTART TO UPDATE";
+            caption = "Restart to update";
             ident = "restart";
             action = restart_update_action;
             width = geometry::lock_width;
         } else if (retry) {
-            caption = "RETRY";
+            caption = "Retry";
             ident = "retry";
             action = retry_update_action;
         } else if (offered) {
-            caption = "UPDATE\u2026";
+            caption = "Update\u2026";
             ident = "update";
             action = open_release_action;
         }

@@ -321,7 +321,7 @@ std::string active_only_label(std::size_t active) {
 ///
 /// @param parts the dialog's layout
 /// @param hack the hack's title, as its header shows it
-/// @param caption "OFF" or "ON"
+/// @param caption "Off" or "On"
 /// @return the switch's half; nullptr when the hack does not show
 const settings::LayoutPart* hack_switch(
     const std::vector<settings::LayoutPart>& parts, std::string_view hack, std::string_view caption
@@ -1011,7 +1011,7 @@ void Runtime::check_engine_settings_dialog() {
     click(settings::page_control(settings::Page::controls), {}, "Controls' entry");
     // Key layout and Show keys on buttons sit above the wheel. The wheel and
     // the limits keep their own names, so those rows do not move the press.
-    click(control_named("settings.wheel-zoom"), "OFF", "Mouse wheel zoom's Off");
+    click(control_named("settings.wheel-zoom"), "Off", "Mouse wheel zoom's Off");
     chosen.wheel_zoom = false;
     expect("Mouse wheel zoom Off");
     // The zoom's limits, on their drop-downs: Right steps a choice on and
@@ -1103,7 +1103,7 @@ void Runtime::check_engine_settings_dialog() {
     click(settings::page_control(settings::Page::user_interface), {}, "User Interface's entry");
     const int32_t escape_row = control_named("settings.escape-opens-menu");
     focus(escape_row, "Escape opens the game menu");
-    click(escape_row, "ON", "Escape opens the game menu's On");
+    click(escape_row, "On", "Escape opens the game menu's On");
     chosen.escape_opens_menu = true;
     expect("Escape opens the game menu On");
 
@@ -1264,7 +1264,7 @@ void Runtime::check_engine_settings_dialog() {
     // Smooth motion: Off draws the next frame, and every frame after it, at
     // the latest tick (present_frame_between_ticks), and its hint says so.
     focus(settings::first_row_control + 5, "Smooth motion");
-    click(settings::first_row_control + 5, "OFF", "Smooth motion's Off");
+    click(settings::first_row_control + 5, "Off", "Smooth motion's Off");
     chosen.smooth_motion = false;
     expect("Smooth motion Off");
     require(
@@ -1280,7 +1280,7 @@ void Runtime::check_engine_settings_dialog() {
     // keeps the density it opened at.
     const bool dense = native_density_window();
     focus(settings::first_row_control + 6, "Native pixel density");
-    click(settings::first_row_control + 6, "ON", "Native pixel density's On");
+    click(settings::first_row_control + 6, "On", "Native pixel density's On");
     chosen.native_density = true;
     expect("Native pixel density On");
     require(
@@ -1364,7 +1364,7 @@ void Runtime::check_engine_settings_dialog() {
     // row, and the rows under it come one control later.
     const int32_t library_link = engine_settings_dialog()->library_link ? 1 : 0;
     click(
-        settings::first_row_control + 1 + library_link, "ON", "Use modern fonts for game text's On"
+        settings::first_row_control + 1 + library_link, "On", "Use modern fonts for game text's On"
     );
     chosen.modern_fonts = true;
     expect("Use modern fonts for game text On");
@@ -1393,7 +1393,7 @@ void Runtime::check_engine_settings_dialog() {
     );
 
     click(settings::page_control(settings::Page::developer), {}, "Developer's entry");
-    click(settings::first_row_control + 1, "ON", "Show performance statistics' On");
+    click(settings::first_row_control + 1, "On", "Show performance statistics' On");
     chosen.frame_stats = true;
     expect("Show performance statistics On");
     require(frame_stats_shown_, "Show performance statistics did not show the statistics");
@@ -1461,9 +1461,9 @@ void Runtime::check_engine_settings_dialog() {
     );
 
     // Cancel (its button) puts back what the dialog opened with and saves nothing.
-    click(settings::first_row_control + 1, "OFF", "Show performance statistics' Off");
+    click(settings::first_row_control + 1, "Off", "Show performance statistics' Off");
     click(settings::page_control(settings::Page::controls), {}, "Controls' entry");
-    click(control_named("settings.wheel-zoom"), "ON", "Mouse wheel zoom's On");
+    click(control_named("settings.wheel-zoom"), "On", "Mouse wheel zoom's On");
     require(
         !engine_settings().frame_stats && engine_settings().wheel_zoom && !frame_stats_shown_,
         "the changes before Cancel did not take effect at once"
@@ -1711,16 +1711,16 @@ void Runtime::check_engine_settings_dialog() {
         tap(SDLK_HOME);
         click_text(kFirstArea, "first area");
         require(reveal(kRuleHack), "a click on an area did not open it");
-        click_hack(kRuleHack, "ON");
+        click_hack(kRuleHack, "On");
         require(
             engine_settings_dialog()->chosen.hack_overrides.empty() && mod_profile() == nullptr,
             "a hack's switch took a change while Developer Mode was off"
         );
         tap(SDLK_HOME);
-        click(settings::developer_mode_control, "ON", "Enable Developer Mode's On");
+        click(settings::developer_mode_control, "On", "Enable Developer Mode's On");
         require(developer_mode(), "Enable Developer Mode did not turn it on at once");
         require(reveal(kRuleHack), "the rule hack did not show again");
-        click_hack(kRuleHack, "ON");
+        click_hack(kRuleHack, "On");
         const auto* rules = mod_profile();
         require(
             rules != nullptr && rules->rules.ai.attack_wave_size.enabled &&
@@ -1730,7 +1730,7 @@ void Runtime::check_engine_settings_dialog() {
         require(reveal(kDisplayArea), "Developer Mode does not list the display area");
         click_text(kDisplayArea, "display area");
         require(reveal(kDisplayHack), "the display area did not open");
-        click_hack(kDisplayHack, "ON");
+        click_hack(kDisplayHack, "On");
         require(
             ui_rules().whiteboard.enabled &&
                 engine_settings_dialog()->chosen.hack_overrides.size() == 2,
@@ -1745,9 +1745,9 @@ void Runtime::check_engine_settings_dialog() {
         );
         dialog = open("for Restore profile values");
         require(dialog->page == settings::Page::developer, "the dialog did not open on Developer");
-        require(reveal("RESTORE PROFILE VALUES"), "Developer does not show Restore profile values");
+        require(reveal("Restore profile values"), "Developer does not show Restore profile values");
         click(
-            settings::restore_profile_control, "RESTORE PROFILE VALUES", "Restore profile values"
+            settings::restore_profile_control, "Restore profile values", "Restore profile values"
         );
         require(
             engine_settings_dialog()->chosen.hack_overrides.empty() && mod_profile() == nullptr &&
@@ -1755,7 +1755,7 @@ void Runtime::check_engine_settings_dialog() {
             "Restore profile values did not put the profile's values back at once"
         );
         tap(SDLK_HOME);
-        click(settings::developer_mode_control, "OFF", "Enable Developer Mode's Off");
+        click(settings::developer_mode_control, "Off", "Enable Developer Mode's Off");
         require(!developer_mode(), "Enable Developer Mode did not turn it off at once");
         click(settings::ok_control, "OK", "OK");
         const auto cleared = oa::platform::preferences::load(preference_path_);
@@ -1850,7 +1850,7 @@ void Runtime::check_engine_settings_dialog() {
             require(shows_text(parts, text), "Touch does not show " + std::string(text));
         // Haptics, the fourth row, is On; a press left of its switch, two
         // thirds of the touch controls' reach from its Off half, takes it.
-        const auto* haptics_off = find_part(parts, settings::first_row_control + 3, "OFF");
+        const auto* haptics_off = find_part(parts, settings::first_row_control + 3, "Off");
         require(haptics_off != nullptr && engine_settings().touch_haptics, "Haptics is not On");
         const int32_t reach = EngineSettingsState::finger_reach(*this, 1.0);
         const layout::Point beside{
@@ -2027,7 +2027,7 @@ void Runtime::check_engine_settings_dialog() {
                     asked != nullptr && asked->question().buttons.size() == 2 &&
                         asked->question().buttons[0].id == "cancel" &&
                         asked->question().buttons[1].id == "switch" &&
-                        asked->question().buttons[1].caption == "SWITCH" &&
+                        asked->question().buttons[1].caption == "Switch" &&
                         asked->question().marked == 0,
                     "SWITCH OFF did not ask the Switch Mod question"
                 );
@@ -2486,7 +2486,7 @@ void Runtime::check_engine_settings_window_sizes() {
                 {
                     const auto area_parts = settings::dialog_layout(*engine_settings_dialog());
                     click_part(
-                        find_part(area_parts, settings::developer_mode_control, "ON"),
+                        find_part(area_parts, settings::developer_mode_control, "On"),
                         "Enable Developer Mode's On"
                     );
                 }
@@ -2506,7 +2506,7 @@ void Runtime::check_engine_settings_window_sizes() {
                 {
                     reveal_text(kShownHack);
                     const auto hack_parts = settings::dialog_layout(*engine_settings_dialog());
-                    click_part(hack_switch(hack_parts, kShownHack, "ON"), "rule hack's switch");
+                    click_part(hack_switch(hack_parts, kShownHack, "On"), "rule hack's switch");
                 }
                 shows_dialog("Developer Mode with a rule hack open and on");
                 snapshot("menu-dialog-developer-hack-" + size);
@@ -2665,7 +2665,7 @@ void Runtime::check_engine_settings_window_sizes() {
             {
                 const auto never_parts = settings::dialog_layout(*engine_settings_dialog());
                 require(
-                    !shows_text(never_parts, "CHECK NOW") &&
+                    !shows_text(never_parts, "Check now") &&
                         !shows_text(never_parts, "UPDATE\u2026"),
                     "CHECK NOW was shown with Check for updates at Never" + on
                 );
@@ -2694,7 +2694,7 @@ void Runtime::check_engine_settings_window_sizes() {
 
             const uint64_t generation = update_snapshot().generation;
             // The button is the status row's control, not a caption with no control.
-            click_updates(settings::first_row_control, "CHECK NOW", "CHECK NOW");
+            click_updates(settings::first_row_control, "Check now", "Check now");
             const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
             bool started = false;
             while (std::chrono::steady_clock::now() < deadline) {
@@ -2829,11 +2829,11 @@ void Runtime::check_engine_settings_window_sizes() {
 
             const int32_t sticky = named_control("settings.sticky-modifiers");
             focus_access(sticky, "Sticky modifiers");
-            click_updates(sticky, "ON", "Sticky modifiers' On");
+            click_updates(sticky, "On", "Sticky modifiers' On");
             require_now(engine_settings_dialog()->chosen.sticky_modifiers, "Sticky modifiers On");
             const int32_t hold = named_control("settings.hold-to-confirm");
             focus_access(hold, "Hold to confirm");
-            click_updates(hold, "ON", "Hold to confirm's On");
+            click_updates(hold, "On", "Hold to confirm's On");
             require_now(engine_settings_dialog()->chosen.hold_to_confirm, "Hold to confirm On");
             const int32_t long_press = named_control("settings.long-press");
             focus_access(long_press, "Long press");
@@ -2856,7 +2856,7 @@ void Runtime::check_engine_settings_window_sizes() {
             );
             const int32_t pointer = named_control("settings.pointer-keys");
             focus_access(pointer, "Pointer keys");
-            click_updates(pointer, "ON", "Pointer keys' On");
+            click_updates(pointer, "On", "Pointer keys' On");
             require_now(engine_settings_dialog()->chosen.pointer_keys, "Pointer keys On");
             const int32_t doublet = named_control("settings.double-press");
             focus_access(doublet, "Double press");
@@ -2882,7 +2882,7 @@ void Runtime::check_engine_settings_window_sizes() {
             );
             const int32_t edge = named_control("settings.edge-scroll");
             focus_access(edge, "Edge scrolling");
-            click_updates(edge, "OFF", "Edge scrolling's Off");
+            click_updates(edge, "Off", "Edge scrolling's Off");
             require_now(!engine_settings_dialog()->chosen.edge_scroll, "Edge scrolling Off");
             // Tab has reached both while they are Off. Focusing Slow keys
             // leaves Bounce keys under the view. The pointer sets each track:
@@ -2948,7 +2948,7 @@ void Runtime::check_engine_settings_window_sizes() {
                 "Accessibility did not show again" + on
             );
             const int32_t choose = named_control("settings.latching.choose");
-            focus_access(choose, "CHOOSE…");
+            focus_access(choose, "Choose…");
             click_updates(choose, "CHOOSE\u2026", "oa.settings.latching.choose");
             require(
                 oa_layer().find("key-editor") != nullptr,
@@ -3222,7 +3222,7 @@ void Runtime::check_engine_settings_window_sizes() {
             "Escape did not close Interface size's list" + on
         );
         click_control(settings::page_control(settings::Page::language), {}, "Language's entry");
-        click_control(fonts_row, "ON", "Use modern fonts for game text's On");
+        click_control(fonts_row, "On", "Use modern fonts for game text's On");
         require(
             fraction_dialog->chosen.modern_fonts,
             "a click on Use modern fonts for game text's On did not turn them on" + on
@@ -3303,7 +3303,7 @@ void Runtime::check_engine_settings_window_sizes() {
                   << " window is Large, 1.5x\n";
         // The modern fonts turned Off take 150% back to 100%, shown at once.
         click_control(settings::page_control(settings::Page::language), {}, "Language's entry");
-        click_control(fonts_row, "OFF", "Use modern fonts for game text's Off");
+        click_control(fonts_row, "Off", "Use modern fonts for game text's Off");
         require(
             !fraction_reopened->chosen.modern_fonts &&
                 fraction_reopened->chosen.interface_size == settings::InterfaceSize::size_100,

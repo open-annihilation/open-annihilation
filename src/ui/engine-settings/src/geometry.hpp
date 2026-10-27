@@ -1601,10 +1601,10 @@ void reveal_engine_nav(Dialog& dialog);
     oa::ui::kit::SizeClass size_class = oa::ui::kit::SizeClass::compact
 );
 
-/// MANAGE…'s caption.
-inline constexpr std::string_view manage_text = "MANAGE…";
+/// Manage…'s caption.
+inline constexpr std::string_view manage_text = "Manage…";
 /// The caption of Restore profile values.
-inline constexpr std::string_view restore_profile_text = "RESTORE PROFILE VALUES";
+inline constexpr std::string_view restore_profile_text = "Restore profile values";
 /// What a rule (sim-scope) hack says under its summary.
 inline constexpr std::string_view next_match_text = "Applies at next match";
 /// What a hack that is off says under its summary.
@@ -1845,9 +1845,9 @@ inline constexpr std::string_view cancel_text = "Cancel";
 /// OK's caption.
 inline constexpr std::string_view ok_text = "OK";
 /// A switch's Off caption.
-inline constexpr std::string_view off_text = "OFF";
+inline constexpr std::string_view off_text = "Off";
 /// A switch's On caption.
-inline constexpr std::string_view on_text = "ON";
+inline constexpr std::string_view on_text = "On";
 /// The columns the header keeps for the title's first words.
 inline constexpr int32_t title_width = 138;
 /// The columns the header keeps for the title's last word.

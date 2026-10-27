@@ -865,7 +865,7 @@ void accessibility_captions_name_both_ends() {
     OA_CHECK(caption(Setting::order_wheel, 2) == "Hold middle");
     const kit::RowView latch = kit::view_of(geometry::row_spec(Setting::latching), model, {});
     OA_CHECK(latch.value == "0 of 7");
-    OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "CHOOSE…");
+    OA_CHECK(latch.buttons.size() == 1 && latch.buttons[0] == "Choose…");
 }
 
 } // namespace

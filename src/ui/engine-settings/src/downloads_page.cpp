@@ -479,7 +479,7 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
     }
     if (role == Role::id_value) {
         kit::RowSpec<RowModel> spec = kit::value_and_button(
-            "install-value", "Your install ID", id_value, "RESET", "reset", reset_install_id_action
+            "install-value", "Your install ID", id_value, "Reset", "reset", reset_install_id_action
         );
         spec.control_width = geometry::manage_button_width;
         spec.enabled = reset_enabled;
@@ -488,7 +488,7 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
     }
     if (role == Role::link) {
         kit::RowSpec<RowModel> spec = kit::link<RowModel>(
-            "registries-in-library", "REGISTRIES IN THE LIBRARY…", manage_registries_action
+            "registries-in-library", "Registries in the Library…", manage_registries_action
         );
         spec.hint = {"Registries are in the Library.", {}};
         return spec;
@@ -497,7 +497,7 @@ kit::RowSpec<RowModel> spec_for(const RowModel& model) {
         "downloaded-files",
         "Downloaded files",
         files_value,
-        "EMPTY",
+        "Empty",
         "empty",
         empty_downloads_action
     );

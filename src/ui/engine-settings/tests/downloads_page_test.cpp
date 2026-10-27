@@ -388,7 +388,7 @@ void rows_follow_the_registries() {
     const kit::Control* link = kit::control_of(
         linked_list, kit::control_named(linked_list, "settings.registries-in-library")
     );
-    OA_CHECK(link != nullptr && link->text == "REGISTRIES IN THE LIBRARY…");
+    OA_CHECK(link != nullptr && link->text == "Registries in the Library…");
     if (link != nullptr) {
         linked.library_tab = settings::LibraryTab::mods;
         const Point at = centre({link->rect.x, link->rect.y, link->rect.width, link->rect.height});
@@ -460,7 +460,7 @@ void reset_and_empty_are_disabled_when_they_cannot_act() {
     settings::Dialog dialog = opened(offer);
     const NamedControl reset = control_named(dialog, "settings.install-id.core-prime.reset");
     OA_CHECK(reset.found && !reset.enabled);
-    OA_CHECK(click_caption(dialog, "RESET") != DialogAction::reset_install_id);
+    OA_CHECK(click_caption(dialog, "Reset") != DialogAction::reset_install_id);
 
     offer.install_ids[0].on = true;
     offer.install_ids[0].made = false;
@@ -475,7 +475,7 @@ void reset_and_empty_are_disabled_when_they_cannot_act() {
     dialog.scroll[static_cast<std::size_t>(Page::downloads)] = settings::scroll_limit(dialog);
     const NamedControl empty = control_named(dialog, "settings.downloaded-files.empty");
     OA_CHECK(empty.found && !empty.enabled);
-    OA_CHECK(click_caption(dialog, "EMPTY") != DialogAction::empty_downloads);
+    OA_CHECK(click_caption(dialog, "Empty") != DialogAction::empty_downloads);
 
     offer.kept_bytes = kKept;
     offer.downloads_busy = true;
@@ -483,7 +483,7 @@ void reset_and_empty_are_disabled_when_they_cannot_act() {
     dialog.scroll[static_cast<std::size_t>(Page::downloads)] = settings::scroll_limit(dialog);
     const NamedControl busy = control_named(dialog, "settings.downloaded-files.empty");
     OA_CHECK(busy.found && !busy.enabled);
-    OA_CHECK(click_caption(dialog, "EMPTY") != DialogAction::empty_downloads);
+    OA_CHECK(click_caption(dialog, "Empty") != DialogAction::empty_downloads);
 }
 
 void a_game_locks_reset_and_empty() {
@@ -496,7 +496,7 @@ void a_game_locks_reset_and_empty() {
     OA_CHECK(!control_named(dialog, "settings.install-id.core-prime.reset").found);
     OA_CHECK(!control_named(dialog, "settings.downloaded-files.empty").found);
     OA_CHECK(!value_has(dialog, "412 MB kept for resuming and repairs"));
-    OA_CHECK(layout_has(dialog, "EMPTY"));
+    OA_CHECK(layout_has(dialog, "Empty"));
     OA_CHECK(layout_has(dialog, "Your install ID"));
     dialog.focused = settings::first_row_control + 2;
     OA_CHECK(settings::dialog_key(dialog, DialogKey::space) != DialogAction::reset_install_id);

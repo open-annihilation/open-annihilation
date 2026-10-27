@@ -2087,14 +2087,14 @@ std::size_t welcome_setup_hint_count(const SettingsModel& model) {
     return welcome_setup_hint_lines(model).size();
 }
 
-/// The Welcome setup row: SHOW AGAIN walks through the first-run setup again
+/// The Welcome setup row: Show again walks through the first-run setup again
 /// at the next main menu, once OK is pressed. It keeps no setting.
 constexpr Spec welcome_setup_row() noexcept {
     const Spec spec = kit::value_and_button<SettingsModel>(
         "first-run",
         "Welcome setup",
         nullptr,
-        "SHOW AGAIN",
+        "Show again",
         "",
         show_welcome_action,
         {welcome_setup_hint_text, {}}
@@ -2102,14 +2102,14 @@ constexpr Spec welcome_setup_row() noexcept {
     return changing(spec, &welcome_setup_hint, &welcome_setup_hint_count);
 }
 
-/// The UI kit gallery row: SHOW opens the gallery of every part of Open
+/// The UI kit gallery row: Show opens the gallery of every part of Open
 /// Annihilation's own screens. It keeps no setting.
 constexpr Spec kit_gallery_row() noexcept {
     const Spec spec = kit::value_and_button<SettingsModel>(
         "kit-gallery",
         "UI kit gallery",
         nullptr,
-        "SHOW",
+        "Show",
         "show",
         show_gallery_action,
         {kit_gallery_hint_text, {}}
@@ -2189,7 +2189,7 @@ constexpr Spec user_folder_row() noexcept {
     Spec spec = kit::buttons<SettingsModel>(
         "user-folder",
         "Your files",
-        {"SAVES", "SCREENSHOTS", "MODS"},
+        {"Saves", "Screenshots", "Mods"},
         {"saves", "screenshots", "mods"},
         {first_folder_action + static_cast<kit::ActionId>(FolderButton::saves),
          first_folder_action + static_cast<kit::ActionId>(FolderButton::screenshots),
@@ -2414,10 +2414,10 @@ constexpr Spec reset_windows_row() noexcept {
     return spec;
 }
 
-/// Key layout: the layout in use, and EDIT KEYS….
+/// Key layout: the layout in use, and Edit keys….
 constexpr Spec key_layout_row() noexcept {
     Spec spec = kit::value_and_button<SettingsModel>(
-        "key-layout", "Key layout", &key_layout_value, "EDIT KEYS…", "edit", edit_keys_action, {}
+        "key-layout", "Key layout", &key_layout_value, "Edit keys…", "edit", edit_keys_action, {}
     );
     spec.hint_text = &key_layout_hint;
     spec.hint_lines = &lines<1>;
@@ -2507,7 +2507,7 @@ constexpr Spec latching_row() noexcept {
         "latching",
         "Hold keys that latch",
         &latching_value,
-        "CHOOSE…",
+        "Choose…",
         "choose",
         choose_latch_action,
         {"Queue and the status strip latch: tap on, tap off. A chip shows each one on.", {}}
