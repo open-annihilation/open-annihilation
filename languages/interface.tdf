@@ -20833,3 +20833,11 @@
 	es={version} se conserva. Para volver a ella, pulsa Revertir… en Ajustes › Actualizaciones.;
 	it={version} è conservata. Per tornarci, premi Ripristina… in Impostazioni › Aggiornamenti.;
 	}
+
+[This text is not a key layout.]
+	{
+	de=Dieser Text ist keine Tastenbelegung.;
+	fr=Ce texte n'est pas une disposition des touches.;
+	es=Este texto no es una distribución de teclas.;
+	it=Questo testo non è una disposizione dei tasti.;
+	}
