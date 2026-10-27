@@ -868,6 +868,16 @@ void add_nav(
             cap.tint = category.tint;
             const int32_t cap_y = entry.y + std::max((entry.height - square) / 2, int32_t{0});
             const kit::Rect cap_rect{text_x, cap_y, square, square};
+            // An untinted area's key (Menus, Watching) is the untinted key,
+            // edged in the control border: its face is the nav's own ground,
+            // and the edge makes it read as a key, as the tinted ones do.
+            if (roomy(cap_rect) && category.tint == kit::KeyTint::none)
+                add_item(
+                    built.list,
+                    kit::Role::fill,
+                    {cap_rect.x - 1, cap_rect.y - 1, cap_rect.width + 2, cap_rect.height + 2}
+                )
+                    .colour = kit::colour::control_border;
             if (roomy(cap_rect))
                 kit::add_keycap(built.list, cap_rect, cap, kit::no_control, {});
             line_x = text_x + square + square_gap;

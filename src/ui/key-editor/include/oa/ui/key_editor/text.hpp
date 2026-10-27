@@ -95,7 +95,8 @@ inline constexpr std::string_view more_chords = "+{n}";
 /// The details, while no row is chosen.
 inline constexpr std::string_view choose_action = "Choose an action";
 
-/// Category letters. A translator may change them. U is the Menus area.
+/// Category letters. A translator may change them. U is the Menus area and A
+/// the Watching area.
 inline constexpr std::string_view letter_orders = "O";
 inline constexpr std::string_view letter_pointer = "P";
 inline constexpr std::string_view letter_selection = "S";
@@ -106,6 +107,7 @@ inline constexpr std::string_view letter_game = "M";
 inline constexpr std::string_view letter_chat = "T";
 inline constexpr std::string_view letter_window = "W";
 inline constexpr std::string_view letter_menus = "U";
+inline constexpr std::string_view letter_watching = "A";
 inline constexpr std::string_view letter_hacks = "L";
 inline constexpr std::string_view letter_mod = "D";
 inline constexpr std::string_view letter_developer = "V";

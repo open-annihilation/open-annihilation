@@ -50,6 +50,7 @@ inline constexpr std::string_view interface_words[] = {
     words::letter_chat,
     words::letter_window,
     words::letter_menus,
+    words::letter_watching,
     words::letter_hacks,
     words::letter_mod,
     words::letter_developer,

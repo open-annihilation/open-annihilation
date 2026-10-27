@@ -183,7 +183,7 @@ void categories_and_letters() {
     const editor::CategoryEntry* megamap = category_named(categories, "ui.megamap");
     const editor::CategoryEntry* mod = category_named(categories, "heading.mod");
     expect(menus != nullptr && menus->letter == "U", "menus letter is not U");
-    expect(watching != nullptr && watching->letter.empty(), "watching has a letter");
+    expect(watching != nullptr && watching->letter == "A", "watching's letter is not A");
     expect(screens != nullptr && screens->letter.empty(), "oa-screens has a letter");
     expect(
         megamap != nullptr && megamap->title == "Megamap" && megamap->letter == "L",

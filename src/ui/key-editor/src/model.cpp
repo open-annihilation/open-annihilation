@@ -28,7 +28,7 @@ struct AreaRow {
     bool main{false};
 };
 
-/// The areas, in the order the nav lists them. U is Menus.
+/// The areas, in the order the nav lists them. U is Menus and A Watching.
 constexpr AreaRow kAreas[] = {
     {"orders", words::area_orders, kit::KeyTint::orders, words::letter_orders, true},
     {"mouse", words::area_pointer, kit::KeyTint::pointer, words::letter_pointer, true},
@@ -38,7 +38,7 @@ constexpr AreaRow kAreas[] = {
     {"building", words::area_building, kit::KeyTint::building, words::letter_building, true},
     {"game", words::area_game, kit::KeyTint::game, words::letter_game, true},
     {"chat", words::area_chat, kit::KeyTint::chat, words::letter_chat, true},
-    {"watching", words::area_watching, kit::KeyTint::none, {}, true},
+    {"watching", words::area_watching, kit::KeyTint::none, words::letter_watching, true},
     {"window", words::area_window, kit::KeyTint::window, words::letter_window, true},
     {"menus", words::area_menus, kit::KeyTint::none, words::letter_menus, true},
     {"developer", words::area_developer, kit::KeyTint::developer, words::letter_developer, false},
