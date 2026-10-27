@@ -496,14 +496,19 @@ class Editor {
     /// @return the helpers in use
     [[nodiscard]] oa::formats::oakeys::Helpers effective_helpers() const;
 
+    /// The keyboard picture for one shape and one modifier layer.
     friend kit::KeyboardLook
     keyboard_look(const Editor& editor, const KeyboardViewInputs& inputs, const Labels& labels);
+    /// Every action on one key in one layer.
     friend std::vector<CardLine>
     key_card(const Editor& editor, std::string_view code, uint8_t layer);
+    /// The mouse picture for one pointer scheme.
     friend kit::MouseLook
     mouse_look(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
+    /// The mouse table for one pointer scheme, by place.
     friend std::vector<RoleLine>
     mouse_table(const Editor& editor, oa::ui::key_bindings::PointerScheme scheme);
+    /// The keys one action is bound to.
     friend std::vector<std::string> keys_of(const Editor& editor, std::string_view action);
 };
 

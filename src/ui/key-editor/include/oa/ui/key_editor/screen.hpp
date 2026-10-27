@@ -143,7 +143,7 @@ inline constexpr std::string_view name_layer_cmd = "key-editor.layer.cmd";
 /// The keyboard shape drop-down. Its items are key-editor.keyboard-shape.system,
 /// .ansi, .iso and .jis.
 inline constexpr std::string_view name_keyboard_shape = "key-editor.keyboard-shape";
-/// The keyboard picture. Its keys are key-editor.keyboard.<code word>.
+/// The keyboard picture. Its keys are key-editor.keyboard, then a dot, then the code word.
 inline constexpr std::string_view name_keyboard = "key-editor.keyboard";
 /// The card of the key under the pointer or the focus.
 inline constexpr std::string_view name_key_card = "key-editor.key-card";
