@@ -41,7 +41,7 @@ namespace {
 /// Graphics' scroll limit in a game at Compact: its twenty-one rows, Smooth
 /// motion and Fog of War among them, now that User Interface holds Menu
 /// scaling, Window frame, HUD scaling and Interface size.
-constexpr int32_t kMatchGraphicsEnd = 972;
+constexpr int32_t kMatchGraphicsEnd = 988;
 
 namespace fs = std::filesystem;
 namespace settings = oa::ui::engine_settings;
@@ -840,10 +840,10 @@ void Runtime::check_engine_settings_in_match() {
         show_page(settings::Page::graphics, on);
 
         // The wheel over the dialog reaches it and not the battlefield: given
-        // a section taller than its view, a notch scrolls it, the zoom stays
-        // and the dialog is drawn again; Home scrolls it back. Large's taller
-        // view holds the nine rows whole, so there the notch scrolls nothing
-        // and still leaves the zoom.
+        // a section taller than its view, a notch scrolls it, as far as its
+        // end, the zoom stays and the dialog is drawn again; Home scrolls it
+        // back. A view that holds the nine rows whole scrolls nothing, and
+        // the zoom still stays.
         {
             namespace tall = engine_settings_check;
 
@@ -869,7 +869,8 @@ void Runtime::check_engine_settings_in_match() {
                 const auto* open = engine_settings_dialog();
                 return open->scroll[static_cast<std::size_t>(open->page)];
             };
-            const bool scrolls = settings::scroll_limit(*engine_settings_dialog()) > 0;
+            const int32_t tall_limit = settings::scroll_limit(*engine_settings_dialog());
+            const bool scrolls = tall_limit > 0;
             const float zoom = match_zoom_target_;
             const uint64_t revision = settings_revision();
             const auto over = centre(dialog_at);
@@ -878,7 +879,7 @@ void Runtime::check_engine_settings_in_match() {
             dispatch_event(wheel, running);
             require(running, "the wheel in the dialog ended the run" + on);
             require(
-                offset() == (scrolls ? tall::kWheelStepPixels : 0),
+                offset() == std::min(tall::kWheelStepPixels, tall_limit),
                 scrolls ? "a notch of the wheel did not scroll the dialog" + on
                         : "a notch of the wheel scrolled a section that fits its view" + on
             );

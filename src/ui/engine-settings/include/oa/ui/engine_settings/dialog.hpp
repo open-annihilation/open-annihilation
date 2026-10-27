@@ -1686,6 +1686,14 @@ set_controller_section(Dialog& dialog, bool controller, bool steam_input) noexce
 ///     section scrolled, else DialogAction::none
 [[nodiscard]] DialogAction dialog_wheel(Dialog& dialog, int32_t x, int32_t y, float notches);
 
+/// Returns how far Page Up and Page Down scroll the open section: its view
+/// at the dialog's size class, less three hint lines, so that what showed
+/// at one edge still shows at the other.
+///
+/// @param dialog the dialog
+/// @return the rows, in source pixels
+[[nodiscard]] int32_t dialog_page_step(const Dialog& dialog) noexcept;
+
 /// Lays the dialog out at a size class (Dialog::size_class) and scrolls its
 /// section list the least that shows the open section's entry there.
 ///

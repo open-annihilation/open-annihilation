@@ -2205,6 +2205,10 @@ bool press_held(const Dialog& dialog) noexcept {
 
 } // namespace
 
+int32_t dialog_page_step(const Dialog& dialog) noexcept {
+    return geometry::sizes_of(dialog).page_step;
+}
+
 void set_dialog_size_class(Dialog& dialog, oa::ui::kit::SizeClass size_class) {
     dialog.size_class = size_class;
     geometry::reveal_engine_nav(dialog);
