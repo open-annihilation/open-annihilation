@@ -591,6 +591,8 @@ int32_t drawn_letter_rows(const Canvas& canvas, FontRole role) {
         if (canvas.smooth.fonts == nullptr)
             return 0;
         const int32_t percent = std::max(canvas.smooth.scale_percent, int32_t{1});
+        if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
+            return modern_capitals(*canvas.fonts->modern, modern_type(role, false), percent);
         const int32_t pixel_size =
             std::max(int32_t{1}, to_canvas(Rect{0, 0, smooth_text_points(role), 0}, percent).width);
         const oa::ui::paint::TextLine line = oa::ui::paint::draw_line(
@@ -993,18 +995,27 @@ void draw_cap(
     const int32_t mark_side =
         marked ? std::min(int32_t{7}, std::min(rect.width, rect.height) / 2) : 0;
 
+    // The corner's square is as wide as its letter where the letter is wider
+    // than the square, as a Barlow capital may be, so the letter stays whole.
+    const int32_t letter_width =
+        letter_side > 0
+            ? std::min(
+                  std::max(letter_side, measure_text(local, FontRole::small, look.letter)),
+                  rect.width - 2
+              )
+            : 0;
     if (letter_side > 0) {
         const Rect square{
-            rect.x + rect.width - letter_side - 1,
+            rect.x + rect.width - letter_width - 1,
             rect.y + rect.height - edge_band - letter_side - 1,
-            letter_side,
+            letter_width,
             letter_side,
         };
         fill_corner_rect(local, square, 1, edge);
         box_text(local, FontRole::small, look.letter, square, Align::centre, ink);
     }
 
-    const int32_t text_right = rect.x + rect.width - (letter_side > 0 ? letter_side + 2 : 2);
+    const int32_t text_right = rect.x + rect.width - (letter_width > 0 ? letter_width + 2 : 2);
     const int32_t text_width_room = std::max(text_right - (rect.x + 2), int32_t{0});
     if (!look.label.empty() && text_width_room > 0) {
         Rect label_box{
@@ -1344,7 +1355,14 @@ void draw_mouse(const Canvas& canvas, const Rect& rect, const MouseLook& look) {
             );
             continue;
         }
-        draw_keycap(local, area, button_look(look, slot.button));
+        // A label too wide for its button in the regular font is drawn in the
+        // small one over the whole button, as the keyboard's main block draws
+        // one: Barlow's capitals are wider than the game font's.
+        KeycapLook cap = button_look(look, slot.button);
+        if (!cap.small &&
+            !line_is_whole(local, label_role(cap), cap.label, label_boxes(area, cap).label))
+            cap.small = true;
+        draw_keycap(local, area, cap);
     }
 }
 

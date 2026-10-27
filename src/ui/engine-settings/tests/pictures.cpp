@@ -6,7 +6,7 @@
 // and Controls, Graphics, Downloads and System scrolled to their ends.
 // Updates is drawn twice: up to date, then with a release offered.
 //
-// Usage: oa-ui-engine-settings-pictures DIRECTORY [--classes]
+// Usage: oa-ui-engine-settings-pictures DIRECTORY [--classes] [--modern FONTS]
 //
 // With --classes it writes, in place of the manual's pictures, every section
 // at each size class, Compact, Regular and Large, at 2x, named
@@ -14,6 +14,10 @@
 // its end: the key layout card naming four changes of the player's own, and
 // the practice pad with Sticky modifiers and Hold to confirm on and Shift
 // tapped.
+//
+// With --modern it draws in the modern look, Barlow from the fonts folder
+// FONTS (the build's staged fonts, or local/deps/text-fonts), and shows Look
+// at Modern; without it, in the classic look, the game's fonts.
 //
 // The data test ui-engine-settings-pictures runs this into a scratch folder.
 // Without OA_GAME_DIR it skips, as the other game-data tests do.
@@ -32,6 +36,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -297,6 +302,8 @@ bool draw_classes(
              settings::dialog_pages(settings::DialogKind::engine, true, true, true)) {
             Dialog dialog = section_dialog(page);
             settings::set_dialog_size_class(dialog, size_class);
+            dialog.chosen.look =
+                oa::ui::kit::modern_look(fonts) ? settings::Look::modern : settings::Look::classic;
             dialog.key_layout_name = "OA default";
             dialog.key_layout_changes = 4;
             dialog.chosen.sticky_modifiers = true;
@@ -323,14 +330,36 @@ bool draw_classes(
 }
 
 int main(int argc, char** argv) {
-    const bool classes = argc == 3 && std::string_view(argv[2]) == "--classes";
-    if (argc != 2 && !classes) {
-        std::cerr << "usage: oa-ui-engine-settings-pictures DIRECTORY [--classes]\n";
+    bool classes = false;
+    std::filesystem::path modern_fonts;
+    bool usable = argc >= 2;
+    for (int index = 2; usable && index < argc; ++index) {
+        const std::string_view option(argv[index]);
+        if (option == "--classes")
+            classes = true;
+        else if (option == "--modern" && index + 1 < argc)
+            modern_fonts = argv[++index];
+        else
+            usable = false;
+    }
+    if (!usable) {
+        std::cerr
+            << "usage: oa-ui-engine-settings-pictures DIRECTORY [--classes] [--modern FONTS]\n";
         return 2;
     }
     const std::filesystem::path directory(argv[1]);
     oa::AssetStore assets = oa::test::require_game_assets("the settings pictures");
-    const settings::DialogFonts fonts = settings::load_dialog_fonts(assets);
+    settings::DialogFonts fonts = settings::load_dialog_fonts(assets);
+    // The modern look draws in Barlow from the folder named.
+    std::unique_ptr<oa::platform::text_font::FontStack> modern;
+    if (!modern_fonts.empty()) {
+        modern = oa::platform::text_font::FontStack::open(modern_fonts);
+        if (!modern) {
+            std::cerr << "pictures: cannot open the fonts in " << modern_fonts.string() << '\n';
+            return 1;
+        }
+        fonts.modern = modern.get();
+    }
     const AppIcon icon = load_app_icon();
     if (icon.pixels.empty())
         return 1;

@@ -37,15 +37,27 @@ installed package: getting one does not switch it on.
 ## Choosing them
 
 Skirmish setup, the screen before a campaign, and the host's battle room
-each have a **Mutators** button. It wears the OA badge and sits beside
-the screen's own buttons, at their size: on skirmish setup it is as large
-as **Previous Menu** and sits between **Difficulty** and **Previous
-Menu**; before a campaign it is as large as the **SELECT SIDE** panel and
-sits beneath it; in the battle room it is as large as **Select Map** and
-sits directly above it. It reads **Mutators** while that setup will play
-none, and **Mutators (3)** while it will play three. The picker shows
-which ones, in order. The button is in the Tab order. The controller's Y
-opens it. Enter or Space opens it while it has the focus.
+each have a **Mutators** button. It is one of the screen's own on and off
+buttons, drawn from the screen's own art with the OA stamp at its left,
+so a mod's look carries through, and it sits beside the screen's own
+buttons, at their size: on skirmish setup it is as large as **Previous
+Menu** and sits between **Difficulty** and **Previous Menu**; before a
+campaign it is as large as the **SELECT SIDE** panel and sits beneath
+it; in the battle room it is as large as **Select Map** and sits directly
+above it. Where its words need more room and the screen is free beside
+it, it grows to the left.
+
+It reads **Mutators: off**, no lamp lit, while that setup will play none,
+and **Mutators: 3 on**, its green lamp lit, while it will play three. In
+the battle room its red lamp lights while a seated player lacks one of
+them. Resting the pointer on it, or the information key while it has the
+focus, shows a card: "3 mutators on", "1 mutator on" or "No mutators
+on", a row for each in the order they apply ("and 2 more" past six), then
+"Applied in this order." and "Click to change.". The button is in the Tab
+order, where the screen's own focus marker shows on it. The controller's
+Y opens the picker. Enter or Space opens it while the button has the
+focus. While the host's launch locks the room's options, the button is
+greyed as the screen's own greyed buttons are.
 
 The picker is headed **Mutators**, with the setup and the mod beside it,
 such as "Skirmish · No Mod". The filters are **All**, **Installed** and
@@ -120,8 +132,8 @@ mutators. Only the host can change them." instead.
 Skirmish and a campaign each remember their own last set, with its order
 and its options. The set is stored when **START** hands it on, before it
 applies, so a set that then stops the start is still remembered. Each
-setup starts with mutators off: the button reads **Mutators** until **USE
-THESE** makes a set the setup's. **Mutators** opens on the set already
+setup starts with mutators off: the button reads **Mutators: off** until
+**USE THESE** makes a set the setup's. **Mutators** opens on the set already
 chosen. When nothing is chosen it opens on the
 remembered set, already on. **USE THESE** makes that list the setup's,
 and **START** plays it. **CANCEL** changes nothing.

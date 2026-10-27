@@ -70,6 +70,7 @@ the locks a running game puts on them (`settings_locks`).
 | | Window size, a drop-down, when OK is pressed: the size class Settings, the Library, the key editor and the pickers take. Auto takes the largest class whose dialog fits the window with 24 points round it; a chosen class shows wherever its dialog fits whole, and is held to the largest that does elsewhere. The OA layer reads the same key (`src/app/window_placement.hpp`) | Auto, Compact, Regular, Large | Auto | `open-annihilation.ui.window-size` (`auto`, `compact`, `regular` or `large`; absent or any other text is Auto) |
 | | Reset window positions: Reset puts every window the player moved back in the middle, at once (`Dialog::window_reset_asked`); the row then says so (`Dialog::window_places_reset`). Cancel does not move them again | | | none. The host forgets every `open-annihilation.window.*` key |
 | | Escape opens the game menu | Off, On | On on macOS, Off elsewhere and with `--preferences-file` | `open-annihilation.escape-opens-menu` |
+| | Look, the section's last row, as it is chosen, the open dialog among them: the letters of Open Annihilation's own screens and overlays (Settings, the Library, the key editor, the pickers, the notices and prompts, the overlays in a match). Modern draws them in Barlow, tracked titles and headings in Barlow Condensed, at the kit's type scale, with DejaVu Sans, the endonym face and Noto Emoji drawing what Barlow lacks; Classic in the game's own two fonts. The 3.1c game's own screens keep the game's fonts either way. Cancel puts back the look the dialog opened with | Modern, Classic | Modern with the player's own file, one written before the setting existed among them; Classic with `--preferences-file` | `open-annihilation.ui.look` (`modern` or `classic`; absent or any other text is the default) |
 | Accessibility, listed in every dialog of the engine's settings, after Controls and before Touch, with its practice pad ([The practice pad](#the-practice-pad)) | Hold keys that latch: how many latchable actions the layout in use has turned on, of how many the game offers, and CHOOSE…, which opens the key editor on Latchable. Edit keys… on the key layout card still opens on All | the count, as "2 of 7", and CHOOSE… | | none. The count is the host's (`Dialog::latched_count`) |
 | | Sticky modifiers: a tapped Shift, Ctrl or Alt holds for the next key or click; a second tap locks it | Off, On | Off | `open-annihilation.access.sticky-modifiers` |
 | | Hold to confirm: self-destruct, surrender and quitting need a long press, and a ring fills while it is held | Off, On | Off | `open-annihilation.access.hold-to-confirm` |
@@ -104,8 +105,11 @@ the locks a running game puts on them (`settings_locks`).
 | | Control size, Hold delay, QUEUE and ADD | Touch's own rows, shared | | as in Touch |
 | Game files, listed only in the main menu's dialog where the platform brings game files in | Include in device backups | Off, On | Off | `open-annihilation.game-files-backed-up` |
 | Downloads, listed in every dialog of the engine's settings, before Updates | Check for content updates | Automatically, Only when I open the Library, Never | Automatically | `open-annihilation.content-updates` (`automatically`, `library` or `never`); takes effect at OK, and Cancel and Restore defaults apply |
-| Updates, listed in every dialog of the engine's settings, after Downloads and before Game Content | Open Annihilation and its version, with the status under it and CHECK NOW, or UPDATE… while a release is offered | the button acts at once; it is hidden while Check for updates is Never and greyed while a check is running | | none. The lines come from the host's offer (`Dialog::updates`) |
-| | Check for updates | Automatically, Only when I ask, Never | Automatically | `open-annihilation.update-check` (`automatically`, `when-asked` or `never`); takes effect at OK, and Cancel and Restore defaults apply. CHECK NOW makes no request while the choice is Never |
+| Updates, listed in every dialog of the engine's settings, after Downloads and before Game Content | The update card, the update centre's state as the host fills it (`UpdatesOffer::card_status` and the rest): "Installed {version}", the state, its detail, a bar while a download moves (amber while paused), up to three of the state's actions as buttons (`UpdateCardAction`, `DialogAction::update_action` with `Dialog::update_act`) and a note. With no card the row is the older status line with CHECK NOW, UPDATE…, RESTART TO UPDATE or RETRY | the buttons act at once and the dialog stays open | | none. The lines come from the host's offer (`Dialog::updates`) |
+| | Download automatically: a release that can be installed here starts downloading at the settled main menu | Off ("Off: OA asks before downloading."), On | Off | `open-annihilation.update-download` (`0` or `1`); takes effect at OK |
+| | Check for updates | Automatically, Only when I ask, Never | Automatically | `open-annihilation.update-check` (`automatically`, `when-asked` or `never`); takes effect at OK, and Cancel and Restore defaults apply. Check now makes no request while the choice is Never |
+| | Install updates: how a ready release is installed | Ask each time, When I quit | Ask each time | `open-annihilation.update-install` (`ask` or `when-i-quit`; any other text reads as `ask`); takes effect at OK, and Cancel and Restore defaults apply |
+| | Previous version · {version}, while a version is kept: Roll back… asks the roll back's question (`updates::roll_back_question`) | | | none. Locked during a game |
 | System, listed in every dialog of the engine's settings, after Game Content and before Developer | Your files: the player's own folder and buttons that open its Saves, Screenshots and Mods folders | changes no setting | | `open-annihilation.user-folder`, read at start (`src/app/include/oa/app/user_folder.hpp`) |
 | | File Type Registration, then one switch for each of the eight types, the launch file's last, on Windows, Linux and macOS | Off, On | On | `open-annihilation.file-types.oamod`, `.oamap`, `.oalang`, `.oareg`, `.oamut`, `.oabrain`, `.oakeys`, `.oalaunch` (`on` or `off`; only `off` turns one off). On Windows and Linux OK registers a type turned on and withdraws one turned off, at once; on macOS it changes the default opener of a switch that moved. Each switch acts on its own type alone (`engine_settings/file_types.hpp`) |
 | | File types, the text row on iOS in place of the switches | changes no setting | | none |
@@ -848,7 +852,7 @@ the UI kit's metrics (`kit::compact_metrics`, `kit::regular_metrics`,
 
 | | Compact | Regular | Large |
 |---|---|---|---|
-| Used for room of | below 960 by 540 points | from 960 by 540 | from 1280 by 720 |
+| Used for room of | below 768 by 534 points | from 768 by 534 | from 1008 by 648 |
 | Settings dialog | 480 by 324 | 720 by 486 | 960 by 600 |
 | Padding | 12 | 18 | 24 |
 | Section list's width | 144 | 176 | 208 |
@@ -894,34 +898,47 @@ steps and a tie takes the larger (1× below 900 lines, 150% from 900, 2×
 from 1260); otherwise Auto keeps whole steps (1× below 1080, 2× from 1080).
 The step is capped at the largest at which Compact's 480 by 324 dialog fits
 the window, less its safe insets on a touch screen, and is at least 1×, so a
-size never draws a dialog cut off by the window's edge; the class then
-comes from the window's points at that step. 150%, chosen or what Auto
-picked, is held the same way:
+size never draws a dialog cut off by the window's edge. The class then
+comes from the window's points at that step: the largest whose dialog fits
+them with 24 points round it (`kit::size_class_of`), so Regular from 768 by
+534 points and Large from 1008 by 648. Where Auto's step leaves the window
+below Large, or below the class Window size chose, and one step down gives
+it that class, Auto takes the step; a chosen Interface size never steps
+down. A class Window size chose is used wherever its dialog fits the
+points whole, and the largest that fits elsewhere
+(`kit::size_class_within`). 150%, chosen or what Auto picked, is held the
+same way:
 it is 1.5× where Compact's 720 by 486 pixels at one and a half fit the
-window, and 1× where they do not. On a 1920 by 1080 window
-100% is Large at 1×, 150% is Large at 1.5× (1280 by 720 points, the dialog
-1440 by 900 pixels) and 400% is Compact at 3×, as 4× does not fit Compact
-in 1080 rows; on 1280 by 720 150% is Compact at 1.5× (853 by 480 points),
-and on 640 by 480 it is 1×.
+window, and 1× where they do not. On a 1920 by 1080 window Auto with the
+game's fonts is Large at 1×, a step down from 2×, which would leave 960 by
+540 points, Regular; 100% is Large at 1×, 150% is Large at 1.5× (1280 by
+720 points, the dialog 1440 by 900 pixels), 200% is Regular at 2× and 400%
+is Compact at 3×, as 4× does not fit Compact in 1080 rows; on 1280 by 720
+150% is Compact at 1.5× (853 by 480 points), and on 640 by 480 it is 1×.
+800 by 600 is Regular at 1×, and 1280 by 720 and 2560 by 1440, at 1× and
+2×, are Large.
 
-In a match the dialog is laid out and drawn beside the in-game menu's side
-column at a class and scale of its own (`OaLayer::match_dialog`,
+In a match the dialog is laid out and drawn at a class and scale of its own
+(`OaLayer::match_dialog`, `window_placement::match_window`,
 [src/app](../../app/README.md#the-oa-layer)), never drawn at 1× and
-enlarged. Its scale starts as the layer's on the match's canvas, the
-Interface size's or Auto's, and is capped by HUD scaling, as the dialog
-always was: above the side column's scale it is the largest whole step at
-or below that scale, and at least 1. Where Compact's 480 by 324 points do
-not fit the area right of the column at that scale, it is the largest
-whole step at which they do. The class comes from that area's points, and
-the dialog, its class's size at the scale, is centred in it:
+enlarged. Its scale is the layer's on the match's canvas, the Interface
+size's or Auto's with Auto's step down, capped by HUD scaling, as the
+dialog always was: above the side column's scale it is the largest whole
+step at or below that scale, and at least 1. The class comes from the
+window's whole safe area at that scale, and the dialog, its class's size
+at the scale, is centred in the window, or centred across the area right
+of the side column where the middle would cover the column and that area
+holds it. With HUD scaling On:
 
-| Window | HUD scaling | Scale | Points right of the column | Class |
-|---|---|---|---|---|
-| 640 by 480 | On | 1× | 512 by 480 | Compact |
-| 1280 by 720 | On | 1× | 1088 by 720 | Regular |
-| 1920 by 1080 | On | 2× | 832 by 540 | Compact |
-| 2560 by 1080 | On | 2× | 1152 by 540 | Regular |
-| 1920 by 1080 | Off | 1× | 1792 by 1080 | Large |
+| Window | Scale | Class | The dialog's place, in pixels |
+|---|---|---|---|
+| 640 by 480 | 1× | Compact | (144, 78), right of the column |
+| 800 by 600 | 1× | Regular | (40, 57), over the column, which leaves too little room |
+| 1280 by 720 | 1× | Large | (256, 60), right of the column |
+| 1920 by 1080 | 1× | Large | (480, 240), in the middle |
+| 1920 by 1080, modern fonts on | 1.5× | Large | (368, 90) |
+| 2560 by 1440 | 2× | Large | (320, 120), in the middle |
+| 3840 by 2160 | 2×, the column's scale capping 3× | Large | in the middle |
 
 A 640 by 480 window shows the dialog at (144, 78), pixel for pixel as
 before. On a phone with touch controls the dialog is still Compact, drawn
@@ -1598,7 +1615,10 @@ asked for the language, writes that language's tag into
 `oa-ui-engine-settings-pictures DIRECTORY` draws each section the engine's
 dialog lists when Touch, Controller and Game files are on: the dialog
 alone, unlocked, at Compact and 2× (960 by 648), in the installed game's
-fonts (`OA_GAME_DIR`). The header shows the shipped app icon, the plates,
+fonts (`OA_GAME_DIR`), or with `--modern FONTS` in the modern look, Barlow
+from the fonts folder named (`local/deps/text-fonts`, or the build's
+staged fonts), Look showing Modern. The manual's pictures are the modern
+look's. The header shows the shipped app icon, the plates,
 cropped to the pixels that show (`branding/open-annihilation-256.png`). It writes one PNG a section, under the names
 `docs/images/settings/` uses (`controls-1.png`, `language-1.png`,
 `graphics-1.png`, `downloads-1.png`, `system-1.png`, `updates-1.png`,
@@ -1607,10 +1627,15 @@ cropped to the pixels that show (`branding/open-annihilation-256.png`). It write
 `downloads-2.png`, `system-2.png`, `accessibility-2.png` with those sections scrolled to their
 ends, and `updates-2.png` with a release offered. The
 rows a host fills (Your files, Game files, Downloads' install ID, Game
-Content) are the defaults the manual describes. The data test
+Content) are the defaults the manual describes. Updates is dressed with
+the older status row, not the card the game fills, so the manual's three
+Updates pictures are cut from the native update check's pictures case
+instead (docs/settings.md says so). The data test
 `ui-engine-settings-pictures` runs the same program into a scratch folder
-under the build. To refresh the manual, build the tests and run:
+under the build. To refresh the manual, build the tests, draw the
+pictures into a scratch folder and copy every one but the Updates
+pictures into `docs/images/settings`:
 
 ```sh
-oa-ui-engine-settings-pictures docs/images/settings
+oa-ui-engine-settings-pictures pictures --modern local/deps/text-fonts
 ```

@@ -47,6 +47,10 @@ bool drawable(const Canvas& canvas) noexcept {
 int32_t smooth_header_width(const Canvas& canvas, std::string_view text, int32_t tracking) {
     if (text.empty() || canvas.smooth.fonts == nullptr)
         return 0;
+    // The modern look measures in points at every scale, a tracked line in
+    // its tracked type.
+    if (canvas.fonts != nullptr && modern_look(*canvas.fonts))
+        return tracked_width(*canvas.fonts, FontRole::regular, text, tracking);
     if (tracking == 0)
         return measure_text(canvas, FontRole::regular, text);
     int32_t width = 0;

@@ -166,7 +166,8 @@ every request's fields and answers, and the errors it is refused with.
 
 Open Annihilation's own screens (the OA button and the main menu's
 Settings button, Settings, a notice, a prompt, and every later one: the
-Library, the map browser, the key editor, the gallery) are drawn by the engine's UI kit,
+Library, the map browser, the key editor, the update screens, Arrange
+Overlays, the gallery) are drawn by the engine's UI kit,
 and `controls` lists them under names of one scheme, so that a journey
 presses them by name as it presses the original screens' controls.
 
@@ -200,13 +201,18 @@ centre would land on the line between Off and On.
 | A drop-down's item, while open | `oa.settings.<row>.<value>` | check box, checked on the choice |
 | A slider | `oa.settings.<row>` | slider; its text the value shown |
 | A row's own button (MANAGE…) | `oa.settings.<row>.<button>`, as `oa.settings.game-files-summary.manage` | button |
-| Key layout's EDIT KEYS… | `oa.settings.key-layout.edit` | button, its text "EDIT KEYS…". It opens the key editor over Settings, on All |
+| The key layout card's buttons, on Controls | `oa.settings.key-layout.edit`, `oa.settings.key-layout.change` | button, their texts "Edit keys…" and "Change layout…". Edit keys… opens the key editor over Settings, on Common commands. Change layout… is listed only where the Library opens over Settings, and opens it on its Keys tab |
 | Hold keys that latch's CHOOSE… | `oa.settings.latching.choose` | button, its text "CHOOSE…". It opens the key editor over Settings, on Latchable |
+| The practice pad's Turn every helper off, on Accessibility | `oa.settings.practice.helpers-off` | button, its text "Turn every helper off"; disabled while every helper it turns off is already off |
+| Window size, on User Interface | `oa.settings.window-size`, and while open `.auto`, `.compact`, `.regular` and `.large` | drop-down, its text the choice shown. It takes effect at OK |
+| Reset window positions, on User Interface | `oa.settings.reset-window-positions.reset` | button, its text "Reset". It puts every moved window back in its centred place at once |
+| Look, on User Interface | `oa.settings.look`, `oa.settings.look.modern`, `oa.settings.look.classic` | as a level strip. It applies as it is chosen |
 | Edge scrolling | `oa.settings.edge-scroll`, with `.off` and `.on` | as a switch. Off stops the view scrolling while the pointer rests at the window's edge |
 | Key layout with the mod being played | `oa.settings.key-layout-for-mod`, and while open `.same` and `.<id>` (a layout's id, as `.ridge-keys`) | drop-down, its text the choice shown; absent while no mod is played |
 | Show keys on buttons | `oa.settings.show-keys-on-buttons`, with `.off` and `.on` | as a switch |
 | Game Content's buttons | `oa.settings.content-check.check-again`, `oa.settings.content-copy.copy-again`, `oa.settings.content-open.open-folder` | button. The section's entry is `oa.settings.nav.game-content`. While a bundle is being copied, that bundle's row offers Cancel as `oa.settings.<id>.cancel-copy` |
-| Updates' buttons | `oa.settings.update-status.check-now`, `oa.settings.update-status.update` | button. CHECK NOW while the section can check, greyed while a check is running; UPDATE… while a release is offered, in that button's place. Absent while Check for updates is Never. The section's entry is `oa.settings.nav.updates`. The choice is `oa.settings.update-check` (`automatically`, `when-asked`, `never`) |
+| Updates' card | `oa.settings.update-status.<action>`, up to three, the first in the accent: `check-now`, `download`, `pause`, `resume`, `cancel-download`, `when-i-quit` (Install when I quit), `restart-now` (the route's install-now action, as Install and restart), `unschedule` (Don't install when I quit), `skip`, `try-version`, `try-again`, `details`, `show-the-log`, `page` (Open the release page) and `whats-new` | button, its text the action's caption. The card shows the actions the update centre's state offers now, as the menu's update centre does, less Roll back…, Later and Keep it ready. Check now is absent while Check for updates is Never. The section's entry is `oa.settings.nav.updates` |
+| Updates' rows | `oa.settings.update-download` with `.off` and `.on` (Download automatically); `oa.settings.update-check`, and while open `.automatically`, `.when-asked` and `.never` (Check for updates); `oa.settings.update-install`, and while open `.ask` and `.when-i-quit` (Install updates); `oa.settings.update-previous.roll-back` (Roll back…, while a version is kept) | a switch, two drop-downs and a button. Roll back… asks the question `update-previous`, whose buttons are `oa.update-previous.cancel` and `oa.update-previous.roll-back` |
 | Your files' buttons, on System | `oa.settings.user-folder.saves`, `.screenshots`, `.mods` | button |
 | File Type Registration, on System on Windows, Linux and macOS | `oa.settings.file-type-registration` (the heading); `oa.settings.file-type-oamod`, `oa.settings.file-type-oamap`, `oa.settings.file-type-oalang`, `oa.settings.file-type-oareg`, `oa.settings.file-type-oamut`, `oa.settings.file-type-oabrain`, `oa.settings.file-type-oakeys`, `oa.settings.file-type-oalaunch` | the heading a label; each switch as a switch |
 | File types, on System on iOS | `oa.settings.file-types` | label |
@@ -222,14 +228,17 @@ centre would land on the line between Off and On.
 | A notice's or a prompt's words | `oa.<word>.body` | label; its title and paragraphs, one a line |
 | The Library's UNINSTALL in an installed package's details, its question and its notices | `oa.library.action.uninstall`; the question's `oa.prompt.cancel` and `oa.prompt.uninstall`; a notice's `oa.prompt.ok` | button; UNINSTALL is listed disabled for a map pack during a game and while the package is in the download queue, and `oa.library.note` then says why |
 | The UI kit gallery's working samples, in dialog `oa.gallery` | `oa.gallery.<section>.<n>` from 1, as `oa.gallery.toggle.1` (with `.off`/`.on`), `oa.gallery.drop-down.1`; CLOSE `oa.gallery.close` | as above, by kind |
-| The Library's tabs, in dialog `oa.library` | `oa.library.tab.<tab>`: `active`, `mods`, `maps`, `languages`, `updates`, `registries`, in that order, so the last is `oa.library.tab.registries` | check box, checked on the tab shown; the Library opens on `active` when no tab is asked for; every tab after Active reads its title and its count in brackets, "Updates (2)", and Active's text stays "Active" |
+| The Library's tabs, in dialog `oa.library` | `oa.library.tab.<tab>`: `active`, `mods`, `maps`, `mutators`, `brains`, `keys`, `languages`, `updates`, `registries`, in that order, so the last is `oa.library.tab.registries` | check box, checked on the tab shown; the Library opens on `active` when no tab is asked for; every tab after Active reads its title and its count in brackets, "Updates (2)", and Active's text stays "Active" |
 | The Library's Registries tab | `oa.library.registry.<id>` with its halves `.off` and `.on`, and for a registry the player added `.remove` and `.add-mirror`; `.key` (the signing-key icon on the card; its text the fingerprints, one a line), `.refresh` (REFRESH, beside the switch, disabled while that registry is off or already being asked), and the labels `.address` (the address it was added from, or its catalogue's address) and `.refreshed` ("refreshed 5 min ago", "never refreshed", or "couldn't reach · 2 h ago"); `oa.library.add-registry` at the top right of the tab, above the cards, absent during a game; the labels `oa.library.registries.note` and `oa.library.registries.notice` | each registry is a card. The switch is a label, its halves check boxes; the key icon, REFRESH, REMOVE, ADD MIRROR… and ADD REGISTRY… are buttons. The heading (the title, or the short name) and the description are drawn text, not controls. Built in is a neutral pill under the key icon, REFRESH and the switch, and it is not a control. The labels' text is the address, the refresh time, the note under the last card and, while a change was refused, why |
 | The Library's filters | `oa.library.filter.<filter>`: `all`, `new`, `installed`, `updates`; at Compact the drop-down `oa.library.filter`, its open items under the same names | a chip a button, a column's entry or an open item a check box, checked on the tab's own filter; the text the filter and how many packages it holds on the tab, whatever the tag and the search: "Installed (4)"; the drop-down a button, its text the choice shown |
 | The Library's Active tab | `oa.library.active.base`, `oa.library.active.change`, `oa.library.active.expansions`, `oa.library.active.expansion.<id>`, `oa.library.active.mod`, `oa.library.active.language`, `oa.library.active.map.<n>` from 1 in the order shown; `oa.library.active.from.<n>` for the same map; while a mod is played, `oa.library.active.unload` | label on the base-game tile ("Total Annihilation · 3.1c"), the expansions heading ("EXPANSIONS · 5 OF 6 ON"), the mod tile, the language tile and each map line: "No Mod" or "Ridge 4.8 · rev 3"; "Deutsch 1.2" or "English · built in"; "Ridgeline · 4 players · 16x16". Those labels take no press, except a map whose pack holds that map alone: its title is the link `oa.library.active.from.<n>`, and the link's text is the title ("Atoll"). A pack of several keeps the From line as the link, "From Core Map Pack". Choosing either opens the Maps tab with that pack selected and in view. The link is left out while its line is scrolled out of the area. On a small window the page scrolls as one when the tiles leave fewer than four map rows, and a map's label and link are absent until that line is in view. CHANGE… is a button, its text "CHANGE…", at the base-game tile's bottom right. Each expansion is one button `oa.library.active.expansion.<id>` (the bundle id, such as `campaign`). Its text is the expansion's name, or "<name> · ADD FROM…" when it is not copied and no registry offers it. One a registry offers and that is not copied keeps the name, and the download arrow sits at the right inside that chip. The whole chip is the press: the same button asks for the download, cancels it while it is in the queue, and tries again after a failure. There is no separate `.get`, `.cancel` or `.retry` control. UNLOAD MOD is a button, its text "UNLOAD MOD", at the mod tile's bottom right; pressing it asks what SWITCH OFF asks. It is listed disabled during a game and while the command line chose the mod, and is absent on the No Mod tile. The expansion pills are listed disabled during a game and while the command line named the content choice, except while a download can be cancelled, which stays enabled. A download or a retry is listed disabled then too, and while that registry's downloads are off |
 | The Add registry window, in dialog `oa.add-registry` | `oa.add-registry.url`, `oa.add-registry.key-field` (the Signing key field, under the address, for an address add only; absent for an `.oareg` file and for a mirror), `oa.add-registry.check`, `oa.add-registry.add`, `oa.add-registry.cancel`, and the labels `oa.add-registry.name`, `oa.add-registry.address`, `oa.add-registry.key` (the fingerprints), `oa.add-registry.refusal` | the fields are text fields; the buttons are buttons; the labels are labels. The names of the controls that were already there are unchanged |
 
-`<page>` is the section's word (`controls`, `engine-limits`, `language`,
-`graphics`, `user-interface`, `accessibility`, `downloads`, `updates`, `system`, `mod-keys`). A stage
+`<page>` is the section's word: `controls`, `accessibility`, `touch`,
+`controller`, `graphics`, `user-interface`, `language`, `game-files`,
+`downloads`, `updates`, `game-content`, `engine-limits`, `system` and
+`developer`, in the order the section list shows them, and `mod-keys` for
+a mod's keys. A stage
 file's `settings system` opens System, and `settings engine-limits` opens
 Engine Limits. A stage file may still say `common-tweaks` for that
 section. Language & Text keeps the word
@@ -329,6 +338,22 @@ at most five seconds, the switch's work dialog, `oa.work`, may show over
 the main menu, its one part the label `oa.progress.body` with its words,
 such as "Switching on Ridge…": a journey waits for `oa.library` there.
 
+### The update screens
+
+The update screens read one state, the update centre's, and name their
+buttons by the action each takes:
+
+| Control | Name | Kind, and what it reports |
+|---|---|---|
+| The update pill, at the main menu's top right while a download is under way, paused, being checked, ready, scheduled or stopped | `oa.update-pill.open`, and its button `oa.update-pill.pause`, `.resume`, `.install`, `.change` or `.retry` | the pill itself, its text the pill's words ("0.8.8 · 41%", "0.8.8 is ready"); a press on it opens the update centre. Its one button is Pause while downloading, Resume while paused, Install… while ready (the ready prompt again), Change while scheduled (the update centre) and Try again after a stopped download |
+| The update centre, in dialog `oa.update-centre` | `oa.update-centre.<action>`, then `oa.update-centre.close` | button. The actions are the state's, with the same words as Settings' card: `pause`, `resume`, `cancel-download`, `when-i-quit`, `restart-now`, `keep-ready`, `unschedule`, `try-again` and the others. It follows the state while it shows: Pause turns into Resume |
+| The offer, in dialog `oa.prompt` | `oa.prompt.skip`, `oa.prompt.later`, `oa.prompt.update` | button: Skip this version, Later and Download update (Open the release page where this copy can only open it) |
+| The ready prompt, in dialog `oa.ready-update` | `oa.ready-update.keep-ready`, `.restart-now`, `.when-i-quit` | button: Keep it ready, the install-now action named for the route (Install and restart, Open the installer, Close the game) and Install when I quit |
+| The recovery screen, in dialog `oa.update-receipt` | `oa.update-receipt.show-the-log`, `.try-again`, `.ok` | button: Show the log, Try again where the release can be tried again, and Continue |
+| The roll back question, in dialog `oa.update-previous` | `oa.update-previous.cancel`, `oa.update-previous.roll-back` | button: Cancel, marked, and Roll back and restart |
+
+Each one's words are `oa.<word>.body`, as for every question.
+
 ### The keys overlay
 
 The keys overlay (`dialog` `oa.keys-overlay`) lists the keys of the
@@ -343,50 +368,70 @@ module's ([src/ui/key-editor](../src/ui/key-editor/README.md)):
 | The close mark | `oa.keys-overlay.close` | button |
 | The scroll bar | `oa.keys-overlay.bar` | scroll bar, present while the list scrolls |
 
-### The key editor
+### Arrange Overlays
 
-The key editor (`dialog` `oa.key-editor`) lists every rebindable action.
-Its names are the module's
-([src/ui/key-editor](../src/ui/key-editor/README.md#the-screen)):
+The in-game menu's Overlays button opens Arrange Overlays (`dialog`
+`oa.arrange-overlays`), a modal screen over the battlefield that moves the
+keys overlay, the chat line and the latch chips:
 
 | Control | Name | Kind, and what it reports |
 |---|---|---|
-| LAYOUT ▾ | `oa.key-editor.layout` | button. Items `oa.key-editor.layout.<id>`, `.duplicate` and `.rename` |
-| The search | `oa.key-editor.search` | text field |
-| The category drop-down | `oa.key-editor.category` | button, at Regular and Compact. Items `oa.key-editor.category.<id>`, and at Compact the filters |
-| A Large nav entry | `oa.key-editor.nav.<id>` | button |
-| A filter pill | `oa.key-editor.filter.all`, `.changed`, `.clashes`, `.unbound`, `.latchable` | button, its text the name and the count |
-| A row | `oa.key-editor.row.<id>` | list, its text the action's name and its chords |
-| Number keys select groups | `oa.key-editor.number-keys` | check box, at the head of Groups. Parts `oa.key-editor.number-keys.off` and `.on` |
-| A chord | `oa.key-editor.detail.chord.<n>` | button, numbered from 1. Enter changes it. A fixed chord has none |
-| A chord's ✕ | `oa.key-editor.detail.chord.<n>.remove` | button, numbered from 1. A fixed chord has none |
-| + ADD KEY | `oa.key-editor.detail.add` | button. The controller's X on the chosen row |
-| The capture | `oa.key-editor.capture` | label, its text the title, the chord and the status line |
-| The well | `oa.key-editor.capture.well` | the place a click or a wheel turn finishes the chord |
-| Means | `oa.key-editor.capture.means.letter`, `.place` | button |
-| Starts on | `oa.key-editor.capture.starts.press`, `.double`, `.hold` | button |
-| The status line | `oa.key-editor.capture.status` | label |
-| The capture's footer | `oa.key-editor.capture.cancel`, `oa.key-editor.capture.ok` | button. OK is disabled while the chord is refused or still waiting |
-| The clash prompt | `oa.key-editor.clash` | label, "{chord} is taken" |
-| REPLACE, SWAP, CANCEL | `oa.key-editor.clash.replace`, `.swap`, `.cancel` | button. SWAP is absent for + ADD KEY |
-| The draft card | `oa.key-editor.card.keep-here`, `.keep-there`, `.choose` | button |
-| The search's chord | `oa.key-editor.search.chord` | button, the chip and its ✕ |
-| Latch, Hold to confirm | `oa.key-editor.detail.latch`, `oa.key-editor.detail.confirm` | check box. Parts `.off` and `.on` |
-| The footer | `oa.key-editor.import`, `.share`, `.paste`, `.restore`, `.cancel`, `.save` | button. At Compact, IMPORT…, SHARE… and PASTE… are items of `oa.key-editor.more`. Compact's details page's BACK is `oa.key-editor.back` |
-| Share your keys | `oa.key-editor.share.name`, `.id`, `.text`, `.copy`, `.save-file`, `.open-folder`, `.close` | the name field, the folded id, the text form, and the buttons. OPEN FOLDER appears once a file is written |
-| Paste keys | `oa.key-editor.paste.summary`, `.list`, `.apply`, `.cancel` | the summary's text counts the changes, the clashes and the unknown actions; the list names each action |
-| Import keys | `oa.key-editor.import.from.eye`, `.tdraw`, `.ddraw`, `oa.key-editor.import.choose`, `.summary`, `.list`, `.apply`, `.cancel` | the sources, then the keys that differ |
-| The summary | `oa.key-editor.summary` | label, its text the words shown |
-| List, Keyboard, Mouse | `oa.key-editor.view.list`, `.keyboard`, `.mouse` | button. Only the open tab takes Tab |
-| A modifier layer | `oa.key-editor.layer.none`, `.shift`, `.ctrl`, `.alt`, `.cmd` | button. Cmd is absent where Primary is Ctrl |
-| The keyboard's shape | `oa.key-editor.keyboard-shape` | button. Items `oa.key-editor.keyboard-shape.system`, `.ansi`, `.iso` and `.jis` |
-| A key | `oa.key-editor.keyboard.<code word>` | button. The card is the label `oa.key-editor.key-card` |
-| A mouse button | `oa.key-editor.mouse.mouse-left`, `.mouse-right`, `.mouse-middle`, `.wheel`, `.mouse-back`, `.mouse-forward`, and `.mouse-6` to `.mouse-8` once the game has seen them pressed | button |
-| The scheme | `oa.key-editor.scheme.right-click`, `.left-click` | button |
-| A role in a place | `oa.key-editor.mouse-table.<place>.<n>` | button, numbered from 1 in that place |
-| FIND ON KEYBOARD | `oa.key-editor.detail.find` | button, in the chosen action's details |
+| Overlays, under Resume in the in-game menu | `oa.arrange-button` | button; no dialog; its text "Overlays" |
+| A handle | `oa.arrange-overlays.keys-overlay`, `.chat-line`, `.latch-chips` | button, its text the handle's words ("Keys Overlay", "Chat Line", "Latch Chips"), its rectangle where that overlay shows. A drag moves it on the 8-point grid; a double-click puts it back |
+| Reset, Done | `oa.arrange-overlays.reset`, `oa.arrange-overlays.done` | button. Reset puts every overlay back where it lays itself out; Done goes back to the in-game menu |
 
-A question over the editor keeps the prompt's names: `oa.prompt.leave`, `oa.prompt.keep-editing`, `oa.prompt.keep-them`, `oa.prompt.set-aside`, `oa.prompt.cancel` and `oa.prompt.body`. On a menu that question is the prompt screen. In a match the same question is `oa.key-editor-prompt`, because a prompt does not place there, and its controls stay `oa.prompt.*`. The name field is `oa.key-editor.name.field`, with `oa.key-editor.name.cancel` and `oa.key-editor.name.save`, on `oa.key-editor-name`. A failed save's notice is `oa.notice` on a menu and `oa.key-editor-notice` in a match.
+### The key editor
+
+The key editor (`dialog` `oa.key-editor`) lists every rebindable action,
+opening on Common commands. Its names are the module's, and
+[src/ui/key-editor](../src/ui/key-editor/README.md#the-screen) lists every
+one with what it is. The ones a journey uses most:
+
+| Control | Name | Kind, and what it reports |
+|---|---|---|
+| The search, and Find by key beside it | `oa.key-editor.search`, `oa.key-editor.find` | text field; button. Typing in the search only searches. Find by key opens `oa.key-editor.find-key`, which listens for a chord and lists each action on it as `oa.key-editor.find-key.row.<n>` from 1, with `oa.key-editor.find-key.close`; it changes nothing |
+| A row | `oa.key-editor.row.<id>` | list, its text the action's name and its chords |
+| A chord's Change…, and its ✕ | `oa.key-editor.detail.chord.<n>`, `oa.key-editor.detail.chord.<n>.remove` | button, numbered from 1. A fixed chord has neither |
+| + Add a key | `oa.key-editor.detail.add` | button |
+| The capture | `oa.key-editor.capture`, its well `oa.key-editor.capture.well`, its line `oa.key-editor.capture.status` | label, its text the title, the chord and the line that says the chord is free, what uses it, or why it is refused |
+| The capture's buttons | `oa.key-editor.capture.cancel`, `oa.key-editor.capture.ok` | button. `ok` is Use {chord} for {action}, or Choose what happens… for a chord in use, and is disabled while the chord is refused or still waiting |
+| The clash question | `oa.key-editor.clash`; its outcomes `oa.key-editor.clash.replace` (Move it to {action}) and `.swap` (Swap them), or, for a clash already in the draft, `oa.key-editor.card.keep-here` and `.keep-there`; `oa.key-editor.clash.confirm`, `.another` and `.cancel` | the question a label, its text the question and every outcome; the rest buttons. A press on an outcome only marks it: nothing changes until the confirm button, which is named after the marked outcome |
+| Settle…, on a draft clash in the details | `oa.key-editor.card.settle` | button. It opens the clash question for that clash |
+| The footer | `oa.key-editor.draft` (the draft line), `oa.key-editor.undo`, `oa.key-editor.more`, `oa.key-editor.cancel`, `oa.key-editor.save` | the draft line a label; the rest buttons. Restore defaults, Import…, Share… and Paste… are `oa.key-editor.restore`, `.import`, `.share` and `.paste`, items of More |
+| A key on the keyboard, and the inspector | `oa.key-editor.keyboard.<code word>`; `oa.key-editor.key-card` with `oa.key-editor.key-card.change` and `.use` | button; label, its text the key and every line it shows. A press on a key only inspects it; the inspector's buttons open the capture |
+
+A question over the editor keeps the prompt's names. Closing with unsaved
+edits asks Save, Discard or Keep editing: `oa.prompt.save` (absent while a
+clash holds Save back), `oa.prompt.discard` and `oa.prompt.keep-editing`.
+Choosing another layout with unsaved edits asks `oa.prompt.keep-them`,
+`oa.prompt.set-aside` and `oa.prompt.cancel`. Its words are
+`oa.prompt.body`. On a menu that question is the prompt screen. In a
+match the same question is `oa.key-editor-prompt`, because a prompt does
+not place there, and its controls stay `oa.prompt.*`. The name field is
+`oa.key-editor.name.field`, with `oa.key-editor.name.cancel` and
+`oa.key-editor.name.save`, on `oa.key-editor-name`. A failed save's notice
+is `oa.notice` on a menu and `oa.key-editor-notice` in a match.
+
+### Brains and mutators in the rooms
+
+OA's additions to the skirmish setup, the new-campaign screen (and Any
+Mission) and the battle room are drawn in the room's own art, and listed
+with these names:
+
+| Control | Name | Kind, and what it reports |
+|---|---|---|
+| A computer seat's brain, on the skirmish setup | `oa.brain-seat.<slot>` | button, its text the seat's whole label: the notch at the right end of that row's Player button, which opens the brain menu. The right button anywhere on the Player button opens it too |
+| The campaign's computer player, on NEWGAME and Any Mission | `oa.brain-seat.campaign` | button under Difficulty, its text the seat's whole label; a press opens the brain menu |
+| A computer row in the battle room | `oa.brain-seat.<slot>` (its Resolution cell), `oa.brain-seat-level.<slot>` (its Mem cell, while it shows a brain's level), `oa.brain-seat-menu.<slot>` (the notch on its name) | the Resolution cell a button on a computer this machine runs, its text the seat's whole label, and an area on another machine's; the Mem cell a button, its text the level, which a press steps; the notch a button. The Resolution cell and the notch open the brain menu |
+| The brain menu, while open | `oa.brain-menu.row.<id>` (`oa.brain-menu.row.built-in` for the built-in player), `oa.brain-menu.level.previous` and `.next` (on the brain the seat plays), `oa.brain-menu.options`, `oa.brain-menu.every-seat`, `oa.brain-menu.get-brains` | a row a list item, its text the brain's name and, after " · ", its level, checked on the brain the seat plays and disabled on one that cannot play here; the arrows, Options… and Get more brains… buttons; Use for every computer seat a toggle, checked while ticked. Options… is listed while the seat's brain has options, and opens the brain picker on that seat. Use for every computer seat is absent for the campaign, and Get more brains… in the battle room |
+| The host's Mutators | `oa.mutators` | button, its text "Mutators: off" or "Mutators: N on", checked while its lamp is green; a press opens the mutator picker |
+| The line beside START while a player lacks a mutator | `oa.mutators.waiting` | label, its text the line |
+| A guest's Mutators, in the battle room | `oa.mutators-view` | button where the host's stands, its text "Mutators: N on" or "Mutators: off", checked while this machine has built the host's list; a press opens the host's set, read only |
+| A guest's GET MUTATORS, its bar and its line | `oa.get-mutators`, `oa.get-mutators-progress`, `oa.get-mutators-text`, `oa.get-mutators-ready` | listed only while they show, left of the guest's Mutators: the button; a label, its text the percent while a download runs; a label, its text the whole line (the set, or why a mutator cannot be fetched); and the "Ready once … is here" line beside START |
+
+`<slot>` is the row's number in the room, from 0. A seat's text is its
+label, as "Steady Commander · Firm". `<id>` is the brain's id,
+lower-cased, every character other than a letter or a digit a `-`.
 
 ## Input
 

@@ -46,7 +46,7 @@ using Stepper = kit::Stepper<SettingsModel>;
 using Hint = std::array<std::string_view, 2>;
 
 /// The number of settings: Setting's enumerators.
-constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::reset_window_positions) + 1;
+constexpr std::size_t kSettingCount = static_cast<std::size_t>(Setting::look) + 1;
 
 // ---------------------------------------------------------------------------
 // The sections' rows.
@@ -112,9 +112,11 @@ constexpr std::array<Setting, 21> kGraphicsRows{
 };
 /// User Interface's rows: how the menus scale, the window's frame, the
 /// HUD's scaling, the size Open Annihilation's own screens are drawn at and
-/// the size class their windows take, putting moved windows back, then
-/// whether Escape opens the game menu.
-constexpr std::array<Setting, 7> kUserInterfaceRows{
+/// the size class their windows take, putting moved windows back, whether
+/// Escape opens the game menu, then the letters those screens are drawn in.
+/// Look comes last, so every row before it keeps its place and its
+/// control's number.
+constexpr std::array<Setting, 8> kUserInterfaceRows{
     Setting::menu_scaling,
     Setting::window_frame,
     Setting::hud_scaling,
@@ -122,6 +124,7 @@ constexpr std::array<Setting, 7> kUserInterfaceRows{
     Setting::window_size,
     Setting::reset_window_positions,
     Setting::escape_opens_menu,
+    Setting::look,
 };
 /// Accessibility's rows: the helpers, each applying as it is changed.
 constexpr std::array<Setting, 13> kAccessibilityRows{
@@ -380,6 +383,9 @@ static_assert(
     kWindowFrameCaptions.size() == window_frame_choices.size(),
     "every way of Window frame has its caption"
 );
+/// Look's captions, in look_choices' order.
+constexpr std::array<std::string_view, 2> kLookCaptions{"Modern", "Classic"};
+static_assert(kLookCaptions.size() == look_choices.size(), "every Look has its caption");
 /// Interface size's choices' texts, in interface_size_choices' order.
 constexpr std::array<std::string_view, 6> kInterfaceSizeCaptions{
     "Auto", "100%", "150%", "200%", "300%", "400%"
@@ -1780,6 +1786,17 @@ std::string window_frame_hint(const SettingsModel& model, std::size_t line) {
     return {};
 }
 
+/// Returns a line of Look's hint, by the look chosen.
+std::string look_hint(const SettingsModel& model, std::size_t line) {
+    switch (model.settings->look) {
+    case Look::modern:
+        return line_of({"OA's screens in Barlow, a clear modern face."}, line);
+    case Look::classic:
+        return line_of({"OA's screens in the game's own bitmap fonts."}, line);
+    }
+    return {};
+}
+
 /// Returns a line of HUD scaling's hint, by the switch.
 std::string hud_scaling_hint(const SettingsModel& model, std::size_t line) {
     // The size the game's side column and bars are drawn at.
@@ -2979,6 +2996,11 @@ constexpr std::array<SettingRow, kSettingCount> kDeclared{{
                   choice_width)},
     {.setting = S::reset_window_positions,
      .spec = reset_windows_row()},
+    {.setting = S::look,
+     .spec = changing(kit::levels("look", "Look",
+                                  LevelStrip<Look, 2, look_choices, &E::look, kLookCaptions, &table_word<look_words, Look>>::stepper(),
+                                  look_level_width),
+                      &look_hint, &lines<1>)},
 }};
 // clang-format on
 
@@ -3103,6 +3125,7 @@ constexpr std::array<std::string_view, kSettingCount> kSettingNames{
     "edge-scroll",
     "window-size",
     "reset-window-positions",
+    "look",
 };
 
 /// Tells whether every row stands at its setting's place and is named by

@@ -809,7 +809,7 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::graphics)[18] == Setting::coastal_waves);
     CHECK(settings::page_settings(Page::graphics)[19] == Setting::underwater_shimmer);
     CHECK(settings::page_settings(Page::graphics)[20] == Setting::naval_reflections);
-    CHECK(settings::page_settings(Page::user_interface).size() == 7);
+    CHECK(settings::page_settings(Page::user_interface).size() == 8);
     CHECK(settings::page_settings(Page::user_interface)[0] == Setting::menu_scaling);
     CHECK(settings::page_settings(Page::user_interface)[1] == Setting::window_frame);
     CHECK(settings::page_settings(Page::user_interface)[2] == Setting::hud_scaling);
@@ -817,6 +817,7 @@ void each_section_shows_its_rows() {
     CHECK(settings::page_settings(Page::user_interface)[4] == Setting::window_size);
     CHECK(settings::page_settings(Page::user_interface)[5] == Setting::reset_window_positions);
     CHECK(settings::page_settings(Page::user_interface)[6] == Setting::escape_opens_menu);
+    CHECK(settings::page_settings(Page::user_interface)[7] == Setting::look);
     CHECK(settings::page_settings(Page::developer).size() == 3);
     CHECK(settings::page_settings(Page::developer)[0] == Setting::developer_mode);
     CHECK(settings::page_settings(Page::developer)[1] == Setting::frame_stats);
@@ -2682,15 +2683,15 @@ void sections_that_fit_do_not_scroll() {
     // pans, Window edge's strip and Edge stickiness's slider are 603.
     // Engine Limits' three sliders, the mod's heading and its two
     // rows are 369. Graphics' twenty-one rows are 1208, Language's
-    // drop-down, five switches and slider 424, and User Interface's four
+    // drop-down, five switches and slider 424, and User Interface's five
     // strips and switches with the Interface and Window size rows and Reset
-    // window positions are 450. All of them scroll. Developer's list scrolls
+    // window positions are 497. All of them scroll. Developer's list scrolls
     // in a view of its own (developer_*).
     const std::array<Page, 5> pages{
         Page::controls, Page::common_tweaks, Page::graphics, Page::language, Page::user_interface
     };
-    const std::array<int32_t, 5> content{603, 369, 1208, 424, 450};
-    const std::array<int32_t, 5> limits{383, 149, 988, 204, 230};
+    const std::array<int32_t, 5> content{603, 369, 1208, 424, 497};
+    const std::array<int32_t, 5> limits{383, 149, 988, 204, 277};
     for (std::size_t index = 0; index < content.size(); ++index) {
         const Page page = pages[index];
         if (limits[index] != 0) {
@@ -3691,15 +3692,15 @@ void the_graphics_page_scrolls_its_rows() {
     }
 
     // User Interface holds the rows that left Graphics, the Interface and
-    // Window size drop-downs, Reset window positions, then Escape.
+    // Window size drop-downs, Reset window positions, Escape, then Look.
     settings::Dialog ui_page = opened(Page::user_interface);
     const auto ui = geometry::open_rows(ui_page);
-    CHECK(ui.rows.rows.size() == 7);
-    const std::array<int32_t, 7> interface_tops{54, 113, 172, 231, 310, 389, 436};
-    const std::array<int32_t, 7> interface_heights{
-        59, 59, 59, kInterfaceSizeRow, kInterfaceSizeRow, 47, 59
+    CHECK(ui.rows.rows.size() == 8);
+    const std::array<int32_t, 8> interface_tops{54, 113, 172, 231, 310, 389, 436, 495};
+    const std::array<int32_t, 8> interface_heights{
+        59, 59, 59, kInterfaceSizeRow, kInterfaceSizeRow, 47, 59, 47
     };
-    const std::array<Setting, 7> interface_settings{
+    const std::array<Setting, 8> interface_settings{
         Setting::menu_scaling,
         Setting::window_frame,
         Setting::hud_scaling,
@@ -3707,23 +3708,25 @@ void the_graphics_page_scrolls_its_rows() {
         Setting::window_size,
         Setting::reset_window_positions,
         Setting::escape_opens_menu,
+        Setting::look,
     };
     for (std::size_t index = 0; index < ui.rows.rows.size(); ++index) {
         CHECK(ui.rows.rows[index].top == interface_tops[index]);
         CHECK(ui.rows.rows[index].height == interface_heights[index]);
         CHECK(ui.rows.rows[index].setting == interface_settings[index]);
     }
-    CHECK(ui.rows.bottom == 495);
-    CHECK(ui.limit == 230);
+    CHECK(ui.rows.bottom == 542);
+    CHECK(ui.limit == 277);
 }
 
-/// Returns Interface size's field on User Interface, scrolled to the end.
+/// Returns Interface size's field on User Interface, scrolled so that its
+/// row shows whole at Compact.
 ///
 /// @param[in,out] dialog the dialog
 /// @return the field's part; null when it does not show
 const settings::LayoutPart* interface_size_field(settings::Dialog& dialog) {
     dialog.page = Page::user_interface;
-    dialog.scroll[static_cast<std::size_t>(Page::user_interface)] = 900;
+    dialog.scroll[static_cast<std::size_t>(Page::user_interface)] = 200;
     static thread_local std::vector<settings::LayoutPart> parts;
     parts = settings::dialog_layout(dialog);
     return find_part(parts, {}, settings::first_row_control + 3);
@@ -10480,11 +10483,11 @@ void the_arrows_move_by_geometry() {
                                                   row + 16}
                                              )
     );
-    // User Interface: every row takes a change, Interface size, Window size
-    // and Reset window positions among them.
+    // User Interface: every row takes a change, Interface size, Window size,
+    // Reset window positions and Look among them.
     CHECK(
         tab_round(opened(Page::user_interface)) ==
-        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6})
+        then_rest({row, row + 1, row + 2, row + 3, row + 4, row + 5, row + 6, row + 7})
     );
     // Developer, Developer Mode off: its three rows, every area of its list,
     // then Show Active Only.
@@ -11731,8 +11734,8 @@ void window_size_and_reset_window_positions_sit_on_user_interface() {
     settings::Dialog dialog = opened(Page::user_interface);
     dialog.scroll[static_cast<std::size_t>(Page::user_interface)] = 200;
     const auto rows = geometry::open_rows(dialog).rows.rows;
-    CHECK(rows.size() == 7 && rows[4].setting == Setting::window_size);
-    CHECK(rows.size() == 7 && rows[5].setting == Setting::reset_window_positions);
+    CHECK(rows.size() == 8 && rows[4].setting == Setting::window_size);
+    CHECK(rows.size() == 8 && rows[5].setting == Setting::reset_window_positions);
     auto parts = settings::dialog_layout(dialog);
     CHECK(find_part(parts, "Window size", settings::no_control) != nullptr);
     CHECK(find_part(parts, "Reset window positions", settings::no_control) != nullptr);
@@ -11767,6 +11770,53 @@ void window_size_and_reset_window_positions_sit_on_user_interface() {
     // Restore defaults puts Window size back to Auto; Cancel what it opened with.
     CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
     CHECK(dialog.chosen.window_size == settings::WindowSize::automatic);
+}
+
+void look_is_user_interfaces_last_row() {
+    // Scrolled to the end, so the last row shows whole at Compact.
+    settings::Dialog dialog = opened(Page::user_interface);
+    dialog.scroll[static_cast<std::size_t>(Page::user_interface)] = 900;
+    const auto rows = geometry::open_rows(dialog).rows.rows;
+    CHECK(!rows.empty() && rows.back().setting == Setting::look);
+    CHECK(geometry::kind_of(Setting::look) == geometry::RowKind::levels);
+    CHECK(geometry::strip_caption(Setting::look, 0) == "Modern");
+    CHECK(geometry::strip_caption(Setting::look, 1) == "Classic");
+    // A named file's dialog opens on Classic.
+    CHECK(dialog.chosen.look == settings::Look::classic);
+    // The hint, wrapped to the row, names the look chosen.
+    const auto shows = [](const std::vector<settings::LayoutPart>& parts, std::string_view word) {
+        return std::any_of(parts.begin(), parts.end(), [word](const settings::LayoutPart& part) {
+            return part.text.find(word) != std::string::npos;
+        });
+    };
+    auto parts = settings::dialog_layout(dialog);
+    CHECK(find_part(parts, "Look", settings::no_control) != nullptr);
+    CHECK(shows(parts, "game's own"));
+    CHECK(!shows(parts, "Barlow"));
+    // The strip offers Modern and Classic, by the words the preferences keep
+    // them as.
+    const auto list = geometry::dialog_list(dialog, nullptr);
+    const int32_t named = oa::ui::kit::control_named(list, "settings.look");
+    CHECK(named != oa::ui::kit::no_control);
+    if (named != oa::ui::kit::no_control)
+        CHECK(
+            oa::ui::kit::control_of(list, named)->parts ==
+            (std::vector<std::string>{"modern", "classic"})
+        );
+    // A key moves the look at once: the host applies it as it is chosen.
+    dialog.focused = settings::first_row_control + 7;
+    CHECK(settings::dialog_key(dialog, DialogKey::left) == DialogAction::changed);
+    CHECK(dialog.chosen.look == settings::Look::modern);
+    parts = settings::dialog_layout(dialog);
+    CHECK(shows(parts, "Barlow"));
+    CHECK(settings::changed_settings_count(dialog) == 1);
+    CHECK(settings::dialog_key(dialog, DialogKey::right) == DialogAction::changed);
+    CHECK(dialog.chosen.look == settings::Look::classic);
+    CHECK(settings::changed_settings_count(dialog) == 0);
+    // Restore defaults puts back the file's default look.
+    dialog.chosen.look = settings::Look::modern;
+    CHECK(click(dialog, centre(geometry::restore_button)) == DialogAction::changed);
+    CHECK(dialog.chosen.look == dialog.defaults.look);
 }
 
 void the_section_list_draws_an_icon_before_each_entry() {
@@ -12049,6 +12099,7 @@ int main(int argc, char** argv) {
         the_pad_stands_beside_the_rows_where_the_section_is_wide();
         the_footer_counts_the_settings_changed();
         window_size_and_reset_window_positions_sit_on_user_interface();
+        look_is_user_interfaces_last_row();
         the_section_list_draws_an_icon_before_each_entry();
         a_long_section_name_takes_the_icons_room();
         the_section_list_shows_that_it_scrolls();

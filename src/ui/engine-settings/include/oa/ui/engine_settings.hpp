@@ -161,6 +161,10 @@ inline constexpr std::string_view interface_size = "open-annihilation.interface-
 /// "auto", "compact", "regular" or "large" (EngineSettings::window_size);
 /// absent, or any other word, is Auto.
 inline constexpr std::string_view window_size = "open-annihilation.ui.window-size";
+/// "modern" or "classic" (EngineSettings::look); absent, or any other word,
+/// is the default: Modern with the player's own file, Classic with a named
+/// one (default_settings).
+inline constexpr std::string_view look = "open-annihilation.ui.look";
 /// 1 or 0 (EngineSettings::modern_fonts).
 inline constexpr std::string_view modern_fonts = "open-annihilation.modern-fonts";
 /// 1 or 0 (EngineSettings::text_outline).
@@ -895,6 +899,21 @@ inline constexpr std::array<WindowSize, 4> window_size_choices{
     WindowSize::large,
 };
 
+/// Look: the letters Open Annihilation's own screens and overlays are drawn
+/// in. The 3.1c game's own screens keep the game's fonts either way.
+enum class Look : uint8_t {
+    /// Barlow and Barlow Condensed at the kit's type scale, the bundled
+    /// sans faces drawing what Barlow lacks
+    modern,
+    classic, ///< the game's own two bitmap fonts
+};
+
+/// The Looks, in the order the dialog offers them.
+inline constexpr std::array<Look, 2> look_choices{
+    Look::modern,
+    Look::classic,
+};
+
 /// After zoom: the zoom farther out than which Zoomed out units applies,
 /// as a share of normal size.
 enum class ZoomedOutAfter : uint8_t {
@@ -1322,6 +1341,10 @@ struct EngineSettings {
     /// The size class Open Annihilation's own windows are laid out at. It
     /// takes effect when the dialog's OK is pressed, as Interface size does.
     WindowSize window_size{WindowSize::automatic};
+    /// The letters Open Annihilation's own screens and overlays are drawn
+    /// in. It applies as it is chosen, the open dialog among them. Modern
+    /// with the player's own preferences file (default_settings).
+    Look look{Look::classic};
     /// The side column and the top and bottom bars of a game grow with the
     /// window, up to twice the original game's size; off, they keep the
     /// original game's size on every window. The touch controls' layouts
@@ -1498,7 +1521,9 @@ highest_offered_unit_limit(const oa::data::limits::UnitsPerPlayer& units) noexce
 /// small_desktop_screen_size on a known desktop narrower or shorter than it.
 /// Hardware acceleration is Full with the player's own file, on every
 /// machine, and Off with a named one; whether the graphics card is used is
-/// decided apart from the setting. Vertical sync is Off everywhere. Menu
+/// decided apart from the setting. Look is Modern with the player's own
+/// file, a file written before the setting existed among them, and
+/// Classic, the game's own fonts, with a named one. Vertical sync is Off everywhere. Menu
 /// scaling is Sharp everywhere. Mouse wheel zoom is On, Maximum zoom out
 /// Automatic, Maximum zoom in 4x and View past the map's edge 50%
 /// everywhere. Native pixel density is

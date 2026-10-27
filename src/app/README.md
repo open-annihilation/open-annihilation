@@ -225,7 +225,8 @@ screens over every screen of the game: `OaLayer`, which every screen
 reaches through `Runtime::oa_layer()`. It holds the settings dialog on the
 main menu and in a match (`Runtime::SettingsScreen`), the Library on the
 main menu (`Runtime::LibraryScreen`, [The Library](#the-library)), the
-in-game menu's OA button, and the notices and questions of the engine's own
+in-game menu's OA button and Overlays button, Arrange overlays, and the
+notices and questions of the engine's own
 (`NoticeScreen`, `QuestionScreen`). It replaces the main menu's and the match's own hosts of
 the dialog, and the notices' and the installs' prompts' own overlays, which
 each mapped the pointer, told a finger from a mouse, mapped the keys,
@@ -331,9 +332,10 @@ latched the closing key and drew a backdrop.
   view's scale and size class (the Interface size, or the Auto scale) and
   centres the room's points at that scale in the window; in a match it
   takes `OaLayer::match_gallery`: the match canvas's points at the layer's
-  scale on it, capped by the side column's scale, so that 640x480 is
-  Compact at 1×, 1280x720 Large at 1× and 1920x1080 Regular at 2× with HUD
-  scaling On, the room right of the column playing no part. Its model is
+  scale on it, one step down where that gives Large, capped by the side
+  column's scale, so that 640x480 is Compact at 1×, and 1280x720 and
+  1920x1080 are Large at 1× with HUD scaling On (1920x1080 Large at 1.5×
+  while 150% is offered), the room right of the column playing no part. Its model is
   its own (`kit::GalleryModel`); it reads and changes no setting. Its
   events go to `kit::gallery_act`, and it is laid out again
   (`kit::gallery_layout`) whenever the model or the frame changes; Escape
@@ -420,39 +422,50 @@ latched the closing key and drew a backdrop.
   layer's stack of them opens (`smooth_fonts`), 150% is among the steps and
   a tie takes the larger: 1x below 900 lines, 150% from 900, 2x from 1260
   and 3x from 1800 (`kit::auto_with_fraction_percent`). Otherwise the steps
-  are whole: 1x below 1080 lines, 2x from 1080. It is then held to the
-  largest scale at which Compact's 480 by 324 dialog fits the canvas less
-  its insets, and to at least 1. 150%, chosen or what Auto picked, is 1.5
-  where Compact fits at one and a half, else 1. The class comes from
-  `kit::frame_of`: Compact below 960 by 540 points, Regular from 960 by 540,
-  Large from 1280 by 720. A 640 by 480 window is Compact at 1×, pixel for
-  pixel as 0.7.3; 1024 by 768 is Regular at 1×, 1280 by 720 Large at 1×,
-  1920 by 1080 and 2560 by 1080 Regular at 2× with the modern fonts off and
-  Large at 1.5× with them on (1914 by 1077 is Regular at 1.5×), 2560 by
-  1440 Large at 2× and 3840 by 2160 Large at 3×; a phone of 852 by 393
-  points at 3 pixels a point is Compact at 3×; a chosen 150% on 1920 by
-  1080 is Large at 1.5×.
+  are whole: 1x below 1080 lines, 2x from 1080. For Auto alone, where that
+  scale leaves the room short of the class wanted (Large, or the class the
+  Window size chooses) and one step down gives it that class, the scale
+  takes the step: from 2× to 150% while 150% is offered, else to 1×, never
+  below the density nor 1×. A chosen Interface size is never stepped down.
+  The scale is then held to the largest at which Compact's 480 by 324
+  dialog fits the canvas less its insets, and to at least 1. 150%, chosen
+  or what Auto picked, is 1.5 where Compact fits at one and a half, else 1.
+  The class comes from `kit::frame_of`: the largest whose settings dialog
+  fits the room with 24 points round it (`kit::size_class_of`), Compact
+  below 768 by 534 points, Regular from 768 by 534 and Large from 1008 by
+  648. A Window size other than Auto (`open-annihilation.ui.window-size`,
+  `OaLayer::window_size`, `window_placement::class_under`) takes the class
+  it names wherever that class's dialog fits whole, and the largest that
+  does elsewhere (`kit::size_class_within`). A 640 by 480 window is Compact
+  at 1×, pixel for pixel as 0.7.3; 800 by 600 is Regular at 1×; 1024 by
+  768, 1280 by 720, 1366 by 768 and 1280 by 800 are Large at 1×; 1920 by
+  1080 and 2560 by 1080 are Large at 1× with the modern fonts off, where
+  2× would leave them Regular, and Large at 1.5× with them on, as is 1914
+  by 1077; 2560 by 1440 is Large at 2× and 3840 by 2160 Large at 3×; a
+  phone of 852 by 393 points at 3 pixels a point is Compact at 3×, its
+  density the floor; a chosen 150% on 1920 by 1080 is Large at 1.5×, and
+  a chosen 200% there Regular at 2×.
   `screen_scale`, `screen_scale_percent`, `screen_class` and
   `placement_of(name)` report them, for the checks. Without a renderer the canvas is the picture
   itself, Compact at 1×. In a match the view is Compact at 100%, and
-  Settings takes a scale and class of its own (`OaLayer::match_dialog`).
-  Its scale starts as the layer's on the match's canvas
-  (`kit::layer_viewport` of the canvas's pixels at the Interface size in
-  effect, `LayerView::interface_percent`: its step, 150%, or Auto on the
-  canvas's height). It is capped by the side column's scale
+  Settings, and every window placed as it is, takes a scale and class of
+  its own (`OaLayer::match_dialog`, `window_placement::match_window`). Its
+  scale is the layer's on the match's canvas (`window_placement::match_viewport`:
+  `kit::layer_viewport` of the canvas's pixels at the Interface size in
+  effect, `LayerView::interface_percent`, with Auto's step down for the
+  class the Window size wants), capped by the side column's scale
   (`MatchLayout::scale`, which HUD scaling caps, as before): above it, the
-  largest whole step at or below it, and at least 1. Where Compact's 480 by
-  324 points do not fit the area right of the column at that scale, it is
-  the largest whole step at which they do, and at least 1. The class comes
-  from the points of that area, ((width − column's right edge) / scale) by
-  (height / scale). So with HUD scaling On and the modern fonts off, 640 by
-  480 is Compact at 1× (512 by 480 points), 1280 by 720 Regular at 1× (1088
-  by 720), 1920 by 1080 Compact at 2× (832 by 540) and 2560 by 1080 Regular
-  at 2× (1152 by 540). With the modern fonts on, 1920 by 1080 is Regular at
-  1.5×. With HUD scaling Off, 1920 by 1080 is Large at 1× (1792 by 1080),
-  the column's scale of 1 holding Auto's 150% down. On a phone with
-  touch controls (`match_fits_safe_area`) Settings is Compact, drawn at 1×
-  and fitted to the safe area, as before.
+  largest whole step at or below it, and at least 1. The class comes from
+  the points of the window's whole safe area at that scale, or the Window
+  size held to what fits it, as on the front end: the dialog measures the
+  whole window, not the area beside the side column. So with HUD scaling
+  On and the modern fonts off, 640 by 480 is Compact at 1×, 800 by 600
+  Regular at 1×, and 1024 by 768, 1280 by 720, 1920 by 1080 and 2560 by
+  1080 Large at 1×; with the modern fonts on, 1920 by 1080 is Large at
+  1.5×; 2560 by 1440 is Large at 2×, and 3840 by 2160 Large at 2× too, the
+  column's scale of 2 holding 3× down. With HUD scaling Off, 1920 by 1080
+  is Large at 1×. On a phone with touch controls (`match_fits_safe_area`)
+  Settings is Compact, drawn at 1× and fitted to the safe area, as before.
 - **Placement.** A screen says where it shows (`LayerPlacement::shown`) in
   window pixels, and how many points it has. Settings, a notice and a
   question centre themselves in the view's room at its scale
@@ -463,11 +476,50 @@ latched the closing key and drew a backdrop.
   picture's rectangle (`LayerView::picture`, where the 640 by 480 frame is
   drawn) at the same scale. The main menu's OA button stays in the frame.
   In a match Settings shows where `match_dialog` puts it: its class's
-  dialog points at its scale, centred in the area right of the side column
-  (left = column's right edge + (area width − dialog width) / 2, top =
-  (height − dialog height) / 2), and input maps back by that scale. A 640
-  by 480 window shows it at (144, 78), pixel for pixel as before. An empty
-  place means the screen does not show: it neither draws nor takes input.
+  dialog points at its scale, centred in the window's safe area; where
+  that place would cover part of the side column and the safe area right
+  of the column holds the dialog, it is centred across in that area
+  instead. Input maps back by that scale. A 640 by 480 window shows it at
+  (144, 78), pixel for pixel as before; 800 by 600 at (40, 57) and 1024 by
+  768 at (32, 84), over the column, which the area right of it cannot
+  hold the dialog beside; 1280 by 720 at (256, 60), right of the column;
+  1920 by 1080 at (480, 240), centred, or at (368, 90) at 1.5×. A window
+  that moves shows where the player put it (Moving windows, below). An
+  empty place means the screen does not show: it neither draws nor takes
+  input.
+- **Moving windows.** Settings, the key editor, the Library, the map
+  browser and the mutator and brain pickers are windows that move
+  (`window_placement::moves`); notices, questions, the gallery and every
+  other screen stay where they place themselves, and so does a window that
+  fills its whole room or is fitted to its place, as the phone's Settings
+  is. The layer moves a window as it shows it (`OaLayer::shown_placement`):
+  its own placement, moved by its offset and kept on screen
+  (`window_placement::shown_at`), so drawing, input, automation and
+  `placement_of` all see the moved place, and an unmoved window's pixels
+  are exactly as before. The offset is from the window's unmoved place, in
+  points. Input that moves a window comes first (`take_window_move`): a
+  press on the window's title, its first `kit::Role::header` item at a
+  point no control holds, drags the window, a mouse's at once and a
+  finger's once it has held 400 ms within 8 points, a finger that strays
+  sooner dragging nothing (`TitleDrag`, `drag_move`); a double-click on the
+  title puts the window back in its centre; Alt and an arrow move the top
+  modal window 8 points, and with Shift 32. A dragged window snaps, across
+  and down each on their own, within 12 points to its unmoved column or
+  row, else to the room's centre, else to the room's near or far safe edge
+  (`snapped`). It is kept on screen: at least 64 points of it across and
+  down in the room, and its top, which holds the title, in the room; an
+  edge less than a point from a safe edge lies on it. Each window keeps its
+  place for each size class in the preferences,
+  `open-annihilation.window.<window>.<class>` (`settings`, `key-editor`,
+  `library`, `map-browser`, `mutator-picker`, `brain-picker`; `compact`,
+  `regular`, `large`), as "x,y", the offset in points; an offset of 0, 0
+  erases the key. The class is the in-match Settings' in a match and the
+  view's on the front end. `reset_window_places`, which Settings › User
+  Interface's Reset window positions calls, forgets every key that starts
+  `open-annihilation.window.` and no other, writes the preferences and ends
+  a drag under way; `set_window_size`, which its Window size applies at OK,
+  writes `open-annihilation.ui.window-size` (Auto erases it) and lays every
+  screen out again. A moved window keeps its kept front-end drawing.
 - **Input.** One overlay at z 100 on every screen (`register_oa_layer`, over
   the extensions' overlays, under the frontend's message boxes) hands the
   layer every input. The key that closed a screen comes first: its presses
@@ -486,9 +538,14 @@ latched the closing key and drew a backdrop.
   screen's points by its placement (`layer_point`): floor((pixel − left) /
   scale). A finger's press gets the reach of the touch controls in the
   screen's points, the pick distance over the window pixels a point takes;
-  a mouse's none; keys go first to the screen's own shortcuts (`shortcut`,
-  which every screen but the Library answers `pass`), then through
-  `layer_key`. Outside a match F1 is the
+  a mouse's none; keys go first to the screen's own shortcuts (`shortcut`:
+  the Library's and the key editor's, and on Settings › Accessibility the
+  practice pad's, which takes Shift, Ctrl, Alt, the letters and the digits
+  so that they reach nothing else), then through `layer_key`. A key's
+  release goes to the screen taking input (`key_up`); the practice pad is
+  the one screen that follows it, and every other answers `pass`. Settings'
+  screen also hands the pad its time each tick
+  (`settings::dialog_practice_tick`). Outside a match F1 is the
   kit's information key, `Key::info`, which a screen with more to tell
   about what the pointer or the focus is on takes; a screen that answers
   `pass` lets F1 go on to the game as before, and Settings does. In a
@@ -511,6 +568,24 @@ latched the closing key and drew a backdrop.
   never darkens what lies under it, whatever `backdrop` says, and only the
   part of it that holds what it drew goes into the window's texture. The
   cursor stays above it.
+- **Rounded corners.** The layer rounds what it shows, not each module's
+  drawing: a placement carries `LayerPlacement::corner_radius`, in the
+  screen's points. A window that moves takes its class's
+  `kit::Metrics::window_radius` (10, 11 and 12 points at Compact, Regular
+  and Large) from `shown_placement`, and Settings sets its own; a notice, a
+  question and a work dialog take their class's `dialog_radius` (12, 13
+  and 14) through `centred_box`; a screen that fills its room, and every
+  other screen, stays square. `draw_screen` then rounds the opaque drawing
+  (`round_layer_corners`): outside each quarter circle the pixels are
+  clear, so the picture, the darkened menu or the battlefield shows there,
+  and a ring a point thick along the arc takes the edge's light colour
+  where the corner meets the top or the left and its dark colour where it
+  meets the bottom or the right, continuing the window's bevelled edges.
+  The shape is the kit's (`kit::corner_coverage`), stepped at every scale:
+  a pixel is the window's or clear, so no blend rounds a corner pixel
+  otherwise than the checks expect. A check that compares a screen with its own drawing does
+  it through `expected_layer_frame`, which rounds the same way, or rounds
+  a screen it draws straight with `round_drawn_screen`.
 - **Typed text** goes to the screen taking input (`text`), and while that
   screen reports a `text_field` the system's text input stays started over
   the field, mapped back to the coordinates input arrives in
@@ -555,11 +630,14 @@ latched the closing key and drew a backdrop.
   key (`MarkScreen`), with which the layer's own check
   (`OaLayer::check_clear_screens`) holds screens that are not opaque and
   F1.
-- **In a match** the layer is one picture of the window's size while the
-  in-game menu's column shows: the OA button under Resume, the backdrop
-  under a modal screen, and the screens at their places (one that is not
-  opaque laid over by its opacity), each under a modal screen with a
-  backdrop darkened as the button is. Each screen is drawn at its
+- **In a match** the layer is one picture of the window's size: while the
+  in-game menu's column shows, the OA button under Resume and the Overlays
+  button left of it; the backdrop under a modal screen; and the screens at
+  their places (one that is not opaque laid over by its opacity), each
+  under a modal screen with a backdrop darkened as the button is. A screen
+  that is not modal shows over the running match with no column, as the
+  keys overlay does (`runtime_keys_overlay.cpp`); with no screen and no
+  column the layer shows nothing. Each screen is drawn at its
   placement's scale as large as its place, Settings at its own class and
   scale on the kit canvas's crisp form at a whole scale and its smooth form
   at 150%, never drawn at 1× and enlarged, and copied into the layer pixel
@@ -570,11 +648,48 @@ latched the closing key and drew a backdrop.
   layer: it goes over the composed frame (`compose_match`) and is presented
   after the match's other layers and before the frontend dialogs' and the
   cursor (`present`).
+- **Arrange overlays.** The in-game menu's **Overlays** button, under
+  Resume and left of the OA button (`arrange_button_rect`, 82 by 24 source
+  pixels at (14, 455), placed as the OA button is, the phone's layout
+  included), is drawn in the menu's own art (`arrange_button_face`, through
+  `oa/ui/frontend_renderer/room_parts.hpp`): a plate from the menu's
+  BUTTONS0, its ends kept and its middle repeated, so a mod's skin carries
+  through, the small OA stamp at its left end and the caption in the menu's
+  caption font. It sinks while pressed and darkens under a modal screen as
+  the OA button does. It opens Arrange overlays (`open_arrange_overlays`,
+  `oa_layer_arrange.cpp`), a modal screen named `arrange-overlays` that is
+  not opaque and lies over the overlays' area (`Runtime::overlay_area`: the
+  battlefield, or what the touch controls leave clear), never over the
+  side column: a veil and a grid, a dashed handle with a grip and its words
+  on the keys overlay, the chat line and the latch chips, each where that
+  overlay shows now (`arranged_overlays`), and a card with Reset and Done
+  where it covers the fewest handles, placed again as a handle is dragged
+  under it. A drag moves a handle on an 8-point grid and keeps the place on
+  release; Tab moves between the handles, Reset and Done; an arrow moves
+  the focused handle 8 points, 32 with Shift; a double-click on a handle
+  forgets that overlay's place; Reset forgets every overlay's place at
+  every class; Done and Escape go back to the in-game menu.
+  `oa_layer_overlays.hpp` (`overlay_placement`) holds the places: one for
+  each overlay and size class, `open-annihilation.overlay.<keys-overlay|chat-line|latch-chips>.<compact|regular|large>`,
+  each axis measured from the near edge, the far edge or the centre of
+  the overlays' area, whichever third the overlay's centre lies in, on the
+  grid, in the in-match windows' points (`overlay_room`), written as
+  `l16,b8` or `c-24,t0`. The class is the in-match windows', so a 1280 by
+  720 and a 1920 by 1080 match share their places. `overlay_shown` gives
+  each overlay its place: where it lays itself out, pixel for pixel, while
+  it has none, else moved to the place, as large as it is and kept wholly
+  in the overlays' area. The keys overlay's panel, the latch chips
+  (`Runtime::draw_key_latch_chips`) and the chat line that stands over the
+  battlefield (`Runtime::draw_risen_chat_line`) ask it where to draw. Reset
+  window positions does not touch these keys. No OA notice shows over a
+  running match, so there is no notices handle; one that does later adds
+  its name to `overlay_placement::overlays` and asks `overlay_shown`.
 - **Automation** lists what the layer shows (`automation_controls`), as
   [docs/automation.md](../../docs/automation.md#oas-own-screens) describes:
   `oa.button` (on the main menu its text says how many updates wait in the
-  Library) and, on the main menu, `oa.settings-button`, then the screens
-  from the top down to the first modal one,
+  Library) and, on the main menu, `oa.settings-button`, or in the in-game
+  menu the Overlays button, `oa.arrange-button` (text `Overlays`), then the
+  screens from the top down to the first modal one,
   each control and part named `oa.` and its kit name, with its exact
   rectangle in the window's pixels and that rectangle mapped back onto the
   canvas.
@@ -585,7 +700,8 @@ latched the closing key and drew a backdrop.
 host the Library ([src/ui/library](../ui/library/README.md)) as a screen of
 the OA layer on the main menu, named `library`: modal over a backdrop, laid
 out at the view's size class (`library::window_size`, `library_layout`) and
-centred in the window at its scale. Its model, its screen's state and its feed are
+centred in the window at its scale, or where the player moved it by its
+title ([The OA layer](#the-oa-layer)), its corners rounded. Its model, its screen's state and its feed are
 the host's (`Runtime::LibraryHost`, made on first use, joined as the
 runtime goes).
 
@@ -719,6 +835,28 @@ runtime goes).
   `Discarder`, a folder anywhere else being refused. The Library's own
   keys are Cmd+F (Ctrl+F elsewhere) and `/` outside the search for Find, and
   Ctrl+Tab and Ctrl+Shift+Tab for the tabs; Cmd+, opens Settings over it.
+- **Key layouts and USE.** The host gives the model `Library::key_hooks`.
+  When USE's question opens, its `moves` reads the player's Keys folder and
+  resolves the layout in use with its own changes, and the new layout with
+  the own changes it would hold under Keep them on top and under Start
+  clean, as `apply_library_key_use` would leave them, on the player's
+  keyboard (`Runtime::key_map`) with the played mod's letters
+  (`Runtime::key_mod_data`) and the pointer interface in use
+  (`key_moves_between`); What moves lists each command whose first key
+  differs, and each command on one of the player's own keys. The answer
+  goes to `Runtime::apply_library_key_use`, which writes the layout
+  preference, shared or for the played mod, switches on the helpers the
+  question left on, and copies the old layout's own changes to the new
+  one's own folder only under Keep them on top and only when the new
+  layout has none; it never deletes or writes over a player's own
+  changes. It returns what it changed (`Runtime::LibraryKeyUseUndo`: the
+  layout preferences before, the engine settings before, this run's latch
+  and hold lists, and the own folder only when USE made it). The Library
+  then pushes a question over itself that says where the layout is used
+  ("Using Lefty for every game.", or "… with {mod}."), with OK and Undo;
+  Undo calls `Runtime::undo_library_key_use`, which puts all of that back,
+  removes only an own folder USE made, and loads the layout again. EDIT
+  KEYS… opens the key editor.
 - **The check.** `native-library` (`--check-library`,
   `runtime_library_check.cpp`) gives the Library a feed of made-up
   packages and no network, with its data and the player's folder in the
@@ -728,7 +866,14 @@ runtime goes).
   Active, its lines read and taking no press, and closed, the dot and
   `oa.button`'s "Library · 3 packages · 2 updates" with two, the Library on
   Active and its Updates tab on its two updates,
-  GET and CANCEL reaching the feed, OPEN FOLDER and HOMEPAGE through the
+  the Keys tab reading "Keys (3)" with OA default first over layouts the
+  check writes into its Keys folder (Grid Test in use with the player's
+  own change, Patrol on J, and Lefty Test), USE asking where first, then
+  about the own changes, then listing what moves, writing the preference,
+  keeping the own changes on top at 640x480 and starting clean at
+  1920x1080, Grid Test's own changes never lost, and Undo on the notice
+  after USE putting Grid Test back and removing only the own folder USE
+  made, GET and CANCEL reaching the feed, OPEN FOLDER and HOMEPAGE through the
   recorded openers, ROLL BACK's question over the Library, PLAY NOW's soft
   restart, Settings over the Library and the Library over Settings, never
   two of either, the shortcut opening Settings, and in a skirmish the
@@ -928,8 +1073,8 @@ hosts them on the OA layer.
   built-in registry off there before the content service starts
   (`prepare_map_browser_check`), and at 640x480, 1280x720, 1920x1080 and
   2560x1440 opens SELMAP and presses MORE MAPS…. It requires the layer's
-  size class and scale (Compact 1x, Large 1x, Regular 2x, Large 2x) and the
-  grid's columns (3, 6, 4, 6); MORE MAPS… over none of SELMAP's gadgets;
+  size class and scale (Compact 1x, Large 1x, Large 1x, Large 2x) and the
+  grid's columns (3, 6, 6, 6); MORE MAPS… over none of SELMAP's gadgets;
   every card and control inside the browser's window; Online empty;
   Installed packs showing the two check maps alone; the clashing map's card
   greyed, "New names" in the footer and Select disabled; the search "isle"
@@ -954,12 +1099,20 @@ hosts them on the OA layer.
 ## Mutators
 
 SKIRMISH, NEWGAME (and Any Mission, which uses the same panel) and the host's
-battle room carry a filled kit button (white text on the kit's deep green)
-wearing the OA badge at its left, with its words after it keeping to the
-left: "Mutators", or "Mutators (4)" for the count of the set chosen
-("Mutators ({count})" in the catalogue). It is a screen of the layer of its
-own (`mutators-button`, not modal, no backdrop, not opaque, so the picture
-shows round it). `keep_mutator_button_screen`, which
+battle room carry Mutators as one of the room's own on and off buttons,
+drawn from the room's art (`brain_seats_room.hpp`,
+[src/ui/frontend-renderer](../ui/frontend-renderer/README.md)): COMMONGUI's
+on and off button, its plate and its lamps, with the engraved OA stamp at
+its left and its words after it, "Mutators: off", or "Mutators: 4 on" for
+the count of the set chosen ("Mutators: {count} on" in the catalogue;
+`mutators_words`). Its lamp is unlit while none is on, green while
+mutators are on, and red in the battle room while a seated player lacks
+one. The words are drawn in the room's caption font, else its label font,
+and cut with … only when even that does not fit. No part of it is the
+kit's, so a mod's art and palette carry through. It is a screen of the
+layer of its own (`mutators-button`, not modal, no backdrop, not opaque,
+so the picture shows round it), which draws only the pixels the button
+covers over the room, at the room's own scale. `keep_mutator_button_screen`, which
 `OaLayer::tick` calls once a frame beside `keep_more_maps_screen`, pushes it
 while one of those screens shows, and the screen closes itself otherwise.
 On the skirmish setup and the campaign launch that is while no match is
@@ -977,33 +1130,39 @@ at once: the map picker is its own screen.
   (`bar_middle`), and stands it under that middle, the left edges
   together, a bolt's width under the bar. When that place meets a gadget
   the column rule is used, and when neither is clear `place_block`, MORE
-  MAPS…'s rule, at the button's own size. The badge, the words and the
-  padding are the kit's (`kit::button_mark_parts`): a fifth of the
-  button's height pads the left, the gap after the badge and the right.
-  The words are drawn in the regular font where they fit, otherwise the
-  small font, and cut with … only when even that does not fit. The
-  screen's place also covers the focus ring's 2-point margin, so the
-  button does not jump when the ring is drawn. A Y chip stands inside the
-  button's right end while the pad HUD is showing button badges, the words
-  kept a padding clear of it, and is left out when the button has no room
-  for it.
+  MAPS…'s rule, at the button's own size. Where the words need more room
+  than that place gives, the button grows to the left, as far as the room
+  is free and inside the frame (`widen_mutators_switch`); one that cannot
+  grow keeps its width and draws its words narrower. The screen's place
+  also covers the room's focus marker round the button and the open card.
 - **Focus.** The button is pushed onto the screen's own Tab order. Tab
   from the record just before it, and Shift+Tab from the one just after,
-  hand the focus over: the GUI's focus goes to none and the kit's ring
-  shows. On SKIRMISH, Down from Difficulty and Up from the next record in
+  hand the focus over: the GUI's focus goes to none and the room's own
+  focus marker shows on the button. On SKIRMISH, Down from Difficulty and
+  Up from the next record in
   its column do too, and the arrows hand the focus to the nearest record
   that way. On NEWGAME and Any Mission, Up and Down are not taken: they
   step the campaign lists. While the button holds the focus, Left and
   Right are consumed there so they do not move the GUI's focus. Return,
-  Space and the pad's A press the button. A mouse presses the drawn
+  Space and the pad's A press the button, and Y opens the picker. A mouse presses the drawn
   rectangle. A finger presses the button when it is at least as near as
   any gadget, Difficulty included; a point inside a gadget stays that
   gadget's, so a tap on Difficulty steps Difficulty. A press anywhere else
-  clears the focus. A locked button still takes a press on its rectangle
+  clears the focus. A locked button, grayed as a grayed button of the room
+  is, still takes a press on its rectangle
   and opens nothing. The pad's R1 and L1 are Tab and Shift+Tab, as on every menu, and
   `take_pad_action` offers an action to each screen that shows, from the
   top, until one takes it. A modal screen is the only one offered it, and
-  an action it passes on becomes a key or a click as before.
+  an action it passes on becomes a key or a click as before. The pad's
+  button badges leave the button as it is.
+- **The card.** Resting the pointer on the button, or the information key
+  while it holds the focus, shows a kit hover card beside it
+  (`mutators_card`): "No mutators on", "1 mutator on" or "{count} mutators
+  on", then one row a mutator in the order they apply (a guest's missing
+  one reads "{name}: not installed" in the lock colour), "and {count} more"
+  past six, then "Applied in this order." and "Click to change." on the
+  host's button or "Click to read." on a guest's. It stays while the
+  pointer is on the button or the card, and Escape closes it.
 - **The set.** Each setup keeps its own chosen set. Skirmish's is emptied
   when SKIRMISH is entered from anywhere but the map picker and itself, so
   it holds across SELMAP and a refused start. The campaign's is emptied
@@ -1016,13 +1175,14 @@ at once: the map picker is its own screen.
   changes nothing. START, and each campaign mission, hands the chosen set
   on: an empty set starts the game as before, and a set that cannot be
   read refuses the start as any failed start does. The button counts the
-  chosen set: "Mutators" with none, "Mutators (4)" with four.
+  chosen set: "Mutators: off" with none, "Mutators: 4 on" with four.
 - **The check.** `native-mutator-button` (`--check-mutator-button`,
   `runtime_mutator_button_check.cpp`) uses the mutator picker's feed and a
   scratch preferences file holding Gatehouse with Gatehouse Keep for
   skirmish and Fast Builders for the campaign. At 640x480 and 1280x720 it
-  requires the button's size and place, the badge, its words and count,
-  the Y chip inside it, Tab, Down, a finger's reach, Y, SELMAP keeping the
+  requires the button's size and place, no part of the kit, its words and
+  count, the card with four chosen, the pad's badges leaving it as it is,
+  Tab, Down, a finger's reach, Y, SELMAP keeping the
   set, START handing it on, and a return to the main menu clearing it;
   then NEWGAME's size and place, Tab, the remembered campaign set and the
   first mission.
@@ -1034,7 +1194,8 @@ at once: the map picker is its own screen.
   It writes `mutator-button-skirmish-<w>x<h>.png` and
   `mutator-button-newgame-<w>x<h>.png`, and with four chosen
   `mutator-button-skirmish-four-<w>x<h>.png` and
-  `mutator-button-newgame-four-<w>x<h>.png`. `--check-text-fit` paints
+  `mutator-button-newgame-four-<w>x<h>.png`, and with the card open
+  `mutator-button-<screen>-card-<w>x<h>.png`. `--check-text-fit` paints
   SKIRMISH with none and five chosen, and NEWGAME, in every language and
   both sizes, and requires the words whole.
   A FIXTURES_SETUP test (`mutator-button-clean`) clears its folders before
@@ -1043,14 +1204,17 @@ at once: the map picker is its own screen.
   large as Select Map, directly over it with the same left edge
   (`place_over`), centred down the space between the player rows and
   Select Map, counting the room's list. Where that place meets a control,
-  MORE MAPS…'s rule at the button's own size (`place_over_anchor`). Y, Return, Space and a
+  MORE MAPS…'s rule at the button's own size (`place_over_anchor`); it
+  grows to the left for its words as on the setups. Its lamp is green while
+  mutators are on and red while a seated player lacks one. Y, Return,
+  Space and a
   press open the picker for multiplayer, on the room's set, or on the
   remembered multiplayer set when the room has none. USE THESE stores that
   set as the room's. CANCEL changes nothing. A guest's battle room shows
-  GET MUTATORS, described under
-  [GET MUTATORS in the battle room](#get-mutators-in-the-battle-room).
-  While a launch locks the host's options the button stays, drawn
-  disabled, and a press, Return, Space and Y open nothing. The waiting
+  the same button for the host's set, read-only, described under
+  [A guest's Mutators in the battle room](#a-guests-mutators-in-the-battle-room).
+  While a launch locks the host's options the button stays, grayed, and a
+  press, Return, Space and Y open nothing. The waiting
   text is
   [src/ui/frontend-multiplayer](../ui/frontend-multiplayer/README.md).
 - **The chat.** Every machine posts a local line when the room's list
@@ -1087,15 +1251,19 @@ at once: the map picker is its own screen.
   player lacks one, the host reads "Waiting for {player}: {name}" just
   before START, ending before the doors drawn round it. A guest whose READY
   is waiting on a mutator reads "Ready once {name} is here" in that place.
-  The line does not enable or disable START or READY.
+  Both are drawn in the room's label font; automation lists the host's as
+  the label `oa.mutators.waiting`. The line does not enable or disable
+  START or READY.
 - **The room check.** `native-mutator-room` (`--check-mutator-room`,
   `runtime_mutator_room_check.cpp`) hosts a battle room alone and uses the
   mutator picker's feed and a scratch preferences file holding Gatehouse
   with Gatehouse Keep. At 640x480 and 1280x720 it requires the button as
-  large as Select Map over it, wearing the badge and reading "Mutators",
-  meeting no control of the room. Y opens the remembered set, USE THESE
+  large as Select Map, or wider to the left where its words need it, over
+  it to its right edge, with no part of the kit, reading "Mutators: off"
+  and meeting no control of the room. Y opens the remembered set, USE THESE
   stores it and the chat reads the turned-on lines, and at both sizes the
-  button reads "Mutators (2)", and "Mutators (4)" with four on. Turning them off posts the off line. Then,
+  button reads "Mutators: 2 on" with its lamp lit, and "Mutators: 4 on"
+  with four on. Turning them off posts the off line. Then,
   in French at 640x480 with Unicode chat off and the host named "Jörg" in
   the code page, as a 3.1c player's name arrives, USE THESE posts lines
   that hold é and ö as one code-page byte each, that each fit the chat
@@ -1108,21 +1276,29 @@ at once: the map picker is its own screen.
   START reads "Waiting for Visitor: Ridge Tough" in that language, uncut.
   Each language writes `mutator-room-3.1c-<tag>-640x480.png` and
   `mutator-room-waiting-<tag>-640x480.png`.
-  With the room's options locked the button stays disabled and opens
-  nothing.
+  With the room's options locked the button stays disabled and neither a
+  press nor Y opens the picker.
   Hosting alone shows none of the guest's controls, and the guest screen
   has no place while it is on the layer. It
-  writes `mutator-room-host-<w>x<h>.png` and, with the list on,
-  `mutator-room-host-on-<w>x<h>.png`. A FIXTURES_SETUP test
+  writes `mutator-room-host-<w>x<h>.png`, with two on
+  `mutator-room-host-on-<w>x<h>.png` and with four
+  `mutator-room-host-four-<w>x<h>.png`. A FIXTURES_SETUP test
   (`mutator-room-clean`) clears its folders before each run.
 
 `native-brain-room` (`--check-brain-room`, `runtime_brain_room_check.cpp`)
-hosts a battle room alone and checks each computer row's brain button at
-640x480 and 1280x720: no button with no brain installed, Steady Commander
-remembered at firm, the built-in player at Medium, and Lantern Scout on
-every computer this machine runs. The button meets no control of the room
-but its row's empty screen-size column. It writes
-`brain-room-host-<w>x<h>.png`. A FIXTURES_SETUP test (`brain-room-clean`)
+hosts a battle room alone and checks each computer row's brain at 640x480
+and 1280x720 ([Brain seats](#brain-seats)): with no brain installed no
+seat shows and the frame matches one taken with the screen closed; with
+Steady Commander remembered at firm a new computer's Resolution cell
+reads "Steady Commander 1.2 · Firm" and its Mem cell shows Firm over the
+room's greyed Hard, the cell meeting no control of the room but its row's
+empty screen-size column; the notch on the computer's name opens the
+brain menu, drawn as the room's list box, and Escape closes it; the
+menu's built-in player gives "Built-in · Hard", its level before gives
+Medium, and the Mem cell steps the built-in player to Hard, Easy and
+Medium; Use for every computer seat and Lantern Scout set both rows. It
+writes `brain-room-host-<w>x<h>.png`, and with the menu open
+`brain-room-menu-<w>x<h>.png`. A FIXTURES_SETUP test (`brain-room-clean`)
 clears its folders before each run. `native-net-loopback-brain`
 (`tools/check_native_net_brain.py`) seats Steady Commander at firm on the
 host's computer. The brain places four frames late in the build window and
@@ -1140,11 +1316,13 @@ under shuffled ones, when a brain reads only its own.
 ## The mutator picker
 
 The mutator picker is one modal screen on the OA layer (`mutator-picker`),
-centred over the screen that asked, at the size class's dialog size. Its
+centred over the screen that asked, at the size class's dialog size, a
+window that moves by its title ([The OA layer](#the-oa-layer)). Its
 model and screen are
 [src/ui/mutator-picker](../ui/mutator-picker/README.md);
 `runtime_mutator_picker.cpp` hosts them. Mutators on the skirmish setup, the
-campaign launch and the host's battle room opens it. It closes as Cancel
+campaign launch and the host's battle room opens it, and a guest's
+Mutators button opens it read-only. It closes as Cancel
 when that screen goes or a match starts.
 
 - **The request.** `open_mutator_picker` takes a `MutatorPickerRequest`: the
@@ -1224,10 +1402,15 @@ when that screen goes or a match starts.
 ## The brain picker
 
 The brain picker is one modal screen on the OA layer (`brain-picker`),
-centred over the screen that asked, at the size class's dialog size. Its
+centred over the screen that asked, at the size class's dialog size, a
+window that moves by its title ([The OA layer](#the-oa-layer)). Its
 model and screen are
 [src/ui/brain-picker](../ui/brain-picker/README.md);
-`runtime_brain_picker.cpp` hosts them. It closes as Cancel when the
+`runtime_brain_picker.cpp` hosts them. A seat's brain menu opens it with
+Options... while the seat's brain has options
+([Computer seats in the rooms](#computer-seats-in-the-rooms)), on that
+seat, its brain, its level and its options, over the skirmish setup, the
+campaign screens or the battle room. It closes as Cancel when the
 screen underneath goes or a match starts.
 
 - **The request.** `open_brain_picker` takes a `BrainPickerRequest`: the
@@ -1267,64 +1450,106 @@ screen underneath goes or a match starts.
   FIXTURES_SETUP test (`brain-picker-clean`) clears its folders before
   each run.
 
-## Computer seat buttons
+## Computer seats in the rooms
 
-While at least one brain is installed, each computer row of the skirmish
-setup has a button to the right of its Energy button. The button reads
-that seat's brain and level, cut with … when the room between Energy and
-the next control is too narrow, and opens that seat's picker. With no
-brain installed the setup is unchanged: no button, no card and no extra
+While at least one brain is installed, a computer seat's brain is shown
+and chosen in the game's rooms with parts drawn from the room's own art
+(`runtime_brain_seats_screen.cpp`, the screen `brain-seats`, and
+`brain_seats_room.hpp`, which the battle room and the Mutators buttons
+share; the parts are
+[src/ui/frontend-renderer](../ui/frontend-renderer/README.md)'s). No part
+of them is the kit's, so a mod's art and palette carry through. With no
+brain installed the screens are unchanged: no seat, no card and no extra
 stop for the keyboard.
 
-- **Placement.** The button is placed from its row's Energy button, 4
-  points to the right, centred on that button, as wide as 160 points and
-  no narrower than 48. It stops short of the first control to its right
-  that shares any of its rows. A row with no such room draws no button.
-- **The label.** A named brain reads its name and level. The built-in
-  player reads "Built-in" and the word the Difficulty button is showing.
-  The automation name is `oa.brain-seat.<slot>` and its text is the whole
-  label; the drawn words are the label cut to the button.
-- **Focus.** Tab and Shift+Tab, the arrows, and a controller's L1, R1 and
-  A reach the button. While it has the focus the setup's own focus is
-  none, and the button draws the kit's focus ring. A press elsewhere, or
-  leaving the setup, clears it. Y still opens Mutators.
-- **The card.** Resting the pointer on the button, or F1 or View while it
-  has the focus, shows the seat's card: the brain, its version, its level,
-  and Full awareness when the brain sees every unit. Escape closes the card.
-- **The choice.** USE THIS writes that seat. With every computer seat on,
-  it writes every computer row and leaves a human or an open slot as it
-  is. The choice stays in memory until START, which remembers it.
+- **The skirmish setup.** A computer row's own Player button, redrawn in
+  its own art, names the seat's brain, or the room's "Computer" for the
+  built-in player, a long name cut with "..." in the room's caption font
+  or its label font, and has a notch at its right end. The notch
+  (`oa.brain-seat.<slot>`, its text the seat's whole label: a named brain
+  with its level, or the built-in player with the word the Difficulty
+  button shows), or the right button anywhere on the Player button, opens
+  the brain menu; the left button elsewhere on it keeps 3.1c's own press,
+  which cycles the row. Tab stops on the notch just after its Player
+  button, the arrows and a controller's L1, R1 and A reach it, and while
+  it has the focus the setup's own focus is none and the room's focus
+  marker shows on it. Y still opens Mutators.
+- **The brain menu** is the room's list box under the button, or above it
+  where there is no room below, moved in from the room's edges: the title
+  "Computer player for this seat", the built-in player, whose level the
+  Difficulty button sets, then each installed brain with its level, the one
+  the seat plays reading "< Firm >", whose arrows step its level; a brain
+  that does not fit the game is greyed. Then "Options..." while the seat's
+  brain has options, which closes the menu and opens the brain picker on
+  that seat, its brain, level and options ([The brain picker](#the-brain-picker));
+  "Use for every computer seat", a check box in the room's CHECKBOX art,
+  which writes this seat's choice onto every computer seat, and later
+  choices onto all of them while it is ticked; and "Get more brains...",
+  which leaves for the main menu and opens the Library at Brains there,
+  since the Library opens over the main menu alone. Up and Down move the
+  selection, Left and Right step the current row's level, Return and Space
+  press the selected row, Escape closes it, and a press outside it closes
+  it. While it is open the kit's hover card shows the selected row's brain
+  beside it. Automation lists `oa.brain-menu.row.<id>`
+  (`oa.brain-menu.row.built-in` for the built-in player), each row's text
+  its words and its level after " · ", `oa.brain-menu.level.previous` and
+  `.next` on the current row, `oa.brain-menu.options`,
+  `oa.brain-menu.every-seat`, checked while ticked, and
+  `oa.brain-menu.get-brains`.
+- **The card.** Resting the pointer on the Player button or the notch, or
+  the information key while the notch has the focus, shows the seat's
+  card: the brain, its version, its level, and Full awareness when the
+  brain sees every unit. Escape closes the card.
+- **The choice.** A row of the menu writes that seat; with Use for every
+  computer seat ticked, it writes every computer row and leaves a human or
+  an open slot as it is. The choice stays in memory until START, which
+  remembers it.
 - **The check.** `native-brain-seat-buttons`
   (`--check-brain-seat-buttons`, `runtime_brain_seats_check.cpp`) turns
   every built-in registry off and, at 640x480 and 1280x720, keeps a frame
-  of the setup before any brain is written. It then requires Steady
-  Commander at Firm, a second computer row reading the built-in player and
-  the Difficulty button's word, Tab from that row's Energy, the picker,
-  Lantern Scout on every computer seat, the hover card, and the two
-  `plays lantern-scout` lines a start logs. With the brains removed the
-  frame matches the one it kept, and no seat button remains. It writes
-  `brain-seats-skirmish-<w>x<h>.png`. `--check-text-fit` paints the
-  buttons with three computer rows, one of them a long name, in every
-  language and both sizes. A FIXTURES_SETUP test (`brain-seats-clean`)
-  clears its folders before each run.
+  of the setup before any brain is written. It then writes three made-up
+  brains, Steady Commander with two levels, and remembers Steady Commander
+  at Firm on place 1. It requires the notch, `oa.brain-seat.1`, reading
+  that label inside the right end of the row's own Player button; a second
+  computer row reading the built-in player and the Difficulty button's
+  word, which cycling Difficulty changes; Tab from Player1 onto the notch
+  and on, and Shift+Tab back; Return opening the brain menu on Steady
+  Commander at Firm, its next level stepping the seat to Bold and back,
+  its Options... opening the picker, whose USE THIS keeps the brain with
+  the option the check wrote, and the built-in player, which has no
+  Options..., putting the Difficulty word back; the right button on the
+  Player button opening the menu and Escape closing it; Use for every
+  computer seat with Lantern Scout setting both rows; the card and Escape;
+  and the two `plays lantern-scout` lines a start logs. Back on SKIRMISH
+  the seats read as remembered, and the left button on Player2's words
+  keeps 3.1c's own press. With the brains removed the frame matches the
+  one it kept, and no seat remains. It writes
+  `brain-seats-skirmish-<w>x<h>.png`, and with the menu open
+  `brain-seats-menu-<w>x<h>.png`. `--check-text-fit` paints the seats with
+  three computer rows, one of them a long name, in every language and both
+  sizes. A FIXTURES_SETUP test (`brain-seats-clean`) clears its folders
+  before each run.
 
 ## The campaign's computer player
 
 While at least one brain is installed, NEWGAME and Any Mission show one
-button in the Difficulty button's column, under it. The button reads the
-campaign seat's brain and level. The built-in player reads "Built-in" and
-the word the Difficulty button is showing. The automation name is
-`oa.brain-seat.campaign`. With no brain installed those screens are unchanged.
+button in the room's button art (BUTTONS0), under the Difficulty button in
+its column, with the OA stamp at its left and the notch at its right. It
+reads the campaign seat's brain and level: "Steady Commander · Firm", or
+for the built-in player the word the Difficulty button is showing. The
+automation name is `oa.brain-seat.campaign`. With no brain installed those
+screens are unchanged.
 
 - **Placement.** The button takes the size of the control under Difficulty
   and sits in that column, with a gap of 2 above and below. When the column
   has no room for that, the button is the label's own size, placed against
   Difficulty by the same rule a block uses when it does not fit.
-- **The picker.** A press opens the campaign seat's picker. The seat is
-  named Computer player, and the built-in player's level stays the run's
-  difficulty. A mission has one computer player, so the picker has no
-  switch for every computer seat. USE THIS sets the campaign's seat at
-  place 1, which every mission of the run starts with.
+- **The menu.** A press anywhere on the button opens the brain menu, titled
+  "Computer player in the missions". The built-in player's level stays the
+  run's difficulty. A mission has one computer player, so the menu has no
+  Use for every computer seat. A row sets the campaign's seat at place 1,
+  which every mission of the run starts with; Options... opens the brain
+  picker on it.
 - **Focus.** Tab and Shift+Tab, and a controller's L1, R1 and A, reach the
   button. Up and Down stay with the campaign and mission lists. The card
   shows when the pointer rests on the button, and on the information key.
@@ -1335,14 +1560,17 @@ the word the Difficulty button is showing. The automation name is
 - **The check.** `native-brain-campaign` (`--check-brain-campaign`,
   `runtime_brain_campaign_check.cpp`) at 640x480 and 1280x720 keeps a frame
   of NEWGAME and of Any Mission before any brain is written. It then
-  requires the button under Difficulty, reading the built-in player and the
-  Difficulty button's word, Tab reaching it while Up does not, the picker,
-  Steady Commander at Firm, and the same button on Any Mission. The first
+  requires one button under Difficulty, inside the frame and meeting no
+  gadget, reading the built-in player and the Difficulty button's word,
+  Tab reaching it while Up does not, Return opening the brain menu with no
+  every computer seat row, Steady Commander there making the label "Steady
+  Commander · Firm", and the same button on Any Mission. The first
   mission logs `player 1 plays steady-commander 1.2 at firm`. A save made
   in that mission, loaded after the campaign seat was set back to the
   built-in player, leaves the seat at Steady Commander, and a skirmish save
   leaves it as it is. With the brain removed the frames match the ones it
-  kept. It writes `brain-campaign-<screen>-<w>x<h>.png`.
+  kept. It writes `brain-campaign-<screen>-<w>x<h>.png`, and with the menu
+  open `brain-campaign-menu-<w>x<h>.png`.
   `--check-text-fit` paints the button with a long brain name, in every
   language and both sizes. A FIXTURES_SETUP test (`brain-campaign-clean`)
   clears its folders before each run.
@@ -1381,6 +1609,106 @@ FIXTURES_SETUP test (`mutator-prompts-clean`) clears its folders before each
 run. `--check-text-fit` paints the four questions, with long names, in every
 language and both sizes.
 
+## Updates
+
+`runtime_update.cpp`, `runtime_update_offer.cpp` and
+`runtime_update_install.cpp` are the game's side of a new release; the
+model, the files and the words are [src/app/update](update/README.md),
+and [docs/updates.md](../../docs/updates.md) says what the player sees.
+Every screen reads one state, so the menu pill, the update centre, the
+prompts, Settings › Updates and the headers name one state with one size.
+
+- **The state.** `Runtime::update_centre()` gathers `update::CentreInputs`
+  (the check's snapshot and its failure, the offer, the skipped, held and
+  scheduled releases, the download's snapshot with its bytes and rate, the
+  route, `--updated-from` and `--rolled-back-from`, the state file's
+  confirmation and kept version, and the helper's receipt) and returns
+  `update::centre_state`: one stage, its versions, its bytes, its percent
+  and the actions it allows. The size is the file the route downloads.
+- **The actions.** `Runtime::take_update_action` carries out one: Check
+  now starts a check; Download update starts the download, or opens the
+  release's page where this copy cannot install it; Pause and Resume stop
+  and carry on the download; Cancel download discards it, keeping nothing,
+  and takes back its schedule; Install when I quit writes the schedule;
+  the install-now action, named for the route, writes it and quits;
+  Don't install when I quit clears it; Skip this version and Try this
+  version write and clear the skip; Try again clears a held release and
+  starts the download again, or checks again after a failed check; Show
+  details shows the recovery screen; Show the log opens the updates
+  folder; What's new and Open the release page open the release's page;
+  Roll back… asks the roll back question; Keep it ready and Later change
+  nothing. Each preference written is flushed at once.
+- **The offer** (`runtime_update_offer.cpp`, the question `prompt`, its
+  buttons `skip`, `later` and `update`) asks at the settled main menu, and
+  waits through a match, Settings and a message box: "Open Annihilation
+  {version} is out", the size, the release's notes in a What's new box and
+  the reassurance; Skip this version (quiet, at the left), Later (Escape)
+  and Download update. A release held after it failed to install, and one
+  already downloaded, do not ask.
+- **The menu pill** (`update-pill`, not modal) shows the update centre's
+  short form at the main menu's top right, clear of the game's own
+  buttons, or under the OA buttons while an extension's overlay has put
+  them at the top; it hides off the main menu, in a match and under a
+  modal screen. It shows while a download moves ("0.8.8 · 41%", its bar
+  and Pause), is paused (its bar amber and Resume), is being checked, is
+  ready (Install…, which asks the ready prompt again), is scheduled
+  (Change) or stopped (Try again). A press on the pill opens the update
+  centre, a question (`update-centre`) with the state's heading, its
+  detail, the bar, its note and its actions as buttons, the first in the
+  accent, then Close; it follows the state while it shows, Pause turning
+  into Resume.
+- **The ready prompt** (`ready-update`) asks once a download is ready: a
+  callout "Downloaded and checked · {size}", a box listing the three
+  answers with their notes, and Keep it ready (Escape, `keep-ready`), the
+  install-now action (`restart-now`: Install and restart, Open the
+  installer on the macOS installer route, Close the game on a Steam Deck)
+  and Install when I quit (`when-i-quit`, marked). A quit installs only a
+  release scheduled for it, or `--update-and-quit`
+  (`Runtime::hand_off_requested`); quitting otherwise never installs.
+- **The recovery screen** (`update-receipt`) shows a receipt the helper
+  left that did not end well, once, at the first settled menu: the
+  outcome's words as its title, a callout, What happened with each step
+  marked done or failed, To put the game right where recovery did not
+  finish, and Show the log, Try again where the release can be tried again,
+  and Continue (`ok`). It marks the receipt shown, holds the release and
+  takes back its schedule. The Updated notice says once that this start
+  replaced an older version.
+- **The roll back's question** (`update-previous`,
+  `settings::updates::roll_back_question`) shows what comes back and what
+  stays as it is, a caution, and Cancel (marked) and Roll back and restart
+  (a danger button), which quits for the helper to put the kept version
+  back.
+- **Settings › Updates.** Each frame `apply_update_download` fills the
+  page's card from the state: "Installed {version}", the heading, the
+  detail, the bar and its paused look, the note and the actions as buttons
+  (Roll back… stays Previous version's; Later and Keep it ready, which ask
+  nothing of a page that stays open, are left out); a card's button
+  returns `DialogAction::update_action` with `Dialog::update_act`, which
+  the host hands to `take_update_action`. It also fills Updates' badge in
+  the section list ("41%" while a download moves or is paused, "ready"
+  while a release is ready or scheduled, `Dialog::updates_badge`), and
+  `update_header_note` gives the pill's words to Settings' header and the
+  Library's.
+- **The checks.** `native-engine-feed` (`--check-engine-feed`,
+  `runtime_update_check.cpp`), `native-update-offer`
+  (`--check-update-offer`, `runtime_update_offer_check.cpp`),
+  `native-update-download` (`--check-update-download`,
+  `runtime_update_install_check.cpp`, its starts run by
+  `tools/check_native_update_download.py`, each in its own folders) and
+  `native-update-roll-back` (`--check-update-roll-back`,
+  `runtime_update_roll_back_check.cpp`) serve their feeds and packages on
+  127.0.0.1 with a key made from a fixed seed, request no published feed
+  and start no helper. The download check presses the pill's and the
+  update centre's Pause and Resume, checks that Keep it ready schedules
+  nothing, and records the hand-off. Its `cancel` case
+  (`--update-download-case cancel`) opens the update centre from the pill
+  during a download and presses Cancel download, which keeps nothing; its
+  `pictures` case draws every update screen in every state, from made-up
+  states, at 640x480, 1280x720 and 1920x1080 with Window size set to
+  Compact, Regular and Large, and writes
+  `update-<screen>-<state>-<w>x<h>.png` to its folder. The roll back check
+  also shows a failed install's receipt once and holds its release.
+
 ## Files
 
 - `app.hpp`, `runtime.hpp`, `runtime.cpp`, `runtime_frontend_host.cpp`,
@@ -1388,7 +1716,9 @@ language and both sizes.
   screen loading and the host of the frontend dispatcher. Lines are only
   ever added to `screens.inc`.
 - `runtime_update.cpp`: looks for a new release at the settled main menu,
-  at most once a day, and keeps the signed feed it accepted.
+  at most once a day, keeps the signed feed it accepted, and reads it
+  again at the first menu of each start; `runtime_update_offer.cpp` and
+  `runtime_update_install.cpp` are its screens ([Updates](#updates)).
 - `runtime_menu_audio.cpp`: the main menu's hum, and when it starts and
   stops (The start's movies and the menu hum, above).
 - `runtime_world_draw.cpp`, `runtime_camera.cpp`: world rendering and the
@@ -2527,7 +2857,8 @@ language and both sizes.
   as the dialog's class lays it out, from 71 points left of its right edge
   to 5 points right of it, and the header's rows 6 to 22, at the dialog's
   scale: at 640x480 `at 144,78 480x324, version at 540,84 76x16`, and at
-  1920x1080 a dialog of 960x648 and a version room of 152x32;
+  1920x1080 `at 480,240 960x600`, Large at 1×, with a version room of
+  76x16;
   `native-stage` checks it. `gallery` opens the settings dialog beside the
   in-game menu at Developer and takes its UI kit gallery row's SHOW as the
   dialog takes it, so that the UI kit gallery covers the window; it stops
@@ -2535,7 +2866,7 @@ language and both sizes.
   top screen, and prints `stage: gallery at X,Y WxH CLASS Nx`, where it
   shows in the match canvas's pixels, its size class and its scale: at
   640x480 `at 0,0 640x480 Compact 1x`, at 1280x720 `at 0,0 1280x720 Large
-  1x` and at 1920x1080 `at 0,0 1920x1080 Regular 2x`. Its text holds no
+  1x` and at 1920x1080 `at 0,0 1920x1080 Large 1x`. Its text holds no
   version, so a golden frame of it takes the whole window. A save/load run ends by
   reporting the live units by type, the veterans by veterancy level, the
   stockpiled rounds, the buildings by facing and each player's health.
@@ -2838,19 +3169,19 @@ language and both sizes.
   a button's side left of it, showing the mods icon
   (`EngineSettingsMenuHost::mods_icon`), which opens the Library
   ([The Library](#the-library)) and wears a dot while updates wait there.
-  The dialog is centred over the darkened menu and takes every input while
-  it shows. The Settings button, Cmd+, on macOS or Ctrl+, elsewhere, the
+  The dialog is centred over the darkened menu, or where the player moved
+  it by its title, and takes every input while it shows. The Settings button, Cmd+, on macOS or Ctrl+, elsewhere, the
   macOS application menu's Settings… item and the Library's SETTINGS… open
   it, the Settings button with no Library under it; nothing opens
   over a message box or a frame a package owns. Enter is OK and Escape is Cancel;
   the key that closed the dialog does nothing more until it is released, so
   that a held key never reaches the main menu, where Escape itself does
   nothing. Another screen replacing the main menu closes the dialog as
-  Cancel does. `runtime_engine_settings_match.cpp` opens it beside the
-  in-game menu's column, whose OA button, which shows the settings icon,
-  with the shortcut and Ctrl+F2 for the mod options, the layer draws and
-  drives; the column going closes the
-  dialog as OK does. `runtime_engine_settings_app_menu.cpp` is the
+  Cancel does. `runtime_engine_settings_match.cpp` opens it over the
+  match, centred in the window or right of the in-game menu's column
+  (`match_dialog`). The column's OA button, which shows the settings
+  icon, with the shortcut and Ctrl+F2 for the mod options, the layer draws
+  and drives; the column going closes the dialog as OK does. `runtime_engine_settings_app_menu.cpp` is the
   application menu's item.
   `acceleration_status.hpp` and `acceleration_status.cpp`
   (`app-acceleration-status`) say what the dialog shows of the renderer:
@@ -2889,14 +3220,22 @@ language and both sizes.
   (screens of the check's own that are not modal, a text field's text and
   text input, `layer_key`, `close_above`), Escape doing nothing on the menu
   itself and EXIT ending the run; `oa_layer_check.cpp` the layer's own
-  check, run after the window sizes: in a 640x480 and a 1920x1080 window
+  check, run after the window sizes: in a 640x480 and a 2560x1440 window
   a screen that is not opaque, alone, over an opaque screen and under one,
   and under the cursor, changes no pixel of the window or of the frame
   without the cursor but those it draws (a half blend within 2 of the
   colour blended straight over what lies under it), darkens nothing, keeps
   the cursor above it and lists its control to automation, while an opaque
   one draws as before; F1 reaches a screen that takes the information key,
-  goes on past one that does not, and changes nothing in Settings; and in a
+  goes on past one that does not, and changes nothing in Settings; a
+  notice over the main menu shows with its corners rounded, as
+  `round_drawn_screen` rounds the notice drawn straight; S on
+  Accessibility's practice pad shows there and does not reach the main
+  menu; Settings moves 60 by 40 points by a drag on its title and keeps
+  that place in the preferences, a double-click on the title centres it,
+  Alt and the arrows move it, and `reset_window_places` puts it back; a
+  window's and a dialog's corners are clear outside the quarter circle and
+  edged along it at 1×, 1.5× and 2×; and in a
   match F1 goes on to the game and such a screen changes only the pixels it
   draws in the match's picture;
   `runtime_engine_settings_dialog_check.cpp` the dialog driven by the
@@ -2904,10 +3243,11 @@ language and both sizes.
   effect at once, Vertical sync read back from the renderer, Font shadow
   read back from the text style, OK, Cancel, Restore defaults and the keys
   they save) and the main menu with the
-  buttons as 640x480, 1024x768, 1280x720, 1920x1080 and 2560x1080 windows
+  buttons as 640x480, 800x600, 1280x720, 1920x1080 and 2560x1080 windows
   show it, each button opening its screen, and in each the dialog at the
   size class and scale the window
-  gives it (Compact 1×, Regular 1×, Large 1×, Regular 2×, Regular 2×),
+  gives it (Compact 1×, Regular 1×, Large 1×, Large 1×, Large 1×), its
+  corners rounded as the layer shows them,
   clicked where the window shows it and compared, every window pixel but
   the cursor's square, with the menu's frame darkened and the dialog drawn
   at its class and scale (`oa_layer_check.hpp`): each section, Developer
@@ -2915,13 +3255,16 @@ language and both sizes.
   end;
   `runtime_engine_settings_match_check.cpp` the in-game menu's button and
   dialog at 640x480, 1280x720, 1920x1080 and 2560x1080, and 1920x1080
-  with HUD scaling Off, each at the class and scale `match_dialog` gives,
-  its class's points at the scale centred right of the column, drawn
-  there pixel for pixel as the dialog drawn offscreen at them, a click on
+  with HUD scaling Off, each at the class and scale `match_dialog` gives
+  (Compact 1× at 640x480, Large 1× on the others), its class's points at
+  the scale clear of the column, centred right of it at 640x480 and
+  1280x720 and centred in the window on the wider ones, drawn there pixel
+  for pixel as the dialog drawn offscreen at them, its corners rounded
+  (`round_layer_corners`), a click on
   a section's entry showing it, with the locks of a game played alone and of a
   shared game, Hardware acceleration set to Full and to Basic in a shared
-  game, where each waits for the game's end, and the wheel scrolling the dialog, not the
-  battlefield; and `runtime_engine_settings_wiring_check.cpp` each setting
+  game, where each waits for the game's end, and the wheel scrolling the
+  dialog, not the battlefield, where its section is taller than its view; and `runtime_engine_settings_wiring_check.cpp` each setting
   taking effect in a match, Escape's order, Vertical sync, the lock
   either acceleration flag puts on Hardware acceleration and the row set
   to Basic, Full and Off among them. The check runs with `--force-capable`,
@@ -2929,8 +3272,14 @@ language and both sizes.
   leaves Hardware acceleration Off, so every frame it compares is drawn on
   the processor. Both dialog steps also scroll a
   section of nine rows, `engine_settings_tall_section.hpp`, shown in place
-  of the open section's rows; the wheel events are the check host's
-  (`check_host_input.hpp`). With `--snapshot`, the check writes each of
+  of the open section's rows, Page Up and Page Down by the dialog's own
+  page step (`settings::dialog_page_step`: the view at the dialog's class
+  less three hint lines, 184 rows at Compact); the wheel events are the
+  check host's (`check_host_input.hpp`). At Compact Developer scrolls as
+  one, its rows, its list, Show Active Only and Restore profile values in
+  the section's own view, so the dialog step pages down to Show Active
+  Only and Restore profile values, then scrolls back up before it turns
+  Developer Mode on. With `--snapshot`, the check writes each of
   those frames beside the named file. While an extension's overlay stands
   over the main menu, the check first clicks the OA button in the menu's
   top-right corner through that overlay and closes the dialog it opens;
@@ -2944,7 +3293,7 @@ language and both sizes.
   it. On 640x480, 1280x720 and 1920x1080 windows it loads the main menu,
   opens Settings with its shortcut, clicks Developer's entry and then SHOW
   where the window shows them, and requires the UI kit gallery on top at
-  Compact 1×, Large 1× and Regular 2×, covering the window, its controls
+  Compact 1×, Large 1× and Large 1×, covering the window, its controls
   listed to the automation endpoint in dialog `oa.gallery`
   (`oa.gallery.close`, `oa.gallery.toggle.1.on`, `oa.gallery.drop-down.1`);
   the window,
@@ -3324,12 +3673,23 @@ options for one player. Just before a new game finishes loading, the
 runtime reads that brain from `Brains` in the player's folder, checks that
 it fits, and seats it. A seat with no brain, or a brain that does not fit
 or cannot be read, plays as the built-in computer player. A network game
-is not saved. In the battle room, each computer this machine runs has a
-button over the empty screen-size column. The button reads the brain, its
-version and its level, and opens the picker. USE THIS sets that computer,
-or every computer this machine runs. Another machine's brain is shown in
-the same place, and its card names a brain that sees every unit. The
-level's difficulty is shown in the row and cannot be changed. The battle
+is not saved. In the battle room, drawn from the room's own art
+([Computer seats in the rooms](#computer-seats-in-the-rooms)), a computer
+row keeps 3.1c's "AI:<owner>" name. Its empty Resolution cell
+(`oa.brain-seat.<slot>`) shows the OA stamp and the seat's brain with its
+version and level, or "Built-in", and its Mem cell
+(`oa.brain-seat-level.<slot>`) shows the brain's level over the room's
+greyed word. On a computer this machine runs the name has a notch
+(`oa.brain-seat-menu.<slot>`); the notch, the Resolution cell and the
+right button on the name open the brain menu, without Get more brains...,
+since leaving would leave the game; a row writes that computer, or every
+computer this machine runs with Use for every computer seat ticked. The
+Mem cell steps the brain's level, or the built-in player's difficulty as
+3.1c steps a computer's (Easy, Medium, Hard). Another machine's brain is
+shown in the same place and read alone, and its card names a brain that
+sees every unit. Tab, the arrows and the controller reach the Resolution
+cells, and resting the pointer on one, or the information key, shows the
+seat's card. The battle
 room remembers the seats, and START seats them before the first tick. With
 no brain installed and none chosen, the row is unchanged. The screen is
 `runtime_brain_room.cpp` (`brain-room`), kept while the battle room is in
@@ -3797,9 +4157,11 @@ effect:
 
 `--check-user-folder` (`native-user-folder`, `runtime_user_folder_check.cpp`)
 checks all of it beside its preferences file: the saves notice in a
-640x480 window, Compact at 1× pixel for pixel, then in 1280x720 and
-1920x1080 windows at Large 1× and Regular 2×, the whole window compared
-with the menu darkened and the notice drawn at that class and scale.
+640x480 window, Compact at 1× pixel for pixel, then in 800x600 and
+2560x1440 windows at Regular 1× and Large 2×, the whole window compared
+with the menu darkened and the notice drawn at that class and scale, its
+corners rounded as the layer shows them (`round_drawn_screen` for the
+notice, Settings and the question the check draws straight).
 
 ## Mod profile and mod folders
 
@@ -3955,8 +4317,8 @@ skirmish setup up again, with the warning or the failure in a message box,
 in place of ending the program. `--check-mod-warning`
 (`native-mod-warning`, `runtime_mod_warning_check.cpp`) checks the warning
 and the refused start through the Library's PLAY NOW and its note, the
-main menu's warning in 1280x720 and 1920x1080 windows at Large 1× and
-Regular 2× too.
+main menu's warning in 800x600 and 2560x1440 windows at Regular 1× and
+Large 2× too.
 
 `inspect_game_install` resolves the profile (`resolve_folder_profile`) before
 any archive is mounted: `--mod`'s file, else the mod folder's, else the game
@@ -4108,8 +4470,8 @@ in place, and how what a stop leaves is settled). The runtime's part:
 
 `native-mod-install` (`--check-mod-install`, `runtime_mod_install_check.cpp`)
 drives every prompt over five runs, pressing each where the OA layer shows
-it, and holds the first update question to its picture in 1280x720 and
-1920x1080 windows at Large 1× and Regular 2×.
+it, and holds the first update question to its picture in 800x600 and
+2560x1440 windows at Regular 1× and Large 2×.
 
 ### Map packs (.oamap)
 
@@ -5311,49 +5673,56 @@ lists the platform and architecture on a Platform line under Engine, leaving
 out a field the record leaves empty and the line when both are, and the mark
 by its title is the same icon.
 
-### GET MUTATORS in the battle room
+### A guest's Mutators in the battle room
 
-A guest whose host is playing mutators sees GET MUTATORS over the battle
-room (`runtime_get_mutators.cpp`). The screen `get-mutators` of the OA
-layer, which is not modal, has no backdrop and is not opaque, is kept on
-the layer while the multiplayer screens show (`keep_get_mutators_screen`,
-from the battle room's chat follow, once a frame). It shows only for a
-guest, and only while `host_mutators_fetch` names a set. The host's own
-room leaves it with nothing to draw.
+A guest sees the host's set as the room's own Mutators button
+(`runtime_get_mutators.cpp`). The screen `get-mutators` of the OA layer,
+which is not modal, has no backdrop and is not opaque, is drawn from the
+room's own art (`brain_seats_room.hpp`) and kept on the layer while the
+multiplayer screens show (`keep_get_mutators_screen`, from the battle
+room's chat follow, once a frame). It shows for every guest in the battle
+room. The host's own room leaves it with nothing to draw.
 
-The row is anchored to Select Map and placed by the same rule as the
-host's button, above it, missing every control of the room and GET MAP's
-rectangle while that shows. VIEW… (inset) is the left button. GET MUTATORS
-(accent) stands to its right while a release can be fetched or the last
-try failed. While a download runs, the bar stands where GET MUTATORS
-stood and VIEW… stays. One line sits under the row: the state's text while
-it has one, otherwise "Mutators:" and the host's list, with each mutator
-this machine lacks in the lock colour. A name that does not fit is dropped
-whole, and the line ends with ….
+The button is the room's on and off button with the OA stamp, where the
+host's stands: as large as Select Map, over it, and wider to the left
+where its words need it, missing every control of the room and GET MAP's
+rectangle while that shows. It reads "Mutators: off" while the host plays
+none, else "Mutators: N on". Its lamp is unlit with no set, green while
+this machine has built the host's list, and red while READY waits on a
+mutator it lacks. A press, Return or Y opens the picker read-only on the
+host's set: CLOSE leaves the set as it is, and nothing readies the player.
+Resting the pointer on it, or the information key, shows the Mutators card
+([Mutators](#mutators)), a missing one reading "{name}: not installed".
+To its left, cut short to miss every control of the room, stands one
+part, by the state of the first mutator of the host's list that this
+machine lacks:
 
-| State | Line | What shows |
+| State | To the left | The line (`oa.get-mutators-text`) |
 |---|---|---|
-| none | the summary | VIEW… |
-| get | the summary | VIEW… and GET MUTATORS |
-| downloading | "Getting {name}: {percent}%" | VIEW… and the bar |
-| failed | "{name}: {problem}", the problem a short phrase such as "unreachable" | VIEW… and GET MUTATORS |
-| gone | "{name}: not offered." | VIEW… |
-| downloads_off | "{registry}: downloads off.", or "Downloads are off." with no registry | VIEW… |
+| none | nothing | "Mutators:" and the host's list |
+| get | GET MUTATORS, a button in the room's button art | "Mutators:" and the host's list |
+| downloading | the room's bar (`draw_room_bar`), filling in its green lamp's light | "Getting {name}: {percent}%" |
+| failed | GET MUTATORS | "{name}: {problem}", the problem a short phrase such as "unreachable" |
+| gone | the line, in the room's label font | "{name}: not offered." |
+| downloads_off | the line | "{registry}: downloads off.", or "Downloads are off." with no registry |
 
-The first item that is not already here decides, in the host's order.
-`waiting_for_catalogue` shows the summary until that catalogue is read, and
-a later item is not consulted. Pressing GET MUTATORS calls
-`fetch_host_mutators` and nothing else. VIEW… opens the picker read-only
-on the host's set: CLOSE leaves the set as it is, and nothing readies the
-player. Y opens VIEW…. The row joins the room's Tab order as the host's
-button does. While READY is held because a mutator is missing, "Ready once
-{name} is here" sits where the host's START reason sits, in the lock
-colour. It does not enable or disable READY or START.
+`waiting_for_catalogue` shows nothing to the left until that catalogue is
+read, and a later item is not consulted. A guest that has built the host's
+list shows nothing beside the button, whatever a catalogue says of the
+releases. Pressing GET MUTATORS calls `fetch_host_mutators` and nothing
+else. GET MUTATORS, when it shows, comes first in the row's Tab order, as
+it stands left; the row joins the room's Tab order as the host's button
+does, the room's focus marker showing on the part that has the focus.
+While READY is held because a mutator is missing, "Ready once {name} is
+here" sits where the host's START reason sits, in the room's label font.
+It does not enable or disable READY or START.
 
-Automation lists VIEW… as `oa.mutators-view`, GET MUTATORS as
+Automation lists the button as `oa.mutators-view` (its text the words as
+drawn, checked while its lamp is green), GET MUTATORS as
 `oa.get-mutators`, the bar as `oa.get-mutators-progress` (its text the
-percent), the line as `oa.get-mutators-text` and the ready line as
-`oa.get-mutators-ready`, with no dialog, and only while they show.
+percent), the line as `oa.get-mutators-text`, which holds the whole line
+uncut, and the ready line as `oa.get-mutators-ready`, with no dialog, and
+only while they show.
 
 Every player's card, after Rules, has one row a mutator of the host's set.
 The first is labelled "Mutators". "{item} ✓" when that player has the

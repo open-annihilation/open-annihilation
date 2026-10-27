@@ -68,7 +68,7 @@ struct Expected {
 // choices are those of a dialog of the engine's settings opened over the
 // defaults: Language offers System default and the built-in languages.
 // clang-format off
-constexpr std::array<Expected, 118> kExpected{{
+constexpr std::array<Expected, 119> kExpected{{
     {Setting::path_search, RowKind::slider, "Pathfinding cycles", 1, 1, 8, 0, 0, false, Lock::in_game, &Locks::path_search},
     {Setting::wheel_zoom, RowKind::toggle, "Mouse wheel zoom", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::max_zoom_out, RowKind::choice, "Maximum zoom out", 1, 1, 7, 200, 0, false, Lock::none, nullptr},
@@ -191,12 +191,12 @@ constexpr std::array<Expected, 118> kExpected{{
     {Setting::edge_scroll, RowKind::toggle, "Edge scrolling", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
     {Setting::window_size, RowKind::choice, "Window size", 1, 1, 4, 200, 0, false, Lock::none, nullptr},
     {Setting::reset_window_positions, RowKind::value_and_button, "Reset window positions", 1, 1, 0, 0, 0, false, Lock::none, nullptr},
+    {Setting::look, RowKind::levels, "Look", 1, 1, 2, 60, 2, false, Lock::none, nullptr},
 }};
 // clang-format on
 
 static_assert(
-    kExpected.size() == static_cast<std::size_t>(Setting::reset_window_positions) + 1,
-    "every setting has its row"
+    kExpected.size() == static_cast<std::size_t>(Setting::look) + 1, "every setting has its row"
 );
 
 /// Every field of the dialog's locks that locks a row.
@@ -516,7 +516,7 @@ struct StoredChoice {
 };
 
 /// Every strip's and drop-down's setting, with its key.
-constexpr std::array<StoredChoice, 27> kStoredChoices{{
+constexpr std::array<StoredChoice, 28> kStoredChoices{{
     {Setting::key_layout_for_mod, "open-annihilation.keys.layout.ridge"},
     {Setting::max_zoom_out, settings::key::max_zoom_out},
     {Setting::max_zoom_in, settings::key::max_zoom_in},
@@ -544,6 +544,7 @@ constexpr std::array<StoredChoice, 27> kStoredChoices{{
     {Setting::interface_size, settings::key::interface_size},
     {Setting::order_wheel, settings::key::order_wheel},
     {Setting::window_size, settings::key::window_size},
+    {Setting::look, settings::key::look},
 }};
 
 void every_row_and_choice_has_an_id_of_one_word() {

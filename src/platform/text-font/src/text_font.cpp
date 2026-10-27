@@ -4,7 +4,8 @@
 // The font stack: FreeType reads the fonts from their files through a stream
 // of the engine's own, so that a folder whose path is not in the system's
 // code page opens on Windows too, and draws each glyph once per size, weight
-// and rendering.
+// and rendering. The interface faces, Barlow and Barlow Condensed, go first
+// in their families' chains; the base faces draw what they lack.
 
 #include "oa/platform/text_font.hpp"
 
@@ -20,6 +21,7 @@
 #endif
 #include <cstdlib>
 #include <list>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 
@@ -27,14 +29,81 @@ namespace oa::platform::text_font {
 
 namespace {
 
-/// The design weight of Noto Emoji's weight axis for each Weight.
-constexpr std::array<FT_Fixed, 2> emoji_weights{400 * 65536, 700 * 65536};
+/// The design weight of Noto Emoji's weight axis for each Weight, in the
+/// order of its values: regular, bold, medium and semibold.
+constexpr std::array<FT_Fixed, 4> emoji_weights{
+    400 * 65536,
+    700 * 65536,
+    500 * 65536,
+    600 * 65536,
+};
 
-/// A glyph key's face index: bits 2..7, so a base face and a pack face at
-/// the same glyph index stay apart, and a removed pack face's glyphs can be
-/// dropped by that index.
+/// A glyph key's face index: bits 2..7, so a base face, a pack face and an
+/// interface face at the same glyph index stay apart, and a removed pack
+/// face's glyphs can be dropped by that index.
 constexpr int glyph_key_face_shift = 2;
 constexpr uint64_t glyph_key_face_mask = 0x3F;
+/// A glyph key's rendering: bit 1.
+constexpr int glyph_key_rendering_shift = 1;
+/// A glyph key's pixel size: bits 8..16.
+constexpr int glyph_key_size_shift = 8;
+/// A glyph key's weight, Noto Emoji's alone, whose axis follows it: bits
+/// 17..18.
+constexpr int glyph_key_weight_shift = 17;
+/// A glyph key's glyph index: from bit 24.
+constexpr int glyph_key_index_shift = 24;
+
+/// Tells whether a weight looks in DejaVu Sans Bold first: bold and
+/// semibold do.
+bool bold_first(Weight weight) noexcept {
+    return weight == Weight::bold || weight == Weight::semibold;
+}
+
+/// Gives the interface face a family draws a weight in.
+///
+/// @param family the family
+/// @param weight the weight
+/// @return the face; none for the sans family
+std::optional<Face> family_face(Family family, Weight weight) noexcept {
+    switch (family) {
+    case Family::sans:
+        return std::nullopt;
+    case Family::interface:
+        switch (weight) {
+        case Weight::regular:
+            return barlow_regular;
+        case Weight::medium:
+            return barlow_medium;
+        case Weight::semibold:
+            return barlow_semibold;
+        case Weight::bold:
+            return barlow_bold;
+        }
+        return barlow_regular;
+    case Family::interface_condensed:
+        return weight == Weight::bold ? barlow_condensed_bold : barlow_condensed_semibold;
+    }
+    return std::nullopt;
+}
+
+/// Tells whether a character is a letter of an alphabet beyond ASCII: the
+/// Latin-1 letters, and every character from Latin Extended up to the
+/// general punctuation, among them the Greek and Cyrillic letters and the
+/// combining marks. Symbols and punctuation (the multiplication and
+/// division signs, and from U+2000 on, the CJK characters among them) are
+/// not.
+///
+/// @param character the code point
+/// @return true for such a letter
+bool script_letter(char32_t character) noexcept {
+    constexpr char32_t first_letter = 0xC0;
+    constexpr char32_t general_punctuation = 0x2000;
+    constexpr char32_t multiplication_sign = 0xD7;
+    constexpr char32_t division_sign = 0xF7;
+    if (character < first_letter || character >= general_punctuation)
+        return false;
+    return character != multiplication_sign && character != division_sign;
+}
 
 /// The fonts each weight looks a character up in, in order.
 constexpr std::array<Face, 4> bold_chain{
@@ -186,8 +255,9 @@ struct Laid {
 
 /// The library, the open fonts and the glyphs drawn from them.
 struct FontStack::Fonts {
-    /// Base faces, then up to most_pack_faces pack faces.
-    static constexpr std::size_t slot_count = face_count + most_pack_faces;
+    /// Base faces, then up to most_pack_faces pack faces, then the interface
+    /// faces.
+    static constexpr std::size_t slot_count = face_count + most_pack_faces + interface_face_count;
 
     FT_MemoryRec_ memory{};
     FT_Library library{};
@@ -242,12 +312,14 @@ struct FontStack::Fonts {
 
     /// Gives the pixel size a face is drawn at in a style.
     ///
-    /// DejaVu and letters pack faces take the style's size. The endonym face
-    /// and ideographs pack faces take the related size and no less than the
-    /// style's least size. Noto Emoji takes the related size.
+    /// DejaVu, the interface faces and letters pack faces take the style's
+    /// size. The endonym face and ideographs pack faces take the related
+    /// size and no less than the style's least size. Noto Emoji takes the
+    /// related size.
     int32_t face_pixel_size(Face which, const Style& style) const noexcept {
         const auto index = static_cast<std::size_t>(which);
         const bool letters = which == Face::dejavu_sans_bold || which == Face::dejavu_sans ||
+                             is_interface_face(which) ||
                              (index >= face_count && index < face_count + pack_count &&
                               pack_roles[index - face_count] == FaceRole::letters);
         if (letters)
@@ -258,16 +330,19 @@ struct FontStack::Fonts {
         return std::max(related, style.least_cjk_pixel_size);
     }
 
-    /// The faces a weight looks a character up in. Closed faces are left out.
-    std::vector<Face> chain(Weight weight) const {
+    /// The faces a weight looks a character up in, the family's interface
+    /// face first. Closed faces are left out.
+    std::vector<Face> chain(Weight weight, Family family) const {
         std::vector<Face> found;
-        found.reserve(face_count + pack_count);
+        found.reserve(face_count + pack_count + 1);
         const auto push_open = [&](Face which) {
             const auto index = static_cast<std::size_t>(which);
             if (index < slot_count && faces[index] != nullptr)
                 found.push_back(which);
         };
-        if (weight == Weight::bold)
+        if (const std::optional<Face> first = family_face(family, weight))
+            push_open(*first);
+        if (bold_first(weight))
             push_open(Face::dejavu_sans_bold);
         push_open(Face::dejavu_sans);
         for (std::size_t index = 0; index < pack_count; ++index)
@@ -279,6 +354,23 @@ struct FontStack::Fonts {
         push_open(Face::endonyms);
         push_open(Face::noto_emoji);
         return found;
+    }
+
+    /// Gives the family a line is drawn in: the style's, or the sans family
+    /// when the line holds a letter beyond ASCII that the family's face
+    /// lacks or the face is not open, so that a word in another alphabet is
+    /// drawn in one typeface, its marks and digits with it.
+    Family line_family(const std::vector<char32_t>& characters, const Style& style) const {
+        const std::optional<Face> first = family_face(style.family, style.weight);
+        if (!first)
+            return Family::sans;
+        FT_Face face = faces[static_cast<std::size_t>(*first)];
+        if (face == nullptr)
+            return Family::sans;
+        for (const char32_t character : characters)
+            if (script_letter(character) && FT_Get_Char_Index(face, character) == 0)
+                return Family::sans;
+        return style.family;
     }
 
     /// Sets Noto Emoji's weight axis, unless it has the weight; a font
@@ -311,10 +403,12 @@ struct FontStack::Fonts {
     /// Returns a glyph drawn at a size, drawing it the first time.
     const Glyph* glyph(Face which, FT_UInt index, int32_t pixel_size, const Style& style) {
         const bool emoji = which == Face::noto_emoji;
-        const uint64_t key = (uint64_t{index} << 24) | (static_cast<uint64_t>(pixel_size) << 8) |
-                             (static_cast<uint64_t>(which) << glyph_key_face_shift) |
-                             (static_cast<uint64_t>(style.rendering) << 1) |
-                             (emoji ? static_cast<uint64_t>(style.weight) : 0U);
+        const uint64_t key =
+            (uint64_t{index} << glyph_key_index_shift) |
+            (static_cast<uint64_t>(pixel_size) << glyph_key_size_shift) |
+            (static_cast<uint64_t>(which) << glyph_key_face_shift) |
+            (static_cast<uint64_t>(style.rendering) << glyph_key_rendering_shift) |
+            (emoji ? static_cast<uint64_t>(style.weight) << glyph_key_weight_shift : 0U);
         if (const auto found = glyphs.find(key); found != glyphs.end()) {
             order.splice(order.begin(), order, found->second.place);
             return &found->second.glyph;
@@ -373,8 +467,8 @@ struct FontStack::Fonts {
     /// Finds the face and glyph that draw a character, the chain's first
     /// open face's missing-glyph box when no face has it. A closed face is
     /// skipped.
-    std::pair<Face, FT_UInt> lookup(char32_t character, Weight weight) const {
-        const std::vector<Face> found = chain(weight);
+    std::pair<Face, FT_UInt> lookup(char32_t character, Weight weight, Family family) const {
+        const std::vector<Face> found = chain(weight, family);
         for (Face which : found) {
             FT_Face face = faces[static_cast<std::size_t>(which)];
             if (face == nullptr)
@@ -395,7 +489,7 @@ std::string freetype_version() {
 }
 
 std::span<const Face> fallback_chain(Weight weight) noexcept {
-    if (weight == Weight::bold)
+    if (bold_first(weight))
         return bold_chain;
     return regular_chain;
 }
@@ -472,6 +566,13 @@ std::unique_ptr<FontStack> FontStack::open(const std::filesystem::path& director
         if (!fonts->open_slot(index, file))
             return nullptr;
     }
+    // An interface face that is missing or does not open leaves its family
+    // to the sans faces.
+    for (std::size_t index = 0; index < interface_face_count; ++index) {
+        std::FILE* file = open_file(directory / std::filesystem::path(interface_face_files[index]));
+        if (file != nullptr)
+            std::ignore = fonts->open_slot(static_cast<std::size_t>(interface_face(index)), file);
+    }
     return std::unique_ptr<FontStack>(new FontStack(std::move(fonts)));
 }
 
@@ -513,7 +614,7 @@ bool FontStack::add_face(const std::filesystem::path& file, FaceRole role) {
 void FontStack::remove_pack_faces() noexcept {
     for (auto kept = fonts_->glyphs.begin(); kept != fonts_->glyphs.end();) {
         const uint64_t face_bits = (kept->first >> glyph_key_face_shift) & glyph_key_face_mask;
-        if (face_bits >= face_count) {
+        if (face_bits >= face_count && face_bits < face_count + most_pack_faces) {
             fonts_->order.erase(kept->second.place);
             kept = fonts_->glyphs.erase(kept);
         } else {
@@ -540,13 +641,13 @@ std::size_t FontStack::pack_face_count() const noexcept {
 
 bool FontStack::has_face(Face face) const noexcept {
     const auto index = static_cast<std::size_t>(face);
-    if (index >= face_count + fonts_->pack_count)
+    if (index >= face_count + fonts_->pack_count && !is_interface_face(face))
         return false;
     return fonts_->faces[index] != nullptr;
 }
 
-std::vector<Face> FontStack::chain(Weight weight) const {
-    return fonts_->chain(weight);
+std::vector<Face> FontStack::chain(Weight weight, Family family) const {
+    return fonts_->chain(weight, family);
 }
 
 bool FontStack::face_file_opens(const std::filesystem::path& file) {
@@ -572,13 +673,13 @@ bool FontStack::face_file_opens(const std::filesystem::path& file) {
     return scalable;
 }
 
-std::optional<Face> FontStack::face_for(char32_t character, Weight weight) const {
+std::optional<Face> FontStack::face_for(char32_t character, Weight weight, Family family) const {
     if (is_invisible(character))
         return std::nullopt;
-    return fonts_->lookup(character, weight).first;
+    return fonts_->lookup(character, weight, family).first;
 }
 
-bool FontStack::draws(std::string_view text, Weight weight) const {
+bool FontStack::draws(std::string_view text, Weight weight, Family family) const {
     const auto characters = decode_utf8(text);
     if (!characters)
         return false;
@@ -587,7 +688,7 @@ bool FontStack::draws(std::string_view text, Weight weight) const {
             continue;
         // Glyph index 0 is the face's missing-glyph box: the chain has no
         // face that holds the character.
-        if (fonts_->lookup(character, weight).second == 0)
+        if (fonts_->lookup(character, weight, family).second == 0)
             return false;
     }
     return true;
@@ -597,12 +698,24 @@ namespace {
 
 /// Tells whether a style is one the stack draws.
 bool in_range(const Style& style) noexcept {
-    return style.pixel_size >= 1 && style.pixel_size <= max_pixel_size &&
-           style.letter_spacing >= 0 && style.letter_spacing <= max_letter_spacing &&
-           style.least_cjk_pixel_size >= 0 && style.least_cjk_pixel_size <= max_pixel_size;
+    const auto weight = static_cast<std::size_t>(style.weight);
+    const auto family = static_cast<std::size_t>(style.family);
+    constexpr auto last_weight = static_cast<std::size_t>(Weight::semibold);
+    constexpr auto last_family = static_cast<std::size_t>(Family::interface_condensed);
+    return weight <= last_weight && family <= last_family && style.pixel_size >= 1 &&
+           style.pixel_size <= max_pixel_size && style.letter_spacing >= 0 &&
+           style.letter_spacing <= max_letter_spacing && style.least_cjk_pixel_size >= 0 &&
+           style.least_cjk_pixel_size <= max_pixel_size;
 }
 
 } // namespace
+
+Family FontStack::line_family(std::string_view text, const Style& style) const {
+    const auto characters = decode_utf8(text);
+    if (!characters)
+        return Family::sans;
+    return fonts_->line_family(*characters, style);
+}
 
 std::optional<LineMetrics> FontStack::metrics(const Style& style) {
     if (!in_range(style))
@@ -613,13 +726,23 @@ std::optional<LineMetrics> FontStack::metrics(const Style& style) {
         const auto which = static_cast<Face>(index);
         if (fonts_->faces[index] == nullptr)
             continue;
-        if (which == Face::dejavu_sans_bold && style.weight == Weight::regular)
+        if (which == Face::dejavu_sans_bold && !bold_first(style.weight))
             continue;
         if (which == Face::noto_emoji)
             fonts_->set_emoji_weight(style.weight);
         if (!fonts_->set_size(which, fonts_->face_pixel_size(which, style)))
             return std::nullopt;
         const FT_Size_Metrics& size = fonts_->faces[index]->size->metrics;
+        line.ascent = std::max(line.ascent, static_cast<int32_t>((size.ascender + 63) >> 6));
+        line.descent = std::max(line.descent, static_cast<int32_t>((-size.descender + 63) >> 6));
+    }
+    // An interface family's face, when it is open, joins them.
+    if (const std::optional<Face> first = family_face(style.family, style.weight);
+        first && has_face(*first)) {
+        if (!fonts_->set_size(*first, fonts_->face_pixel_size(*first, style)))
+            return std::nullopt;
+        const FT_Size_Metrics& size =
+            fonts_->faces[static_cast<std::size_t>(*first)]->size->metrics;
         line.ascent = std::max(line.ascent, static_cast<int32_t>((size.ascender + 63) >> 6));
         line.descent = std::max(line.descent, static_cast<int32_t>((-size.descender + 63) >> 6));
     }
@@ -651,12 +774,13 @@ std::optional<std::vector<Placement>> FontStack::layout(std::string_view text, c
     if (!characters)
         return std::nullopt;
     fonts_->make_room(characters->size());
+    const Family family = fonts_->line_family(*characters, style);
     std::vector<Placement> placements;
     int32_t pen = 0;
     for (char32_t character : *characters) {
         if (is_invisible(character))
             continue;
-        const auto [which, index] = fonts_->lookup(character, style.weight);
+        const auto [which, index] = fonts_->lookup(character, style.weight, family);
         const Glyph* drawn =
             fonts_->glyph(which, index, fonts_->face_pixel_size(which, style), style);
         if (drawn == nullptr)
@@ -682,8 +806,11 @@ std::optional<Coverage> FontStack::draw(std::string_view text, const Style& styl
     int32_t right = 0;
     int32_t above = line->ascent;
     int32_t below = line->descent;
+    // The family layout drew the line in: decode_utf8 accepted the text there.
+    const Family family =
+        fonts_->line_family(decode_utf8(text).value_or(std::vector<char32_t>{}), style);
     for (const Placement& placement : *placements) {
-        const auto [which, index] = fonts_->lookup(placement.character, style.weight);
+        const auto [which, index] = fonts_->lookup(placement.character, style.weight, family);
         const Glyph* drawn =
             fonts_->glyph(which, index, fonts_->face_pixel_size(which, style), style);
         if (drawn == nullptr)

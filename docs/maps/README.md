@@ -224,7 +224,9 @@ a controller's Y.
 
 The map browser shows every map you can play, and every map a registry
 offers, in one grid with previews, laid out for the window at your
-Interface size ([settings](../settings.md#graphics)):
+Interface size and Window size
+([settings](../settings.md#user-interface)). It moves by its title, as
+Settings does, and opens where you left it:
 
 - **The header** says "Maps", where you came from and what you play:
   "Skirmish · No Mod", "Battle room · playing Ridge". The **X** at the top

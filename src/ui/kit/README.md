@@ -46,10 +46,15 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     lime, amber, red, ink and button text, each a value of its own. The touch controls keep their own (`hud_colour`).
   - The type scale (`TextLevel`: title, label, body and small) and its
     sizes in each class (`Metrics::title_size` and the rest,
-    `text_size`): the modern look draws a level at its class's size; the
-    classic look, the game's bitmap fonts at their two sizes, draws a
-    title and a label in the regular font and body and small text in the
-    small one (`classic_font`, in `text.hpp`).
+    `text_size`); the classic look, the game's bitmap fonts at their two
+    sizes, draws a title and a label in the regular font and body and
+    small text in the small one (`classic_font`, in `text.hpp`). The
+    modern look (`Fonts::modern`, below) draws each font's text at the
+    scale's Compact steps at every class, since one `Fonts` serves every
+    class's screens: the regular font's as a label, Barlow SemiBold at 14
+    points, the small font's as small text, Barlow Regular at 12, and a
+    tracked line in Barlow Condensed, the regular font's Bold at the
+    title's 17 and the small font's SemiBold at 12 (`modern_type`).
   - The spacing scale: a base of 4, 6 and 8 points (`space`), the window
     padding three of it (`window_padding`), rows a space and a half apart
     (`row_gap`) and sections three apart (`section_gap`).
@@ -78,7 +83,20 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   `ellipsis`;
   and, for a screen drawn in the modern fonts, `TextMeasureHooks` (the app
   measures with the bundled fonts) with `measured_width` and
-  `measured_line`, which estimate what a null hook leaves out.
+  `measured_line`, which estimate what a null hook leaves out. The look:
+  `Fonts::modern`, the bundled font stack, set by the host while the
+  player's Look is Modern and null in the classic look (`modern_look`).
+  In the modern look every text is measured and drawn in Barlow from that
+  stack at its role's type (`modern_type`), what Barlow lacks in the faces
+  after it (DejaVu Sans for Greek and Cyrillic, drawn whole for a line in
+  those alphabets, the endonym face and a language pack's face for
+  ideographs, Noto Emoji): `modern_width` is a line's width in points, each
+  character's advance at 1x and the tracking; `modern_line` draws it at a
+  scale, each character at its 1x pen times the scale, so a line is as wide
+  at every scale as its measure; `modern_capitals` gives its capitals' rows.
+  `text_width`, `tracked_width`, `capitals`, `draw_text` and
+  `draw_boxed_text` take that path, the text antialiased with no outline or
+  shadow, and `with_stand_ins` leaves the text as it is.
 - `layout.hpp`: points, the Auto scale and the three size classes. A
   room's class is the largest whose settings dialog fits it with
   `class_margin` (24) points round it (`size_class_of`): Regular from
@@ -158,7 +176,12 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   `measure_text`, `draw_picture`, `draw_mark`, `clipped` and `placed_at`;
   and, for a shape worked out at the canvas's own pixels, `covered_pixels`
   (how many pixels a rectangle covers on either form) and `blend_coverage`
-  (a colour blended through a map of one byte a pixel). `perspective_blit`
+  (a colour blended through a map of one byte a pixel). The rounded
+  rectangles, `fill_corner_rect`, `blend_corner_rect` and
+  `ring_corner_rect`, work out each corner from 16 samples a pixel;
+  `corner_coverage` gives one corner's share of each pixel, filled or as a
+  ring, smooth or stepped, with which the OA layer rounds a window's
+  corners. `perspective_blit`
   draws a laid-out rectangle into one reused offscreen buffer and copies it
   onto the canvas as a trapezoid: one vertical edge keeps its height and the
   other is shorter, so the rectangle looks turned about its vertical axis,
@@ -211,7 +234,11 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   the held accent and shifts the icon by one point. The dot and the badge
   are the same as on `draw_oa_button`.
 - `chrome.hpp`: the window's face and edge, its header and footer band,
-  the nav list, and a section's heading, row, rule and locked fade.
+  the nav list, and a section's heading, row, rule and locked fade. A
+  header's band is `HeaderLook::height` points high, Kit 2's
+  `window_header_height` (36) where a screen asks for it, and its rule, the
+  mark, the title, the second word, the version and the note sit in its
+  middle; 0 is Compact's `header_height` (26), drawn exactly as before.
 - `controls.hpp`: the controls of the Library, the map browser and the
   battle room's card:
   - a list row, in its full form (`list_row_height`, a 28-point badge) and
@@ -282,7 +309,15 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
     gesture word, or the dashed "+ Add key" form, or quiet unbound text;
   - a keyboard picture (`KeyboardLook`, `draw_keyboard`, `add_keyboard`,
     role `keyboard`): ANSI, ISO or JIS from `keyboard_places`, 91 by 25
-    quarter units, one control a key named by `code_word`;
+    quarter units, one control a key named by `code_word`. With
+    `KeyboardLook::main_block` it draws the main block alone, the rows from
+    Tab, Caps Lock and Shift to Enter and Shift (`keyboard_main_block`, 60
+    by 12 quarter units), scaled to its rectangle on their own, so a narrow
+    picture keeps keys large enough for their legends; a legend too wide
+    for the regular font there is drawn in the small font when that fits it
+    whole. `keyboard_size(look)` gives either picture's size and
+    `keyboard_draws` tells whether it draws a key; each key keeps its
+    control;
   - a mouse picture (`MouseLook`, `draw_mouse`, `add_mouse`, role
     `mouse_picture`): the body, the buttons and the wheel, and the extra
     buttons when the look asks;
@@ -313,6 +348,22 @@ contract from version 15 (`src/app/include/oa/app/extension.hpp`).
   (`progress` of -1, `work_spinner_side`, `draw_spinner`). Its word is
   `progress` and its one control is `<progress>.body`, the same kind of
   area. The spinner is drawn directly and is not a role of the display list.
+  A question's `parts` (`QuestionPart`) follow its paragraphs and items in
+  order: a paragraph in the small font in the secondary colour, a callout
+  tinted in its tone (`CalloutTone`: ok, caution, danger, information)
+  with its mark, or one box across or two side by side (`QuestionBox`), a
+  heading over lines each marked done, failed, a bullet or nothing
+  (`LineMark`); a part the height leaves no room for is left out whole.
+  With no parts the question is laid out and drawn as before. A
+  `QuestionButton` may be `quiet`, a caption with no face at the footer's
+  left, or `danger`, outlined in red, and `Question::progress_paused`
+  draws the bar's fill in the lock colour. The update pill (`UpdatePill`,
+  `place_update_pill`, `update_pill_list`, `draw_update_pill`,
+  `update_pill_pointer`) is the update centre's state in short: a mark
+  (`UpdatePillIcon`), the words in the small font, a thin bar under them
+  while a download is under way, amber while paused, and one small button,
+  on a raised face with the strong edge; automation names it
+  `update-pill.open` and its button `update-pill.<id>`.
 - `rows.hpp`: declared rows. A settings page is a table of `RowSpec`s,
   each made by a factory that takes the row's id first: `toggle`, `choice`,
   `slider`, `levels`, `value_and_button`, `buttons`, `text_field`, `link`
@@ -448,8 +499,9 @@ only the primitives know the form.
 
 - The crisp form, a canvas with a `surface`, draws with the artless painter
   at a whole scale (`placement.scale`) in the game's own fonts, the modern
-  faces drawing only the characters they lack: the classic look. The OA
-  layer draws with it at 100%, 200%, 300% and 400%.
+  faces drawing only the characters they lack: the classic look; or, in the
+  modern look, in Barlow (`modern_line`). The OA layer draws with it at
+  100%, 200%, 300% and 400%.
 - The smooth form, a canvas whose `smooth` has a painter, draws with the
   painter of `oa/ui/paint` into an RGBA canvas at a scale in percent
   (`SmoothCanvas::scale_percent`), in the bundled modern fonts
@@ -480,7 +532,11 @@ pixel. A clip is the clipped rectangle's pixels, and `placed_at` moves the
 origin in points.
 
 The layout, the hit tests and the display list are the same on both forms:
-the game's fonts measure the texts in points whichever form draws them.
+the look's fonts measure the texts in points whichever form draws them, the
+game's fonts in the classic look and Barlow at 1x in the modern one. In the
+modern look the smooth form draws Barlow at the type's size times the
+scale, each character at its 1x pen times the scale, and `measure_text`
+gives the 1x measure.
 
 ## Gallery
 
@@ -751,8 +807,11 @@ that each class's dialog and notices fit the least window of their class. `ui-ki
 helpers, the estimated width, the stand-ins, the wrap against copies of
 the six wraps it replaces, `fit` and `fitting_start` against the Game files
 screen's copies, `path_break` at its separators and against the folder
-chooser's copy, and the modern fonts' measure through its hooks and
-without them. `ui-kit-layout` checks the Auto scale, the size classes'
+chooser's copy, the modern fonts' measure through its hooks and
+without them, and the modern look: each role's type, Barlow's measure the
+same at 1x and 2x with each character at twice its pen, a tracked line in
+the condensed type, Cyrillic and Chinese still drawn, no stand-ins, and a
+boxed line drawn inside its box and its clip at 2x. `ui-kit-layout` checks the Auto scale, the size classes'
 edges and the resolution table they make (Compact only where nothing
 larger fits), a chosen class held to a room, the design's
 window sizes, the Interface size's examples and Auto at each window, 150%
@@ -795,7 +854,10 @@ direct draw, and the controls' geometry,
 including a menu row that is a divider, one with a right-aligned aside and
 one that cannot be chosen.
 `ui-kit-chrome` checks the header, the footer band, the nav list, a row's
-frame and the locked fade, and that `paint` matches those direct draws.
+frame and the locked fade, and that `paint` matches those direct draws; a
+header given its height draws its band, rule, mark and title in the
+middle of it, and a height of 0 draws exactly what a look that names none
+draws.
 `ui-kit-controls` checks each new control's pixels in the tokens above with
 a synthetic font: list rows in both forms, every chip state as a pill,
 every pill state, a pill's focus ring, the three
@@ -818,6 +880,14 @@ keys and Info, which do nothing, among them), that `paint` matches `draw_notice`
 `draw_question`, and the progress bar's rounded fill, amber while paused. It fits a question's buttons
 to a measure and to fonts wider than the estimate, where the display list,
 the placement and the presses agree, and narrows a row too wide for its box.
+A question's parts place in order (the callout and its mark, a box's
+heading, a failed step that wraps with its mark on its first line only,
+the line under them, a quiet button at the left and the others at the
+right), two boxes side by side are as tall as each other, a danger button
+has its look, and a part the height cuts is left out whole; the update
+pill's parts, its two controls and their names, and a press and release
+on its button, on the pill and across, with no button and with a paused
+bar.
 `ui-kit-rows` lays out, draws, focuses and changes a page of every row
 kind from a table: the placement of rows shaped as the settings dialog's
 Controls, Graphics and Developer sections, with the game's fonts and the
@@ -832,7 +902,10 @@ in one column; every event on every kind; and the page painted.
 states of every component role that takes input, every part in the frame
 or its scroll area, no two controls overlapping, Tab and Down, the names,
 no text holding the build's version (which the test is given), and the
-working samples changing the model alone; and that it draws.
+working samples changing the model alone; and that it draws. Each case
+runs in both looks, the modern one with the fonts beside the test, where
+the header's title is Barlow Condensed's width and the pixels differ from
+the classic look's.
 `ui-kit-first-run` checks the perspective blit (a turned edge shorter than
 the near one, an opacity, a clip, a nested blit that draws nothing, and a
 smooth copy that is filtered), that a carousel's place at a time is the
@@ -849,7 +922,10 @@ state, and a question that grows by two item lines and names them.
 `add_keyboard` and `add_mouse` give, that every part stays inside its
 rectangle at 1x, 2x, 3x and 150% and that 2x is not 1x doubled, that the
 marks differ in shape, that each tint's face reaches 4.5:1 against its
-ink, and that a reduced-motion ring snaps to quarters.
+ink, and that a reduced-motion ring snaps to quarters; a main-block
+picture draws its keys alone, each keeping its control, and keeps every
+one-letter key's legend, in the small font where the regular one is too
+wide, while the whole keyboard at the same size does not.
 
 The module's ctests are those fourteen: `ui-kit-theme`, `ui-kit-text`,
 `ui-kit-layout`, `ui-kit-input`, `ui-kit-components`, `ui-kit-chrome`,
