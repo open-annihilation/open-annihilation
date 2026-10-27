@@ -4,10 +4,15 @@
 // One run of the helper: lock, wait, check, unpack, swap, start.
 #pragma once
 
+#include "oa/app/update/plan.hpp"
+#include "oa/update_helper/journal.hpp"
 #include "oa/update_helper/verify.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <vector>
 
 namespace oa::update_helper {
@@ -25,6 +30,47 @@ inline constexpr int exit_undone = 3;
 /// The sentence the window shows when a package cannot be checked.
 inline constexpr std::string_view could_not_check =
     "The update could not be checked. Nothing was changed.";
+
+/// The sentence the window shows when a step fails after files were changed
+/// and those changes were undone.
+inline constexpr std::string_view update_failed_put_back =
+    "The update failed. The game was put back.";
+
+/// The sentence the window shows when a step fails after files were changed
+/// and those changes could not be undone.
+inline constexpr std::string_view update_failed_not_put_back =
+    "The update failed. The game could not be put back.";
+
+/// The window line after an update has started changing files and then failed.
+///
+/// A journal still on disk means the undo did not finish, so the line does
+/// not say the game was put back. No journal means the finished steps were
+/// undone.
+///
+/// @param updates the data folder's updates directory
+/// @return the sentence
+[[nodiscard]] inline std::string_view
+line_after_failed_change(const std::filesystem::path& updates) {
+    std::error_code io;
+    if (std::filesystem::is_regular_file(updates / "journal.json", io) && !io)
+        return update_failed_not_put_back;
+    return update_failed_put_back;
+}
+
+/// Replaces the kept preferences copy and records the kept version.
+///
+/// An existing `updates/previous/preferences.conf` is moved aside before the
+/// new copy, and `state.json` is replaced. Undoing the journal puts the
+/// earlier copy and the earlier record back. The route's own operations
+/// move an older kept version aside the same way.
+///
+/// @param plan the plan; its preferences file is the new copy
+/// @param installed_version the version being installed
+/// @param installed_release that version's release number
+/// @return the operations, in the order to append after the route's own
+[[nodiscard]] std::vector<Operation> kept_record_operations(
+    const oa::app::update::Plan& plan, std::string_view installed_version, int64_t installed_release
+);
 
 /// Carries out the plan.
 ///

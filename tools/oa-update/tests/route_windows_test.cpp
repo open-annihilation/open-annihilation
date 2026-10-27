@@ -8,6 +8,7 @@
 #include "oa/update_helper/paths.hpp"
 #include "oa/update_helper/route_windows.hpp"
 #include "oa/update_helper/routes.hpp"
+#include "oa/update_helper/run.hpp"
 
 #include "oa/test/check.hpp"
 
@@ -173,10 +174,12 @@ void installer_operations() {
     const fs::path updates = scratch.path / "updates";
     write_file(install / "open-annihilation.exe", "old-game");
     write_file(install / "oa-tool.exe", "old-tool");
+    write_file(install / "oa-update.exe", "helper");
     write_file(install / "notes.txt", "player");
     write_file(install / "Uninstall.exe", "uninst");
     write_file(top / "open-annihilation.exe", "new-game");
     write_file(top / "oa-tool.exe", "new-tool");
+    write_file(top / "oa-update.exe", "new-helper");
     write_file(top / "Uninstall.exe", "new-uninst");
     write_file(top / "readme.txt", "not-installed");
     write_file(updates / "previous" / "stale.txt", "stale");
@@ -206,6 +209,8 @@ void installer_operations() {
         OA_CHECK(name != "notes.txt");
         OA_CHECK(name != "Uninstall.exe");
         OA_CHECK(name != "readme.txt");
+        OA_CHECK(name != "oa-update.exe");
+        OA_CHECK(name != "oa-update");
         if (operation.kind == helper::Operation::Kind::copy_tree)
             copies += 1;
         if (operation.kind == helper::Operation::Kind::remove_tree && name == "stale.txt")
@@ -339,6 +344,113 @@ bool record_version(
     return true;
 }
 
+void the_failure_line_follows_the_journal() {
+    Scratch scratch("failure-line");
+    const fs::path updates = scratch.path / "updates";
+    fs::create_directories(updates);
+    OA_CHECK(helper::line_after_failed_change(updates) == helper::update_failed_put_back);
+    OA_CHECK(
+        std::string(helper::update_failed_put_back) == "The update failed. The game was put back."
+    );
+    write_file(updates / "journal.json", "{}");
+    OA_CHECK(helper::line_after_failed_change(updates) == helper::update_failed_not_put_back);
+    OA_CHECK(
+        std::string(helper::update_failed_not_put_back) ==
+        "The update failed. The game could not be put back."
+    );
+    OA_CHECK(
+        std::string(helper::could_not_check) ==
+        "The update could not be checked. Nothing was changed."
+    );
+}
+
+void a_failed_setup_leaves_the_helper_alone() {
+    Scratch scratch("failed-setup");
+    const fs::path install = scratch.path / "Open Annihilation";
+    const fs::path updates = scratch.path / "updates";
+    const fs::path previous = updates / "previous";
+    write_file(install / "open-annihilation.exe", "old-game");
+    write_file(install / "oa-tool.exe", "old-tool");
+    write_file(install / "oa-update.exe", "helper");
+    write_file(install / "notes.txt", "player");
+    write_file(install / "Uninstall.exe", "uninst");
+    write_file(scratch.path / "preferences.conf", "prefs");
+
+    update::Plan plan = folder_plan(scratch, install);
+    plan.route = update::Route::windows_installer;
+    plan.file = helper::utf8_of(scratch.path / "setup.exe");
+    std::string why;
+    std::vector<helper::Operation> operations =
+        helper::windows_installer_operations(plan, {}, &why);
+    OA_CHECK(why.empty());
+    OA_CHECK(!operations.empty());
+    OA_CHECK(operations.back().kind == helper::Operation::Kind::run_and_wait);
+    operations.pop_back();
+    for (const helper::Operation& operation : operations) {
+        const std::string touched = operation.kind == helper::Operation::Kind::remove_tree
+                                        ? helper::utf8_of(operation.path.filename())
+                                        : helper::utf8_of(operation.from.filename());
+        OA_CHECK(touched != "oa-update.exe");
+        OA_CHECK(touched != "oa-update");
+    }
+
+    fs::create_directories(updates);
+    std::string error;
+    OA_CHECK(
+        helper::apply_journal(updates, operations, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    OA_CHECK(read_file(previous / "open-annihilation.exe") == "old-game");
+    OA_CHECK(read_file(previous / "oa-tool.exe") == "old-tool");
+    OA_CHECK(!fs::exists(previous / "oa-update.exe"));
+    OA_CHECK(read_file(install / "oa-update.exe") == "helper");
+
+    // The setup changes other files and leaves the running helper where it is.
+    // An older kept copy of that helper must not be written back over it.
+    write_file(install / "open-annihilation.exe", "setup-game");
+    write_file(install / "oa-tool.exe", "setup-tool");
+    write_file(install / "oa-update.exe", "helper-still");
+    write_file(previous / "oa-update.exe", "old-helper");
+    OA_CHECK(helper::restore_kept_copy(previous, install, &error));
+    OA_CHECK(error.empty());
+    OA_CHECK(read_file(install / "oa-update.exe") == "helper-still");
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    OA_CHECK(read_file(install / "oa-tool.exe") == "old-tool");
+    OA_CHECK(read_file(install / "notes.txt") == "player");
+    OA_CHECK(read_file(install / "Uninstall.exe") == "uninst");
+    OA_CHECK(!fs::exists(install / "preferences.conf"));
+
+    write_file(install / "open-annihilation.exe", "setup-game");
+    write_file(install / "oa-tool.exe", "setup-tool");
+    write_file(install / "oa-update.exe", "helper-still");
+    update::State state;
+    state.installed_version = "0.8.7";
+    state.kept_version = "0.8.6";
+    state.kept_path = helper::utf8_of(previous);
+    state.kept_route = update::Route::windows_installer;
+    std::vector<helper::Operation> restore =
+        helper::restore_operations(state, install, "0.8.7", &why);
+    OA_CHECK(why.empty());
+    for (const helper::Operation& operation : restore) {
+        const std::string touched = operation.kind == helper::Operation::Kind::remove_tree
+                                        ? helper::utf8_of(operation.path.filename())
+                                        : helper::utf8_of(operation.from.filename());
+        OA_CHECK(touched != "oa-update.exe");
+        OA_CHECK(touched != "oa-update");
+    }
+    // The version step names a program. This test checks the files, not that step.
+    if (!restore.empty() && restore.back().kind == helper::Operation::Kind::run_and_wait)
+        restore.pop_back();
+    OA_CHECK(
+        helper::apply_journal(updates, restore, helper::JournalHooks{}, &error) ==
+        helper::JournalResult::finished
+    );
+    OA_CHECK(read_file(install / "oa-update.exe") == "helper-still");
+    OA_CHECK(read_file(install / "open-annihilation.exe") == "old-game");
+    OA_CHECK(read_file(install / "oa-tool.exe") == "old-tool");
+    OA_CHECK(read_file(install / "notes.txt") == "player");
+}
+
 void journal_restores_the_folder_and_the_installer() {
     Scratch scratch("journal-restore");
     const fs::path install = scratch.path / "Open Annihilation";
@@ -453,6 +565,8 @@ void test_windows_routes() {
     wininit_text_and_setup_arguments();
     installer_operations();
     folder_operations();
+    the_failure_line_follows_the_journal();
+    a_failed_setup_leaves_the_helper_alone();
     restore_and_markers();
     journal_restores_the_folder_and_the_installer();
     postponed_rename_undoes_as_nothing();
